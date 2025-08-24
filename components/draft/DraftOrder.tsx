@@ -1,58 +1,63 @@
+import { useDraftTimer } from '@/hooks/useDraftTimer';
 import { supabase } from '@/lib/supabase';
+import { DraftState, Pick } from '@/types/draft';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, ScrollView, StyleSheet, View } from 'react-native';
 import { ThemedText } from '../ThemedText';
 import { ThemedView } from '../ThemedView';
 
-interface Pick {
-  id: string;
-  pick_number: number;
-  round: number;
-  current_team_id: string;
-  player_id?: string;
-  slot_number: number;
-  current_team?: {
-    name: string;
-  };
-  player?: {
-    name: string;
-    position: string;
-  };
-}
-
-
 
 interface DraftOrderProps {
   draftId: string;
+  leagueId: string;
+  teamId: string;
   onCurrentPickChange: (pick: { id: string; current_team_id: string } | null) => void;
 }
 
-export function DraftOrder({ draftId, onCurrentPickChange }: DraftOrderProps) {
+export function DraftOrder({ draftId, leagueId, teamId, onCurrentPickChange }: DraftOrderProps) {
   const scrollViewRef = useRef<ScrollView>(null);
   const queryClient = useQueryClient();
   const [lastPickId, setLastPickId] = useState<string | null>(null);
   const flashAnim = useRef(new Animated.Value(0)).current;
 
+    // NEW: Fetch the main draft state for the timer
+  const { data: draftState, isLoading: isLoadingDraftState } = useQuery<DraftState>({
+    queryKey: ['draftState', draftId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('drafts')
+        .select('*')
+        .eq('id', draftId)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const [currentPickTimestamp, setCurrentPickTimestamp] = useState<string | undefined>(draftState?.current_pick_timestamp);
+
+  // update this whenever draftState changes
+  useEffect(() => {
+    if (draftState?.current_pick_timestamp) {
+      setCurrentPickTimestamp(draftState.current_pick_timestamp);
+    }
+  }, [draftState?.current_pick_timestamp, draftState?.current_pick_number]);
+
+
+  // NEW: Use the timer hook with the fetched draft state
+  const countdown = useDraftTimer(currentPickTimestamp, draftState?.time_limit);
+
   // Create flash animation
-  const flashPick = (pickId: string) => {
-    setLastPickId(pickId);
-    Animated.sequence([
-      Animated.timing(flashAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: false,
-      }),
-      Animated.timing(flashAnim, {
-        toValue: 0,
-        duration: 600,
-        useNativeDriver: false,
-      }),
-    ]).start(() => {
-      // Clear the lastPickId after animation
-      setTimeout(() => setLastPickId(null), 500);
-    });
-  };
+  const flashPick = (pickId: string) => {
+    setLastPickId(pickId);
+    Animated.sequence([
+      Animated.timing(flashAnim, { toValue: 1, duration: 800, useNativeDriver: false }),
+      Animated.timing(flashAnim, { toValue: 0, duration: 800, useNativeDriver: false }),
+    ]).start(() => {
+      setTimeout(() => setLastPickId(null), 200);
+    });
+  };
 
   const { data: picks = [], isLoading, error } = useQuery({
     queryKey: ['draftOrder', draftId],
@@ -88,48 +93,45 @@ export function DraftOrder({ draftId, onCurrentPickChange }: DraftOrderProps) {
   });
 
   // Update subscription to trigger flash
-  useEffect(() => {
-    console.log('Setting up subscription for draft:', draftId);
-    
-    const channel = supabase
-      .channel(`draft_picks_${draftId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'draft_picks',
-          filter: `draft_id=eq.${draftId}`,
-        },
+  useEffect(() => {
+
+      // NEW: Subscription for the main draft state (for timer)
+    const draftChannel = supabase
+      .channel(`draft_room_${draftId}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'drafts', filter: `id=eq.${draftId}` },
         (payload) => {
-          console.log('Received change:', payload);
-          if (payload.eventType === 'UPDATE' && payload.new.player_id) {
-            flashPick(payload.new.id);
-            // Delay the query invalidation
-            setTimeout(() => {
-              queryClient.invalidateQueries({
-                queryKey: ['draftOrder', draftId]
-              });
-            }, 1000); // Wait 1 second before updating
-          }
+          queryClient.setQueryData(['draftState', draftId], payload.new);
         }
-      );
+      )
+      .subscribe();
+    // Subscription for the pick list (for flashing)
+    const picksChannel = supabase
+      .channel(`draft_picks_${draftId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'draft_picks', filter: `draft_id=eq.${draftId}` },
+        (payload) => {
+          if (payload.eventType === 'UPDATE' && payload.new.player_id) {
+            flashPick(payload.new.id);
+              setCurrentPickTimestamp(new Date().toISOString());
 
-    // Log subscription status
-    channel
-      .subscribe((status) => {
-        console.log('Subscription status:', status);
-      });
+          setTimeout(() => {
+            queryClient.invalidateQueries({ queryKey: ['draftOrder', draftId] });
+          }, 1000);
+          }
+        }
+      ).subscribe();
 
-    // Cleanup subscription on unmount
-    return () => {
-      console.log('Cleaning up subscription');
-      channel.unsubscribe();
-    };
-  }, [draftId, queryClient]);
+
+
+    return () => {
+      picksChannel.unsubscribe();
+      draftChannel.unsubscribe();
+    };
+  }, [draftId, queryClient]);
 
   // Find the index of the first unmade pick
-  const currentPickIndex = picks.findIndex(pick => !pick.player_id);
+    const currentPickIndex = picks.findIndex(pick => !pick.player_id);
+    const currentPick = picks[currentPickIndex];
+    const isMyTurn = currentPick?.current_team_id === teamId;
 
   // Scroll to current pick when component mounts or picks change
   useEffect(() => {
@@ -152,6 +154,8 @@ export function DraftOrder({ draftId, onCurrentPickChange }: DraftOrderProps) {
       }, 100);
     }
   }, [currentPickIndex]);
+
+
 
   // Find the current pick and notify parent
   useEffect(() => {
@@ -179,49 +183,30 @@ export function DraftOrder({ draftId, onCurrentPickChange }: DraftOrderProps) {
   }
 
   return (
-    <ScrollView 
-      ref={scrollViewRef}
-      horizontal 
-      style={styles.container}
-      showsHorizontalScrollIndicator={false}
-    >
-      {picks.map((pick, index) => (
-        <Animated.View 
-          key={pick.id} 
-          style={[
-            styles.pickBlock,
-            pick.player_id && styles.pickMade,
-            index === currentPickIndex && styles.currentPick,
-            pick.id === lastPickId && {
-              backgroundColor: flashAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: ['#e6f3ff', '#ffeb3b']
-              })
-            }
-          ]}
-        >
-          <View style={styles.pickHeader}>
-            <ThemedText style={styles.pickNumber}>
-            {pick.round}-{pick.pick_number}
-            </ThemedText>
-            <ThemedText style={styles.teamName}>
-              {pick.current_team?.name || 'TBD'}
-            </ThemedText>
-          </View>
-          
-          <View style={styles.pickContent}>
-            {pick.player_id && (
-              <ThemedText style={styles.playerName}>
-                {pick.player?.name}
-                {'\n'}
-                <ThemedText style={styles.playerPosition}>
-                  {pick.player?.position}
+    
+    <ScrollView ref={scrollViewRef} horizontal style={styles.container} showsHorizontalScrollIndicator={false}>
+      {picks.map((pick, index) => {
+        const isCurrentOnTheClock = index === currentPickIndex;
+        return (
+          <Animated.View key={pick.id} style={[ styles.pickBlock, pick.player_id && styles.pickMade, isCurrentOnTheClock && styles.currentPick, pick.id === lastPickId && { backgroundColor: flashAnim.interpolate({ inputRange: [0, 1], outputRange: ['#e6f3ff', '#ffeb3b'] }) } ]}>
+            <View style={styles.pickHeader}>
+              <ThemedText style={styles.pickNumber}>{pick.round}-{pick.slot_number}</ThemedText>
+              <ThemedText style={styles.teamName}>{pick.current_team?.name || 'TBD'}</ThemedText>
+            </View>
+            <View style={styles.pickContent}>
+              {pick.player_id ? (
+                <ThemedText style={styles.playerName}>
+                  {pick.player?.name}{'\n'}
+                  <ThemedText style={styles.playerPosition}>{pick.player?.position}</ThemedText>
                 </ThemedText>
-              </ThemedText>
-            )}
-          </View>
-        </Animated.View>
-      ))}
+              ) : isCurrentOnTheClock ? (
+                // **FIX:** The timer now renders correctly without flashing 00:00:00
+                <ThemedText style={styles.timerText}>{countdown}</ThemedText>
+              ) : null}
+            </View>
+          </Animated.View>
+        );
+      })}
     </ScrollView>
   );
 }
@@ -233,6 +218,13 @@ const styles = StyleSheet.create({
     borderColor: '#eee',
     backgroundColor: '#f8f8f8',
   },
+  timerText: { 
+    fontSize: 15, 
+    fontWeight: 'bold', 
+
+    textAlign: "center"
+  },
+
   pickBlock: {
     width: 120,  // Reduced width
     height: 80,  // Reduced height

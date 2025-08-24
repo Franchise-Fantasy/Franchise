@@ -53,12 +53,14 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
 
   const handleConfirm = async () => {
     if (!selectedDate || !draft) return;
+    const startTime = selectedDate.toISOString()
     
     const { error } = await supabase
       .from('drafts')
       .update({ 
         status: 'pending',
-        draft_date: selectedDate.toISOString()
+        draft_date: startTime,
+        current_pick_timestamp: startTime
       })
       .eq('id', draft.id);
 

@@ -4,6 +4,7 @@ import { TeamRoster } from '@/components/draft/TeamRoster';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import { supabase } from '@/lib/supabase';
+import { CurrentPick } from '@/types/draft';
 import { useQuery } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
@@ -12,10 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 type ViewMode = 'players' | 'roster';
 
-interface CurrentPick {
-  id: string;
-  current_team_id: string;
-}
+
 
 export default function DraftRoomScreen() {
   const { id: draftId } = useLocalSearchParams<{ id: string }>();
@@ -38,26 +36,20 @@ export default function DraftRoomScreen() {
   });
 
   // Then, use the league ID to get the user's team
-  const { data: teamData } = useQuery({
+  const { data: teamData, isLoading: isLoadingTeam } = useQuery({
     queryKey: ['myTeam', draftData?.league_id],
     queryFn: async () => {
       if (!draftData?.league_id) return null;
-
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
-
-      const { data, error } = await supabase
-        .from('teams')
-        .select('id')
-        .eq('league_id', draftData.league_id)
-        .eq('user_id', user.id)
-        .single();
-
+      const { data, error } = await supabase.from('teams').select('id').eq('league_id', draftData.league_id).eq('user_id', user.id).single();
       if (error) throw error;
       return data;
     },
-    enabled: !!draftData?.league_id // Only run this query when we have the league ID
+    enabled: !!draftData?.league_id
   });
+
+
 
   return (
     <SafeAreaView style={styles.container}>
@@ -80,6 +72,8 @@ export default function DraftRoomScreen() {
         <DraftOrder 
           draftId={draftId}
           onCurrentPickChange={setCurrentPick}
+          leagueId={draftData?.league_id || ''}
+          teamId={teamData?.id || ''} 
         />
 
         {/* Toggle Buttons */}

@@ -1,15 +1,11 @@
 import { supabase } from '@/lib/supabase';
+import { Player } from '@/types/draft';
 import { useQuery } from '@tanstack/react-query';
 import { ActivityIndicator, FlatList, StyleSheet } from 'react-native';
 import { ThemedText } from '../ThemedText';
 import { ThemedView } from '../ThemedView';
 
-interface Player {
-  id: string;
-  name: string;
-  position: string;
-  nba_team: string;
-}
+
 
 interface TeamRosterProps {
   draftId: string;
