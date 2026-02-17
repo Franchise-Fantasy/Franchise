@@ -1,21 +1,21 @@
-import { ActivityIndicator, Image, StyleSheet, View } from 'react-native';
+import { ThemedView } from '@/components/ThemedView';
+import { ActivityIndicator, Image, StyleSheet } from 'react-native';
 
 export default function LoadingScreen() {
   return (
-    <View style={styles.container}>
+    <ThemedView style={styles.container}>
       <Image 
         source={require('../assets/images/react-logo.png')}
         style={styles.logo}
       />
       <ActivityIndicator size="large" style={styles.spinner} />
-    </View>
+    </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
   },

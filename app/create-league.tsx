@@ -1,157 +1,307 @@
-import { generateDraftPicks } from '@/lib/draft';
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Alert, Button, Keyboard, StyleSheet, Text, TextInput, TouchableWithoutFeedback, View } from 'react-native';
-import { supabase } from '../lib/supabase';
+import { StepBasics } from "@/components/create-league/StepBasics";
+import { StepDraft } from "@/components/create-league/StepDraft";
+import { StepReview } from "@/components/create-league/StepReview";
+import { StepRoster } from "@/components/create-league/StepRoster";
+import { StepScoring } from "@/components/create-league/StepScoring";
+import { ThemedView } from "@/components/ThemedView";
+import { StepIndicator } from "@/components/ui/StepIndicator";
+import { Colors } from "@/constants/Colors";
+import {
+  DEFAULT_ROSTER_SLOTS,
+  DEFAULT_SCORING,
+  LeagueWizardState,
+  STEP_LABELS,
+} from "@/constants/LeagueDefaults";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import { generateDraftPicks } from "@/lib/draft";
+import { supabase } from "@/lib/supabase";
+import { useRouter } from "expo-router";
+import { useReducer, useState } from "react";
+import {
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+
+// --- Reducer ---
+
+type Action =
+  | { type: "SET_FIELD"; field: keyof LeagueWizardState; value: any }
+  | { type: "SET_ROSTER_SLOT"; index: number; count: number }
+  | { type: "SET_SCORING"; index: number; value: number }
+  | { type: "RESET_SCORING" }
+  | { type: "RESET_ROSTER" };
+
+const initialState: LeagueWizardState = {
+  name: "",
+  teams: 10,
+  isPrivate: false,
+  rosterSlots: DEFAULT_ROSTER_SLOTS.map((s) => ({ ...s })),
+  scoring: DEFAULT_SCORING.map((s) => ({ ...s })),
+  draftType: "Snake",
+  timePerPick: 90,
+  maxDraftYears: 3,
+};
+
+function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
+  switch (action.type) {
+    case "SET_FIELD":
+      return { ...state, [action.field]: action.value };
+    case "SET_ROSTER_SLOT": {
+      const slots = [...state.rosterSlots];
+      slots[action.index] = { ...slots[action.index], count: action.count };
+      return { ...state, rosterSlots: slots };
+    }
+    case "SET_SCORING": {
+      const scoring = [...state.scoring];
+      scoring[action.index] = {
+        ...scoring[action.index],
+        point_value: action.value,
+      };
+      return { ...state, scoring };
+    }
+    case "RESET_SCORING":
+      return { ...state, scoring: DEFAULT_SCORING.map((s) => ({ ...s })) };
+    case "RESET_ROSTER":
+      return {
+        ...state,
+        rosterSlots: DEFAULT_ROSTER_SLOTS.map((s) => ({ ...s })),
+      };
+    default:
+      return state;
+  }
+}
+
+// --- Component ---
 
 export default function CreateLeague() {
-  const router = useRouter()
-  const [name, setName] = useState('')
-  const [maxDraftYears, setMaxDraftYears] = useState('')
-  const [teams, setTeams] = useState('') // Default to 10 teams
-  const [loading, setLoading] = useState(false)
-  const [rosterSize, setRosterSize] = useState('')
+  const router = useRouter();
+  const scheme = useColorScheme() ?? "light";
+  const c = Colors[scheme];
+
+  const [state, dispatch] = useReducer(reducer, initialState);
+  const [step, setStep] = useState(0);
+  const [loading, setLoading] = useState(false);
+
+  const canAdvance = step === 0 ? state.name.trim().length > 0 : true;
+
+  const handleChange = (field: keyof LeagueWizardState, value: any) => {
+    dispatch({ type: "SET_FIELD", field, value });
+  };
 
   const handleCreateLeague = async () => {
-    if (!name.trim()) {
-      Alert.alert('Please enter a league name.')
-      return
-    }
+    setLoading(true);
 
-    setLoading(true)
-
-    const user = (await supabase.auth.getUser()).data.user
+    const user = (await supabase.auth.getUser()).data.user;
     if (!user) {
-      Alert.alert('User not logged in.')
-      return
+      Alert.alert("User not logged in.");
+      setLoading(false);
+      return;
     }
 
-    // Start a Supabase transaction to create both league and draft
-    const { data: leagueData, error: leagueError } = await supabase
-      .from('leagues')
-      .insert({
-        name, 
-        created_by: user.id,
-        max_future_seasons: parseInt(maxDraftYears, 10),
-        teams: parseInt(teams),
-        roster_size: parseInt(rosterSize),
-        private: false
+    const rosterSize = state.rosterSlots.reduce((sum, s) => sum + s.count, 0);
 
+    // 1. Create league
+    const { data: leagueData, error: leagueError } = await supabase
+      .from("leagues")
+      .insert({
+        name: state.name,
+        created_by: user.id,
+        max_future_seasons: state.maxDraftYears,
+        teams: state.teams,
+        roster_size: rosterSize,
+        private: state.isPrivate,
       })
       .select()
       .single();
 
     if (leagueError) {
-      console.error(leagueError)
-      Alert.alert('Failed to create league.')
-      setLoading(false)
-      return 
+      console.error(leagueError);
+      Alert.alert("Failed to create league.");
+      setLoading(false);
+      return;
     }
 
-    // Create the initial draft
+    // 2. Insert roster config
+    const rosterRows = state.rosterSlots
+      .filter((s) => s.count > 0)
+      .map((s) => ({
+        league_id: leagueData.id,
+        position: s.position,
+        slot_count: s.count,
+      }));
+
+    const { error: rosterError } = await supabase
+      .from("league_roster_config")
+      .insert(rosterRows);
+
+    if (rosterError) {
+      console.error(rosterError);
+      Alert.alert("League created but failed to save roster config.");
+    }
+
+    // 3. Insert scoring settings
+    const scoringRows = state.scoring.map((s) => ({
+      league_id: leagueData.id,
+      stat_name: s.stat_name,
+      point_value: s.point_value,
+    }));
+
+    const { error: scoringError } = await supabase
+      .from("league_scoring_settings")
+      .insert(scoringRows);
+
+    if (scoringError) {
+      console.error(scoringError);
+      Alert.alert("League created but failed to save scoring settings.");
+    }
+
+    // 4. Create the initial draft
     const { data: draftData, error: draftError } = await supabase
-      .from('drafts')
+      .from("drafts")
       .insert({
         league_id: leagueData.id,
-        season: '2025',
-        type: 'initial',
-        status: 'unscheduled',
-        rounds: parseInt(teams),
-        picks_per_round: parseInt(rosterSize)
+        season: "2025",
+        type: "initial",
+        status: "unscheduled",
+        rounds: rosterSize,
+        picks_per_round: state.teams,
+        time_limit: state.timePerPick,
+        draft_type: state.draftType.toLowerCase(),
       })
       .select()
       .single();
 
     if (draftError) {
-      console.error(draftError)
-      Alert.alert('League created but failed to create draft.')
-      setLoading(false)
-      return
+      console.error(draftError);
+      Alert.alert("League created but failed to create draft.");
+      setLoading(false);
+      return;
     }
 
-    // Generate draft picks in the background
-    generateDraftPicks(draftData.id, parseInt(teams), parseInt(rosterSize), '2025', leagueData.id)
-      .catch(error => console.error('Error generating draft picks:', error));
+    // 5. Generate draft picks in the background
+    generateDraftPicks(
+      draftData.id,
+      state.teams,
+      rosterSize,
+      "2025",
+      leagueData.id,
+      state.draftType.toLowerCase() as "snake" | "linear",
+    ).catch((error) => console.error("Error generating draft picks:", error));
 
-    // Navigate immediately without waiting for pick generation
     setLoading(false);
-    router.push({
-      pathname: '/create-team',
-      params: { 
+    router.replace({
+      pathname: "/create-team",
+      params: {
         leagueId: leagueData.id,
-        isCommissioner: 'true' 
-      }
-    })
-  }
+        isCommissioner: "true",
+      },
+    });
+  };
 
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-      <View style={styles.container}>
-        <Text style={styles.heading}>Create a New League</Text>
+    <ThemedView style={styles.container}>
+      <StepIndicator currentStep={step} steps={STEP_LABELS} />
 
-        <TextInput
-          style={styles.input}
-          placeholder="League Name"
-          value={name}
-          onChangeText={setName}
-        />
+      <ScrollView
+        style={styles.content}
+        contentContainerStyle={styles.contentInner}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        {step === 0 && <StepBasics state={state} onChange={handleChange} />}
+        {step === 1 && (
+          <StepRoster
+            state={state}
+            onSlotChange={(i, count) =>
+              dispatch({ type: "SET_ROSTER_SLOT", index: i, count })
+            }
+            onResetRoster={() => dispatch({ type: "RESET_ROSTER" })}
+          />
+        )}
+        {step === 2 && (
+          <StepScoring
+            state={state}
+            onScoringChange={(i, v) =>
+              dispatch({ type: "SET_SCORING", index: i, value: v })
+            }
+            onResetScoring={() => dispatch({ type: "RESET_SCORING" })}
+          />
+        )}
+        {step === 3 && <StepDraft state={state} onChange={handleChange} />}
+        {step === 4 && (
+          <StepReview
+            state={state}
+            onSubmit={handleCreateLeague}
+            loading={loading}
+          />
+        )}
+      </ScrollView>
 
-        <TextInput
-          style={styles.input}
-          placeholder="Number of Teams (e.g. 10)"
-          keyboardType="number-pad"
-          value={teams}
-          onChangeText={setTeams}
-          returnKeyType="done"
-        />
-
-        <TextInput
-          style={styles.input}
-          placeholder="Max Future Draft Years (e.g. 5)"
-          keyboardType="number-pad"
-          value={maxDraftYears}
-          onChangeText={setMaxDraftYears}
-          returnKeyType="done"
-        />
-
-        <TextInput
-          style={styles.input}
-          placeholder="Roster Size (e.g. 20)"
-          keyboardType="number-pad"
-          value={rosterSize}
-          onChangeText={setRosterSize}
-          returnKeyType="done"
-        />
-
-        <Button title={loading ? 'Creating...' : 'Create League'} onPress={handleCreateLeague} disabled={loading} />
-      </View>
-    </TouchableWithoutFeedback>
-  )
+      {step < 4 && (
+        <View style={styles.navRow}>
+          {step > 0 ? (
+            <TouchableOpacity
+              onPress={() => setStep((s) => s - 1)}
+              style={[styles.navBtn, { borderColor: c.border }]}
+            >
+              <Text style={[styles.navBtnText, { color: c.text }]}>Back</Text>
+            </TouchableOpacity>
+          ) : (
+            <View />
+          )}
+          <TouchableOpacity
+            onPress={() => setStep((s) => s + 1)}
+            disabled={!canAdvance}
+            style={[
+              styles.navBtn,
+              { backgroundColor: canAdvance ? c.accent : c.buttonDisabled },
+            ]}
+          >
+            <Text style={[styles.navBtnText, { color: c.accentText }]}>
+              Next
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+    </ThemedView>
+  );
 }
 
 const styles = StyleSheet.create({
   container: {
-    padding: 24,
     flex: 1,
-    justifyContent: 'center',
-    backgroundColor: '#fff'
+    paddingTop: 60,
+    paddingHorizontal: 20,
   },
-  heading: {
-    fontSize: 24,
-    marginBottom: 16,
-    textAlign: 'center',
-    fontWeight: 'bold'
+  content: {
+    flex: 1,
   },
-  input: {
-    borderColor: '#ccc',
+  contentInner: {
+    paddingBottom: 24,
+  },
+  navRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 16,
+    paddingBottom: 32,
+  },
+  navBtn: {
+    paddingVertical: 12,
+    paddingHorizontal: 28,
+    borderRadius: 8,
     borderWidth: 1,
-    padding: 12,
-    marginBottom: 12,
-    borderRadius: 6
-  }
-})
+    borderColor: "transparent",
+  },
+  navBtnText: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+});
 
-
-export const options = { 
-    headerShown: false,
-  };
+export const options = {
+  headerShown: false,
+};

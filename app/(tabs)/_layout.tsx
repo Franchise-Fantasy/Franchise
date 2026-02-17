@@ -55,6 +55,14 @@ export default function TabLayout() {
 
 
       <Tabs.Screen
+        name="free-agents"
+        options={{
+          title: 'Free Agents',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.badge.plus" color={color} />,
+        }}
+      />
+
+      <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',

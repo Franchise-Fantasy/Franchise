@@ -1,77 +1,101 @@
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
-import { useRouter } from 'expo-router';
-import { StyleSheet, TouchableOpacity } from 'react-native';
+import { ThemedText } from "@/components/ThemedText";
+import { ThemedView } from "@/components/ThemedView";
+import { Colors } from "@/constants/Colors";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 export default function SetupHome() {
-    const router = useRouter();
-    async function createLeague() {
-      router.push('/create-league');
-    }
-    async function joinLeague() {
-        router.push('/join-league');
-      }
+  const router = useRouter();
+  const scheme = useColorScheme() ?? "light";
+  const c = Colors[scheme];
+
   return (
-        <ThemedView style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <ThemedText type="title" style={styles.title}>You arent in a league yet!</ThemedText>
-          <ThemedView style={styles.section}>
-            <TouchableOpacity
-              style={styles.button}
-              onPress={createLeague}
-            >
-              <ThemedText style={styles.buttonText}>Create</ThemedText>
-            </TouchableOpacity>
-          </ThemedView>
-          <ThemedView style={styles.section}>
-            <TouchableOpacity
-              style={styles.button}
-              onPress={joinLeague}
-            >
-              <ThemedText style={styles.buttonText}>Join</ThemedText>
-            </TouchableOpacity>
-          </ThemedView>
-          </ThemedView>
+    <ThemedView style={styles.container}>
+      <View style={styles.hero}>
+        <Ionicons name="trophy-outline" size={64} color={c.accent} />
+        <ThemedText type="title" style={styles.title}>
+          Welcome to Franchise
+        </ThemedText>
+        <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>
+          Create your own league or join an existing one to get started.
+        </ThemedText>
+      </View>
+
+      <View style={styles.actions}>
+        <TouchableOpacity
+          style={[styles.primaryBtn, { backgroundColor: c.accent }]}
+          onPress={() => router.push("/create-league")}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="add-circle-outline" size={22} color={c.accentText} />
+          <Text style={[styles.primaryBtnText, { color: c.accentText }]}>
+            Create a League
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.secondaryBtn, { borderColor: c.border }]}
+          onPress={() => router.push("/join-league")}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="people-outline" size={22} color={c.text} />
+          <ThemedText style={styles.secondaryBtnText}>
+            Join a League
+          </ThemedText>
+        </TouchableOpacity>
+      </View>
+    </ThemedView>
   );
 }
-
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 24,
-    gap: 24,
-    backgroundColor: 'rgba(255,255,255,0.95)',
-    paddingTop: 48,
+    justifyContent: "center",
+    paddingHorizontal: 32,
+  },
+  hero: {
+    alignItems: "center",
+    marginBottom: 48,
   },
   title: {
-    marginBottom: 12,
+    marginTop: 16,
+    textAlign: "center",
   },
-  section: {
-    marginBottom: 18,
-    gap: 8,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 6,
-    padding: 12,
+  subtitle: {
+    marginTop: 8,
+    textAlign: "center",
     fontSize: 16,
-    backgroundColor: '#f5f5f5',
-    color: '#333',
+    lineHeight: 22,
   },
-  button: {
-    backgroundColor: '#007AFF',
-    padding: 14,
-    borderRadius: 6,
-    alignItems: 'center',
-    marginTop: 12,
+  actions: {
+    gap: 14,
   },
-  buttonDisabled: {
-    backgroundColor: '#A0A0A0',
+  primaryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingVertical: 16,
+    borderRadius: 12,
   },
-  buttonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
+  primaryBtnText: {
+    fontSize: 17,
+    fontWeight: "700",
+  },
+  secondaryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingVertical: 16,
+    borderRadius: 12,
+    borderWidth: 1.5,
+  },
+  secondaryBtnText: {
+    fontSize: 17,
+    fontWeight: "600",
   },
 });

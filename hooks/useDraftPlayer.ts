@@ -27,8 +27,8 @@ export const useDraftPlayer = (leagueId: string, draftId: string ) => {
     onMutate: async (selectedPlayer: Player) => {
       await queryClient.cancelQueries({ queryKey: ['availablePlayers', leagueId] });
       const previousPlayers = queryClient.getQueryData<Player[]>(['availablePlayers', leagueId]);
-      queryClient.setQueryData<Player[]>(['availablePlayers', leagueId], (old) =>
-        old ? old.filter(p => p.id !== selectedPlayer.id) : []
+      queryClient.setQueryData(['availablePlayers', leagueId], (old: any[]) =>
+        old ? old.filter(p => (p.id ?? p.player_id) !== selectedPlayer.id) : []
       );
       return { previousPlayers };
     },

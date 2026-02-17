@@ -1,5 +1,7 @@
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -26,6 +28,8 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
   const [initialDate, setInitialDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const queryClient = useQueryClient();
+  const scheme = useColorScheme() ?? 'light';
+  const c = Colors[scheme];
 
   const { data: draft, isLoading } = useQuery({
     queryKey: ['activeDraft', leagueId],
@@ -53,7 +57,7 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
 
   const handleConfirm = async () => {
     if (!selectedDate || !draft) return;
-    const startTime = selectedDate.toISOString()
+    const startTime = selectedDate.toISOString();
     
     const { error } = await supabase
       .from('drafts')
@@ -79,14 +83,13 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
     const draftTime = new Date(date);
     const now = new Date();
     const diffInMinutes = (draftTime.getTime() - now.getTime()) / (1000 * 60);
-    return diffInMinutes <= 30 && diffInMinutes > -180; // Allow access from 30 mins before until 3 hours after
+    return diffInMinutes <= 30 && diffInMinutes > -180;
   };
 
   const handlePress = () => {
     if (!draft) return;
 
     if (draft.draft_date && isDraftSoon(draft.draft_date)) {
-      // Update the navigation path
       router.push({
         pathname: '/draft-room/[id]',
         params: { id: draft.id }
@@ -94,7 +97,6 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
       return;
     }
 
-    // Existing scheduling logic
     if (draft.status !== 'in_progress' && isCommissioner) {
       setInitialDate(draft.draft_date ? new Date(draft.draft_date) : new Date());
       setShowDatePicker(true);
@@ -104,12 +106,15 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
   if (isLoading) return <ActivityIndicator />;
   if (!draft) return null;
 
+  const isActive = !!(draft.draft_date && isDraftSoon(draft.draft_date));
+
   return (
-    <ThemedView style={styles.section}>
+    <ThemedView style={[styles.section, { backgroundColor: c.card }]}>
       <TouchableOpacity 
         style={[
           styles.draftCard,
-          draft.draft_date && isDraftSoon(draft.draft_date) && styles.draftCardActive
+          { backgroundColor: c.cardAlt },
+          isActive && { backgroundColor: c.activeCard, borderColor: c.activeBorder, borderWidth: 1 }
         ]}
         onPress={handlePress}
       >
@@ -123,12 +128,12 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
           }
         </ThemedText>
         {draft.status !== 'unscheduled' && isCommissioner && !isDraftSoon(draft.draft_date!) && (
-          <ThemedText style={styles.tapToReschedule}>
+          <ThemedText style={[styles.tapToReschedule, { color: c.secondaryText }]}>
             Tap to reschedule
           </ThemedText>
         )}
-        {draft.draft_date && isDraftSoon(draft.draft_date) && (
-          <ThemedText style={styles.enterDraft}>
+        {isActive && (
+          <ThemedText style={[styles.enterDraft, { color: c.activeText }]}>
             Enter Draft Room
           </ThemedText>
         )}
@@ -144,7 +149,7 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
         }}
       >
         <View style={styles.modalOverlay}>
-          <ThemedView style={styles.modalContent}>
+          <ThemedView style={[styles.modalContent, { backgroundColor: c.card }]}>
             <ThemedText type="title" style={styles.modalTitle}>
               {draft.status === 'unscheduled' ? 'Schedule Draft' : 'Reschedule Draft'}
             </ThemedText>
@@ -159,7 +164,7 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
 
             <View style={styles.buttonContainer}>
               <TouchableOpacity 
-                style={[styles.button, styles.cancelButton]}
+                style={[styles.button, { backgroundColor: c.cardAlt }]}
                 onPress={() => {
                   setShowDatePicker(false);
                   setSelectedDate(null);
@@ -169,11 +174,11 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
               </TouchableOpacity>
 
               <TouchableOpacity 
-                style={[styles.button, styles.confirmButton]}
+                style={[styles.button, { backgroundColor: c.border }]}
                 onPress={handleConfirm}
                 disabled={!selectedDate}
               >
-                <ThemedText style={{ color: selectedDate ? '#000' : '#999' }}>
+                <ThemedText style={{ color: selectedDate ? c.text : c.secondaryText }}>
                   Confirm
                 </ThemedText>
               </TouchableOpacity>
@@ -189,12 +194,10 @@ const styles = StyleSheet.create({
   section: {
     marginBottom: 16,
     padding: 16,
-    backgroundColor: 'white',
     borderRadius: 8,
   },
   draftCard: {
     padding: 12,
-    backgroundColor: '#f5f5f5',
     borderRadius: 6,
   },
   modalOverlay: {
@@ -206,7 +209,6 @@ const styles = StyleSheet.create({
   modalContent: {
     width: '90%',
     padding: 20,
-    backgroundColor: 'white',
     borderRadius: 12,
     alignItems: 'center',
   },
@@ -226,26 +228,13 @@ const styles = StyleSheet.create({
     minWidth: 100,
     alignItems: 'center',
   },
-  cancelButton: {
-    backgroundColor: '#f5f5f5',
-  },
-  confirmButton: {
-    backgroundColor: '#e6e6e6',
-  },
   tapToReschedule: {
     fontSize: 12,
-    color: '#666',
     marginTop: 4,
-    fontStyle: 'italic'
-  },
-  draftCardActive: {
-    backgroundColor: '#e6f3ff',
-    borderColor: '#0066cc',
-    borderWidth: 1,
+    fontStyle: 'italic',
   },
   enterDraft: {
-    color: '#0066cc',
     fontWeight: 'bold',
     marginTop: 4,
-  }
+  },
 });

@@ -1,5 +1,7 @@
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
@@ -15,18 +17,15 @@ interface League {
 
 export default function JoinLeagueScreen() {
   const router = useRouter();
+  const scheme = useColorScheme() ?? 'light';
+  const c = Colors[scheme];
 
   const { data: leagues, isLoading } = useQuery({
     queryKey: ['public-leagues'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('leagues')
-        .select(`
-          id,
-          name,
-          created_by,
-          teams
-        `)
+        .select('id, name, created_by, teams')
         .eq('private', false)
         .order('created_at', { ascending: false });
 
@@ -43,7 +42,6 @@ export default function JoinLeagueScreen() {
         return;
       }
 
-      // Navigate to create team screen with league ID
       router.push({
         pathname: '/create-team',
         params: { 
@@ -59,7 +57,7 @@ export default function JoinLeagueScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
       <ThemedText type="title" style={styles.header}>Join a League</ThemedText>
       
       <ScrollView style={styles.content}>
@@ -73,11 +71,11 @@ export default function JoinLeagueScreen() {
           leagues.map(league => (
             <TouchableOpacity
               key={league.id}
-              style={styles.leagueCard}
+              style={[styles.leagueCard, { backgroundColor: c.cardAlt }]}
               onPress={() => handleJoinLeague(league.id)}
             >
               <ThemedText type="subtitle">{league.name}</ThemedText>
-              <ThemedText style={styles.leagueInfo}>
+              <ThemedText style={[styles.leagueInfo, { color: c.secondaryText }]}>
                 Teams: {league.teams}
               </ThemedText>
             </TouchableOpacity>
@@ -89,38 +87,15 @@ export default function JoinLeagueScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-  },
-  header: {
-    padding: 16,
-    textAlign: 'center',
-  },
-  content: {
-    flex: 1,
-    padding: 16,
-  },
-  loading: {
-    marginTop: 20,
-  },
-  emptyState: {
-    padding: 20,
-    alignItems: 'center',
-  },
-  leagueCard: {
-    padding: 16,
-    backgroundColor: '#f5f5f5',
-    borderRadius: 8,
-    marginBottom: 12,
-  },
-  leagueInfo: {
-    color: '#666',
-    marginTop: 4,
-    fontSize: 14,
-  }
+  container: { flex: 1 },
+  header: { padding: 16, textAlign: 'center' },
+  content: { flex: 1, padding: 16 },
+  loading: { marginTop: 20 },
+  emptyState: { padding: 20, alignItems: 'center' },
+  leagueCard: { padding: 16, borderRadius: 8, marginBottom: 12 },
+  leagueInfo: { marginTop: 4, fontSize: 14 }
 });
 
 export const options = { 
-    headerShown: false,
-  };
+  headerShown: false,
+};

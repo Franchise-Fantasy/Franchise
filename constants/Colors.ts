@@ -1,8 +1,3 @@
-/**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
- */
-
 const tintColorLight = '#0a7ea4';
 const tintColorDark = '#fff';
 
@@ -14,6 +9,17 @@ export const Colors = {
     icon: '#687076',
     tabIconDefault: '#687076',
     tabIconSelected: tintColorLight,
+    card: '#FFFFFF',
+    cardAlt: '#F5F5F5',
+    border: '#E0E0E0',
+    secondaryText: '#666666',
+    input: '#FFFFFF',
+    accent: '#007AFF',
+    accentText: '#FFFFFF',
+    activeCard: '#E6F3FF',
+    activeBorder: '#0066CC',
+    activeText: '#0066CC',
+    buttonDisabled: '#A0A0A0',
   },
   dark: {
     text: '#ECEDEE',
@@ -22,5 +28,16 @@ export const Colors = {
     icon: '#9BA1A6',
     tabIconDefault: '#9BA1A6',
     tabIconSelected: tintColorDark,
+    card: '#1E2124',
+    cardAlt: '#252A2E',
+    border: '#2E3336',
+    secondaryText: '#9BA1A6',
+    input: '#252A2E',
+    accent: '#007AFF',
+    accentText: '#FFFFFF',
+    activeCard: '#1A2C40',
+    activeBorder: '#4A9EFF',
+    activeText: '#4A9EFF',
+    buttonDisabled: '#555555',
   },
 };

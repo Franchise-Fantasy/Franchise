@@ -1,31 +1,19 @@
 import { supabase } from '@/lib/supabase';
 
 export async function generateDraftPicks(
-  draftId: string, 
-  numberOfTeams: number, 
+  draftId: string,
+  numberOfTeams: number,
   roundsCount: number,
   season: string,
-  leagueId: string
+  leagueId: string,
+  draftType: 'snake' | 'linear' = 'snake'
 ) {
   const picks = [];
-  
-  // Generate snake draft picks with slot numbers
+
   for (let round = 1; round <= roundsCount; round++) {
-    // Forward rounds (1,3,5...)
-    if (round % 2 === 1) {
-      for (let slot = 1; slot <= numberOfTeams; slot++) {
-        picks.push({
-          league_id: leagueId,
-          draft_id: draftId,
-          season: season,
-          round: round,
-          pick_number: ((round - 1) * numberOfTeams) + slot,
-          slot_number: slot // Team with slot 1 picks first in odd rounds
-        });
-      }
-    } 
-    // Snake rounds (2,4,6...)
-    else {
+    const isSnakeReverse = draftType === 'snake' && round % 2 === 0;
+
+    if (isSnakeReverse) {
       for (let slot = numberOfTeams; slot >= 1; slot--) {
         picks.push({
           league_id: leagueId,
@@ -33,7 +21,18 @@ export async function generateDraftPicks(
           season: season,
           round: round,
           pick_number: ((round - 1) * numberOfTeams) + (numberOfTeams - slot + 1),
-          slot_number: slot // Team with slot 1 picks last in even rounds
+          slot_number: slot
+        });
+      }
+    } else {
+      for (let slot = 1; slot <= numberOfTeams; slot++) {
+        picks.push({
+          league_id: leagueId,
+          draft_id: draftId,
+          season: season,
+          round: round,
+          pick_number: ((round - 1) * numberOfTeams) + slot,
+          slot_number: slot
         });
       }
     }

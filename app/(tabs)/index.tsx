@@ -1,11 +1,15 @@
 import { DraftSection } from '@/components/home/DraftSection';
+import { LeagueSwitcher } from '@/components/home/LeagueSwitcher';
 import { QuickNav } from '@/components/home/QuickNav';
 import { StandingsSection } from '@/components/home/StandingsSection';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import { IconSymbol } from '@/components/ui/IconSymbol';
+import { Colors } from '@/constants/Colors';
 import { useSession } from '@/context/AuthProvider';
+import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeague } from '@/hooks/useLeague';
+import { useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -13,27 +17,26 @@ export default function HomeScreen() {
   const { data: league, isLoading, isError } = useLeague();
   const session = useSession();
   const isCommissioner = session?.user?.id === league?.created_by;
+  const scheme = useColorScheme() ?? 'light';
+  const c = Colors[scheme];
 
-  const handleSwitchLeague = () => {
-    console.log('Switch league pressed');
-  };
+  const [switcherVisible, setSwitcherVisible] = useState(false);
 
   const handleChatPress = () => {
     console.log('Chat pressed');
   };
 
-  // Show different loading states for different sections
   return (
-    <SafeAreaView style={styles.container}>
-      <ThemedView style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
+      <ThemedView style={[styles.header, { borderBottomColor: c.border }]}>
         <TouchableOpacity 
           style={styles.leagueSwitcher}
-          onPress={handleSwitchLeague}
+          onPress={() => setSwitcherVisible(true)}
         > 
           <IconSymbol 
             name="chevron.down" 
             size={20}   
-            color="#666"
+            color={c.icon}
           />
         </TouchableOpacity>
         <ThemedText type="title" style={styles.headerText}>
@@ -46,7 +49,7 @@ export default function HomeScreen() {
           <IconSymbol 
             name="bubble.right" 
             size={20}  
-            color="#666"
+            color={c.icon}
           />
         </TouchableOpacity>
       </ThemedView>
@@ -56,9 +59,7 @@ export default function HomeScreen() {
           <ActivityIndicator style={{ marginTop: 20 }} />
         ) : league ? (
           <>
-          {/* <InviteSection isCommissioner={isCommissioner} />                  */}
             <DraftSection leagueId={league.id} isCommissioner={isCommissioner} />
-            
             <StandingsSection leagueId={league.id} />
             <QuickNav />
           </>
@@ -68,6 +69,7 @@ export default function HomeScreen() {
           </ThemedView>
         ) : null}
       </ScrollView>
+      <LeagueSwitcher visible={switcherVisible} onClose={() => setSwitcherVisible(false)} />
     </SafeAreaView>
   );
 }
@@ -75,35 +77,32 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
   },
   header: {
     flexDirection: 'row',
     padding: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#ccc',
-    backgroundColor: 'white',
     alignItems: 'center',
     height: 50,
-    justifyContent: 'space-between', // Added to ensure proper spacing
+    justifyContent: 'space-between',
   },
   headerText: {
     flex: 1,
     textAlign: 'center',
     fontSize: 20,
     fontWeight: 'thin',
-    marginHorizontal: 40, // Changed to horizontal margin for both sides
+    marginHorizontal: 40,
   },
   leagueSwitcher: {
     padding: 8,
     marginLeft: 4,
-    width: 36, // Fixed width to match chat button
+    width: 36,
     alignItems: 'center',
   },
   chatButton: {
     padding: 8,
     marginRight: 4,
-    width: 36, // Fixed width to match league switcher
+    width: 36,
     alignItems: 'center',
   },
   content: {
@@ -111,53 +110,6 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
-  },
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
-  },
-  headerImage: {
-    height: 180,
-    width: 320,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-    opacity: 0.7,
-  },
-  section: {
-    gap: 8,
-    marginBottom: 18,
-    backgroundColor: 'rgba(255,255,255,0.85)',
-    borderRadius: 10,
-    padding: 14,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  actionsRow: {
-    flexDirection: 'row',
-    gap: 12,
-    justifyContent: 'space-between',
-    marginTop: 8,
-  },
-  actionCard: {
-    alignItems: 'center',
-    backgroundColor: '#F5F7FA',
-    borderRadius: 8,
-    padding: 10,
-    width: 90,
-    shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
-  },
-  actionIcon: {
-    width: 36,
-    height: 36,
-    marginBottom: 6,
   },
   errorContainer: {
     flex: 1,

@@ -8,8 +8,8 @@ from supabase import create_client
 # Load environment variables from .env file
 
 # Initialize Supabase client with error checking
-supabase_url = 'https://tcwfmlkemvkqmbiobyya.supabase.co'
-supabase_key = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRjd2ZtbGtlbXZrcW1iaW9ieXlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDg0NTczOTgsImV4cCI6MjA2NDAzMzM5OH0.RLQ6WpKx6jl7JagXuiuyTY9SQrzoj_xMBZsWuRYkFak'
+supabase_url = 'https://iuqbossmnsezzgocpcbo.supabase.co'
+supabase_key = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml1cWJvc3NtbnNlenpnb2NwY2JvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTI4Nzk5MiwiZXhwIjoyMDg2ODYzOTkyfQ.bqe3N6Q-Mj2BZRAVtUl1lCgzdgTnNu081BMouSJTGig'
 
 if not supabase_url or not supabase_key:
     raise ValueError("Missing SUPABASE_URL or SUPABASE_KEY in .env file")

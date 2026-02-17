@@ -1,4 +1,5 @@
-const formatPosition = (position: string): string => {
+const formatPosition = (position?: string | null): string => {
+  if (!position) return '—';
   switch (position.toLowerCase()) {
     case 'guard':
       return 'G';

@@ -1,9 +1,13 @@
-import { useAppState } from '@/context/AppStateProvider'; // Fix the import path
+import { ThemedText } from '@/components/ThemedText';
+import { ThemedView } from '@/components/ThemedView';
+import { Colors } from '@/constants/Colors';
+import { useAppState } from '@/context/AppStateProvider';
+import { useColorScheme } from '@/hooks/useColorScheme';
 import { checkAndAssignDraftSlots } from '@/lib/draft';
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Button, Keyboard, StyleSheet, Text, TextInput, TouchableWithoutFeedback, View } from 'react-native';
+import { Alert, Button, Keyboard, StyleSheet, TextInput, TouchableWithoutFeedback } from 'react-native';
 import { supabase } from '../lib/supabase';
 
 export default function CreateTeam() {
@@ -13,6 +17,8 @@ export default function CreateTeam() {
   const [loading, setLoading] = useState(false)
   const queryClient = useQueryClient();
   const { setTeamId, setLeagueId } = useAppState();
+  const scheme = useColorScheme() ?? 'light';
+  const c = Colors[scheme];
 
   const handleCreateTeam = async () => {
     if (!teamName.trim()) {
@@ -29,7 +35,6 @@ export default function CreateTeam() {
         return
       }
 
-      // Start a transaction
       const { data: teamData, error: teamError } = await supabase
         .from('teams')
         .insert({
@@ -43,13 +48,11 @@ export default function CreateTeam() {
 
       if (teamError) throw teamError;
 
-      // Increment current_teams and check if league is full
       const { data: incrementResult, error: incrementError } = await supabase
         .rpc('increment_team_count', { league_id: leagueId });
 
       if (incrementError) throw incrementError;
 
-      // Get updated league data
       const { data: league, error: leagueError } = await supabase
         .from('leagues')
         .select('current_teams, teams')
@@ -58,12 +61,10 @@ export default function CreateTeam() {
 
       if (leagueError) throw leagueError;
 
-      // Update AppState context and navigate immediately
       setTeamId(teamData.id);
       setLeagueId(leagueId as string);
       router.replace('/(tabs)');
 
-      // Run draft slot assignment in background if league is full
       if (league && league.current_teams === league.teams) {
         checkAndAssignDraftSlots(leagueId as string).catch(console.error);
       }
@@ -78,15 +79,17 @@ export default function CreateTeam() {
 
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-      <View style={styles.container}>
-        <Text style={styles.heading}>Create Your Team</Text>
+      <ThemedView style={styles.container}>
+        <ThemedText type="title" style={styles.heading}>Create Your Team</ThemedText>
 
         <TextInput
-          style={styles.input}
+          style={[styles.input, { borderColor: c.border, backgroundColor: c.input, color: c.text }]}
           placeholder="Team Name"
+          placeholderTextColor={c.secondaryText}
           value={teamName}
           onChangeText={setTeamName}
           returnKeyType="done"
+          onSubmitEditing={handleCreateTeam}
         />
 
         <Button 
@@ -94,7 +97,7 @@ export default function CreateTeam() {
           onPress={handleCreateTeam} 
           disabled={loading} 
         />
-      </View>
+      </ThemedView>
     </TouchableWithoutFeedback>
   )
 }
@@ -104,19 +107,20 @@ const styles = StyleSheet.create({
     padding: 24,
     flex: 1,
     justifyContent: 'center',
-    backgroundColor: '#fff'
   },
   heading: {
-    fontSize: 24,
     marginBottom: 16,
     textAlign: 'center',
-    fontWeight: 'bold'
   },
   input: {
-    borderColor: '#ccc',
     borderWidth: 1,
     padding: 12,
     marginBottom: 12,
-    borderRadius: 6
+    borderRadius: 6,
+    fontSize: 16,
   }
 })
+
+export const options = { 
+  headerShown: false,
+};

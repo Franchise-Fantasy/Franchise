@@ -69,16 +69,32 @@ export default function DraftRoomScreen() {
       </ThemedView>
 
       <View style={styles.content}>
-        <DraftOrder 
+        <DraftOrder
           draftId={draftId}
           onCurrentPickChange={setCurrentPick}
           leagueId={draftData?.league_id || ''}
-          teamId={teamData?.id || ''} 
+          teamId={teamData?.id || ''}
         />
 
-        {/* Toggle Buttons */}
+        {/* Main Content Area */}
+        <View style={styles.mainContent}>
+          {viewMode === 'players' ? (
+            <AvailablePlayers
+              draftId={draftId}
+              currentPick={currentPick}
+              teamId={teamData?.id || ''}
+              leagueId={draftData?.league_id || ''}
+            />
+          ) : (
+            <TeamRoster draftId={draftId}
+             teamId={teamData?.id || ''}
+            />
+          )}
+        </View>
+
+        {/* Toggle Buttons — bottom bar */}
         <View style={styles.toggleContainer}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[
               styles.toggleButton,
               viewMode === 'players' && styles.toggleActive
@@ -92,7 +108,7 @@ export default function DraftRoomScreen() {
               Available Players
             </ThemedText>
           </TouchableOpacity>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[
               styles.toggleButton,
               viewMode === 'roster' && styles.toggleActive
@@ -106,22 +122,6 @@ export default function DraftRoomScreen() {
               My Team
             </ThemedText>
           </TouchableOpacity>
-        </View>
-
-        {/* Main Content Area - now passes currentPick */}
-        <View style={styles.mainContent}>
-          {viewMode === 'players' ? (
-            <AvailablePlayers 
-              draftId={draftId} // Correct - using draft ID
-              currentPick={currentPick}
-              teamId={teamData?.id || ''} 
-              leagueId={draftData?.league_id || ''}
-            />
-          ) : (
-            <TeamRoster draftId={draftId}
-             teamId= {teamData?.id || ''} // Correct - using draft ID
-            />
-          )}
         </View>
       </View>
     </SafeAreaView>
@@ -161,12 +161,13 @@ const styles = StyleSheet.create({
   toggleContainer: {
     flexDirection: 'row',
     padding: 8,
-    borderBottomWidth: 1,
-    borderColor: '#eee',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#ccc',
+    backgroundColor: '#fff',
   },
   toggleButton: {
     flex: 1,
-    padding: 12,
+    paddingVertical: 10,
     alignItems: 'center',
     borderRadius: 8,
   },
