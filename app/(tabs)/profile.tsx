@@ -79,9 +79,7 @@ export default function ProfileScreen() {
       >
         {/* Profile Header */}
         <View style={styles.header}>
-          <View
-            style={[styles.avatar, { backgroundColor: c.accent }]}
-          >
+          <View style={[styles.avatar, { backgroundColor: c.accent }]}>
             <Text style={[styles.avatarText, { color: c.accentText }]}>
               {userEmail.charAt(0).toUpperCase()}
             </Text>
@@ -90,7 +88,12 @@ export default function ProfileScreen() {
             {userEmail}
           </ThemedText>
           {isCommissioner && (
-            <View style={[styles.badge, { backgroundColor: c.activeCard, borderColor: c.activeBorder }]}>
+            <View
+              style={[
+                styles.badge,
+                { backgroundColor: c.activeCard, borderColor: c.activeBorder },
+              ]}
+            >
               <ThemedText style={[styles.badgeText, { color: c.activeText }]}>
                 Commissioner
               </ThemedText>
@@ -100,18 +103,43 @@ export default function ProfileScreen() {
 
         {/* League Info */}
         {league && (
-          <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
+          <View
+            style={[
+              styles.section,
+              { backgroundColor: c.card, borderColor: c.border },
+            ]}
+          >
             <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>
               League
             </ThemedText>
-            <SettingRow icon="trophy-outline" label="League Name" value={league.name} c={c} />
-            <SettingRow icon="people-outline" label="Teams" value={`${league.current_teams ?? 0} / ${league.teams}`} c={c} />
-            <SettingRow icon="shield-outline" label="Visibility" value={league.private ? "Private" : "Public"} c={c} />
+            <SettingRow
+              icon="trophy-outline"
+              label="League Name"
+              value={league.name}
+              c={c}
+            />
+            <SettingRow
+              icon="people-outline"
+              label="Teams"
+              value={`${league.current_teams ?? 0} / ${league.teams?.length}`}
+              c={c}
+            />
+            <SettingRow
+              icon="shield-outline"
+              label="Visibility"
+              value={league.private ? "Private" : "Public"}
+              c={c}
+            />
           </View>
         )}
 
         {/* Notifications */}
-        <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
+        <View
+          style={[
+            styles.section,
+            { backgroundColor: c.card, borderColor: c.border },
+          ]}
+        >
           <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>
             Notifications
           </ThemedText>
@@ -139,7 +167,12 @@ export default function ProfileScreen() {
         </View>
 
         {/* Account Actions */}
-        <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
+        <View
+          style={[
+            styles.section,
+            { backgroundColor: c.card, borderColor: c.border },
+          ]}
+        >
           <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>
             Account
           </ThemedText>
@@ -154,7 +187,11 @@ export default function ProfileScreen() {
               <Ionicons name="log-out-outline" size={20} color={c.text} />
               <ThemedText style={styles.actionLabel}>Sign Out</ThemedText>
             </View>
-            <Ionicons name="chevron-forward" size={18} color={c.secondaryText} />
+            <Ionicons
+              name="chevron-forward"
+              size={18}
+              color={c.secondaryText}
+            />
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -168,7 +205,11 @@ export default function ProfileScreen() {
                 Delete Account
               </Text>
             </View>
-            <Ionicons name="chevron-forward" size={18} color={c.secondaryText} />
+            <Ionicons
+              name="chevron-forward"
+              size={18}
+              color={c.secondaryText}
+            />
           </TouchableOpacity>
         </View>
 

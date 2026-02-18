@@ -3,10 +3,15 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { usePlayerGameLog } from '@/hooks/usePlayerGameLog';
+import { supabase } from '@/lib/supabase';
 import { PlayerGameLog, PlayerSeasonStats } from '@/types/player';
 import { calculateAvgFantasyPoints, calculateGameFantasyPoints } from '@/utils/fantasyPoints';
+import { formatPosition } from '@/utils/formatting';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Modal,
   StyleSheet,
@@ -14,12 +19,13 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { formatPosition } from '@/utils/formatting';
 
 interface PlayerDetailModalProps {
   player: PlayerSeasonStats | null;
   leagueId: string;
+  teamId?: string;
   onClose: () => void;
+  onRosterChange?: () => void;
 }
 
 function StatBox({ label, value, color }: { label: string; value: string; color: string }) {
@@ -31,16 +37,112 @@ function StatBox({ label, value, color }: { label: string; value: string; color:
   );
 }
 
-export function PlayerDetailModal({ player, leagueId, onClose }: PlayerDetailModalProps) {
+export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterChange }: PlayerDetailModalProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const queryClient = useQueryClient();
+
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [showDropPicker, setShowDropPicker] = useState(false);
 
   const { data: scoringWeights } = useLeagueScoring(leagueId);
   const { data: gameLog, isLoading: isLoadingGameLog } = usePlayerGameLog(
     player?.player_id ?? ''
   );
 
+  // Check if this player is on the user's team
+  const { data: isOnMyTeam } = useQuery({
+    queryKey: ['playerOwnership', leagueId, teamId, player?.player_id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('league_players')
+        .select('id')
+        .eq('league_id', leagueId)
+        .eq('team_id', teamId!)
+        .eq('player_id', player!.player_id)
+        .limit(1);
+
+      if (error) throw error;
+      return (data?.length ?? 0) > 0;
+    },
+    enabled: !!player && !!teamId && !!leagueId,
+  });
+
+  // Get current roster count and roster size limit
+  const { data: rosterInfo } = useQuery({
+    queryKey: ['rosterInfo', leagueId, teamId],
+    queryFn: async () => {
+      const [rosterCountRes, leagueRes] = await Promise.all([
+        supabase
+          .from('league_players')
+          .select('id', { count: 'exact', head: true })
+          .eq('league_id', leagueId)
+          .eq('team_id', teamId!),
+        supabase
+          .from('leagues')
+          .select('roster_size')
+          .eq('id', leagueId)
+          .single(),
+      ]);
+
+      if (rosterCountRes.error) throw rosterCountRes.error;
+      if (leagueRes.error) throw leagueRes.error;
+
+      return {
+        currentCount: rosterCountRes.count ?? 0,
+        maxSize: leagueRes.data?.roster_size ?? 13,
+      };
+    },
+    enabled: !!teamId && !!leagueId,
+  });
+
+  // Fetch roster players for the drop picker
+  const { data: rosterPlayers } = useQuery<PlayerSeasonStats[]>({
+    queryKey: ['teamRoster', teamId],
+    queryFn: async () => {
+      const { data: leaguePlayers, error: lpError } = await supabase
+        .from('league_players')
+        .select('player_id')
+        .eq('team_id', teamId!)
+        .eq('league_id', leagueId);
+
+      if (lpError) throw lpError;
+      if (!leaguePlayers || leaguePlayers.length === 0) return [];
+
+      const playerIds = leaguePlayers.map(lp => lp.player_id);
+      const { data, error } = await supabase
+        .from('player_season_stats')
+        .select('*')
+        .in('player_id', playerIds);
+
+      if (error) throw error;
+      return data as PlayerSeasonStats[];
+    },
+    enabled: !!teamId && !!leagueId && showDropPicker,
+  });
+
+  // Check for active draft
+  const { data: hasActiveDraft } = useQuery({
+    queryKey: ['hasActiveDraft', leagueId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('drafts')
+        .select('id')
+        .eq('league_id', leagueId)
+        .neq('status', 'completed')
+        .limit(1);
+
+      if (error) throw error;
+      return (data?.length ?? 0) > 0;
+    },
+    enabled: !!leagueId && !!teamId,
+  });
+
   if (!player) return null;
+
+  const rosterIsFull = rosterInfo
+    ? rosterInfo.currentCount >= rosterInfo.maxSize
+    : false;
 
   const avgFpts = scoringWeights
     ? calculateAvgFantasyPoints(player, scoringWeights)
@@ -55,6 +157,142 @@ export function PlayerDetailModal({ player, leagueId, onClose }: PlayerDetailMod
   const ftPct = player.avg_fta > 0
     ? ((player.avg_ftm / player.avg_fta) * 100).toFixed(1)
     : '0.0';
+
+  const invalidateRosterQueries = () => {
+    queryClient.invalidateQueries({ queryKey: ['freeAgents', leagueId] });
+    queryClient.invalidateQueries({ queryKey: ['teamRoster', teamId] });
+    queryClient.invalidateQueries({ queryKey: ['rosterInfo', leagueId, teamId] });
+    queryClient.invalidateQueries({ queryKey: ['playerOwnership', leagueId, teamId] });
+    onRosterChange?.();
+  };
+
+  const handleAddPlayer = async () => {
+    if (!teamId || !player) return;
+
+    if (rosterIsFull) {
+      setShowDropPicker(true);
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      const { error: lpError } = await supabase.from('league_players').insert({
+        league_id: leagueId,
+        player_id: player.player_id,
+        team_id: teamId,
+        acquired_via: 'free_agent',
+        acquired_at: new Date().toISOString(),
+        position: player.position,
+      });
+      if (lpError) throw lpError;
+
+      const { data: txn, error: txnError } = await supabase
+        .from('league_transactions')
+        .insert({
+          league_id: leagueId,
+          type: 'waiver',
+          notes: `Added ${player.name} from free agency`,
+        })
+        .select('id')
+        .single();
+      if (txnError) throw txnError;
+
+      await supabase.from('league_transaction_items').insert({
+        transaction_id: txn.id,
+        player_id: player.player_id,
+        team_to_id: teamId,
+      });
+
+      invalidateRosterQueries();
+      onClose();
+    } catch (err: any) {
+      Alert.alert('Error', err.message ?? 'Failed to add player');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleDropPlayer = async (playerToDrop?: PlayerSeasonStats) => {
+    const dropping = playerToDrop ?? player;
+    if (!teamId || !dropping) return;
+
+    setIsProcessing(true);
+    try {
+      const { error: delError } = await supabase
+        .from('league_players')
+        .delete()
+        .eq('league_id', leagueId)
+        .eq('team_id', teamId)
+        .eq('player_id', dropping.player_id);
+      if (delError) throw delError;
+
+      const { data: txn, error: txnError } = await supabase
+        .from('league_transactions')
+        .insert({
+          league_id: leagueId,
+          type: 'waiver',
+          notes: `Dropped ${dropping.name}`,
+        })
+        .select('id')
+        .single();
+      if (txnError) throw txnError;
+
+      await supabase.from('league_transaction_items').insert({
+        transaction_id: txn.id,
+        player_id: dropping.player_id,
+        team_to_id: null,
+      });
+
+      invalidateRosterQueries();
+
+      // If dropping from the picker (add-and-drop), now add the new player
+      if (playerToDrop && player) {
+        const { error: addError } = await supabase.from('league_players').insert({
+          league_id: leagueId,
+          player_id: player.player_id,
+          team_id: teamId,
+          acquired_via: 'free_agent',
+          acquired_at: new Date().toISOString(),
+          position: player.position,
+        });
+        if (addError) throw addError;
+
+        const { data: addTxn, error: addTxnError } = await supabase
+          .from('league_transactions')
+          .insert({
+            league_id: leagueId,
+            type: 'waiver',
+            notes: `Added ${player.name} from free agency (dropped ${dropping.name})`,
+          })
+          .select('id')
+          .single();
+        if (addTxnError) throw addTxnError;
+
+        await supabase.from('league_transaction_items').insert({
+          transaction_id: addTxn.id,
+          player_id: player.player_id,
+          team_to_id: teamId,
+        });
+
+        invalidateRosterQueries();
+        setShowDropPicker(false);
+        onClose();
+      } else {
+        onClose();
+      }
+    } catch (err: any) {
+      Alert.alert('Error', err.message ?? 'Failed to drop player');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleClose = () => {
+    setShowDropPicker(false);
+    onClose();
+  };
+
+  const canTransact = !!teamId && !hasActiveDraft && !isProcessing;
 
   const renderGameRow = ({ item }: { item: PlayerGameLog }) => {
     const gameFpts = scoringWeights
@@ -81,6 +319,73 @@ export function PlayerDetailModal({ player, leagueId, onClose }: PlayerDetailMod
     );
   };
 
+  const renderDropPickerItem = ({ item }: { item: PlayerSeasonStats }) => {
+    const fpts = scoringWeights
+      ? calculateAvgFantasyPoints(item, scoringWeights)
+      : null;
+
+    return (
+      <TouchableOpacity
+        style={[styles.dropPickerRow, { borderBottomColor: c.border }]}
+        onPress={() => {
+          Alert.alert(
+            'Confirm Transaction',
+            `Drop ${item.name} to add ${player.name}?`,
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Confirm', style: 'destructive', onPress: () => handleDropPlayer(item) },
+            ]
+          );
+        }}
+        disabled={isProcessing}
+      >
+        <View style={styles.dropPickerInfo}>
+          <ThemedText type="defaultSemiBold" numberOfLines={1}>{item.name}</ThemedText>
+          <ThemedText style={[styles.dropPickerSub, { color: c.secondaryText }]}>
+            {formatPosition(item.position)} · {item.nba_team}
+          </ThemedText>
+        </View>
+        {fpts !== null && (
+          <ThemedText style={[styles.dropPickerFpts, { color: c.accent }]}>
+            {fpts} FPTS
+          </ThemedText>
+        )}
+      </TouchableOpacity>
+    );
+  };
+
+  // Drop picker sub-modal
+  if (showDropPicker) {
+    return (
+      <Modal visible animationType="slide" presentationStyle="pageSheet">
+        <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
+          <View style={[styles.header, { borderBottomColor: c.border }]}>
+            <View style={styles.headerInfo}>
+              <ThemedText type="title" style={styles.playerName}>Drop a Player</ThemedText>
+              <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>
+                Your roster is full. Select a player to drop in order to add {player.name}.
+              </ThemedText>
+            </View>
+            <TouchableOpacity onPress={() => setShowDropPicker(false)} style={styles.closeButton}>
+              <ThemedText style={styles.closeText}>✕</ThemedText>
+            </TouchableOpacity>
+          </View>
+
+          {isProcessing ? (
+            <ActivityIndicator style={styles.loading} />
+          ) : (
+            <FlatList
+              data={rosterPlayers ?? []}
+              renderItem={renderDropPickerItem}
+              keyExtractor={(item) => item.player_id}
+              contentContainerStyle={styles.dropPickerList}
+            />
+          )}
+        </SafeAreaView>
+      </Modal>
+    );
+  }
+
   return (
     <Modal visible={!!player} animationType="slide" presentationStyle="pageSheet">
       <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
@@ -92,7 +397,7 @@ export function PlayerDetailModal({ player, leagueId, onClose }: PlayerDetailMod
               {formatPosition(player.position)} · {player.nba_team} · {player.games_played} GP
             </ThemedText>
           </View>
-          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+          <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
             <ThemedText style={styles.closeText}>✕</ThemedText>
           </TouchableOpacity>
         </View>
@@ -103,6 +408,53 @@ export function PlayerDetailModal({ player, leagueId, onClose }: PlayerDetailMod
           keyExtractor={(item) => item.id}
           ListHeaderComponent={
             <>
+              {/* Add / Drop Button */}
+              {teamId && isOnMyTeam !== undefined && (
+                <View style={styles.actionSection}>
+                  {isOnMyTeam ? (
+                    <TouchableOpacity
+                      style={[styles.dropButton, !canTransact && styles.buttonDisabled]}
+                      onPress={() => {
+                        Alert.alert(
+                          'Drop Player',
+                          `Are you sure you want to drop ${player.name}?`,
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            { text: 'Drop', style: 'destructive', onPress: () => handleDropPlayer() },
+                          ]
+                        );
+                      }}
+                      disabled={!canTransact}
+                    >
+                      {isProcessing ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <ThemedText style={styles.actionButtonText}>Drop Player</ThemedText>
+                      )}
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      style={[styles.addButton, !canTransact && styles.buttonDisabled]}
+                      onPress={handleAddPlayer}
+                      disabled={!canTransact}
+                    >
+                      {isProcessing ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <ThemedText style={styles.actionButtonText}>
+                          {rosterIsFull ? 'Add Player (Drop Required)' : 'Add Player'}
+                        </ThemedText>
+                      )}
+                    </TouchableOpacity>
+                  )}
+                  {hasActiveDraft && (
+                    <ThemedText style={[styles.draftWarning, { color: c.secondaryText }]}>
+                      Roster moves are locked during the draft.
+                    </ThemedText>
+                  )}
+                </View>
+              )}
+
               {/* Fantasy Points Summary */}
               {avgFpts !== null && (
                 <View style={[styles.fptsSection, { backgroundColor: c.activeCard, borderColor: c.activeBorder }]}>
@@ -193,6 +545,35 @@ const styles = StyleSheet.create({
   closeText: {
     fontSize: 18,
   },
+  actionSection: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+  },
+  addButton: {
+    backgroundColor: '#28a745',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  dropButton: {
+    backgroundColor: '#dc3545',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  buttonDisabled: {
+    opacity: 0.5,
+  },
+  actionButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  draftWarning: {
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 6,
+  },
   fptsSection: {
     margin: 16,
     paddingHorizontal: 24,
@@ -257,5 +638,28 @@ const styles = StyleSheet.create({
   },
   loading: {
     padding: 20,
+  },
+  dropPickerList: {
+    padding: 8,
+  },
+  dropPickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  dropPickerInfo: {
+    flex: 1,
+  },
+  dropPickerSub: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  dropPickerFpts: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 12,
   },
 });

@@ -168,6 +168,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       <PlayerDetailModal
         player={selectedPlayer}
         leagueId={leagueId}
+        teamId={teamId}
         onClose={() => setSelectedPlayer(null)}
       />
     </View>

@@ -6,6 +6,8 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, ScrollView, StyleSheet, View } from 'react-native';
 import { ThemedText } from '../ThemedText';
 import { ThemedView } from '../ThemedView';
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
 
 
 interface DraftOrderProps {
@@ -16,6 +18,8 @@ interface DraftOrderProps {
 }
 
 export function DraftOrder({ draftId, leagueId, teamId, onCurrentPickChange }: DraftOrderProps) {
+  const colorScheme = useColorScheme() ?? 'light';
+  const colors = Colors[colorScheme];
   const scrollViewRef = useRef<ScrollView>(null);
   const queryClient = useQueryClient();
   const [lastPickId, setLastPickId] = useState<string | null>(null);
@@ -184,23 +188,28 @@ export function DraftOrder({ draftId, leagueId, teamId, onCurrentPickChange }: D
 
   return (
     
-    <ScrollView ref={scrollViewRef} horizontal style={styles.container} showsHorizontalScrollIndicator={false}>
+    <ScrollView ref={scrollViewRef} horizontal style={[styles.container, { borderColor: colors.border, backgroundColor: colors.cardAlt }]} showsHorizontalScrollIndicator={false}>
       {picks.map((pick, index) => {
         const isCurrentOnTheClock = index === currentPickIndex;
         return (
-          <Animated.View key={pick.id} style={[ styles.pickBlock, pick.player_id && styles.pickMade, isCurrentOnTheClock && styles.currentPick, pick.id === lastPickId && { backgroundColor: flashAnim.interpolate({ inputRange: [0, 1], outputRange: ['#e6f3ff', '#ffeb3b'] }) } ]}>
+          <Animated.View key={pick.id} style={[
+            styles.pickBlock,
+            { backgroundColor: colors.card, borderColor: colors.border },
+            pick.player_id && { backgroundColor: colors.activeCard, borderColor: colors.activeBorder },
+            isCurrentOnTheClock && styles.currentPick,
+            pick.id === lastPickId && { backgroundColor: flashAnim.interpolate({ inputRange: [0, 1], outputRange: [colors.activeCard, '#ffeb3b'] }) }
+          ]}>
             <View style={styles.pickHeader}>
-              <ThemedText style={styles.pickNumber}>{pick.round}-{pick.slot_number}</ThemedText>
-              <ThemedText style={styles.teamName}>{pick.current_team?.name || 'TBD'}</ThemedText>
+              <ThemedText style={[styles.pickNumber, { color: colors.secondaryText }]}>{pick.round}-{pick.slot_number}</ThemedText>
+              <ThemedText style={[styles.teamName, { color: colors.secondaryText }]}>{pick.current_team?.name || 'TBD'}</ThemedText>
             </View>
             <View style={styles.pickContent}>
               {pick.player_id ? (
-                <ThemedText style={styles.playerName}>
+                <ThemedText style={[styles.playerName, { color: colors.activeText }]}>
                   {pick.player?.name}{'\n'}
-                  <ThemedText style={styles.playerPosition}>{pick.player?.position}</ThemedText>
+                  <ThemedText style={[styles.playerPosition, { color: colors.secondaryText }]}>{pick.player?.position}</ThemedText>
                 </ThemedText>
               ) : isCurrentOnTheClock ? (
-                // **FIX:** The timer now renders correctly without flashing 00:00:00
                 <ThemedText style={styles.timerText}>{countdown}</ThemedText>
               ) : null}
             </View>
@@ -213,33 +222,27 @@ export function DraftOrder({ draftId, leagueId, teamId, onCurrentPickChange }: D
 
 const styles = StyleSheet.create({
   container: {
-    maxHeight: 100,  // Reduced height
+    maxHeight: 100,
     borderBottomWidth: 1,
-    borderColor: '#eee',
-    backgroundColor: '#f8f8f8',
   },
-  timerText: { 
-    fontSize: 15, 
-    fontWeight: 'bold', 
-
-    textAlign: "center"
+  timerText: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    textAlign: "center",
   },
-
   pickBlock: {
-    width: 120,  // Reduced width
-    height: 80,  // Reduced height
-    padding: 6,  // Reduced padding
-    margin: 4,   // Reduced margin
-    backgroundColor: '#fff',
+    width: 120,
+    height: 80,
+    padding: 6,
+    margin: 4,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#ddd',
   },
   pickHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 4,  // Reduced margin
+    marginBottom: 4,
   },
   pickContent: {
     flex: 1,
@@ -247,33 +250,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   pickNumber: {
-    fontSize: 11,  // Slightly smaller font
-    color: '#666',
+    fontSize: 11,
     fontWeight: 'bold',
   },
   teamName: {
-    fontSize: 11,  // Slightly smaller font
-    color: '#666',
+    fontSize: 11,
     textAlign: 'right',
   },
   playerName: {
-    fontSize: 12,  // Slightly smaller font
+    fontSize: 12,
     textAlign: 'center',
-    color: '#0066cc',
   },
   playerPosition: {
-    fontSize: 10,  // Slightly smaller font
-    color: '#666',
-  },
-  pickMade: {
-    backgroundColor: '#e6f3ff',
-    borderColor: '#0066cc',
+    fontSize: 10,
   },
   currentPick: {
     borderColor: '#ffa500',
     borderWidth: 2,
   },
-  flashAnimation: {
-    backgroundColor: '#ffeb3b', // Yellow flash color
-  }
 });

@@ -10,12 +10,16 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
 
 type ViewMode = 'players' | 'roster';
 
 
 
 export default function DraftRoomScreen() {
+  const colorScheme = useColorScheme() ?? 'light';
+  const colors = Colors[colorScheme];
   const { id: draftId } = useLocalSearchParams<{ id: string }>();
   const [viewMode, setViewMode] = useState<ViewMode>('players');
   const [currentPick, setCurrentPick] = useState<CurrentPick | null>(null);
@@ -52,19 +56,19 @@ export default function DraftRoomScreen() {
 
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ThemedView style={styles.header}>
-        <TouchableOpacity 
-          style={styles.headerButton} 
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <ThemedView style={[styles.header, { borderBottomColor: colors.border }]}>
+        <TouchableOpacity
+          style={styles.headerButton}
           onPress={() => router.back()}
         >
-          <ThemedText style={styles.backButton}>←</ThemedText>
+          <ThemedText style={[styles.backButton, { color: colors.activeText }]}>←</ThemedText>
         </TouchableOpacity>
-        
+
         <ThemedText type="title" style={styles.headerText}>
           Draft Room
         </ThemedText>
-        
+
         <View style={styles.headerButton} />
       </ThemedView>
 
@@ -93,17 +97,17 @@ export default function DraftRoomScreen() {
         </View>
 
         {/* Toggle Buttons — bottom bar */}
-        <View style={styles.toggleContainer}>
+        <View style={[styles.toggleContainer, { borderTopColor: colors.border, backgroundColor: colors.background }]}>
           <TouchableOpacity
             style={[
               styles.toggleButton,
-              viewMode === 'players' && styles.toggleActive
+              viewMode === 'players' && { backgroundColor: colors.activeCard }
             ]}
             onPress={() => setViewMode('players')}
           >
             <ThemedText style={[
-              styles.toggleText,
-              viewMode === 'players' && styles.toggleTextActive
+              { color: colors.secondaryText },
+              viewMode === 'players' && { color: colors.activeText, fontWeight: 'bold' }
             ]}>
               Available Players
             </ThemedText>
@@ -111,13 +115,13 @@ export default function DraftRoomScreen() {
           <TouchableOpacity
             style={[
               styles.toggleButton,
-              viewMode === 'roster' && styles.toggleActive
+              viewMode === 'roster' && { backgroundColor: colors.activeCard }
             ]}
             onPress={() => setViewMode('roster')}
           >
             <ThemedText style={[
-              styles.toggleText,
-              viewMode === 'roster' && styles.toggleTextActive
+              { color: colors.secondaryText },
+              viewMode === 'roster' && { color: colors.activeText, fontWeight: 'bold' }
             ]}>
               My Team
             </ThemedText>
@@ -131,14 +135,11 @@ export default function DraftRoomScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
   },
   header: {
     flexDirection: 'row',
     padding: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#ccc',
-    backgroundColor: 'white',
     alignItems: 'center',
     height: 50,
     justifyContent: 'space-between',
@@ -162,8 +163,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     padding: 8,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#ccc',
-    backgroundColor: '#fff',
   },
   toggleButton: {
     flex: 1,
@@ -171,21 +170,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 8,
   },
-  toggleActive: {
-    backgroundColor: '#e6f3ff',
-  },
-  toggleText: {
-    color: '#666',
-  },
-  toggleTextActive: {
-    color: '#0066cc',
-    fontWeight: 'bold',
-  },
   mainContent: {
     flex: 1,
   },
   backButton: {
     fontSize: 24,
-    color: '#0066cc',
   },
 });
