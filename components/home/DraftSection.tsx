@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 interface Draft {
@@ -38,16 +38,28 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
         .from('drafts')
         .select('id, type, status, season, draft_date')
         .eq('league_id', leagueId)
-        .neq('status', 'completed')
+        .neq('status', 'complete')
         .order('created_at', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
       return data;
     },
     enabled: !!leagueId
   });
+
+  // Invalidate when the draft status changes (e.g. marked complete by the last pick)
+  useEffect(() => {
+    if (!leagueId) return;
+    const channel = supabase
+      .channel(`draft_status_${leagueId}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'drafts', filter: `league_id=eq.${leagueId}` },
+        () => { queryClient.invalidateQueries({ queryKey: ['activeDraft', leagueId] }); }
+      )
+      .subscribe();
+    return () => { channel.unsubscribe(); };
+  }, [leagueId, queryClient]);
 
   const handleDateChange = (event: any, date?: Date) => {
     if (event.type === 'set' && date) {

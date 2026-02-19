@@ -4,7 +4,7 @@ import { TeamRoster } from '@/components/draft/TeamRoster';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import { supabase } from '@/lib/supabase';
-import { CurrentPick } from '@/types/draft';
+import { CurrentPick, DraftState } from '@/types/draft';
 import { useQuery } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
@@ -39,6 +39,22 @@ export default function DraftRoomScreen() {
     }
   });
 
+  // Shared cache key with DraftOrder's real-time subscription — updates automatically
+  const { data: draftState } = useQuery<DraftState>({
+    queryKey: ['draftState', draftId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('drafts')
+        .select('*')
+        .eq('id', draftId)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const isDraftComplete = draftState?.status === 'complete';
+
   // Then, use the league ID to get the user's team
   const { data: teamData, isLoading: isLoadingTeam } = useQuery({
     queryKey: ['myTeam', draftData?.league_id],
@@ -66,19 +82,30 @@ export default function DraftRoomScreen() {
         </TouchableOpacity>
 
         <ThemedText type="title" style={styles.headerText}>
-          Draft Room
+          {isDraftComplete ? 'Draft Complete' : 'Draft Room'}
         </ThemedText>
 
         <View style={styles.headerButton} />
       </ThemedView>
 
       <View style={styles.content}>
-        <DraftOrder
-          draftId={draftId}
-          onCurrentPickChange={setCurrentPick}
-          leagueId={draftData?.league_id || ''}
-          teamId={teamData?.id || ''}
-        />
+        {isDraftComplete ? (
+          <View style={[styles.completeBanner, { backgroundColor: colors.activeCard, borderBottomColor: colors.activeBorder }]}>
+            <ThemedText type="defaultSemiBold" style={{ color: colors.activeText }}>
+              The draft is over!
+            </ThemedText>
+            <ThemedText style={{ color: colors.secondaryText, fontSize: 13, marginTop: 2 }}>
+              Free agency is now open. Head back to the home screen.
+            </ThemedText>
+          </View>
+        ) : (
+          <DraftOrder
+            draftId={draftId}
+            onCurrentPickChange={setCurrentPick}
+            leagueId={draftData?.league_id || ''}
+            teamId={teamData?.id || ''}
+          />
+        )}
 
         {/* Main Content Area */}
         <View style={styles.mainContent}>
@@ -175,5 +202,10 @@ const styles = StyleSheet.create({
   },
   backButton: {
     fontSize: 24,
+  },
+  completeBanner: {
+    padding: 12,
+    borderBottomWidth: 1,
+    alignItems: 'center',
   },
 });

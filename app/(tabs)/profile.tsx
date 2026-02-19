@@ -5,11 +5,17 @@ import { useAppState } from "@/context/AppStateProvider";
 import { useSession } from "@/context/AuthProvider";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { useLeague } from "@/hooks/useLeague";
+import {
+  getPushPrefs,
+  registerPushToken,
+  setDraftAlerts,
+  unregisterPushToken,
+} from "@/lib/notifications";
 import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   ScrollView,
@@ -28,9 +34,39 @@ export default function ProfileScreen() {
   const { teamId, leagueId } = useAppState();
   const { data: league } = useLeague();
   const [loading, setLoading] = useState(false);
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [draftReminders, setDraftReminders] = useState(true);
-  const [tradeAlerts, setTradeAlerts] = useState(true);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [draftReminders, setDraftReminders] = useState(false);
+
+  const userId = session?.user?.id;
+
+  useEffect(() => {
+    if (!userId) return;
+    getPushPrefs(userId).then(({ enabled, draftAlerts }) => {
+      setNotificationsEnabled(enabled);
+      setDraftReminders(draftAlerts);
+    });
+  }, [userId]);
+
+  async function handleNotificationsToggle(value: boolean) {
+    if (!userId) return;
+    if (value) {
+      const success = await registerPushToken(userId);
+      if (success) {
+        setNotificationsEnabled(true);
+        setDraftReminders(true);
+      }
+    } else {
+      await unregisterPushToken(userId);
+      setNotificationsEnabled(false);
+      setDraftReminders(false);
+    }
+  }
+
+  async function handleDraftRemindersToggle(value: boolean) {
+    if (!userId) return;
+    setDraftReminders(value);
+    await setDraftAlerts(userId, value);
+  }
 
   const userEmail = session?.user?.email ?? "Unknown";
   const isCommissioner = session?.user?.id === league?.created_by;
@@ -147,21 +183,15 @@ export default function ProfileScreen() {
             icon="notifications-outline"
             label="Push Notifications"
             value={notificationsEnabled}
-            onToggle={setNotificationsEnabled}
+            onToggle={handleNotificationsToggle}
             c={c}
           />
           <ToggleRow
             icon="alarm-outline"
             label="Draft Reminders"
             value={draftReminders}
-            onToggle={setDraftReminders}
-            c={c}
-          />
-          <ToggleRow
-            icon="swap-horizontal-outline"
-            label="Trade Alerts"
-            value={tradeAlerts}
-            onToggle={setTradeAlerts}
+            onToggle={handleDraftRemindersToggle}
+            disabled={!notificationsEnabled}
             c={c}
           />
         </View>
@@ -251,16 +281,18 @@ function ToggleRow({
   label,
   value,
   onToggle,
+  disabled = false,
   c,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   value: boolean;
   onToggle: (v: boolean) => void;
+  disabled?: boolean;
   c: any;
 }) {
   return (
-    <View style={[styles.settingRow, { borderBottomColor: c.border }]}>
+    <View style={[styles.settingRow, { borderBottomColor: c.border, opacity: disabled ? 0.4 : 1 }]}>
       <View style={styles.actionLeft}>
         <Ionicons name={icon} size={20} color={c.secondaryText} />
         <ThemedText style={styles.actionLabel}>{label}</ThemedText>
@@ -269,6 +301,7 @@ function ToggleRow({
         value={value}
         onValueChange={onToggle}
         trackColor={{ false: c.border, true: c.accent }}
+        disabled={disabled}
       />
     </View>
   );

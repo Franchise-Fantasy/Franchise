@@ -85,9 +85,21 @@ export default function RosterScreen() {
       }));
     },
     enabled: !!teamId && !!leagueId,
+    staleTime: 0,
   });
 
   const isLoading = isLoadingConfig || isLoadingRoster;
+
+  // Force a real refetch whenever the tab comes back into focus.
+  // Using refetchQueries (not invalidateQueries) so it always hits the network,
+  // even in published Expo Go where the cache observer may be paused.
+  // useFocusEffect(
+  //   useCallback(() => {
+  //     if (teamId) {
+  //       queryClient.invalidateQueries({ queryKey: ["teamRoster", teamId] });
+  //     }
+  //   }, [teamId, queryClient]),
+  // );
 
   // Build slot entries from roster config
   // Non-bench slots render their configured count.
@@ -233,7 +245,7 @@ export default function RosterScreen() {
         if (error) throw error;
       }
 
-      queryClient.invalidateQueries({ queryKey: ["teamRoster", teamId] });
+      queryClient.refetchQueries({ queryKey: ["teamRoster", teamId] });
       setActiveSlot(null);
     } catch (err: any) {
       Alert.alert("Error", err.message ?? "Failed to assign player");
@@ -257,7 +269,7 @@ export default function RosterScreen() {
 
       if (error) throw error;
 
-      queryClient.invalidateQueries({ queryKey: ["teamRoster", teamId] });
+      queryClient.refetchQueries({ queryKey: ["teamRoster", teamId] });
       setActiveSlot(null);
     } catch (err: any) {
       Alert.alert("Error", err.message ?? "Failed to move player to bench");

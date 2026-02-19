@@ -35,7 +35,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         .from('drafts')
         .select('id')
         .eq('league_id', leagueId)
-        .neq('status', 'completed')
+        .neq('status', 'complete')
         .limit(1);
 
       if (error) throw error;

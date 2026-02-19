@@ -129,7 +129,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
         .from('drafts')
         .select('id')
         .eq('league_id', leagueId)
-        .neq('status', 'completed')
+        .neq('status', 'complete')
         .limit(1);
 
       if (error) throw error;

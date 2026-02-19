@@ -10,6 +10,7 @@ interface Player {
 interface DraftState {
   id: string;
   league_id: string;
+  status: 'unscheduled' | 'pending' | 'in_progress' | 'complete';
   current_pick_number: number;
   current_pick_timestamp: string;
   time_limit: number;
