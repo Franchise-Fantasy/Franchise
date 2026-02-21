@@ -1,15 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AppState } from 'react-native';
 
-// Helper function to parse interval strings like "08:00:00" from Supabase
-const parseIntervalToMilliseconds = (interval: string): number => {
-  if (!interval) return 0;
-  const parts = interval.split(':').map(Number);
-  const minutes = parts[1] || 0;
-  const seconds = parts[2] || 0;
-  return ( minutes * 60 + seconds) * 1000;
-};
-
 
 
 export const useDraftTimer = (pickStartedAt?: string, timeLimit?: number) => {
@@ -18,7 +9,7 @@ export const useDraftTimer = (pickStartedAt?: string, timeLimit?: number) => {
   const calculateRemaining = () => {
     if (!pickStartedAt || !timeLimit) return 0;
     const now = Date.now();
-    const start = new Date(pickStartedAt).getTime();
+    const start = new Date(pickStartedAt.replace(' ', 'T')).getTime();
     const end = start + timeLimit * 1000;
     return Math.max(0, end - now);
   };

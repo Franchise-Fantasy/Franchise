@@ -39,7 +39,16 @@ export const DEFAULT_SCORING: ScoringCategory[] = [
 export const DRAFT_TYPE_OPTIONS = ['Snake', 'Linear'] as const;
 export const TIME_PER_PICK_OPTIONS = [60, 90, 120] as const;
 
-export const STEP_LABELS = ['Basics', 'Roster', 'Scoring', 'Draft', 'Review'];
+export const STEP_LABELS = ['Basics', 'Roster', 'Scoring', 'Draft', 'Season', 'Review'];
+
+// Hardcoded NBA regular season end dates per season string.
+// Update each year or replace with a live query once nba_schedule is populated.
+export const NBA_SEASON_END: Record<string, string> = {
+  '2024-25': '2025-04-13',
+  '2025-26': '2026-04-12',
+};
+
+export const CURRENT_NBA_SEASON = '2025-26';
 
 export type DraftType = (typeof DRAFT_TYPE_OPTIONS)[number];
 export type TimePerPick = (typeof TIME_PER_PICK_OPTIONS)[number];
@@ -53,4 +62,7 @@ export interface LeagueWizardState {
   draftType: DraftType;
   timePerPick: TimePerPick;
   maxDraftYears: number;
+  season: string;
+  regularSeasonWeeks: number;
+  playoffWeeks: number;
 }

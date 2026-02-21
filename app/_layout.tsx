@@ -53,8 +53,8 @@ export default function RootLayout() {
           <AppStateProvider>
             <Stack>
               <Stack.Screen name="index" options={{ headerShown: false }} />
-              <Stack.Screen name="(tabs)" options={{ headerShown: false, gestureEnabled: false }} />
-              <Stack.Screen name="(setup)" options={{ headerShown: false }} />
+              <Stack.Screen name="(tabs)" options={{ headerShown: false, gestureEnabled: false, animation: 'fade' }} />
+              <Stack.Screen name="(setup)" options={{ headerShown: false, animation: 'fade' }} />
               <Stack.Screen name="draft-room/[id]" options={{ headerShown: false }} />
               <Stack.Screen name="create-league" options={{ headerShown: false }} />
               <Stack.Screen name="create-team" options={{ headerShown: false }} />

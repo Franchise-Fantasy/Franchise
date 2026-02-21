@@ -16,6 +16,7 @@ interface DraftState {
   time_limit: number;
   rounds: number;
   picks_per_round: number;
+  draft_date?: string;
 }
 
 interface CurrentPick {

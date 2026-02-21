@@ -1,61 +1,45 @@
 import Auth from '@/components/Auth';
+import LoadingScreen from '@/components/LoadingScreen';
 import { useAppState } from '@/context/AppStateProvider';
 import { useSession } from '@/context/AuthProvider';
 import { useRouter } from 'expo-router';
-import { useEffect } from 'react';
-import { ActivityIndicator } from 'react-native';
+import { useEffect, useState } from 'react';
+
+const MIN_SPLASH_MS = 2000;
 
 export default function IndexScreen() {
   const session = useSession();
   const router = useRouter();
   const { leagueId, teamId, loading } = useAppState();
+  const [minDone, setMinDone] = useState(false);
+
+  // Enforce a minimum splash duration so there's no jarring skip.
+  useEffect(() => {
+    const t = setTimeout(() => setMinDone(true), MIN_SPLASH_MS);
+    return () => clearTimeout(t);
+  }, []);
 
   useEffect(() => {
-    console.log('[Index] Current state:', { 
-      hasSession: !!session, 
-      leagueId, 
-      teamId,
-      loading 
-    });
-    
-    if (!session) {
-      console.log('[Index] No session, showing auth');
-      return;
-    }
-    
-    if (loading) {
-      console.log('[Index] Still loading app state');
-      return;
-    }
+    if (!minDone || loading || !session) return;
 
-    console.log('[Index] Making routing decision with leagueId:', leagueId);
-    
-    const timer = setTimeout(() => {
-      if (leagueId) {
-        console.log('[Index] Routing to tabs');
-        router.replace('/(tabs)');
-      } else {
-        console.log('[Index] Routing to setup');
-        router.replace('/(setup)');
-      }
-    }, 500); // Increased delay slightly
+    if (leagueId) {
+      router.replace('/(tabs)');
+    } else {
+      router.replace('/(setup)');
+    }
+  }, [session, leagueId, teamId, loading, minDone]);
 
-    return () => clearTimeout(timer);
-  }, [session, leagueId, teamId, loading]);
+  if (loading || !minDone) {
+    return <LoadingScreen />;
+  }
 
   if (!session) {
     return <Auth />;
   }
 
-  if (loading) {
-    return <ActivityIndicator style={{ flex: 1 }} />;
-  }
-
   return null;
 }
 
-export const options = { 
+export const options = {
   headerShown: false,
 };
-
-

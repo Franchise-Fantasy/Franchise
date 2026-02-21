@@ -13,6 +13,7 @@ interface League {
   name: string;
   created_by: string;
   teams: number;
+  current_teams: number | null;
 }
 
 export default function JoinLeagueScreen() {
@@ -23,14 +24,27 @@ export default function JoinLeagueScreen() {
   const { data: leagues, isLoading } = useQuery({
     queryKey: ['public-leagues'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('leagues')
-        .select('id, name, created_by, teams')
-        .eq('private', false)
-        .order('created_at', { ascending: false });
+      const user = (await supabase.auth.getUser()).data.user;
 
-      if (error) throw error;
-      return data as League[];
+      const [leaguesResult, myTeamsResult] = await Promise.all([
+        supabase
+          .from('leagues')
+          .select('id, name, created_by, teams, current_teams')
+          .eq('private', false)
+          .order('created_at', { ascending: false }),
+        user
+          ? supabase.from('teams').select('league_id').eq('user_id', user.id)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+
+      if (leaguesResult.error) throw leaguesResult.error;
+      if (myTeamsResult.error) throw myTeamsResult.error;
+
+      const myLeagueIds = new Set((myTeamsResult.data ?? []).map(t => t.league_id));
+
+      return (leaguesResult.data as League[]).filter(
+        l => (l.current_teams ?? 0) < l.teams && !myLeagueIds.has(l.id)
+      );
     }
   });
 

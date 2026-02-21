@@ -1,4 +1,4 @@
-import { useSession } from '@/context/AuthProvider';
+import { useAuthInitialized, useSession } from '@/context/AuthProvider';
 import { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 
@@ -22,6 +22,7 @@ export const useAppState = () => {
 
 export const AppStateProvider = ({ children }: { children: React.ReactNode }) => {
   const session = useSession();
+  const initialized = useAuthInitialized();
   const [state, setState] = useState({
     leagueId: null as string | null,
     teamId: null as string | null,
@@ -37,10 +38,16 @@ export const AppStateProvider = ({ children }: { children: React.ReactNode }) =>
   };
 
   useEffect(() => {
+    // Don't resolve loading until we know the auth state for certain.
+    // This prevents index.tsx from routing before getSession() has returned.
+    if (!initialized) return;
+
     if (!session?.user) {
-      setState(s => ({ ...s, loading: false }));
+      setState({ leagueId: null, teamId: null, loading: false });
       return;
     }
+
+    setState(s => ({ ...s, loading: true }));
 
     const fetchTeam = async () => {
       const { data } = await supabase
@@ -58,7 +65,7 @@ export const AppStateProvider = ({ children }: { children: React.ReactNode }) =>
     };
 
     fetchTeam();
-  }, [session?.user?.id]);
+  }, [initialized, session?.user?.id]);
 
   const value = {
     ...state,

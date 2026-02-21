@@ -4,7 +4,6 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { useQuery } from '@tanstack/react-query';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { ThemedText } from '../ThemedText';
-import { ThemedView } from '../ThemedView';
 
 interface TeamStanding {
   id: string;
@@ -37,8 +36,8 @@ export function StandingsSection({ leagueId }: { leagueId: string }) {
   });
 
   return (
-    <ThemedView style={styles.section}>
-      <ThemedText type="subtitle">Standings</ThemedText>
+    <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
+      <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Standings</ThemedText>
       <View style={styles.standings}>
         {isLoading ? (
           <ActivityIndicator style={styles.loading} />
@@ -60,13 +59,23 @@ export function StandingsSection({ leagueId }: { leagueId: string }) {
           ))
         )}
       </View>
-    </ThemedView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  section: { marginBottom: 16, padding: 16 },
-  standings: { marginTop: 8 },
+  section: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 2,
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    marginBottom: 8,
+  },
+  standings: { marginTop: 4 },
   standingRow: {
     flexDirection: 'row',
     alignItems: 'center',

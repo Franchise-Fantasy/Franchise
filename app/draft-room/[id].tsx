@@ -7,7 +7,7 @@ import { supabase } from '@/lib/supabase';
 import { CurrentPick, DraftState } from '@/types/draft';
 import { useQuery } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from '@/constants/Colors';
@@ -54,6 +54,14 @@ export default function DraftRoomScreen() {
   });
 
   const isDraftComplete = draftState?.status === 'complete';
+
+  // Auto-generate schedule when draft completes (idempotent — edge fn ignores duplicates)
+  useEffect(() => {
+    if (!isDraftComplete || !draftData?.league_id) return;
+    supabase.functions
+      .invoke('generate-schedule', { body: { league_id: draftData.league_id } })
+      .catch(() => {});
+  }, [isDraftComplete, draftData?.league_id]);
 
   // Then, use the league ID to get the user's team
   const { data: teamData, isLoading: isLoadingTeam } = useQuery({
@@ -102,7 +110,6 @@ export default function DraftRoomScreen() {
           <DraftOrder
             draftId={draftId}
             onCurrentPickChange={setCurrentPick}
-            leagueId={draftData?.league_id || ''}
             teamId={teamData?.id || ''}
           />
         )}

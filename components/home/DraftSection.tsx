@@ -3,6 +3,7 @@ import { ThemedView } from '@/components/ThemedView';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
+import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
@@ -52,13 +53,15 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
   // Invalidate when the draft status changes (e.g. marked complete by the last pick)
   useEffect(() => {
     if (!leagueId) return;
+    // Use a unique channel name to avoid getting a stale cached instance
+    // when the component remounts before removeChannel fully completes.
     const channel = supabase
-      .channel(`draft_status_${leagueId}`)
+      .channel(`draft_status_${leagueId}_${Date.now()}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'drafts', filter: `league_id=eq.${leagueId}` },
         () => { queryClient.invalidateQueries({ queryKey: ['activeDraft', leagueId] }); }
       )
       .subscribe();
-    return () => { channel.unsubscribe(); };
+    return () => { supabase.removeChannel(channel); };
   }, [leagueId, queryClient]);
 
   const handleDateChange = (event: any, date?: Date) => {
@@ -73,10 +76,9 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
     
     const { error } = await supabase
       .from('drafts')
-      .update({ 
+      .update({
         status: 'pending',
         draft_date: startTime,
-        current_pick_timestamp: startTime
       })
       .eq('id', draft.id);
 
@@ -121,33 +123,36 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
   const isActive = !!(draft.draft_date && isDraftSoon(draft.draft_date));
 
   return (
-    <ThemedView style={[styles.section, { backgroundColor: c.card }]}>
-      <TouchableOpacity 
+    <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
+      <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Draft</ThemedText>
+      <TouchableOpacity
         style={[
-          styles.draftCard,
-          { backgroundColor: c.cardAlt },
-          isActive && { backgroundColor: c.activeCard, borderColor: c.activeBorder, borderWidth: 1 }
+          styles.draftRow,
+          { borderBottomWidth: 0 },
+          isActive && { backgroundColor: c.activeCard, borderRadius: 8, borderWidth: 1, borderColor: c.activeBorder },
         ]}
         onPress={handlePress}
+        activeOpacity={0.7}
       >
-        <ThemedText type="defaultSemiBold">
-          {draft.season} {draft.type.charAt(0).toUpperCase() + draft.type.slice(1)} Draft
-        </ThemedText>
-        <ThemedText>
-          {draft.status === 'unscheduled' 
-            ? 'Schedule Draft'
-            : `Scheduled for ${new Date(draft.draft_date!).toLocaleString()}`
-          }
-        </ThemedText>
-        {draft.status !== 'unscheduled' && isCommissioner && !isDraftSoon(draft.draft_date!) && (
-          <ThemedText style={[styles.tapToReschedule, { color: c.secondaryText }]}>
-            Tap to reschedule
+        <View style={styles.draftInfo}>
+          <ThemedText type="defaultSemiBold">
+            {draft.season} {draft.type.charAt(0).toUpperCase() + draft.type.slice(1)} Draft
           </ThemedText>
-        )}
-        {isActive && (
-          <ThemedText style={[styles.enterDraft, { color: c.activeText }]}>
-            Enter Draft Room
+          <ThemedText style={{ color: isActive ? c.activeText : c.secondaryText, fontSize: 14, marginTop: 2 }}>
+            {draft.status === 'unscheduled'
+              ? 'Not yet scheduled'
+              : `${new Date(draft.draft_date!).toLocaleString()}`}
           </ThemedText>
+          {draft.status !== 'unscheduled' && isCommissioner && !isDraftSoon(draft.draft_date!) && (
+            <ThemedText style={[styles.tapToReschedule, { color: c.secondaryText }]}>
+              Tap to reschedule
+            </ThemedText>
+          )}
+        </View>
+        {isActive ? (
+          <ThemedText style={[styles.enterDraft, { color: c.activeText }]}>Enter</ThemedText>
+        ) : (
+          <Ionicons name="chevron-forward" size={18} color={c.secondaryText} />
         )}
       </TouchableOpacity>
 
@@ -198,19 +203,30 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
           </ThemedView>
         </View>
       </Modal>
-    </ThemedView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   section: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 2,
     marginBottom: 16,
-    padding: 16,
-    borderRadius: 8,
   },
-  draftCard: {
-    padding: 12,
-    borderRadius: 6,
+  sectionTitle: {
+    marginBottom: 8,
+  },
+  draftRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+  },
+  draftInfo: {
+    flex: 1,
   },
   modalOverlay: {
     flex: 1,
@@ -247,6 +263,6 @@ const styles = StyleSheet.create({
   },
   enterDraft: {
     fontWeight: 'bold',
-    marginTop: 4,
+    fontSize: 14,
   },
 });

@@ -53,6 +53,14 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
         <Row label="Future Draft Years" value={String(state.maxDraftYears)} c={c} />
       </View>
 
+      {/* Season */}
+      <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
+        <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Season</ThemedText>
+        <Row label="NBA Season" value={state.season} c={c} />
+        <Row label="Regular Season" value={`${state.regularSeasonWeeks} weeks`} c={c} />
+        <Row label="Playoffs" value={`${state.playoffWeeks} weeks`} c={c} />
+      </View>
+
       <TouchableOpacity
         onPress={onSubmit}
         disabled={loading}

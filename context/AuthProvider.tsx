@@ -5,9 +5,14 @@ import { hasBeenAsked, markAsAsked, registerPushToken } from '../lib/notificatio
 import { supabase } from '../lib/supabase'
 
 const AuthContext = createContext<Session | null>(null)
+const AuthInitializedContext = createContext(false)
 
 export function useSession() {
   return useContext(AuthContext)
+}
+
+export function useAuthInitialized() {
+  return useContext(AuthInitializedContext)
 }
 
 async function promptNotificationsIfNeeded(userId: string) {
@@ -34,12 +39,13 @@ async function promptNotificationsIfNeeded(userId: string) {
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
+  const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
-    // Get the initial session
+    // Get the initial session — only after this resolves do we know auth state for sure
     supabase.auth.getSession().then(({ data: { session } }) => {
-      console.log( '[AuthProvider] Auth state changed:', session)
       setSession(session);
+      setInitialized(true);
       if (session?.user) promptNotificationsIfNeeded(session.user.id);
     });
 
@@ -56,7 +62,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider value={session}>
-      {children}
+      <AuthInitializedContext.Provider value={initialized}>
+        {children}
+      </AuthInitializedContext.Provider>
     </AuthContext.Provider>
   );
 }

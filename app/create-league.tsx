@@ -3,10 +3,12 @@ import { StepDraft } from "@/components/create-league/StepDraft";
 import { StepReview } from "@/components/create-league/StepReview";
 import { StepRoster } from "@/components/create-league/StepRoster";
 import { StepScoring } from "@/components/create-league/StepScoring";
+import { StepSeason } from "@/components/create-league/StepSeason";
 import { ThemedView } from "@/components/ThemedView";
 import { StepIndicator } from "@/components/ui/StepIndicator";
 import { Colors } from "@/constants/Colors";
 import {
+  CURRENT_NBA_SEASON,
   DEFAULT_ROSTER_SLOTS,
   DEFAULT_SCORING,
   LeagueWizardState,
@@ -44,6 +46,9 @@ const initialState: LeagueWizardState = {
   draftType: "Snake",
   timePerPick: 90,
   maxDraftYears: 3,
+  season: CURRENT_NBA_SEASON,
+  regularSeasonWeeks: 18,
+  playoffWeeks: 3,
 };
 
 function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
@@ -86,7 +91,14 @@ export default function CreateLeague() {
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
 
-  const canAdvance = step === 0 ? state.name.trim().length > 0 : true;
+  // Steps: 0=Basics, 1=Roster, 2=Scoring, 3=Draft, 4=Season, 5=Review
+  const TOTAL_STEPS = STEP_LABELS.length;
+  const isOddTeamByeInvalid =
+    step === 4 &&
+    state.teams % 2 !== 0 &&
+    state.regularSeasonWeeks % state.teams !== 0;
+  const canAdvance =
+    step === 0 ? state.name.trim().length > 0 : !isOddTeamByeInvalid;
 
   const handleChange = (field: keyof LeagueWizardState, value: any) => {
     dispatch({ type: "SET_FIELD", field, value });
@@ -104,6 +116,16 @@ export default function CreateLeague() {
 
     const rosterSize = state.rosterSlots.reduce((sum, s) => sum + s.count, 0);
 
+    // Compute season start: first eligible Monday from today
+    const today = new Date();
+    const dow = today.getDay(); // 0=Sun
+    const daysSinceMon = dow === 0 ? 6 : dow - 1;
+    const thisMonday = new Date(today);
+    thisMonday.setDate(today.getDate() - daysSinceMon);
+    const daysLeft = 7 - daysSinceMon;
+    const seasonStart = daysLeft >= 5 ? thisMonday : new Date(thisMonday.getTime() + 7 * 86400000);
+    const seasonStartDate = seasonStart.toISOString().split("T")[0];
+
     // 1. Create league
     const { data: leagueData, error: leagueError } = await supabase
       .from("leagues")
@@ -114,6 +136,10 @@ export default function CreateLeague() {
         teams: state.teams,
         roster_size: rosterSize,
         private: state.isPrivate,
+        season: state.season,
+        regular_season_weeks: state.regularSeasonWeeks,
+        playoff_weeks: state.playoffWeeks,
+        season_start_date: seasonStartDate,
       })
       .select()
       .single();
@@ -164,7 +190,7 @@ export default function CreateLeague() {
       .from("drafts")
       .insert({
         league_id: leagueData.id,
-        season: "2025",
+        season: state.season,
         type: "initial",
         status: "unscheduled",
         rounds: rosterSize,
@@ -187,7 +213,7 @@ export default function CreateLeague() {
       draftData.id,
       state.teams,
       rosterSize,
-      "2025",
+      state.season,
       leagueData.id,
       state.draftType.toLowerCase() as "snake" | "linear",
     ).catch((error) => console.error("Error generating draft picks:", error));
@@ -232,7 +258,8 @@ export default function CreateLeague() {
           />
         )}
         {step === 3 && <StepDraft state={state} onChange={handleChange} />}
-        {step === 4 && (
+        {step === 4 && <StepSeason state={state} onChange={handleChange} />}
+        {step === 5 && (
           <StepReview
             state={state}
             onSubmit={handleCreateLeague}
@@ -241,7 +268,7 @@ export default function CreateLeague() {
         )}
       </ScrollView>
 
-      {step < 4 && (
+      {step < TOTAL_STEPS - 1 && (
         <View style={styles.navRow}>
           {step > 0 ? (
             <TouchableOpacity

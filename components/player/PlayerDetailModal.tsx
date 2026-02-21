@@ -167,12 +167,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
   };
 
   const handleAddPlayer = async () => {
-    if (!teamId || !player) return;
-
-    if (rosterIsFull) {
-      setShowDropPicker(true);
-      return;
-    }
+    if (!teamId || !player || rosterIsFull) return;
 
     setIsProcessing(true);
     try {
@@ -293,6 +288,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
   };
 
   const canTransact = !!teamId && !hasActiveDraft && !isProcessing;
+  const canAdd = canTransact && !rosterIsFull;
 
   const renderGameRow = ({ item }: { item: PlayerGameLog }) => {
     const gameFpts = scoringWeights
@@ -434,15 +430,15 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                     </TouchableOpacity>
                   ) : (
                     <TouchableOpacity
-                      style={[styles.addButton, !canTransact && styles.buttonDisabled]}
+                      style={[styles.addButton, !canAdd && styles.buttonDisabled]}
                       onPress={handleAddPlayer}
-                      disabled={!canTransact}
+                      disabled={!canAdd}
                     >
                       {isProcessing ? (
                         <ActivityIndicator size="small" color="#fff" />
                       ) : (
                         <ThemedText style={styles.actionButtonText}>
-                          {rosterIsFull ? 'Add Player (Drop Required)' : 'Add Player'}
+                          {rosterIsFull ? 'Roster Full' : 'Add Player'}
                         </ThemedText>
                       )}
                     </TouchableOpacity>

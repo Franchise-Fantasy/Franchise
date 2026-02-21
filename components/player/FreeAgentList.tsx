@@ -46,6 +46,29 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
   const draftInProgress = hasActiveDraft ?? true; // default to locked until we know
 
+  const { data: rosterInfo } = useQuery({
+    queryKey: ['rosterInfo', leagueId, teamId],
+    queryFn: async () => {
+      const [rosterCountRes, leagueRes] = await Promise.all([
+        supabase
+          .from('league_players')
+          .select('id', { count: 'exact', head: true })
+          .eq('league_id', leagueId)
+          .eq('team_id', teamId),
+        supabase.from('leagues').select('roster_size').eq('id', leagueId).single(),
+      ]);
+      if (rosterCountRes.error) throw rosterCountRes.error;
+      if (leagueRes.error) throw leagueRes.error;
+      return {
+        currentCount: rosterCountRes.count ?? 0,
+        maxSize: leagueRes.data?.roster_size ?? 13,
+      };
+    },
+    enabled: !!leagueId && !!teamId,
+  });
+
+  const rosterIsFull = rosterInfo ? rosterInfo.currentCount >= rosterInfo.maxSize : false;
+
   const { data: freeAgents, isLoading } = useQuery<PlayerSeasonStats[]>({
 
     queryKey: ['freeAgents', leagueId],
@@ -135,12 +158,12 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         onPress={() => setSelectedPlayer(item)}
         rightElement={
           <TouchableOpacity
-            style={[styles.addButton, (isAdding || draftInProgress) && styles.addButtonDisabled]}
+            style={[styles.addButton, (isAdding || draftInProgress || rosterIsFull) && styles.addButtonDisabled]}
             onPress={() => handleAddPlayer(item)}
-            disabled={isAdding || draftInProgress}
+            disabled={isAdding || draftInProgress || rosterIsFull}
           >
             <ThemedText style={styles.addButtonText}>
-              {isAdding ? '...' : 'Add'}
+              {isAdding ? '...' : rosterIsFull ? 'Full' : 'Add'}
             </ThemedText>
           </TouchableOpacity>
         }

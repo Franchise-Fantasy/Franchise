@@ -2,7 +2,6 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { ThemedText } from '../ThemedText';
-import { ThemedView } from '../ThemedView';
 import { IconSymbol } from '../ui/IconSymbol';
 
 const NAV_ITEMS = [
@@ -17,8 +16,8 @@ export function QuickNav() {
   const c = Colors[scheme];
 
   return (
-    <ThemedView style={styles.section}>
-      <ThemedText type="subtitle">Quick Navigation</ThemedText>
+    <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
+      <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Quick Navigation</ThemedText>
       <View style={styles.grid}>
         {NAV_ITEMS.map(item => (
           <TouchableOpacity key={item.route} style={[styles.navItem, { backgroundColor: c.cardAlt }]}>
@@ -27,23 +26,32 @@ export function QuickNav() {
           </TouchableOpacity>
         ))}
       </View>
-    </ThemedView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  section: { marginBottom: 16, padding: 16 },
+  section: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 16,
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    marginBottom: 12,
+  },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 16,
-    marginTop: 8,
+    gap: 12,
   },
   navItem: {
     alignItems: 'center',
-    width: '45%',
+    width: '47%',
     padding: 16,
-    borderRadius: 8,
+    borderRadius: 10,
   },
   label: { marginTop: 8, fontSize: 12 },
 });

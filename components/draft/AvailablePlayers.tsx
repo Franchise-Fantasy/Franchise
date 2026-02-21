@@ -82,7 +82,7 @@ export function AvailablePlayers({ draftId, leagueId, currentPick, teamId }: Ava
       )
       .subscribe();
 
-    return () => { channel.unsubscribe(); };
+    return () => { supabase.removeChannel(channel); };
   }, [leagueId, queryClient]);
 
   const renderPlayer = ({ item }: { item: PlayerSeasonStats }) => {
