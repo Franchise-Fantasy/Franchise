@@ -20,6 +20,7 @@ export const DEFAULT_ROSTER_SLOTS: RosterSlot[] = [
   { position: 'F', label: 'Forward', count: 1 },
   { position: 'UTIL', label: 'Utility', count: 3 },
   { position: 'BE', label: 'Bench', count: 3 },
+  { position: 'IR', label: 'Injured Reserve', count: 0 },
 ];
 
 export const DEFAULT_SCORING: ScoringCategory[] = [

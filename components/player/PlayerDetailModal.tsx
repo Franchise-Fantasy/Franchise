@@ -8,17 +8,18 @@ import { PlayerGameLog, PlayerSeasonStats } from '@/types/player';
 import { calculateAvgFantasyPoints, calculateGameFantasyPoints } from '@/utils/fantasyPoints';
 import { formatPosition } from '@/utils/formatting';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   FlatList,
   Modal,
+  PanResponder,
   StyleSheet,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface PlayerDetailModalProps {
   player: PlayerSeasonStats | null;
@@ -26,6 +27,7 @@ interface PlayerDetailModalProps {
   teamId?: string;
   onClose: () => void;
   onRosterChange?: () => void;
+  startInDropPicker?: boolean;
 }
 
 function StatBox({ label, value, color }: { label: string; value: string; color: string }) {
@@ -37,7 +39,7 @@ function StatBox({ label, value, color }: { label: string; value: string; color:
   );
 }
 
-export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterChange }: PlayerDetailModalProps) {
+export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterChange, startInDropPicker }: PlayerDetailModalProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const queryClient = useQueryClient();
@@ -45,75 +47,105 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
   const [isProcessing, setIsProcessing] = useState(false);
   const [showDropPicker, setShowDropPicker] = useState(false);
 
+  useEffect(() => {
+    if (player && startInDropPicker) setShowDropPicker(true);
+  }, [player, startInDropPicker]);
+
   const { data: scoringWeights } = useLeagueScoring(leagueId);
   const { data: gameLog, isLoading: isLoadingGameLog } = usePlayerGameLog(
     player?.player_id ?? ''
   );
 
-  // Check if this player is on the user's team
-  const { data: isOnMyTeam } = useQuery({
+  // Check if this player is on the user's team and get their current slot
+  const { data: ownershipInfo } = useQuery({
     queryKey: ['playerOwnership', leagueId, teamId, player?.player_id],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('league_players')
-        .select('id')
+        .select('id, roster_slot')
         .eq('league_id', leagueId)
         .eq('team_id', teamId!)
         .eq('player_id', player!.player_id)
         .limit(1);
 
       if (error) throw error;
-      return (data?.length ?? 0) > 0;
+      if (!data || data.length === 0) return { isOnMyTeam: false, rosterSlot: null };
+      return { isOnMyTeam: true, rosterSlot: data[0].roster_slot as string | null };
     },
     enabled: !!player && !!teamId && !!leagueId,
   });
 
-  // Get current roster count and roster size limit
+  const isOnMyTeam = ownershipInfo?.isOnMyTeam ?? false;
+  const playerRosterSlot = ownershipInfo?.rosterSlot ?? null;
+
+  // Get roster counts, max size, and IR capacity
   const { data: rosterInfo } = useQuery({
     queryKey: ['rosterInfo', leagueId, teamId],
     queryFn: async () => {
-      const [rosterCountRes, leagueRes] = await Promise.all([
+      const [allPlayersRes, irPlayersRes, leagueRes, irConfigRes] = await Promise.all([
         supabase
           .from('league_players')
           .select('id', { count: 'exact', head: true })
           .eq('league_id', leagueId)
           .eq('team_id', teamId!),
         supabase
+          .from('league_players')
+          .select('id', { count: 'exact', head: true })
+          .eq('league_id', leagueId)
+          .eq('team_id', teamId!)
+          .eq('roster_slot', 'IR'),
+        supabase
           .from('leagues')
           .select('roster_size')
           .eq('id', leagueId)
           .single(),
+        supabase
+          .from('league_roster_config')
+          .select('slot_count')
+          .eq('league_id', leagueId)
+          .eq('position', 'IR')
+          .maybeSingle(),
       ]);
 
-      if (rosterCountRes.error) throw rosterCountRes.error;
+      if (allPlayersRes.error) throw allPlayersRes.error;
+      if (irPlayersRes.error) throw irPlayersRes.error;
       if (leagueRes.error) throw leagueRes.error;
 
+      const irCount = irPlayersRes.count ?? 0;
+      const activeCount = (allPlayersRes.count ?? 0) - irCount;
       return {
-        currentCount: rosterCountRes.count ?? 0,
+        activeCount,
+        irCount,
+        irSlotCount: irConfigRes.data?.slot_count ?? 0,
         maxSize: leagueRes.data?.roster_size ?? 13,
       };
     },
     enabled: !!teamId && !!leagueId,
   });
 
-  // Fetch roster players for the drop picker
+  // Fetch roster players for the drop picker (exclude IR — dropping them doesn't free active spots)
   const { data: rosterPlayers } = useQuery<PlayerSeasonStats[]>({
     queryKey: ['teamRoster', teamId],
     queryFn: async () => {
       const { data: leaguePlayers, error: lpError } = await supabase
         .from('league_players')
-        .select('player_id')
+        .select('player_id, roster_slot')
         .eq('team_id', teamId!)
         .eq('league_id', leagueId);
 
       if (lpError) throw lpError;
       if (!leaguePlayers || leaguePlayers.length === 0) return [];
 
-      const playerIds = leaguePlayers.map(lp => lp.player_id);
+      const activePlayerIds = leaguePlayers
+        .filter((lp) => lp.roster_slot !== 'IR')
+        .map((lp) => lp.player_id);
+
+      if (activePlayerIds.length === 0) return [];
+
       const { data, error } = await supabase
         .from('player_season_stats')
         .select('*')
-        .in('player_id', playerIds);
+        .in('player_id', activePlayerIds);
 
       if (error) throw error;
       return data as PlayerSeasonStats[];
@@ -138,10 +170,61 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
     enabled: !!leagueId && !!teamId,
   });
 
+  const handleClose = () => {
+    setShowDropPicker(false);
+    onClose();
+  };
+
+  // Swipe-to-dismiss gesture
+  const translateY = useRef(new Animated.Value(0)).current;
+  const dismissRef = useRef<() => void>(handleClose);
+  dismissRef.current = showDropPicker
+    ? (startInDropPicker ? handleClose : () => setShowDropPicker(false))
+    : handleClose;
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, g) => g.dy > 10,
+      onPanResponderMove: (_, g) => {
+        if (g.dy > 0) translateY.setValue(g.dy);
+      },
+      onPanResponderRelease: (_, g) => {
+        if (g.dy > 80 || g.vy > 0.5) {
+          Animated.timing(translateY, {
+            toValue: 500,
+            duration: 200,
+            useNativeDriver: true,
+          }).start(() => {
+            dismissRef.current();
+            translateY.setValue(0);
+          });
+        } else {
+          Animated.spring(translateY, {
+            toValue: 0,
+            useNativeDriver: true,
+            bounciness: 8,
+          }).start();
+        }
+      },
+    })
+  ).current;
+
+  // Reset translate when switching between sub-modals
+  useEffect(() => {
+    translateY.setValue(0);
+  }, [showDropPicker]);
+
   if (!player) return null;
 
   const rosterIsFull = rosterInfo
-    ? rosterInfo.currentCount >= rosterInfo.maxSize
+    ? rosterInfo.activeCount >= rosterInfo.maxSize
+    : false;
+
+  const canMoveToIR = rosterInfo
+    ? player.status === 'OUT' &&
+      rosterInfo.irSlotCount > 0 &&
+      rosterInfo.irCount < rosterInfo.irSlotCount
     : false;
 
   const avgFpts = scoringWeights
@@ -167,7 +250,11 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
   };
 
   const handleAddPlayer = async () => {
-    if (!teamId || !player || rosterIsFull) return;
+    if (!teamId || !player) return;
+    if (rosterIsFull) {
+      setShowDropPicker(true);
+      return;
+    }
 
     setIsProcessing(true);
     try {
@@ -282,13 +369,55 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
     }
   };
 
-  const handleClose = () => {
-    setShowDropPicker(false);
-    onClose();
+  const handleMoveToIR = async () => {
+    if (!teamId || !player) return;
+    setIsProcessing(true);
+    try {
+      const { error } = await supabase
+        .from('league_players')
+        .update({ roster_slot: 'IR' })
+        .eq('league_id', leagueId)
+        .eq('team_id', teamId)
+        .eq('player_id', player.player_id);
+      if (error) throw error;
+      invalidateRosterQueries();
+      onClose();
+    } catch (err: any) {
+      Alert.alert('Error', err.message ?? 'Failed to move player to IR');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleActivateFromIR = async () => {
+    if (!teamId || !player) return;
+    if (rosterInfo && rosterInfo.activeCount >= rosterInfo.maxSize) {
+      Alert.alert(
+        'Active Roster Full',
+        'You must drop an active player before activating from IR.'
+      );
+      return;
+    }
+    setIsProcessing(true);
+    try {
+      const { error } = await supabase
+        .from('league_players')
+        .update({ roster_slot: 'BE' })
+        .eq('league_id', leagueId)
+        .eq('team_id', teamId)
+        .eq('player_id', player.player_id);
+      if (error) throw error;
+      invalidateRosterQueries();
+      onClose();
+    } catch (err: any) {
+      Alert.alert('Error', err.message ?? 'Failed to activate player');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const canTransact = !!teamId && !hasActiveDraft && !isProcessing;
-  const canAdd = canTransact && !rosterIsFull;
+  const canAdd = canTransact;
 
   const renderGameRow = ({ item }: { item: PlayerGameLog }) => {
     const gameFpts = scoringWeights
@@ -353,168 +482,236 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
   // Drop picker sub-modal
   if (showDropPicker) {
     return (
-      <Modal visible animationType="slide" presentationStyle="pageSheet">
-        <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
-          <View style={[styles.header, { borderBottomColor: c.border }]}>
-            <View style={styles.headerInfo}>
-              <ThemedText type="title" style={styles.playerName}>Drop a Player</ThemedText>
-              <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>
-                Your roster is full. Select a player to drop in order to add {player.name}.
-              </ThemedText>
+      <Modal visible animationType="slide" transparent>
+        <View style={styles.overlay}>
+          <Animated.View style={[styles.sheet, { backgroundColor: c.background, transform: [{ translateY }] }]}>
+            <View {...panResponder.panHandlers}>
+              <View style={[styles.header, { borderBottomColor: c.border }]}>
+                <View style={styles.headerInfo}>
+                  <ThemedText type="title" style={styles.playerName}>Drop a Player</ThemedText>
+                  <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>
+                    Your roster is full. Select a player to drop in order to add {player.name}.
+                  </ThemedText>
+                </View>
+                <TouchableOpacity onPress={() => startInDropPicker ? handleClose() : setShowDropPicker(false)} style={styles.closeButton}>
+                  <ThemedText style={styles.closeText}>✕</ThemedText>
+                </TouchableOpacity>
+              </View>
             </View>
-            <TouchableOpacity onPress={() => setShowDropPicker(false)} style={styles.closeButton}>
-              <ThemedText style={styles.closeText}>✕</ThemedText>
-            </TouchableOpacity>
-          </View>
 
-          {isProcessing ? (
-            <ActivityIndicator style={styles.loading} />
-          ) : (
-            <FlatList
-              data={rosterPlayers ?? []}
-              renderItem={renderDropPickerItem}
-              keyExtractor={(item) => item.player_id}
-              contentContainerStyle={styles.dropPickerList}
-            />
-          )}
-        </SafeAreaView>
+            {isProcessing ? (
+              <ActivityIndicator style={styles.loading} />
+            ) : (
+              <FlatList
+                data={rosterPlayers ?? []}
+                renderItem={renderDropPickerItem}
+                keyExtractor={(item) => item.player_id}
+                contentContainerStyle={styles.dropPickerList}
+              />
+            )}
+          </Animated.View>
+        </View>
       </Modal>
     );
   }
 
   return (
-    <Modal visible={!!player} animationType="slide" presentationStyle="pageSheet">
-      <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
-        {/* Header */}
-        <View style={[styles.header, { borderBottomColor: c.border }]}>
-          <View style={styles.headerInfo}>
-            <ThemedText type="title" style={styles.playerName}>{player.name}</ThemedText>
-            <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>
-              {formatPosition(player.position)} · {player.nba_team} · {player.games_played} GP
-            </ThemedText>
+    <Modal visible={!!player} animationType="slide" transparent>
+      <View style={styles.overlay}>
+        <Animated.View style={[styles.sheet, { backgroundColor: c.background, transform: [{ translateY }] }]}>
+          {/* Header - swipe area */}
+          <View {...panResponder.panHandlers}>
+            <View style={[styles.header, { borderBottomColor: c.border }]}>
+              <View style={styles.headerInfo}>
+                <ThemedText type="title" style={styles.playerName}>{player.name}</ThemedText>
+                <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>
+                  {formatPosition(player.position)} · {player.nba_team} · {player.games_played} GP
+                  {player.status === 'OUT' && (
+                    <ThemedText style={[styles.outBadge, { color: '#dc3545' }]}> · OUT</ThemedText>
+                  )}
+                </ThemedText>
+              </View>
+              <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
+                <ThemedText style={styles.closeText}>✕</ThemedText>
+              </TouchableOpacity>
+            </View>
           </View>
-          <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
-            <ThemedText style={styles.closeText}>✕</ThemedText>
-          </TouchableOpacity>
-        </View>
 
-        <FlatList
-          data={gameLog ?? []}
-          renderItem={renderGameRow}
-          keyExtractor={(item) => item.id}
-          ListHeaderComponent={
-            <>
-              {/* Add / Drop Button */}
-              {teamId && isOnMyTeam !== undefined && (
-                <View style={styles.actionSection}>
-                  {isOnMyTeam ? (
-                    <TouchableOpacity
-                      style={[styles.dropButton, !canTransact && styles.buttonDisabled]}
-                      onPress={() => {
-                        Alert.alert(
-                          'Drop Player',
-                          `Are you sure you want to drop ${player.name}?`,
-                          [
-                            { text: 'Cancel', style: 'cancel' },
-                            { text: 'Drop', style: 'destructive', onPress: () => handleDropPlayer() },
-                          ]
-                        );
-                      }}
-                      disabled={!canTransact}
-                    >
-                      {isProcessing ? (
-                        <ActivityIndicator size="small" color="#fff" />
+          <FlatList
+            data={gameLog ?? []}
+            renderItem={renderGameRow}
+            keyExtractor={(item) => item.id}
+            ListHeaderComponent={
+              <>
+                {/* Action Buttons */}
+                {teamId && ownershipInfo !== undefined && (
+                  <View style={styles.actionSection}>
+                    {isOnMyTeam ? (
+                      playerRosterSlot === 'IR' ? (
+                        // Player is on IR: show Activate + Drop
+                        <View style={styles.actionRow}>
+                          <TouchableOpacity
+                            style={[styles.activateButton, styles.actionRowButton, !canTransact && styles.buttonDisabled]}
+                            onPress={handleActivateFromIR}
+                            disabled={!canTransact}
+                          >
+                            {isProcessing ? (
+                              <ActivityIndicator size="small" color="#fff" />
+                            ) : (
+                              <ThemedText style={styles.actionButtonText}>Activate</ThemedText>
+                            )}
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.dropButton, styles.actionRowButton, !canTransact && styles.buttonDisabled]}
+                            onPress={() => {
+                              Alert.alert(
+                                'Drop Player',
+                                `Are you sure you want to drop ${player.name}?`,
+                                [
+                                  { text: 'Cancel', style: 'cancel' },
+                                  { text: 'Drop', style: 'destructive', onPress: () => handleDropPlayer() },
+                                ]
+                              );
+                            }}
+                            disabled={!canTransact}
+                          >
+                            <ThemedText style={styles.actionButtonText}>Drop</ThemedText>
+                          </TouchableOpacity>
+                        </View>
                       ) : (
-                        <ThemedText style={styles.actionButtonText}>Drop Player</ThemedText>
-                      )}
-                    </TouchableOpacity>
-                  ) : (
-                    <TouchableOpacity
-                      style={[styles.addButton, !canAdd && styles.buttonDisabled]}
-                      onPress={handleAddPlayer}
-                      disabled={!canAdd}
-                    >
-                      {isProcessing ? (
-                        <ActivityIndicator size="small" color="#fff" />
-                      ) : (
-                        <ThemedText style={styles.actionButtonText}>
-                          {rosterIsFull ? 'Roster Full' : 'Add Player'}
-                        </ThemedText>
-                      )}
-                    </TouchableOpacity>
-                  )}
-                  {hasActiveDraft && (
-                    <ThemedText style={[styles.draftWarning, { color: c.secondaryText }]}>
-                      Roster moves are locked during the draft.
+                        // Player is active: show Drop + optionally Move to IR
+                        <View style={canMoveToIR ? styles.actionRow : undefined}>
+                          <TouchableOpacity
+                            style={[
+                              styles.dropButton,
+                              canMoveToIR && styles.actionRowButton,
+                              !canTransact && styles.buttonDisabled,
+                            ]}
+                            onPress={() => {
+                              Alert.alert(
+                                'Drop Player',
+                                `Are you sure you want to drop ${player.name}?`,
+                                [
+                                  { text: 'Cancel', style: 'cancel' },
+                                  { text: 'Drop', style: 'destructive', onPress: () => handleDropPlayer() },
+                                ]
+                              );
+                            }}
+                            disabled={!canTransact}
+                          >
+                            {isProcessing ? (
+                              <ActivityIndicator size="small" color="#fff" />
+                            ) : (
+                              <ThemedText style={styles.actionButtonText}>Drop Player</ThemedText>
+                            )}
+                          </TouchableOpacity>
+                          {canMoveToIR && (
+                            <TouchableOpacity
+                              style={[styles.irButton, styles.actionRowButton, !canTransact && styles.buttonDisabled]}
+                              onPress={handleMoveToIR}
+                              disabled={!canTransact}
+                            >
+                              <ThemedText style={styles.actionButtonText}>Move to IR</ThemedText>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      )
+                    ) : (
+                      <TouchableOpacity
+                        style={[styles.addButton, !canAdd && styles.buttonDisabled]}
+                        onPress={handleAddPlayer}
+                        disabled={!canAdd}
+                      >
+                        {isProcessing ? (
+                          <ActivityIndicator size="small" color="#fff" />
+                        ) : (
+                          <ThemedText style={styles.actionButtonText}>
+                            {rosterIsFull ? 'Add / Drop' : 'Add Player'}
+                          </ThemedText>
+                        )}
+                      </TouchableOpacity>
+                    )}
+                    {hasActiveDraft && (
+                      <ThemedText style={[styles.draftWarning, { color: c.secondaryText }]}>
+                        Roster moves are locked during the draft.
+                      </ThemedText>
+                    )}
+                  </View>
+                )}
+
+                {/* Fantasy Points Summary */}
+                {avgFpts !== null && (
+                  <View style={[styles.fptsSection, { backgroundColor: c.activeCard, borderColor: c.activeBorder }]}>
+                    <ThemedText style={[styles.fptsLabel, { color: c.secondaryText }]}>
+                      Avg Fantasy Points
                     </ThemedText>
-                  )}
-                </View>
-              )}
+                    <ThemedText style={[styles.fptsValue, { color: c.activeText }]}>
+                      {avgFpts}
+                    </ThemedText>
+                  </View>
+                )}
 
-              {/* Fantasy Points Summary */}
-              {avgFpts !== null && (
-                <View style={[styles.fptsSection, { backgroundColor: c.activeCard, borderColor: c.activeBorder }]}>
-                  <ThemedText style={[styles.fptsLabel, { color: c.secondaryText }]}>
-                    Avg Fantasy Points
+                {/* Season Averages */}
+                <View style={styles.section}>
+                  <ThemedText type="subtitle" style={styles.sectionTitle}>
+                    Season Averages
                   </ThemedText>
-                  <ThemedText style={[styles.fptsValue, { color: c.activeText }]}>
-                    {avgFpts}
+                  <View style={[styles.statsGrid, { backgroundColor: c.card }]}>
+                    <StatBox label="PPG" value={String(player.avg_pts)} color={c.secondaryText} />
+                    <StatBox label="RPG" value={String(player.avg_reb)} color={c.secondaryText} />
+                    <StatBox label="APG" value={String(player.avg_ast)} color={c.secondaryText} />
+                    <StatBox label="SPG" value={String(player.avg_stl)} color={c.secondaryText} />
+                    <StatBox label="BPG" value={String(player.avg_blk)} color={c.secondaryText} />
+                    <StatBox label="TPG" value={String(player.avg_tov)} color={c.secondaryText} />
+                    <StatBox label="FG%" value={`${fgPct}%`} color={c.secondaryText} />
+                    <StatBox label="3P%" value={`${threePct}%`} color={c.secondaryText} />
+                    <StatBox label="FT%" value={`${ftPct}%`} color={c.secondaryText} />
+                    <StatBox label="MPG" value={String(player.avg_min)} color={c.secondaryText} />
+                  </View>
+                </View>
+
+                {/* Game Log Header */}
+                <View style={styles.section}>
+                  <ThemedText type="subtitle" style={styles.sectionTitle}>
+                    Game Log
                   </ThemedText>
+                  <View style={[styles.gameRow, styles.gameHeader, { borderBottomColor: c.border }]}>
+                    <ThemedText style={[styles.gameCell, styles.gameCellWide, styles.gameHeaderText, { color: c.secondaryText }]}>
+                      GAME
+                    </ThemedText>
+                    <ThemedText style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}>PTS</ThemedText>
+                    <ThemedText style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}>REB</ThemedText>
+                    <ThemedText style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}>AST</ThemedText>
+                    <ThemedText style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}>STL</ThemedText>
+                    <ThemedText style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}>BLK</ThemedText>
+                    <ThemedText style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}>TO</ThemedText>
+                    {scoringWeights && (
+                      <ThemedText style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}>FPTS</ThemedText>
+                    )}
+                  </View>
                 </View>
-              )}
 
-              {/* Season Averages */}
-              <View style={styles.section}>
-                <ThemedText type="subtitle" style={styles.sectionTitle}>
-                  Season Averages
-                </ThemedText>
-                <View style={[styles.statsGrid, { backgroundColor: c.card }]}>
-                  <StatBox label="PPG" value={String(player.avg_pts)} color={c.secondaryText} />
-                  <StatBox label="RPG" value={String(player.avg_reb)} color={c.secondaryText} />
-                  <StatBox label="APG" value={String(player.avg_ast)} color={c.secondaryText} />
-                  <StatBox label="SPG" value={String(player.avg_stl)} color={c.secondaryText} />
-                  <StatBox label="BPG" value={String(player.avg_blk)} color={c.secondaryText} />
-                  <StatBox label="TPG" value={String(player.avg_tov)} color={c.secondaryText} />
-                  <StatBox label="FG%" value={`${fgPct}%`} color={c.secondaryText} />
-                  <StatBox label="3P%" value={`${threePct}%`} color={c.secondaryText} />
-                  <StatBox label="FT%" value={`${ftPct}%`} color={c.secondaryText} />
-                  <StatBox label="MPG" value={String(player.avg_min)} color={c.secondaryText} />
-                </View>
-              </View>
-
-              {/* Game Log Header */}
-              <View style={styles.section}>
-                <ThemedText type="subtitle" style={styles.sectionTitle}>
-                  Game Log
-                </ThemedText>
-                <View style={[styles.gameRow, styles.gameHeader, { borderBottomColor: c.border }]}>
-                  <ThemedText style={[styles.gameCell, styles.gameCellWide, styles.gameHeaderText, { color: c.secondaryText }]}>
-                    GAME
-                  </ThemedText>
-                  <ThemedText style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}>PTS</ThemedText>
-                  <ThemedText style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}>REB</ThemedText>
-                  <ThemedText style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}>AST</ThemedText>
-                  <ThemedText style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}>STL</ThemedText>
-                  <ThemedText style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}>BLK</ThemedText>
-                  <ThemedText style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}>TO</ThemedText>
-                  {scoringWeights && (
-                    <ThemedText style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}>FPTS</ThemedText>
-                  )}
-                </View>
-              </View>
-
-              {isLoadingGameLog && <ActivityIndicator style={styles.loading} />}
-            </>
-          }
-        />
-      </SafeAreaView>
+                {isLoadingGameLog && <ActivityIndicator style={styles.loading} />}
+              </>
+            }
+          />
+        </Animated.View>
+      </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  overlay: {
     flex: 1,
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
+    maxHeight: '92%',
+    overflow: 'hidden',
+    paddingBottom: 32,
   },
   header: {
     flexDirection: 'row',
@@ -533,6 +730,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 2,
   },
+  outBadge: {
+    fontWeight: '700',
+  },
   closeButton: {
     padding: 8,
     marginTop: -4,
@@ -545,6 +745,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 16,
   },
+  actionRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  actionRowButton: {
+    flex: 1,
+  },
   addButton: {
     backgroundColor: '#28a745',
     paddingVertical: 12,
@@ -553,6 +760,18 @@ const styles = StyleSheet.create({
   },
   dropButton: {
     backgroundColor: '#dc3545',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  irButton: {
+    backgroundColor: '#e67e22',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  activateButton: {
+    backgroundColor: '#28a745',
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: 'center',

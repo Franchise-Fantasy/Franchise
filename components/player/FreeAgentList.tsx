@@ -1,17 +1,24 @@
-import { PlayerCard } from '@/components/player/PlayerCard';
-import { PlayerDetailModal } from '@/components/player/PlayerDetailModal';
-import { PlayerFilterBar } from '@/components/player/PlayerFilterBar';
-import { ThemedText } from '@/components/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { useLeagueScoring } from '@/hooks/useLeagueScoring';
-import { usePlayerFilter } from '@/hooks/usePlayerFilter';
-import { supabase } from '@/lib/supabase';
-import { PlayerSeasonStats } from '@/types/player';
-import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { PlayerCard } from "@/components/player/PlayerCard";
+import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
+import { PlayerFilterBar } from "@/components/player/PlayerFilterBar";
+import { ThemedText } from "@/components/ThemedText";
+import { Colors } from "@/constants/Colors";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import { useLeagueScoring } from "@/hooks/useLeagueScoring";
+import { usePlayerFilter } from "@/hooks/usePlayerFilter";
+import { supabase } from "@/lib/supabase";
+import { PlayerSeasonStats } from "@/types/player";
+import { calculateAvgFantasyPoints } from "@/utils/fantasyPoints";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
 interface FreeAgentListProps {
   leagueId: string;
@@ -19,23 +26,25 @@ interface FreeAgentListProps {
 }
 
 export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
-  const scheme = useColorScheme() ?? 'light';
+  const scheme = useColorScheme() ?? "light";
   const c = Colors[scheme];
   const queryClient = useQueryClient();
-  const [selectedPlayer, setSelectedPlayer] = useState<PlayerSeasonStats | null>(null);
+  const [selectedPlayer, setSelectedPlayer] =
+    useState<PlayerSeasonStats | null>(null);
+  const [openAsDropPicker, setOpenAsDropPicker] = useState(false);
   const [addingPlayerId, setAddingPlayerId] = useState<string | null>(null);
 
   const { data: scoringWeights } = useLeagueScoring(leagueId);
 
   // Check if there's an active (non-completed) draft — block adds until draft is over
   const { data: hasActiveDraft } = useQuery({
-    queryKey: ['hasActiveDraft', leagueId],
+    queryKey: ["hasActiveDraft", leagueId],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('drafts')
-        .select('id')
-        .eq('league_id', leagueId)
-        .neq('status', 'complete')
+        .from("drafts")
+        .select("id")
+        .eq("league_id", leagueId)
+        .neq("status", "complete")
         .limit(1);
 
       if (error) throw error;
@@ -47,49 +56,68 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   const draftInProgress = hasActiveDraft ?? true; // default to locked until we know
 
   const { data: rosterInfo } = useQuery({
-    queryKey: ['rosterInfo', leagueId, teamId],
+    queryKey: ["rosterInfo", leagueId, teamId],
     queryFn: async () => {
-      const [rosterCountRes, leagueRes] = await Promise.all([
+      const [allPlayersRes, irPlayersRes, leagueRes] = await Promise.all([
         supabase
-          .from('league_players')
-          .select('id', { count: 'exact', head: true })
-          .eq('league_id', leagueId)
-          .eq('team_id', teamId),
-        supabase.from('leagues').select('roster_size').eq('id', leagueId).single(),
+          .from("league_players")
+          .select("id", { count: "exact", head: true })
+          .eq("league_id", leagueId)
+          .eq("team_id", teamId),
+        supabase
+          .from("league_players")
+          .select("id", { count: "exact", head: true })
+          .eq("league_id", leagueId)
+          .eq("team_id", teamId)
+          .eq("roster_slot", "IR"),
+        supabase
+          .from("leagues")
+          .select("roster_size")
+          .eq("id", leagueId)
+          .single(),
       ]);
-      if (rosterCountRes.error) throw rosterCountRes.error;
+      if (allPlayersRes.error) throw allPlayersRes.error;
+      if (irPlayersRes.error) throw irPlayersRes.error;
       if (leagueRes.error) throw leagueRes.error;
+      const activeCount =
+        (allPlayersRes.count ?? 0) - (irPlayersRes.count ?? 0);
       return {
-        currentCount: rosterCountRes.count ?? 0,
+        activeCount,
         maxSize: leagueRes.data?.roster_size ?? 13,
       };
     },
     enabled: !!leagueId && !!teamId,
   });
 
-  const rosterIsFull = rosterInfo ? rosterInfo.currentCount >= rosterInfo.maxSize : false;
+  const rosterIsFull = rosterInfo
+    ? rosterInfo.activeCount >= rosterInfo.maxSize
+    : false;
 
   const { data: freeAgents, isLoading } = useQuery<PlayerSeasonStats[]>({
-
-    queryKey: ['freeAgents', leagueId],
+    queryKey: ["freeAgents", leagueId],
     queryFn: async () => {
       // Get all rostered player IDs in this league
       const { data: rosteredPlayers, error: rpError } = await supabase
-        .from('league_players')
-        .select('player_id')
-        .eq('league_id', leagueId);
+        .from("league_players")
+        .select("player_id")
+        .eq("league_id", leagueId);
 
       if (rpError) throw rpError;
-      const rosteredIds = rosteredPlayers?.map(p => String(p.player_id)) || [];
+      const rosteredIds =
+        rosteredPlayers?.map((p) => String(p.player_id)) || [];
 
       let query = supabase
-        .from('player_season_stats')
-        .select('*')
-        .gt('games_played', 0)
-        .order('avg_pts', { ascending: false });
+        .from("player_season_stats")
+        .select("*")
+        .gt("games_played", 0)
+        .order("avg_pts", { ascending: false });
 
       if (rosteredIds.length > 0) {
-        query = query.filter('player_id', 'not.in', `(${rosteredIds.join(',')})`);
+        query = query.filter(
+          "player_id",
+          "not.in",
+          `(${rosteredIds.join(",")})`,
+        );
       }
 
       const { data, error } = await query;
@@ -99,17 +127,20 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     enabled: !!leagueId,
   });
 
-  const { filteredPlayers, filterBarProps } = usePlayerFilter(freeAgents, scoringWeights);
+  const { filteredPlayers, filterBarProps } = usePlayerFilter(
+    freeAgents,
+    scoringWeights,
+  );
 
   const handleAddPlayer = async (player: PlayerSeasonStats) => {
     setAddingPlayerId(player.player_id);
     try {
       // Add to league_players
-      const { error: lpError } = await supabase.from('league_players').insert({
+      const { error: lpError } = await supabase.from("league_players").insert({
         league_id: leagueId,
         player_id: player.player_id,
         team_id: teamId,
-        acquired_via: 'free_agent',
+        acquired_via: "free_agent",
         acquired_at: new Date().toISOString(),
         position: player.position,
       });
@@ -118,28 +149,28 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
       // Record the transaction
       const { data: txn, error: txnError } = await supabase
-        .from('league_transactions')
+        .from("league_transactions")
         .insert({
           league_id: leagueId,
-          type: 'waiver',
+          type: "waiver",
           notes: `Added ${player.name} from free agency`,
         })
-        .select('id')
+        .select("id")
         .single();
 
       if (txnError) throw txnError;
 
-      await supabase.from('league_transaction_items').insert({
+      await supabase.from("league_transaction_items").insert({
         transaction_id: txn.id,
         player_id: player.player_id,
         team_to_id: teamId,
       });
 
       // Refresh lists
-      queryClient.invalidateQueries({ queryKey: ['freeAgents', leagueId] });
-      queryClient.invalidateQueries({ queryKey: ['teamRoster', teamId] });
+      queryClient.invalidateQueries({ queryKey: ["freeAgents", leagueId] });
+      queryClient.invalidateQueries({ queryKey: ["teamRoster", teamId] });
     } catch (err: any) {
-      Alert.alert('Error', err.message ?? 'Failed to add player');
+      Alert.alert("Error", err.message ?? "Failed to add player");
     } finally {
       setAddingPlayerId(null);
     }
@@ -158,13 +189,21 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         onPress={() => setSelectedPlayer(item)}
         rightElement={
           <TouchableOpacity
-            style={[styles.addButton, (isAdding || draftInProgress || rosterIsFull) && styles.addButtonDisabled]}
-            onPress={() => handleAddPlayer(item)}
-            disabled={isAdding || draftInProgress || rosterIsFull}
+            style={[
+              styles.addButton,
+              (isAdding || draftInProgress) && styles.addButtonDisabled,
+            ]}
+            onPress={() => {
+              if (rosterIsFull) {
+                setOpenAsDropPicker(true);
+                setSelectedPlayer(item);
+              } else {
+                handleAddPlayer(item);
+              }
+            }}
+            disabled={isAdding || draftInProgress}
           >
-            <ThemedText style={styles.addButtonText}>
-              {isAdding ? '...' : rosterIsFull ? 'Full' : 'Add'}
-            </ThemedText>
+            <ThemedText style={styles.addButtonText}>+</ThemedText>
           </TouchableOpacity>
         }
       />
@@ -192,7 +231,11 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         player={selectedPlayer}
         leagueId={leagueId}
         teamId={teamId}
-        onClose={() => setSelectedPlayer(null)}
+        onClose={() => {
+          setSelectedPlayer(null);
+          setOpenAsDropPicker(false);
+        }}
+        startInDropPicker={openAsDropPicker}
       />
     </View>
   );
@@ -207,22 +250,22 @@ const styles = StyleSheet.create({
   },
   loading: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   addButton: {
-    backgroundColor: '#28a745',
+    backgroundColor: "#28a745",
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 4,
     marginLeft: 8,
   },
   addButtonText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 12,
-    fontWeight: 'bold',
+    fontWeight: "bold",
   },
   addButtonDisabled: {
-    backgroundColor: '#ccc',
+    backgroundColor: "#ccc",
   },
 });

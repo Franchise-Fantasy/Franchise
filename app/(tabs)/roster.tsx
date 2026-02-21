@@ -101,18 +101,23 @@ export default function RosterScreen() {
   //   }, [teamId, queryClient]),
   // );
 
-  // Build slot entries from roster config
-  // Non-bench slots render their configured count.
-  // Bench expands to hold any players without a non-bench slot assignment.
+  // Build slot entries from roster config.
+  // Non-bench/non-IR slots render their configured count.
+  // Bench expands to hold any players without a valid slot assignment.
+  // IR is a separate section shown below bench.
   const slots: SlotEntry[] = [];
   const benchPlayers: RosterPlayer[] = [];
+  const irSlots: SlotEntry[] = [];
 
   if (rosterConfig && rosterPlayers) {
     const benchConfig = rosterConfig.find((c) => c.position === "BE");
-    const nonBenchConfigs = rosterConfig.filter((c) => c.position !== "BE");
+    const irConfig = rosterConfig.find((c) => c.position === "IR");
+    const activeConfigs = rosterConfig.filter(
+      (c) => c.position !== "BE" && c.position !== "IR",
+    );
 
-    // Build non-bench slots
-    for (const config of nonBenchConfigs) {
+    // Build active starter slots
+    for (const config of activeConfigs) {
       const playersInSlot = rosterPlayers.filter(
         (p) => p.roster_slot === config.position,
       );
@@ -125,19 +130,20 @@ export default function RosterScreen() {
       }
     }
 
-    // Collect bench players: anyone with roster_slot='BE', null, or an invalid slot
-    const validNonBenchSlots = new Set(nonBenchConfigs.map((c) => c.position));
+    // Collect bench players: anyone with roster_slot='BE', null, or an invalid slot (excluding IR)
+    const validActiveSlots = new Set(activeConfigs.map((c) => c.position));
     for (const player of rosterPlayers) {
+      if (player.roster_slot === "IR") continue; // handled separately
       if (
         !player.roster_slot ||
         player.roster_slot === "BE" ||
-        !validNonBenchSlots.has(player.roster_slot)
+        !validActiveSlots.has(player.roster_slot)
       ) {
         benchPlayers.push(player);
         continue;
       }
-      // Also overflow to bench if too many players in that slot
-      const config = nonBenchConfigs.find(
+      // Overflow to bench if too many players in that slot
+      const config = activeConfigs.find(
         (c) => c.position === player.roster_slot,
       );
       if (config) {
@@ -151,7 +157,7 @@ export default function RosterScreen() {
       }
     }
 
-    // Build bench slots — at least the configured count, expanding if more players are on bench
+    // Build bench slots
     const benchSlotCount = Math.max(
       benchConfig?.slot_count ?? 0,
       benchPlayers.length,
@@ -163,27 +169,48 @@ export default function RosterScreen() {
         player: benchPlayers[i] ?? null,
       });
     }
+
+    // Build IR slots
+    if (irConfig && irConfig.slot_count > 0) {
+      const irPlayers = rosterPlayers.filter((p) => p.roster_slot === "IR");
+      const irSlotCount = Math.max(irConfig.slot_count, irPlayers.length);
+      for (let i = 0; i < irSlotCount; i++) {
+        irSlots.push({
+          slotPosition: "IR",
+          slotIndex: i,
+          player: irPlayers[i] ?? null,
+        });
+      }
+    }
   }
 
   // Get eligible players for the slot picker.
   // Starter slots show bench players. Bench slots show starters (for swapping).
+  // IR slots show bench/active players with OUT status only.
+  // Bench slots also show IR players (for activating off IR).
   const getEligiblePlayersForSlot = (slotPosition: string): RosterPlayer[] => {
     if (!rosterPlayers) return [];
+    const isIRSlot = slotPosition === "IR";
     const isBenchSlot = slotPosition === "BE";
 
     return rosterPlayers.filter((p) => {
-      // The player currently in this slot is handled separately in the picker header
       if (activeSlot?.player?.player_id === p.player_id) return false;
 
+      if (isIRSlot) {
+        // IR slot: only OUT players who are not already on IR
+        return p.status === "OUT" && p.roster_slot !== "IR";
+      }
+
       if (isBenchSlot) {
-        // Bench slot: show starters (for swapping)
+        // Bench slot: show starters (for swapping) and IR players (for activating)
         const isOnBench = !p.roster_slot || p.roster_slot === "BE";
         return !isOnBench;
       }
 
-      // Starter slot: must be position-eligible, and must be on bench
+      // Starter slot: must be position-eligible and on bench (not IR)
       if (!isEligibleForSlot(p.position, slotPosition)) return false;
-      const isOnBench = !p.roster_slot || p.roster_slot === "BE";
+      const isOnBench =
+        !p.roster_slot || p.roster_slot === "BE";
       return isOnBench;
     });
   };
@@ -193,11 +220,41 @@ export default function RosterScreen() {
 
     setIsAssigning(true);
     try {
+      const isIRSlot = activeSlot.slotPosition === "IR";
       const isBenchSlot = activeSlot.slotPosition === "BE";
+      const selectedIsOnIR = player.roster_slot === "IR";
       const selectedIsStarter =
-        player.roster_slot && player.roster_slot !== "BE";
+        player.roster_slot && player.roster_slot !== "BE" && !selectedIsOnIR;
 
-      if (isBenchSlot && selectedIsStarter && activeSlot.player) {
+      if (isIRSlot) {
+        // Moving a player onto IR: displace current IR occupant to bench
+        if (activeSlot.player) {
+          const { error: clearError } = await supabase
+            .from("league_players")
+            .update({ roster_slot: "BE" })
+            .eq("league_id", leagueId)
+            .eq("team_id", teamId)
+            .eq("player_id", activeSlot.player.player_id);
+          if (clearError) throw clearError;
+        }
+        const { error } = await supabase
+          .from("league_players")
+          .update({ roster_slot: "IR" })
+          .eq("league_id", leagueId)
+          .eq("team_id", teamId)
+          .eq("player_id", player.player_id);
+        if (error) throw error;
+      } else if (isBenchSlot && selectedIsOnIR) {
+        // Activating a player from IR to bench
+        const { error } = await supabase
+          .from("league_players")
+          .update({ roster_slot: "BE" })
+          .eq("league_id", leagueId)
+          .eq("team_id", teamId)
+          .eq("player_id", player.player_id);
+        if (error) throw error;
+        // Displace the current bench occupant (stays on bench — it's just a display reorder)
+      } else if (isBenchSlot && selectedIsStarter && activeSlot.player) {
         const starterSlot = player.roster_slot!;
         const benchPlayerEligible = isEligibleForSlot(
           activeSlot.player.position,
@@ -223,7 +280,6 @@ export default function RosterScreen() {
             .eq("player_id", activeSlot.player.player_id);
           if (e1) throw e1;
         }
-        // If not eligible, bench player stays on bench (extra bench slot)
       } else {
         // Standard assign: displaced player goes to bench
         if (activeSlot.player) {
@@ -301,7 +357,7 @@ export default function RosterScreen() {
   const starterSlots = slots.filter((s) => s.slotPosition !== "BE");
   const benchSlots = slots.filter((s) => s.slotPosition === "BE");
 
-  // Total projected FPTS from starters only
+  // Total projected FPTS from starters only (IR players are excluded)
   const starterTotal = scoringWeights
     ? starterSlots.reduce((sum, slot) => {
         if (!slot.player) return sum;
@@ -468,6 +524,18 @@ export default function RosterScreen() {
             )}
           </View>
         </View>
+
+        {/* IR */}
+        {irSlots.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <ThemedText type="subtitle">Injured Reserve</ThemedText>
+            </View>
+            <View style={[styles.card, { backgroundColor: c.card }]}>
+              {irSlots.map((slot, idx) => renderSlotRow(slot, idx, irSlots))}
+            </View>
+          </View>
+        )}
       </ScrollView>
 
       {/* Slot Picker Modal */}
@@ -563,8 +631,8 @@ function SlotPickerModal({
     (p) => p.player_id !== slot.player?.player_id,
   );
 
-  // Only show differentials for starter slots (bench swaps don't affect total FPTS)
-  const isStarterSlot = slot.slotPosition !== "BE";
+  // Only show differentials for starter slots (bench/IR swaps don't affect total FPTS)
+  const isStarterSlot = slot.slotPosition !== "BE" && slot.slotPosition !== "IR";
   const currentFpts =
     isStarterSlot && slot.player && scoringWeights
       ? calculateAvgFantasyPoints(slot.player, scoringWeights)
@@ -627,7 +695,7 @@ function SlotPickerModal({
                       {slot.player.nba_team}
                     </ThemedText>
                   </View>
-                  {isStarterSlot && (
+                  {(isStarterSlot || slot.slotPosition === "IR") && (
                     <TouchableOpacity
                       style={[styles.clearButton, { borderColor: c.border }]}
                       onPress={onClear}
@@ -639,7 +707,7 @@ function SlotPickerModal({
                           fontWeight: "600",
                         }}
                       >
-                        Bench
+                        {slot.slotPosition === "IR" ? "Activate" : "Bench"}
                       </ThemedText>
                     </TouchableOpacity>
                   )}
@@ -650,7 +718,9 @@ function SlotPickerModal({
               {listData.length === 0 && !slot.player && (
                 <View style={{ padding: 20, alignItems: "center" }}>
                   <ThemedText style={{ color: c.secondaryText }}>
-                    No eligible players available
+                    {slot.slotPosition === "IR"
+                      ? "No players with OUT designation on your roster"
+                      : "No eligible players available"}
                   </ThemedText>
                 </View>
               )}

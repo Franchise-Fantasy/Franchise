@@ -50,6 +50,26 @@ export const AppStateProvider = ({ children }: { children: React.ReactNode }) =>
     setState(s => ({ ...s, loading: true }));
 
     const fetchTeam = async () => {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('favorite_league_id')
+        .eq('id', session.user.id)
+        .maybeSingle();
+
+      if (profile?.favorite_league_id) {
+        const { data: favTeam } = await supabase
+          .from('teams')
+          .select('id, league_id')
+          .eq('user_id', session.user.id)
+          .eq('league_id', profile.favorite_league_id)
+          .maybeSingle();
+
+        if (favTeam) {
+          setState({ teamId: favTeam.id, leagueId: favTeam.league_id, loading: false });
+          return;
+        }
+      }
+
       const { data } = await supabase
         .from('teams')
         .select('id, league_id')

@@ -13,6 +13,7 @@ export const SLOT_ELIGIBILITY: Record<string, string[]> = {
   F: ['Forward', 'Guard-Forward', 'Forward-Center'],
   UTIL: ALL_POSITIONS,
   BE: ALL_POSITIONS,
+  IR: ALL_POSITIONS,
 };
 
 export const SLOT_LABELS: Record<string, string> = {
@@ -25,6 +26,7 @@ export const SLOT_LABELS: Record<string, string> = {
   F: 'F',
   UTIL: 'UTIL',
   BE: 'BE',
+  IR: 'IR',
 };
 
 /** Returns true if a player with the given NBA position can fill the given slot. */

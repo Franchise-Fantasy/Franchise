@@ -1,4 +1,3 @@
-import { ThemedText } from "@/components/ThemedText";
 import { Colors } from "@/constants/Colors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { Ionicons } from "@expo/vector-icons";
@@ -43,7 +42,7 @@ export default function LoadingScreen() {
             useNativeDriver: true,
           }),
         ]),
-      ])
+      ]),
     ).start();
   }, []);
 
@@ -54,9 +53,6 @@ export default function LoadingScreen() {
           <Ionicons name="basketball-outline" size={40} color={c.accentText} />
         </View>
       </Animated.View>
-      <ThemedText type="title" style={styles.title}>
-        Franchise
-      </ThemedText>
     </View>
   );
 }
