@@ -26,6 +26,7 @@ const MAPPING = {
   'person.3.fill': 'groups',
   'person.crop.circle': 'account-circle',
   'person.badge.plus': 'person-add',
+  'trophy.fill': 'emoji-events',
 } as IconMapping;
 
 /**

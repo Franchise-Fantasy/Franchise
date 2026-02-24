@@ -1,7 +1,11 @@
+import { LotteryOddsEditor } from '@/components/create-league/LotteryOddsEditor';
 import { ThemedText } from '@/components/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
+import { Colors } from '@/constants/Colors';
 import { DRAFT_TYPE_OPTIONS, LeagueWizardState, ROOKIE_DRAFT_ORDER_OPTIONS, TIME_PER_PICK_OPTIONS } from '@/constants/LeagueDefaults';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/lottery';
 import { StyleSheet, View } from 'react-native';
 
 interface StepDraftProps {
@@ -10,7 +14,12 @@ interface StepDraftProps {
 }
 
 export function StepDraft({ state, onChange }: StepDraftProps) {
+  const scheme = useColorScheme() ?? 'light';
+  const c = Colors[scheme];
   const timeLabels = TIME_PER_PICK_OPTIONS.map((t) => `${t}s`);
+
+  const lotteryTeams = calcLotteryPoolSize(state.teams, state.playoffTeams);
+  const effectiveOdds = state.lotteryOdds ?? generateDefaultOdds(lotteryTeams);
 
   return (
     <View style={styles.container}>
@@ -66,15 +75,41 @@ export function StepDraft({ state, onChange }: StepDraftProps) {
       </View>
 
       {state.rookieDraftOrder === 'Lottery' && (
-        <View style={styles.section}>
-          <NumberStepper
-            label="Lottery Picks"
-            value={state.lotteryPicks}
-            onValueChange={(v) => onChange('lotteryPicks', v)}
-            min={1}
-            max={state.teams}
-          />
-        </View>
+        <>
+          {lotteryTeams <= 0 ? (
+            <View style={[styles.warningBox, { backgroundColor: '#fee2e2', borderColor: '#ef4444' }]}>
+              <ThemedText style={[styles.warningText, { color: '#b91c1c' }]}>
+                All teams make the playoffs — no lottery pool. Adjust playoff teams in Season settings.
+              </ThemedText>
+            </View>
+          ) : (
+            <>
+              <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
+                {lotteryTeams} non-playoff team{lotteryTeams !== 1 ? 's' : ''} enter the lottery.
+                The top {Math.min(state.lotteryDraws, lotteryTeams)} pick{Math.min(state.lotteryDraws, lotteryTeams) !== 1 ? 's are' : ' is'} drawn
+                randomly; the rest slot in by reverse record.
+              </ThemedText>
+
+              <View style={styles.section}>
+                <NumberStepper
+                  label="Lottery Draws"
+                  value={state.lotteryDraws}
+                  onValueChange={(v) => onChange('lotteryDraws', v)}
+                  min={1}
+                  max={lotteryTeams}
+                />
+              </View>
+
+              <View style={styles.section}>
+                <LotteryOddsEditor
+                  odds={effectiveOdds}
+                  onChange={(odds) => onChange('lotteryOdds', odds)}
+                  lotteryTeams={lotteryTeams}
+                />
+              </View>
+            </>
+          )}
+        </>
       )}
     </View>
   );
@@ -94,5 +129,19 @@ const styles = StyleSheet.create({
   },
   section: {
     marginBottom: 20,
+  },
+  hint: {
+    fontSize: 13,
+    marginBottom: 12,
+    lineHeight: 18,
+  },
+  warningBox: {
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 20,
+  },
+  warningText: {
+    fontSize: 13,
   },
 });

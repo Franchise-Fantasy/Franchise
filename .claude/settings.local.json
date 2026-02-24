@@ -20,7 +20,16 @@
       "WebFetch(domain:cdn.nba.com)",
       "Bash(grep:*)",
       "Bash(npx expo install:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "mcp__claude_ai_Supabase__search_docs",
+      "mcp__claude_ai_Supabase__list_migrations",
+      "mcp__claude_ai_Supabase__get_advisors",
+      "WebFetch(domain:iuqbossmnsezzgocpcbo.supabase.co)",
+      "Bash(git -C \"c:/Users/jjspo/OneDrive/Desktop/franchise.v2\" log --all --oneline --grep=\"schedule\\\\|playoff\\\\|bracket\")",
+      "Bash(git -C \"c:/Users/jjspo/OneDrive/Desktop/franchise.v2\" show --name-only b2c0b2a)",
+      "Bash(git -C \"c:/Users/jjspo/OneDrive/Desktop/franchise.v2\" log --all --oneline)",
+      "Bash(git -C \"c:/Users/jjspo/OneDrive/Desktop/franchise.v2\" show cb9db6d:backend/)",
+      "mcp__claude_ai_Supabase__list_projects"
     ]
   }
 }

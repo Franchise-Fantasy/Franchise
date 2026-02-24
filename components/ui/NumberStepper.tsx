@@ -68,7 +68,7 @@ export function NumberStepper({
         </TouchableOpacity>
         {editing ? (
           <TextInput
-            style={[styles.value, styles.input, { color: c.text, borderColor: c.accent }]}
+            style={[styles.value, styles.valueBox, { color: c.text, borderColor: c.accent }]}
             value={draft}
             onChangeText={setDraft}
             onBlur={commitEdit}
@@ -78,7 +78,7 @@ export function NumberStepper({
             selectTextOnFocus
           />
         ) : (
-          <TouchableOpacity onPress={startEditing}>
+          <TouchableOpacity onPress={startEditing} style={[styles.valueBox, { borderColor: c.border }]}>
             <Text style={[styles.value, { color: c.text }]}>
               {displayValue}{suffix ?? ''}
             </Text>
@@ -127,13 +127,14 @@ const styles = StyleSheet.create({
   value: {
     fontSize: 16,
     fontWeight: '600',
-    minWidth: 40,
     textAlign: 'center',
   },
-  input: {
+  valueBox: {
+    width: 52,
+    height: 32,
     borderWidth: 1,
     borderRadius: 6,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

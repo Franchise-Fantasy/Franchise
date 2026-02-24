@@ -1,12 +1,15 @@
 import { ThemedText } from '@/components/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
+import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Colors } from '@/constants/Colors';
 import {
   CURRENT_NBA_SEASON,
   LeagueWizardState,
   NBA_SEASON_END,
+  PLAYOFF_SEEDING_OPTIONS,
 } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { calcLotteryPoolSize, getPlayoffTeamOptions } from '@/utils/lottery';
 import { StyleSheet, View } from 'react-native';
 
 interface StepSeasonProps {
@@ -130,6 +133,72 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
         />
       </View>
 
+      <View style={styles.section}>
+        <ThemedText style={styles.label}>Playoff Teams</ThemedText>
+        {(() => {
+          const options = getPlayoffTeamOptions(state.playoffWeeks, state.teams);
+          const labels = options.map(String);
+          const selectedIdx = options.indexOf(state.playoffTeams);
+          return (
+            <SegmentedControl
+              options={labels}
+              selectedIndex={selectedIdx === -1 ? labels.length - 1 : selectedIdx}
+              onSelect={(i) => onChange('playoffTeams', options[i])}
+            />
+          );
+        })()}
+        {(() => {
+          const lotteryPool = calcLotteryPoolSize(state.teams, state.playoffTeams);
+          if (lotteryPool > 0) {
+            return (
+              <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
+                {lotteryPool} non-playoff team{lotteryPool !== 1 ? 's' : ''} in the lottery pool
+              </ThemedText>
+            );
+          }
+          return null;
+        })()}
+      </View>
+
+      {/* Playoff Seeding Format */}
+      <View style={styles.section}>
+        <ThemedText style={styles.label}>Playoff Seeding Format</ThemedText>
+        <SegmentedControl
+          options={[...PLAYOFF_SEEDING_OPTIONS]}
+          selectedIndex={PLAYOFF_SEEDING_OPTIONS.indexOf(state.playoffSeedingFormat)}
+          onSelect={(i) => {
+            onChange('playoffSeedingFormat', PLAYOFF_SEEDING_OPTIONS[i]);
+            if (PLAYOFF_SEEDING_OPTIONS[i] === 'Fixed Bracket') {
+              onChange('reseedEachRound', false);
+            }
+          }}
+        />
+        <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
+          {state.playoffSeedingFormat === 'Standard'
+            ? 'Highest remaining seed plays lowest remaining seed each round.'
+            : state.playoffSeedingFormat === 'Fixed Bracket'
+              ? 'Traditional bracket halves: 1v8/4v5 one side, 2v7/3v6 the other.'
+              : 'After each round, higher seeds pick their next opponent.'}
+        </ThemedText>
+      </View>
+
+      {/* Reseed Toggle — only for Standard */}
+      {state.playoffSeedingFormat === 'Standard' && (
+        <View style={styles.section}>
+          <ThemedText style={styles.label}>Reseed Each Round</ThemedText>
+          <SegmentedControl
+            options={['Yes', 'No']}
+            selectedIndex={state.reseedEachRound ? 0 : 1}
+            onSelect={(i) => onChange('reseedEachRound', i === 0)}
+          />
+          <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
+            {state.reseedEachRound
+              ? 'After each round, remaining teams re-ranked so top seed always faces bottom seed.'
+              : 'Bracket positions fixed from initial seeding.'}
+          </ThemedText>
+        </View>
+      )}
+
       {/* Season preview card */}
       <View style={[styles.previewCard, { backgroundColor: c.card, borderColor: c.border }]}>
         <ThemedText type="defaultSemiBold" style={styles.previewTitle}>Season Preview</ThemedText>
@@ -181,6 +250,15 @@ const styles = StyleSheet.create({
   },
   section: {
     marginBottom: 20,
+  },
+  label: {
+    marginBottom: 8,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  hint: {
+    fontSize: 13,
+    marginTop: 6,
   },
   previewCard: {
     borderWidth: 1,

@@ -1,6 +1,6 @@
 import { ThemedText } from '@/components/ThemedText';
 import { Colors } from '@/constants/Colors';
-import { LeagueWizardState } from '@/constants/LeagueDefaults';
+import { LeagueWizardState, WAIVER_DAY_LABELS } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
@@ -54,7 +54,7 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
         <Row label="Rookie Draft Rounds" value={String(state.rookieDraftRounds)} c={c} />
         <Row label="Rookie Draft Order" value={state.rookieDraftOrder} c={c} />
         {state.rookieDraftOrder === 'Lottery' && (
-          <Row label="Lottery Picks" value={String(state.lotteryPicks)} c={c} />
+          <Row label="Lottery Draws" value={String(state.lotteryDraws)} c={c} />
         )}
       </View>
 
@@ -70,12 +70,32 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
         )}
       </View>
 
+      {/* Waivers */}
+      <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
+        <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Waiver Settings</ThemedText>
+        <Row label="Waiver Type" value={state.waiverType} c={c} />
+        {state.waiverType !== 'None' && (
+          <Row label="Waiver Period" value={`${state.waiverPeriodDays} days`} c={c} />
+        )}
+        {state.waiverType === 'FAAB' && (
+          <>
+            <Row label="Process Day" value={WAIVER_DAY_LABELS[state.waiverDayOfWeek]} c={c} />
+            <Row label="FAAB Budget" value={`$${state.faabBudget}`} c={c} />
+          </>
+        )}
+      </View>
+
       {/* Season */}
       <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
         <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Season</ThemedText>
         <Row label="NBA Season" value={state.season} c={c} />
         <Row label="Regular Season" value={`${state.regularSeasonWeeks} weeks`} c={c} />
         <Row label="Playoffs" value={`${state.playoffWeeks} weeks`} c={c} />
+        <Row label="Playoff Teams" value={String(state.playoffTeams)} c={c} />
+        <Row label="Seeding Format" value={state.playoffSeedingFormat} c={c} />
+        {state.playoffSeedingFormat === 'Standard' && (
+          <Row label="Reseed Each Round" value={state.reseedEachRound ? 'Yes' : 'No'} c={c} />
+        )}
       </View>
 
       <TouchableOpacity

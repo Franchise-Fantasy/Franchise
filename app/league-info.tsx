@@ -2,6 +2,7 @@ import { ThemedText } from '@/components/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Colors } from '@/constants/Colors';
+import { LotteryOddsEditor } from '@/components/create-league/LotteryOddsEditor';
 import {
   DEFAULT_ROSTER_SLOTS,
   DEFAULT_SCORING,
@@ -9,7 +10,13 @@ import {
   ROOKIE_DRAFT_ORDER_OPTIONS,
   TIME_PER_PICK_OPTIONS,
   TRADE_VETO_OPTIONS,
+  PLAYOFF_SEEDING_OPTIONS,
+  SEEDING_DISPLAY,
+  SEEDING_TO_DB,
+  WAIVER_DAY_LABELS,
+  WAIVER_TYPE_OPTIONS,
 } from '@/constants/LeagueDefaults';
+import { calcLotteryPoolSize, generateDefaultOdds, getPlayoffTeamOptions } from '@/utils/lottery';
 import { useAppState } from '@/context/AppStateProvider';
 import { useSession } from '@/context/AuthProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -46,11 +53,11 @@ function getLifecycle(draftStatus: string | undefined, scheduleGenerated: boolea
   return 'mid_season';
 }
 
-type SettingGroup = 'basics' | 'roster' | 'scoring' | 'draft' | 'trade' | 'season';
+type SettingGroup = 'basics' | 'roster' | 'scoring' | 'draft' | 'trade' | 'waivers' | 'season';
 
 function sectionEditable(group: SettingGroup, lifecycle: Lifecycle, isCommissioner: boolean): boolean {
   if (!isCommissioner || lifecycle === 'mid_draft') return false;
-  if (group === 'basics' || group === 'trade') return true;
+  if (group === 'basics' || group === 'trade' || group === 'waivers') return true;
   if (group === 'roster' || group === 'scoring') return lifecycle === 'pre_draft';
   if (group === 'draft') return lifecycle === 'pre_draft';
   if (group === 'season') return lifecycle !== 'mid_season';
@@ -63,6 +70,8 @@ const VETO_DISPLAY: Record<string, string> = { commissioner: 'Commissioner', lea
 const VETO_TO_DB: Record<string, string> = { Commissioner: 'commissioner', 'League Vote': 'league_vote', None: 'none' };
 const ORDER_DISPLAY: Record<string, string> = { reverse_record: 'Reverse Record', lottery: 'Lottery' };
 const ORDER_TO_DB: Record<string, string> = { 'Reverse Record': 'reverse_record', Lottery: 'lottery' };
+const WAIVER_DISPLAY: Record<string, string> = { standard: 'Standard', faab: 'FAAB', none: 'None' };
+const WAIVER_TO_DB: Record<string, string> = { Standard: 'standard', FAAB: 'faab', None: 'none' };
 const DRAFT_TYPE_DISPLAY = (v: string) => v.charAt(0).toUpperCase() + v.slice(1);
 
 function positionLabel(pos: string): string {
@@ -119,17 +128,27 @@ export default function LeagueInfoScreen() {
   const [editReviewHours, setEditReviewHours] = useState(24);
   const [editVotesToVeto, setEditVotesToVeto] = useState(4);
 
+  // Waiver edit state
+  const [editWaiverType, setEditWaiverType] = useState('Standard');
+  const [editWaiverPeriod, setEditWaiverPeriod] = useState(2);
+  const [editFaabBudget, setEditFaabBudget] = useState(100);
+  const [editWaiverDay, setEditWaiverDay] = useState(3);
+
   // Draft edit state
   const [editDraftType, setEditDraftType] = useState('Snake');
   const [editTimePick, setEditTimePick] = useState(90);
   const [editMaxYears, setEditMaxYears] = useState(3);
   const [editRookieRounds, setEditRookieRounds] = useState(2);
   const [editRookieOrder, setEditRookieOrder] = useState('Reverse Record');
-  const [editLotteryPicks, setEditLotteryPicks] = useState(1);
+  const [editLotteryDraws, setEditLotteryDraws] = useState(4);
+  const [editLotteryOdds, setEditLotteryOdds] = useState<number[] | null>(null);
 
   // Season edit state
   const [editRegWeeks, setEditRegWeeks] = useState(20);
   const [editPlayoffWeeks, setEditPlayoffWeeks] = useState(3);
+  const [editPlayoffTeams, setEditPlayoffTeams] = useState(8);
+  const [editSeedingFormat, setEditSeedingFormat] = useState('Standard');
+  const [editReseed, setEditReseed] = useState(false);
 
   // Modal state
   const [showRosterModal, setShowRosterModal] = useState(false);
@@ -148,16 +167,25 @@ export default function LeagueInfoScreen() {
       setEditVetoType(VETO_DISPLAY[league.trade_veto_type] ?? 'Commissioner');
       setEditReviewHours(league.trade_review_period_hours ?? 24);
       setEditVotesToVeto(league.trade_votes_to_veto ?? 4);
+    } else if (group === 'waivers') {
+      setEditWaiverType(WAIVER_DISPLAY[league.waiver_type] ?? 'Standard');
+      setEditWaiverPeriod(league.waiver_period_days ?? 2);
+      setEditFaabBudget(league.faab_budget ?? 100);
+      setEditWaiverDay(league.waiver_day_of_week ?? 3);
     } else if (group === 'draft' && draft) {
       setEditDraftType(DRAFT_TYPE_DISPLAY(draft.draft_type ?? 'snake'));
       setEditTimePick(draft.time_limit ?? 90);
       setEditMaxYears(league.max_future_seasons ?? 3);
       setEditRookieRounds(league.rookie_draft_rounds ?? 2);
       setEditRookieOrder(ORDER_DISPLAY[league.rookie_draft_order] ?? 'Reverse Record');
-      setEditLotteryPicks(league.lottery_picks ?? 1);
+      setEditLotteryDraws(league.lottery_draws ?? 4);
+      setEditLotteryOdds(league.lottery_odds ?? null);
     } else if (group === 'season') {
       setEditRegWeeks(league.regular_season_weeks ?? 20);
       setEditPlayoffWeeks(league.playoff_weeks ?? 3);
+      setEditPlayoffTeams(league.playoff_teams ?? Math.min(2 ** (league.playoff_weeks ?? 3), teamCount));
+      setEditSeedingFormat(SEEDING_DISPLAY[league.playoff_seeding_format] ?? 'Standard');
+      setEditReseed(league.reseed_each_round ?? false);
     }
     setEditingSection(group);
   }
@@ -216,6 +244,25 @@ export default function LeagueInfoScreen() {
     setEditingSection(null);
   }
 
+  async function saveWaivers() {
+    if (!league) return;
+    setSaving(true);
+    const waiverDb = WAIVER_TO_DB[editWaiverType] ?? 'standard';
+    const { error } = await supabase
+      .from('leagues')
+      .update({
+        waiver_type: waiverDb,
+        waiver_period_days: waiverDb === 'none' ? 0 : editWaiverPeriod,
+        faab_budget: editFaabBudget,
+        waiver_day_of_week: editWaiverDay,
+      })
+      .eq('id', league.id);
+    setSaving(false);
+    if (error) { Alert.alert('Error', error.message); return; }
+    queryClient.invalidateQueries({ queryKey: ['league', leagueId] });
+    setEditingSection(null);
+  }
+
   async function saveDraft() {
     if (!league || !draft) return;
     setSaving(true);
@@ -226,7 +273,8 @@ export default function LeagueInfoScreen() {
         max_future_seasons: editMaxYears,
         rookie_draft_rounds: editRookieRounds,
         rookie_draft_order: ORDER_TO_DB[editRookieOrder] ?? 'reverse_record',
-        lottery_picks: editLotteryPicks,
+        lottery_draws: editLotteryDraws,
+        lottery_odds: editLotteryOdds,
       })
       .eq('id', league.id);
     // Update drafts table fields
@@ -255,6 +303,9 @@ export default function LeagueInfoScreen() {
       .update({
         regular_season_weeks: editRegWeeks,
         playoff_weeks: editPlayoffWeeks,
+        playoff_teams: editPlayoffTeams,
+        playoff_seeding_format: SEEDING_TO_DB[editSeedingFormat] ?? 'standard',
+        reseed_each_round: editReseed,
       })
       .eq('id', league.id);
     setSaving(false);
@@ -311,8 +362,8 @@ export default function LeagueInfoScreen() {
     );
   }
 
-  const commissionerTeam = league.teams?.find((t: any) => t.is_commissioner);
-  const teamCount = league.teams?.length ?? 0;
+  const commissionerTeam = league.league_teams?.find((t: any) => t.is_commissioner);
+  const teamCount = league.teams ?? 0;
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
@@ -417,9 +468,27 @@ export default function LeagueInfoScreen() {
                   />
                 </View>
               </View>
-              {editRookieOrder === 'Lottery' && (
-                <NumberStepper label="Lottery Picks" value={editLotteryPicks} onValueChange={setEditLotteryPicks} min={1} max={teamCount} />
-              )}
+              {editRookieOrder === 'Lottery' && (() => {
+                const pt = league.playoff_teams ?? Math.min(2 ** (league.playoff_weeks ?? 3), teamCount);
+                const lotteryPool = calcLotteryPoolSize(teamCount, pt);
+                const effectiveOdds = editLotteryOdds ?? generateDefaultOdds(lotteryPool);
+                if (lotteryPool <= 0) return (
+                  <ThemedText style={{ fontSize: 13, color: '#b91c1c', marginTop: 4 }}>
+                    All teams make playoffs — no lottery pool.
+                  </ThemedText>
+                );
+                return (
+                  <>
+                    <ThemedText style={{ fontSize: 13, color: c.secondaryText, marginTop: 4, marginBottom: 8 }}>
+                      {lotteryPool} non-playoff team{lotteryPool !== 1 ? 's' : ''} in the lottery
+                    </ThemedText>
+                    <NumberStepper label="Lottery Draws" value={editLotteryDraws} onValueChange={setEditLotteryDraws} min={1} max={lotteryPool} />
+                    <View style={{ marginTop: 12 }}>
+                      <LotteryOddsEditor odds={effectiveOdds} onChange={setEditLotteryOdds} lotteryTeams={lotteryPool} />
+                    </View>
+                  </>
+                );
+              })()}
             </>
           ) : (
             <>
@@ -430,7 +499,7 @@ export default function LeagueInfoScreen() {
               <Row label="Rookie Draft Rounds" value={String(league.rookie_draft_rounds ?? '-')} c={c} />
               <Row label="Rookie Draft Order" value={ORDER_DISPLAY[league.rookie_draft_order] ?? '-'} c={c} />
               {league.rookie_draft_order === 'lottery' && (
-                <Row label="Lottery Picks" value={String(league.lottery_picks ?? '-')} c={c} last />
+                <Row label="Lottery Draws" value={String(league.lottery_draws ?? '-')} c={c} last />
               )}
             </>
           )}
@@ -470,19 +539,115 @@ export default function LeagueInfoScreen() {
           )}
         </SectionCard>
 
+        {/* ── Waiver Settings ── */}
+        <SectionCard title="Waiver Settings" c={c} editable={sectionEditable('waivers', lifecycle, isCommissioner)} editing={editingSection === 'waivers'} onEdit={() => enterEdit('waivers')} onCancel={() => setEditingSection(null)} onSave={saveWaivers} saving={saving}>
+          {editingSection === 'waivers' ? (
+            <>
+              <View style={[styles.editRow, { borderBottomColor: c.border }]}>
+                <ThemedText style={[styles.rowLabel, { color: c.secondaryText }]}>Waiver Type</ThemedText>
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <SegmentedControl
+                    options={[...WAIVER_TYPE_OPTIONS]}
+                    selectedIndex={WAIVER_TYPE_OPTIONS.indexOf(editWaiverType as any)}
+                    onSelect={(i) => setEditWaiverType(WAIVER_TYPE_OPTIONS[i])}
+                  />
+                </View>
+              </View>
+              {editWaiverType !== 'None' && (
+                <NumberStepper label="Waiver Period (days)" value={editWaiverPeriod} onValueChange={setEditWaiverPeriod} min={1} max={5} />
+              )}
+              {editWaiverType === 'FAAB' && (
+                <>
+                  <View style={[styles.editRow, { borderBottomColor: c.border }]}>
+                    <ThemedText style={[styles.rowLabel, { color: c.secondaryText }]}>Process Day</ThemedText>
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <SegmentedControl
+                        options={[...WAIVER_DAY_LABELS]}
+                        selectedIndex={editWaiverDay}
+                        onSelect={(i) => setEditWaiverDay(i)}
+                      />
+                    </View>
+                  </View>
+                  <NumberStepper label="FAAB Budget ($)" value={editFaabBudget} onValueChange={setEditFaabBudget} min={10} max={1000} step={10} />
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <Row label="Waiver Type" value={WAIVER_DISPLAY[league.waiver_type] ?? '-'} c={c} />
+              {league.waiver_type !== 'none' && (
+                <Row label="Waiver Period" value={`${league.waiver_period_days ?? 0} days`} c={c} />
+              )}
+              {league.waiver_type === 'faab' && (
+                <>
+                  <Row label="Process Day" value={WAIVER_DAY_LABELS[league.waiver_day_of_week ?? 3]} c={c} />
+                  <Row label="FAAB Budget" value={`$${league.faab_budget ?? 100}`} c={c} last />
+                </>
+              )}
+            </>
+          )}
+        </SectionCard>
+
         {/* ── Season Settings ── */}
         <SectionCard title="Season" c={c} editable={sectionEditable('season', lifecycle, isCommissioner)} editing={editingSection === 'season'} onEdit={() => enterEdit('season')} onCancel={() => setEditingSection(null)} onSave={saveSeason} saving={saving}>
           {editingSection === 'season' ? (
             <>
               <Row label="Start Date" value={league.season_start_date ?? '-'} c={c} />
               <NumberStepper label="Regular Season Weeks" value={editRegWeeks} onValueChange={setEditRegWeeks} min={1} max={30} />
-              <NumberStepper label="Playoff Weeks" value={editPlayoffWeeks} onValueChange={setEditPlayoffWeeks} min={1} max={6} />
+              <NumberStepper label="Playoff Weeks" value={editPlayoffWeeks} onValueChange={(v) => {
+                setEditPlayoffWeeks(v);
+                // Auto-adjust playoff teams to closest valid option
+                const options = getPlayoffTeamOptions(v, teamCount);
+                if (!options.includes(editPlayoffTeams)) {
+                  const closest = options.reduce((best, o) => Math.abs(o - editPlayoffTeams) < Math.abs(best - editPlayoffTeams) ? o : best, options[0]);
+                  setEditPlayoffTeams(closest);
+                }
+              }} min={1} max={6} />
+              {(() => {
+                const options = getPlayoffTeamOptions(editPlayoffWeeks, teamCount);
+                return (
+                  <View style={{ marginTop: 8 }}>
+                    <ThemedText style={{ fontSize: 14, fontWeight: '500', marginBottom: 8, color: c.secondaryText }}>Playoff Teams</ThemedText>
+                    <SegmentedControl
+                      options={options.map(String)}
+                      selectedIndex={Math.max(0, options.indexOf(editPlayoffTeams))}
+                      onSelect={(i) => setEditPlayoffTeams(options[i])}
+                    />
+                  </View>
+                );
+              })()}
+              <View style={{ marginTop: 12 }}>
+                <ThemedText style={{ fontSize: 14, fontWeight: '500', marginBottom: 8, color: c.secondaryText }}>Seeding Format</ThemedText>
+                <SegmentedControl
+                  options={[...PLAYOFF_SEEDING_OPTIONS]}
+                  selectedIndex={PLAYOFF_SEEDING_OPTIONS.indexOf(editSeedingFormat as any)}
+                  onSelect={(i) => {
+                    setEditSeedingFormat(PLAYOFF_SEEDING_OPTIONS[i]);
+                    if (PLAYOFF_SEEDING_OPTIONS[i] === 'Fixed Bracket') setEditReseed(false);
+                  }}
+                />
+              </View>
+              {editSeedingFormat === 'Standard' && (
+                <View style={{ marginTop: 12 }}>
+                  <ThemedText style={{ fontSize: 14, fontWeight: '500', marginBottom: 8, color: c.secondaryText }}>Reseed Each Round</ThemedText>
+                  <SegmentedControl
+                    options={['Yes', 'No']}
+                    selectedIndex={editReseed ? 0 : 1}
+                    onSelect={(i) => setEditReseed(i === 0)}
+                  />
+                </View>
+              )}
             </>
           ) : (
             <>
               <Row label="Start Date" value={league.season_start_date ? new Date(league.season_start_date + 'T00:00:00').toLocaleDateString() : '-'} c={c} />
               <Row label="Regular Season" value={`${league.regular_season_weeks ?? '-'} weeks`} c={c} />
               <Row label="Playoffs" value={`${league.playoff_weeks ?? '-'} weeks`} c={c} />
+              <Row label="Playoff Teams" value={String(league.playoff_teams ?? '-')} c={c} />
+              <Row label="Seeding Format" value={SEEDING_DISPLAY[league.playoff_seeding_format] ?? 'Standard'} c={c} />
+              {league.playoff_seeding_format === 'standard' && (
+                <Row label="Reseed Each Round" value={league.reseed_each_round ? 'Yes' : 'No'} c={c} />
+              )}
               <Row label="Schedule" value={league.schedule_generated ? 'Generated' : 'Not yet generated'} c={c} last />
             </>
           )}
@@ -491,10 +656,10 @@ export default function LeagueInfoScreen() {
         {/* ── Members ── */}
         <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
           <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Members</ThemedText>
-          {(league.teams ?? []).map((team: any, idx: number) => (
+          {(league.league_teams ?? []).map((team: any, idx: number) => (
             <View
               key={team.id}
-              style={[styles.memberRow, idx === league.teams.length - 1 && { borderBottomWidth: 0 }, { borderBottomColor: c.border }]}
+              style={[styles.memberRow, idx === (league.league_teams?.length ?? 0) - 1 && { borderBottomWidth: 0 }, { borderBottomColor: c.border }]}
             >
               <ThemedText>{team.name}</ThemedText>
               {team.is_commissioner && (

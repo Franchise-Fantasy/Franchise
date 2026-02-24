@@ -60,8 +60,8 @@ export default function HomeScreen() {
         ) : league ? (
           <>
             <DraftSection leagueId={league.id} isCommissioner={isCommissioner} />
-            <StandingsSection leagueId={league.id} />
             <QuickNav />
+            <StandingsSection leagueId={league.id} />
           </>
         ) : isError ? (
           <ThemedView style={styles.errorContainer}>

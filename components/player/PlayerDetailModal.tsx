@@ -11,6 +11,7 @@ import { formatPosition } from '@/utils/formatting';
 import { getInjuryBadge } from '@/utils/injuryBadge';
 import { useTodayGameTimes, isGameStarted } from '@/utils/gameStarted';
 import { getPlayerHeadshotUrl, getTeamLogoUrl } from '@/utils/playerHeadshot';
+import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -34,6 +35,10 @@ interface PlayerDetailModalProps {
   onClose: () => void;
   onRosterChange?: () => void;
   startInDropPicker?: boolean;
+  /** When provided, the drop picker calls this instead of doing an instant add-and-drop */
+  onDropForClaim?: (dropPlayer: PlayerSeasonStats) => void;
+  /** When provided, the Add/Claim button calls this instead of doing an instant add */
+  onClaimPlayer?: () => void;
 }
 
 function StatBox({ label, value, color }: { label: string; value: string; color: string }) {
@@ -45,7 +50,7 @@ function StatBox({ label, value, color }: { label: string; value: string; color:
   );
 }
 
-export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterChange, startInDropPicker }: PlayerDetailModalProps) {
+export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterChange, startInDropPicker, onDropForClaim, onClaimPlayer }: PlayerDetailModalProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const queryClient = useQueryClient();
@@ -57,13 +62,13 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
     if (player && startInDropPicker) setShowDropPicker(true);
   }, [player, startInDropPicker]);
 
-  const { data: scoringWeights, isLoading: isLoadingScoring } = useLeagueScoring(leagueId);
+  const { data: scoringWeights } = useLeagueScoring(leagueId);
   const { data: gameLog, isLoading: isLoadingGameLog } = usePlayerGameLog(
     player?.player_id ?? ''
   );
 
   // Check if this player is on the user's team and get their current slot
-  const { data: ownershipInfo, isLoading: isLoadingOwnership } = useQuery({
+  const { data: ownershipInfo } = useQuery({
     queryKey: ['playerOwnership', leagueId, teamId, player?.player_id],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -85,7 +90,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
   const playerRosterSlot = ownershipInfo?.rosterSlot ?? null;
   const isOnTradeBlock = ownershipInfo?.onTradeBlock ?? false;
 
-  // Get roster counts, max size, and IR capacity
+  // Get roster counts, max size, IR capacity, and waiver settings
   const { data: rosterInfo } = useQuery({
     queryKey: ['rosterInfo', leagueId, teamId],
     queryFn: async () => {
@@ -103,7 +108,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
           .eq('roster_slot', 'IR'),
         supabase
           .from('leagues')
-          .select('roster_size')
+          .select('roster_size, waiver_type, waiver_period_days')
           .eq('id', leagueId)
           .single(),
         supabase
@@ -125,6 +130,8 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
         irCount,
         irSlotCount: irConfigRes.data?.slot_count ?? 0,
         maxSize: leagueRes.data?.roster_size ?? 13,
+        waiverType: (leagueRes.data?.waiver_type ?? 'none') as 'standard' | 'faab' | 'none',
+        waiverPeriodDays: leagueRes.data?.waiver_period_days ?? 2,
       };
     },
     enabled: !!teamId && !!leagueId,
@@ -177,6 +184,23 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
     enabled: !!leagueId && !!teamId,
   });
 
+  // How many games has this player's team played so far this season?
+  const { data: teamGamesPlayed } = useQuery({
+    queryKey: ['teamGamesPlayed', player?.nba_team],
+    queryFn: async () => {
+      const today = new Date().toISOString().slice(0, 10);
+      const { count, error } = await supabase
+        .from('nba_schedule')
+        .select('id', { count: 'exact', head: true })
+        .eq('season', CURRENT_NBA_SEASON)
+        .or(`home_team.eq.${player!.nba_team},away_team.eq.${player!.nba_team}`)
+        .lte('game_date', today);
+      if (error) throw error;
+      return count ?? 0;
+    },
+    enabled: !!player,
+  });
+
   // Game lock detection
   const gameTimeMap = useTodayGameTimes(!!player);
   const playerGameStarted = player ? isGameStarted(player.nba_team, gameTimeMap) : false;
@@ -226,7 +250,26 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
     translateY.setValue(0);
   }, [showDropPicker]);
 
+  // Check if this free agent player is on waivers
+  const { data: playerOnWaivers } = useQuery({
+    queryKey: ['playerOnWaivers', leagueId, player?.player_id],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('league_waivers')
+        .select('id')
+        .eq('league_id', leagueId)
+        .eq('player_id', player!.player_id)
+        .gt('on_waivers_until', new Date().toISOString())
+        .limit(1);
+      return (data?.length ?? 0) > 0;
+    },
+    enabled: !!player && !!leagueId && !isOnMyTeam && rosterInfo?.waiverType === 'standard',
+  });
+
   if (!player) return null;
+
+  const waiverType = rosterInfo?.waiverType ?? 'none';
+  const needsWaiverClaim = waiverType === 'faab' || (waiverType === 'standard' && (playerOnWaivers ?? false));
 
   const rosterIsFull = rosterInfo
     ? rosterInfo.activeCount >= rosterInfo.maxSize
@@ -262,6 +305,19 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
 
   const handleAddPlayer = async () => {
     if (!teamId || !player) return;
+
+    // If this player requires a waiver claim, delegate to the claim callback
+    if (needsWaiverClaim) {
+      if (rosterIsFull) {
+        setShowDropPicker(true);
+        return;
+      }
+      if (onClaimPlayer) {
+        onClaimPlayer();
+        return;
+      }
+    }
+
     if (rosterIsFull) {
       setShowDropPicker(true);
       return;
@@ -269,6 +325,21 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
 
     setIsProcessing(true);
     try {
+      // Re-check roster limit before adding
+      const [allRes, irRes, leagueRes] = await Promise.all([
+        supabase.from('league_players').select('id', { count: 'exact', head: true }).eq('league_id', leagueId).eq('team_id', teamId!),
+        supabase.from('league_players').select('id', { count: 'exact', head: true }).eq('league_id', leagueId).eq('team_id', teamId!).eq('roster_slot', 'IR'),
+        supabase.from('leagues').select('roster_size').eq('id', leagueId).single(),
+      ]);
+      const activeCount = (allRes.count ?? 0) - (irRes.count ?? 0);
+      const maxSize = leagueRes.data?.roster_size ?? 13;
+      if (activeCount >= maxSize) {
+        queryClient.invalidateQueries({ queryKey: ['rosterInfo', leagueId, teamId] });
+        setShowDropPicker(true);
+        setIsProcessing(false);
+        return;
+      }
+
       const { error: lpError } = await supabase.from('league_players').insert({
         league_id: leagueId,
         player_id: player.player_id,
@@ -319,6 +390,20 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
         .eq('player_id', dropping.player_id);
       if (delError) throw delError;
 
+      // Put dropped player on waivers if league has waivers enabled
+      const wt = rosterInfo?.waiverType ?? 'none';
+      const wpDays = rosterInfo?.waiverPeriodDays ?? 2;
+      if (wt !== 'none' && wpDays > 0) {
+        const until = new Date();
+        until.setDate(until.getDate() + wpDays);
+        await supabase.from('league_waivers').insert({
+          league_id: leagueId,
+          player_id: dropping.player_id,
+          on_waivers_until: until.toISOString(),
+          dropped_by_team_id: teamId,
+        });
+      }
+
       // If dropping from the picker (add-and-drop), handle as a single transaction
       if (playerToDrop && player) {
         const { error: addError } = await supabase.from('league_players').insert({
@@ -348,6 +433,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
         ]);
 
         invalidateRosterQueries();
+        queryClient.invalidateQueries({ queryKey: ['leagueWaivers', leagueId] });
         setShowDropPicker(false);
         onClose();
       } else {
@@ -370,6 +456,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
         });
 
         invalidateRosterQueries();
+        queryClient.invalidateQueries({ queryKey: ['leagueWaivers', leagueId] });
         onClose();
       }
     } catch (err: any) {
@@ -449,7 +536,10 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                 .eq('team_id', teamId)
                 .eq('player_id', player.player_id);
               if (error) throw error;
-              queryClient.invalidateQueries({ queryKey: ['playerOwnership', leagueId, teamId, player.player_id] });
+              queryClient.setQueryData(
+                ['playerOwnership', leagueId, teamId, player.player_id],
+                (old: any) => old ? { ...old, onTradeBlock: newValue } : old,
+              );
               queryClient.invalidateQueries({ queryKey: ['tradeBlock', leagueId] });
             } catch (err: any) {
               Alert.alert('Error', err.message ?? 'Failed to update trade block');
@@ -545,14 +635,25 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
       <TouchableOpacity
         style={[styles.dropPickerRow, { borderBottomColor: c.border }]}
         onPress={() => {
-          Alert.alert(
-            'Confirm Transaction',
-            `Drop ${item.name} to add ${player.name}?`,
-            [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Confirm', style: 'destructive', onPress: () => handleDropPlayer(item) },
-            ]
-          );
+          if (onDropForClaim) {
+            Alert.alert(
+              'Select Drop for Claim',
+              `Drop ${item.name} when your claim for ${player.name} processes?`,
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Confirm', onPress: () => { onDropForClaim(item); handleClose(); } },
+              ]
+            );
+          } else {
+            Alert.alert(
+              'Confirm Transaction',
+              `Drop ${item.name} to add ${player.name}?`,
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Confirm', style: 'destructive', onPress: () => handleDropPlayer(item) },
+              ]
+            );
+          }
         }}
         disabled={isProcessing}
       >
@@ -632,7 +733,87 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                 ) : null;
               })()}
               <View style={styles.headerInfo}>
-                <ThemedText type="title" style={styles.playerName}>{player.name}</ThemedText>
+                <View style={styles.nameRow}>
+                  <ThemedText type="title" style={styles.playerName} numberOfLines={1}>{player.name}</ThemedText>
+                  {/* Compact action buttons — right of name */}
+                  {teamId && ownershipInfo !== undefined && (
+                    <View style={styles.headerActions}>
+                      {isOnMyTeam ? (
+                        <>
+                          {playerRosterSlot === 'IR' && (
+                            <TouchableOpacity
+                              style={[styles.headerBtn, styles.headerBtnActivate, (!canTransact || playerGameStarted) && styles.buttonDisabled]}
+                              onPress={handleActivateFromIR}
+                              disabled={!canTransact || playerGameStarted}
+                            >
+                              {isProcessing ? <ActivityIndicator size="small" color="#fff" /> : (
+                                <ThemedText style={styles.headerBtnText}>Activate</ThemedText>
+                              )}
+                            </TouchableOpacity>
+                          )}
+                          <TouchableOpacity
+                            style={[
+                              styles.headerBtn,
+                              playerGameStarted ? styles.headerBtnQueue : styles.headerBtnDrop,
+                              !canTransact && styles.buttonDisabled,
+                            ]}
+                            onPress={() => {
+                              if (playerGameStarted) {
+                                handleQueueDrop();
+                              } else {
+                                Alert.alert(
+                                  'Drop Player',
+                                  `Are you sure you want to drop ${player.name}?`,
+                                  [
+                                    { text: 'Cancel', style: 'cancel' },
+                                    { text: 'Drop', style: 'destructive', onPress: () => handleDropPlayer() },
+                                  ]
+                                );
+                              }
+                            }}
+                            disabled={!canTransact}
+                          >
+                            {isProcessing && playerRosterSlot !== 'IR' ? <ActivityIndicator size="small" color="#fff" /> : (
+                              <ThemedText style={styles.headerBtnText}>
+                                {playerGameStarted ? 'Queue' : 'Drop'}
+                              </ThemedText>
+                            )}
+                          </TouchableOpacity>
+                          {canMoveToIR && !playerGameStarted && playerRosterSlot !== 'IR' && (
+                            <TouchableOpacity
+                              style={[styles.headerBtn, styles.headerBtnIR, !canTransact && styles.buttonDisabled]}
+                              onPress={handleMoveToIR}
+                              disabled={!canTransact}
+                            >
+                              <ThemedText style={styles.headerBtnText}>IR</ThemedText>
+                            </TouchableOpacity>
+                          )}
+                          <TouchableOpacity
+                            style={[styles.headerBtn, isOnTradeBlock ? styles.headerBtnTradeBlockActive : styles.headerBtnTradeBlock, isProcessing && styles.buttonDisabled]}
+                            onPress={handleToggleTradeBlock}
+                            disabled={isProcessing}
+                          >
+                            <Ionicons
+                              name={isOnTradeBlock ? 'megaphone' : 'megaphone-outline'}
+                              size={12}
+                              color="#fff"
+                            />
+                          </TouchableOpacity>
+                        </>
+                      ) : (
+                        <TouchableOpacity
+                          style={[styles.headerBtn, needsWaiverClaim ? styles.headerBtnClaim : styles.headerBtnAdd, !canAdd && styles.buttonDisabled]}
+                          onPress={handleAddPlayer}
+                          disabled={!canAdd}
+                        >
+                          {isProcessing ? <ActivityIndicator size="small" color="#fff" /> : (
+                            <ThemedText style={styles.headerBtnText}>{needsWaiverClaim ? 'Claim' : 'Add'}</ThemedText>
+                          )}
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  )}
+                </View>
                 <View style={styles.subtitleRow}>
                   {(() => {
                     const logoUrl = getTeamLogoUrl(player.nba_team);
@@ -641,7 +822,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                     ) : null;
                   })()}
                   <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>
-                    {formatPosition(player.position)} · {player.nba_team} · {player.games_played} GP
+                    {formatPosition(player.position)} · {player.nba_team} · {player.games_played}{teamGamesPlayed ? `/${teamGamesPlayed}` : ''} GP
                     {(() => {
                       const badge = getInjuryBadge(player.status);
                       return badge ? (
@@ -649,6 +830,9 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                       ) : null;
                     })()}
                   </ThemedText>
+                  {hasActiveDraft && (
+                    <ThemedText style={[styles.headerWarning, { color: c.secondaryText }]}> · Draft locked</ThemedText>
+                  )}
                 </View>
               </View>
               <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
@@ -657,170 +841,19 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
             </View>
           </View>
 
-          <ScrollView>
-                {/* Action Buttons */}
-                {teamId && isLoadingOwnership && (
-                  <View style={styles.actionSection}>
-                    <View style={[styles.skeletonButton, { backgroundColor: c.border }]} />
-                  </View>
-                )}
-                {teamId && ownershipInfo !== undefined && (
-                  <View style={styles.actionSection}>
-                    {isOnMyTeam ? (
-                      playerRosterSlot === 'IR' ? (
-                        // Player is on IR: show Activate + Drop (or Queue Drop if locked)
-                        <View style={styles.actionRow}>
-                          <TouchableOpacity
-                            style={[styles.activateButton, styles.actionRowButton, (!canTransact || playerGameStarted) && styles.buttonDisabled]}
-                            onPress={handleActivateFromIR}
-                            disabled={!canTransact || playerGameStarted}
-                          >
-                            {isProcessing ? (
-                              <ActivityIndicator size="small" color="#fff" />
-                            ) : (
-                              <ThemedText style={styles.actionButtonText}>Activate</ThemedText>
-                            )}
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={[
-                              playerGameStarted ? styles.queueDropButton : styles.dropButton,
-                              styles.actionRowButton,
-                              !canTransact && styles.buttonDisabled,
-                            ]}
-                            onPress={() => {
-                              if (playerGameStarted) {
-                                handleQueueDrop();
-                              } else {
-                                Alert.alert(
-                                  'Drop Player',
-                                  `Are you sure you want to drop ${player.name}?`,
-                                  [
-                                    { text: 'Cancel', style: 'cancel' },
-                                    { text: 'Drop', style: 'destructive', onPress: () => handleDropPlayer() },
-                                  ]
-                                );
-                              }
-                            }}
-                            disabled={!canTransact}
-                          >
-                            <ThemedText style={styles.actionButtonText}>
-                              {playerGameStarted ? 'Queue Drop' : 'Drop'}
-                            </ThemedText>
-                          </TouchableOpacity>
-                        </View>
-                      ) : (
-                        // Player is active: show Drop (or Queue Drop if locked) + optionally Move to IR
-                        <View style={canMoveToIR ? styles.actionRow : undefined}>
-                          <TouchableOpacity
-                            style={[
-                              playerGameStarted ? styles.queueDropButton : styles.dropButton,
-                              canMoveToIR && styles.actionRowButton,
-                              !canTransact && styles.buttonDisabled,
-                            ]}
-                            onPress={() => {
-                              if (playerGameStarted) {
-                                handleQueueDrop();
-                              } else {
-                                Alert.alert(
-                                  'Drop Player',
-                                  `Are you sure you want to drop ${player.name}?`,
-                                  [
-                                    { text: 'Cancel', style: 'cancel' },
-                                    { text: 'Drop', style: 'destructive', onPress: () => handleDropPlayer() },
-                                  ]
-                                );
-                              }
-                            }}
-                            disabled={!canTransact}
-                          >
-                            {isProcessing ? (
-                              <ActivityIndicator size="small" color="#fff" />
-                            ) : (
-                              <ThemedText style={styles.actionButtonText}>
-                                {playerGameStarted ? 'Queue Drop for Tomorrow' : 'Drop Player'}
-                              </ThemedText>
-                            )}
-                          </TouchableOpacity>
-                          {canMoveToIR && !playerGameStarted && (
-                            <TouchableOpacity
-                              style={[styles.irButton, styles.actionRowButton, !canTransact && styles.buttonDisabled]}
-                              onPress={handleMoveToIR}
-                              disabled={!canTransact}
-                            >
-                              <ThemedText style={styles.actionButtonText}>Move to IR</ThemedText>
-                            </TouchableOpacity>
-                          )}
-                        </View>
-                      )
-                    ) : (
-                      <TouchableOpacity
-                        style={[styles.addButton, !canAdd && styles.buttonDisabled]}
-                        onPress={handleAddPlayer}
-                        disabled={!canAdd}
-                      >
-                        {isProcessing ? (
-                          <ActivityIndicator size="small" color="#fff" />
-                        ) : (
-                          <ThemedText style={styles.actionButtonText}>
-                            {rosterIsFull ? 'Add / Drop' : 'Add Player'}
-                          </ThemedText>
-                        )}
-                      </TouchableOpacity>
-                    )}
-
-                    {/* Trade Block toggle — only for players on my team */}
-                    {isOnMyTeam && (
-                      <TouchableOpacity
-                        style={[styles.tradeBlockBtn, { borderColor: isOnTradeBlock ? '#dc3545' : c.accent }]}
-                        onPress={handleToggleTradeBlock}
-                        disabled={isProcessing}
-                      >
-                        <Ionicons
-                          name={isOnTradeBlock ? 'close-circle-outline' : 'megaphone-outline'}
-                          size={16}
-                          color={isOnTradeBlock ? '#dc3545' : c.accent}
-                        />
-                        <ThemedText style={[styles.tradeBlockBtnText, { color: isOnTradeBlock ? '#dc3545' : c.accent }]}>
-                          {isOnTradeBlock ? 'Remove from Trade Block' : 'Add to Trade Block'}
-                        </ThemedText>
-                      </TouchableOpacity>
-                    )}
-                    {hasActiveDraft && (
-                      <ThemedText style={[styles.draftWarning, { color: c.secondaryText }]}>
-                        Roster moves are locked during the draft.
-                      </ThemedText>
-                    )}
-                    {playerGameStarted && !hasActiveDraft && (
-                      <ThemedText style={[styles.draftWarning, { color: c.secondaryText }]}>
-                        This player's game has started. Roster moves are locked until tomorrow.
-                      </ThemedText>
-                    )}
-                  </View>
-                )}
-
-                {/* Fantasy Points Summary */}
-                {avgFpts === null && isLoadingScoring && (
-                  <View style={[styles.fptsSection, { backgroundColor: c.activeCard, borderColor: c.activeBorder }]}>
-                    <View style={[styles.skeletonBlock, { width: 120, backgroundColor: c.border, marginBottom: 4 }]} />
-                    <View style={[styles.skeletonBlock, { width: 60, height: 40, backgroundColor: c.border }]} />
-                  </View>
-                )}
-                {avgFpts !== null && (
-                  <View style={[styles.fptsSection, { backgroundColor: c.activeCard, borderColor: c.activeBorder }]}>
-                    <ThemedText style={[styles.fptsLabel, { color: c.secondaryText }]}>
-                      Avg Fantasy Points
-                    </ThemedText>
-                    <ThemedText style={[styles.fptsValue, { color: c.activeText }]}>
-                      {avgFpts}
-                    </ThemedText>
-                  </View>
-                )}
-
+          <ScrollView contentContainerStyle={styles.scrollContent}>
                 {/* Season Averages */}
                 <View style={styles.section}>
-                  <ThemedText type="subtitle" style={styles.sectionTitle}>
-                    Season Averages
-                  </ThemedText>
+                  <View style={styles.sectionHeader}>
+                    <ThemedText type="subtitle" style={styles.sectionTitle}>
+                      Season Averages
+                    </ThemedText>
+                    {avgFpts !== null && (
+                      <ThemedText style={[styles.fptsInline, { color: c.accent }]}>
+                        {avgFpts} FPTS
+                      </ThemedText>
+                    )}
+                  </View>
                   <View style={[styles.statsGrid, { backgroundColor: c.card }]}>
                     <StatBox label="PPG" value={String(player.avg_pts)} color={c.secondaryText} />
                     <StatBox label="RPG" value={String(player.avg_reb)} color={c.secondaryText} />
@@ -1001,6 +1034,7 @@ const styles = StyleSheet.create({
   },
   playerName: {
     fontSize: 22,
+    flexShrink: 1,
   },
   subtitleRow: {
     flexDirection: 'row' as const,
@@ -1027,90 +1061,70 @@ const styles = StyleSheet.create({
   closeText: {
     fontSize: 18,
   },
-  actionSection: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-  },
-  actionRow: {
+  nameRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
   },
-  actionRowButton: {
-    flex: 1,
-  },
-  addButton: {
-    backgroundColor: '#28a745',
-    paddingVertical: 12,
-    borderRadius: 8,
+  headerActions: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 4,
   },
-  dropButton: {
+  headerBtn: {
+    height: 26,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerBtnAdd: {
+    backgroundColor: '#28a745',
+  },
+  headerBtnClaim: {
+    backgroundColor: '#D4A017',
+  },
+  headerBtnDrop: {
     backgroundColor: '#dc3545',
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
   },
-  queueDropButton: {
+  headerBtnQueue: {
     backgroundColor: '#e67e22',
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
   },
-  irButton: {
+  headerBtnIR: {
     backgroundColor: '#e67e22',
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
   },
-  activateButton: {
+  headerBtnActivate: {
     backgroundColor: '#28a745',
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
+  },
+  headerBtnText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  headerBtnTradeBlock: {
+    backgroundColor: '#6c757d',
+  },
+  headerBtnTradeBlockActive: {
+    backgroundColor: '#e67e22',
+  },
+  headerWarning: {
+    fontSize: 10,
+    marginTop: 2,
   },
   buttonDisabled: {
     opacity: 0.5,
   },
-  actionButtonText: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '600',
+  scrollContent: {
+    paddingTop: 12,
   },
-  tradeBlockBtn: {
+  sectionHeader: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingVertical: 10,
-    marginTop: 8,
   },
-  tradeBlockBtnText: {
+  fptsInline: {
     fontSize: 14,
-    fontWeight: '600',
-  },
-  draftWarning: {
-    fontSize: 12,
-    textAlign: 'center',
-    marginTop: 6,
-  },
-  fptsSection: {
-    margin: 16,
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-    borderRadius: 10,
-    borderWidth: 1,
-    alignItems: 'center',
-  },
-  fptsLabel: {
-    fontSize: 13,
-  },
-  fptsValue: {
-    fontSize: 32,
-    lineHeight: 40,
     fontWeight: '700',
-    marginTop: 4,
   },
   section: {
     paddingHorizontal: 16,
@@ -1183,11 +1197,6 @@ const styles = StyleSheet.create({
     height: 12,
     borderRadius: 4,
     opacity: 0.4,
-  },
-  skeletonButton: {
-    height: 44,
-    borderRadius: 8,
-    opacity: 0.3,
   },
   loading: {
     padding: 20,

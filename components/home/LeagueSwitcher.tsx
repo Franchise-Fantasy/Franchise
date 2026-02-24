@@ -5,9 +5,9 @@ import { useSession } from "@/context/AuthProvider";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -39,48 +39,41 @@ export function LeagueSwitcher({ visible, onClose }: LeagueSwitcherProps) {
   const queryClient = useQueryClient();
   const router = useRouter();
 
-  const [leagues, setLeagues] = useState<UserLeague[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [favoriteLeagueId, setFavoriteLeagueId] = useState<string | null>(null);
+  const userId = session?.user?.id;
 
-  useEffect(() => {
-    if (!visible || !session?.user) return;
-
-    const fetchData = async () => {
-      setLoading(true);
+  const { data, isLoading: loading } = useQuery({
+    queryKey: ["user-leagues", userId],
+    queryFn: async () => {
       const [{ data: teamsData, error }, { data: profileData }] =
         await Promise.all([
           supabase
             .from("teams")
-            .select("id, name, league_id, leagues(id, name)")
-            .eq("user_id", session.user.id),
+            .select("id, name, league_id, leagues!teams_league_id_fkey(id, name)")
+            .eq("user_id", userId!),
           supabase
             .from("profiles")
             .select("favorite_league_id")
-            .eq("id", session.user.id)
+            .eq("id", userId!)
             .maybeSingle(),
         ]);
 
-      if (error) {
-        console.error("Failed to fetch leagues:", error);
-        setLoading(false);
-        return;
-      }
+      if (error) throw error;
 
-      const mapped: UserLeague[] = (teamsData ?? []).map((team: any) => ({
+      const leagues: UserLeague[] = (teamsData ?? []).map((team: any) => ({
         teamId: team.id,
         leagueId: team.league_id,
         leagueName: team.leagues?.name ?? "Unknown League",
         teamName: team.name,
       }));
 
-      setLeagues(mapped);
-      setFavoriteLeagueId(profileData?.favorite_league_id ?? null);
-      setLoading(false);
-    };
+      return { leagues, favoriteLeagueId: profileData?.favorite_league_id ?? null };
+    },
+    enabled: !!userId,
+    staleTime: 30_000,
+  });
 
-    fetchData();
-  }, [visible, session?.user?.id]);
+  const leagues = data?.leagues ?? [];
+  const favoriteLeagueId = data?.favoriteLeagueId ?? null;
 
   const handleSelect = (league: UserLeague) => {
     setLeagueId(league.leagueId);
@@ -90,14 +83,17 @@ export function LeagueSwitcher({ visible, onClose }: LeagueSwitcherProps) {
   };
 
   const handleToggleFavorite = async (league: UserLeague) => {
-    if (!session?.user) return;
+    if (!userId) return;
     const newFavoriteId =
       league.leagueId === favoriteLeagueId ? null : league.leagueId;
-    setFavoriteLeagueId(newFavoriteId);
+    // Optimistic update
+    queryClient.setQueryData(["user-leagues", userId], (old: typeof data) =>
+      old ? { ...old, favoriteLeagueId: newFavoriteId } : old
+    );
     await supabase
       .from("profiles")
       .update({ favorite_league_id: newFavoriteId })
-      .eq("id", session.user.id);
+      .eq("id", userId);
   };
 
   const handleCreateNew = () => {
@@ -170,8 +166,11 @@ export function LeagueSwitcher({ visible, onClose }: LeagueSwitcherProps) {
                       </ThemedText>
                     </View>
                     <View style={styles.rowIcons}>
-                      <TouchableOpacity
-                        onPress={() => handleToggleFavorite(league)}
+                      <Pressable
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          handleToggleFavorite(league);
+                        }}
                         hitSlop={8}
                       >
                         <Ionicons
@@ -179,7 +178,7 @@ export function LeagueSwitcher({ visible, onClose }: LeagueSwitcherProps) {
                           size={18}
                           color={isFav ? "#F5A623" : c.secondaryText}
                         />
-                      </TouchableOpacity>
+                      </Pressable>
                       {isActive && (
                         <Ionicons
                           name="checkmark-circle"

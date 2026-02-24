@@ -111,11 +111,6 @@ function dayToStatRecord(g: DayGameStats): Record<string, number> {
   };
 }
 
-// ─── On-court dot ─────────────────────────────────────────────────────────────
-function OnCourtDot() {
-  return <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#2dc653', marginRight: 2 }} />;
-}
-
 // ─── Animated FPTS number ────────────────────────────────────────────────────
 // Pops (scale 1 → 1.35 → 1) whenever value changes.
 
@@ -440,15 +435,17 @@ export default function RosterScreen() {
 
   // ─── FPTS / stat resolution per player ───────────────────────────────────
 
-  // Returns { fpts, statLine, isLive, matchup } for display in a slot row.
+  // Returns { fpts, projFpts, statLine, isLive, matchup } for display in a slot row.
   // fpts === null means no game on that date — show "—" and exclude from totals.
+  // projFpts is only set for today's not-yet-started games (shown in sub-line).
   function resolveSlotStats(player: RosterPlayer | null): {
     fpts: number | null;
+    projFpts: number | null;
     statLine: string | null;
     isLive: boolean;
     matchup: string | null;
   } {
-    if (!player || !scoringWeights) return { fpts: null, statLine: null, isLive: false, matchup: null };
+    if (!player || !scoringWeights) return { fpts: null, projFpts: null, statLine: null, isLive: false, matchup: null };
 
     if (isToday) {
       const live = liveMap.get(player.player_id);
@@ -457,23 +454,24 @@ export default function RosterScreen() {
         const fpts = Math.round(calculateGameFantasyPoints(stats as any, scoringWeights) * 10) / 10;
         return {
           fpts,
+          projFpts: null,
           statLine: live.game_status === 1 ? null : buildStatLine(stats),
           isLive: live.game_status === 2,
           matchup: live.matchup || null,
         };
       }
-      // No live entry — game may be scheduled but not started yet
+      // No live entry — game may be scheduled but not started yet; show 0.0 as actual, proj in sub-line
       const todayMatchup = player.nbaTricode ? (daySchedule?.get(player.nbaTricode) ?? null) : null;
       if (todayMatchup) {
-        const proj = calculateAvgFantasyPoints(player, scoringWeights);
         return {
           fpts: 0,
-          statLine: proj !== null ? `proj ${proj.toFixed(1)}` : null,
+          projFpts: calculateAvgFantasyPoints(player, scoringWeights),
+          statLine: null,
           isLive: false,
           matchup: todayMatchup,
         };
       }
-      return { fpts: null, statLine: null, isLive: false, matchup: null };
+      return { fpts: null, projFpts: null, statLine: null, isLive: false, matchup: null };
     }
 
     if (isPastDate) {
@@ -481,19 +479,20 @@ export default function RosterScreen() {
       if (dayGame) {
         const stats = dayToStatRecord(dayGame);
         const fpts = Math.round(calculateGameFantasyPoints(stats as any, scoringWeights) * 10) / 10;
-        return { fpts, statLine: buildStatLine(stats), isLive: false, matchup: dayGame.matchup ?? null };
+        return { fpts, projFpts: null, statLine: buildStatLine(stats), isLive: false, matchup: dayGame.matchup ?? null };
       }
       // No game that day — show "—", not avg
-      return { fpts: null, statLine: null, isLive: false, matchup: null };
+      return { fpts: null, projFpts: null, statLine: null, isLive: false, matchup: null };
     }
 
     // Future — only show projection if player has a game that day
     const futureMatchup = player.nbaTricode ? (daySchedule?.get(player.nbaTricode) ?? null) : null;
     if (!futureMatchup) {
-      return { fpts: null, statLine: null, isLive: false, matchup: null };
+      return { fpts: null, projFpts: null, statLine: null, isLive: false, matchup: null };
     }
     return {
       fpts: calculateAvgFantasyPoints(player, scoringWeights),
+      projFpts: null,
       statLine: null,
       isLive: false,
       matchup: futureMatchup,
@@ -528,14 +527,19 @@ export default function RosterScreen() {
   const starterTotal = scoringWeights
     ? starterSlots.reduce((sum, slot) => {
         if (!slot.player) return sum;
-        const { fpts } = resolveSlotStats(slot.player);
-        // null means no game — don't include in total
+        const { fpts, isLive } = resolveSlotStats(slot.player);
+        // For today, only count games that are actually live or finished (not pre-game 0.0)
+        if (isToday && !isLive && fpts !== null) {
+          const live = liveMap.get(slot.player.player_id);
+          // Only include if there's actual live data (game started/finished)
+          if (!live) return sum;
+        }
         return fpts !== null ? sum + fpts : sum;
       }, 0)
     : null;
 
   const renderSlotRow = (slot: SlotEntry, idx: number, list: SlotEntry[]) => {
-    const { fpts, statLine, isLive, matchup } = resolveSlotStats(slot.player);
+    const { fpts, projFpts, statLine, isLive, matchup } = resolveSlotStats(slot.player);
     const liveData = slot.player ? liveMap.get(slot.player.player_id) : null;
     const gameInfo = liveData ? formatGameInfo(liveData) : '';
     const locked = isPlayerLocked(slot.player);
@@ -601,7 +605,7 @@ export default function RosterScreen() {
             }}
             delayLongPress={400}
           >
-            {/* Headshot with team pill */}
+            {/* Headshot with team pill + on-court dot */}
             <View style={styles.rosterPortraitWrap}>
               {(() => {
                 const url = getPlayerHeadshotUrl(slot.player.external_id_nba);
@@ -611,6 +615,7 @@ export default function RosterScreen() {
                   <View style={[styles.rosterHeadshot, { backgroundColor: c.border }]} />
                 );
               })()}
+              {liveData?.oncourt && <View style={styles.onCourtDot} />}
               {(() => {
                 const logoUrl = getTeamLogoUrl(slot.player.nba_team);
                 return (
@@ -626,7 +631,6 @@ export default function RosterScreen() {
             <View style={styles.slotPlayerInfo}>
               {/* Line 1: ● Name | badges */}
               <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1 }}>
-                {liveData?.oncourt && <OnCourtDot />}
                 <ThemedText
                   type="defaultSemiBold"
                   numberOfLines={1}
@@ -634,6 +638,11 @@ export default function RosterScreen() {
                 >
                   {slot.player.name}
                 </ThemedText>
+                {matchup && (
+                  <View style={[styles.matchupChip, { backgroundColor: c.cardAlt }]}>
+                    <Text style={[styles.matchupChipText, { color: c.secondaryText }]}>{matchup}</Text>
+                  </View>
+                )}
                 {(() => {
                   const badge = getInjuryBadge(slot.player.status);
                   return badge ? (
@@ -642,11 +651,6 @@ export default function RosterScreen() {
                     </View>
                   ) : null;
                 })()}
-                {matchup && (
-                  <View style={[styles.matchupChip, { backgroundColor: c.cardAlt }]}>
-                    <Text style={[styles.matchupChipText, { color: c.secondaryText }]}>{matchup}</Text>
-                  </View>
-                )}
                 {isLive && (
                   <View style={[styles.liveBadge, { backgroundColor: "#e03131" }]}>
                     <Text style={styles.liveText}>LIVE</Text>
@@ -658,28 +662,20 @@ export default function RosterScreen() {
                   </View>
                 )}
               </View>
-              {/* Line 2: position */}
-              <ThemedText
-                style={[styles.slotPlayerSub, { color: c.secondaryText }]}
-                numberOfLines={1}
-              >
-                {formatPosition(slot.player.position)}
-              </ThemedText>
-              {/* Line 3: game info or stats */}
-              {gameInfo ? (
-                <ThemedText
-                  style={[styles.slotPlayerSub, { color: c.secondaryText, fontSize: 10, marginTop: 0, lineHeight: 13 }]}
-                  numberOfLines={1}
-                >
-                  {gameInfo}
-                </ThemedText>
-              ) : null}
-              {statLine ? (
+              {/* Line 2: context-dependent sub-line */}
+              {(isFutureDate || (isToday && !isLive && !statLine && matchup)) ? (
                 <ThemedText
                   style={[styles.slotPlayerSub, { color: c.secondaryText }]}
                   numberOfLines={1}
                 >
-                  {statLine}
+                  {formatPosition(slot.player.position)}{(projFpts ?? (isFutureDate ? fpts : null)) !== null ? ` · proj: ${(projFpts ?? fpts)!.toFixed(1)}` : ''}
+                </ThemedText>
+              ) : (gameInfo || statLine) ? (
+                <ThemedText
+                  style={[styles.slotPlayerSub, { color: c.secondaryText }]}
+                  numberOfLines={1}
+                >
+                  {[gameInfo, statLine].filter(Boolean).join(' · ')}
                 </ThemedText>
               ) : null}
             </View>
@@ -840,6 +836,7 @@ export default function RosterScreen() {
           scoringWeights={scoringWeights}
           isAssigning={isAssigning}
           seatLocked={!!activeSlot?.player && isPlayerLocked(activeSlot.player)}
+          daySchedule={daySchedule}
           onSelectPlayer={handleAssignPlayer}
           onClear={handleClearSlot}
           onClose={() => setActiveSlot(null)}
@@ -865,6 +862,7 @@ interface SlotPickerModalProps {
   scoringWeights: any;
   isAssigning: boolean;
   seatLocked?: boolean;
+  daySchedule: Map<string, string> | undefined;
   onSelectPlayer: (player: RosterPlayer) => void;
   onClear: () => void;
   onClose: () => void;
@@ -877,6 +875,7 @@ function SlotPickerModal({
   scoringWeights,
   isAssigning,
   seatLocked,
+  daySchedule,
   onSelectPlayer,
   onClear,
   onClose,
@@ -925,9 +924,19 @@ function SlotPickerModal({
     (p) => p.player_id !== slot.player?.player_id,
   );
   const isStarterSlot = slot.slotPosition !== "BE" && slot.slotPosition !== "IR";
+
+  const hasGame = (player: RosterPlayer) =>
+    player.nbaTricode ? !!daySchedule?.get(player.nbaTricode) : false;
+
+  const playerFpts = (player: RosterPlayer): number | null => {
+    if (!scoringWeights) return null;
+    if (!hasGame(player)) return 0;
+    return calculateAvgFantasyPoints(player, scoringWeights);
+  };
+
   const currentFpts =
-    isStarterSlot && slot.player && scoringWeights
-      ? calculateAvgFantasyPoints(slot.player, scoringWeights)
+    isStarterSlot && slot.player
+      ? playerFpts(slot.player)
       : null;
 
   return (
@@ -1014,9 +1023,7 @@ function SlotPickerModal({
                 </View>
               )}
               {listData.map((item, idx) => {
-                const fpts = scoringWeights
-                  ? calculateAvgFantasyPoints(item, scoringWeights)
-                  : null;
+                const fpts = playerFpts(item);
                 const diff =
                   fpts !== null && currentFpts !== null
                     ? fpts - currentFpts
@@ -1151,7 +1158,7 @@ const styles = StyleSheet.create({
   slotRow: {
     flexDirection: "row",
     alignItems: "center",
-    minHeight: 52,
+    height: 56,
   },
   slotLabel: {
     width: 44,
@@ -1164,13 +1171,23 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 8,
+    paddingVertical: 6,
     paddingHorizontal: 12,
   },
   rosterPortraitWrap: {
     width: 44,
-    height: 40,
+    height: 36,
     marginRight: 8,
+  },
+  onCourtDot: {
+    position: "absolute" as const,
+    top: 0,
+    left: 0,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: "#2dc653",
+    zIndex: 1,
   },
   rosterHeadshot: {
     width: 44,
@@ -1179,7 +1196,7 @@ const styles = StyleSheet.create({
   },
   rosterTeamPill: {
     position: "absolute",
-    bottom: 0,
+    bottom: 1,
     alignSelf: "center",
     flexDirection: "row",
     alignItems: "center",

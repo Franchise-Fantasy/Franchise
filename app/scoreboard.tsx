@@ -6,6 +6,8 @@ import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { supabase } from '@/lib/supabase';
 import { ScoringWeight } from '@/types/player';
 import { calculateGameFantasyPoints } from '@/utils/fantasyPoints';
+import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
+import { useLeague } from '@/hooks/useLeague';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -35,6 +37,7 @@ interface ScoreboardMatchup {
   away_team_id: string | null;
   home_score: number;
   away_score: number;
+  playoff_round: number | null;
 }
 
 interface LeagueTeam {
@@ -98,10 +101,31 @@ async function fetchWeeks(leagueId: string): Promise<Week[]> {
 async function fetchMatchups(scheduleId: string): Promise<ScoreboardMatchup[]> {
   const { data, error } = await supabase
     .from('league_matchups')
-    .select('id, home_team_id, away_team_id, home_score, away_score')
+    .select('id, home_team_id, away_team_id, home_score, away_score, playoff_round')
     .eq('schedule_id', scheduleId);
   if (error) throw error;
   return data ?? [];
+}
+
+// Fetch seeds for playoff week (team_id → seed number)
+async function fetchPlayoffSeeds(
+  leagueId: string,
+  season: string,
+  round: number,
+): Promise<Map<string, number>> {
+  const { data, error } = await supabase
+    .from('playoff_bracket')
+    .select('team_a_id, team_a_seed, team_b_id, team_b_seed')
+    .eq('league_id', leagueId)
+    .eq('season', season)
+    .eq('round', round);
+  if (error) throw error;
+  const map = new Map<string, number>();
+  for (const row of data ?? []) {
+    if (row.team_a_id && row.team_a_seed) map.set(row.team_a_id, row.team_a_seed);
+    if (row.team_b_id && row.team_b_seed) map.set(row.team_b_id, row.team_b_seed);
+  }
+  return map;
 }
 
 async function fetchLeagueTeams(leagueId: string): Promise<Map<string, LeagueTeam>> {
@@ -211,6 +235,7 @@ function useScoreboardData(
   leagueId: string | null,
   scoring: ScoringWeight[],
   weekState: WeekState,
+  season: string,
 ) {
   // Matchups for the selected week
   const matchupsQuery = useQuery({
@@ -236,10 +261,25 @@ function useScoreboardData(
     staleTime: 1000 * 60 * 5,
   });
 
+  // Determine playoff round from matchups
+  const playoffRound = week?.is_playoff
+    ? matchupsQuery.data?.[0]?.playoff_round ?? null
+    : null;
+
+  // Playoff seeds for the current round
+  const seedsQuery = useQuery({
+    queryKey: ['playoffSeeds', leagueId, season, playoffRound],
+    queryFn: () => fetchPlayoffSeeds(leagueId!, season, playoffRound!),
+    enabled: !!leagueId && !!season && playoffRound !== null,
+    staleTime: 1000 * 60 * 5,
+  });
+
   return {
     matchups: matchupsQuery.data,
     teamMap: teamsQuery.data,
     computedScores: computedQuery.data,
+    seedMap: seedsQuery.data ?? null,
+    isPlayoff: week?.is_playoff ?? false,
     isLoading:
       matchupsQuery.isLoading || teamsQuery.isLoading || (weekState === 'live' && computedQuery.isLoading),
   };
@@ -253,8 +293,10 @@ export default function ScoreboardScreen() {
   const c = Colors[scheme];
   const { leagueId, teamId } = useAppState();
 
+  const { data: league } = useLeague();
   const { data: weeks, isLoading: weeksLoading } = useWeeks(leagueId);
   const { data: scoring } = useLeagueScoring(leagueId ?? '');
+  const season = league?.season ?? CURRENT_NBA_SEASON;
 
   const [selectedWeekIndex, setSelectedWeekIndex] = useState<number | null>(null);
 
@@ -277,11 +319,12 @@ export default function ScoreboardScreen() {
   const today = toDateStr(new Date());
   const weekState: WeekState = selectedWeek ? getWeekState(selectedWeek, today) : 'past';
 
-  const { matchups, teamMap, computedScores, isLoading } = useScoreboardData(
+  const { matchups, teamMap, computedScores, seedMap, isPlayoff, isLoading } = useScoreboardData(
     selectedWeek,
     leagueId,
     scoring ?? [],
     weekState,
+    season,
   );
 
   // Determine if a matchup involves the current user's team
@@ -387,8 +430,20 @@ export default function ScoreboardScreen() {
         ) : sortedMatchups.length === 0 ? (
           <View style={styles.emptyState}>
             <ThemedText style={{ color: c.secondaryText }}>
-              No matchups this week
+              {isPlayoff
+                ? 'Bye round — top seeds advance automatically.'
+                : 'No matchups this week'}
             </ThemedText>
+            {isPlayoff && (
+              <TouchableOpacity
+                style={[styles.bracketBtn, { backgroundColor: c.accent }]}
+                onPress={() => router.push('/playoff-bracket' as any)}
+              >
+                <Text style={[styles.bracketBtnText, { color: c.accentText }]}>
+                  View Full Bracket
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         ) : (
           sortedMatchups.map((matchup) => {
@@ -437,6 +492,11 @@ export default function ScoreboardScreen() {
                 {/* Home team row */}
                 <View style={styles.teamRow}>
                   <View style={styles.teamInfo}>
+                    {isPlayoff && seedMap?.has(matchup.home_team_id) && (
+                      <Text style={[styles.seedBadge, { color: c.secondaryText }]}>
+                        #{seedMap.get(matchup.home_team_id)}
+                      </Text>
+                    )}
                     <ThemedText style={styles.teamName} numberOfLines={1}>
                       {homeTeam?.name ?? 'Unknown'}
                     </ThemedText>
@@ -478,6 +538,11 @@ export default function ScoreboardScreen() {
                 ) : (
                   <View style={styles.teamRow}>
                     <View style={styles.teamInfo}>
+                      {isPlayoff && matchup.away_team_id && seedMap?.has(matchup.away_team_id) && (
+                        <Text style={[styles.seedBadge, { color: c.secondaryText }]}>
+                          #{seedMap.get(matchup.away_team_id)}
+                        </Text>
+                      )}
                       <ThemedText style={styles.teamName} numberOfLines={1}>
                         {awayTeam?.name ?? 'Unknown'}
                       </ThemedText>
@@ -502,6 +567,18 @@ export default function ScoreboardScreen() {
               </View>
             );
           })
+        )}
+
+        {/* Bracket link on playoff weeks */}
+        {isPlayoff && sortedMatchups.length > 0 && (
+          <TouchableOpacity
+            style={[styles.bracketBtn, { backgroundColor: c.accent }]}
+            onPress={() => router.push('/playoff-bracket' as any)}
+          >
+            <Text style={[styles.bracketBtnText, { color: c.accentText }]}>
+              View Full Bracket
+            </Text>
+          </TouchableOpacity>
         )}
       </ScrollView>
     </SafeAreaView>
@@ -630,5 +707,20 @@ const styles = StyleSheet.create({
   },
   divider: {
     height: StyleSheet.hairlineWidth,
+  },
+  seedBadge: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  bracketBtn: {
+    alignSelf: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    marginTop: 12,
+  },
+  bracketBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

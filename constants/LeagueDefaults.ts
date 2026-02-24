@@ -36,6 +36,8 @@ export const DEFAULT_SCORING: ScoringCategory[] = [
   { stat_name: 'FTM', label: 'Free Throws Made', point_value: 1 },
   { stat_name: 'FTA', label: 'Free Throws Attempted', point_value: -1 },
   { stat_name: 'PF', label: 'Personal Fouls', point_value: -1 },
+  { stat_name: 'DD', label: 'Double Doubles', point_value: 0 },
+  { stat_name: 'TD', label: 'Triple Doubles', point_value: 0 },
 ];
 
 export const DRAFT_TYPE_OPTIONS = ['Snake', 'Linear'] as const;
@@ -44,10 +46,29 @@ export const TIME_PER_PICK_OPTIONS = [60, 90, 120] as const;
 export const TRADE_VETO_OPTIONS = ['Commissioner', 'League Vote', 'None'] as const;
 export type TradeVetoOption = (typeof TRADE_VETO_OPTIONS)[number];
 
+export const WAIVER_TYPE_OPTIONS = ['Standard', 'FAAB', 'None'] as const;
+export type WaiverTypeOption = (typeof WAIVER_TYPE_OPTIONS)[number];
+
+export const WAIVER_DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
+
 export const ROOKIE_DRAFT_ORDER_OPTIONS = ['Reverse Record', 'Lottery'] as const;
 export type RookieDraftOrderOption = (typeof ROOKIE_DRAFT_ORDER_OPTIONS)[number];
 
-export const STEP_LABELS = ['Basics', 'Roster', 'Scoring', 'Draft', 'Trade', 'Season', 'Review'];
+export const PLAYOFF_SEEDING_OPTIONS = ['Standard', 'Fixed Bracket', 'Higher Seed Picks'] as const;
+export type PlayoffSeedingOption = (typeof PLAYOFF_SEEDING_OPTIONS)[number];
+
+export const SEEDING_TO_DB: Record<string, string> = {
+  'Standard': 'standard',
+  'Fixed Bracket': 'fixed',
+  'Higher Seed Picks': 'higher_seed_picks',
+};
+export const SEEDING_DISPLAY: Record<string, string> = {
+  standard: 'Standard',
+  fixed: 'Fixed Bracket',
+  higher_seed_picks: 'Higher Seed Picks',
+};
+
+export const STEP_LABELS = ['Basics', 'Roster', 'Scoring', 'Trade', 'Waivers', 'Season', 'Draft', 'Review'];
 
 // Hardcoded NBA regular season end dates per season string.
 // Update each year or replace with a live query once nba_schedule is populated.
@@ -75,8 +96,16 @@ export interface LeagueWizardState {
   tradeVotesToVeto: number;
   rookieDraftRounds: number;
   rookieDraftOrder: RookieDraftOrderOption;
-  lotteryPicks: number;
+  lotteryDraws: number;
+  lotteryOdds: number[] | null;
   season: string;
+  waiverType: WaiverTypeOption;
+  waiverPeriodDays: number;
+  faabBudget: number;
+  waiverDayOfWeek: number;
   regularSeasonWeeks: number;
   playoffWeeks: number;
+  playoffTeams: number;
+  playoffSeedingFormat: PlayoffSeedingOption;
+  reseedEachRound: boolean;
 }

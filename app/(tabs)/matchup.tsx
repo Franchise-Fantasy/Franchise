@@ -1,6 +1,7 @@
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import { Colors } from '@/constants/Colors';
+import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
@@ -41,6 +42,7 @@ interface Matchup {
   away_team_id: string | null;
   home_score: number;
   away_score: number;
+  playoff_round: number | null;
 }
 
 interface RosterPlayer {
@@ -210,7 +212,7 @@ async function fetchWeeks(leagueId: string): Promise<Week[]> {
 async function fetchMatchupForWeek(scheduleId: string, teamId: string): Promise<Matchup | null> {
   const { data, error } = await supabase
     .from('league_matchups')
-    .select('id, home_team_id, away_team_id, home_score, away_score')
+    .select('id, home_team_id, away_team_id, home_score, away_score, playoff_round')
     .eq('schedule_id', scheduleId)
     .or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
     .maybeSingle();
@@ -321,6 +323,27 @@ async function fetchTeamData(
         return ds ? buildStatLine(ds, scoring) : null;
       })(),
     }));
+}
+
+// Fetch seeds for a specific team in the current playoff round
+async function fetchTeamSeeds(
+  leagueId: string,
+  season: string,
+  round: number,
+): Promise<Map<string, number>> {
+  const { data, error } = await supabase
+    .from('playoff_bracket')
+    .select('team_a_id, team_a_seed, team_b_id, team_b_seed')
+    .eq('league_id', leagueId)
+    .eq('season', season)
+    .eq('round', round);
+  if (error) throw error;
+  const map = new Map<string, number>();
+  for (const row of data ?? []) {
+    if (row.team_a_id && row.team_a_seed) map.set(row.team_a_id, row.team_a_seed);
+    if (row.team_b_id && row.team_b_seed) map.set(row.team_b_id, row.team_b_seed);
+  }
+  return map;
 }
 
 // ─── Hooks ────────────────────────────────────────────────────────────────────
@@ -610,6 +633,7 @@ function MatchupBoard({
   myLiveBonus,
   oppLiveBonus,
   futureSchedule,
+  seedMap,
 }: {
   myTeam: TeamMatchupData;
   opponentTeam: TeamMatchupData | null;
@@ -622,6 +646,7 @@ function MatchupBoard({
   myLiveBonus: number;
   oppLiveBonus: number;
   futureSchedule?: Map<string, string>;
+  seedMap?: Map<string, number>;
 }) {
   const myWeek = round1(myTeam.weekTotal + myLiveBonus);
   const myDay = round1(myTeam.dayTotal + myLiveBonus);
@@ -636,7 +661,9 @@ function MatchupBoard({
       {/* Score header: [My Team] vs [Opponent] */}
       <View style={colStyles.scoreHeader}>
         <View style={[colStyles.scoreCol, { alignItems: 'flex-start' }]}>
-          <Text style={[colStyles.teamName, { color: c.text }]} numberOfLines={1}>{myTeam.teamName}</Text>
+          <Text style={[colStyles.teamName, { color: c.text }]} numberOfLines={1}>
+            {seedMap?.has(myTeam.teamId) ? `#${seedMap.get(myTeam.teamId)} ` : ''}{myTeam.teamName}
+          </Text>
           <Text style={[colStyles.total, { color: c.accent }]}>{myWeek.toFixed(1)}</Text>
           {mode !== 'future' && (
             <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>{myDay.toFixed(1)} today</Text>
@@ -645,7 +672,9 @@ function MatchupBoard({
         <Text style={[colStyles.vsText, { color: c.secondaryText }]}>vs</Text>
         <View style={[colStyles.scoreCol, { alignItems: 'flex-end' }]}>
           <Text style={[colStyles.teamName, { color: c.text, textAlign: 'right' }]} numberOfLines={1}>
-            {opponentTeam?.teamName ?? 'BYE'}
+            {opponentTeam
+              ? `${opponentTeam.teamName}${seedMap?.has(opponentTeam.teamId) ? ` #${seedMap.get(opponentTeam.teamId)}` : ''}`
+              : 'BYE'}
           </Text>
           <Text style={[colStyles.total, { color: c.accent }]}>{oppWeek.toFixed(1)}</Text>
           {mode !== 'future' && (
@@ -754,9 +783,34 @@ export default function MatchupScreen() {
     staleTime: 1000 * 60 * 60,
   });
 
+  // Playoff seeds for current round
+  const playoffRound = currentWeek?.is_playoff
+    ? (matchupData as any)?.week?.is_playoff ? null : null // need the matchup's playoff_round
+    : null;
+  // We get playoff_round from the matchup data. The useWeekMatchup hook fetches from league_matchups
+  // but doesn't expose playoff_round directly. Let's fetch seeds based on the week.
+  const { data: seedMap } = useQuery({
+    queryKey: ['matchupSeeds', leagueId, currentWeek?.week_number],
+    queryFn: async () => {
+      // Find the playoff round: query any matchup in this schedule week
+      const { data: matchups } = await supabase
+        .from('league_matchups')
+        .select('playoff_round')
+        .eq('schedule_id', currentWeek!.id)
+        .not('playoff_round', 'is', null)
+        .limit(1);
+      const round = matchups?.[0]?.playoff_round;
+      if (!round) return new Map<string, number>();
+      return fetchTeamSeeds(leagueId!, CURRENT_NBA_SEASON, round);
+    },
+    enabled: !!leagueId && !!currentWeek?.is_playoff,
+    staleTime: 1000 * 60 * 5,
+  });
+
   const mode: DisplayMode = selectedDate < today ? 'past' : selectedDate === today ? 'today' : 'future';
 
   const isBye = matchupData && matchupData.opponentTeam === null;
+  const isPlayoffBye = isBye && currentWeek?.is_playoff;
 
   // Compute how much live FPTS to add to each team's week total
   function computeLiveBonus(players: RosterPlayer[]): number {
@@ -854,7 +908,11 @@ export default function MatchupScreen() {
 
         {!matchupLoading && currentWeek && !matchupData && (
           <View style={styles.center}>
-            <ThemedText style={{ color: c.secondaryText }}>No matchup found for this week.</ThemedText>
+            <ThemedText style={{ color: c.secondaryText }}>
+              {currentWeek.is_playoff
+                ? 'Your team is not in the playoffs this week.'
+                : 'No matchup found for this week.'}
+            </ThemedText>
           </View>
         )}
 
@@ -862,7 +920,14 @@ export default function MatchupScreen() {
           <>
             {isBye && (
               <View style={[styles.byeBanner, { backgroundColor: c.card }]}>
-                <ThemedText type="defaultSemiBold">Bye Week</ThemedText>
+                <ThemedText type="defaultSemiBold">
+                  {isPlayoffBye ? 'Playoff Bye Round' : 'Bye Week'}
+                </ThemedText>
+                {isPlayoffBye && (
+                  <ThemedText style={{ color: c.secondaryText, fontSize: 13, marginTop: 4 }}>
+                    Your team advances automatically as a top seed.
+                  </ThemedText>
+                )}
               </View>
             )}
 
@@ -886,6 +951,7 @@ export default function MatchupScreen() {
               myLiveBonus={computeLiveBonus(matchupData.myTeam.players)}
               oppLiveBonus={matchupData.opponentTeam ? computeLiveBonus(matchupData.opponentTeam.players) : 0}
               futureSchedule={futureSchedule}
+              seedMap={seedMap ?? undefined}
             />
 
           </>

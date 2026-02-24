@@ -60,6 +60,7 @@ export default function RootLayout() {
               <Stack.Screen name="activity" options={{ headerShown: false }} />
               <Stack.Screen name="scoreboard" options={{ headerShown: false }} />
               <Stack.Screen name="league-info" options={{ headerShown: false }} />
+              <Stack.Screen name="playoff-bracket" options={{ headerShown: false }} />
               <Stack.Screen name="team-roster/[id]" options={{ headerShown: false }} />
               <Stack.Screen name="create-league" options={{ headerShown: false }} />
               <Stack.Screen name="create-team" options={{ headerShown: false }} />

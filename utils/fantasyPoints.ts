@@ -14,6 +14,8 @@ const STAT_TO_TOTAL: Record<string, keyof PlayerSeasonStats> = {
   FTM: 'total_ftm',
   FTA: 'total_fta',
   PF: 'total_pf',
+  DD: 'total_dd',
+  TD: 'total_td',
 };
 
 // Maps league_scoring_settings stat_name to player_games column
@@ -30,6 +32,8 @@ const STAT_TO_GAME: Record<string, keyof PlayerGameLog> = {
   FTM: 'ftm',
   FTA: 'fta',
   PF: 'pf',
+  DD: 'double_double',
+  TD: 'triple_double',
 };
 
 // Computes true average FPTS per game using season totals, then dividing by games played.
@@ -59,7 +63,8 @@ export function calculateGameFantasyPoints(
   for (const weight of scoringWeights) {
     const field = STAT_TO_GAME[weight.stat_name];
     if (field) {
-      total += (game[field] as number) * weight.point_value;
+      const val = game[field];
+      total += (typeof val === 'boolean' ? (val ? 1 : 0) : (val as number)) * weight.point_value;
     }
   }
   return Math.round(total * 10) / 10;

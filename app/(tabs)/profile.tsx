@@ -157,7 +157,7 @@ export default function ProfileScreen() {
             <SettingRow
               icon="people-outline"
               label="Teams"
-              value={`${league.current_teams ?? 0} / ${league.teams?.length}`}
+              value={`${league.current_teams ?? 0} / ${league.teams ?? '?'}`}
               c={c}
             />
             <SettingRow

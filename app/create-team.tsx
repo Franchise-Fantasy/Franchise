@@ -55,11 +55,19 @@ export default function CreateTeam() {
 
       const { data: league, error: leagueError } = await supabase
         .from('leagues')
-        .select('current_teams, teams')
+        .select('current_teams, teams, faab_budget')
         .eq('id', leagueId)
         .single();
 
       if (leagueError) throw leagueError;
+
+      // Initialize waiver priority for this team
+      await supabase.from('waiver_priority').insert({
+        league_id: leagueId,
+        team_id: teamData.id,
+        priority: league.current_teams,
+        faab_remaining: league.faab_budget ?? 100,
+      });
 
       setTeamId(teamData.id);
       setLeagueId(leagueId as string);

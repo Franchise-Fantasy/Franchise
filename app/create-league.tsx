@@ -5,6 +5,7 @@ import { StepRoster } from "@/components/create-league/StepRoster";
 import { StepScoring } from "@/components/create-league/StepScoring";
 import { StepSeason, computeMaxWeeks } from "@/components/create-league/StepSeason";
 import { StepTrade } from "@/components/create-league/StepTrade";
+import { StepWaivers } from "@/components/create-league/StepWaivers";
 import { ThemedView } from "@/components/ThemedView";
 import { StepIndicator } from "@/components/ui/StepIndicator";
 import { Colors } from "@/constants/Colors";
@@ -13,8 +14,10 @@ import {
   DEFAULT_ROSTER_SLOTS,
   DEFAULT_SCORING,
   LeagueWizardState,
+  SEEDING_TO_DB,
   STEP_LABELS,
 } from "@/constants/LeagueDefaults";
+import { calcLotteryPoolSize, defaultPlayoffTeams, getPlayoffTeamOptions } from "@/utils/lottery";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { generateDraftPicks, generateFutureDraftPicks } from "@/lib/draft";
 import { supabase } from "@/lib/supabase";
@@ -55,16 +58,46 @@ const initialState: LeagueWizardState = {
   tradeVotesToVeto: 4,
   rookieDraftRounds: 2,
   rookieDraftOrder: "Reverse Record",
-  lotteryPicks: 1,
+  lotteryDraws: 4,
+  lotteryOdds: null,
+  waiverType: "Standard",
+  waiverPeriodDays: 2,
+  faabBudget: 100,
+  waiverDayOfWeek: 3,
   season: CURRENT_NBA_SEASON,
   regularSeasonWeeks: maxWeeks - DEFAULT_PLAYOFF_WEEKS,
   playoffWeeks: DEFAULT_PLAYOFF_WEEKS,
+  playoffTeams: defaultPlayoffTeams(DEFAULT_PLAYOFF_WEEKS, 10),
+  playoffSeedingFormat: "Standard",
+  reseedEachRound: false,
 };
+
+function clampLotteryState(s: LeagueWizardState): LeagueWizardState {
+  // When teams, playoffWeeks, or playoffTeams change, ensure playoffTeams
+  // is valid and lotteryDraws doesn't exceed the lottery pool.
+  const options = getPlayoffTeamOptions(s.playoffWeeks, s.teams);
+  let pt = s.playoffTeams;
+  if (!options.includes(pt)) {
+    // Pick closest valid option
+    pt = options.reduce((best, o) => (Math.abs(o - pt) < Math.abs(best - pt) ? o : best), options[0]);
+  }
+  const pool = calcLotteryPoolSize(s.teams, pt);
+  const draws = Math.min(s.lotteryDraws, Math.max(1, pool));
+  // Reset custom odds when pool size changes (they'd be the wrong length)
+  const odds = s.lotteryOdds && s.lotteryOdds.length !== pool ? null : s.lotteryOdds;
+  return { ...s, playoffTeams: pt, lotteryDraws: draws, lotteryOdds: odds };
+}
 
 function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
   switch (action.type) {
-    case "SET_FIELD":
-      return { ...state, [action.field]: action.value };
+    case "SET_FIELD": {
+      const next = { ...state, [action.field]: action.value };
+      // Re-clamp lottery settings when dependent fields change
+      if (action.field === 'teams' || action.field === 'playoffWeeks' || action.field === 'playoffTeams') {
+        return clampLotteryState(next);
+      }
+      return next;
+    }
     case "SET_ROSTER_SLOT": {
       const slots = [...state.rosterSlots];
       slots[action.index] = { ...slots[action.index], count: action.count };
@@ -101,7 +134,7 @@ export default function CreateLeague() {
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
 
-  // Steps: 0=Basics, 1=Roster, 2=Scoring, 3=Draft, 4=Season, 5=Review
+  // Steps: 0=Basics, 1=Roster, 2=Scoring, 3=Trade, 4=Waivers, 5=Season, 6=Draft, 7=Review
   const TOTAL_STEPS = STEP_LABELS.length;
   const isOddTeamByeInvalid =
     step === 5 &&
@@ -161,7 +194,19 @@ export default function CreateLeague() {
         rookie_draft_order: state.rookieDraftOrder === 'Reverse Record'
           ? 'reverse_record'
           : 'lottery',
-        lottery_picks: state.lotteryPicks,
+        lottery_draws: state.lotteryDraws,
+        lottery_odds: state.lotteryOdds,
+        playoff_teams: state.playoffTeams,
+        waiver_type: state.waiverType === 'Standard'
+          ? 'standard'
+          : state.waiverType === 'FAAB'
+            ? 'faab'
+            : 'none',
+        waiver_period_days: state.waiverType === 'None' ? 0 : state.waiverPeriodDays,
+        faab_budget: state.faabBudget,
+        waiver_day_of_week: state.waiverDayOfWeek,
+        playoff_seeding_format: SEEDING_TO_DB[state.playoffSeedingFormat] ?? 'standard',
+        reseed_each_round: state.reseedEachRound,
       })
       .select()
       .single();
@@ -288,10 +333,11 @@ export default function CreateLeague() {
             onResetScoring={() => dispatch({ type: "RESET_SCORING" })}
           />
         )}
-        {step === 3 && <StepDraft state={state} onChange={handleChange} />}
-        {step === 4 && <StepTrade state={state} onChange={handleChange} />}
+        {step === 3 && <StepTrade state={state} onChange={handleChange} />}
+        {step === 4 && <StepWaivers state={state} onChange={handleChange} />}
         {step === 5 && <StepSeason state={state} onChange={handleChange} />}
-        {step === 6 && (
+        {step === 6 && <StepDraft state={state} onChange={handleChange} />}
+        {step === 7 && (
           <StepReview
             state={state}
             onSubmit={handleCreateLeague}

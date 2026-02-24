@@ -19,7 +19,7 @@ export function useLeague() {
         .from('leagues')
         .select(`
           *,
-          teams (
+          league_teams:teams!teams_league_id_fkey (
             id,
             name,
             is_commissioner

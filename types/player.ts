@@ -20,6 +20,8 @@ export interface PlayerSeasonStats {
   total_ftm: number;
   total_fta: number;
   total_pf: number;
+  total_dd: number;
+  total_td: number;
   // Averages
   avg_min: number;
   avg_pts: number;
