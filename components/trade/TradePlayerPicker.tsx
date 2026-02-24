@@ -6,11 +6,15 @@ import { useTeamRosterForTrade } from '@/hooks/useTeamRosterForTrade';
 import { PlayerSeasonStats } from '@/types/player';
 import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
 import { formatPosition } from '@/utils/formatting';
+import { getInjuryBadge } from '@/utils/injuryBadge';
+import { getPlayerHeadshotUrl, getTeamLogoUrl } from '@/utils/playerHeadshot';
 import { useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Image,
   StyleSheet,
+  Text,
   TextInput,
   TouchableOpacity,
   View,
@@ -47,6 +51,9 @@ export function TradePlayerPicker({
   const renderItem = ({ item }: { item: PlayerSeasonStats }) => {
     const isSelected = selectedPlayerIds.includes(item.player_id);
     const fpts = scoringWeights ? calculateAvgFantasyPoints(item, scoringWeights) : null;
+    const headshotUrl = getPlayerHeadshotUrl(item.external_id_nba);
+    const logoUrl = getTeamLogoUrl(item.nba_team);
+    const badge = getInjuryBadge(item.status);
 
     return (
       <TouchableOpacity
@@ -57,12 +64,34 @@ export function TradePlayerPicker({
         ]}
         onPress={() => onToggle(item, fpts ?? 0)}
       >
+        {/* Headshot + team pill */}
+        <View style={styles.portraitWrap}>
+          {headshotUrl ? (
+            <Image source={{ uri: headshotUrl }} style={styles.headshot} resizeMode="cover" />
+          ) : (
+            <View style={[styles.headshot, { backgroundColor: c.border }]} />
+          )}
+          <View style={styles.teamPill}>
+            {logoUrl && (
+              <Image source={{ uri: logoUrl }} style={styles.teamPillLogo} resizeMode="contain" />
+            )}
+            <Text style={styles.teamPillText}>{item.nba_team}</Text>
+          </View>
+        </View>
+
         <View style={styles.info}>
-          <ThemedText type="defaultSemiBold" style={styles.playerName} numberOfLines={1}>
-            {item.name}
-          </ThemedText>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <ThemedText type="defaultSemiBold" style={[styles.playerName, { flexShrink: 1 }]} numberOfLines={1}>
+              {item.name}
+            </ThemedText>
+            {badge && (
+              <View style={[styles.injuryBadge, { backgroundColor: badge.color }]}>
+                <Text style={styles.injuryBadgeText}>{badge.label}</Text>
+              </View>
+            )}
+          </View>
           <ThemedText style={[styles.sub, { color: c.secondaryText }]}>
-            {formatPosition(item.position)} · {item.nba_team}
+            {formatPosition(item.position)}
           </ThemedText>
         </View>
         {fpts !== null && (
@@ -160,15 +189,58 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  portraitWrap: {
+    width: 44,
+    height: 40,
+    marginRight: 8,
+  },
+  headshot: {
+    width: 44,
+    height: 32,
+    borderRadius: 4,
+  },
+  teamPill: {
+    position: 'absolute',
+    bottom: 0,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    borderRadius: 8,
+    paddingHorizontal: 3,
+    paddingVertical: 1,
+    gap: 2,
+  },
+  teamPillLogo: {
+    width: 9,
+    height: 9,
+  },
+  teamPillText: {
+    color: '#fff',
+    fontSize: 7,
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
   info: {
     flex: 1,
   },
   playerName: {
     fontSize: 14,
+  },
+  injuryBadge: {
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 3,
+  },
+  injuryBadgeText: {
+    color: '#fff',
+    fontSize: 8,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   sub: {
     fontSize: 11,

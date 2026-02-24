@@ -9,6 +9,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { calculateAvgFantasyPoints, calculateGameFantasyPoints } from '@/utils/fantasyPoints';
 import { formatPosition } from '@/utils/formatting';
 import { getInjuryBadge } from '@/utils/injuryBadge';
+import { useTodayGameTimes, isGameStarted } from '@/utils/gameStarted';
+import { getPlayerHeadshotUrl, getTeamLogoUrl } from '@/utils/playerHeadshot';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -16,6 +18,7 @@ import {
   Alert,
   Animated,
   FlatList,
+  Image,
   Modal,
   PanResponder,
   ScrollView,
@@ -173,6 +176,10 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
     },
     enabled: !!leagueId && !!teamId,
   });
+
+  // Game lock detection
+  const gameTimeMap = useTodayGameTimes(!!player);
+  const playerGameStarted = player ? isGameStarted(player.nba_team, gameTimeMap) : false;
 
   const handleClose = () => {
     setShowDropPicker(false);
@@ -455,6 +462,46 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
     );
   };
 
+  const handleQueueDrop = async () => {
+    if (!teamId || !player || !leagueId) return;
+    setIsProcessing(true);
+    try {
+      const { data: existing } = await supabase
+        .from('pending_transactions')
+        .select('id')
+        .eq('team_id', teamId)
+        .eq('player_id', player.player_id)
+        .eq('status', 'pending')
+        .limit(1);
+
+      if (existing && existing.length > 0) {
+        Alert.alert('Already Queued', `${player.name} is already queued to be dropped.`);
+        return;
+      }
+
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const executeAfter = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`;
+
+      const { error } = await supabase.from('pending_transactions').insert({
+        league_id: leagueId,
+        team_id: teamId,
+        player_id: player.player_id,
+        action_type: 'drop',
+        execute_after: executeAfter,
+        status: 'pending',
+      });
+      if (error) throw error;
+
+      Alert.alert('Drop Queued', `${player.name} will be dropped tomorrow.`);
+      onClose();
+    } catch (err: any) {
+      Alert.alert('Error', err.message ?? 'Failed to queue drop');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const canTransact = !!teamId && !hasActiveDraft && !isProcessing;
   const canAdd = canTransact;
 
@@ -548,10 +595,17 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
               <ActivityIndicator style={styles.loading} />
             ) : (
               <FlatList
-                data={rosterPlayers ?? []}
+                data={(rosterPlayers ?? []).filter(p => !isGameStarted(p.nba_team, gameTimeMap))}
                 renderItem={renderDropPickerItem}
                 keyExtractor={(item) => item.player_id}
                 contentContainerStyle={styles.dropPickerList}
+                ListEmptyComponent={
+                  <View style={{ padding: 20, alignItems: 'center' }}>
+                    <ThemedText style={{ color: c.secondaryText, textAlign: 'center' }}>
+                      All your roster players have games in progress. Try again later.
+                    </ThemedText>
+                  </View>
+                }
               />
             )}
           </Animated.View>
@@ -567,17 +621,35 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
           {/* Header - swipe area */}
           <View {...panResponder.panHandlers}>
             <View style={[styles.header, { borderBottomColor: c.border }]}>
+              {(() => {
+                const headshotUrl = getPlayerHeadshotUrl(player.external_id_nba, '1040x760');
+                return headshotUrl ? (
+                  <Image
+                    source={{ uri: headshotUrl }}
+                    style={styles.headerHeadshot}
+                    resizeMode="cover"
+                  />
+                ) : null;
+              })()}
               <View style={styles.headerInfo}>
                 <ThemedText type="title" style={styles.playerName}>{player.name}</ThemedText>
-                <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>
-                  {formatPosition(player.position)} · {player.nba_team} · {player.games_played} GP
+                <View style={styles.subtitleRow}>
                   {(() => {
-                    const badge = getInjuryBadge(player.status);
-                    return badge ? (
-                      <ThemedText style={[styles.outBadge, { color: badge.color }]}> · {badge.label}</ThemedText>
+                    const logoUrl = getTeamLogoUrl(player.nba_team);
+                    return logoUrl ? (
+                      <Image source={{ uri: logoUrl }} style={styles.modalTeamLogo} resizeMode="contain" />
                     ) : null;
                   })()}
-                </ThemedText>
+                  <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>
+                    {formatPosition(player.position)} · {player.nba_team} · {player.games_played} GP
+                    {(() => {
+                      const badge = getInjuryBadge(player.status);
+                      return badge ? (
+                        <ThemedText style={[styles.outBadge, { color: badge.color }]}> · {badge.label}</ThemedText>
+                      ) : null;
+                    })()}
+                  </ThemedText>
+                </View>
               </View>
               <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
                 <ThemedText style={styles.closeText}>✕</ThemedText>
@@ -596,12 +668,12 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                   <View style={styles.actionSection}>
                     {isOnMyTeam ? (
                       playerRosterSlot === 'IR' ? (
-                        // Player is on IR: show Activate + Drop
+                        // Player is on IR: show Activate + Drop (or Queue Drop if locked)
                         <View style={styles.actionRow}>
                           <TouchableOpacity
-                            style={[styles.activateButton, styles.actionRowButton, !canTransact && styles.buttonDisabled]}
+                            style={[styles.activateButton, styles.actionRowButton, (!canTransact || playerGameStarted) && styles.buttonDisabled]}
                             onPress={handleActivateFromIR}
-                            disabled={!canTransact}
+                            disabled={!canTransact || playerGameStarted}
                           >
                             {isProcessing ? (
                               <ActivityIndicator size="small" color="#fff" />
@@ -610,50 +682,66 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                             )}
                           </TouchableOpacity>
                           <TouchableOpacity
-                            style={[styles.dropButton, styles.actionRowButton, !canTransact && styles.buttonDisabled]}
+                            style={[
+                              playerGameStarted ? styles.queueDropButton : styles.dropButton,
+                              styles.actionRowButton,
+                              !canTransact && styles.buttonDisabled,
+                            ]}
                             onPress={() => {
-                              Alert.alert(
-                                'Drop Player',
-                                `Are you sure you want to drop ${player.name}?`,
-                                [
-                                  { text: 'Cancel', style: 'cancel' },
-                                  { text: 'Drop', style: 'destructive', onPress: () => handleDropPlayer() },
-                                ]
-                              );
+                              if (playerGameStarted) {
+                                handleQueueDrop();
+                              } else {
+                                Alert.alert(
+                                  'Drop Player',
+                                  `Are you sure you want to drop ${player.name}?`,
+                                  [
+                                    { text: 'Cancel', style: 'cancel' },
+                                    { text: 'Drop', style: 'destructive', onPress: () => handleDropPlayer() },
+                                  ]
+                                );
+                              }
                             }}
                             disabled={!canTransact}
                           >
-                            <ThemedText style={styles.actionButtonText}>Drop</ThemedText>
+                            <ThemedText style={styles.actionButtonText}>
+                              {playerGameStarted ? 'Queue Drop' : 'Drop'}
+                            </ThemedText>
                           </TouchableOpacity>
                         </View>
                       ) : (
-                        // Player is active: show Drop + optionally Move to IR
+                        // Player is active: show Drop (or Queue Drop if locked) + optionally Move to IR
                         <View style={canMoveToIR ? styles.actionRow : undefined}>
                           <TouchableOpacity
                             style={[
-                              styles.dropButton,
+                              playerGameStarted ? styles.queueDropButton : styles.dropButton,
                               canMoveToIR && styles.actionRowButton,
                               !canTransact && styles.buttonDisabled,
                             ]}
                             onPress={() => {
-                              Alert.alert(
-                                'Drop Player',
-                                `Are you sure you want to drop ${player.name}?`,
-                                [
-                                  { text: 'Cancel', style: 'cancel' },
-                                  { text: 'Drop', style: 'destructive', onPress: () => handleDropPlayer() },
-                                ]
-                              );
+                              if (playerGameStarted) {
+                                handleQueueDrop();
+                              } else {
+                                Alert.alert(
+                                  'Drop Player',
+                                  `Are you sure you want to drop ${player.name}?`,
+                                  [
+                                    { text: 'Cancel', style: 'cancel' },
+                                    { text: 'Drop', style: 'destructive', onPress: () => handleDropPlayer() },
+                                  ]
+                                );
+                              }
                             }}
                             disabled={!canTransact}
                           >
                             {isProcessing ? (
                               <ActivityIndicator size="small" color="#fff" />
                             ) : (
-                              <ThemedText style={styles.actionButtonText}>Drop Player</ThemedText>
+                              <ThemedText style={styles.actionButtonText}>
+                                {playerGameStarted ? 'Queue Drop for Tomorrow' : 'Drop Player'}
+                              </ThemedText>
                             )}
                           </TouchableOpacity>
-                          {canMoveToIR && (
+                          {canMoveToIR && !playerGameStarted && (
                             <TouchableOpacity
                               style={[styles.irButton, styles.actionRowButton, !canTransact && styles.buttonDisabled]}
                               onPress={handleMoveToIR}
@@ -700,6 +788,11 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                     {hasActiveDraft && (
                       <ThemedText style={[styles.draftWarning, { color: c.secondaryText }]}>
                         Roster moves are locked during the draft.
+                      </ThemedText>
+                    )}
+                    {playerGameStarted && !hasActiveDraft && (
+                      <ThemedText style={[styles.draftWarning, { color: c.secondaryText }]}>
+                        This player's game has started. Roster moves are locked until tomorrow.
                       </ThemedText>
                     )}
                   </View>
@@ -896,15 +989,32 @@ const styles = StyleSheet.create({
     padding: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  headerHeadshot: {
+    width: 72,
+    height: 54,
+    borderRadius: 6,
+    marginRight: 12,
+    backgroundColor: 'transparent',
+  },
   headerInfo: {
     flex: 1,
   },
   playerName: {
     fontSize: 22,
   },
+  subtitleRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 4,
+    marginTop: 2,
+  },
+  modalTeamLogo: {
+    width: 14,
+    height: 14,
+    opacity: 0.6,
+  },
   subtitle: {
     fontSize: 13,
-    marginTop: 2,
   },
   outBadge: {
     fontWeight: '700',
@@ -936,6 +1046,12 @@ const styles = StyleSheet.create({
   },
   dropButton: {
     backgroundColor: '#dc3545',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  queueDropButton: {
+    backgroundColor: '#e67e22',
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: 'center',

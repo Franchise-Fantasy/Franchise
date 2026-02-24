@@ -4,8 +4,9 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { PlayerSeasonStats } from '@/types/player';
 import { formatPosition } from '@/utils/formatting';
 import { getInjuryBadge } from '@/utils/injuryBadge';
+import { getPlayerHeadshotUrl, getTeamLogoUrl } from '@/utils/playerHeadshot';
 import { ReactNode } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface PlayerCardProps {
   player: PlayerSeasonStats;
@@ -28,6 +29,12 @@ export function PlayerCard({ player, fantasyPoints, onPress, rightElement }: Pla
       <ThemedText style={[styles.position, { color: c.secondaryText }]}>
         {formatPosition(player.position)}
       </ThemedText>
+      {(() => {
+        const url = getPlayerHeadshotUrl(player.external_id_nba);
+        return url ? (
+          <Image source={{ uri: url }} style={styles.headshot} resizeMode="cover" />
+        ) : null;
+      })()}
       <View style={styles.info}>
         <View style={styles.nameRow}>
           <ThemedText type="defaultSemiBold" numberOfLines={1} style={{ flexShrink: 1 }}>
@@ -42,9 +49,17 @@ export function PlayerCard({ player, fantasyPoints, onPress, rightElement }: Pla
             ) : null;
           })()}
         </View>
-        <ThemedText style={[styles.team, { color: c.secondaryText }]}>
-          {player.nba_team}
-        </ThemedText>
+        <View style={styles.teamRow}>
+          {(() => {
+            const logoUrl = getTeamLogoUrl(player.nba_team);
+            return logoUrl ? (
+              <Image source={{ uri: logoUrl }} style={styles.teamLogo} resizeMode="contain" />
+            ) : null;
+          })()}
+          <ThemedText style={[styles.team, { color: c.secondaryText }]}>
+            {player.nba_team}
+          </ThemedText>
+        </View>
       </View>
       <View style={styles.stats}>
         <ThemedText style={[styles.statLine, { color: c.secondaryText }]}>
@@ -74,6 +89,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  headshot: {
+    width: 40,
+    height: 30,
+    borderRadius: 4,
+    marginRight: 8,
+  },
   info: {
     flex: 1,
     marginRight: 8,
@@ -94,9 +115,19 @@ const styles = StyleSheet.create({
     fontWeight: '800' as const,
     letterSpacing: 0.5,
   },
+  teamRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 3,
+    marginTop: 1,
+  },
+  teamLogo: {
+    width: 12,
+    height: 12,
+    opacity: 0.5,
+  },
   team: {
     fontSize: 11,
-    marginTop: 1,
   },
   stats: {
     alignItems: 'flex-end',

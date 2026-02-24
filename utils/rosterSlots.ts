@@ -1,19 +1,17 @@
-// Maps each fantasy roster slot to the NBA positions eligible to fill it.
-// NBA positions from the players table: 'Guard', 'Forward', 'Center', 'Guard-Forward', 'Forward-Center'
+// Position spectrum: PG → SG → SF → PF → C
+// A player spanning two positions is eligible for everything in between.
+// e.g. SF-PG covers PG, SG, SF.
 
-const ALL_POSITIONS = ['Guard', 'Forward', 'Center', 'Guard-Forward', 'Forward-Center'];
+const POSITION_SPECTRUM: string[] = ['PG', 'SG', 'SF', 'PF', 'C'];
 
-export const SLOT_ELIGIBILITY: Record<string, string[]> = {
-  PG: ['Guard', 'Guard-Forward'],
-  SG: ['Guard', 'Guard-Forward'],
-  SF: ['Forward', 'Guard-Forward', 'Forward-Center'],
-  PF: ['Forward', 'Guard-Forward', 'Forward-Center'],
-  C: ['Center', 'Forward-Center'],
-  G: ['Guard', 'Guard-Forward'],
-  F: ['Forward', 'Guard-Forward', 'Forward-Center'],
-  UTIL: ALL_POSITIONS,
-  BE: ALL_POSITIONS,
-  IR: ALL_POSITIONS,
+const SLOT_ELIGIBLE_POSITIONS: Record<string, string[]> = {
+  PG: ['PG'],
+  SG: ['SG'],
+  SF: ['SF'],
+  PF: ['PF'],
+  C: ['C'],
+  G: ['PG', 'SG'],
+  F: ['SF', 'PF'],
 };
 
 export const SLOT_LABELS: Record<string, string> = {
@@ -29,9 +27,25 @@ export const SLOT_LABELS: Record<string, string> = {
   IR: 'IR',
 };
 
-/** Returns true if a player with the given NBA position can fill the given slot. */
+/** Returns all positions a player is eligible for based on the spectrum. */
+export function getEligiblePositions(playerPosition: string): string[] {
+  const parts = playerPosition.split('-');
+  const indices = parts.map(p => POSITION_SPECTRUM.indexOf(p)).filter(i => i >= 0);
+  if (indices.length === 0) return [];
+  if (indices.length === 1) return [POSITION_SPECTRUM[indices[0]]];
+
+  const min = Math.min(...indices);
+  const max = Math.max(...indices);
+  return POSITION_SPECTRUM.slice(min, max + 1) as unknown as string[];
+}
+
+/** Returns true if a player with the given position can fill the given slot. */
 export function isEligibleForSlot(playerPosition: string, slotPosition: string): boolean {
-  const eligible = SLOT_ELIGIBILITY[slotPosition];
+  if (['UTIL', 'BE', 'IR'].includes(slotPosition)) return true;
+
+  const eligible = SLOT_ELIGIBLE_POSITIONS[slotPosition];
   if (!eligible) return false;
-  return eligible.includes(playerPosition);
+
+  const playerPositions = getEligiblePositions(playerPosition);
+  return playerPositions.some(pos => eligible.includes(pos));
 }

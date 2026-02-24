@@ -1,4 +1,3 @@
-import { PlayerCard } from "@/components/player/PlayerCard";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import { PlayerFilterBar } from "@/components/player/PlayerFilterBar";
 import { ThemedText } from "@/components/ThemedText";
@@ -9,16 +8,96 @@ import { usePlayerFilter } from "@/hooks/usePlayerFilter";
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
 import { calculateAvgFantasyPoints } from "@/utils/fantasyPoints";
+import { formatPosition } from "@/utils/formatting";
+import { getInjuryBadge } from "@/utils/injuryBadge";
+import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
+  Animated,
   FlatList,
+  Image,
   StyleSheet,
+  Text,
   TouchableOpacity,
   View,
 } from "react-native";
+
+const SKELETON_COUNT = 8;
+
+function SkeletonRow({ color, index }: { color: string; index: number }) {
+  const pulse = useRef(new Animated.Value(0.3)).current;
+
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+          delay: index * 60,
+        }),
+        Animated.timing(pulse, {
+          toValue: 0.3,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    anim.start();
+    return () => anim.stop();
+  }, []);
+
+  return (
+    <View style={[styles.row, { borderBottomColor: color }]}>
+      <Animated.View
+        style={[styles.headshot, { backgroundColor: color, opacity: pulse, marginRight: 10 }]}
+      />
+      <View style={styles.info}>
+        <Animated.View
+          style={[styles.skeletonBar, { width: 120, backgroundColor: color, opacity: pulse }]}
+        />
+        <Animated.View
+          style={[styles.skeletonBar, { width: 40, marginTop: 4, backgroundColor: color, opacity: pulse }]}
+        />
+      </View>
+      <View style={styles.rightSide}>
+        <View style={styles.stats}>
+          <Animated.View
+            style={[styles.skeletonBar, { width: 60, backgroundColor: color, opacity: pulse }]}
+          />
+          <Animated.View
+            style={[styles.skeletonBar, { width: 44, marginTop: 4, backgroundColor: color, opacity: pulse }]}
+          />
+        </View>
+        <Animated.View
+          style={[styles.addButton, { backgroundColor: color, opacity: pulse }]}
+        >
+          <Text style={styles.addButtonText}> </Text>
+        </Animated.View>
+      </View>
+    </View>
+  );
+}
+
+function FadeInImage({ uri, style, resizeMode }: { uri: string; style: any; resizeMode: any }) {
+  const opacity = useRef(new Animated.Value(0)).current;
+  return (
+    <Animated.Image
+      source={{ uri }}
+      style={[style, { opacity }]}
+      resizeMode={resizeMode}
+      onLoad={() => {
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 250,
+          useNativeDriver: true,
+        }).start();
+      }}
+    />
+  );
+}
 
 interface FreeAgentListProps {
   leagueId: string;
@@ -36,7 +115,6 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
   const { data: scoringWeights } = useLeagueScoring(leagueId);
 
-  // Check if there's an active (non-completed) draft — block adds until draft is over
   const { data: hasActiveDraft } = useQuery({
     queryKey: ["hasActiveDraft", leagueId],
     queryFn: async () => {
@@ -53,7 +131,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     enabled: !!leagueId,
   });
 
-  const draftInProgress = hasActiveDraft ?? true; // default to locked until we know
+  const draftInProgress = hasActiveDraft ?? true;
 
   const { data: rosterInfo } = useQuery({
     queryKey: ["rosterInfo", leagueId, teamId],
@@ -96,7 +174,6 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   const { data: freeAgents, isLoading } = useQuery<PlayerSeasonStats[]>({
     queryKey: ["freeAgents", leagueId],
     queryFn: async () => {
-      // Get all rostered player IDs in this league
       const { data: rosteredPlayers, error: rpError } = await supabase
         .from("league_players")
         .select("player_id")
@@ -135,7 +212,6 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   const handleAddPlayer = async (player: PlayerSeasonStats) => {
     setAddingPlayerId(player.player_id);
     try {
-      // Add to league_players
       const { error: lpError } = await supabase.from("league_players").insert({
         league_id: leagueId,
         player_id: player.player_id,
@@ -147,7 +223,6 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
       if (lpError) throw lpError;
 
-      // Record the transaction
       const { data: txn, error: txnError } = await supabase
         .from("league_transactions")
         .insert({
@@ -166,7 +241,6 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         team_to_id: teamId,
       });
 
-      // Refresh lists
       queryClient.invalidateQueries({ queryKey: ["freeAgents", leagueId] });
       queryClient.invalidateQueries({ queryKey: ["teamRoster", teamId] });
     } catch (err: any) {
@@ -181,13 +255,69 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       ? calculateAvgFantasyPoints(item, scoringWeights)
       : undefined;
     const isAdding = addingPlayerId === item.player_id;
+    const headshotUrl = getPlayerHeadshotUrl(item.external_id_nba);
+    const logoUrl = getTeamLogoUrl(item.nba_team);
+    const badge = getInjuryBadge(item.status);
 
     return (
-      <PlayerCard
-        player={item}
-        fantasyPoints={fpts}
+      <TouchableOpacity
+        style={[styles.row, { borderBottomColor: c.border }]}
         onPress={() => setSelectedPlayer(item)}
-        rightElement={
+        activeOpacity={0.7}
+      >
+        <View style={styles.portraitWrap}>
+          {headshotUrl ? (
+            <FadeInImage
+              uri={headshotUrl}
+              style={styles.headshot}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={[styles.headshot, { backgroundColor: c.border }]} />
+          )}
+          <View style={styles.teamPill}>
+            {logoUrl && (
+              <Image
+                source={{ uri: logoUrl }}
+                style={styles.teamPillLogo}
+                resizeMode="contain"
+              />
+            )}
+            <Text style={styles.teamPillText}>{item.nba_team}</Text>
+          </View>
+        </View>
+
+        <View style={styles.info}>
+          <View style={styles.nameRow}>
+            <ThemedText
+              type="defaultSemiBold"
+              numberOfLines={1}
+              style={{ flexShrink: 1, fontSize: 14 }}
+            >
+              {item.name}
+            </ThemedText>
+            {badge && (
+              <View style={[styles.badge, { backgroundColor: badge.color }]}>
+                <Text style={styles.badgeText}>{badge.label}</Text>
+              </View>
+            )}
+          </View>
+          <ThemedText style={[styles.posText, { color: c.secondaryText }]}>
+            {formatPosition(item.position)}
+          </ThemedText>
+        </View>
+
+        <View style={styles.rightSide}>
+          <View style={styles.stats}>
+            <ThemedText style={[styles.statLine, { color: c.secondaryText }]}>
+              {item.avg_pts}/{item.avg_reb}/{item.avg_ast}
+            </ThemedText>
+            {fpts !== undefined && (
+              <ThemedText style={[styles.fpts, { color: c.accent }]}>
+                {fpts} FPTS
+              </ThemedText>
+            )}
+          </View>
           <TouchableOpacity
             style={[
               styles.addButton,
@@ -205,15 +335,20 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
           >
             <ThemedText style={styles.addButtonText}>+</ThemedText>
           </TouchableOpacity>
-        }
-      />
+        </View>
+      </TouchableOpacity>
     );
   };
 
   if (isLoading) {
     return (
-      <View style={styles.loading}>
-        <ActivityIndicator />
+      <View style={styles.container}>
+        <PlayerFilterBar {...filterBarProps} />
+        <View style={styles.listContent}>
+          {Array.from({ length: SKELETON_COUNT }, (_, i) => (
+            <SkeletonRow key={i} color={c.border} index={i} />
+          ))}
+        </View>
       </View>
     );
   }
@@ -226,6 +361,9 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         renderItem={renderPlayer}
         keyExtractor={(item) => item.player_id}
         contentContainerStyle={styles.listContent}
+        initialNumToRender={15}
+        maxToRenderPerBatch={15}
+        windowSize={5}
       />
       <PlayerDetailModal
         player={selectedPlayer}
@@ -248,17 +386,90 @@ const styles = StyleSheet.create({
   listContent: {
     padding: 8,
   },
-  loading: {
-    flex: 1,
-    justifyContent: "center",
+  row: {
+    flexDirection: "row",
     alignItems: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  portraitWrap: {
+    width: 52,
+    height: 48,
+    marginRight: 10,
+  },
+  headshot: {
+    width: 52,
+    height: 40,
+    borderRadius: 6,
+  },
+  teamPill: {
+    position: "absolute",
+    bottom: 0,
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.75)",
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    gap: 2,
+  },
+  teamPillLogo: {
+    width: 10,
+    height: 10,
+  },
+  teamPillText: {
+    color: "#fff",
+    fontSize: 8,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+  },
+  info: {
+    flex: 1,
+    marginRight: 8,
+  },
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  badge: {
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 3,
+  },
+  badgeText: {
+    color: "#fff",
+    fontSize: 8,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+  },
+  posText: {
+    fontSize: 11,
+    marginTop: 1,
+  },
+  rightSide: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  stats: {
+    alignItems: "flex-end",
+  },
+  statLine: {
+    fontSize: 12,
+  },
+  fpts: {
+    fontSize: 11,
+    fontWeight: "600",
+    marginTop: 1,
   },
   addButton: {
     backgroundColor: "#28a745",
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 4,
-    marginLeft: 8,
   },
   addButtonText: {
     color: "#fff",
@@ -267,5 +478,9 @@ const styles = StyleSheet.create({
   },
   addButtonDisabled: {
     backgroundColor: "#ccc",
+  },
+  skeletonBar: {
+    height: 12,
+    borderRadius: 4,
   },
 });

@@ -13,7 +13,14 @@
       "mcp__claude_ai_Supabase__get_logs",
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(py:*)",
-      "WebFetch(domain:official.nba.com)"
+      "WebFetch(domain:official.nba.com)",
+      "WebFetch(domain:a.espncdn.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:data.nba.com)",
+      "WebFetch(domain:cdn.nba.com)",
+      "Bash(grep:*)",
+      "Bash(npx expo install:*)",
+      "Bash(ls:*)"
     ]
   }
 }

@@ -11,7 +11,9 @@ import { fetchLineupForDate } from "@/utils/dailyLineup";
 import { calculateAvgFantasyPoints, calculateGameFantasyPoints } from "@/utils/fantasyPoints";
 import { formatPosition } from "@/utils/formatting";
 import { getInjuryBadge } from "@/utils/injuryBadge";
+import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
 import { formatGameInfo, LivePlayerStats, useLivePlayerStats } from "@/utils/nbaLive";
+import { useTodayGameTimes, isGameStarted } from "@/utils/gameStarted";
 import { isEligibleForSlot, SLOT_LABELS } from "@/utils/rosterSlots";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
@@ -20,6 +22,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  Image,
   Modal,
   PanResponder,
   ScrollView,
@@ -34,7 +37,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 interface RosterPlayer extends PlayerSeasonStats {
   roster_slot: string | null;
-  external_id_nba: number | null;
   nbaTricode: string | null; // real team tricode from players.nba_team (e.g. "OKC")
 }
 
@@ -191,18 +193,15 @@ export default function RosterScreen() {
 
       const slotMap = await fetchLineupForDate(teamId!, leagueId!, selectedDate);
 
-      const [statsResult, nbaIdResult] = await Promise.all([
+      const [statsResult, tricodeResult] = await Promise.all([
         supabase.from("player_season_stats").select("*").in("player_id", playerIds),
-        supabase.from("players").select("id, external_id_nba, nba_team").in("id", playerIds),
+        supabase.from("players").select("id, nba_team").in("id", playerIds),
       ]);
 
       if (statsResult.error) throw statsResult.error;
 
-      const nbaIdMap = new Map<string, number>(
-        (nbaIdResult.data ?? []).map((p: any) => [p.id, p.external_id_nba])
-      );
       const nbaTricodeMap = new Map<string, string>(
-        (nbaIdResult.data ?? [])
+        (tricodeResult.data ?? [])
           .filter((p: any) => p.nba_team && p.nba_team !== 'Active' && p.nba_team !== 'Inactive')
           .map((p: any) => [p.id, p.nba_team])
       );
@@ -210,7 +209,6 @@ export default function RosterScreen() {
       return (statsResult.data as PlayerSeasonStats[]).map((p) => ({
         ...p,
         roster_slot: slotMap.get(p.player_id) ?? null,
-        external_id_nba: nbaIdMap.get(p.player_id) ?? null,
         nbaTricode: nbaTricodeMap.get(p.player_id) ?? null,
       }));
     },
@@ -259,6 +257,15 @@ export default function RosterScreen() {
   // Live stats for today via Realtime
   const playerIds = rosterPlayers?.map((p) => p.player_id) ?? [];
   const liveMap = useLivePlayerStats(playerIds, isToday);
+
+  // Game start times for locking slots
+  const gameTimeMap = useTodayGameTimes(isToday);
+
+  const isPlayerLocked = (player: RosterPlayer | null): boolean => {
+    if (!isToday || !player) return false;
+    const liveStatus = liveMap.get(player.player_id)?.game_status;
+    return isGameStarted(player.nbaTricode, gameTimeMap, liveStatus);
+  };
 
   const isLoading = isLoadingConfig || isLoadingRoster;
 
@@ -531,6 +538,7 @@ export default function RosterScreen() {
     const { fpts, statLine, isLive, matchup } = resolveSlotStats(slot.player);
     const liveData = slot.player ? liveMap.get(slot.player.player_id) : null;
     const gameInfo = liveData ? formatGameInfo(liveData) : '';
+    const locked = isPlayerLocked(slot.player);
 
     const isActive =
       activeSlot?.slotPosition === slot.slotPosition &&
@@ -550,6 +558,7 @@ export default function RosterScreen() {
             borderLeftWidth: 3,
             borderLeftColor: c.accent,
           },
+          locked && { opacity: 0.6 },
         ]}
       >
         <TouchableOpacity
@@ -563,7 +572,7 @@ export default function RosterScreen() {
                   : c.cardAlt,
             },
           ]}
-          onPress={() => !isPastDate && setActiveSlot(slot)}
+          onPress={() => !isPastDate && !locked && setActiveSlot(slot)}
         >
           <ThemedText
             style={[
@@ -586,14 +595,36 @@ export default function RosterScreen() {
             style={styles.slotPlayer}
             onPress={() => setSelectedPlayer(slot.player)}
             onLongPress={() => {
-              if (isPastDate) return;
+              if (isPastDate || locked) return;
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               setActiveSlot(slot);
             }}
             delayLongPress={400}
           >
+            {/* Headshot with team pill */}
+            <View style={styles.rosterPortraitWrap}>
+              {(() => {
+                const url = getPlayerHeadshotUrl(slot.player.external_id_nba);
+                return url ? (
+                  <Image source={{ uri: url }} style={styles.rosterHeadshot} resizeMode="cover" />
+                ) : (
+                  <View style={[styles.rosterHeadshot, { backgroundColor: c.border }]} />
+                );
+              })()}
+              {(() => {
+                const logoUrl = getTeamLogoUrl(slot.player.nba_team);
+                return (
+                  <View style={styles.rosterTeamPill}>
+                    {logoUrl && (
+                      <Image source={{ uri: logoUrl }} style={styles.rosterTeamPillLogo} resizeMode="contain" />
+                    )}
+                    <Text style={styles.rosterTeamPillText}>{slot.player.nba_team}</Text>
+                  </View>
+                );
+              })()}
+            </View>
             <View style={styles.slotPlayerInfo}>
-              {/* Line 1: ● Name | @OKC chip | LIVE */}
+              {/* Line 1: ● Name | badges */}
               <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1 }}>
                 {liveData?.oncourt && <OnCourtDot />}
                 <ThemedText
@@ -621,8 +652,20 @@ export default function RosterScreen() {
                     <Text style={styles.liveText}>LIVE</Text>
                   </View>
                 )}
+                {locked && !isLive && (
+                  <View style={[styles.liveBadge, { backgroundColor: '#868e96' }]}>
+                    <Text style={styles.liveText}>LOCKED</Text>
+                  </View>
+                )}
               </View>
-              {/* Line 2: quarter/time/score — tight, reads like a subtitle */}
+              {/* Line 2: position */}
+              <ThemedText
+                style={[styles.slotPlayerSub, { color: c.secondaryText }]}
+                numberOfLines={1}
+              >
+                {formatPosition(slot.player.position)}
+              </ThemedText>
+              {/* Line 3: game info or stats */}
               {gameInfo ? (
                 <ThemedText
                   style={[styles.slotPlayerSub, { color: c.secondaryText, fontSize: 10, marginTop: 0, lineHeight: 13 }]}
@@ -631,17 +674,14 @@ export default function RosterScreen() {
                   {gameInfo}
                 </ThemedText>
               ) : null}
-              {/* Line 3: stats or position fallback */}
-              <ThemedText
-                style={[styles.slotPlayerSub, { color: c.secondaryText }]}
-                numberOfLines={1}
-              >
-                {statLine
-                  ? statLine
-                  : (isFutureDate || (isToday && !!matchup))
-                    ? `${formatPosition(slot.player.position)} · proj`
-                    : formatPosition(slot.player.position)}
-              </ThemedText>
+              {statLine ? (
+                <ThemedText
+                  style={[styles.slotPlayerSub, { color: c.secondaryText }]}
+                  numberOfLines={1}
+                >
+                  {statLine}
+                </ThemedText>
+              ) : null}
             </View>
             <AnimatedFpts
               value={fpts}
@@ -793,10 +833,13 @@ export default function RosterScreen() {
           visible={!!activeSlot}
           slot={activeSlot}
           eligiblePlayers={
-            activeSlot ? getEligiblePlayersForSlot(activeSlot.slotPosition) : []
+            activeSlot
+              ? getEligiblePlayersForSlot(activeSlot.slotPosition).filter(p => !isPlayerLocked(p))
+              : []
           }
           scoringWeights={scoringWeights}
           isAssigning={isAssigning}
+          seatLocked={!!activeSlot?.player && isPlayerLocked(activeSlot.player)}
           onSelectPlayer={handleAssignPlayer}
           onClear={handleClearSlot}
           onClose={() => setActiveSlot(null)}
@@ -821,6 +864,7 @@ interface SlotPickerModalProps {
   eligiblePlayers: RosterPlayer[];
   scoringWeights: any;
   isAssigning: boolean;
+  seatLocked?: boolean;
   onSelectPlayer: (player: RosterPlayer) => void;
   onClear: () => void;
   onClose: () => void;
@@ -832,6 +876,7 @@ function SlotPickerModal({
   eligiblePlayers,
   scoringWeights,
   isAssigning,
+  seatLocked,
   onSelectPlayer,
   onClear,
   onClose,
@@ -940,7 +985,7 @@ function SlotPickerModal({
                       {slot.player.nba_team}
                     </ThemedText>
                   </View>
-                  {(isStarterSlot || slot.slotPosition === "IR") && (
+                  {(isStarterSlot || slot.slotPosition === "IR") && !seatLocked && (
                     <TouchableOpacity
                       style={[styles.clearButton, { borderColor: c.border }]}
                       onPress={onClear}
@@ -1122,9 +1167,41 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 12,
   },
+  rosterPortraitWrap: {
+    width: 44,
+    height: 40,
+    marginRight: 8,
+  },
+  rosterHeadshot: {
+    width: 44,
+    height: 32,
+    borderRadius: 4,
+  },
+  rosterTeamPill: {
+    position: "absolute",
+    bottom: 0,
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.75)",
+    borderRadius: 8,
+    paddingHorizontal: 3,
+    paddingVertical: 1,
+    gap: 2,
+  },
+  rosterTeamPillLogo: {
+    width: 9,
+    height: 9,
+  },
+  rosterTeamPillText: {
+    color: "#fff",
+    fontSize: 7,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+  },
   slotPlayerInfo: { flex: 1, marginRight: 8 },
   slotPlayerName: { fontSize: 14 },
-  slotPlayerSub: { fontSize: 11, marginTop: 2 },
+  slotPlayerSub: { fontSize: 11, marginTop: 1 },
   slotFpts: { fontSize: 13, fontWeight: "600" },
   emptySlotText: { fontSize: 13, fontStyle: "italic" },
   todayChipText: { fontSize: 11, fontWeight: "600" },

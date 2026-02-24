@@ -1,5 +1,6 @@
 import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
 import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
+import { getEligiblePositions } from '@/utils/rosterSlots';
 import { useMemo, useState } from 'react';
 
 export type SortKey = 'FPTS' | 'PPG' | 'RPG' | 'APG' | 'SPG' | 'BPG' | 'MPG';
@@ -16,15 +17,6 @@ const SORT_FIELD: Record<Exclude<SortKey, 'FPTS'>, keyof PlayerSeasonStats> = {
 const POSITIONS = ['All', 'PG', 'SG', 'SF', 'PF', 'C'] as const;
 export type PositionFilter = (typeof POSITIONS)[number];
 export { POSITIONS };
-
-// Maps position filter to substrings that match (e.g. "PG" matches "Guard", "PG", etc.)
-const POSITION_MATCH: Record<string, string[]> = {
-  PG: ['Guard', 'PG'],
-  SG: ['Guard', 'SG'],
-  SF: ['Forward', 'SF'],
-  PF: ['Forward', 'PF'],
-  C: ['Center', 'C'],
-};
 
 export function usePlayerFilter(
   players: PlayerSeasonStats[] | undefined,
@@ -45,11 +37,10 @@ export function usePlayerFilter(
       result = result.filter(p => p.name.toLowerCase().includes(query));
     }
 
-    // Filter by position
+    // Filter by position (uses spectrum: SF-PG covers PG, SG, SF)
     if (selectedPosition !== 'All') {
-      const matchTerms = POSITION_MATCH[selectedPosition] || [selectedPosition];
       result = result.filter(p =>
-        p.position && matchTerms.some(term => p.position.includes(term))
+        p.position && getEligiblePositions(p.position).includes(selectedPosition)
       );
     }
 

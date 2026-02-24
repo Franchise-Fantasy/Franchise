@@ -4,6 +4,7 @@ export interface PlayerSeasonStats {
   position: string;
   nba_team: string;
   status: string;
+  external_id_nba: string | null;
   games_played: number;
   // Totals
   total_pts: number;
