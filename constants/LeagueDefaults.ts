@@ -35,12 +35,19 @@ export const DEFAULT_SCORING: ScoringCategory[] = [
   { stat_name: 'FGA', label: 'Field Goals Attempted', point_value: -1 },
   { stat_name: 'FTM', label: 'Free Throws Made', point_value: 1 },
   { stat_name: 'FTA', label: 'Free Throws Attempted', point_value: -1 },
+  { stat_name: 'PF', label: 'Personal Fouls', point_value: -1 },
 ];
 
 export const DRAFT_TYPE_OPTIONS = ['Snake', 'Linear'] as const;
 export const TIME_PER_PICK_OPTIONS = [60, 90, 120] as const;
 
-export const STEP_LABELS = ['Basics', 'Roster', 'Scoring', 'Draft', 'Season', 'Review'];
+export const TRADE_VETO_OPTIONS = ['Commissioner', 'League Vote', 'None'] as const;
+export type TradeVetoOption = (typeof TRADE_VETO_OPTIONS)[number];
+
+export const ROOKIE_DRAFT_ORDER_OPTIONS = ['Reverse Record', 'Lottery'] as const;
+export type RookieDraftOrderOption = (typeof ROOKIE_DRAFT_ORDER_OPTIONS)[number];
+
+export const STEP_LABELS = ['Basics', 'Roster', 'Scoring', 'Draft', 'Trade', 'Season', 'Review'];
 
 // Hardcoded NBA regular season end dates per season string.
 // Update each year or replace with a live query once nba_schedule is populated.
@@ -63,6 +70,12 @@ export interface LeagueWizardState {
   draftType: DraftType;
   timePerPick: TimePerPick;
   maxDraftYears: number;
+  tradeVetoType: TradeVetoOption;
+  tradeReviewPeriodHours: number;
+  tradeVotesToVeto: number;
+  rookieDraftRounds: number;
+  rookieDraftOrder: RookieDraftOrderOption;
+  lotteryPicks: number;
   season: string;
   regularSeasonWeeks: number;
   playoffWeeks: number;

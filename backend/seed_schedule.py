@@ -1,17 +1,15 @@
 """
-Seed the nba_schedule table with all regular season games for a given NBA season.
-Uses the nba_api LeagueGameFinder endpoint.
+Seed the nba_schedule table with the full season schedule (past + future).
+Uses the nba_api library's ScheduleLeagueV2 endpoint.
 
 Usage:
-    python seed_schedule.py              # seeds current season (2025-26)
+    python seed_schedule.py              # seeds 2025-26 season
     python seed_schedule.py 2024-25      # seeds a specific season
 """
 
 import sys
 import time
-from datetime import datetime
-
-from nba_api.stats.endpoints import leaguegamefinder
+from nba_api.stats.endpoints import scheduleleaguev2
 from supabase import create_client
 
 SUPABASE_URL = 'https://iuqbossmnsezzgocpcbo.supabase.co'
@@ -21,69 +19,66 @@ NBA_SEASON = sys.argv[1] if len(sys.argv) > 1 else '2025-26'
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-print(f'Fetching NBA schedule for {NBA_SEASON}...')
+print(f'Fetching NBA schedule for {NBA_SEASON} via nba_api...')
+time.sleep(1)
 
-# LeagueGameFinder returns one row per team per game, so we get duplicates.
-# We deduplicate by game_id, picking the home team's row as the canonical record.
-time.sleep(1)  # avoid rate limiting on first call
-finder = leaguegamefinder.LeagueGameFinder(
-    season_nullable=NBA_SEASON,
-    league_id_nullable='00',       # '00' = NBA
-    season_type_nullable='Regular Season',
-)
+sched = scheduleleaguev2.ScheduleLeagueV2(league_id='00', season=NBA_SEASON)
+data = sched.get_dict()
 
-df = finder.get_data_frames()[0]
-print(f'  Fetched {len(df)} team-game rows.')
+game_dates = data.get('leagueSchedule', {}).get('gameDates', [])
+print(f'  Got {len(game_dates)} game dates.')
 
-# Columns from LeagueGameFinder:
-# SEASON_ID, TEAM_ID, TEAM_ABBREVIATION, TEAM_NAME, GAME_ID, GAME_DATE,
-# MATCHUP, WL, MIN, PTS, ... (full box score totals)
-# MATCHUP format: "BOS vs. MIA" (home) or "BOS @ MIA" (away)
+rows = []
+seen_ids = set()
 
-games: dict[str, dict] = {}
+for gd in game_dates:
+    for game in gd.get('games', []):
+        game_id = game.get('gameId')
+        if not game_id or game_id in seen_ids:
+            continue
+        seen_ids.add(game_id)
 
-for _, row in df.iterrows():
-    game_id = row['GAME_ID']
-    matchup: str = row['MATCHUP']
-    team = row['TEAM_ABBREVIATION']
-    game_date = row['GAME_DATE']  # 'YYYY-MM-DD'
-    pts = row.get('PTS')
-    wl = row.get('WL')  # 'W' or 'L' or None if unplayed
+        home = game.get('homeTeam', {})
+        away = game.get('awayTeam', {})
+        home_tricode = home.get('teamTricode')
+        away_tricode = away.get('teamTricode')
 
-    is_home = 'vs.' in matchup
+        # Skip TBD playoff games (no tricode yet)
+        if not home_tricode or not away_tricode:
+            continue
 
-    if game_id not in games:
-        games[game_id] = {
+        # gameDateEst: "2025-10-22T00:00:00Z"
+        game_date = str(game.get('gameDateEst', ''))[:10]
+        if not game_date:
+            continue
+
+        game_status = game.get('gameStatus', 1)  # 1=scheduled, 2=live, 3=final
+        status = 'final' if game_status == 3 else 'scheduled'
+        home_score = home.get('score') if game_status == 3 else None
+        away_score = away.get('score') if game_status == 3 else None
+
+        rows.append({
             'game_id': game_id,
             'game_date': game_date,
             'season': NBA_SEASON,
-            'home_team': None,
-            'away_team': None,
-            'home_score': None,
-            'away_score': None,
-            'status': 'final' if wl else 'scheduled',
-        }
+            'home_team': home_tricode,
+            'away_team': away_tricode,
+            'home_score': home_score,
+            'away_score': away_score,
+            'status': status,
+        })
 
-    if is_home:
-        games[game_id]['home_team'] = team
-        if pts is not None and str(pts) != 'nan':
-            games[game_id]['home_score'] = int(pts)
-    else:
-        games[game_id]['away_team'] = team
-        if pts is not None and str(pts) != 'nan':
-            games[game_id]['away_score'] = int(pts)
+print(f'  Parsed {len(rows)} unique games.')
 
-rows = [g for g in games.values() if g['home_team'] and g['away_team']]
-print(f'  Deduped to {len(rows)} unique games.')
+if not rows:
+    print('ERROR: No games parsed.')
+    sys.exit(1)
 
-# Sort by date so we can verify the last game easily
 rows.sort(key=lambda g: g['game_date'])
+print(f'  First game: {rows[0]["game_date"]}  ({rows[0]["away_team"]} @ {rows[0]["home_team"]})')
+print(f'  Last game:  {rows[-1]["game_date"]}  ({rows[-1]["away_team"]} @ {rows[-1]["home_team"]})')
 
-if rows:
-    print(f'  First game: {rows[0]["game_date"]}  ({rows[0]["away_team"]} @ {rows[0]["home_team"]})')
-    print(f'  Last game:  {rows[-1]["game_date"]}  ({rows[-1]["away_team"]} @ {rows[-1]["home_team"]})')
-
-# Upsert in batches of 500 to stay well under Supabase payload limits
+# Upsert in batches of 500
 BATCH = 500
 inserted = 0
 for i in range(0, len(rows), BATCH):
@@ -91,6 +86,5 @@ for i in range(0, len(rows), BATCH):
     supabase.table('nba_schedule').upsert(batch, on_conflict='game_id').execute()
     inserted += len(batch)
     print(f'  Upserted {inserted}/{len(rows)}...')
-    time.sleep(0.3)
 
 print(f'Done. {len(rows)} games upserted for {NBA_SEASON}.')

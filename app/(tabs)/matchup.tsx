@@ -5,11 +5,18 @@ import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { ScoringWeight } from '@/types/player';
+import { formatGameInfo, LivePlayerStats, useLivePlayerStats } from '@/utils/nbaLive';
 import { calculateGameFantasyPoints } from '@/utils/fantasyPoints';
-import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { getInjuryBadge } from '@/utils/injuryBadge';
+import { useLeagueRosterConfig, RosterConfigSlot } from '@/hooks/useLeagueRosterConfig';
+import { SLOT_LABELS } from '@/utils/rosterSlots';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   ActivityIndicator,
+  FlatList,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
@@ -41,26 +48,58 @@ interface RosterPlayer {
   name: string;
   position: string;
   nba_team: string;
+  nbaTricode: string | null; // real tricode from players.nba_team (e.g. "OKC")
   roster_slot: string;
+  external_id_nba: number | null;
+  status: string;
   weekPoints: number;
+  dayPoints: number;
+  // matchup string for past-date or future-date display (e.g. "vs MIA", "@BOS")
+  dayMatchup: string | null;
+  // stat line for past dates (e.g. "20 PTS · 8 REB · 5 AST")
+  dayStatLine: string | null;
 }
 
 interface TeamMatchupData {
   teamId: string;
   teamName: string;
   players: RosterPlayer[];
-  totalPoints: number;
+  weekTotal: number;
+  dayTotal: number;
 }
 
-// ─── Data fetching helpers ────────────────────────────────────────────────────
+interface MatchupSlotEntry {
+  slotPosition: string;
+  slotIndex: number;
+  player: RosterPlayer | null;
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function toDateStr(d: Date) {
-  return d.toISOString().split('T')[0];
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 function parseLocalDate(str: string): Date {
   const [y, m, d] = str.split('-').map(Number);
   return new Date(y, m - 1, d);
+}
+
+function addDays(dateStr: string, n: number): string {
+  const d = parseLocalDate(dateStr);
+  d.setDate(d.getDate() + n);
+  return toDateStr(d);
+}
+
+function formatDayLabel(dateStr: string): string {
+  return parseLocalDate(dateStr).toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
 }
 
 function formatWeekRange(start: string, end: string): string {
@@ -70,6 +109,94 @@ function formatWeekRange(start: string, end: string): string {
   return `${fmt(s)} – ${fmt(e)}`;
 }
 
+function round1(n: number) {
+  return Math.round(n * 10) / 10;
+}
+
+// Build a stat line string for a live/historical stat object.
+// Only includes stats that the league actually scores.
+function buildStatLine(
+  stats: Record<string, number>,
+  scoring: ScoringWeight[]
+): string {
+  // Ordered display labels for each scoring stat key
+  const DISPLAY: Record<string, string> = {
+    PTS: 'PTS',
+    REB: 'REB',
+    AST: 'AST',
+    STL: 'STL',
+    BLK: 'BLK',
+    TO: 'TO',
+    '3PM': '3PM',
+    FGM: 'FGM',
+    FGA: 'FGA',
+    FTM: 'FTM',
+    FTA: 'FTA',
+    PF: 'PF',
+  };
+  // Map scoring stat_name → stat value from the stats object
+  const LIVE_KEY: Record<string, string> = {
+    PTS: 'pts', REB: 'reb', AST: 'ast', STL: 'stl', BLK: 'blk',
+    TO: 'tov', '3PM': '3pm', FGM: 'fgm', FGA: 'fga', FTM: 'ftm',
+    FTA: 'fta', PF: 'pf',
+  };
+
+  const scoredStatNames = new Set(scoring.map((w) => w.stat_name));
+  // Always show PF if the table has it, even if not scored (optional: only show scored stats)
+  const toShow = ['PTS', 'REB', 'AST', 'STL', 'BLK', 'TO', '3PM', 'PF'].filter(
+    (key) => scoredStatNames.has(key) || key === 'PF'
+  );
+
+  return toShow
+    .map((key) => {
+      const val = stats[LIVE_KEY[key]] ?? 0;
+      return `${val} ${DISPLAY[key]}`;
+    })
+    .join(' · ');
+}
+
+// Build a fixed-length array of slot entries from the roster config, mapping players into their slots.
+// Empty slots show as null. This ensures both teams always display the same number of rows.
+function buildMatchupSlots(
+  players: RosterPlayer[],
+  config: RosterConfigSlot[],
+): MatchupSlotEntry[] {
+  const activeConfigs = config.filter((c) => c.position !== 'BE' && c.position !== 'IR');
+  const slots: MatchupSlotEntry[] = [];
+
+  for (const cfg of activeConfigs) {
+    const inSlot = players.filter((p) => p.roster_slot === cfg.position);
+    for (let i = 0; i < cfg.slot_count; i++) {
+      slots.push({
+        slotPosition: cfg.position,
+        slotIndex: i,
+        player: inSlot[i] ?? null,
+      });
+    }
+  }
+  return slots;
+}
+
+// Convert a LivePlayerStats row to the shape calculateGameFantasyPoints expects
+function liveToGameLog(live: LivePlayerStats): Record<string, number> {
+  return {
+    pts: live.pts,
+    reb: live.reb,
+    ast: live.ast,
+    stl: live.stl,
+    blk: live.blk,
+    tov: live.tov,
+    fgm: live.fgm,
+    fga: live.fga,
+    '3pm': live['3pm'],
+    ftm: live.ftm,
+    fta: live.fta,
+    pf: live.pf,
+  };
+}
+
+// ─── Data fetching ────────────────────────────────────────────────────────────
+
 async function fetchWeeks(leagueId: string): Promise<Week[]> {
   const { data, error } = await supabase
     .from('league_schedule')
@@ -78,15 +205,6 @@ async function fetchWeeks(leagueId: string): Promise<Week[]> {
     .order('week_number', { ascending: true });
   if (error) throw error;
   return data ?? [];
-}
-
-async function findCurrentWeekIndex(weeks: Week[]): Promise<number> {
-  const today = toDateStr(new Date());
-  const idx = weeks.findIndex((w) => w.start_date <= today && today <= w.end_date);
-  if (idx !== -1) return idx;
-  // If before first week, show week 1; if after last week, show last
-  if (today < weeks[0]?.start_date) return 0;
-  return weeks.length - 1;
 }
 
 async function fetchMatchupForWeek(scheduleId: string, teamId: string): Promise<Matchup | null> {
@@ -105,49 +223,104 @@ async function fetchTeamName(teamId: string): Promise<string> {
   return data?.name ?? 'Unknown Team';
 }
 
-async function fetchRosterWithPoints(
+async function fetchTeamData(
   teamId: string,
   leagueId: string,
-  startDate: string,
-  endDate: string,
+  week: Week,
+  selectedDate: string,
   scoring: ScoringWeight[]
 ): Promise<RosterPlayer[]> {
-  // Get non-bench roster players
   const { data: leaguePlayers, error: lpErr } = await supabase
     .from('league_players')
-    .select('player_id, roster_slot, players(name, position, nba_team)')
+    .select('player_id, roster_slot, players(name, position, nba_team, external_id_nba, status)')
     .eq('team_id', teamId)
-    .eq('league_id', leagueId)
-    .neq('roster_slot', 'BE');
+    .eq('league_id', leagueId);
 
   if (lpErr) throw lpErr;
   if (!leaguePlayers || leaguePlayers.length === 0) return [];
 
   const playerIds = leaguePlayers.map((lp: any) => lp.player_id);
 
-  // Fetch game logs for this week
+  const defaultSlotMap = new Map<string, string>(
+    leaguePlayers.map((lp: any) => [lp.player_id, lp.roster_slot ?? 'BE'])
+  );
+
+  const { data: dailyEntries } = await supabase
+    .from('daily_lineups')
+    .select('player_id, roster_slot, lineup_date')
+    .eq('team_id', teamId)
+    .eq('league_id', leagueId)
+    .lte('lineup_date', week.end_date)
+    .order('lineup_date', { ascending: false });
+
+  const dailyByPlayer = new Map<string, Array<{ lineup_date: string; roster_slot: string }>>();
+  for (const entry of dailyEntries ?? []) {
+    if (!dailyByPlayer.has(entry.player_id)) {
+      dailyByPlayer.set(entry.player_id, []);
+    }
+    dailyByPlayer.get(entry.player_id)!.push(entry);
+  }
+
+  const resolveSlot = (playerId: string, day: string): string => {
+    const entries = dailyByPlayer.get(playerId) ?? [];
+    const entry = entries.find((e) => e.lineup_date <= day);
+    return entry?.roster_slot ?? defaultSlotMap.get(playerId) ?? 'BE';
+  };
+
+  // Fetch past game logs for the week (excludes today — live data covers that)
+  const today = toDateStr(new Date());
+  const weekEndForQuery = selectedDate >= today ? addDays(today, -1) : week.end_date;
+
   const { data: gameLogs } = await supabase
     .from('player_games')
-    .select('player_id, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double, game_date')
+    .select('player_id, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double, game_date, matchup')
     .in('player_id', playerIds)
-    .gte('game_date', startDate)
-    .lte('game_date', endDate);
+    .gte('game_date', week.start_date)
+    .lte('game_date', weekEndForQuery);
 
-  // Sum up points per player
-  const pointsMap = new Map<string, number>();
+  const weekPointsMap = new Map<string, number>();
+  const dayPointsMap = new Map<string, number>();
+  const dayMatchupMap = new Map<string, string>();
+  const dayStatsMap = new Map<string, Record<string, number>>();
+
   for (const game of gameLogs ?? []) {
+    const slot = resolveSlot(game.player_id, game.game_date);
+    if (slot === 'BE' || slot === 'IR') continue;
+
     const fp = calculateGameFantasyPoints(game as any, scoring);
-    pointsMap.set(game.player_id, (pointsMap.get(game.player_id) ?? 0) + fp);
+    weekPointsMap.set(game.player_id, (weekPointsMap.get(game.player_id) ?? 0) + fp);
+
+    if (game.game_date === selectedDate) {
+      dayPointsMap.set(game.player_id, (dayPointsMap.get(game.player_id) ?? 0) + fp);
+      if (game.matchup) dayMatchupMap.set(game.player_id, game.matchup);
+      dayStatsMap.set(game.player_id, {
+        pts: game.pts, reb: game.reb, ast: game.ast, stl: game.stl,
+        blk: game.blk, tov: game.tov, fgm: game.fgm, fga: game.fga,
+        '3pm': game['3pm'], ftm: game.ftm, fta: game.fta, pf: game.pf,
+      });
+    }
   }
 
   return leaguePlayers.map((lp: any) => ({
-    player_id: lp.player_id,
-    name: lp.players?.name ?? '—',
-    position: lp.players?.position ?? '—',
-    nba_team: lp.players?.nba_team ?? '—',
-    roster_slot: lp.roster_slot,
-    weekPoints: Math.round((pointsMap.get(lp.player_id) ?? 0) * 10) / 10,
-  }));
+      player_id: lp.player_id,
+      name: lp.players?.name ?? '—',
+      position: lp.players?.position ?? '—',
+      nba_team: lp.players?.nba_team ?? '—',
+      external_id_nba: lp.players?.external_id_nba ?? null,
+      status: lp.players?.status ?? 'active',
+      nbaTricode: (() => {
+        const t = lp.players?.nba_team ?? '';
+        return t && t !== 'Active' && t !== 'Inactive' ? t : null;
+      })(),
+      roster_slot: resolveSlot(lp.player_id, selectedDate),
+      weekPoints: round1(weekPointsMap.get(lp.player_id) ?? 0),
+      dayPoints: round1(dayPointsMap.get(lp.player_id) ?? 0),
+      dayMatchup: dayMatchupMap.get(lp.player_id) ?? null,
+      dayStatLine: (() => {
+        const ds = dayStatsMap.get(lp.player_id);
+        return ds ? buildStatLine(ds, scoring) : null;
+      })(),
+    }));
 }
 
 // ─── Hooks ────────────────────────────────────────────────────────────────────
@@ -178,14 +351,17 @@ function useScoring(leagueId: string | null) {
 }
 
 function useWeekMatchup(
-  week: Week | undefined,
+  weeks: Week[] | undefined,
+  selectedDate: string,
   teamId: string | null,
   leagueId: string | null,
   scoring: ScoringWeight[]
 ) {
+  const week = weeks?.find((w) => w.start_date <= selectedDate && selectedDate <= w.end_date) ?? null;
+
   return useQuery({
-    queryKey: ['weekMatchup', week?.id, teamId],
-    queryFn: async (): Promise<{ myTeam: TeamMatchupData; opponentTeam: TeamMatchupData | null } | null> => {
+    queryKey: ['weekMatchup', week?.id, teamId, selectedDate],
+    queryFn: async (): Promise<{ myTeam: TeamMatchupData; opponentTeam: TeamMatchupData | null; week: Week } | null> => {
       if (!week || !teamId || !leagueId) return null;
 
       const matchup = await fetchMatchupForWeek(week.id, teamId);
@@ -195,23 +371,22 @@ function useWeekMatchup(
         matchup.home_team_id === teamId ? matchup.away_team_id : matchup.home_team_id;
 
       const [myPlayers, myName] = await Promise.all([
-        fetchRosterWithPoints(teamId, leagueId, week.start_date, week.end_date, scoring),
+        fetchTeamData(teamId, leagueId, week, selectedDate, scoring),
         fetchTeamName(teamId),
       ]);
-
-      const myTotal = myPlayers.reduce((s, p) => s + p.weekPoints, 0);
 
       let opponentTeam: TeamMatchupData | null = null;
       if (opponentId) {
         const [oppPlayers, oppName] = await Promise.all([
-          fetchRosterWithPoints(opponentId, leagueId, week.start_date, week.end_date, scoring),
+          fetchTeamData(opponentId, leagueId, week, selectedDate, scoring),
           fetchTeamName(opponentId),
         ]);
         opponentTeam = {
           teamId: opponentId,
           teamName: oppName,
           players: oppPlayers,
-          totalPoints: Math.round(oppPlayers.reduce((s, p) => s + p.weekPoints, 0) * 10) / 10,
+          weekTotal: round1(oppPlayers.reduce((s, p) => s + p.weekPoints, 0)),
+          dayTotal: round1(oppPlayers.reduce((s, p) => s + p.dayPoints, 0)),
         };
       }
 
@@ -220,49 +395,299 @@ function useWeekMatchup(
           teamId,
           teamName: myName,
           players: myPlayers,
-          totalPoints: Math.round(myTotal * 10) / 10,
+          weekTotal: round1(myPlayers.reduce((s, p) => s + p.weekPoints, 0)),
+          dayTotal: round1(myPlayers.reduce((s, p) => s + p.dayPoints, 0)),
         },
         opponentTeam,
+        week,
       };
     },
     enabled: !!week && !!teamId && !!leagueId && scoring.length > 0,
     staleTime: 1000 * 60 * 2,
+    placeholderData: keepPreviousData,
   });
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function PlayerRow({ player, c }: { player: RosterPlayer; c: any }) {
+type DisplayMode = 'past' | 'today' | 'future';
+
+// Static green dot shown when player is actively on the floor.
+function OnCourtDot() {
+  return <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#2dc653', marginRight: 2 }} />;
+}
+
+// Pops on value change (1 → 1.35 → 1 spring)
+function AnimatedFpts({
+  value,
+  activeColor,
+  dimColor,
+  textStyle,
+}: {
+  value: number | null;
+  activeColor: string;
+  dimColor: string;
+  textStyle: any;
+}) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const prev = useRef<number | null | undefined>(undefined);
+
+  useEffect(() => {
+    if (prev.current !== undefined && value !== prev.current) {
+      Animated.sequence([
+        Animated.timing(scale, { toValue: 1.35, duration: 150, useNativeDriver: true }),
+        Animated.spring(scale, { toValue: 1, useNativeDriver: true, bounciness: 12 }),
+      ]).start();
+    }
+    prev.current = value;
+  }, [value]);
+
   return (
-    <View style={pStyles.row}>
-      <View style={pStyles.slotBadge}>
-        <Text style={[pStyles.slotText, { color: c.secondaryText }]}>{player.roster_slot}</Text>
+    <Animated.Text style={[textStyle, { transform: [{ scale }], color: value !== null ? activeColor : dimColor }]}>
+      {value !== null ? value.toFixed(1) : '—'}
+    </Animated.Text>
+  );
+}
+
+// Renders a single player cell (one side of a matchup row). No slot badge — that's in the center.
+function PlayerCell({
+  player,
+  c,
+  side,
+  mode,
+  liveStats,
+  scoring,
+  futureSchedule,
+}: {
+  player: RosterPlayer | null;
+  c: any;
+  side: 'left' | 'right';
+  mode: DisplayMode;
+  liveStats: LivePlayerStats | null;
+  scoring: ScoringWeight[];
+  futureSchedule?: Map<string, string>;
+}) {
+  const align = side === 'right' ? 'flex-end' : 'flex-start';
+  const textAlign = side === 'right' ? ('right' as const) : ('left' as const);
+
+  const injuryBadge = player ? getInjuryBadge(player.status) : null;
+
+  // Empty slot
+  if (!player) {
+    return (
+      <View style={[pStyles.cell, { alignItems: align }]}>
+        <Text style={[pStyles.name, { color: c.secondaryText, fontStyle: 'italic', textAlign }]}>Empty</Text>
+        <Text style={[pStyles.pts, { color: c.secondaryText, textAlign }]}>—</Text>
       </View>
-      <View style={pStyles.info}>
-        <Text style={[pStyles.name, { color: c.text }]} numberOfLines={1}>{player.name}</Text>
-        <Text style={[pStyles.meta, { color: c.secondaryText }]}>
-          {player.position} · {player.nba_team}
+    );
+  }
+
+  if (mode === 'future') {
+    const futureMatchup = player.nbaTricode ? (futureSchedule?.get(player.nbaTricode) ?? null) : null;
+    return (
+      <View style={[pStyles.cell, { alignItems: align }]}>
+        <View style={[pStyles.nameRow, { justifyContent: align }]}>
+          <Text style={[pStyles.name, { color: c.text, textAlign }]} numberOfLines={1}>{player.name}</Text>
+          {injuryBadge && (
+            <View style={[pStyles.liveBadge, { backgroundColor: injuryBadge.color }]}>
+              <Text style={pStyles.liveText}>{injuryBadge.label}</Text>
+            </View>
+          )}
+          {futureMatchup ? (
+            <Text style={[pStyles.matchup, { color: c.secondaryText }]}>{futureMatchup}</Text>
+          ) : null}
+        </View>
+        <Text style={[pStyles.meta, { color: c.secondaryText, textAlign }]}>
+          {futureMatchup ? `${player.position} · proj` : player.position}
         </Text>
+        <Text style={[pStyles.pts, { color: c.secondaryText, textAlign }]}>—</Text>
       </View>
-      <Text style={[pStyles.pts, { color: player.weekPoints > 0 ? c.text : c.secondaryText }]}>
-        {player.weekPoints > 0 ? player.weekPoints.toFixed(1) : '—'}
+    );
+  }
+
+  if (mode === 'today' && liveStats) {
+    const liveFp = round1(calculateGameFantasyPoints(liveToGameLog(liveStats) as any, scoring));
+    const isLive = liveStats.game_status === 2;
+    const statLine = liveStats.game_status !== 1
+      ? buildStatLine(liveToGameLog(liveStats), scoring)
+      : null;
+    const gameInfo = formatGameInfo(liveStats);
+
+    return (
+      <View style={[pStyles.cell, { alignItems: align }]}>
+        <View style={[pStyles.nameRow, { justifyContent: align }]}>
+          {liveStats.oncourt && <OnCourtDot />}
+          <Text style={[pStyles.name, { color: c.text, flexShrink: 1, textAlign }]} numberOfLines={1}>{player.name}</Text>
+          {injuryBadge && (
+            <View style={[pStyles.liveBadge, { backgroundColor: injuryBadge.color }]}>
+              <Text style={pStyles.liveText}>{injuryBadge.label}</Text>
+            </View>
+          )}
+          {liveStats.matchup ? (
+            <Text style={[pStyles.matchup, { color: c.secondaryText }]}>{liveStats.matchup}</Text>
+          ) : null}
+          {isLive && (
+            <View style={[pStyles.liveBadge, { backgroundColor: '#e03131' }]}>
+              <Text style={pStyles.liveText}>LIVE</Text>
+            </View>
+          )}
+        </View>
+        {gameInfo ? (
+          <Text style={[pStyles.meta, { color: c.secondaryText, fontSize: 10, lineHeight: 13, textAlign }]} numberOfLines={1}>
+            {gameInfo}
+          </Text>
+        ) : null}
+        <Text style={[pStyles.meta, { color: c.secondaryText, textAlign }]} numberOfLines={1}>
+          {statLine ?? player.position}
+        </Text>
+        <AnimatedFpts value={liveFp} activeColor={c.text} dimColor={c.secondaryText} textStyle={[pStyles.pts, { textAlign }]} />
+      </View>
+    );
+  }
+
+  // today with no live entry yet
+  if (mode === 'today') {
+    const todayMatchup = player.nbaTricode ? (futureSchedule?.get(player.nbaTricode) ?? null) : null;
+    return (
+      <View style={[pStyles.cell, { alignItems: align }]}>
+        <View style={[pStyles.nameRow, { justifyContent: align }]}>
+          <Text style={[pStyles.name, { color: c.text, flexShrink: 1, textAlign }]} numberOfLines={1}>{player.name}</Text>
+          {injuryBadge && (
+            <View style={[pStyles.liveBadge, { backgroundColor: injuryBadge.color }]}>
+              <Text style={pStyles.liveText}>{injuryBadge.label}</Text>
+            </View>
+          )}
+          {todayMatchup ? (
+            <Text style={[pStyles.matchup, { color: c.secondaryText }]}>{todayMatchup}</Text>
+          ) : null}
+        </View>
+        <Text style={[pStyles.meta, { color: c.secondaryText, textAlign }]}>
+          {todayMatchup ? `${player.position} · proj` : player.position}
+        </Text>
+        <AnimatedFpts value={todayMatchup ? 0 : null} activeColor={c.text} dimColor={c.secondaryText} textStyle={[pStyles.pts, { textAlign }]} />
+      </View>
+    );
+  }
+
+  // past
+  const hasDayGame = player.dayPoints > 0;
+  return (
+    <View style={[pStyles.cell, { alignItems: align }]}>
+      <View style={[pStyles.nameRow, { justifyContent: align }]}>
+        <Text style={[pStyles.name, { color: c.text, flexShrink: 1, textAlign }]} numberOfLines={1}>{player.name}</Text>
+        {injuryBadge && (
+          <View style={[pStyles.liveBadge, { backgroundColor: injuryBadge.color }]}>
+            <Text style={pStyles.liveText}>{injuryBadge.label}</Text>
+          </View>
+        )}
+        {hasDayGame && player.dayMatchup ? (
+          <Text style={[pStyles.matchup, { color: c.secondaryText }]}>{player.dayMatchup}</Text>
+        ) : null}
+      </View>
+      <Text style={[pStyles.meta, { color: c.secondaryText, textAlign }]} numberOfLines={1}>
+        {hasDayGame && player.dayStatLine ? player.dayStatLine : player.position}
       </Text>
+      <AnimatedFpts
+        value={hasDayGame ? player.dayPoints : null}
+        activeColor={c.text}
+        dimColor={c.secondaryText}
+        textStyle={[pStyles.pts, { textAlign }]}
+      />
     </View>
   );
 }
 
-function TeamColumn({ team, c, side }: { team: TeamMatchupData; c: any; side: 'left' | 'right' }) {
+// Renders the full matchup: score headers + slot rows with center position labels
+function MatchupBoard({
+  myTeam,
+  opponentTeam,
+  mySlots,
+  oppSlots,
+  c,
+  mode,
+  liveMap,
+  scoring,
+  myLiveBonus,
+  oppLiveBonus,
+  futureSchedule,
+}: {
+  myTeam: TeamMatchupData;
+  opponentTeam: TeamMatchupData | null;
+  mySlots: MatchupSlotEntry[];
+  oppSlots: MatchupSlotEntry[];
+  c: any;
+  mode: DisplayMode;
+  liveMap: Map<string, LivePlayerStats>;
+  scoring: ScoringWeight[];
+  myLiveBonus: number;
+  oppLiveBonus: number;
+  futureSchedule?: Map<string, string>;
+}) {
+  const myWeek = round1(myTeam.weekTotal + myLiveBonus);
+  const myDay = round1(myTeam.dayTotal + myLiveBonus);
+  const oppWeek = opponentTeam ? round1(opponentTeam.weekTotal + oppLiveBonus) : 0;
+  const oppDay = opponentTeam ? round1(opponentTeam.dayTotal + oppLiveBonus) : 0;
+
+  // Use the longer slot list (should always be the same length)
+  const slotCount = Math.max(mySlots.length, oppSlots.length);
+
   return (
-    <View style={[colStyles.col, side === 'right' && colStyles.rightCol]}>
-      <Text style={[colStyles.teamName, { color: c.text }]} numberOfLines={1}>
-        {team.teamName}
-      </Text>
-      <Text style={[colStyles.total, { color: c.accent }]}>
-        {team.totalPoints.toFixed(1)} pts
-      </Text>
-      {team.players.map((p) => (
-        <PlayerRow key={p.player_id} player={p} c={c} />
-      ))}
+    <View>
+      {/* Score header: [My Team] vs [Opponent] */}
+      <View style={colStyles.scoreHeader}>
+        <View style={[colStyles.scoreCol, { alignItems: 'flex-start' }]}>
+          <Text style={[colStyles.teamName, { color: c.text }]} numberOfLines={1}>{myTeam.teamName}</Text>
+          <Text style={[colStyles.total, { color: c.accent }]}>{myWeek.toFixed(1)}</Text>
+          {mode !== 'future' && (
+            <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>{myDay.toFixed(1)} today</Text>
+          )}
+        </View>
+        <Text style={[colStyles.vsText, { color: c.secondaryText }]}>vs</Text>
+        <View style={[colStyles.scoreCol, { alignItems: 'flex-end' }]}>
+          <Text style={[colStyles.teamName, { color: c.text, textAlign: 'right' }]} numberOfLines={1}>
+            {opponentTeam?.teamName ?? 'BYE'}
+          </Text>
+          <Text style={[colStyles.total, { color: c.accent }]}>{oppWeek.toFixed(1)}</Text>
+          {mode !== 'future' && (
+            <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>{oppDay.toFixed(1)} today</Text>
+          )}
+        </View>
+      </View>
+
+      {/* Slot rows: [left player] [POS] [right player] */}
+      {Array.from({ length: slotCount }).map((_, i) => {
+        const mySlot = mySlots[i] ?? null;
+        const oppSlot = oppSlots[i] ?? null;
+        const slotLabel = mySlot?.slotPosition ?? oppSlot?.slotPosition ?? '';
+
+        return (
+          <View key={`slot-${i}`} style={[pStyles.slotRow, { borderBottomColor: c.border }]}>
+            <PlayerCell
+              player={mySlot?.player ?? null}
+              c={c}
+              side="left"
+              mode={mode}
+              liveStats={mySlot?.player ? (liveMap.get(mySlot.player.player_id) ?? null) : null}
+              scoring={scoring}
+              futureSchedule={futureSchedule}
+            />
+            <View style={pStyles.slotCenter}>
+              <Text style={[pStyles.slotText, { color: c.secondaryText }]}>
+                {SLOT_LABELS[slotLabel] ?? slotLabel}
+              </Text>
+            </View>
+            <PlayerCell
+              player={oppSlot?.player ?? null}
+              c={c}
+              side="right"
+              mode={mode}
+              liveStats={oppSlot?.player ? (liveMap.get(oppSlot.player.player_id) ?? null) : null}
+              scoring={scoring}
+              futureSchedule={futureSchedule}
+            />
+          </View>
+        );
+      })}
     </View>
   );
 }
@@ -276,32 +701,74 @@ export default function MatchupScreen() {
 
   const { data: weeks, isLoading: weeksLoading } = useWeeks(leagueId);
   const { data: scoring } = useScoring(leagueId);
+  const { data: rosterConfig } = useLeagueRosterConfig(leagueId ?? '');
 
-  // selectedWeekIdx: null until weeks load
-  const [selectedWeekIdx, setSelectedWeekIdx] = useState<number | null>(null);
+  const today = toDateStr(new Date());
+  const [selectedDate, setSelectedDate] = useState<string>(today);
+  const [scheduleVisible, setScheduleVisible] = useState(false);
 
-  // Determine current week index on first load
-  const resolvedIdx = (() => {
-    if (selectedWeekIdx !== null) return selectedWeekIdx;
-    if (!weeks || weeks.length === 0) return 0;
-    const today = toDateStr(new Date());
-    const idx = weeks.findIndex((w) => w.start_date <= today && today <= w.end_date);
-    if (idx !== -1) return idx;
-    return today < weeks[0].start_date ? 0 : weeks.length - 1;
-  })();
 
-  const currentWeek = weeks?.[resolvedIdx];
+  const minDate = weeks?.[0]?.start_date ?? today;
+  const maxDate = weeks?.[weeks.length - 1]?.end_date ?? today;
+
+  const currentWeek = weeks?.find(
+    (w) => w.start_date <= selectedDate && selectedDate <= w.end_date
+  ) ?? null;
 
   const { data: matchupData, isLoading: matchupLoading } = useWeekMatchup(
-    currentWeek,
+    weeks,
+    selectedDate,
     teamId,
     leagueId,
     scoring ?? []
   );
 
+  // Collect all player IDs from both teams for live stat subscription
+  const allPlayerIds: string[] = matchupData
+    ? [
+        ...matchupData.myTeam.players.map((p) => p.player_id),
+        ...(matchupData.opponentTeam?.players.map((p) => p.player_id) ?? []),
+      ]
+    : [];
+
+  const isToday = selectedDate === today;
+  const isFutureDate = selectedDate > today;
+  const liveMap = useLivePlayerStats(allPlayerIds, isToday);
+
+  // Future schedule: tricode → matchup string for the selected future date
+  const { data: futureSchedule } = useQuery<Map<string, string>>({
+    queryKey: ['futureSchedule', selectedDate],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('nba_schedule')
+        .select('home_team, away_team')
+        .eq('game_date', selectedDate);
+      const map = new Map<string, string>();
+      for (const game of data ?? []) {
+        map.set(game.home_team, `vs ${game.away_team}`);
+        map.set(game.away_team, `@${game.home_team}`);
+      }
+      return map;
+    },
+    enabled: isToday || isFutureDate,
+    staleTime: 1000 * 60 * 60,
+  });
+
+  const mode: DisplayMode = selectedDate < today ? 'past' : selectedDate === today ? 'today' : 'future';
+
   const isBye = matchupData && matchupData.opponentTeam === null;
-  const isPast = currentWeek ? toDateStr(new Date()) > currentWeek.end_date : false;
-  const isFuture = currentWeek ? toDateStr(new Date()) < currentWeek.start_date : false;
+
+  // Compute how much live FPTS to add to each team's week total
+  function computeLiveBonus(players: RosterPlayer[]): number {
+    if (!isToday) return 0;
+    return round1(
+      players.reduce((sum, p) => {
+        const live = liveMap.get(p.player_id);
+        if (!live) return sum;
+        return sum + calculateGameFantasyPoints(liveToGameLog(live) as any, scoring ?? []);
+      }, 0)
+    );
+  }
 
   if (!leagueId) {
     return (
@@ -332,35 +799,44 @@ export default function MatchupScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
-      {/* Week navigation */}
-      <View style={[styles.weekNav, { borderBottomColor: c.border }]}>
+      {/* Day navigation */}
+      <View style={[styles.dayNav, { borderBottomColor: c.border }]}>
         <TouchableOpacity
-          disabled={resolvedIdx === 0}
-          onPress={() => setSelectedWeekIdx(resolvedIdx - 1)}
+          disabled={selectedDate <= minDate}
+          onPress={() => setSelectedDate(addDays(selectedDate, -1))}
           style={styles.navArrow}
         >
-          <Text style={[styles.arrow, { color: resolvedIdx === 0 ? c.buttonDisabled : c.text }]}>
+          <Text style={[styles.arrow, { color: selectedDate <= minDate ? c.buttonDisabled : c.text }]}>
             ‹
           </Text>
         </TouchableOpacity>
 
-        <View style={styles.weekInfo}>
-          <ThemedText type="defaultSemiBold" style={styles.weekLabel}>
-            {currentWeek?.is_playoff ? 'Playoffs — ' : ''}Week {currentWeek?.week_number}
+        <TouchableOpacity
+          style={styles.dayInfo}
+          onPress={() => setScheduleVisible(true)}
+          activeOpacity={0.7}
+        >
+          <ThemedText type="defaultSemiBold" style={styles.dayLabel}>
+            {formatDayLabel(selectedDate)} ▾
           </ThemedText>
           {currentWeek && (
-            <ThemedText style={[styles.weekRange, { color: c.secondaryText }]}>
-              {formatWeekRange(currentWeek.start_date, currentWeek.end_date)}
+            <ThemedText style={[styles.weekMeta, { color: c.secondaryText }]}>
+              {currentWeek.is_playoff ? 'Playoffs · ' : ''}Week {currentWeek.week_number} · {formatWeekRange(currentWeek.start_date, currentWeek.end_date)}
             </ThemedText>
           )}
-        </View>
+          {!currentWeek && (
+            <ThemedText style={[styles.weekMeta, { color: c.secondaryText }]}>
+              Outside season
+            </ThemedText>
+          )}
+        </TouchableOpacity>
 
         <TouchableOpacity
-          disabled={resolvedIdx === weeks.length - 1}
-          onPress={() => setSelectedWeekIdx(resolvedIdx + 1)}
+          disabled={selectedDate >= maxDate}
+          onPress={() => setSelectedDate(addDays(selectedDate, 1))}
           style={styles.navArrow}
         >
-          <Text style={[styles.arrow, { color: resolvedIdx === weeks.length - 1 ? c.buttonDisabled : c.text }]}>
+          <Text style={[styles.arrow, { color: selectedDate >= maxDate ? c.buttonDisabled : c.text }]}>
             ›
           </Text>
         </TouchableOpacity>
@@ -370,7 +846,13 @@ export default function MatchupScreen() {
       <ScrollView contentContainerStyle={styles.body}>
         {matchupLoading && <ActivityIndicator style={{ marginTop: 40 }} />}
 
-        {!matchupLoading && !matchupData && (
+        {!matchupLoading && !currentWeek && (
+          <View style={styles.center}>
+            <ThemedText style={{ color: c.secondaryText }}>No matchup for this date.</ThemedText>
+          </View>
+        )}
+
+        {!matchupLoading && currentWeek && !matchupData && (
           <View style={styles.center}>
             <ThemedText style={{ color: c.secondaryText }}>No matchup found for this week.</ThemedText>
           </View>
@@ -384,27 +866,85 @@ export default function MatchupScreen() {
               </View>
             )}
 
-            {isFuture && (
+            {mode === 'future' && (
               <View style={[styles.futureBanner, { backgroundColor: c.card }]}>
                 <ThemedText style={{ color: c.secondaryText, fontSize: 13 }}>
-                  Showing current lineups — points will accumulate when games are played.
+                  Future date — projected averages shown. Points will accumulate when games are played.
                 </ThemedText>
               </View>
             )}
 
-            <View style={styles.matchupRow}>
-              <TeamColumn team={matchupData.myTeam} c={c} side="left" />
+            <MatchupBoard
+              myTeam={matchupData.myTeam}
+              opponentTeam={matchupData.opponentTeam}
+              mySlots={rosterConfig ? buildMatchupSlots(matchupData.myTeam.players, rosterConfig) : []}
+              oppSlots={rosterConfig && matchupData.opponentTeam ? buildMatchupSlots(matchupData.opponentTeam.players, rosterConfig) : []}
+              c={c}
+              mode={mode}
+              liveMap={liveMap}
+              scoring={scoring ?? []}
+              myLiveBonus={computeLiveBonus(matchupData.myTeam.players)}
+              oppLiveBonus={matchupData.opponentTeam ? computeLiveBonus(matchupData.opponentTeam.players) : 0}
+              futureSchedule={futureSchedule}
+            />
 
-              {matchupData.opponentTeam ? (
-                <>
-                  <View style={[styles.vsBar, { backgroundColor: c.border }]} />
-                  <TeamColumn team={matchupData.opponentTeam} c={c} side="right" />
-                </>
-              ) : null}
-            </View>
           </>
         )}
       </ScrollView>
+
+      {/* Schedule dropdown modal */}
+      <Modal
+        visible={scheduleVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setScheduleVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setScheduleVisible(false)}
+        >
+          <View style={[styles.scheduleSheet, { backgroundColor: c.background, borderColor: c.border }]}>
+            <ThemedText type="defaultSemiBold" style={styles.scheduleTitle}>
+              Schedule
+            </ThemedText>
+            <FlatList
+              data={weeks}
+              keyExtractor={(w) => w.id}
+              renderItem={({ item: w }) => {
+                const isActive = currentWeek?.id === w.id;
+                return (
+                  <TouchableOpacity
+                    style={[
+                      styles.scheduleRow,
+                      { borderBottomColor: c.border },
+                      isActive && { backgroundColor: c.card },
+                    ]}
+                    onPress={() => {
+                      const jumpDate =
+                        today >= w.start_date && today <= w.end_date
+                          ? today
+                          : w.start_date;
+                      setSelectedDate(jumpDate);
+                      setScheduleVisible(false);
+                    }}
+                  >
+                    <ThemedText
+                      style={[styles.scheduleWeekLabel, isActive && { color: c.accent }]}
+                    >
+                      {w.is_playoff ? 'Playoffs · ' : ''}Week {w.week_number}
+                    </ThemedText>
+                    <ThemedText style={[styles.scheduleWeekRange, { color: c.secondaryText }]}>
+                      {formatWeekRange(w.start_date, w.end_date)}
+                    </ThemedText>
+                  </TouchableOpacity>
+                );
+              }}
+            />
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
     </SafeAreaView>
   );
 }
@@ -414,7 +954,7 @@ export default function MatchupScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
-  weekNav: {
+  dayNav: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 8,
@@ -423,29 +963,58 @@ const styles = StyleSheet.create({
   },
   navArrow: { padding: 12 },
   arrow: { fontSize: 28, lineHeight: 32 },
-  weekInfo: { flex: 1, alignItems: 'center' },
-  weekLabel: { fontSize: 16 },
-  weekRange: { fontSize: 12, marginTop: 2 },
+  dayInfo: { flex: 1, alignItems: 'center' },
+  dayLabel: { fontSize: 16 },
+  weekMeta: { fontSize: 11, marginTop: 2 },
   body: { padding: 12, flexGrow: 1 },
   byeBanner: { borderRadius: 8, padding: 16, alignItems: 'center', marginBottom: 12 },
   futureBanner: { borderRadius: 8, padding: 10, marginBottom: 12 },
-  matchupRow: { flexDirection: 'row', flex: 1 },
-  vsBar: { width: StyleSheet.hairlineWidth, marginHorizontal: 6 },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  scheduleSheet: {
+    width: '80%',
+    maxHeight: '70%',
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+  },
+  scheduleTitle: {
+    fontSize: 16,
+    padding: 16,
+    paddingBottom: 12,
+  },
+  scheduleRow: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  scheduleWeekLabel: { fontSize: 14, fontWeight: '600' },
+  scheduleWeekRange: { fontSize: 12, marginTop: 2 },
 });
 
 const colStyles = StyleSheet.create({
-  col: { flex: 1 },
-  rightCol: {},
+  scoreHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
+  scoreCol: { flex: 1 },
+  vsText: { fontSize: 12, fontWeight: '600', marginHorizontal: 10 },
   teamName: { fontWeight: '600', fontSize: 14, marginBottom: 2 },
-  total: { fontSize: 18, fontWeight: '700', marginBottom: 10 },
+  total: { fontSize: 20, fontWeight: '700' },
+  dayTotal: { fontSize: 11, fontWeight: '500', marginTop: 2 },
 });
 
 const pStyles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, gap: 6 },
-  slotBadge: { width: 36, alignItems: 'center' },
+  slotRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth },
+  cell: { flex: 1, paddingHorizontal: 2 },
+  slotCenter: { width: 34, alignItems: 'center', justifyContent: 'center' },
   slotText: { fontSize: 10, fontWeight: '600' },
-  info: { flex: 1 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 3, flexShrink: 1 },
   name: { fontSize: 12, fontWeight: '500' },
+  matchup: { fontSize: 9, fontWeight: '600' },
   meta: { fontSize: 10 },
-  pts: { fontSize: 13, fontWeight: '700', minWidth: 36, textAlign: 'right' },
+  pts: { fontSize: 13, fontWeight: '700' },
+  liveBadge: { paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3 },
+  liveText: { color: '#fff', fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
 });

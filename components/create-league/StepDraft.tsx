@@ -1,7 +1,7 @@
 import { ThemedText } from '@/components/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
-import { DRAFT_TYPE_OPTIONS, LeagueWizardState, TIME_PER_PICK_OPTIONS } from '@/constants/LeagueDefaults';
+import { DRAFT_TYPE_OPTIONS, LeagueWizardState, ROOKIE_DRAFT_ORDER_OPTIONS, TIME_PER_PICK_OPTIONS } from '@/constants/LeagueDefaults';
 import { StyleSheet, View } from 'react-native';
 
 interface StepDraftProps {
@@ -43,6 +43,39 @@ export function StepDraft({ state, onChange }: StepDraftProps) {
           max={10}
         />
       </View>
+
+      <ThemedText type="subtitle" style={styles.heading}>Rookie Draft</ThemedText>
+
+      <View style={styles.section}>
+        <NumberStepper
+          label="Rounds"
+          value={state.rookieDraftRounds}
+          onValueChange={(v) => onChange('rookieDraftRounds', v)}
+          min={1}
+          max={5}
+        />
+      </View>
+
+      <View style={styles.section}>
+        <ThemedText style={styles.label}>Draft Order</ThemedText>
+        <SegmentedControl
+          options={ROOKIE_DRAFT_ORDER_OPTIONS}
+          selectedIndex={ROOKIE_DRAFT_ORDER_OPTIONS.indexOf(state.rookieDraftOrder)}
+          onSelect={(i) => onChange('rookieDraftOrder', ROOKIE_DRAFT_ORDER_OPTIONS[i])}
+        />
+      </View>
+
+      {state.rookieDraftOrder === 'Lottery' && (
+        <View style={styles.section}>
+          <NumberStepper
+            label="Lottery Picks"
+            value={state.lotteryPicks}
+            onValueChange={(v) => onChange('lotteryPicks', v)}
+            min={1}
+            max={state.teams}
+          />
+        </View>
+      )}
     </View>
   );
 }

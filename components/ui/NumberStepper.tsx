@@ -1,6 +1,7 @@
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useState } from 'react';
+import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 interface NumberStepperProps {
   label: string;
@@ -23,6 +24,8 @@ export function NumberStepper({
 }: NumberStepperProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
 
   const atMin = value <= min;
   const atMax = value >= max;
@@ -39,6 +42,19 @@ export function NumberStepper({
 
   const displayValue = step < 1 ? value.toFixed(1) : String(value);
 
+  const startEditing = () => {
+    setDraft(displayValue);
+    setEditing(true);
+  };
+
+  const commitEdit = () => {
+    setEditing(false);
+    const parsed = parseFloat(draft);
+    if (isNaN(parsed)) return;
+    const clamped = Math.min(max, Math.max(min, Math.round(parsed * 10) / 10));
+    onValueChange(clamped);
+  };
+
   return (
     <View style={[styles.row, { borderBottomColor: c.border }]}>
       <Text style={[styles.label, { color: c.text }]}>{label}</Text>
@@ -50,9 +66,24 @@ export function NumberStepper({
         >
           <Text style={[styles.btnText, { color: c.accentText }]}>-</Text>
         </TouchableOpacity>
-        <Text style={[styles.value, { color: c.text }]}>
-          {displayValue}{suffix ?? ''}
-        </Text>
+        {editing ? (
+          <TextInput
+            style={[styles.value, styles.input, { color: c.text, borderColor: c.accent }]}
+            value={draft}
+            onChangeText={setDraft}
+            onBlur={commitEdit}
+            onSubmitEditing={commitEdit}
+            keyboardType="numeric"
+            autoFocus
+            selectTextOnFocus
+          />
+        ) : (
+          <TouchableOpacity onPress={startEditing}>
+            <Text style={[styles.value, { color: c.text }]}>
+              {displayValue}{suffix ?? ''}
+            </Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity
           onPress={increment}
           disabled={atMax}
@@ -98,5 +129,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     minWidth: 40,
     textAlign: 'center',
+  },
+  input: {
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
   },
 });

@@ -49,10 +49,49 @@ export async function generateDraftPicks(
   }
 }
 
+/**
+ * Generate placeholder draft_picks rows for future seasons.
+ * These have no draft_id (the draft doesn't exist yet) and use slot_number
+ * so that team ownership can be assigned later via assignDraftSlots.
+ */
+export async function generateFutureDraftPicks(
+  leagueId: string,
+  numberOfTeams: number,
+  roundsCount: number,
+  currentSeason: string,
+  maxFutureSeasons: number,
+) {
+  const startYear = parseInt(currentSeason.split('-')[0], 10);
+  const picks = [];
+
+  for (let offset = 1; offset <= maxFutureSeasons; offset++) {
+    const futureStart = startYear + offset;
+    const futureEnd = (futureStart + 1) % 100;
+    const season = `${futureStart}-${String(futureEnd).padStart(2, '0')}`;
+
+    for (let round = 1; round <= roundsCount; round++) {
+      for (let slot = 1; slot <= numberOfTeams; slot++) {
+        picks.push({
+          league_id: leagueId,
+          season,
+          round,
+          slot_number: slot,
+        });
+      }
+    }
+  }
+
+  const chunkSize = 100;
+  for (let i = 0; i < picks.length; i += chunkSize) {
+    const chunk = picks.slice(i, i + chunkSize);
+    await supabase.from('draft_picks').insert(chunk).throwOnError();
+  }
+}
+
 export async function assignDraftSlots(draftId: string, teamIds: string[]) {
   // Randomly shuffle team IDs
   const shuffledTeams = [...teamIds].sort(() => Math.random() - 0.5);
-  
+
   // Assign each team to a slot number (1-N)
   const updates = shuffledTeams.map((teamId, index) => {
     return supabase
@@ -83,10 +122,21 @@ export async function checkAndAssignDraftSlots(leagueId: string) {
       .eq('league_id', leagueId);
 
     if (teams) {
-      await assignDraftSlots(draft.id, teams.map(team => team.id));
-      
-      // Update draft status
-  
+      const teamIds = teams.map(team => team.id);
+      await assignDraftSlots(draft.id, teamIds);
+
+      // Also assign team ownership to future-season picks (no draft_id)
+      // using the same slot mapping
+      const shuffledTeams = [...teamIds].sort(() => Math.random() - 0.5);
+      const futureUpdates = shuffledTeams.map((teamId, index) => {
+        return supabase
+          .from('draft_picks')
+          .update({ current_team_id: teamId, original_team_id: teamId })
+          .eq('league_id', leagueId)
+          .is('draft_id', null)
+          .eq('slot_number', index + 1);
+      });
+      await Promise.all(futureUpdates);
     }
   }
 }

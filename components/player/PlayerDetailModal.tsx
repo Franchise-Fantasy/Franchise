@@ -5,8 +5,10 @@ import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { usePlayerGameLog } from '@/hooks/usePlayerGameLog';
 import { supabase } from '@/lib/supabase';
 import { PlayerGameLog, PlayerSeasonStats } from '@/types/player';
+import { Ionicons } from '@expo/vector-icons';
 import { calculateAvgFantasyPoints, calculateGameFantasyPoints } from '@/utils/fantasyPoints';
 import { formatPosition } from '@/utils/formatting';
+import { getInjuryBadge } from '@/utils/injuryBadge';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -16,6 +18,7 @@ import {
   FlatList,
   Modal,
   PanResponder,
+  ScrollView,
   StyleSheet,
   TouchableOpacity,
   View,
@@ -51,32 +54,33 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
     if (player && startInDropPicker) setShowDropPicker(true);
   }, [player, startInDropPicker]);
 
-  const { data: scoringWeights } = useLeagueScoring(leagueId);
+  const { data: scoringWeights, isLoading: isLoadingScoring } = useLeagueScoring(leagueId);
   const { data: gameLog, isLoading: isLoadingGameLog } = usePlayerGameLog(
     player?.player_id ?? ''
   );
 
   // Check if this player is on the user's team and get their current slot
-  const { data: ownershipInfo } = useQuery({
+  const { data: ownershipInfo, isLoading: isLoadingOwnership } = useQuery({
     queryKey: ['playerOwnership', leagueId, teamId, player?.player_id],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('league_players')
-        .select('id, roster_slot')
+        .select('id, roster_slot, on_trade_block')
         .eq('league_id', leagueId)
         .eq('team_id', teamId!)
         .eq('player_id', player!.player_id)
         .limit(1);
 
       if (error) throw error;
-      if (!data || data.length === 0) return { isOnMyTeam: false, rosterSlot: null };
-      return { isOnMyTeam: true, rosterSlot: data[0].roster_slot as string | null };
+      if (!data || data.length === 0) return { isOnMyTeam: false, rosterSlot: null, onTradeBlock: false };
+      return { isOnMyTeam: true, rosterSlot: data[0].roster_slot as string | null, onTradeBlock: data[0].on_trade_block as boolean };
     },
     enabled: !!player && !!teamId && !!leagueId,
   });
 
   const isOnMyTeam = ownershipInfo?.isOnMyTeam ?? false;
   const playerRosterSlot = ownershipInfo?.rosterSlot ?? null;
+  const isOnTradeBlock = ownershipInfo?.onTradeBlock ?? false;
 
   // Get roster counts, max size, and IR capacity
   const { data: rosterInfo } = useQuery({
@@ -222,7 +226,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
     : false;
 
   const canMoveToIR = rosterInfo
-    ? player.status === 'OUT' &&
+    ? (player.status === 'OUT' || player.status === 'SUSP') &&
       rosterInfo.irSlotCount > 0 &&
       rosterInfo.irCount < rosterInfo.irSlotCount
     : false;
@@ -308,26 +312,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
         .eq('player_id', dropping.player_id);
       if (delError) throw delError;
 
-      const { data: txn, error: txnError } = await supabase
-        .from('league_transactions')
-        .insert({
-          league_id: leagueId,
-          type: 'waiver',
-          notes: `Dropped ${dropping.name}`,
-        })
-        .select('id')
-        .single();
-      if (txnError) throw txnError;
-
-      await supabase.from('league_transaction_items').insert({
-        transaction_id: txn.id,
-        player_id: dropping.player_id,
-        team_to_id: null,
-      });
-
-      invalidateRosterQueries();
-
-      // If dropping from the picker (add-and-drop), now add the new player
+      // If dropping from the picker (add-and-drop), handle as a single transaction
       if (playerToDrop && player) {
         const { error: addError } = await supabase.from('league_players').insert({
           league_id: leagueId,
@@ -339,27 +324,45 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
         });
         if (addError) throw addError;
 
-        const { data: addTxn, error: addTxnError } = await supabase
+        const { data: txn, error: txnError } = await supabase
           .from('league_transactions')
           .insert({
             league_id: leagueId,
             type: 'waiver',
-            notes: `Added ${player.name} from free agency (dropped ${dropping.name})`,
+            notes: `Added ${player.name} (dropped ${dropping.name})`,
           })
           .select('id')
           .single();
-        if (addTxnError) throw addTxnError;
+        if (txnError) throw txnError;
 
-        await supabase.from('league_transaction_items').insert({
-          transaction_id: addTxn.id,
-          player_id: player.player_id,
-          team_to_id: teamId,
-        });
+        await supabase.from('league_transaction_items').insert([
+          { transaction_id: txn.id, player_id: player.player_id, team_to_id: teamId },
+          { transaction_id: txn.id, player_id: dropping.player_id, team_from_id: teamId },
+        ]);
 
         invalidateRosterQueries();
         setShowDropPicker(false);
         onClose();
       } else {
+        // Pure drop (no add)
+        const { data: txn, error: txnError } = await supabase
+          .from('league_transactions')
+          .insert({
+            league_id: leagueId,
+            type: 'waiver',
+            notes: `Dropped ${dropping.name}`,
+          })
+          .select('id')
+          .single();
+        if (txnError) throw txnError;
+
+        await supabase.from('league_transaction_items').insert({
+          transaction_id: txn.id,
+          player_id: dropping.player_id,
+          team_from_id: teamId,
+        });
+
+        invalidateRosterQueries();
         onClose();
       }
     } catch (err: any) {
@@ -416,32 +419,74 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
     }
   };
 
+  const handleToggleTradeBlock = () => {
+    if (!teamId || !player) return;
+    const newValue = !isOnTradeBlock;
+    const message = newValue
+      ? `Add ${player.name} to the trade block? Other managers will see this player is available.`
+      : `Remove ${player.name} from the trade block?`;
+    Alert.alert(
+      newValue ? 'Add to Trade Block' : 'Remove from Trade Block',
+      message,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: newValue ? 'Add' : 'Remove',
+          onPress: async () => {
+            setIsProcessing(true);
+            try {
+              const { error } = await supabase
+                .from('league_players')
+                .update({ on_trade_block: newValue })
+                .eq('league_id', leagueId)
+                .eq('team_id', teamId)
+                .eq('player_id', player.player_id);
+              if (error) throw error;
+              queryClient.invalidateQueries({ queryKey: ['playerOwnership', leagueId, teamId, player.player_id] });
+              queryClient.invalidateQueries({ queryKey: ['tradeBlock', leagueId] });
+            } catch (err: any) {
+              Alert.alert('Error', err.message ?? 'Failed to update trade block');
+            } finally {
+              setIsProcessing(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const canTransact = !!teamId && !hasActiveDraft && !isProcessing;
   const canAdd = canTransact;
 
-  const renderGameRow = ({ item }: { item: PlayerGameLog }) => {
-    const gameFpts = scoringWeights
-      ? calculateGameFantasyPoints(item, scoringWeights)
-      : null;
+  const formatGameDate = (dateStr?: string) => {
+    if (!dateStr) return '—';
+    const d = new Date(dateStr + 'T00:00:00');
+    return `${d.getMonth() + 1}/${d.getDate()}`;
+  };
 
-    return (
-      <View style={[styles.gameRow, { borderBottomColor: c.border }]}>
-        <ThemedText style={[styles.gameCell, styles.gameCellWide, { color: c.secondaryText }]} numberOfLines={1}>
-          {item.matchup ?? item.game_date ?? '—'}
-        </ThemedText>
-        <ThemedText style={styles.gameCell}>{item.pts}</ThemedText>
-        <ThemedText style={styles.gameCell}>{item.reb}</ThemedText>
-        <ThemedText style={styles.gameCell}>{item.ast}</ThemedText>
-        <ThemedText style={styles.gameCell}>{item.stl}</ThemedText>
-        <ThemedText style={styles.gameCell}>{item.blk}</ThemedText>
-        <ThemedText style={styles.gameCell}>{item.tov}</ThemedText>
-        {gameFpts !== null && (
-          <ThemedText style={[styles.gameCell, { color: c.accent, fontWeight: '600' }]}>
-            {gameFpts}
-          </ThemedText>
-        )}
-      </View>
-    );
+  const statColumns = [
+    'MIN', 'PTS', 'REB', 'AST', 'STL', 'BLK', 'TO',
+    'FGM', 'FGA', '3PM', '3PA', 'FTM', 'FTA', 'PF',
+  ] as const;
+
+  const getStatValue = (item: PlayerGameLog, col: string) => {
+    switch (col) {
+      case 'MIN': return item.min;
+      case 'PTS': return item.pts;
+      case 'REB': return item.reb;
+      case 'AST': return item.ast;
+      case 'STL': return item.stl;
+      case 'BLK': return item.blk;
+      case 'TO': return item.tov;
+      case 'FGM': return item.fgm;
+      case 'FGA': return item.fga;
+      case '3PM': return item['3pm'];
+      case '3PA': return item['3pa'];
+      case 'FTM': return item.ftm;
+      case 'FTA': return item.fta;
+      case 'PF': return item.pf;
+      default: return 0;
+    }
   };
 
   const renderDropPickerItem = ({ item }: { item: PlayerSeasonStats }) => {
@@ -526,9 +571,12 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                 <ThemedText type="title" style={styles.playerName}>{player.name}</ThemedText>
                 <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>
                   {formatPosition(player.position)} · {player.nba_team} · {player.games_played} GP
-                  {player.status === 'OUT' && (
-                    <ThemedText style={[styles.outBadge, { color: '#dc3545' }]}> · OUT</ThemedText>
-                  )}
+                  {(() => {
+                    const badge = getInjuryBadge(player.status);
+                    return badge ? (
+                      <ThemedText style={[styles.outBadge, { color: badge.color }]}> · {badge.label}</ThemedText>
+                    ) : null;
+                  })()}
                 </ThemedText>
               </View>
               <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
@@ -537,13 +585,13 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
             </View>
           </View>
 
-          <FlatList
-            data={gameLog ?? []}
-            renderItem={renderGameRow}
-            keyExtractor={(item) => item.id}
-            ListHeaderComponent={
-              <>
+          <ScrollView>
                 {/* Action Buttons */}
+                {teamId && isLoadingOwnership && (
+                  <View style={styles.actionSection}>
+                    <View style={[styles.skeletonButton, { backgroundColor: c.border }]} />
+                  </View>
+                )}
                 {teamId && ownershipInfo !== undefined && (
                   <View style={styles.actionSection}>
                     {isOnMyTeam ? (
@@ -631,6 +679,24 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                         )}
                       </TouchableOpacity>
                     )}
+
+                    {/* Trade Block toggle — only for players on my team */}
+                    {isOnMyTeam && (
+                      <TouchableOpacity
+                        style={[styles.tradeBlockBtn, { borderColor: isOnTradeBlock ? '#dc3545' : c.accent }]}
+                        onPress={handleToggleTradeBlock}
+                        disabled={isProcessing}
+                      >
+                        <Ionicons
+                          name={isOnTradeBlock ? 'close-circle-outline' : 'megaphone-outline'}
+                          size={16}
+                          color={isOnTradeBlock ? '#dc3545' : c.accent}
+                        />
+                        <ThemedText style={[styles.tradeBlockBtnText, { color: isOnTradeBlock ? '#dc3545' : c.accent }]}>
+                          {isOnTradeBlock ? 'Remove from Trade Block' : 'Add to Trade Block'}
+                        </ThemedText>
+                      </TouchableOpacity>
+                    )}
                     {hasActiveDraft && (
                       <ThemedText style={[styles.draftWarning, { color: c.secondaryText }]}>
                         Roster moves are locked during the draft.
@@ -640,6 +706,12 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                 )}
 
                 {/* Fantasy Points Summary */}
+                {avgFpts === null && isLoadingScoring && (
+                  <View style={[styles.fptsSection, { backgroundColor: c.activeCard, borderColor: c.activeBorder }]}>
+                    <View style={[styles.skeletonBlock, { width: 120, backgroundColor: c.border, marginBottom: 4 }]} />
+                    <View style={[styles.skeletonBlock, { width: 60, height: 40, backgroundColor: c.border }]} />
+                  </View>
+                )}
                 {avgFpts !== null && (
                   <View style={[styles.fptsSection, { backgroundColor: c.activeCard, borderColor: c.activeBorder }]}>
                     <ThemedText style={[styles.fptsLabel, { color: c.secondaryText }]}>
@@ -670,31 +742,134 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                   </View>
                 </View>
 
-                {/* Game Log Header */}
+                {/* Game Log */}
                 <View style={styles.section}>
                   <ThemedText type="subtitle" style={styles.sectionTitle}>
                     Game Log
                   </ThemedText>
-                  <View style={[styles.gameRow, styles.gameHeader, { borderBottomColor: c.border }]}>
-                    <ThemedText style={[styles.gameCell, styles.gameCellWide, styles.gameHeaderText, { color: c.secondaryText }]}>
-                      GAME
-                    </ThemedText>
-                    <ThemedText style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}>PTS</ThemedText>
-                    <ThemedText style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}>REB</ThemedText>
-                    <ThemedText style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}>AST</ThemedText>
-                    <ThemedText style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}>STL</ThemedText>
-                    <ThemedText style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}>BLK</ThemedText>
-                    <ThemedText style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}>TO</ThemedText>
-                    {scoringWeights && (
-                      <ThemedText style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}>FPTS</ThemedText>
-                    )}
-                  </View>
                 </View>
 
-                {isLoadingGameLog && <ActivityIndicator style={styles.loading} />}
-              </>
-            }
-          />
+                {isLoadingGameLog && (
+                  <View style={styles.gameLogContainer}>
+                    <View style={styles.pinnedLeft}>
+                      <View style={[styles.gameRow, styles.gameHeader, { borderBottomColor: c.border }]}>
+                        <ThemedText style={[styles.gameCell, styles.gameCellDate, styles.gameHeaderText, { color: c.secondaryText }]}>DATE</ThemedText>
+                        <ThemedText style={[styles.gameCell, styles.gameCellMatchup, styles.gameHeaderText, { color: c.secondaryText }]}>OPP</ThemedText>
+                      </View>
+                      {Array.from({ length: 6 }).map((_, i) => (
+                        <View key={i} style={[styles.gameRow, { borderBottomColor: c.border }]}>
+                          <View style={[styles.skeletonBlock, styles.gameCellDate, { backgroundColor: c.border }]} />
+                          <View style={[styles.skeletonBlock, styles.gameCellMatchup, { backgroundColor: c.border }]} />
+                        </View>
+                      ))}
+                    </View>
+                    <View style={styles.scrollableStats}>
+                      <View style={[styles.gameRow, styles.gameHeader, { borderBottomColor: c.border }]}>
+                        {statColumns.map((col) => (
+                          <ThemedText key={col} style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}>{col}</ThemedText>
+                        ))}
+                      </View>
+                      {Array.from({ length: 6 }).map((_, i) => (
+                        <View key={i} style={[styles.gameRow, { borderBottomColor: c.border }]}>
+                          {statColumns.map((col) => (
+                            <View key={col} style={[styles.skeletonBlock, { width: 38, backgroundColor: c.border }]} />
+                          ))}
+                        </View>
+                      ))}
+                    </View>
+                    {scoringWeights && (
+                      <View style={styles.pinnedRight}>
+                        <View style={[styles.gameRow, styles.gameHeader, { borderBottomColor: c.border }]}>
+                          <ThemedText style={[styles.gameCell, styles.gameCellFpts, styles.gameHeaderText, { color: c.accent }]}>FPTS</ThemedText>
+                        </View>
+                        {Array.from({ length: 6 }).map((_, i) => (
+                          <View key={i} style={[styles.gameRow, { borderBottomColor: c.border }]}>
+                            <View style={[styles.skeletonBlock, { width: 44, backgroundColor: c.border }]} />
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                )}
+
+                {/* Game log table: DATE + OPP pinned left, stats scroll together, FPTS pinned right */}
+                {!isLoadingGameLog && <View style={styles.gameLogContainer}>
+                  {/* Pinned left: DATE + OPP */}
+                  <View style={styles.pinnedLeft}>
+                    <View style={[styles.gameRow, styles.gameHeader, { borderBottomColor: c.border }]}>
+                      <ThemedText style={[styles.gameCell, styles.gameCellDate, styles.gameHeaderText, { color: c.secondaryText }]}>
+                        DATE
+                      </ThemedText>
+                      <ThemedText style={[styles.gameCell, styles.gameCellMatchup, styles.gameHeaderText, { color: c.secondaryText }]}>
+                        OPP
+                      </ThemedText>
+                    </View>
+                    {(gameLog ?? []).map((item) => (
+                      <View key={item.id} style={[styles.gameRow, { borderBottomColor: c.border }]}>
+                        <ThemedText style={[styles.gameCell, styles.gameCellDate, { color: c.secondaryText }]} numberOfLines={1}>
+                          {formatGameDate(item.game_date)}
+                        </ThemedText>
+                        <ThemedText style={[styles.gameCell, styles.gameCellMatchup, { color: c.secondaryText }]} numberOfLines={1}>
+                          {item.matchup ? item.matchup.replace(/^vs\s*/i, '') : '—'}
+                        </ThemedText>
+                      </View>
+                    ))}
+                  </View>
+
+                  {/* Scrollable middle: all stat columns scroll as one */}
+                  <ScrollView horizontal showsHorizontalScrollIndicator style={styles.scrollableStats}>
+                    <View>
+                      <View style={[styles.gameRow, styles.gameHeader, { borderBottomColor: c.border }]}>
+                        {statColumns.map((col) => (
+                          <ThemedText
+                            key={col}
+                            style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}
+                          >
+                            {col}
+                          </ThemedText>
+                        ))}
+                      </View>
+                      {(gameLog ?? []).map((item) => {
+                        const isDNP = item.min === 0;
+                        return (
+                          <View key={item.id} style={[styles.gameRow, { borderBottomColor: c.border }]}>
+                            {statColumns.map((col) => (
+                              <ThemedText
+                                key={col}
+                                style={[styles.gameCell, isDNP && styles.gameCellDNP]}
+                              >
+                                {getStatValue(item, col)}
+                              </ThemedText>
+                            ))}
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </ScrollView>
+
+                  {/* Pinned right: FPTS */}
+                  {scoringWeights && (
+                    <View style={styles.pinnedRight}>
+                      <View style={[styles.gameRow, styles.gameHeader, { borderBottomColor: c.border }]}>
+                        <ThemedText style={[styles.gameCell, styles.gameCellFpts, styles.gameHeaderText, { color: c.accent }]}>
+                          FPTS
+                        </ThemedText>
+                      </View>
+                      {(gameLog ?? []).map((item) => {
+                        const isDNP = item.min === 0;
+                        const fpts = calculateGameFantasyPoints(item, scoringWeights);
+                        return (
+                          <View key={item.id} style={[styles.gameRow, { borderBottomColor: c.border }]}>
+                            <ThemedText style={[styles.gameCell, styles.gameCellFpts, isDNP ? styles.gameCellDNP : { color: c.accent, fontWeight: '600' }]}>
+                              {fpts}
+                            </ThemedText>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
+                </View>}
+          </ScrollView>
         </Animated.View>
       </View>
     </Modal>
@@ -709,6 +884,7 @@ const styles = StyleSheet.create({
   sheet: {
     borderTopLeftRadius: 14,
     borderTopRightRadius: 14,
+    minHeight: '80%',
     maxHeight: '92%',
     overflow: 'hidden',
     paddingBottom: 32,
@@ -784,6 +960,20 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
   },
+  tradeBlockBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 10,
+    marginTop: 8,
+  },
+  tradeBlockBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
   draftWarning: {
     fontSize: 12,
     textAlign: 'center',
@@ -843,13 +1033,45 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   gameCell: {
-    width: 40,
+    width: 38,
     textAlign: 'center',
     fontSize: 13,
   },
-  gameCellWide: {
-    flex: 1,
+  gameCellDate: {
+    width: 42,
     textAlign: 'left',
+  },
+  gameCellMatchup: {
+    width: 42,
+    textAlign: 'left',
+  },
+  gameCellFpts: {
+    width: 44,
+  },
+  gameCellDNP: {
+    opacity: 0.35,
+  },
+  gameLogContainer: {
+    flexDirection: 'row',
+  },
+  pinnedLeft: {
+    flexShrink: 0,
+  },
+  pinnedRight: {
+    flexShrink: 0,
+  },
+  scrollableStats: {
+    flex: 1,
+  },
+  skeletonBlock: {
+    height: 12,
+    borderRadius: 4,
+    opacity: 0.4,
+  },
+  skeletonButton: {
+    height: 44,
+    borderRadius: 8,
+    opacity: 0.3,
   },
   loading: {
     padding: 20,

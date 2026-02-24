@@ -56,6 +56,11 @@ export default function RootLayout() {
               <Stack.Screen name="(tabs)" options={{ headerShown: false, gestureEnabled: false, animation: 'fade' }} />
               <Stack.Screen name="(setup)" options={{ headerShown: false, animation: 'fade' }} />
               <Stack.Screen name="draft-room/[id]" options={{ headerShown: false }} />
+              <Stack.Screen name="trades" options={{ headerShown: false }} />
+              <Stack.Screen name="activity" options={{ headerShown: false }} />
+              <Stack.Screen name="scoreboard" options={{ headerShown: false }} />
+              <Stack.Screen name="league-info" options={{ headerShown: false }} />
+              <Stack.Screen name="team-roster/[id]" options={{ headerShown: false }} />
               <Stack.Screen name="create-league" options={{ headerShown: false }} />
               <Stack.Screen name="create-team" options={{ headerShown: false }} />
               <Stack.Screen name="join-league" options={{ headerShown: false }} />

@@ -1,5 +1,6 @@
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { useRouter } from 'expo-router';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { ThemedText } from '../ThemedText';
 import { IconSymbol } from '../ui/IconSymbol';
@@ -14,13 +15,14 @@ const NAV_ITEMS = [
 export function QuickNav() {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const router = useRouter();
 
   return (
     <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
       <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Quick Navigation</ThemedText>
       <View style={styles.grid}>
         {NAV_ITEMS.map(item => (
-          <TouchableOpacity key={item.route} style={[styles.navItem, { backgroundColor: c.cardAlt }]}>
+          <TouchableOpacity key={item.route} style={[styles.navItem, { backgroundColor: c.cardAlt }]} onPress={() => router.push(item.route as any)}>
             <IconSymbol name={item.icon} size={24} color={c.icon} />
             <ThemedText style={styles.label}>{item.label}</ThemedText>
           </TouchableOpacity>

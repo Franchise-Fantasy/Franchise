@@ -51,6 +51,23 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
         <Row label="Type" value={state.draftType} c={c} />
         <Row label="Time Per Pick" value={`${state.timePerPick}s`} c={c} />
         <Row label="Future Draft Years" value={String(state.maxDraftYears)} c={c} />
+        <Row label="Rookie Draft Rounds" value={String(state.rookieDraftRounds)} c={c} />
+        <Row label="Rookie Draft Order" value={state.rookieDraftOrder} c={c} />
+        {state.rookieDraftOrder === 'Lottery' && (
+          <Row label="Lottery Picks" value={String(state.lotteryPicks)} c={c} />
+        )}
+      </View>
+
+      {/* Trade */}
+      <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
+        <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Trade Settings</ThemedText>
+        <Row label="Veto Type" value={state.tradeVetoType} c={c} />
+        {state.tradeVetoType !== 'None' && (
+          <Row label="Review Period" value={`${state.tradeReviewPeriodHours} hrs`} c={c} />
+        )}
+        {state.tradeVetoType === 'League Vote' && (
+          <Row label="Votes to Veto" value={String(state.tradeVotesToVeto)} c={c} />
+        )}
       </View>
 
       {/* Season */}

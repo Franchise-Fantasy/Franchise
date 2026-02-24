@@ -1,0 +1,23 @@
+name: Sync NBA Injuries
+
+on:
+  schedule:
+    # Every 2 hours during NBA season (ET afternoons/evenings = UTC evenings/nights)
+    - cron: '0 */2 * * *'
+  workflow_dispatch: # Allow manual trigger from GitHub UI
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install pdfplumber requests
+
+      - name: Run injury sync
+        run: python backend/sync_injuries.py

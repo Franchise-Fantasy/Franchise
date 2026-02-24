@@ -3,8 +3,9 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { PlayerSeasonStats } from '@/types/player';
 import { formatPosition } from '@/utils/formatting';
+import { getInjuryBadge } from '@/utils/injuryBadge';
 import { ReactNode } from 'react';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface PlayerCardProps {
   player: PlayerSeasonStats;
@@ -28,9 +29,19 @@ export function PlayerCard({ player, fantasyPoints, onPress, rightElement }: Pla
         {formatPosition(player.position)}
       </ThemedText>
       <View style={styles.info}>
-        <ThemedText type="defaultSemiBold" numberOfLines={1}>
-          {player.name}
-        </ThemedText>
+        <View style={styles.nameRow}>
+          <ThemedText type="defaultSemiBold" numberOfLines={1} style={{ flexShrink: 1 }}>
+            {player.name}
+          </ThemedText>
+          {(() => {
+            const badge = getInjuryBadge(player.status);
+            return badge ? (
+              <View style={[styles.badge, { backgroundColor: badge.color }]}>
+                <Text style={styles.badgeText}>{badge.label}</Text>
+              </View>
+            ) : null;
+          })()}
+        </View>
         <ThemedText style={[styles.team, { color: c.secondaryText }]}>
           {player.nba_team}
         </ThemedText>
@@ -66,6 +77,22 @@ const styles = StyleSheet.create({
   info: {
     flex: 1,
     marginRight: 8,
+  },
+  nameRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 4,
+  },
+  badge: {
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 3,
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: 8,
+    fontWeight: '800' as const,
+    letterSpacing: 0.5,
   },
   team: {
     fontSize: 11,

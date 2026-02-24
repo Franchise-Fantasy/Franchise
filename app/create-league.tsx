@@ -3,7 +3,8 @@ import { StepDraft } from "@/components/create-league/StepDraft";
 import { StepReview } from "@/components/create-league/StepReview";
 import { StepRoster } from "@/components/create-league/StepRoster";
 import { StepScoring } from "@/components/create-league/StepScoring";
-import { StepSeason } from "@/components/create-league/StepSeason";
+import { StepSeason, computeMaxWeeks } from "@/components/create-league/StepSeason";
+import { StepTrade } from "@/components/create-league/StepTrade";
 import { ThemedView } from "@/components/ThemedView";
 import { StepIndicator } from "@/components/ui/StepIndicator";
 import { Colors } from "@/constants/Colors";
@@ -15,7 +16,7 @@ import {
   STEP_LABELS,
 } from "@/constants/LeagueDefaults";
 import { useColorScheme } from "@/hooks/useColorScheme";
-import { generateDraftPicks } from "@/lib/draft";
+import { generateDraftPicks, generateFutureDraftPicks } from "@/lib/draft";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "expo-router";
 import { useReducer, useState } from "react";
@@ -37,6 +38,9 @@ type Action =
   | { type: "RESET_SCORING" }
   | { type: "RESET_ROSTER" };
 
+const DEFAULT_PLAYOFF_WEEKS = 3;
+const maxWeeks = computeMaxWeeks(CURRENT_NBA_SEASON);
+
 const initialState: LeagueWizardState = {
   name: "",
   teams: 10,
@@ -46,9 +50,15 @@ const initialState: LeagueWizardState = {
   draftType: "Snake",
   timePerPick: 90,
   maxDraftYears: 3,
+  tradeVetoType: "Commissioner",
+  tradeReviewPeriodHours: 24,
+  tradeVotesToVeto: 4,
+  rookieDraftRounds: 2,
+  rookieDraftOrder: "Reverse Record",
+  lotteryPicks: 1,
   season: CURRENT_NBA_SEASON,
-  regularSeasonWeeks: 18,
-  playoffWeeks: 3,
+  regularSeasonWeeks: maxWeeks - DEFAULT_PLAYOFF_WEEKS,
+  playoffWeeks: DEFAULT_PLAYOFF_WEEKS,
 };
 
 function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
@@ -94,7 +104,7 @@ export default function CreateLeague() {
   // Steps: 0=Basics, 1=Roster, 2=Scoring, 3=Draft, 4=Season, 5=Review
   const TOTAL_STEPS = STEP_LABELS.length;
   const isOddTeamByeInvalid =
-    step === 4 &&
+    step === 5 &&
     state.teams % 2 !== 0 &&
     state.regularSeasonWeeks % state.teams !== 0;
   const canAdvance =
@@ -140,6 +150,18 @@ export default function CreateLeague() {
         regular_season_weeks: state.regularSeasonWeeks,
         playoff_weeks: state.playoffWeeks,
         season_start_date: seasonStartDate,
+        trade_review_period_hours: state.tradeVetoType === 'None' ? 0 : state.tradeReviewPeriodHours,
+        trade_veto_type: state.tradeVetoType === 'Commissioner'
+          ? 'commissioner'
+          : state.tradeVetoType === 'League Vote'
+            ? 'league_vote'
+            : 'none',
+        trade_votes_to_veto: state.tradeVotesToVeto,
+        rookie_draft_rounds: state.rookieDraftRounds,
+        rookie_draft_order: state.rookieDraftOrder === 'Reverse Record'
+          ? 'reverse_record'
+          : 'lottery',
+        lottery_picks: state.lotteryPicks,
       })
       .select()
       .single();
@@ -208,15 +230,24 @@ export default function CreateLeague() {
       return;
     }
 
-    // 5. Generate draft picks in the background
-    generateDraftPicks(
-      draftData.id,
-      state.teams,
-      rosterSize,
-      state.season,
-      leagueData.id,
-      state.draftType.toLowerCase() as "snake" | "linear",
-    ).catch((error) => console.error("Error generating draft picks:", error));
+    // 5. Generate draft picks + future tradeable picks in the background
+    Promise.all([
+      generateDraftPicks(
+        draftData.id,
+        state.teams,
+        rosterSize,
+        state.season,
+        leagueData.id,
+        state.draftType.toLowerCase() as "snake" | "linear",
+      ),
+      generateFutureDraftPicks(
+        leagueData.id,
+        state.teams,
+        state.rookieDraftRounds,
+        state.season,
+        state.maxDraftYears,
+      ),
+    ]).catch((error) => console.error("Error generating draft picks:", error));
 
     setLoading(false);
     router.replace({
@@ -258,8 +289,9 @@ export default function CreateLeague() {
           />
         )}
         {step === 3 && <StepDraft state={state} onChange={handleChange} />}
-        {step === 4 && <StepSeason state={state} onChange={handleChange} />}
-        {step === 5 && (
+        {step === 4 && <StepTrade state={state} onChange={handleChange} />}
+        {step === 5 && <StepSeason state={state} onChange={handleChange} />}
+        {step === 6 && (
           <StepReview
             state={state}
             onSubmit={handleCreateLeague}

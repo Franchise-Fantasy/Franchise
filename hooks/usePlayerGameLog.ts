@@ -10,7 +10,7 @@ export function usePlayerGameLog(playerId: string) {
         .from('player_games')
         .select('*')
         .eq('player_id', playerId)
-        .order('game_id', { ascending: false });
+        .order('game_date', { ascending: false });
 
       if (error) throw error;
       return data as PlayerGameLog[];

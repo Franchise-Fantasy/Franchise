@@ -1,8 +1,10 @@
 import { supabase } from '@/lib/supabase';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { useAppState } from '@/context/AppStateProvider';
 import { useQuery } from '@tanstack/react-query';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { ActivityIndicator, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { ThemedText } from '../ThemedText';
 
 interface TeamStanding {
@@ -10,29 +12,41 @@ interface TeamStanding {
   name: string;
   wins: number;
   losses: number;
+  ties: number;
+  points_for: number;
+  points_against: number;
+  streak: string;
+}
+
+function streakColor(streak: string, c: any): string {
+  if (streak.startsWith('W')) return '#2dc653';
+  if (streak.startsWith('L')) return '#e03131';
+  return c.secondaryText;
 }
 
 export function StandingsSection({ leagueId }: { leagueId: string }) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const router = useRouter();
+  const { teamId } = useAppState();
 
   const { data: standings, isLoading } = useQuery({
     queryKey: ['standings', leagueId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('teams')
-        .select('id, name, wins, losses')
+        .select('id, name, wins, losses, ties, points_for, points_against, streak')
         .eq('league_id', leagueId)
-        .order('wins', { ascending: false });
+        .order('wins', { ascending: false })
+        .order('points_for', { ascending: false });
 
       if (error) throw error;
-      console.log('[StandingsSection] Fetched standings:', data); 
-      return data.map((team, index) => ({
+      return (data as TeamStanding[]).map((team, index) => ({
         ...team,
-        rank: index + 1
+        rank: index + 1,
       }));
     },
-    enabled: !!leagueId
+    enabled: !!leagueId,
   });
 
   return (
@@ -48,15 +62,40 @@ export function StandingsSection({ leagueId }: { leagueId: string }) {
             </ThemedText>
           </View>
         ) : (
-          standings.map(team => (
-            <View key={team.id} style={[styles.standingRow, { borderBottomColor: c.border }]}>
-              <ThemedText style={[styles.rank, { color: c.secondaryText }]}>{team.rank}</ThemedText>
-              <ThemedText style={styles.teamName}>{team.name}</ThemedText>
-              <ThemedText style={[styles.record, { color: c.secondaryText }]}>
-                {team.wins}-{team.losses}
-              </ThemedText>
+          <>
+            {/* Header row */}
+            <View style={styles.headerRow}>
+              <ThemedText style={[styles.rank, styles.headerText, { color: c.secondaryText }]}>#</ThemedText>
+              <ThemedText style={[styles.teamName, styles.headerText, { color: c.secondaryText }]}>Team</ThemedText>
+              <ThemedText style={[styles.record, styles.headerText, { color: c.secondaryText }]}>W-L-T</ThemedText>
+              <ThemedText style={[styles.pf, styles.headerText, { color: c.secondaryText }]}>PF</ThemedText>
+              <ThemedText style={[styles.pa, styles.headerText, { color: c.secondaryText }]}>PA</ThemedText>
+              <ThemedText style={[styles.streakCol, styles.headerText, { color: c.secondaryText }]}>STK</ThemedText>
             </View>
-          ))
+            {standings.map((team) => (
+              <TouchableOpacity
+                key={team.id}
+                style={[styles.standingRow, { borderBottomColor: c.border }]}
+                onPress={() => team.id === teamId ? router.push('/(tabs)/roster') : router.push(`/team-roster/${team.id}` as any)}
+                activeOpacity={0.6}
+              >
+                <ThemedText style={[styles.rank, { color: c.secondaryText }]}>{team.rank}</ThemedText>
+                <ThemedText style={styles.teamName} numberOfLines={1}>{team.name}</ThemedText>
+                <ThemedText style={[styles.record, { color: c.secondaryText }]}>
+                  {team.wins}-{team.losses}-{team.ties}
+                </ThemedText>
+                <ThemedText style={[styles.pf, { color: c.secondaryText }]}>
+                  {Number(team.points_for).toFixed(1)}
+                </ThemedText>
+                <ThemedText style={[styles.pa, { color: c.secondaryText }]}>
+                  {Number(team.points_against).toFixed(1)}
+                </ThemedText>
+                <ThemedText style={[styles.streakCol, { color: streakColor(team.streak, c) }]}>
+                  {team.streak || '—'}
+                </ThemedText>
+              </TouchableOpacity>
+            ))}
+          </>
         )}
       </View>
     </View>
@@ -76,16 +115,27 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   standings: { marginTop: 4 },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(128,128,128,0.3)',
+  },
+  headerText: { fontSize: 10, fontWeight: '600' },
   standingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  rank: { width: 30 },
-  teamName: { flex: 1 },
-  record: {},
+  rank: { width: 24, fontSize: 12 },
+  teamName: { flex: 1, fontSize: 13 },
+  record: { width: 48, textAlign: 'center', fontSize: 12 },
+  pf: { width: 44, textAlign: 'right', fontSize: 11 },
+  pa: { width: 44, textAlign: 'right', fontSize: 11 },
+  streakCol: { width: 30, textAlign: 'right', fontSize: 11, fontWeight: '600' },
   placeholder: { padding: 20, alignItems: 'center' },
   placeholderText: { fontSize: 14 },
-  loading: { marginTop: 16 }
+  loading: { marginTop: 16 },
 });

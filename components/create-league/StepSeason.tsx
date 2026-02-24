@@ -17,7 +17,7 @@ interface StepSeasonProps {
 // Returns the Monday that starts the fantasy season.
 // If today has >= 5 days left in its Mon-Sun week, use this Monday.
 // Otherwise use next Monday (week 1 will be extended to cover the short partial week).
-function computeSeasonStart(): Date {
+export function computeSeasonStart(): Date {
   const today = new Date();
   // dayOfWeek: 0=Sun, 1=Mon, ..., 6=Sat
   const dayOfWeek = today.getDay();
@@ -57,12 +57,35 @@ function formatDate(date: Date): string {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+/** Max full weeks between season start and NBA season end for a given season string.
+ *  The end date is inclusive (it's the last day of the last valid week), so we add 1 day. */
+export function computeMaxWeeks(season: string): number {
+  const start = computeSeasonStart();
+  const endStr = NBA_SEASON_END[season] ?? NBA_SEASON_END[CURRENT_NBA_SEASON];
+  const [y, m, d] = endStr.split('-').map(Number);
+  // Use UTC to avoid DST skewing the millisecond difference
+  const startUtc = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
+  const endUtc = Date.UTC(y, m - 1, d);
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return Math.floor((endUtc - startUtc + msPerDay) / (7 * msPerDay));
+}
+
 export function StepSeason({ state, onChange }: StepSeasonProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
 
   const seasonStart = computeSeasonStart();
   const shortFirstWeek = daysRemainingInCurrentWeek() < 5;
+
+  // NBA season boundary — parse as local midnight to avoid UTC timezone shift
+  const nbaEndStr = NBA_SEASON_END[state.season] ?? NBA_SEASON_END[CURRENT_NBA_SEASON];
+  const [y, m, d] = nbaEndStr.split('-').map(Number);
+  const nbaEnd = new Date(y, m - 1, d);
+
+  const maxTotalWeeks = computeMaxWeeks(state.season);
+
+  const maxRegularSeasonWeeks = Math.max(1, maxTotalWeeks - state.playoffWeeks);
+  const maxPlayoffWeeks = Math.max(1, maxTotalWeeks - state.regularSeasonWeeks);
 
   // Regular season ends after regularSeasonWeeks full weeks from start
   const regularSeasonEnd = addWeeks(seasonStart, state.regularSeasonWeeks);
@@ -76,12 +99,6 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
   // Playoffs end after playoffWeeks weeks
   const playoffsEnd = addWeeks(playoffsStart, state.playoffWeeks);
   playoffsEnd.setDate(playoffsEnd.getDate() - 1);
-
-  // NBA season boundary — parse as local midnight to avoid UTC timezone shift
-  const nbaEndStr = NBA_SEASON_END[state.season] ?? NBA_SEASON_END[CURRENT_NBA_SEASON];
-  const [y, m, d] = nbaEndStr.split('-').map(Number);
-  const nbaEnd = new Date(y, m - 1, d);
-  const exceedsNba = playoffsEnd > nbaEnd;
 
   // With odd team count, byes are only equal if regularSeasonWeeks is a multiple of team count
   const isOdd = state.teams % 2 !== 0;
@@ -99,8 +116,8 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
           label="Regular Season"
           value={state.regularSeasonWeeks}
           onValueChange={(v) => onChange('regularSeasonWeeks', v)}
-          min={4}
-          max={22}
+          min={1}
+          max={maxRegularSeasonWeeks}
           suffix=" wks"
         />
         <NumberStepper
@@ -108,7 +125,7 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
           value={state.playoffWeeks}
           onValueChange={(v) => onChange('playoffWeeks', v)}
           min={1}
-          max={4}
+          max={maxPlayoffWeeks}
           suffix=" wks"
         />
       </View>
@@ -135,9 +152,7 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
         </View>
         <View style={styles.previewRow}>
           <ThemedText style={[styles.previewLabel, { color: c.secondaryText }]}>Playoffs end</ThemedText>
-          <ThemedText style={[styles.previewValue, exceedsNba && { color: c.error ?? '#e53e3e' }]}>
-            {formatDate(playoffsEnd)}
-          </ThemedText>
+          <ThemedText style={styles.previewValue}>{formatDate(playoffsEnd)}</ThemedText>
         </View>
         <View style={[styles.divider, { backgroundColor: c.border }]} />
         <View style={styles.previewRow}>
@@ -145,14 +160,6 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
           <ThemedText style={[styles.previewValue, { color: c.secondaryText }]}>{formatDate(nbaEnd)}</ThemedText>
         </View>
       </View>
-
-      {exceedsNba && (
-        <View style={[styles.warningBox, { backgroundColor: '#fff3cd', borderColor: '#ffc107' }]}>
-          <ThemedText style={[styles.warningText, { color: '#856404' }]}>
-            Your playoffs would extend past the NBA regular season. Reduce your week count or the results may be incomplete.
-          </ThemedText>
-        </View>
-      )}
 
       {byeError && (
         <View style={[styles.warningBox, { backgroundColor: '#fee2e2', borderColor: '#ef4444', marginTop: 8 }]}>

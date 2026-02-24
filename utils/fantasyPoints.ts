@@ -13,6 +13,7 @@ const STAT_TO_TOTAL: Record<string, keyof PlayerSeasonStats> = {
   FGA: 'total_fga',
   FTM: 'total_ftm',
   FTA: 'total_fta',
+  PF: 'total_pf',
 };
 
 // Maps league_scoring_settings stat_name to player_games column
@@ -28,6 +29,7 @@ const STAT_TO_GAME: Record<string, keyof PlayerGameLog> = {
   FGA: 'fga',
   FTM: 'ftm',
   FTA: 'fta',
+  PF: 'pf',
 };
 
 // Computes true average FPTS per game using season totals, then dividing by games played.

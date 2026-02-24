@@ -7,12 +7,15 @@ import { useLeagueRosterConfig } from "@/hooks/useLeagueRosterConfig";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
-import { calculateAvgFantasyPoints } from "@/utils/fantasyPoints";
+import { fetchLineupForDate } from "@/utils/dailyLineup";
+import { calculateAvgFantasyPoints, calculateGameFantasyPoints } from "@/utils/fantasyPoints";
 import { formatPosition } from "@/utils/formatting";
+import { getInjuryBadge } from "@/utils/injuryBadge";
+import { formatGameInfo, LivePlayerStats, useLivePlayerStats } from "@/utils/nbaLive";
 import { isEligibleForSlot, SLOT_LABELS } from "@/utils/rosterSlots";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -21,21 +24,133 @@ import {
   PanResponder,
   ScrollView,
   StyleSheet,
+  Text,
   TouchableOpacity,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+// ─── Types ───────────────────────────────────────────────────────────────────
+
 interface RosterPlayer extends PlayerSeasonStats {
   roster_slot: string | null;
+  external_id_nba: number | null;
+  nbaTricode: string | null; // real team tricode from players.nba_team (e.g. "OKC")
 }
 
-/** A single renderable slot in the roster view. */
 interface SlotEntry {
   slotPosition: string;
   slotIndex: number;
   player: RosterPlayer | null;
 }
+
+// Per-player game stats fetched for a specific past date
+interface DayGameStats {
+  player_id: string;
+  pts: number; reb: number; ast: number; stl: number; blk: number;
+  tov: number; fgm: number; fga: number; '3pm': number; ftm: number; fta: number; pf: number;
+  matchup: string | null;
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function toDateStr(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function parseLocalDate(str: string): Date {
+  const [y, m, d] = str.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function addDays(dateStr: string, n: number): string {
+  const d = parseLocalDate(dateStr);
+  d.setDate(d.getDate() + n);
+  return toDateStr(d);
+}
+
+function formatDayLabel(dateStr: string): string {
+  return parseLocalDate(dateStr).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+// Compact stat line shown below player name: "20 PTS · 8 REB · 5 AST · 2 BLK · 1 PF"
+function buildStatLine(stats: Record<string, number>): string {
+  const fields: [string, string][] = [
+    ['pts', 'PTS'], ['reb', 'REB'], ['ast', 'AST'],
+    ['stl', 'STL'], ['blk', 'BLK'], ['tov', 'TO'],
+    ['3pm', '3PM'], ['pf', 'PF'],
+  ];
+  return fields
+    .filter(([key]) => (stats[key] ?? 0) > 0)
+    .map(([key, label]) => `${stats[key]} ${label}`)
+    .join(' · ');
+}
+
+function liveToStatRecord(live: LivePlayerStats): Record<string, number> {
+  return {
+    pts: live.pts, reb: live.reb, ast: live.ast, stl: live.stl,
+    blk: live.blk, tov: live.tov, fgm: live.fgm, fga: live.fga,
+    '3pm': live['3pm'], ftm: live.ftm, fta: live.fta, pf: live.pf,
+  };
+}
+
+function dayToStatRecord(g: DayGameStats): Record<string, number> {
+  return {
+    pts: g.pts, reb: g.reb, ast: g.ast, stl: g.stl,
+    blk: g.blk, tov: g.tov, fgm: g.fgm, fga: g.fga,
+    '3pm': g['3pm'], ftm: g.ftm, fta: g.fta, pf: g.pf,
+  };
+}
+
+// ─── On-court dot ─────────────────────────────────────────────────────────────
+function OnCourtDot() {
+  return <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#2dc653', marginRight: 2 }} />;
+}
+
+// ─── Animated FPTS number ────────────────────────────────────────────────────
+// Pops (scale 1 → 1.35 → 1) whenever value changes.
+
+function AnimatedFpts({
+  value,
+  accentColor,
+  dimColor,
+  textStyle,
+}: {
+  value: number | null;
+  accentColor: string;
+  dimColor: string;
+  textStyle: any;
+}) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const prev = useRef<number | null | undefined>(undefined);
+
+  useEffect(() => {
+    if (prev.current !== undefined && value !== prev.current) {
+      Animated.sequence([
+        Animated.timing(scale, { toValue: 1.35, duration: 150, useNativeDriver: true }),
+        Animated.spring(scale, { toValue: 1, useNativeDriver: true, bounciness: 12 }),
+      ]).start();
+    }
+    prev.current = value;
+  }, [value]);
+
+  return (
+    <Animated.Text
+      style={[textStyle, { transform: [{ scale }], color: value !== null ? accentColor : dimColor }]}
+    >
+      {value !== null ? value.toFixed(1) : '—'}
+    </Animated.Text>
+  );
+}
+
+// ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function RosterScreen() {
   const scheme = useColorScheme() ?? "light";
@@ -43,10 +158,16 @@ export default function RosterScreen() {
   const { leagueId, teamId } = useAppState();
   const queryClient = useQueryClient();
 
+  const today = toDateStr(new Date());
+  const [selectedDate, setSelectedDate] = useState<string>(today);
   const [selectedPlayer, setSelectedPlayer] =
     useState<PlayerSeasonStats | null>(null);
   const [activeSlot, setActiveSlot] = useState<SlotEntry | null>(null);
   const [isAssigning, setIsAssigning] = useState(false);
+
+  const isPastDate = selectedDate < today;
+  const isFutureDate = selectedDate > today;
+  const isToday = selectedDate === today;
 
   const { data: scoringWeights } = useLeagueScoring(leagueId ?? "");
   const { data: rosterConfig, isLoading: isLoadingConfig } =
@@ -55,7 +176,7 @@ export default function RosterScreen() {
   const { data: rosterPlayers, isLoading: isLoadingRoster } = useQuery<
     RosterPlayer[]
   >({
-    queryKey: ["teamRoster", teamId],
+    queryKey: ["teamRoster", teamId, selectedDate],
     queryFn: async () => {
       const { data: leaguePlayers, error: lpError } = await supabase
         .from("league_players")
@@ -68,43 +189,81 @@ export default function RosterScreen() {
 
       const playerIds = leaguePlayers.map((lp) => lp.player_id);
 
-      const { data, error } = await supabase
-        .from("player_season_stats")
-        .select("*")
-        .in("player_id", playerIds);
+      const slotMap = await fetchLineupForDate(teamId!, leagueId!, selectedDate);
 
-      if (error) throw error;
+      const [statsResult, nbaIdResult] = await Promise.all([
+        supabase.from("player_season_stats").select("*").in("player_id", playerIds),
+        supabase.from("players").select("id, external_id_nba, nba_team").in("id", playerIds),
+      ]);
 
-      // Merge roster_slot onto stats
-      const slotMap = new Map(
-        leaguePlayers.map((lp) => [lp.player_id, lp.roster_slot]),
+      if (statsResult.error) throw statsResult.error;
+
+      const nbaIdMap = new Map<string, number>(
+        (nbaIdResult.data ?? []).map((p: any) => [p.id, p.external_id_nba])
       );
-      return (data as PlayerSeasonStats[]).map((p) => ({
+      const nbaTricodeMap = new Map<string, string>(
+        (nbaIdResult.data ?? [])
+          .filter((p: any) => p.nba_team && p.nba_team !== 'Active' && p.nba_team !== 'Inactive')
+          .map((p: any) => [p.id, p.nba_team])
+      );
+
+      return (statsResult.data as PlayerSeasonStats[]).map((p) => ({
         ...p,
         roster_slot: slotMap.get(p.player_id) ?? null,
+        external_id_nba: nbaIdMap.get(p.player_id) ?? null,
+        nbaTricode: nbaTricodeMap.get(p.player_id) ?? null,
       }));
     },
     enabled: !!teamId && !!leagueId,
     staleTime: 0,
+    placeholderData: keepPreviousData,
   });
+
+  // For past dates: fetch that day's actual game stats
+  const { data: dayGameStats } = useQuery<Map<string, DayGameStats>>({
+    queryKey: ["dayGameStats", teamId, selectedDate],
+    queryFn: async () => {
+      const playerIds = rosterPlayers!.map((p) => p.player_id);
+      const { data } = await supabase
+        .from("player_games")
+        .select('player_id, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", ftm, fta, pf, matchup')
+        .in("player_id", playerIds)
+        .eq("game_date", selectedDate);
+      const map = new Map<string, DayGameStats>();
+      for (const row of data ?? []) map.set(row.player_id, row as DayGameStats);
+      return map;
+    },
+    enabled: isPastDate && !!rosterPlayers && rosterPlayers.length > 0,
+    staleTime: 1000 * 60 * 60,
+  });
+
+  // Schedule for today and future dates: tricode → matchup string
+  const { data: daySchedule } = useQuery<Map<string, string>>({
+    queryKey: ["daySchedule", selectedDate],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("nba_schedule")
+        .select("home_team, away_team")
+        .eq("game_date", selectedDate);
+      const map = new Map<string, string>();
+      for (const game of data ?? []) {
+        map.set(game.home_team, `vs ${game.away_team}`);
+        map.set(game.away_team, `@${game.home_team}`);
+      }
+      return map;
+    },
+    enabled: isToday || isFutureDate,
+    staleTime: 1000 * 60 * 60,
+  });
+
+  // Live stats for today via Realtime
+  const playerIds = rosterPlayers?.map((p) => p.player_id) ?? [];
+  const liveMap = useLivePlayerStats(playerIds, isToday);
 
   const isLoading = isLoadingConfig || isLoadingRoster;
 
-  // Force a real refetch whenever the tab comes back into focus.
-  // Using refetchQueries (not invalidateQueries) so it always hits the network,
-  // even in published Expo Go where the cache observer may be paused.
-  // useFocusEffect(
-  //   useCallback(() => {
-  //     if (teamId) {
-  //       queryClient.invalidateQueries({ queryKey: ["teamRoster", teamId] });
-  //     }
-  //   }, [teamId, queryClient]),
-  // );
+  // ─── Build slot entries ───────────────────────────────────────────────────
 
-  // Build slot entries from roster config.
-  // Non-bench/non-IR slots render their configured count.
-  // Bench expands to hold any players without a valid slot assignment.
-  // IR is a separate section shown below bench.
   const slots: SlotEntry[] = [];
   const benchPlayers: RosterPlayer[] = [];
   const irSlots: SlotEntry[] = [];
@@ -116,7 +275,6 @@ export default function RosterScreen() {
       (c) => c.position !== "BE" && c.position !== "IR",
     );
 
-    // Build active starter slots
     for (const config of activeConfigs) {
       const playersInSlot = rosterPlayers.filter(
         (p) => p.roster_slot === config.position,
@@ -130,10 +288,9 @@ export default function RosterScreen() {
       }
     }
 
-    // Collect bench players: anyone with roster_slot='BE', null, or an invalid slot (excluding IR)
     const validActiveSlots = new Set(activeConfigs.map((c) => c.position));
     for (const player of rosterPlayers) {
-      if (player.roster_slot === "IR") continue; // handled separately
+      if (player.roster_slot === "IR") continue;
       if (
         !player.roster_slot ||
         player.roster_slot === "BE" ||
@@ -142,7 +299,6 @@ export default function RosterScreen() {
         benchPlayers.push(player);
         continue;
       }
-      // Overflow to bench if too many players in that slot
       const config = activeConfigs.find(
         (c) => c.position === player.roster_slot,
       );
@@ -157,7 +313,6 @@ export default function RosterScreen() {
       }
     }
 
-    // Build bench slots
     const benchSlotCount = Math.max(
       benchConfig?.slot_count ?? 0,
       benchPlayers.length,
@@ -170,7 +325,6 @@ export default function RosterScreen() {
       });
     }
 
-    // Build IR slots
     if (irConfig && irConfig.slot_count > 0) {
       const irPlayers = rosterPlayers.filter((p) => p.roster_slot === "IR");
       const irSlotCount = Math.max(irConfig.slot_count, irPlayers.length);
@@ -184,10 +338,8 @@ export default function RosterScreen() {
     }
   }
 
-  // Get eligible players for the slot picker.
-  // Starter slots show bench players. Bench slots show starters (for swapping).
-  // IR slots show bench/active players with OUT status only.
-  // Bench slots also show IR players (for activating off IR).
+  // ─── Slot assignment logic ────────────────────────────────────────────────
+
   const getEligiblePlayersForSlot = (slotPosition: string): RosterPlayer[] => {
     if (!rosterPlayers) return [];
     const isIRSlot = slotPosition === "IR";
@@ -195,28 +347,33 @@ export default function RosterScreen() {
 
     return rosterPlayers.filter((p) => {
       if (activeSlot?.player?.player_id === p.player_id) return false;
-
-      if (isIRSlot) {
-        // IR slot: only OUT players who are not already on IR
-        return p.status === "OUT" && p.roster_slot !== "IR";
-      }
-
+      if (isIRSlot) return (p.status === "OUT" || p.status === "SUSP") && p.roster_slot !== "IR";
       if (isBenchSlot) {
-        // Bench slot: show starters (for swapping) and IR players (for activating)
         const isOnBench = !p.roster_slot || p.roster_slot === "BE";
         return !isOnBench;
       }
-
-      // Starter slot: must be position-eligible and on bench (not IR)
       if (!isEligibleForSlot(p.position, slotPosition)) return false;
-      const isOnBench =
-        !p.roster_slot || p.roster_slot === "BE";
+      const isOnBench = !p.roster_slot || p.roster_slot === "BE";
       return isOnBench;
     });
   };
 
+  const upsertDailySlot = async (playerId: string, slot: string) => {
+    const { error } = await supabase.from("daily_lineups").upsert(
+      {
+        league_id: leagueId,
+        team_id: teamId,
+        player_id: playerId,
+        lineup_date: selectedDate,
+        roster_slot: slot,
+      },
+      { onConflict: "team_id,player_id,lineup_date" },
+    );
+    if (error) throw error;
+  };
+
   const handleAssignPlayer = async (player: RosterPlayer) => {
-    if (!activeSlot || !teamId || !leagueId) return;
+    if (!activeSlot || !teamId || !leagueId || isPastDate) return;
 
     setIsAssigning(true);
     try {
@@ -227,81 +384,30 @@ export default function RosterScreen() {
         player.roster_slot && player.roster_slot !== "BE" && !selectedIsOnIR;
 
       if (isIRSlot) {
-        // Moving a player onto IR: displace current IR occupant to bench
         if (activeSlot.player) {
-          const { error: clearError } = await supabase
-            .from("league_players")
-            .update({ roster_slot: "BE" })
-            .eq("league_id", leagueId)
-            .eq("team_id", teamId)
-            .eq("player_id", activeSlot.player.player_id);
-          if (clearError) throw clearError;
+          await upsertDailySlot(activeSlot.player.player_id, "BE");
         }
-        const { error } = await supabase
-          .from("league_players")
-          .update({ roster_slot: "IR" })
-          .eq("league_id", leagueId)
-          .eq("team_id", teamId)
-          .eq("player_id", player.player_id);
-        if (error) throw error;
+        await upsertDailySlot(player.player_id, "IR");
       } else if (isBenchSlot && selectedIsOnIR) {
-        // Activating a player from IR to bench
-        const { error } = await supabase
-          .from("league_players")
-          .update({ roster_slot: "BE" })
-          .eq("league_id", leagueId)
-          .eq("team_id", teamId)
-          .eq("player_id", player.player_id);
-        if (error) throw error;
-        // Displace the current bench occupant (stays on bench — it's just a display reorder)
+        await upsertDailySlot(player.player_id, "BE");
       } else if (isBenchSlot && selectedIsStarter && activeSlot.player) {
         const starterSlot = player.roster_slot!;
         const benchPlayerEligible = isEligibleForSlot(
           activeSlot.player.position,
           starterSlot,
         );
-
-        // Move the starter to bench
-        const { error: e2 } = await supabase
-          .from("league_players")
-          .update({ roster_slot: "BE" })
-          .eq("league_id", leagueId)
-          .eq("team_id", teamId)
-          .eq("player_id", player.player_id);
-        if (e2) throw e2;
-
+        await upsertDailySlot(player.player_id, "BE");
         if (benchPlayerEligible) {
-          // Swap: bench player fills the starter's old slot
-          const { error: e1 } = await supabase
-            .from("league_players")
-            .update({ roster_slot: starterSlot })
-            .eq("league_id", leagueId)
-            .eq("team_id", teamId)
-            .eq("player_id", activeSlot.player.player_id);
-          if (e1) throw e1;
+          await upsertDailySlot(activeSlot.player.player_id, starterSlot);
         }
       } else {
-        // Standard assign: displaced player goes to bench
         if (activeSlot.player) {
-          const { error: clearError } = await supabase
-            .from("league_players")
-            .update({ roster_slot: "BE" })
-            .eq("league_id", leagueId)
-            .eq("team_id", teamId)
-            .eq("player_id", activeSlot.player.player_id);
-          if (clearError) throw clearError;
+          await upsertDailySlot(activeSlot.player.player_id, "BE");
         }
-
-        const { error } = await supabase
-          .from("league_players")
-          .update({ roster_slot: activeSlot.slotPosition })
-          .eq("league_id", leagueId)
-          .eq("team_id", teamId)
-          .eq("player_id", player.player_id);
-        if (error) throw error;
+        await upsertDailySlot(player.player_id, activeSlot.slotPosition);
       }
 
-      queryClient.refetchQueries({ queryKey: ["teamRoster", teamId] });
+      queryClient.invalidateQueries({ queryKey: ["teamRoster", teamId, selectedDate] });
       setActiveSlot(null);
     } catch (err: any) {
       Alert.alert("Error", err.message ?? "Failed to assign player");
@@ -311,21 +417,12 @@ export default function RosterScreen() {
   };
 
   const handleClearSlot = async () => {
-    if (!activeSlot?.player || !teamId || !leagueId) return;
+    if (!activeSlot?.player || !teamId || !leagueId || isPastDate) return;
 
     setIsAssigning(true);
     try {
-      // Move player to bench
-      const { error } = await supabase
-        .from("league_players")
-        .update({ roster_slot: "BE" })
-        .eq("league_id", leagueId)
-        .eq("team_id", teamId)
-        .eq("player_id", activeSlot.player.player_id);
-
-      if (error) throw error;
-
-      queryClient.refetchQueries({ queryKey: ["teamRoster", teamId] });
+      await upsertDailySlot(activeSlot.player.player_id, "BE");
+      queryClient.invalidateQueries({ queryKey: ["teamRoster", teamId, selectedDate] });
       setActiveSlot(null);
     } catch (err: any) {
       Alert.alert("Error", err.message ?? "Failed to move player to bench");
@@ -333,6 +430,70 @@ export default function RosterScreen() {
       setIsAssigning(false);
     }
   };
+
+  // ─── FPTS / stat resolution per player ───────────────────────────────────
+
+  // Returns { fpts, statLine, isLive, matchup } for display in a slot row.
+  // fpts === null means no game on that date — show "—" and exclude from totals.
+  function resolveSlotStats(player: RosterPlayer | null): {
+    fpts: number | null;
+    statLine: string | null;
+    isLive: boolean;
+    matchup: string | null;
+  } {
+    if (!player || !scoringWeights) return { fpts: null, statLine: null, isLive: false, matchup: null };
+
+    if (isToday) {
+      const live = liveMap.get(player.player_id);
+      if (live) {
+        const stats = liveToStatRecord(live);
+        const fpts = Math.round(calculateGameFantasyPoints(stats as any, scoringWeights) * 10) / 10;
+        return {
+          fpts,
+          statLine: live.game_status === 1 ? null : buildStatLine(stats),
+          isLive: live.game_status === 2,
+          matchup: live.matchup || null,
+        };
+      }
+      // No live entry — game may be scheduled but not started yet
+      const todayMatchup = player.nbaTricode ? (daySchedule?.get(player.nbaTricode) ?? null) : null;
+      if (todayMatchup) {
+        const proj = calculateAvgFantasyPoints(player, scoringWeights);
+        return {
+          fpts: 0,
+          statLine: proj !== null ? `proj ${proj.toFixed(1)}` : null,
+          isLive: false,
+          matchup: todayMatchup,
+        };
+      }
+      return { fpts: null, statLine: null, isLive: false, matchup: null };
+    }
+
+    if (isPastDate) {
+      const dayGame = dayGameStats?.get(player.player_id);
+      if (dayGame) {
+        const stats = dayToStatRecord(dayGame);
+        const fpts = Math.round(calculateGameFantasyPoints(stats as any, scoringWeights) * 10) / 10;
+        return { fpts, statLine: buildStatLine(stats), isLive: false, matchup: dayGame.matchup ?? null };
+      }
+      // No game that day — show "—", not avg
+      return { fpts: null, statLine: null, isLive: false, matchup: null };
+    }
+
+    // Future — only show projection if player has a game that day
+    const futureMatchup = player.nbaTricode ? (daySchedule?.get(player.nbaTricode) ?? null) : null;
+    if (!futureMatchup) {
+      return { fpts: null, statLine: null, isLive: false, matchup: null };
+    }
+    return {
+      fpts: calculateAvgFantasyPoints(player, scoringWeights),
+      statLine: null,
+      isLive: false,
+      matchup: futureMatchup,
+    };
+  }
+
+  // ─── Render ───────────────────────────────────────────────────────────────
 
   if (isLoading) {
     return (
@@ -357,19 +518,19 @@ export default function RosterScreen() {
   const starterSlots = slots.filter((s) => s.slotPosition !== "BE");
   const benchSlots = slots.filter((s) => s.slotPosition === "BE");
 
-  // Total projected FPTS from starters only (IR players are excluded)
   const starterTotal = scoringWeights
     ? starterSlots.reduce((sum, slot) => {
         if (!slot.player) return sum;
-        return sum + calculateAvgFantasyPoints(slot.player, scoringWeights);
+        const { fpts } = resolveSlotStats(slot.player);
+        // null means no game — don't include in total
+        return fpts !== null ? sum + fpts : sum;
       }, 0)
     : null;
 
   const renderSlotRow = (slot: SlotEntry, idx: number, list: SlotEntry[]) => {
-    const fpts =
-      slot.player && scoringWeights
-        ? calculateAvgFantasyPoints(slot.player, scoringWeights)
-        : null;
+    const { fpts, statLine, isLive, matchup } = resolveSlotStats(slot.player);
+    const liveData = slot.player ? liveMap.get(slot.player.player_id) : null;
+    const gameInfo = liveData ? formatGameInfo(liveData) : '';
 
     const isActive =
       activeSlot?.slotPosition === slot.slotPosition &&
@@ -402,7 +563,7 @@ export default function RosterScreen() {
                   : c.cardAlt,
             },
           ]}
-          onPress={() => setActiveSlot(slot)}
+          onPress={() => !isPastDate && setActiveSlot(slot)}
         >
           <ThemedText
             style={[
@@ -425,35 +586,74 @@ export default function RosterScreen() {
             style={styles.slotPlayer}
             onPress={() => setSelectedPlayer(slot.player)}
             onLongPress={() => {
+              if (isPastDate) return;
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               setActiveSlot(slot);
             }}
             delayLongPress={400}
           >
             <View style={styles.slotPlayerInfo}>
-              <ThemedText
-                type="defaultSemiBold"
-                numberOfLines={1}
-                style={styles.slotPlayerName}
-              >
-                {slot.player.name}
-              </ThemedText>
+              {/* Line 1: ● Name | @OKC chip | LIVE */}
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1 }}>
+                {liveData?.oncourt && <OnCourtDot />}
+                <ThemedText
+                  type="defaultSemiBold"
+                  numberOfLines={1}
+                  style={[styles.slotPlayerName, { flexShrink: 1 }]}
+                >
+                  {slot.player.name}
+                </ThemedText>
+                {(() => {
+                  const badge = getInjuryBadge(slot.player.status);
+                  return badge ? (
+                    <View style={[styles.liveBadge, { backgroundColor: badge.color }]}>
+                      <Text style={styles.liveText}>{badge.label}</Text>
+                    </View>
+                  ) : null;
+                })()}
+                {matchup && (
+                  <View style={[styles.matchupChip, { backgroundColor: c.cardAlt }]}>
+                    <Text style={[styles.matchupChipText, { color: c.secondaryText }]}>{matchup}</Text>
+                  </View>
+                )}
+                {isLive && (
+                  <View style={[styles.liveBadge, { backgroundColor: "#e03131" }]}>
+                    <Text style={styles.liveText}>LIVE</Text>
+                  </View>
+                )}
+              </View>
+              {/* Line 2: quarter/time/score — tight, reads like a subtitle */}
+              {gameInfo ? (
+                <ThemedText
+                  style={[styles.slotPlayerSub, { color: c.secondaryText, fontSize: 10, marginTop: 0, lineHeight: 13 }]}
+                  numberOfLines={1}
+                >
+                  {gameInfo}
+                </ThemedText>
+              ) : null}
+              {/* Line 3: stats or position fallback */}
               <ThemedText
                 style={[styles.slotPlayerSub, { color: c.secondaryText }]}
+                numberOfLines={1}
               >
-                {formatPosition(slot.player.position)} · {slot.player.nba_team}
+                {statLine
+                  ? statLine
+                  : (isFutureDate || (isToday && !!matchup))
+                    ? `${formatPosition(slot.player.position)} · proj`
+                    : formatPosition(slot.player.position)}
               </ThemedText>
             </View>
-            {fpts !== null && (
-              <ThemedText style={[styles.slotFpts, { color: c.accent }]}>
-                {fpts}
-              </ThemedText>
-            )}
+            <AnimatedFpts
+              value={fpts}
+              accentColor={c.accent}
+              dimColor={c.secondaryText}
+              textStyle={styles.slotFpts}
+            />
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
             style={styles.slotPlayer}
-            onPress={() => setActiveSlot(slot)}
+            onPress={() => !isPastDate && setActiveSlot(slot)}
           >
             <ThemedText
               style={[styles.emptySlotText, { color: c.secondaryText }]}
@@ -468,6 +668,55 @@ export default function RosterScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
+      {/* Day navigation */}
+      <View style={[styles.dayNav, { borderBottomColor: c.border }]}>
+        <View style={styles.navLeft}>
+          <TouchableOpacity
+            onPress={() => setSelectedDate(addDays(selectedDate, -1))}
+            style={styles.navArrow}
+          >
+            <Text style={[styles.navArrowText, { color: c.text }]}>‹</Text>
+          </TouchableOpacity>
+          {selectedDate !== today && (
+            <TouchableOpacity onPress={() => setSelectedDate(today)}>
+              <ThemedText style={[styles.todayChipText, { color: c.accent }]}>
+                Today
+              </ThemedText>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        <View style={styles.dayInfo}>
+          <View>
+            <ThemedText type="defaultSemiBold" style={styles.dayLabel}>
+              {formatDayLabel(selectedDate)}
+            </ThemedText>
+          </View>
+          {isPastDate && (
+            <ThemedText style={[styles.daySubLabel, { color: c.secondaryText }]}>
+              Past lineup (read-only)
+            </ThemedText>
+          )}
+          {isToday && (
+            <ThemedText style={[styles.daySubLabel, { color: c.secondaryText }]}>
+              Today's lineup
+            </ThemedText>
+          )}
+          {isFutureDate && (
+            <ThemedText style={[styles.daySubLabel, { color: c.secondaryText }]}>
+              Future lineup
+            </ThemedText>
+          )}
+        </View>
+
+        <TouchableOpacity
+          onPress={() => setSelectedDate(addDays(selectedDate, 1))}
+          style={styles.navArrow}
+        >
+          <Text style={[styles.navArrowText, { color: c.text }]}>›</Text>
+        </TouchableOpacity>
+      </View>
+
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Starters */}
         <View style={styles.section}>
@@ -486,7 +735,7 @@ export default function RosterScreen() {
                 <ThemedText
                   style={[styles.totalLabel, { color: c.secondaryText }]}
                 >
-                  FPTS
+                  {isPastDate ? "FPTS" : isToday ? "LIVE FPTS" : "PROJ FPTS"}
                 </ThemedText>
                 <ThemedText
                   style={[styles.totalValue, { color: c.activeText }]}
@@ -539,18 +788,20 @@ export default function RosterScreen() {
       </ScrollView>
 
       {/* Slot Picker Modal */}
-      <SlotPickerModal
-        visible={!!activeSlot}
-        slot={activeSlot}
-        eligiblePlayers={
-          activeSlot ? getEligiblePlayersForSlot(activeSlot.slotPosition) : []
-        }
-        scoringWeights={scoringWeights}
-        isAssigning={isAssigning}
-        onSelectPlayer={handleAssignPlayer}
-        onClear={handleClearSlot}
-        onClose={() => setActiveSlot(null)}
-      />
+      {!isPastDate && (
+        <SlotPickerModal
+          visible={!!activeSlot}
+          slot={activeSlot}
+          eligiblePlayers={
+            activeSlot ? getEligiblePlayersForSlot(activeSlot.slotPosition) : []
+          }
+          scoringWeights={scoringWeights}
+          isAssigning={isAssigning}
+          onSelectPlayer={handleAssignPlayer}
+          onClear={handleClearSlot}
+          onClose={() => setActiveSlot(null)}
+        />
+      )}
 
       <PlayerDetailModal
         player={selectedPlayer}
@@ -562,7 +813,7 @@ export default function RosterScreen() {
   );
 }
 
-// --- Slot Picker Modal ---
+// ─── Slot Picker Modal ────────────────────────────────────────────────────────
 
 interface SlotPickerModalProps {
   visible: boolean;
@@ -625,13 +876,9 @@ function SlotPickerModal({
   if (!slot) return null;
 
   const label = SLOT_LABELS[slot.slotPosition] ?? slot.slotPosition;
-
-  // Filter out the currently assigned player from the list data
   const listData = eligiblePlayers.filter(
     (p) => p.player_id !== slot.player?.player_id,
   );
-
-  // Only show differentials for starter slots (bench/IR swaps don't affect total FPTS)
   const isStarterSlot = slot.slotPosition !== "BE" && slot.slotPosition !== "IR";
   const currentFpts =
     isStarterSlot && slot.player && scoringWeights
@@ -657,7 +904,6 @@ function SlotPickerModal({
           ]}
           {...panResponder.panHandlers}
         >
-          {/* Header */}
           <View style={[styles.pickerHeader, { borderBottomColor: c.border }]}>
             <View style={{ flex: 1 }}>
               <ThemedText type="defaultSemiBold" style={{ fontSize: 17 }}>
@@ -673,7 +919,6 @@ function SlotPickerModal({
             <ActivityIndicator style={{ padding: 20 }} />
           ) : (
             <ScrollView style={styles.pickerScroll} bounces={false}>
-              {/* Currently assigned player */}
               {slot.player && (
                 <View
                   style={[
@@ -714,7 +959,6 @@ function SlotPickerModal({
                 </View>
               )}
 
-              {/* Available players */}
               {listData.length === 0 && !slot.player && (
                 <View style={{ padding: 20, alignItems: "center" }}>
                   <ThemedText style={{ color: c.secondaryText }}>
@@ -728,7 +972,6 @@ function SlotPickerModal({
                 const fpts = scoringWeights
                   ? calculateAvgFantasyPoints(item, scoringWeights)
                   : null;
-
                 const diff =
                   fpts !== null && currentFpts !== null
                     ? fpts - currentFpts
@@ -747,9 +990,19 @@ function SlotPickerModal({
                     onPress={() => onSelectPlayer(item)}
                   >
                     <View style={{ flex: 1 }}>
-                      <ThemedText type="defaultSemiBold" numberOfLines={1}>
-                        {item.name}
-                      </ThemedText>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <ThemedText type="defaultSemiBold" numberOfLines={1} style={{ flexShrink: 1 }}>
+                          {item.name}
+                        </ThemedText>
+                        {(() => {
+                          const badge = getInjuryBadge(item.status);
+                          return badge ? (
+                            <View style={[styles.liveBadge, { backgroundColor: badge.color }]}>
+                              <Text style={styles.liveText}>{badge.label}</Text>
+                            </View>
+                          ) : null;
+                        })()}
+                      </View>
                       <ThemedText
                         style={{ color: c.secondaryText, fontSize: 12 }}
                       >
@@ -798,23 +1051,31 @@ function SlotPickerModal({
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: 56,
-  },
+  container: { flex: 1 },
+  scrollContent: { paddingBottom: 56 },
   centered: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     padding: 20,
   },
-  section: {
-    padding: 16,
-    paddingBottom: 0,
+  dayNav: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  navLeft: { flexDirection: "row", alignItems: "center" },
+  navArrow: { padding: 12 },
+  navArrowText: { fontSize: 28, lineHeight: 32 },
+  dayInfo: { flex: 1, alignItems: "center" },
+  dayLabel: { fontSize: 16 },
+  daySubLabel: { fontSize: 11, marginTop: 2 },
+  section: { padding: 16, paddingBottom: 0 },
   sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -830,21 +1091,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 6,
   },
-  totalLabel: {
-    fontSize: 10,
-    fontWeight: "600",
-  },
-  totalValue: {
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  sectionTitle: {
-    marginBottom: 8,
-  },
-  emptyBench: {
-    padding: 16,
-    alignItems: "center",
-  },
+  totalLabel: { fontSize: 10, fontWeight: "600" },
+  totalValue: { fontSize: 16, fontWeight: "700" },
+  emptyBench: { padding: 16, alignItems: "center" },
   card: {
     borderRadius: 8,
     overflow: "hidden",
@@ -857,7 +1106,7 @@ const styles = StyleSheet.create({
   slotRow: {
     flexDirection: "row",
     alignItems: "center",
-    height: 52,
+    minHeight: 52,
   },
   slotLabel: {
     width: 44,
@@ -865,37 +1114,40 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  slotLabelText: {
-    fontSize: 11,
-    fontWeight: "700",
-  },
+  slotLabelText: { fontSize: 11, fontWeight: "700" },
   slotPlayer: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 10,
+    paddingVertical: 8,
     paddingHorizontal: 12,
   },
-  slotPlayerInfo: {
-    flex: 1,
-    marginRight: 8,
+  slotPlayerInfo: { flex: 1, marginRight: 8 },
+  slotPlayerName: { fontSize: 14 },
+  slotPlayerSub: { fontSize: 11, marginTop: 2 },
+  slotFpts: { fontSize: 13, fontWeight: "600" },
+  emptySlotText: { fontSize: 13, fontStyle: "italic" },
+  todayChipText: { fontSize: 11, fontWeight: "600" },
+  matchupChip: {
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 3,
   },
-  slotPlayerName: {
-    fontSize: 14,
+  matchupChipText: {
+    fontSize: 9,
+    fontWeight: '600' as const,
   },
-  slotPlayerSub: {
-    fontSize: 11,
-    marginTop: 1,
+  liveBadge: {
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 3,
   },
-  slotFpts: {
-    fontSize: 13,
-    fontWeight: "600",
+  liveText: {
+    color: "#fff",
+    fontSize: 8,
+    fontWeight: "800",
+    letterSpacing: 0.5,
   },
-  emptySlotText: {
-    fontSize: 13,
-    fontStyle: "italic",
-  },
-  // Picker modal styles
   pickerHeader: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -903,27 +1155,7 @@ const styles = StyleSheet.create({
     padding: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  pickerSubtitle: {
-    fontSize: 13,
-    marginTop: 2,
-  },
-  closeButton: {
-    padding: 8,
-    marginTop: -4,
-    marginRight: -4,
-  },
-  currentPlayerSection: {
-    paddingHorizontal: 8,
-    paddingVertical: 12,
-    marginBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  pickerSectionLabel: {
-    fontSize: 11,
-    fontWeight: "600",
-    marginBottom: 8,
-    textTransform: "uppercase",
-  },
+  closeButton: { padding: 8, marginTop: -4, marginRight: -4 },
   currentPlayerRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -936,10 +1168,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     borderWidth: 1,
   },
-  pickerOverlay: {
-    flex: 1,
-    justifyContent: "flex-end",
-  },
+  pickerOverlay: { flex: 1, justifyContent: "flex-end" },
   pickerSheet: {
     borderTopLeftRadius: 14,
     borderTopRightRadius: 14,
@@ -947,9 +1176,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     paddingBottom: 32,
   },
-  pickerScroll: {
-    flexGrow: 0,
-  },
+  pickerScroll: { flexGrow: 0 },
   pickerRow: {
     flexDirection: "row",
     alignItems: "center",
