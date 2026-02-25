@@ -81,10 +81,12 @@ function clampLotteryState(s: LeagueWizardState): LeagueWizardState {
   let pt = s.playoffTeams;
   if (!options.includes(pt)) {
     // Pick closest valid option
-    pt = options.reduce((best, o) => (Math.abs(o - pt) < Math.abs(best - pt) ? o : best), options[0]);
+    pt = options.length > 0
+      ? options.reduce((best, o) => (Math.abs(o - pt) < Math.abs(best - pt) ? o : best), options[0])
+      : 0;
   }
   const pool = calcLotteryPoolSize(s.teams, pt);
-  const draws = Math.min(s.lotteryDraws, Math.max(1, pool));
+  const draws = pool > 0 ? Math.min(s.lotteryDraws, pool) : 0;
   // Reset custom odds when pool size changes (they'd be the wrong length)
   const odds = s.lotteryOdds && s.lotteryOdds.length !== pool ? null : s.lotteryOdds;
   return { ...s, playoffTeams: pt, lotteryDraws: draws, lotteryOdds: odds };

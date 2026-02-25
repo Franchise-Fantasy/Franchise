@@ -46,7 +46,7 @@ Deno.serve(async (req) => {
 
     const { data: draft, error: draftError } = await supabaseAdmin
       .from('drafts')
-      .select('current_pick_number, rounds, picks_per_round, time_limit, league_id')
+      .select('current_pick_number, rounds, picks_per_round, time_limit, league_id, type')
       .eq('id', draft_id)
       .single();
 
@@ -72,12 +72,18 @@ Deno.serve(async (req) => {
 
     const draftedIds = (draftedPlayers ?? []).map((p: { player_id: string }) => String(p.player_id));
 
+    const isRookieDraft = draft.type === 'rookie';
+
     let query = supabaseAdmin
       .from('player_season_stats')
       .select('player_id, position')
       .gt('games_played', 0)
       .order('avg_pts', { ascending: false })
       .limit(1);
+
+    if (isRookieDraft) {
+      query = query.eq('rookie', true);
+    }
 
     if (draftedIds.length > 0) {
       query = query.filter('player_id', 'not.in', `(${draftedIds.join(',')})`);
@@ -104,7 +110,7 @@ Deno.serve(async (req) => {
         league_id: draft.league_id,
         player_id: topPlayer.player_id,
         team_id: currentPick.current_team_id,
-        acquired_via: 'draft',
+        acquired_via: isRookieDraft ? 'rookie_draft' : 'draft',
         acquired_at: timestamp,
         position: topPlayer.position,
       });
@@ -125,6 +131,14 @@ Deno.serve(async (req) => {
       .update(draftUpdate)
       .eq('id', draft_id);
     if (advanceDraftError) throw advanceDraftError;
+
+    // When rookie draft completes, update offseason step
+    if (isDraftComplete && isRookieDraft) {
+      await supabaseAdmin
+        .from('leagues')
+        .update({ offseason_step: 'rookie_draft_complete' })
+        .eq('id', draft.league_id);
+    }
 
     if (!isDraftComplete) {
       try {
@@ -168,8 +182,10 @@ Deno.serve(async (req) => {
         }
       } else {
         await notifyLeague(supabaseAdmin, draft.league_id, 'draft',
-          'Draft Complete!',
-          'Your league\'s draft has finished. Check your roster.',
+          isRookieDraft ? 'Rookie Draft Complete!' : 'Draft Complete!',
+          isRookieDraft
+            ? 'The rookie draft has finished. Check your new players.'
+            : 'Your league\'s draft has finished. Check your roster.',
           { screen: 'roster' }
         );
       }

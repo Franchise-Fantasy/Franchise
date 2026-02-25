@@ -133,32 +133,34 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
         />
       </View>
 
-      <View style={styles.section}>
-        <ThemedText style={styles.label}>Playoff Teams</ThemedText>
-        {(() => {
-          const options = getPlayoffTeamOptions(state.playoffWeeks, state.teams);
-          const labels = options.map(String);
-          const selectedIdx = options.indexOf(state.playoffTeams);
-          return (
-            <SegmentedControl
-              options={labels}
-              selectedIndex={selectedIdx === -1 ? labels.length - 1 : selectedIdx}
-              onSelect={(i) => onChange('playoffTeams', options[i])}
-            />
-          );
-        })()}
-        {(() => {
-          const lotteryPool = calcLotteryPoolSize(state.teams, state.playoffTeams);
-          if (lotteryPool > 0) {
+      {state.teams >= 2 && (
+        <View style={styles.section}>
+          <ThemedText style={styles.label}>Playoff Teams</ThemedText>
+          {(() => {
+            const options = getPlayoffTeamOptions(state.playoffWeeks, state.teams);
+            const labels = options.map(String);
+            const selectedIdx = options.indexOf(state.playoffTeams);
             return (
-              <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
-                {lotteryPool} non-playoff team{lotteryPool !== 1 ? 's' : ''} in the lottery pool
-              </ThemedText>
+              <SegmentedControl
+                options={labels}
+                selectedIndex={selectedIdx === -1 ? labels.length - 1 : selectedIdx}
+                onSelect={(i) => onChange('playoffTeams', options[i])}
+              />
             );
-          }
-          return null;
-        })()}
-      </View>
+          })()}
+          {(() => {
+            const lotteryPool = calcLotteryPoolSize(state.teams, state.playoffTeams);
+            if (lotteryPool > 0) {
+              return (
+                <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
+                  {lotteryPool} non-playoff team{lotteryPool !== 1 ? 's' : ''} in the lottery pool
+                </ThemedText>
+              );
+            }
+            return null;
+          })()}
+        </View>
+      )}
 
       {/* Playoff Seeding Format */}
       <View style={styles.section}>

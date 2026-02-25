@@ -10,14 +10,15 @@ const PLAYOFF_OPTIONS: Record<number, number[]> = {
 };
 
 export function getPlayoffTeamOptions(playoffWeeks: number, totalTeams: number): number[] {
+  if (totalTeams < 2) return [0];
   const raw = PLAYOFF_OPTIONS[playoffWeeks] ?? [2 ** playoffWeeks];
-  return raw.filter((n) => n <= totalTeams);
+  const filtered = raw.filter((n) => n <= totalTeams);
+  return filtered.length > 0 ? filtered : [2];
 }
 
 export function defaultPlayoffTeams(playoffWeeks: number, totalTeams: number): number {
   const options = getPlayoffTeamOptions(playoffWeeks, totalTeams);
-  // Pick the largest valid option as the default
-  return options[options.length - 1] ?? 2;
+  return options[options.length - 1] ?? 0;
 }
 
 export function calcLotteryPoolSize(totalTeams: number, playoffTeams: number): number {

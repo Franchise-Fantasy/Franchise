@@ -148,15 +148,26 @@ Deno.serve(async (req) => {
       .upsert({ league_id, season, results: finalOrder }, { onConflict: 'league_id,season' });
     if (resultErr) throw new Error(`Failed to save lottery results: ${resultErr.message}`);
 
-    // Reorder draft picks
-    for (let pos = 0; pos < finalOrder.length; pos++) {
-      const entry = finalOrder[pos];
+    // Build full draft order: lottery teams first, then playoff teams (best record last)
+    const lotteryTeamIds = new Set(finalOrder.map(e => e.team_id));
+    const playoffTeamsPicks = orderedTeams
+      .filter(t => !lotteryTeamIds.has(t.id))
+      .reverse(); // best record picks last
+
+    const fullDraftOrder = [
+      ...finalOrder.map(e => e.team_id),
+      ...playoffTeamsPicks.map(t => t.id),
+    ];
+
+    // Reorder draft picks for ALL teams
+    for (let pos = 0; pos < fullDraftOrder.length; pos++) {
+      const teamId = fullDraftOrder[pos];
       for (let round = 1; round <= (league.rookie_draft_rounds ?? 2); round++) {
         await supabaseAdmin.from('draft_picks').update({
-          pick_number: (round - 1) * lotteryPoolSize + (pos + 1),
+          pick_number: (round - 1) * fullDraftOrder.length + (pos + 1),
           slot_number: pos + 1,
         }).eq('league_id', league_id).eq('season', season).eq('round', round)
-          .eq('current_team_id', entry.team_id).is('draft_id', null);
+          .eq('current_team_id', teamId).is('draft_id', null);
       }
     }
 
