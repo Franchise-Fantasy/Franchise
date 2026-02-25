@@ -21,9 +21,10 @@ interface AvailablePlayersProps {
   leagueId: string;
   currentPick: { id: string; current_team_id: string } | null;
   teamId: string;
+  isRookieDraft?: boolean;
 }
 
-export function AvailablePlayers({ draftId, leagueId, currentPick, teamId }: AvailablePlayersProps) {
+export function AvailablePlayers({ draftId, leagueId, currentPick, teamId, isRookieDraft }: AvailablePlayersProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const queryClient = useQueryClient();
@@ -47,8 +48,14 @@ export function AvailablePlayers({ draftId, leagueId, currentPick, teamId }: Ava
       let query = supabase
         .from('player_season_stats')
         .select('*')
-        .gt('games_played', 0)
         .order('avg_pts', { ascending: false });
+
+      // Rookie drafts: only show rookies. Initial drafts: require games played.
+      if (isRookieDraft) {
+        query = query.eq('rookie', true);
+      } else {
+        query = query.gt('games_played', 0);
+      }
 
       if (draftedIds.length > 0) {
         query = query.filter('player_id', 'not.in', `(${draftedIds.join(',')})`);

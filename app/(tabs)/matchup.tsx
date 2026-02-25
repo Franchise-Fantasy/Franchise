@@ -1,3 +1,4 @@
+import { ErrorState } from '@/components/ErrorState';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import { Colors } from '@/constants/Colors';
@@ -11,7 +12,7 @@ import { calculateGameFantasyPoints } from '@/utils/fantasyPoints';
 import { getInjuryBadge } from '@/utils/injuryBadge';
 import { useLeagueRosterConfig, RosterConfigSlot } from '@/hooks/useLeagueRosterConfig';
 import { SLOT_LABELS } from '@/utils/rosterSlots';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import {
   Animated,
@@ -346,6 +347,65 @@ async function fetchTeamSeeds(
   return map;
 }
 
+async function fetchWeekMatchupData(
+  week: Week,
+  teamId: string,
+  leagueId: string,
+  selectedDate: string,
+  scoring: ScoringWeight[]
+): Promise<{ myTeam: TeamMatchupData; opponentTeam: TeamMatchupData | null; week: Week } | null> {
+  const matchup = await fetchMatchupForWeek(week.id, teamId);
+  if (!matchup) return null;
+
+  const opponentId =
+    matchup.home_team_id === teamId ? matchup.away_team_id : matchup.home_team_id;
+
+  const [myPlayers, myName] = await Promise.all([
+    fetchTeamData(teamId, leagueId, week, selectedDate, scoring),
+    fetchTeamName(teamId),
+  ]);
+
+  let opponentTeam: TeamMatchupData | null = null;
+  if (opponentId) {
+    const [oppPlayers, oppName] = await Promise.all([
+      fetchTeamData(opponentId, leagueId, week, selectedDate, scoring),
+      fetchTeamName(opponentId),
+    ]);
+    opponentTeam = {
+      teamId: opponentId,
+      teamName: oppName,
+      players: oppPlayers,
+      weekTotal: round1(oppPlayers.reduce((s, p) => s + p.weekPoints, 0)),
+      dayTotal: round1(oppPlayers.reduce((s, p) => s + p.dayPoints, 0)),
+    };
+  }
+
+  return {
+    myTeam: {
+      teamId,
+      teamName: myName,
+      players: myPlayers,
+      weekTotal: round1(myPlayers.reduce((s, p) => s + p.weekPoints, 0)),
+      dayTotal: round1(myPlayers.reduce((s, p) => s + p.dayPoints, 0)),
+    },
+    opponentTeam,
+    week,
+  };
+}
+
+async function fetchScheduleForDate(date: string): Promise<Map<string, string>> {
+  const { data } = await supabase
+    .from('nba_schedule')
+    .select('home_team, away_team')
+    .eq('game_date', date);
+  const map = new Map<string, string>();
+  for (const game of data ?? []) {
+    map.set(game.home_team, `vs ${game.away_team}`);
+    map.set(game.away_team, `@${game.home_team}`);
+  }
+  return map;
+}
+
 // ─── Hooks ────────────────────────────────────────────────────────────────────
 
 function useWeeks(leagueId: string | null) {
@@ -384,46 +444,9 @@ function useWeekMatchup(
 
   return useQuery({
     queryKey: ['weekMatchup', week?.id, teamId, selectedDate],
-    queryFn: async (): Promise<{ myTeam: TeamMatchupData; opponentTeam: TeamMatchupData | null; week: Week } | null> => {
+    queryFn: () => {
       if (!week || !teamId || !leagueId) return null;
-
-      const matchup = await fetchMatchupForWeek(week.id, teamId);
-      if (!matchup) return null;
-
-      const opponentId =
-        matchup.home_team_id === teamId ? matchup.away_team_id : matchup.home_team_id;
-
-      const [myPlayers, myName] = await Promise.all([
-        fetchTeamData(teamId, leagueId, week, selectedDate, scoring),
-        fetchTeamName(teamId),
-      ]);
-
-      let opponentTeam: TeamMatchupData | null = null;
-      if (opponentId) {
-        const [oppPlayers, oppName] = await Promise.all([
-          fetchTeamData(opponentId, leagueId, week, selectedDate, scoring),
-          fetchTeamName(opponentId),
-        ]);
-        opponentTeam = {
-          teamId: opponentId,
-          teamName: oppName,
-          players: oppPlayers,
-          weekTotal: round1(oppPlayers.reduce((s, p) => s + p.weekPoints, 0)),
-          dayTotal: round1(oppPlayers.reduce((s, p) => s + p.dayPoints, 0)),
-        };
-      }
-
-      return {
-        myTeam: {
-          teamId,
-          teamName: myName,
-          players: myPlayers,
-          weekTotal: round1(myPlayers.reduce((s, p) => s + p.weekPoints, 0)),
-          dayTotal: round1(myPlayers.reduce((s, p) => s + p.dayPoints, 0)),
-        },
-        opponentTeam,
-        week,
-      };
+      return fetchWeekMatchupData(week, teamId, leagueId, selectedDate, scoring);
     },
     enabled: !!week && !!teamId && !!leagueId && scoring.length > 0,
     staleTime: 1000 * 60 * 2,
@@ -511,14 +534,14 @@ function PlayerCell({
       <View style={[pStyles.cell, { alignItems: align }]}>
         <View style={[pStyles.nameRow, { justifyContent: align }]}>
           <Text style={[pStyles.name, { color: c.text, textAlign }]} numberOfLines={1}>{player.name}</Text>
+          {futureMatchup ? (
+            <Text style={[pStyles.matchup, { color: c.secondaryText }]}>{futureMatchup}</Text>
+          ) : null}
           {injuryBadge && (
             <View style={[pStyles.liveBadge, { backgroundColor: injuryBadge.color }]}>
               <Text style={pStyles.liveText}>{injuryBadge.label}</Text>
             </View>
           )}
-          {futureMatchup ? (
-            <Text style={[pStyles.matchup, { color: c.secondaryText }]}>{futureMatchup}</Text>
-          ) : null}
         </View>
         <Text style={[pStyles.meta, { color: c.secondaryText, textAlign }]}>
           {futureMatchup ? `${player.position} · proj` : player.position}
@@ -541,14 +564,14 @@ function PlayerCell({
         <View style={[pStyles.nameRow, { justifyContent: align }]}>
           {liveStats.oncourt && <OnCourtDot />}
           <Text style={[pStyles.name, { color: c.text, flexShrink: 1, textAlign }]} numberOfLines={1}>{player.name}</Text>
+          {liveStats.matchup ? (
+            <Text style={[pStyles.matchup, { color: c.secondaryText }]}>{liveStats.matchup}</Text>
+          ) : null}
           {injuryBadge && (
             <View style={[pStyles.liveBadge, { backgroundColor: injuryBadge.color }]}>
               <Text style={pStyles.liveText}>{injuryBadge.label}</Text>
             </View>
           )}
-          {liveStats.matchup ? (
-            <Text style={[pStyles.matchup, { color: c.secondaryText }]}>{liveStats.matchup}</Text>
-          ) : null}
           {isLive && (
             <View style={[pStyles.liveBadge, { backgroundColor: '#e03131' }]}>
               <Text style={pStyles.liveText}>LIVE</Text>
@@ -575,14 +598,14 @@ function PlayerCell({
       <View style={[pStyles.cell, { alignItems: align }]}>
         <View style={[pStyles.nameRow, { justifyContent: align }]}>
           <Text style={[pStyles.name, { color: c.text, flexShrink: 1, textAlign }]} numberOfLines={1}>{player.name}</Text>
+          {todayMatchup ? (
+            <Text style={[pStyles.matchup, { color: c.secondaryText }]}>{todayMatchup}</Text>
+          ) : null}
           {injuryBadge && (
             <View style={[pStyles.liveBadge, { backgroundColor: injuryBadge.color }]}>
               <Text style={pStyles.liveText}>{injuryBadge.label}</Text>
             </View>
           )}
-          {todayMatchup ? (
-            <Text style={[pStyles.matchup, { color: c.secondaryText }]}>{todayMatchup}</Text>
-          ) : null}
         </View>
         <Text style={[pStyles.meta, { color: c.secondaryText, textAlign }]}>
           {todayMatchup ? `${player.position} · proj` : player.position}
@@ -598,14 +621,14 @@ function PlayerCell({
     <View style={[pStyles.cell, { alignItems: align }]}>
       <View style={[pStyles.nameRow, { justifyContent: align }]}>
         <Text style={[pStyles.name, { color: c.text, flexShrink: 1, textAlign }]} numberOfLines={1}>{player.name}</Text>
+        {hasDayGame && player.dayMatchup ? (
+          <Text style={[pStyles.matchup, { color: c.secondaryText }]}>{player.dayMatchup}</Text>
+        ) : null}
         {injuryBadge && (
           <View style={[pStyles.liveBadge, { backgroundColor: injuryBadge.color }]}>
             <Text style={pStyles.liveText}>{injuryBadge.label}</Text>
           </View>
         )}
-        {hasDayGame && player.dayMatchup ? (
-          <Text style={[pStyles.matchup, { color: c.secondaryText }]}>{player.dayMatchup}</Text>
-        ) : null}
       </View>
       <Text style={[pStyles.meta, { color: c.secondaryText, textAlign }]} numberOfLines={1}>
         {hasDayGame && player.dayStatLine ? player.dayStatLine : player.position}
@@ -736,6 +759,15 @@ export default function MatchupScreen() {
   const [selectedDate, setSelectedDate] = useState<string>(today);
   const [scheduleVisible, setScheduleVisible] = useState(false);
 
+  // If the calendar date rolled over since the component mounted, snap to today
+  const prevToday = useRef(today);
+  useEffect(() => {
+    if (today !== prevToday.current) {
+      if (selectedDate === prevToday.current) setSelectedDate(today);
+      prevToday.current = today;
+    }
+  }, [today]);
+
 
   const minDate = weeks?.[0]?.start_date ?? today;
   const maxDate = weeks?.[weeks.length - 1]?.end_date ?? today;
@@ -744,7 +776,7 @@ export default function MatchupScreen() {
     (w) => w.start_date <= selectedDate && selectedDate <= w.end_date
   ) ?? null;
 
-  const { data: matchupData, isLoading: matchupLoading } = useWeekMatchup(
+  const { data: matchupData, isLoading: matchupLoading, isError: matchupError, refetch: refetchMatchup } = useWeekMatchup(
     weeks,
     selectedDate,
     teamId,
@@ -767,21 +799,38 @@ export default function MatchupScreen() {
   // Future schedule: tricode → matchup string for the selected future date
   const { data: futureSchedule } = useQuery<Map<string, string>>({
     queryKey: ['futureSchedule', selectedDate],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('nba_schedule')
-        .select('home_team, away_team')
-        .eq('game_date', selectedDate);
-      const map = new Map<string, string>();
-      for (const game of data ?? []) {
-        map.set(game.home_team, `vs ${game.away_team}`);
-        map.set(game.away_team, `@${game.home_team}`);
-      }
-      return map;
-    },
+    queryFn: () => fetchScheduleForDate(selectedDate),
     enabled: isToday || isFutureDate,
     staleTime: 1000 * 60 * 60,
   });
+
+  const queryClient = useQueryClient();
+
+  // Prefetch adjacent days to reduce pop-in when navigating
+  useEffect(() => {
+    if (!weeks || !teamId || !leagueId || !scoring || scoring.length === 0) return;
+    const adjacent = [addDays(selectedDate, -1), addDays(selectedDate, 1), addDays(selectedDate, 2)];
+    const todayStr = toDateStr(new Date());
+
+    for (const day of adjacent) {
+      const wk = weeks.find((w) => w.start_date <= day && day <= w.end_date);
+      if (!wk) continue;
+
+      queryClient.prefetchQuery({
+        queryKey: ['weekMatchup', wk.id, teamId, day],
+        queryFn: () => fetchWeekMatchupData(wk, teamId, leagueId, day, scoring),
+        staleTime: 1000 * 60 * 2,
+      });
+
+      if (day >= todayStr) {
+        queryClient.prefetchQuery({
+          queryKey: ['futureSchedule', day],
+          queryFn: () => fetchScheduleForDate(day),
+          staleTime: 1000 * 60 * 60,
+        });
+      }
+    }
+  }, [selectedDate, weeks, teamId, leagueId, scoring]);
 
   // Playoff seeds for current round
   const playoffRound = currentWeek?.is_playoff
@@ -900,13 +949,17 @@ export default function MatchupScreen() {
       <ScrollView contentContainerStyle={styles.body}>
         {matchupLoading && <ActivityIndicator style={{ marginTop: 40 }} />}
 
-        {!matchupLoading && !currentWeek && (
+        {!matchupLoading && matchupError && (
+          <ErrorState message="Failed to load matchup" onRetry={() => refetchMatchup()} />
+        )}
+
+        {!matchupLoading && !matchupError && !currentWeek && (
           <View style={styles.center}>
             <ThemedText style={{ color: c.secondaryText }}>No matchup for this date.</ThemedText>
           </View>
         )}
 
-        {!matchupLoading && currentWeek && !matchupData && (
+        {!matchupLoading && !matchupError && currentWeek && !matchupData && (
           <View style={styles.center}>
             <ThemedText style={{ color: c.secondaryText }}>
               {currentWeek.is_playoff

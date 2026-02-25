@@ -24,13 +24,13 @@ export default function DraftRoomScreen() {
   const [viewMode, setViewMode] = useState<ViewMode>('players');
   const [currentPick, setCurrentPick] = useState<CurrentPick | null>(null);
 
-  // First, get the league ID from the draft
+  // First, get the league ID and draft type from the draft
   const { data: draftData } = useQuery({
     queryKey: ['draft', draftId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('drafts')
-        .select('league_id')
+        .select('league_id, type')
         .eq('id', draftId)
         .single();
 
@@ -38,6 +38,8 @@ export default function DraftRoomScreen() {
       return data;
     }
   });
+
+  const isRookieDraft = draftData?.type === 'rookie';
 
   // Shared cache key with DraftOrder's real-time subscription — updates automatically
   const { data: draftState } = useQuery<DraftState>({
@@ -55,13 +57,14 @@ export default function DraftRoomScreen() {
 
   const isDraftComplete = draftState?.status === 'complete';
 
-  // Auto-generate schedule when draft completes (idempotent — edge fn ignores duplicates)
+  // Auto-generate schedule when initial draft completes (idempotent — edge fn ignores duplicates)
+  // Rookie drafts don't trigger schedule generation (offseason handles that separately)
   useEffect(() => {
-    if (!isDraftComplete || !draftData?.league_id) return;
+    if (!isDraftComplete || !draftData?.league_id || isRookieDraft) return;
     supabase.functions
       .invoke('generate-schedule', { body: { league_id: draftData.league_id } })
       .catch(() => {});
-  }, [isDraftComplete, draftData?.league_id]);
+  }, [isDraftComplete, draftData?.league_id, isRookieDraft]);
 
   // Then, use the league ID to get the user's team
   const { data: teamData, isLoading: isLoadingTeam } = useQuery({
@@ -90,7 +93,9 @@ export default function DraftRoomScreen() {
         </TouchableOpacity>
 
         <ThemedText type="title" style={styles.headerText}>
-          {isDraftComplete ? 'Draft Complete' : 'Draft Room'}
+          {isDraftComplete
+            ? (isRookieDraft ? 'Rookie Draft Complete' : 'Draft Complete')
+            : (isRookieDraft ? 'Rookie Draft' : 'Draft Room')}
         </ThemedText>
 
         <View style={styles.headerButton} />
@@ -100,10 +105,12 @@ export default function DraftRoomScreen() {
         {isDraftComplete ? (
           <View style={[styles.completeBanner, { backgroundColor: colors.activeCard, borderBottomColor: colors.activeBorder }]}>
             <ThemedText type="defaultSemiBold" style={{ color: colors.activeText }}>
-              The draft is over!
+              {isRookieDraft ? 'The rookie draft is over!' : 'The draft is over!'}
             </ThemedText>
             <ThemedText style={{ color: colors.secondaryText, fontSize: 13, marginTop: 2 }}>
-              Free agency is now open. Head back to the home screen.
+              {isRookieDraft
+                ? 'Check your new rookies. Head back to the home screen.'
+                : 'Free agency is now open. Head back to the home screen.'}
             </ThemedText>
           </View>
         ) : (
@@ -122,6 +129,7 @@ export default function DraftRoomScreen() {
               currentPick={currentPick}
               teamId={teamData?.id || ''}
               leagueId={draftData?.league_id || ''}
+              isRookieDraft={isRookieDraft}
             />
           ) : (
             <TeamRoster draftId={draftId}

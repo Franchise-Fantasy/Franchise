@@ -24,7 +24,7 @@ function streakColor(streak: string, c: any): string {
   return c.secondaryText;
 }
 
-export function StandingsSection({ leagueId }: { leagueId: string }) {
+export function StandingsSection({ leagueId, playoffTeams }: { leagueId: string; playoffTeams?: number | null }) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const router = useRouter();
@@ -73,27 +73,37 @@ export function StandingsSection({ leagueId }: { leagueId: string }) {
               <ThemedText style={[styles.streakCol, styles.headerText, { color: c.secondaryText }]}>STK</ThemedText>
             </View>
             {standings.map((team) => (
-              <TouchableOpacity
-                key={team.id}
-                style={[styles.standingRow, { borderBottomColor: c.border }]}
-                onPress={() => team.id === teamId ? router.push('/(tabs)/roster') : router.push(`/team-roster/${team.id}` as any)}
-                activeOpacity={0.6}
-              >
-                <ThemedText style={[styles.rank, { color: c.secondaryText }]}>{team.rank}</ThemedText>
-                <ThemedText style={styles.teamName} numberOfLines={1}>{team.name}</ThemedText>
-                <ThemedText style={[styles.record, { color: c.secondaryText }]}>
-                  {team.wins}-{team.losses}-{team.ties}
-                </ThemedText>
-                <ThemedText style={[styles.pf, { color: c.secondaryText }]}>
-                  {Number(team.points_for).toFixed(1)}
-                </ThemedText>
-                <ThemedText style={[styles.pa, { color: c.secondaryText }]}>
-                  {Number(team.points_against).toFixed(1)}
-                </ThemedText>
-                <ThemedText style={[styles.streakCol, { color: streakColor(team.streak, c) }]}>
-                  {team.streak || '—'}
-                </ThemedText>
-              </TouchableOpacity>
+              <View key={team.id}>
+                {playoffTeams && team.rank === playoffTeams + 1 && (
+                  <View style={styles.playoffCutoff}>
+                    <View style={[styles.cutoffLine, { backgroundColor: c.secondaryText }]} />
+                    <ThemedText style={[styles.cutoffLabel, { color: c.secondaryText }]}>
+                      Playoff cutoff
+                    </ThemedText>
+                    <View style={[styles.cutoffLine, { backgroundColor: c.secondaryText }]} />
+                  </View>
+                )}
+                <TouchableOpacity
+                  style={[styles.standingRow, { borderBottomColor: c.border }]}
+                  onPress={() => team.id === teamId ? router.push('/(tabs)/roster') : router.push(`/team-roster/${team.id}` as any)}
+                  activeOpacity={0.6}
+                >
+                  <ThemedText style={[styles.rank, { color: c.secondaryText }]}>{team.rank}</ThemedText>
+                  <ThemedText style={styles.teamName} numberOfLines={1}>{team.name}</ThemedText>
+                  <ThemedText style={[styles.record, { color: c.secondaryText }]}>
+                    {team.wins}-{team.losses}-{team.ties}
+                  </ThemedText>
+                  <ThemedText style={[styles.pf, { color: c.secondaryText }]}>
+                    {Number(team.points_for).toFixed(1)}
+                  </ThemedText>
+                  <ThemedText style={[styles.pa, { color: c.secondaryText }]}>
+                    {Number(team.points_against).toFixed(1)}
+                  </ThemedText>
+                  <ThemedText style={[styles.streakCol, { color: streakColor(team.streak, c) }]}>
+                    {team.streak || '—'}
+                  </ThemedText>
+                </TouchableOpacity>
+              </View>
             ))}
           </>
         )}
@@ -135,6 +145,23 @@ const styles = StyleSheet.create({
   pf: { width: 44, textAlign: 'right', fontSize: 11 },
   pa: { width: 44, textAlign: 'right', fontSize: 11 },
   streakCol: { width: 30, textAlign: 'right', fontSize: 11, fontWeight: '600' },
+  playoffCutoff: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    gap: 8,
+  },
+  cutoffLine: {
+    flex: 1,
+    height: 1,
+    opacity: 0.4,
+  },
+  cutoffLabel: {
+    fontSize: 9,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
   placeholder: { padding: 20, alignItems: 'center' },
   placeholderText: { fontSize: 14 },
   loading: { marginTop: 16 },

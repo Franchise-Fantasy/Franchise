@@ -34,6 +34,7 @@ export default function Auth() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
   async function signInWithEmail() {
     setLoading(true);
@@ -58,6 +59,24 @@ export default function Auth() {
 
     router.replace(team?.league_id ? "/(tabs)" : "/(setup)");
     setLoading(false);
+  }
+
+  async function handleResetPassword() {
+    if (!email.trim()) {
+      Alert.alert("Enter your email", "Please enter your email address above, then tap Forgot Password.");
+      return;
+    }
+    setLoading(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: 'franchisev2://reset-password',
+    });
+    setLoading(false);
+    if (error) {
+      Alert.alert("Error", error.message);
+    } else {
+      setResetSent(true);
+      Alert.alert("Check your email", "We sent a password reset link to " + email.trim());
+    }
   }
 
   async function signUpWithEmail() {
@@ -155,6 +174,17 @@ export default function Auth() {
           </TouchableOpacity>
 
           <TouchableOpacity
+            onPress={handleResetPassword}
+            disabled={loading}
+            activeOpacity={0.7}
+            style={styles.forgotPassword}
+          >
+            <ThemedText style={[styles.forgotPasswordText, { color: c.accent }]}>
+              {resetSent ? "Resend reset email" : "Forgot Password?"}
+            </ThemedText>
+          </TouchableOpacity>
+
+          <TouchableOpacity
             style={[
               styles.button,
               styles.secondaryButton,
@@ -171,6 +201,24 @@ export default function Auth() {
               Create Account
             </ThemedText>
           </TouchableOpacity>
+
+          <ThemedText style={[styles.legalText, { color: c.secondaryText }]}>
+            By creating an account, you agree to our{" "}
+            <ThemedText
+              style={[styles.legalLink, { color: c.accent }]}
+              onPress={() => router.push("/legal?tab=terms" as any)}
+            >
+              Terms of Service
+            </ThemedText>
+            {" "}and{" "}
+            <ThemedText
+              style={[styles.legalLink, { color: c.accent }]}
+              onPress={() => router.push("/legal?tab=privacy" as any)}
+            >
+              Privacy Policy
+            </ThemedText>
+            .
+          </ThemedText>
         </ScrollView>
       </KeyboardAvoidingView>
     </ThemedView>
@@ -239,5 +287,23 @@ const styles = StyleSheet.create({
   buttonText: {
     fontSize: 16,
     fontWeight: "600",
+  },
+  forgotPassword: {
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  forgotPasswordText: {
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  legalText: {
+    fontSize: 12,
+    textAlign: "center",
+    lineHeight: 18,
+    marginTop: 4,
+  },
+  legalLink: {
+    fontSize: 12,
+    fontWeight: "500",
   },
 });

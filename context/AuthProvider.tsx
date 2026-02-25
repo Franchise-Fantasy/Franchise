@@ -1,7 +1,7 @@
 import { Session } from '@supabase/supabase-js'
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import { Alert } from 'react-native'
-import { hasBeenAsked, markAsAsked, registerPushToken } from '../lib/notifications'
+import { hasBeenAsked, markAsAsked, registerPushToken, refreshPushToken } from '../lib/notifications'
 import { supabase } from '../lib/supabase'
 
 const AuthContext = createContext<Session | null>(null)
@@ -18,8 +18,8 @@ export function useAuthInitialized() {
 async function promptNotificationsIfNeeded(userId: string) {
   if (await hasBeenAsked()) return;
   Alert.alert(
-    'Draft Notifications',
-    "Get notified when it's your turn to pick, even when the app is closed.",
+    'Stay in the Loop',
+    'Get notified about draft picks, trades, matchup results, and more.',
     [
       {
         text: 'Enable',
@@ -46,7 +46,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setInitialized(true);
-      if (session?.user) promptNotificationsIfNeeded(session.user.id);
+      if (session?.user) {
+        promptNotificationsIfNeeded(session.user.id);
+        refreshPushToken(session.user.id);
+      }
     });
 
     // Listen for changes

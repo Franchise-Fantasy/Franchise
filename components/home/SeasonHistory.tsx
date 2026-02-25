@@ -1,0 +1,179 @@
+import { ThemedText } from '@/components/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { supabase } from '@/lib/supabase';
+import { Ionicons } from '@expo/vector-icons';
+import { useQuery } from '@tanstack/react-query';
+import { StyleSheet, View } from 'react-native';
+
+interface SeasonHistoryProps {
+  leagueId: string;
+}
+
+interface TeamSeason {
+  id: string;
+  team_id: string;
+  season: string;
+  wins: number;
+  losses: number;
+  ties: number;
+  points_for: number;
+  final_standing: number;
+  playoff_result: string;
+  team: { name: string };
+}
+
+const RESULT_LABELS: Record<string, string> = {
+  champion: 'Champion',
+  runner_up: 'Runner-Up',
+  missed_playoffs: 'Missed Playoffs',
+  playoff_participant: 'Playoffs',
+};
+
+function resultLabel(result: string): string {
+  if (RESULT_LABELS[result]) return RESULT_LABELS[result];
+  if (result.startsWith('eliminated_round_')) {
+    const round = result.replace('eliminated_round_', '');
+    return `Elim. Rd ${round}`;
+  }
+  return result;
+}
+
+export function SeasonHistory({ leagueId }: SeasonHistoryProps) {
+  const scheme = useColorScheme() ?? 'light';
+  const c = Colors[scheme];
+
+  const { data: history } = useQuery({
+    queryKey: ['seasonHistory', leagueId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('team_seasons')
+        .select('id, team_id, season, wins, losses, ties, points_for, final_standing, playoff_result, team:teams!team_seasons_team_id_fkey(name)')
+        .eq('league_id', leagueId)
+        .order('season', { ascending: false })
+        .order('final_standing', { ascending: true });
+      if (error) throw error;
+      return data as unknown as TeamSeason[];
+    },
+    enabled: !!leagueId,
+  });
+
+  if (!history || history.length === 0) return null;
+
+  // Group by season
+  const seasons = new Map<string, TeamSeason[]>();
+  for (const row of history) {
+    if (!seasons.has(row.season)) seasons.set(row.season, []);
+    seasons.get(row.season)!.push(row);
+  }
+
+  return (
+    <View style={[styles.container, { backgroundColor: c.card, borderColor: c.border }]}>
+      <ThemedText type="defaultSemiBold" style={styles.title}>Season History</ThemedText>
+
+      {[...seasons.entries()].map(([season, teams]) => {
+        const champ = teams.find(t => t.playoff_result === 'champion');
+        return (
+          <View key={season} style={[styles.seasonBlock, { borderTopColor: c.border }]}>
+            <View style={styles.seasonHeader}>
+              <ThemedText type="defaultSemiBold" style={{ fontSize: 14 }}>{season}</ThemedText>
+              {champ && (
+                <View style={styles.champRow}>
+                  <Ionicons name="trophy" size={14} color="#FFD700" />
+                  <ThemedText style={[styles.champText, { color: c.secondaryText }]}>
+                    {champ.team?.name}
+                  </ThemedText>
+                </View>
+              )}
+            </View>
+            {teams.map((t, idx) => (
+              <View key={t.id} style={[styles.teamRow, idx < teams.length - 1 && { borderBottomColor: c.border, borderBottomWidth: StyleSheet.hairlineWidth }]}>
+                <ThemedText style={[styles.standing, { color: c.secondaryText }]}>
+                  {t.final_standing}.
+                </ThemedText>
+                <ThemedText style={styles.teamName} numberOfLines={1}>
+                  {t.team?.name}
+                </ThemedText>
+                <ThemedText style={[styles.record, { color: c.secondaryText }]}>
+                  {t.wins}-{t.losses}{t.ties > 0 ? `-${t.ties}` : ''}
+                </ThemedText>
+                <View style={[
+                  styles.resultBadge,
+                  t.playoff_result === 'champion' && { backgroundColor: '#FFD700' + '33' },
+                  t.playoff_result === 'runner_up' && { backgroundColor: c.activeCard },
+                ]}>
+                  <ThemedText style={[styles.resultText, { color: c.secondaryText }]}>
+                    {resultLabel(t.playoff_result)}
+                  </ThemedText>
+                </View>
+              </View>
+            ))}
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 16,
+    marginBottom: 16,
+  },
+  title: {
+    fontSize: 16,
+    marginBottom: 8,
+  },
+  seasonBlock: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 10,
+    marginTop: 8,
+  },
+  seasonHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  champRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  champText: {
+    fontSize: 12,
+  },
+  teamRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    gap: 8,
+  },
+  standing: {
+    width: 20,
+    fontSize: 12,
+    textAlign: 'right',
+  },
+  teamName: {
+    flex: 1,
+    fontSize: 13,
+  },
+  record: {
+    fontSize: 12,
+    width: 50,
+    textAlign: 'right',
+  },
+  resultBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    minWidth: 60,
+    alignItems: 'center',
+  },
+  resultText: {
+    fontSize: 10,
+    fontWeight: '600',
+  },
+});

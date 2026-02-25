@@ -8,7 +8,6 @@ import { useLeague } from "@/hooks/useLeague";
 import {
   getPushPrefs,
   registerPushToken,
-  setDraftAlerts,
   unregisterPushToken,
 } from "@/lib/notifications";
 import { supabase } from "@/lib/supabase";
@@ -35,15 +34,13 @@ export default function ProfileScreen() {
   const { data: league } = useLeague();
   const [loading, setLoading] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
-  const [draftReminders, setDraftReminders] = useState(false);
 
   const userId = session?.user?.id;
 
   useEffect(() => {
     if (!userId) return;
-    getPushPrefs(userId).then(({ enabled, draftAlerts }) => {
+    getPushPrefs(userId).then(({ enabled }) => {
       setNotificationsEnabled(enabled);
-      setDraftReminders(draftAlerts);
     });
   }, [userId]);
 
@@ -51,21 +48,11 @@ export default function ProfileScreen() {
     if (!userId) return;
     if (value) {
       const success = await registerPushToken(userId);
-      if (success) {
-        setNotificationsEnabled(true);
-        setDraftReminders(true);
-      }
+      if (success) setNotificationsEnabled(true);
     } else {
       await unregisterPushToken(userId);
       setNotificationsEnabled(false);
-      setDraftReminders(false);
     }
-  }
-
-  async function handleDraftRemindersToggle(value: boolean) {
-    if (!userId) return;
-    setDraftReminders(value);
-    await setDraftAlerts(userId, value);
   }
 
   const userEmail = session?.user?.email ?? "Unknown";
@@ -99,8 +86,27 @@ export default function ProfileScreen() {
           text: "Delete",
           style: "destructive",
           onPress: async () => {
-            // For now, just sign out. Full deletion would need a backend endpoint.
-            await handleSignOut();
+            setLoading(true);
+            try {
+              const { data: { session: currentSession } } = await supabase.auth.getSession();
+              const { error } = await supabase.functions.invoke('delete-account', {
+                headers: { Authorization: `Bearer ${currentSession?.access_token}` },
+              });
+              if (error) throw error;
+
+              // Clean up local storage and redirect
+              const keys = await AsyncStorage.getAllKeys();
+              const supabaseKeys = keys.filter((k) => k.startsWith("sb-"));
+              if (supabaseKeys.length > 0) {
+                await AsyncStorage.multiRemove(supabaseKeys);
+              }
+              await supabase.auth.signOut();
+              router.replace("/auth");
+            } catch (err: any) {
+              Alert.alert("Error", err.message ?? "Failed to delete account. Please try again.");
+            } finally {
+              setLoading(false);
+            }
           },
         },
       ],
@@ -179,21 +185,64 @@ export default function ProfileScreen() {
           <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>
             Notifications
           </ThemedText>
-          <ToggleRow
-            icon="notifications-outline"
-            label="Push Notifications"
-            value={notificationsEnabled}
-            onToggle={handleNotificationsToggle}
-            c={c}
-          />
-          <ToggleRow
-            icon="alarm-outline"
-            label="Draft Reminders"
-            value={draftReminders}
-            onToggle={handleDraftRemindersToggle}
-            disabled={!notificationsEnabled}
-            c={c}
-          />
+          <View style={[styles.settingRow, { borderBottomColor: c.border }]}>
+            <View style={styles.actionLeft}>
+              <Ionicons name="notifications-outline" size={20} color={c.secondaryText} />
+              <ThemedText style={styles.actionLabel}>Push Notifications</ThemedText>
+            </View>
+            <Switch
+              value={notificationsEnabled}
+              onValueChange={handleNotificationsToggle}
+              trackColor={{ false: c.border, true: c.accent }}
+            />
+          </View>
+          {notificationsEnabled && (
+            <TouchableOpacity
+              style={[styles.actionRow, { borderBottomWidth: 0 }]}
+              onPress={() => router.push('/notification-settings')}
+              activeOpacity={0.7}
+            >
+              <View style={styles.actionLeft}>
+                <Ionicons name="options-outline" size={20} color={c.secondaryText} />
+                <ThemedText style={styles.actionLabel}>Notification Preferences</ThemedText>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={c.secondaryText} />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Legal */}
+        <View
+          style={[
+            styles.section,
+            { backgroundColor: c.card, borderColor: c.border },
+          ]}
+        >
+          <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>
+            Legal
+          </ThemedText>
+          <TouchableOpacity
+            style={styles.actionRow}
+            onPress={() => router.push('/legal?tab=terms' as any)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.actionLeft}>
+              <Ionicons name="document-text-outline" size={20} color={c.secondaryText} />
+              <ThemedText style={styles.actionLabel}>Terms of Service</ThemedText>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={c.secondaryText} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.actionRow, { borderBottomWidth: 0 }]}
+            onPress={() => router.push('/legal?tab=privacy' as any)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.actionLeft}>
+              <Ionicons name="shield-checkmark-outline" size={20} color={c.secondaryText} />
+              <ThemedText style={styles.actionLabel}>Privacy Policy</ThemedText>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={c.secondaryText} />
+          </TouchableOpacity>
         </View>
 
         {/* Account Actions */}
@@ -276,36 +325,6 @@ function SettingRow({
   );
 }
 
-function ToggleRow({
-  icon,
-  label,
-  value,
-  onToggle,
-  disabled = false,
-  c,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  value: boolean;
-  onToggle: (v: boolean) => void;
-  disabled?: boolean;
-  c: any;
-}) {
-  return (
-    <View style={[styles.settingRow, { borderBottomColor: c.border, opacity: disabled ? 0.4 : 1 }]}>
-      <View style={styles.actionLeft}>
-        <Ionicons name={icon} size={20} color={c.secondaryText} />
-        <ThemedText style={styles.actionLabel}>{label}</ThemedText>
-      </View>
-      <Switch
-        value={value}
-        onValueChange={onToggle}
-        trackColor={{ false: c.border, true: c.accent }}
-        disabled={disabled}
-      />
-    </View>
-  );
-}
 
 const styles = StyleSheet.create({
   container: {

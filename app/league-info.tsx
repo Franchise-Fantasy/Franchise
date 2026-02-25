@@ -1,4 +1,8 @@
 import { ThemedText } from '@/components/ThemedText';
+import { ReverseTradeModal } from '@/components/commissioner/ReverseTradeModal';
+import { ForceAddDropModal } from '@/components/commissioner/ForceAddDropModal';
+import { ForceRosterMoveModal } from '@/components/commissioner/ForceRosterMoveModal';
+import { SeasonHistory } from '@/components/home/SeasonHistory';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Colors } from '@/constants/Colors';
@@ -155,6 +159,41 @@ export default function LeagueInfoScreen() {
   const [editRoster, setEditRoster] = useState<{ position: string; slot_count: number }[]>([]);
   const [showScoringModal, setShowScoringModal] = useState(false);
   const [editScoring, setEditScoring] = useState<{ stat_name: string; point_value: number }[]>([]);
+
+  // Commissioner action modals
+  const [showReverseTrade, setShowReverseTrade] = useState(false);
+  const [showForceAddDrop, setShowForceAddDrop] = useState(false);
+  const [showForceMove, setShowForceMove] = useState(false);
+  const [advancingseason, setAdvancingSeason] = useState(false);
+
+  const handleAdvanceSeason = () => {
+    Alert.alert(
+      'Advance to Offseason',
+      'This will:\n\n- Archive this season\'s stats\n- Reset W/L records\n- Cancel pending trades, waivers, & queued moves\n- Begin the offseason process\n\nThis cannot be undone. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Advance',
+          style: 'destructive',
+          onPress: async () => {
+            setAdvancingSeason(true);
+            try {
+              const { error } = await supabase.functions.invoke('advance-season', {
+                body: { league_id: league!.id },
+              });
+              if (error) throw error;
+              queryClient.invalidateQueries({ queryKey: ['league', leagueId] });
+              Alert.alert('Season Advanced', 'The offseason has begun!');
+            } catch (err: any) {
+              Alert.alert('Error', err.message ?? 'Failed to advance season');
+            } finally {
+              setAdvancingSeason(false);
+            }
+          },
+        },
+      ],
+    );
+  };
 
   // ── Enter edit mode helpers ────────────────────────────────────
 
@@ -407,6 +446,9 @@ export default function LeagueInfoScreen() {
             <>
               <Row label="Name" value={league.name} c={c} />
               <Row label="Visibility" value={league.private ? 'Private' : 'Public'} c={c} />
+              {league.private && league.invite_code && (
+                <Row label="Invite Code" value={league.invite_code} c={c} />
+              )}
               <Row label="Teams" value={`${teamCount}`} c={c} />
               <Row label="Season" value={league.season} c={c} />
               {commissionerTeam && <Row label="Commissioner" value={commissionerTeam.name} c={c} last />}
@@ -671,6 +713,56 @@ export default function LeagueInfoScreen() {
           ))}
         </View>
 
+        {/* ── Season History ── */}
+        <SeasonHistory leagueId={league.id} />
+
+        {/* ── Commissioner Actions ── */}
+        {isCommissioner && (
+          <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
+            <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Commissioner Actions</ThemedText>
+            {/* Advance to Offseason — only show when season is complete (mid_season + no active offseason) */}
+            {lifecycle === 'mid_season' && !league?.offseason_step && (
+              <TouchableOpacity
+                style={[styles.commAction, { borderBottomColor: c.border }, advancingseason && { opacity: 0.6 }]}
+                onPress={handleAdvanceSeason}
+                disabled={advancingseason}
+              >
+                <Ionicons name="calendar" size={18} color="#FF9500" />
+                <ThemedText style={[styles.commActionText, { color: '#FF9500' }]}>Advance to Offseason</ThemedText>
+                {advancingseason ? (
+                  <ActivityIndicator size="small" color="#FF9500" />
+                ) : (
+                  <Ionicons name="chevron-forward" size={16} color={c.secondaryText} />
+                )}
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={[styles.commAction, { borderBottomColor: c.border }]}
+              onPress={() => setShowReverseTrade(true)}
+            >
+              <Ionicons name="arrow-undo" size={18} color={c.text} />
+              <ThemedText style={styles.commActionText}>Reverse Trade</ThemedText>
+              <Ionicons name="chevron-forward" size={16} color={c.secondaryText} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.commAction, { borderBottomColor: c.border }]}
+              onPress={() => setShowForceAddDrop(true)}
+            >
+              <Ionicons name="person-add" size={18} color={c.text} />
+              <ThemedText style={styles.commActionText}>Force Add/Drop</ThemedText>
+              <Ionicons name="chevron-forward" size={16} color={c.secondaryText} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.commAction, { borderBottomWidth: 0 }]}
+              onPress={() => setShowForceMove(true)}
+            >
+              <Ionicons name="swap-vertical" size={18} color={c.text} />
+              <ThemedText style={styles.commActionText}>Force Roster Move</ThemedText>
+              <Ionicons name="chevron-forward" size={16} color={c.secondaryText} />
+            </TouchableOpacity>
+          </View>
+        )}
+
       </ScrollView>
 
       {/* ── Roster Edit Modal ── */}
@@ -739,6 +831,29 @@ export default function LeagueInfoScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* ── Commissioner Modals ── */}
+      {isCommissioner && leagueId && (
+        <>
+          <ReverseTradeModal
+            visible={showReverseTrade}
+            leagueId={leagueId}
+            onClose={() => setShowReverseTrade(false)}
+          />
+          <ForceAddDropModal
+            visible={showForceAddDrop}
+            leagueId={leagueId}
+            teams={(league?.league_teams ?? []).map((t: any) => ({ id: t.id, name: t.name }))}
+            onClose={() => setShowForceAddDrop(false)}
+          />
+          <ForceRosterMoveModal
+            visible={showForceMove}
+            leagueId={leagueId}
+            teams={(league?.league_teams ?? []).map((t: any) => ({ id: t.id, name: t.name }))}
+            onClose={() => setShowForceMove(false)}
+          />
+        </>
+      )}
     </SafeAreaView>
   );
 }
@@ -881,6 +996,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   commBadgeText: { fontSize: 11, fontWeight: '600' },
+
+  // Commissioner actions
+  commAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: 10,
+  },
+  commActionText: { flex: 1, fontSize: 14 },
 
   // Modals
   modalOverlay: {

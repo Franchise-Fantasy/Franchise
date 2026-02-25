@@ -29,7 +29,28 @@
       "Bash(git -C \"c:/Users/jjspo/OneDrive/Desktop/franchise.v2\" show --name-only b2c0b2a)",
       "Bash(git -C \"c:/Users/jjspo/OneDrive/Desktop/franchise.v2\" log --all --oneline)",
       "Bash(git -C \"c:/Users/jjspo/OneDrive/Desktop/franchise.v2\" show cb9db6d:backend/)",
-      "mcp__claude_ai_Supabase__list_projects"
+      "mcp__claude_ai_Supabase__list_projects",
+      "mcp__claude_ai_Supabase__list_extensions",
+      "Bash(npx supabase --version)",
+      "Bash(npx supabase init)",
+      "Bash(npx supabase link --project-ref iuqbossmnsezzgocpcbo)",
+      "Bash(npx supabase functions list)",
+      "Bash(for fn in make-draft-pick generate-schedule start-draft autodraft poll-live-stats finalize-week execute-trade poll-injuries process-pending-transactions process-waivers)",
+      "Bash(do npx supabase functions download \"$fn\")",
+      "Bash(done)",
+      "Bash(for fn in run-lottery generate-playoff-round submit-seed-pick reverse-trade commissioner-action send-notification advance-season create-rookie-draft start-lottery)",
+      "Bash(npx supabase db dump -f supabase/migrations/00000000000000_baseline.sql)",
+      "Bash(npx supabase db dump -f supabase/migrations/00000000000000_baseline.sql --linked)",
+      "Bash(npx expo start --no-dev --minify)",
+      "Bash(npx expo start --clear)",
+      "Bash(npx kill-port 8081)",
+      "Bash(taskkill //F //IM \"node.exe\" //T)",
+      "Bash(npx eas update --branch main --message \"Fix white screen - remove Sentry native deps\")",
+      "Bash(npx eas update --branch main --message \"Remove +error.tsx to fix white screen\")",
+      "Bash(npm install @react-native-community/netinfo)",
+      "Bash(for dir in start-draft autodraft finalize-week execute-trade poll-injuries process-pending-transactions process-waivers run-lottery generate-playoff-round submit-seed-pick reverse-trade commissioner-action send-notification advance-season create-rookie-draft start-lottery)",
+      "Bash(do cp \"supabase/functions/make-draft-pick/push.ts\" \"supabase/functions/$dir/push.ts\")",
+      "Bash(git add .)"
     ]
   }
 }

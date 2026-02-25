@@ -5,7 +5,17 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
+import { useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface League {
@@ -20,6 +30,8 @@ export default function JoinLeagueScreen() {
   const router = useRouter();
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const [code, setCode] = useState('');
+  const [joining, setJoining] = useState(false);
 
   const { data: leagues, isLoading } = useQuery({
     queryKey: ['public-leagues'],
@@ -48,6 +60,58 @@ export default function JoinLeagueScreen() {
     }
   });
 
+  const handleJoinByCode = async () => {
+    const trimmed = code.trim().toUpperCase();
+    if (!trimmed) return;
+
+    setJoining(true);
+    try {
+      const user = (await supabase.auth.getUser()).data.user;
+      if (!user) {
+        Alert.alert('Error', 'You must be logged in to join a league.');
+        return;
+      }
+
+      const { data: league, error } = await supabase
+        .from('leagues')
+        .select('id, name, teams, current_teams')
+        .eq('invite_code', trimmed)
+        .maybeSingle();
+
+      if (error || !league) {
+        Alert.alert('Invalid Code', 'No league found with that invite code.');
+        return;
+      }
+
+      if ((league.current_teams ?? 0) >= league.teams) {
+        Alert.alert('League Full', 'This league already has the maximum number of teams.');
+        return;
+      }
+
+      const { data: existingTeam } = await supabase
+        .from('teams')
+        .select('id')
+        .eq('league_id', league.id)
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (existingTeam) {
+        Alert.alert('Already Joined', 'You already have a team in this league.');
+        return;
+      }
+
+      router.push({
+        pathname: '/create-team',
+        params: { leagueId: league.id, isCommissioner: 'false' },
+      });
+    } catch (err) {
+      console.error('Error joining by code:', err);
+      Alert.alert('Error', 'Something went wrong. Please try again.');
+    } finally {
+      setJoining(false);
+    }
+  };
+
   const handleJoinLeague = async (leagueId: string) => {
     try {
       const user = (await supabase.auth.getUser()).data.user;
@@ -58,12 +122,8 @@ export default function JoinLeagueScreen() {
 
       router.push({
         pathname: '/create-team',
-        params: { 
-          leagueId,
-          isCommissioner: 'false'
-        }
+        params: { leagueId, isCommissioner: 'false' },
       });
-
     } catch (error) {
       console.error('Error joining league:', error);
       Alert.alert('Error', 'Failed to join league');
@@ -73,8 +133,45 @@ export default function JoinLeagueScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
       <ThemedText type="title" style={styles.header}>Join a League</ThemedText>
-      
-      <ScrollView style={styles.content}>
+
+      <ScrollView style={styles.content} keyboardShouldPersistTaps="handled">
+        {/* Invite code section */}
+        <View style={[styles.codeSection, { backgroundColor: c.cardAlt }]}>
+          <ThemedText type="subtitle">Have an invite code?</ThemedText>
+          <View style={styles.codeInputRow}>
+            <TextInput
+              style={[styles.codeInput, { borderColor: c.border, backgroundColor: c.input, color: c.text }]}
+              placeholder="Enter code"
+              placeholderTextColor={c.secondaryText}
+              value={code}
+              onChangeText={(t) => setCode(t.toUpperCase())}
+              autoCapitalize="characters"
+              maxLength={8}
+              returnKeyType="go"
+              onSubmitEditing={handleJoinByCode}
+            />
+            <TouchableOpacity
+              style={[styles.joinBtn, { backgroundColor: code.trim().length > 0 ? c.accent : c.border }]}
+              onPress={handleJoinByCode}
+              disabled={!code.trim() || joining}
+            >
+              <Text style={[styles.joinBtnText, { color: code.trim().length > 0 ? c.accentText : c.secondaryText }]}>
+                {joining ? '...' : 'Join'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Divider */}
+        <View style={styles.dividerRow}>
+          <View style={[styles.dividerLine, { backgroundColor: c.border }]} />
+          <ThemedText style={[styles.dividerText, { color: c.secondaryText }]}>OR</ThemedText>
+          <View style={[styles.dividerLine, { backgroundColor: c.border }]} />
+        </View>
+
+        {/* Public leagues */}
+        <ThemedText type="subtitle" style={styles.publicTitle}>Public Leagues</ThemedText>
+
         {isLoading ? (
           <ActivityIndicator style={styles.loading} />
         ) : !leagues?.length ? (
@@ -90,7 +187,7 @@ export default function JoinLeagueScreen() {
             >
               <ThemedText type="subtitle">{league.name}</ThemedText>
               <ThemedText style={[styles.leagueInfo, { color: c.secondaryText }]}>
-                Teams: {league.teams}
+                Teams: {league.current_teams ?? 0}/{league.teams}
               </ThemedText>
             </TouchableOpacity>
           ))
@@ -104,12 +201,59 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   header: { padding: 16, textAlign: 'center' },
   content: { flex: 1, padding: 16 },
+  codeSection: {
+    padding: 16,
+    borderRadius: 10,
+    marginBottom: 16,
+  },
+  codeInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 12,
+  },
+  codeInput: {
+    flex: 1,
+    borderWidth: 1,
+    padding: 12,
+    borderRadius: 8,
+    fontSize: 18,
+    fontWeight: '600',
+    letterSpacing: 2,
+    textAlign: 'center',
+  },
+  joinBtn: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  joinBtnText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 16,
+  },
+  dividerLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+  },
+  dividerText: {
+    marginHorizontal: 12,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  publicTitle: {
+    marginBottom: 12,
+  },
   loading: { marginTop: 20 },
   emptyState: { padding: 20, alignItems: 'center' },
   leagueCard: { padding: 16, borderRadius: 8, marginBottom: 12 },
-  leagueInfo: { marginTop: 4, fontSize: 14 }
+  leagueInfo: { marginTop: 4, fontSize: 14 },
 });
 
-export const options = { 
+export const options = {
   headerShown: false,
 };

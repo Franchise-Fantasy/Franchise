@@ -4,6 +4,7 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { TradeProposalRow, useTradeVotes } from '@/hooks/useTrades';
+import { sendNotification } from '@/lib/notifications';
 import { supabase } from '@/lib/supabase';
 import { estimatePickFpts, formatPickLabel } from '@/types/trade';
 import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
@@ -34,6 +35,7 @@ const STATUS_COLORS: Record<string, string> = {
   rejected: '#dc3545',
   cancelled: '#6c757d',
   vetoed: '#dc3545',
+  reversed: '#6c757d',
 };
 
 export function TradeDetailModal({ proposal, leagueId, teamId, onClose }: TradeDetailModalProps) {
@@ -129,10 +131,15 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose }: TradeD
 
       const allAccepted = (allTeams ?? []).every((t) => t.status === 'accepted');
 
+      const myTeamName = myProposalTeam?.team_name ?? 'A team';
+      const otherTeamIds = proposal.teams
+        .filter((t) => t.team_id !== teamId)
+        .map((t) => t.team_id);
+
       if (allAccepted) {
         const vetoType = leagueSettings?.trade_veto_type ?? 'commissioner';
         if (vetoType === 'none') {
-          // Execute immediately
+          // Execute immediately — execute-trade edge function sends its own notifications
           await supabase.functions.invoke('execute-trade', { body: { proposal_id: proposal.id } });
         } else {
           // Move to review
@@ -146,7 +153,26 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose }: TradeD
               review_expires_at: expiresAt,
             })
             .eq('id', proposal.id);
+
+          // Notify league that a trade is in review
+          sendNotification({
+            league_id: leagueId,
+            category: 'trades',
+            title: 'Trade Under Review',
+            body: 'A trade has been accepted and is now under review.',
+            data: { screen: 'trades' },
+          });
         }
+      } else {
+        // Notify proposer that this team accepted
+        sendNotification({
+          league_id: leagueId,
+          team_ids: [proposal.proposed_by_team_id],
+          category: 'trades',
+          title: 'Trade Accepted',
+          body: `${myTeamName} has accepted your trade proposal.`,
+          data: { screen: 'trades' },
+        });
       }
 
       invalidate();
@@ -172,6 +198,20 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose }: TradeD
         .update({ status: 'rejected' })
         .eq('id', proposal.id);
 
+      const myTeamName = myProposalTeam?.team_name ?? 'A team';
+      const otherTeamIds = proposal.teams
+        .filter((t) => t.team_id !== teamId)
+        .map((t) => t.team_id);
+
+      sendNotification({
+        league_id: leagueId,
+        team_ids: otherTeamIds,
+        category: 'trades',
+        title: 'Trade Declined',
+        body: `${myTeamName} has declined the trade proposal.`,
+        data: { screen: 'trades' },
+      });
+
       invalidate();
       onClose();
     } catch (err: any) {
@@ -189,6 +229,19 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose }: TradeD
         .update({ status: 'cancelled' })
         .eq('id', proposal.id);
 
+      const otherTeamIds = proposal.teams
+        .filter((t) => t.team_id !== teamId)
+        .map((t) => t.team_id);
+
+      sendNotification({
+        league_id: leagueId,
+        team_ids: otherTeamIds,
+        category: 'trades',
+        title: 'Trade Withdrawn',
+        body: 'A trade proposal has been withdrawn.',
+        data: { screen: 'trades' },
+      });
+
       invalidate();
       onClose();
     } catch (err: any) {
@@ -205,6 +258,16 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose }: TradeD
         .from('trade_proposals')
         .update({ status: 'vetoed' })
         .eq('id', proposal.id);
+
+      const involvedTeamIds = proposal.teams.map((t) => t.team_id);
+      sendNotification({
+        league_id: leagueId,
+        team_ids: involvedTeamIds,
+        category: 'trades',
+        title: 'Trade Vetoed',
+        body: 'The commissioner has vetoed a trade.',
+        data: { screen: 'trades' },
+      });
 
       invalidate();
       onClose();
@@ -250,6 +313,16 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose }: TradeD
           .from('trade_proposals')
           .update({ status: 'vetoed' })
           .eq('id', proposal.id);
+
+        const involvedTeamIds = proposal.teams.map((t) => t.team_id);
+        sendNotification({
+          league_id: leagueId,
+          team_ids: involvedTeamIds,
+          category: 'trades',
+          title: 'Trade Vetoed',
+          body: 'The league has voted to veto a trade.',
+          data: { screen: 'trades' },
+        });
       }
 
       invalidate();

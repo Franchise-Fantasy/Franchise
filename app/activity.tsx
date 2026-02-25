@@ -14,6 +14,8 @@ function getTransactionIcon(type: string): keyof typeof Ionicons.glyphMap {
       return 'swap-horizontal';
     case 'waiver':
       return 'person-add';
+    case 'commissioner':
+      return 'shield';
     default:
       return 'document-text';
   }
@@ -25,6 +27,8 @@ function getTransactionLabel(type: string): string {
       return 'Trade';
     case 'waiver':
       return 'Add/Drop';
+    case 'commissioner':
+      return 'Commissioner';
     default:
       return type.charAt(0).toUpperCase() + type.slice(1);
   }

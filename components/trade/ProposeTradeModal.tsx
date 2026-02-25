@@ -4,6 +4,7 @@ import { TradePlayerPicker } from '@/components/trade/TradePlayerPicker';
 import { ThemedText } from '@/components/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { sendNotification } from '@/lib/notifications';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats } from '@/types/player';
 import {
@@ -334,6 +335,16 @@ export function ProposeTradeModal({
       }));
       const { error: itemsError } = await supabase.from('trade_proposal_items').insert(itemRows);
       if (itemsError) throw itemsError;
+
+      // Notify the other teams about the proposal
+      sendNotification({
+        league_id: leagueId,
+        team_ids: state.selectedTeamIds,
+        category: 'trades',
+        title: 'Trade Proposed',
+        body: `${myTeam?.name ?? 'A team'} has proposed a trade. Review it now.`,
+        data: { screen: 'trades' },
+      });
 
       queryClient.invalidateQueries({ queryKey: ['tradeProposals', leagueId] });
       queryClient.invalidateQueries({ queryKey: ['pendingTradeCount'] });

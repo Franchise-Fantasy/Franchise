@@ -1,3 +1,4 @@
+import { ErrorState } from "@/components/ErrorState";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import { ThemedText } from "@/components/ThemedText";
 import { Colors } from "@/constants/Colors";
@@ -147,6 +148,58 @@ function AnimatedFpts({
   );
 }
 
+// ─── Data fetching ────────────────────────────────────────────────────────────
+
+async function fetchTeamRosterForDate(
+  teamId: string,
+  leagueId: string,
+  date: string
+): Promise<RosterPlayer[]> {
+  const { data: leaguePlayers, error: lpError } = await supabase
+    .from("league_players")
+    .select("player_id, roster_slot")
+    .eq("team_id", teamId)
+    .eq("league_id", leagueId);
+
+  if (lpError) throw lpError;
+  if (!leaguePlayers || leaguePlayers.length === 0) return [];
+
+  const playerIds = leaguePlayers.map((lp) => lp.player_id);
+  const slotMap = await fetchLineupForDate(teamId, leagueId, date);
+
+  const [statsResult, tricodeResult] = await Promise.all([
+    supabase.from("player_season_stats").select("*").in("player_id", playerIds),
+    supabase.from("players").select("id, nba_team").in("id", playerIds),
+  ]);
+
+  if (statsResult.error) throw statsResult.error;
+
+  const nbaTricodeMap = new Map<string, string>(
+    (tricodeResult.data ?? [])
+      .filter((p: any) => p.nba_team && p.nba_team !== "Active" && p.nba_team !== "Inactive")
+      .map((p: any) => [p.id, p.nba_team])
+  );
+
+  return (statsResult.data as PlayerSeasonStats[]).map((p) => ({
+    ...p,
+    roster_slot: slotMap.get(p.player_id) ?? null,
+    nbaTricode: nbaTricodeMap.get(p.player_id) ?? null,
+  }));
+}
+
+async function fetchNbaScheduleForDate(date: string): Promise<Map<string, string>> {
+  const { data } = await supabase
+    .from("nba_schedule")
+    .select("home_team, away_team")
+    .eq("game_date", date);
+  const map = new Map<string, string>();
+  for (const game of data ?? []) {
+    map.set(game.home_team, `vs ${game.away_team}`);
+    map.set(game.away_team, `@${game.home_team}`);
+  }
+  return map;
+}
+
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function RosterScreen() {
@@ -157,6 +210,16 @@ export default function RosterScreen() {
 
   const today = toDateStr(new Date());
   const [selectedDate, setSelectedDate] = useState<string>(today);
+
+  // If the calendar date rolled over since the component mounted, snap to today
+  const prevToday = useRef(today);
+  useEffect(() => {
+    if (today !== prevToday.current) {
+      if (selectedDate === prevToday.current) setSelectedDate(today);
+      prevToday.current = today;
+    }
+  }, [today]);
+
   const [selectedPlayer, setSelectedPlayer] =
     useState<PlayerSeasonStats | null>(null);
   const [activeSlot, setActiveSlot] = useState<SlotEntry | null>(null);
@@ -170,43 +233,11 @@ export default function RosterScreen() {
   const { data: rosterConfig, isLoading: isLoadingConfig } =
     useLeagueRosterConfig(leagueId ?? "");
 
-  const { data: rosterPlayers, isLoading: isLoadingRoster } = useQuery<
+  const { data: rosterPlayers, isLoading: isLoadingRoster, isError: isRosterError, refetch: refetchRoster } = useQuery<
     RosterPlayer[]
   >({
     queryKey: ["teamRoster", teamId, selectedDate],
-    queryFn: async () => {
-      const { data: leaguePlayers, error: lpError } = await supabase
-        .from("league_players")
-        .select("player_id, roster_slot")
-        .eq("team_id", teamId!)
-        .eq("league_id", leagueId!);
-
-      if (lpError) throw lpError;
-      if (!leaguePlayers || leaguePlayers.length === 0) return [];
-
-      const playerIds = leaguePlayers.map((lp) => lp.player_id);
-
-      const slotMap = await fetchLineupForDate(teamId!, leagueId!, selectedDate);
-
-      const [statsResult, tricodeResult] = await Promise.all([
-        supabase.from("player_season_stats").select("*").in("player_id", playerIds),
-        supabase.from("players").select("id, nba_team").in("id", playerIds),
-      ]);
-
-      if (statsResult.error) throw statsResult.error;
-
-      const nbaTricodeMap = new Map<string, string>(
-        (tricodeResult.data ?? [])
-          .filter((p: any) => p.nba_team && p.nba_team !== 'Active' && p.nba_team !== 'Inactive')
-          .map((p: any) => [p.id, p.nba_team])
-      );
-
-      return (statsResult.data as PlayerSeasonStats[]).map((p) => ({
-        ...p,
-        roster_slot: slotMap.get(p.player_id) ?? null,
-        nbaTricode: nbaTricodeMap.get(p.player_id) ?? null,
-      }));
-    },
+    queryFn: () => fetchTeamRosterForDate(teamId!, leagueId!, selectedDate),
     enabled: !!teamId && !!leagueId,
     staleTime: 0,
     placeholderData: keepPreviousData,
@@ -233,18 +264,7 @@ export default function RosterScreen() {
   // Schedule for today and future dates: tricode → matchup string
   const { data: daySchedule } = useQuery<Map<string, string>>({
     queryKey: ["daySchedule", selectedDate],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("nba_schedule")
-        .select("home_team, away_team")
-        .eq("game_date", selectedDate);
-      const map = new Map<string, string>();
-      for (const game of data ?? []) {
-        map.set(game.home_team, `vs ${game.away_team}`);
-        map.set(game.away_team, `@${game.home_team}`);
-      }
-      return map;
-    },
+    queryFn: () => fetchNbaScheduleForDate(selectedDate),
     enabled: isToday || isFutureDate,
     staleTime: 1000 * 60 * 60,
   });
@@ -255,6 +275,27 @@ export default function RosterScreen() {
 
   // Game start times for locking slots
   const gameTimeMap = useTodayGameTimes(isToday);
+
+  // Prefetch adjacent days to reduce pop-in when navigating
+  useEffect(() => {
+    if (!teamId || !leagueId) return;
+    const adjacent = [addDays(selectedDate, -1), addDays(selectedDate, 1), addDays(selectedDate, 2)];
+    const todayStr = toDateStr(new Date());
+    for (const day of adjacent) {
+      queryClient.prefetchQuery({
+        queryKey: ['teamRoster', teamId, day],
+        queryFn: () => fetchTeamRosterForDate(teamId, leagueId, day),
+        staleTime: 1000 * 60 * 2,
+      });
+      if (day >= todayStr) {
+        queryClient.prefetchQuery({
+          queryKey: ['daySchedule', day],
+          queryFn: () => fetchNbaScheduleForDate(day),
+          staleTime: 1000 * 60 * 60,
+        });
+      }
+    }
+  }, [selectedDate, teamId, leagueId]);
 
   const isPlayerLocked = (player: RosterPlayer | null): boolean => {
     if (!isToday || !player) return false;
@@ -509,6 +550,14 @@ export default function RosterScreen() {
     );
   }
 
+  if (isRosterError) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
+        <ErrorState message="Failed to load roster" onRetry={() => refetchRoster()} />
+      </SafeAreaView>
+    );
+  }
+
   if (!rosterPlayers || rosterPlayers.length === 0) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
@@ -562,7 +611,6 @@ export default function RosterScreen() {
             borderLeftWidth: 3,
             borderLeftColor: c.accent,
           },
-          locked && { opacity: 0.6 },
         ]}
       >
         <TouchableOpacity
@@ -575,6 +623,7 @@ export default function RosterScreen() {
                   ? c.activeCard
                   : c.cardAlt,
             },
+            locked && { opacity: 0.6 },
           ]}
           onPress={() => !isPastDate && !locked && setActiveSlot(slot)}
         >
@@ -630,11 +679,10 @@ export default function RosterScreen() {
             </View>
             <View style={styles.slotPlayerInfo}>
               {/* Line 1: ● Name | badges */}
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexWrap: "wrap", flexShrink: 1 }}>
                 <ThemedText
                   type="defaultSemiBold"
-                  numberOfLines={1}
-                  style={[styles.slotPlayerName, { flexShrink: 1 }]}
+                  style={[styles.slotPlayerName]}
                 >
                   {slot.player.name}
                 </ThemedText>
@@ -1158,7 +1206,7 @@ const styles = StyleSheet.create({
   slotRow: {
     flexDirection: "row",
     alignItems: "center",
-    height: 56,
+    minHeight: 56,
   },
   slotLabel: {
     width: 44,
@@ -1196,7 +1244,7 @@ const styles = StyleSheet.create({
   },
   rosterTeamPill: {
     position: "absolute",
-    bottom: 1,
+    bottom: -1,
     alignSelf: "center",
     flexDirection: "row",
     alignItems: "center",

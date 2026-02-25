@@ -21,8 +21,9 @@ import { calcLotteryPoolSize, defaultPlayoffTeams, getPlayoffTeamOptions } from 
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { generateDraftPicks, generateFutureDraftPicks } from "@/lib/draft";
 import { supabase } from "@/lib/supabase";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
-import { useReducer, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import {
   Alert,
   ScrollView,
@@ -43,6 +44,7 @@ type Action =
 
 const DEFAULT_PLAYOFF_WEEKS = 3;
 const maxWeeks = computeMaxWeeks(CURRENT_NBA_SEASON);
+const WIZARD_STORAGE_KEY = '@league_wizard';
 
 const initialState: LeagueWizardState = {
   name: "",
@@ -133,6 +135,50 @@ export default function CreateLeague() {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
+  const hasRestoredRef = useRef(false);
+
+  // Restore saved wizard progress on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const saved = await AsyncStorage.getItem(WIZARD_STORAGE_KEY);
+        if (!saved || hasRestoredRef.current) return;
+        const { state: savedState, step: savedStep } = JSON.parse(saved);
+        if (!savedState?.name) return; // nothing meaningful saved
+        Alert.alert(
+          'Resume Progress?',
+          `You have a saved league "${savedState.name}" (step ${savedStep + 1}/${STEP_LABELS.length}). Continue where you left off?`,
+          [
+            { text: 'Start Over', style: 'destructive', onPress: () => AsyncStorage.removeItem(WIZARD_STORAGE_KEY) },
+            {
+              text: 'Resume',
+              onPress: () => {
+                // Replay saved state into the reducer
+                for (const [key, value] of Object.entries(savedState)) {
+                  dispatch({ type: 'SET_FIELD', field: key as keyof LeagueWizardState, value });
+                }
+                setStep(savedStep);
+              },
+            },
+          ],
+        );
+        hasRestoredRef.current = true;
+      } catch {}
+    })();
+  }, []);
+
+  // Persist wizard state on every change (debounced)
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const persistWizard = useCallback((s: LeagueWizardState, currentStep: number) => {
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      AsyncStorage.setItem(WIZARD_STORAGE_KEY, JSON.stringify({ state: s, step: currentStep })).catch(() => {});
+    }, 500);
+  }, []);
+
+  useEffect(() => {
+    persistWizard(state, step);
+  }, [state, step, persistWizard]);
 
   // Steps: 0=Basics, 1=Roster, 2=Scoring, 3=Trade, 4=Waivers, 5=Season, 6=Draft, 7=Review
   const TOTAL_STEPS = STEP_LABELS.length;
@@ -167,7 +213,7 @@ export default function CreateLeague() {
     thisMonday.setDate(today.getDate() - daysSinceMon);
     const daysLeft = 7 - daysSinceMon;
     const seasonStart = daysLeft >= 5 ? thisMonday : new Date(thisMonday.getTime() + 7 * 86400000);
-    const seasonStartDate = seasonStart.toISOString().split("T")[0];
+    const seasonStartDate = `${seasonStart.getFullYear()}-${String(seasonStart.getMonth() + 1).padStart(2, "0")}-${String(seasonStart.getDate()).padStart(2, "0")}`;
 
     // 1. Create league
     const { data: leagueData, error: leagueError } = await supabase
@@ -294,6 +340,7 @@ export default function CreateLeague() {
       ),
     ]).catch((error) => console.error("Error generating draft picks:", error));
 
+    AsyncStorage.removeItem(WIZARD_STORAGE_KEY).catch(() => {});
     setLoading(false);
     router.replace({
       pathname: "/create-team",

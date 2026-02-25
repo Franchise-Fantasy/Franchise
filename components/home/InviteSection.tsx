@@ -1,32 +1,109 @@
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { StyleSheet, TouchableOpacity } from 'react-native';
+import { supabase } from '@/lib/supabase';
+import { generateInviteCode } from '@/utils/inviteCode';
+import { Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
+import { useQueryClient } from '@tanstack/react-query';
+import { Alert, Share, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { ThemedText } from '../ThemedText';
 import { ThemedView } from '../ThemedView';
-import { IconSymbol } from '../ui/IconSymbol';
 
-export function InviteSection({ isCommissioner }: { isCommissioner: boolean }) {
-  if (!isCommissioner) return null;
+interface InviteSectionProps {
+  isCommissioner: boolean;
+  isPrivate: boolean;
+  inviteCode: string | null;
+  leagueId: string;
+  isFull: boolean;
+}
+
+export function InviteSection({ isCommissioner, isPrivate, inviteCode, leagueId, isFull }: InviteSectionProps) {
+  if (!isCommissioner || !isPrivate || isFull || !inviteCode) return null;
+
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const queryClient = useQueryClient();
+
+  const handleCopy = async () => {
+    await Clipboard.setStringAsync(inviteCode);
+    Alert.alert('Copied', 'Invite code copied to clipboard.');
+  };
+
+  const handleShare = async () => {
+    await Share.share({
+      message: `Join my league on Franchise! Use invite code: ${inviteCode}`,
+    });
+  };
+
+  const handleRegenerate = () => {
+    Alert.alert(
+      'Regenerate Invite Code',
+      'This will invalidate the current code. Anyone with the old code will no longer be able to join.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Regenerate',
+          style: 'destructive',
+          onPress: async () => {
+            const newCode = generateInviteCode();
+            const { error } = await supabase
+              .from('leagues')
+              .update({ invite_code: newCode })
+              .eq('id', leagueId);
+            if (error) {
+              Alert.alert('Error', error.message);
+            } else {
+              queryClient.invalidateQueries({ queryKey: ['league', leagueId] });
+            }
+          },
+        },
+      ],
+    );
+  };
 
   return (
     <ThemedView style={styles.section}>
-      <TouchableOpacity style={[styles.inviteButton, { backgroundColor: c.cardAlt }]}>
-        <IconSymbol name="person.badge.plus" size={20} color={c.icon} />
-        <ThemedText>Invite Players</ThemedText>
-      </TouchableOpacity>
+      <ThemedText type="defaultSemiBold" style={styles.label}>Invite Code</ThemedText>
+      <View style={[styles.codeCard, { backgroundColor: c.cardAlt }]}>
+        <ThemedText style={styles.code}>{inviteCode}</ThemedText>
+        <View style={styles.actions}>
+          <TouchableOpacity onPress={handleCopy} style={styles.actionBtn} hitSlop={8}>
+            <Ionicons name="copy-outline" size={20} color={c.accent} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleShare} style={styles.actionBtn} hitSlop={8}>
+            <Ionicons name="share-outline" size={20} color={c.accent} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleRegenerate} style={styles.actionBtn} hitSlop={8}>
+            <Ionicons name="refresh-outline" size={20} color={c.secondaryText} />
+          </TouchableOpacity>
+        </View>
+      </View>
     </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
   section: { marginBottom: 16 },
-  inviteButton: {
+  label: { marginBottom: 8 },
+  codeCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    padding: 12,
-    borderRadius: 8,
+    justifyContent: 'space-between',
+    padding: 14,
+    borderRadius: 10,
+  },
+  code: {
+    fontSize: 20,
+    fontWeight: '700',
+    letterSpacing: 3,
+    fontFamily: 'monospace',
+  },
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  actionBtn: {
+    padding: 4,
   },
 });
