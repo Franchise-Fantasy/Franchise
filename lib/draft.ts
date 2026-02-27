@@ -89,11 +89,9 @@ export async function generateFutureDraftPicks(
 }
 
 export async function assignDraftSlots(draftId: string, teamIds: string[]) {
-  // Randomly shuffle team IDs
-  const shuffledTeams = [...teamIds].sort(() => Math.random() - 0.5);
-
+  // teamIds should already be shuffled by caller
   // Assign each team to a slot number (1-N)
-  const updates = shuffledTeams.map((teamId, index) => {
+  const updates = teamIds.map((teamId, index) => {
     return supabase
       .from('draft_picks')
       .update({ current_team_id: teamId, original_team_id: teamId })
@@ -123,11 +121,13 @@ export async function checkAndAssignDraftSlots(leagueId: string) {
 
     if (teams) {
       const teamIds = teams.map(team => team.id);
-      await assignDraftSlots(draft.id, teamIds);
+
+      // Shuffle once and reuse for both draft and future picks
+      const shuffledTeams = [...teamIds].sort(() => Math.random() - 0.5);
+
+      await assignDraftSlots(draft.id, shuffledTeams);
 
       // Also assign team ownership to future-season picks (no draft_id)
-      // using the same slot mapping
-      const shuffledTeams = [...teamIds].sort(() => Math.random() - 0.5);
       const futureUpdates = shuffledTeams.map((teamId, index) => {
         return supabase
           .from('draft_picks')

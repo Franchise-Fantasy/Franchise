@@ -9,6 +9,7 @@ const STAT_TO_TOTAL: Record<string, keyof PlayerSeasonStats> = {
   BLK: 'total_blk',
   TO: 'total_tov',
   '3PM': 'total_3pm',
+  '3PA': 'total_3pa',
   FGM: 'total_fgm',
   FGA: 'total_fga',
   FTM: 'total_ftm',
@@ -27,6 +28,7 @@ const STAT_TO_GAME: Record<string, keyof PlayerGameLog> = {
   BLK: 'blk',
   TO: 'tov',
   '3PM': '3pm',
+  '3PA': '3pa',
   FGM: 'fgm',
   FGA: 'fga',
   FTM: 'ftm',
@@ -51,7 +53,7 @@ export function calculateAvgFantasyPoints(
       totalFantasy += (player[field] as number) * weight.point_value;
     }
   }
-  return Math.round((totalFantasy / player.games_played) * 10) / 10;
+  return Math.round((totalFantasy / player.games_played) * 100) / 100;
 }
 
 // Computes fantasy points for a single game.
@@ -64,8 +66,9 @@ export function calculateGameFantasyPoints(
     const field = STAT_TO_GAME[weight.stat_name];
     if (field) {
       const val = game[field];
+      if (val == null) continue;
       total += (typeof val === 'boolean' ? (val ? 1 : 0) : (val as number)) * weight.point_value;
     }
   }
-  return Math.round(total * 10) / 10;
+  return Math.round(total * 100) / 100;
 }

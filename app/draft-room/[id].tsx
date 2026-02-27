@@ -5,6 +5,7 @@ import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import { supabase } from '@/lib/supabase';
 import { CurrentPick, DraftState } from '@/types/draft';
+import { setDraftRoomOpen } from '@/lib/activeScreen';
 import { useQuery } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -41,6 +42,12 @@ export default function DraftRoomScreen() {
 
   const isRookieDraft = draftData?.type === 'rookie';
 
+  // Suppress draft push notifications while this screen is open
+  useEffect(() => {
+    setDraftRoomOpen(true);
+    return () => setDraftRoomOpen(false);
+  }, []);
+
   // Shared cache key with DraftOrder's real-time subscription — updates automatically
   const { data: draftState } = useQuery<DraftState>({
     queryKey: ['draftState', draftId],
@@ -66,16 +73,19 @@ export default function DraftRoomScreen() {
       .catch(() => {});
   }, [isDraftComplete, draftData?.league_id, isRookieDraft]);
 
-  // Then, use the league ID to get the user's team
+  // Then, use the league ID to get the user's team + commissioner status
   const { data: teamData, isLoading: isLoadingTeam } = useQuery({
     queryKey: ['myTeam', draftData?.league_id],
     queryFn: async () => {
       if (!draftData?.league_id) return null;
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
-      const { data, error } = await supabase.from('teams').select('id').eq('league_id', draftData.league_id).eq('user_id', user.id).single();
-      if (error) throw error;
-      return data;
+      const [teamRes, leagueRes] = await Promise.all([
+        supabase.from('teams').select('id').eq('league_id', draftData.league_id).eq('user_id', user.id).single(),
+        supabase.from('leagues').select('created_by').eq('id', draftData.league_id).single(),
+      ]);
+      if (teamRes.error) throw teamRes.error;
+      return { ...teamRes.data, isCommissioner: leagueRes.data?.created_by === user.id };
     },
     enabled: !!draftData?.league_id
   });
@@ -118,6 +128,7 @@ export default function DraftRoomScreen() {
             draftId={draftId}
             onCurrentPickChange={setCurrentPick}
             teamId={teamData?.id || ''}
+            isCommissioner={teamData?.isCommissioner ?? false}
           />
         )}
 
@@ -132,8 +143,9 @@ export default function DraftRoomScreen() {
               isRookieDraft={isRookieDraft}
             />
           ) : (
-            <TeamRoster draftId={draftId}
-             teamId={teamData?.id || ''}
+            <TeamRoster
+              teamId={teamData?.id || ''}
+              leagueId={draftData?.league_id || ''}
             />
           )}
         </View>

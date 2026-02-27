@@ -11,7 +11,7 @@ import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
 import { fetchLineupForDate } from '@/utils/dailyLineup';
 import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
 import { formatPosition } from '@/utils/formatting';
-import { SLOT_LABELS } from '@/utils/rosterSlots';
+import { slotLabel } from '@/utils/rosterSlots';
 import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -126,39 +126,44 @@ export default function TeamRosterScreen() {
       (cfg) => cfg.position !== 'BE' && cfg.position !== 'IR',
     );
 
+    const validSlotNames = new Set<string>();
     for (const config of activeConfigs) {
-      const playersInSlot = rosterPlayers.filter(
-        (p) => p.roster_slot === config.position,
-      );
-      for (let i = 0; i < config.slot_count; i++) {
-        slots.push({
-          slotPosition: config.position,
-          slotIndex: i,
-          player: playersInSlot[i] ?? null,
-        });
+      if (config.position === 'UTIL') {
+        for (let i = 1; i <= config.slot_count; i++) validSlotNames.add(`UTIL${i}`);
+      } else {
+        validSlotNames.add(config.position);
       }
     }
 
-    const validActiveSlots = new Set(activeConfigs.map((cfg) => cfg.position));
+    for (const config of activeConfigs) {
+      if (config.position === 'UTIL') {
+        for (let i = 0; i < config.slot_count; i++) {
+          const numberedSlot = `UTIL${i + 1}`;
+          const player = rosterPlayers.find((p) => p.roster_slot === numberedSlot) ?? null;
+          slots.push({ slotPosition: numberedSlot, slotIndex: i, player });
+        }
+      } else {
+        const playersInSlot = rosterPlayers.filter(
+          (p) => p.roster_slot === config.position,
+        );
+        for (let i = 0; i < config.slot_count; i++) {
+          slots.push({
+            slotPosition: config.position,
+            slotIndex: i,
+            player: playersInSlot[i] ?? null,
+          });
+        }
+      }
+    }
+
     for (const player of rosterPlayers) {
       if (player.roster_slot === 'IR') continue;
       if (
         !player.roster_slot ||
         player.roster_slot === 'BE' ||
-        !validActiveSlots.has(player.roster_slot)
+        !validSlotNames.has(player.roster_slot)
       ) {
         benchPlayers.push(player);
-        continue;
-      }
-      const config = activeConfigs.find((cfg) => cfg.position === player.roster_slot);
-      if (config) {
-        const playersInSlot = rosterPlayers.filter(
-          (p) => p.roster_slot === config.position,
-        );
-        const idx = playersInSlot.indexOf(player);
-        if (idx >= config.slot_count) {
-          benchPlayers.push(player);
-        }
       }
     }
 
@@ -228,7 +233,7 @@ export default function TeamRosterScreen() {
               { color: slot.player ? c.activeText : c.secondaryText },
             ]}
           >
-            {SLOT_LABELS[slot.slotPosition] ?? slot.slotPosition}
+            {slotLabel(slot.slotPosition)}
           </ThemedText>
         </View>
 

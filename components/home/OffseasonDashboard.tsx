@@ -102,6 +102,7 @@ export function OffseasonDashboard({ leagueId, offseasonStep, isCommissioner, ro
       if (error) throw error;
       queryClient.invalidateQueries({ queryKey: ['league', leagueId] });
       queryClient.invalidateQueries({ queryKey: ['rookieDraft', leagueId] });
+      queryClient.invalidateQueries({ queryKey: ['activeDraft', leagueId] });
       Alert.alert('Rookie Draft Created', 'Schedule the date to begin.');
     } catch (err: any) {
       Alert.alert('Error', err.message ?? 'Failed to create rookie draft');

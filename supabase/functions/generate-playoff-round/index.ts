@@ -130,7 +130,7 @@ Deno.serve(async (req: Request) => {
 
     const { data: league, error: leagueErr } = await supabase
       .from('leagues')
-      .select('id, season, playoff_teams, playoff_weeks, regular_season_weeks, playoff_seeding_format, reseed_each_round')
+      .select('id, name, season, playoff_teams, playoff_weeks, regular_season_weeks, playoff_seeding_format, reseed_each_round')
       .eq('id', league_id)
       .single();
 
@@ -223,8 +223,9 @@ Deno.serve(async (req: Request) => {
         try {
           const firstPicker = pickers.sort((a, b) => a.seed - b.seed)[0];
           if (firstPicker) {
+            const ln = league.name ?? 'Your League';
             await notifyTeams(supabase, [firstPicker.teamId], 'playoffs',
-              'Your Seed Pick Turn',
+              `${ln} — Your Seed Pick Turn`,
               'It\'s your turn to choose your playoff opponent.',
               { screen: 'playoff-bracket' }
             );
@@ -306,8 +307,9 @@ Deno.serve(async (req: Request) => {
         try {
           const firstPicker = pickers[0];
           if (firstPicker) {
+            const ln = league.name ?? 'Your League';
             await notifyTeams(supabase, [firstPicker.teamId], 'playoffs',
-              'Your Seed Pick Turn',
+              `${ln} — Your Seed Pick Turn`,
               'It\'s your turn to choose your playoff opponent.',
               { screen: 'playoff-bracket' }
             );
@@ -456,9 +458,10 @@ Deno.serve(async (req: Request) => {
 
     // Notify teams about their playoff matchups
     try {
+      const ln = league.name ?? 'Your League';
       for (const ins of matchupInserts) {
         await notifyTeams(supabase, [ins.teamA.teamId, ins.teamB.teamId], 'playoffs',
-          round >= totalRounds ? 'Championship Matchup!' : `Playoff Round ${round}`,
+          round >= totalRounds ? `${ln} — Championship Matchup!` : `${ln} — Playoff Round ${round}`,
           round >= totalRounds ? 'The championship matchup is set. Time to compete!'
             : 'Your next playoff matchup has been set. Check the bracket.',
           { screen: 'playoff-bracket' }

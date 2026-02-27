@@ -10,6 +10,7 @@ import { calculateAvgFantasyPoints, calculateGameFantasyPoints } from '@/utils/f
 import { formatPosition } from '@/utils/formatting';
 import { getInjuryBadge } from '@/utils/injuryBadge';
 import { useTodayGameTimes, isGameStarted } from '@/utils/gameStarted';
+import { useLivePlayerStats, liveToGameLog, formatGameInfo } from '@/utils/nbaLive';
 import { getPlayerHeadshotUrl, getTeamLogoUrl } from '@/utils/playerHeadshot';
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -39,6 +40,15 @@ interface PlayerDetailModalProps {
   onDropForClaim?: (dropPlayer: PlayerSeasonStats) => void;
   /** When provided, the Add/Claim button calls this instead of doing an instant add */
   onClaimPlayer?: () => void;
+}
+
+// Returns the Monday (start of week) for a given YYYY-MM-DD date string
+function getWeekMonday(dateStr: string): string {
+  const d = new Date(dateStr + 'T00:00:00');
+  const day = d.getDay(); // 0=Sun, 1=Mon, ...
+  const diff = day === 0 ? 6 : day - 1;
+  d.setDate(d.getDate() - diff);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function StatBox({ label, value, color }: { label: string; value: string; color: string }) {
@@ -204,6 +214,39 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
   // Game lock detection
   const gameTimeMap = useTodayGameTimes(!!player);
   const playerGameStarted = player ? isGameStarted(player.nba_team, gameTimeMap) : false;
+
+  // Live stats for today's game
+  const playerIdArr = player ? [player.player_id] : [];
+  const liveMap = useLivePlayerStats(playerIdArr, !!player);
+  const liveStats = player ? liveMap.get(player.player_id) ?? null : null;
+
+  // Next 3 upcoming games
+  const { data: upcomingGames } = useQuery({
+    queryKey: ['upcomingGames', player?.nba_team],
+    queryFn: async () => {
+      const today = new Date().toISOString().slice(0, 10);
+      const { data, error } = await supabase
+        .from('nba_schedule')
+        .select('game_date, home_team, away_team, game_time_utc')
+        .eq('season', CURRENT_NBA_SEASON)
+        .or(`home_team.eq.${player!.nba_team},away_team.eq.${player!.nba_team}`)
+        .gte('game_date', today)
+        .order('game_date', { ascending: true })
+        .limit(4);
+      if (error) throw error;
+      return (data ?? []).map((g) => {
+        const isHome = g.home_team === player!.nba_team;
+        return {
+          game_date: g.game_date as string,
+          opponent: isHome ? g.away_team : g.home_team,
+          prefix: isHome ? 'vs' : '@',
+          game_time_utc: g.game_time_utc as string | null,
+        };
+      });
+    },
+    enabled: !!player?.nba_team,
+    staleTime: 1000 * 60 * 60,
+  });
 
   const handleClose = () => {
     setShowDropPicker(false);
@@ -626,6 +669,60 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
     }
   };
 
+  // Build combined row list: upcoming (furthest first) → live → historical
+  type RowType = { kind: 'upcoming'; key: string; date: string; opp: string; rawDate: string }
+    | { kind: 'live'; key: string; date: string; opp: string; stats: Record<string, number | boolean>; gameInfo: string; isLive: boolean; rawDate: string }
+    | { kind: 'history'; key: string; item: PlayerGameLog };
+
+  const combinedRows: RowType[] = [];
+
+  // Upcoming games (reversed so furthest is at top, nearest is closest to live/history)
+  // Skip today's game if it already appears as the live row
+  const today = new Date().toISOString().slice(0, 10);
+  const hasLiveRow = liveStats && liveStats.game_status >= 2;
+  const filteredUpcoming = (upcomingGames ?? [])
+    .filter((g) => !(hasLiveRow && g.game_date === today))
+    .slice(0, 3);
+  for (let i = filteredUpcoming.length - 1; i >= 0; i--) {
+    const g = filteredUpcoming[i];
+    combinedRows.push({
+      kind: 'upcoming',
+      key: `upcoming-${g.game_date}`,
+      date: formatGameDate(g.game_date),
+      opp: g.prefix === '@' ? `@${g.opponent}` : g.opponent,
+      rawDate: g.game_date,
+    });
+  }
+
+  // Live/final row for today
+  if (liveStats && liveStats.game_status >= 2) {
+    combinedRows.push({
+      kind: 'live',
+      key: 'live-today',
+      date: formatGameDate(today),
+      opp: liveStats.matchup?.replace(/^vs\s*/i, '').replace(/^@\s*/, '@') ?? '—',
+      stats: liveToGameLog(liveStats),
+      gameInfo: formatGameInfo(liveStats),
+      isLive: liveStats.game_status === 2,
+      rawDate: today,
+    });
+  }
+
+  // Historical game log (skip today if already shown as live/final row)
+  for (const item of (gameLog ?? [])) {
+    if (hasLiveRow && item.game_date === today) continue;
+    combinedRows.push({ kind: 'history', key: item.id, item });
+  }
+
+  // Thicker border between Mon-Sun week boundaries
+  const rawDateOf = (r: RowType): string => r.kind === 'history' ? r.item.game_date ?? '' : r.rawDate;
+  const weekBorderKeys = new Set<string>();
+  for (let i = 0; i < combinedRows.length - 1; i++) {
+    if (getWeekMonday(rawDateOf(combinedRows[i])) !== getWeekMonday(rawDateOf(combinedRows[i + 1]))) {
+      weekBorderKeys.add(combinedRows[i].key);
+    }
+  }
+
   const renderDropPickerItem = ({ item }: { item: PlayerSeasonStats }) => {
     const fpts = scoringWeights
       ? calculateAvgFantasyPoints(item, scoringWeights)
@@ -882,7 +979,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                         <ThemedText style={[styles.gameCell, styles.gameCellDate, styles.gameHeaderText, { color: c.secondaryText }]}>DATE</ThemedText>
                         <ThemedText style={[styles.gameCell, styles.gameCellMatchup, styles.gameHeaderText, { color: c.secondaryText }]}>OPP</ThemedText>
                       </View>
-                      {Array.from({ length: 6 }).map((_, i) => (
+                      {Array.from({ length: 12 }).map((_, i) => (
                         <View key={i} style={[styles.gameRow, { borderBottomColor: c.border }]}>
                           <View style={[styles.skeletonBlock, styles.gameCellDate, { backgroundColor: c.border }]} />
                           <View style={[styles.skeletonBlock, styles.gameCellMatchup, { backgroundColor: c.border }]} />
@@ -895,7 +992,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                           <ThemedText key={col} style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}>{col}</ThemedText>
                         ))}
                       </View>
-                      {Array.from({ length: 6 }).map((_, i) => (
+                      {Array.from({ length: 12 }).map((_, i) => (
                         <View key={i} style={[styles.gameRow, { borderBottomColor: c.border }]}>
                           {statColumns.map((col) => (
                             <View key={col} style={[styles.skeletonBlock, { width: 38, backgroundColor: c.border }]} />
@@ -908,7 +1005,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                         <View style={[styles.gameRow, styles.gameHeader, { borderBottomColor: c.border }]}>
                           <ThemedText style={[styles.gameCell, styles.gameCellFpts, styles.gameHeaderText, { color: c.accent }]}>FPTS</ThemedText>
                         </View>
-                        {Array.from({ length: 6 }).map((_, i) => (
+                        {Array.from({ length: 12 }).map((_, i) => (
                           <View key={i} style={[styles.gameRow, { borderBottomColor: c.border }]}>
                             <View style={[styles.skeletonBlock, { width: 44, backgroundColor: c.border }]} />
                           </View>
@@ -930,16 +1027,22 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                         OPP
                       </ThemedText>
                     </View>
-                    {(gameLog ?? []).map((item) => (
-                      <View key={item.id} style={[styles.gameRow, { borderBottomColor: c.border }]}>
-                        <ThemedText style={[styles.gameCell, styles.gameCellDate, { color: c.secondaryText }]} numberOfLines={1}>
-                          {formatGameDate(item.game_date)}
-                        </ThemedText>
-                        <ThemedText style={[styles.gameCell, styles.gameCellMatchup, { color: c.secondaryText }]} numberOfLines={1}>
-                          {item.matchup ? item.matchup.replace(/^vs\s*/i, '') : '—'}
-                        </ThemedText>
-                      </View>
-                    ))}
+                    {combinedRows.map((row) => {
+                      const isUpcoming = row.kind === 'upcoming';
+                      const isLiveRow = row.kind === 'live';
+                      return (
+                        <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, isLiveRow && styles.gameRowLive, isUpcoming && styles.gameCellDNP, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd]}>
+                          <ThemedText style={[styles.gameCell, styles.gameCellDate, { color: c.secondaryText }]} numberOfLines={1}>
+                            {row.kind === 'history' ? formatGameDate(row.item.game_date) : row.date}
+                          </ThemedText>
+                          <ThemedText style={[styles.gameCell, styles.gameCellMatchup, { color: c.secondaryText }]} numberOfLines={1}>
+                            {row.kind === 'history'
+                              ? (row.item.matchup ? row.item.matchup.replace(/^vs\s*/i, '') : '—')
+                              : row.opp}
+                          </ThemedText>
+                        </View>
+                      );
+                    })}
                   </View>
 
                   {/* Scrollable middle: all stat columns scroll as one */}
@@ -955,16 +1058,40 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                           </ThemedText>
                         ))}
                       </View>
-                      {(gameLog ?? []).map((item) => {
-                        const isDNP = item.min === 0;
+                      {combinedRows.map((row) => {
+                        if (row.kind === 'upcoming') {
+                          return (
+                            <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, styles.gameCellDNP, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd]}>
+                              {statColumns.map((col) => (
+                                <ThemedText key={col} style={[styles.gameCell, styles.gameCellDNP]}>—</ThemedText>
+                              ))}
+                            </View>
+                          );
+                        }
+                        if (row.kind === 'live') {
+                          return (
+                            <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, styles.gameRowLive, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd]}>
+                              {statColumns.map((col) => {
+                                const statKey = col === 'TO' ? 'tov' : col === '3PM' ? '3pm' : col === '3PA' ? '3pa' : col.toLowerCase();
+                                const val = (row.stats as any)[statKey];
+                                return (
+                                  <ThemedText key={col} style={styles.gameCell}>
+                                    {col === 'MIN' ? '—' : (val ?? 0)}
+                                  </ThemedText>
+                                );
+                              })}
+                            </View>
+                          );
+                        }
+                        const isDNP = row.item.min === 0;
                         return (
-                          <View key={item.id} style={[styles.gameRow, { borderBottomColor: c.border }]}>
+                          <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd]}>
                             {statColumns.map((col) => (
                               <ThemedText
                                 key={col}
                                 style={[styles.gameCell, isDNP && styles.gameCellDNP]}
                               >
-                                {getStatValue(item, col)}
+                                {getStatValue(row.item, col)}
                               </ThemedText>
                             ))}
                           </View>
@@ -981,11 +1108,28 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                           FPTS
                         </ThemedText>
                       </View>
-                      {(gameLog ?? []).map((item) => {
-                        const isDNP = item.min === 0;
-                        const fpts = calculateGameFantasyPoints(item, scoringWeights);
+                      {combinedRows.map((row) => {
+                        if (row.kind === 'upcoming') {
+                          return (
+                            <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, styles.gameCellDNP, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd]}>
+                              <ThemedText style={[styles.gameCell, styles.gameCellFpts, styles.gameCellDNP]}>—</ThemedText>
+                            </View>
+                          );
+                        }
+                        if (row.kind === 'live') {
+                          const fpts = calculateGameFantasyPoints(row.stats as any, scoringWeights);
+                          return (
+                            <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, styles.gameRowLive, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd]}>
+                              <ThemedText style={[styles.gameCell, styles.gameCellFpts, { color: c.accent, fontWeight: '600' }]}>
+                                {fpts}
+                              </ThemedText>
+                            </View>
+                          );
+                        }
+                        const isDNP = row.item.min === 0;
+                        const fpts = calculateGameFantasyPoints(row.item, scoringWeights);
                         return (
-                          <View key={item.id} style={[styles.gameRow, { borderBottomColor: c.border }]}>
+                          <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd]}>
                             <ThemedText style={[styles.gameCell, styles.gameCellFpts, isDNP ? styles.gameCellDNP : { color: c.accent, fontWeight: '600' }]}>
                               {fpts}
                             </ThemedText>
@@ -1152,7 +1296,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 8,
-    paddingHorizontal: 16,
+    paddingLeft: 8,
+    paddingRight: 2,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   gameHeader: {
@@ -1166,6 +1311,7 @@ const styles = StyleSheet.create({
     width: 38,
     textAlign: 'center',
     fontSize: 13,
+    lineHeight: 18,
   },
   gameCellDate: {
     width: 42,
@@ -1181,6 +1327,12 @@ const styles = StyleSheet.create({
   gameCellDNP: {
     opacity: 0.35,
   },
+  gameRowLive: {
+    backgroundColor: 'rgba(59, 130, 246, 0.08)',
+  },
+  gameRowWeekEnd: {
+    borderBottomWidth: 2,
+  },
   gameLogContainer: {
     flexDirection: 'row',
   },
@@ -1194,7 +1346,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   skeletonBlock: {
-    height: 12,
+    height: 18,
     borderRadius: 4,
     opacity: 0.4,
   },

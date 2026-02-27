@@ -29,10 +29,19 @@ import {
   View,
 } from 'react-native';
 
+interface PreselectedPlayer {
+  player_id: string;
+  name: string;
+  position: string;
+  nba_team: string;
+  avg_fpts?: number;
+}
+
 interface ProposeTradeModalProps {
   leagueId: string;
   teamId: string;
   preselectedTeamId?: string;
+  preselectedPlayer?: PreselectedPlayer;
   onClose: () => void;
 }
 
@@ -46,7 +55,7 @@ interface TradeState {
 }
 
 type TradeAction =
-  | { type: 'SEED_MY_TEAM'; teamId: string; teamName: string; partnerTeamId?: string; partnerTeamName?: string }
+  | { type: 'SEED_MY_TEAM'; teamId: string; teamName: string; partnerTeamId?: string; partnerTeamName?: string; preselectedPlayer?: PreselectedPlayer }
   | { type: 'TOGGLE_TEAM'; teamId: string; teamName: string; myTeamId: string }
   | { type: 'NEXT_STEP' }
   | { type: 'PREV_STEP' }
@@ -67,10 +76,21 @@ function reducer(state: TradeState, action: TradeAction): TradeState {
       ];
       const selectedTeamIds: string[] = [];
       if (action.partnerTeamId && action.partnerTeamName) {
+        const sendingPlayers: TradeBuilderPlayer[] = [];
+        if (action.preselectedPlayer) {
+          sendingPlayers.push({
+            player_id: action.preselectedPlayer.player_id,
+            name: action.preselectedPlayer.name,
+            position: action.preselectedPlayer.position,
+            nba_team: action.preselectedPlayer.nba_team,
+            avg_fpts: action.preselectedPlayer.avg_fpts ?? 0,
+            to_team_id: action.teamId, // goes to my team
+          });
+        }
         builderTeams.push({
           team_id: action.partnerTeamId,
           team_name: action.partnerTeamName,
-          sending_players: [],
+          sending_players: sendingPlayers,
           sending_picks: [],
         });
         selectedTeamIds.push(action.partnerTeamId);
@@ -182,6 +202,7 @@ export function ProposeTradeModal({
   leagueId,
   teamId,
   preselectedTeamId,
+  preselectedPlayer,
   onClose,
 }: ProposeTradeModalProps) {
   const scheme = useColorScheme() ?? 'light';
@@ -225,14 +246,34 @@ export function ProposeTradeModal({
     const preselectedTeam = preselectedTeamId
       ? leagueTeams.find((t) => t.id === preselectedTeamId)
       : null;
-    dispatch({
-      type: 'SEED_MY_TEAM',
-      teamId: teamId,
-      teamName: myTeam.name,
-      partnerTeamId: preselectedTeam?.id,
-      partnerTeamName: preselectedTeam?.name,
-    });
-  }, [leagueTeams, myTeam, seeded, teamId, preselectedTeamId]);
+
+    // If a player is preselected, fetch their avg_fpts before seeding
+    if (preselectedPlayer) {
+      supabase
+        .from('player_season_stats')
+        .select('avg_fpts')
+        .eq('player_id', preselectedPlayer.player_id)
+        .maybeSingle()
+        .then(({ data }) => {
+          dispatch({
+            type: 'SEED_MY_TEAM',
+            teamId: teamId,
+            teamName: myTeam.name,
+            partnerTeamId: preselectedTeam?.id,
+            partnerTeamName: preselectedTeam?.name,
+            preselectedPlayer: { ...preselectedPlayer, avg_fpts: data?.avg_fpts ?? 0 },
+          });
+        });
+    } else {
+      dispatch({
+        type: 'SEED_MY_TEAM',
+        teamId: teamId,
+        teamName: myTeam.name,
+        partnerTeamId: preselectedTeam?.id,
+        partnerTeamName: preselectedTeam?.name,
+      });
+    }
+  }, [leagueTeams, myTeam, seeded, teamId, preselectedTeamId, preselectedPlayer]);
 
   // allBuilderTeams: just use reducer state (seeding ensures my team is present)
   const allBuilderTeams = state.builderTeams;

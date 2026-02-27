@@ -1,4 +1,5 @@
 import { ErrorState } from '@/components/ErrorState';
+import { PlayerDetailModal } from '@/components/player/PlayerDetailModal';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import { Colors } from '@/constants/Colors';
@@ -6,17 +7,16 @@ import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
-import { ScoringWeight } from '@/types/player';
+import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
 import { formatGameInfo, LivePlayerStats, useLivePlayerStats } from '@/utils/nbaLive';
 import { calculateGameFantasyPoints } from '@/utils/fantasyPoints';
 import { getInjuryBadge } from '@/utils/injuryBadge';
 import { useLeagueRosterConfig, RosterConfigSlot } from '@/hooks/useLeagueRosterConfig';
-import { SLOT_LABELS } from '@/utils/rosterSlots';
+import { slotLabel } from '@/utils/rosterSlots';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import {
   Animated,
-  ActivityIndicator,
   FlatList,
   Modal,
   ScrollView,
@@ -168,20 +168,29 @@ function buildMatchupSlots(
   const slots: MatchupSlotEntry[] = [];
 
   for (const cfg of activeConfigs) {
-    const inSlot = players.filter((p) => p.roster_slot === cfg.position);
-    for (let i = 0; i < cfg.slot_count; i++) {
-      slots.push({
-        slotPosition: cfg.position,
-        slotIndex: i,
-        player: inSlot[i] ?? null,
-      });
+    if (cfg.position === 'UTIL') {
+      for (let i = 0; i < cfg.slot_count; i++) {
+        const numberedSlot = `UTIL${i + 1}`;
+        const player = players.find((p) => p.roster_slot === numberedSlot) ?? null;
+        slots.push({ slotPosition: numberedSlot, slotIndex: i, player });
+      }
+    } else {
+      const inSlot = players.filter((p) => p.roster_slot === cfg.position);
+      for (let i = 0; i < cfg.slot_count; i++) {
+        slots.push({
+          slotPosition: cfg.position,
+          slotIndex: i,
+          player: inSlot[i] ?? null,
+        });
+      }
     }
   }
   return slots;
 }
 
 // Convert a LivePlayerStats row to the shape calculateGameFantasyPoints expects
-function liveToGameLog(live: LivePlayerStats): Record<string, number> {
+function liveToGameLog(live: LivePlayerStats): Record<string, number | boolean> {
+  const cats = [live.pts, live.reb, live.ast, live.stl, live.blk].filter(v => v >= 10).length;
   return {
     pts: live.pts,
     reb: live.reb,
@@ -195,6 +204,8 @@ function liveToGameLog(live: LivePlayerStats): Record<string, number> {
     ftm: live.ftm,
     fta: live.fta,
     pf: live.pf,
+    double_double: cats >= 2,
+    triple_double: cats >= 3,
   };
 }
 
@@ -504,6 +515,7 @@ function PlayerCell({
   liveStats,
   scoring,
   futureSchedule,
+  onPress,
 }: {
   player: RosterPlayer | null;
   c: any;
@@ -512,6 +524,7 @@ function PlayerCell({
   liveStats: LivePlayerStats | null;
   scoring: ScoringWeight[];
   futureSchedule?: Map<string, string>;
+  onPress?: (playerId: string) => void;
 }) {
   const align = side === 'right' ? 'flex-end' : 'flex-start';
   const textAlign = side === 'right' ? ('right' as const) : ('left' as const);
@@ -528,10 +541,13 @@ function PlayerCell({
     );
   }
 
+  const Wrapper = onPress ? TouchableOpacity : View;
+  const wrapperProps = onPress ? { activeOpacity: 0.6, onPress: () => onPress(player.player_id) } : {};
+
   if (mode === 'future') {
     const futureMatchup = player.nbaTricode ? (futureSchedule?.get(player.nbaTricode) ?? null) : null;
     return (
-      <View style={[pStyles.cell, { alignItems: align }]}>
+      <Wrapper style={[pStyles.cell, { alignItems: align }]} {...wrapperProps}>
         <View style={[pStyles.nameRow, { justifyContent: align }]}>
           <Text style={[pStyles.name, { color: c.text, textAlign }]} numberOfLines={1}>{player.name}</Text>
           {futureMatchup ? (
@@ -547,7 +563,7 @@ function PlayerCell({
           {futureMatchup ? `${player.position} · proj` : player.position}
         </Text>
         <Text style={[pStyles.pts, { color: c.secondaryText, textAlign }]}>—</Text>
-      </View>
+      </Wrapper>
     );
   }
 
@@ -555,12 +571,12 @@ function PlayerCell({
     const liveFp = round1(calculateGameFantasyPoints(liveToGameLog(liveStats) as any, scoring));
     const isLive = liveStats.game_status === 2;
     const statLine = liveStats.game_status !== 1
-      ? buildStatLine(liveToGameLog(liveStats), scoring)
+      ? buildStatLine(liveToGameLog(liveStats) as Record<string, number>, scoring)
       : null;
     const gameInfo = formatGameInfo(liveStats);
 
     return (
-      <View style={[pStyles.cell, { alignItems: align }]}>
+      <Wrapper style={[pStyles.cell, { alignItems: align }]} {...wrapperProps}>
         <View style={[pStyles.nameRow, { justifyContent: align }]}>
           {liveStats.oncourt && <OnCourtDot />}
           <Text style={[pStyles.name, { color: c.text, flexShrink: 1, textAlign }]} numberOfLines={1}>{player.name}</Text>
@@ -587,7 +603,7 @@ function PlayerCell({
           {statLine ?? player.position}
         </Text>
         <AnimatedFpts value={liveFp} activeColor={c.text} dimColor={c.secondaryText} textStyle={[pStyles.pts, { textAlign }]} />
-      </View>
+      </Wrapper>
     );
   }
 
@@ -595,7 +611,7 @@ function PlayerCell({
   if (mode === 'today') {
     const todayMatchup = player.nbaTricode ? (futureSchedule?.get(player.nbaTricode) ?? null) : null;
     return (
-      <View style={[pStyles.cell, { alignItems: align }]}>
+      <Wrapper style={[pStyles.cell, { alignItems: align }]} {...wrapperProps}>
         <View style={[pStyles.nameRow, { justifyContent: align }]}>
           <Text style={[pStyles.name, { color: c.text, flexShrink: 1, textAlign }]} numberOfLines={1}>{player.name}</Text>
           {todayMatchup ? (
@@ -611,14 +627,14 @@ function PlayerCell({
           {todayMatchup ? `${player.position} · proj` : player.position}
         </Text>
         <AnimatedFpts value={todayMatchup ? 0 : null} activeColor={c.text} dimColor={c.secondaryText} textStyle={[pStyles.pts, { textAlign }]} />
-      </View>
+      </Wrapper>
     );
   }
 
   // past
   const hasDayGame = player.dayPoints > 0;
   return (
-    <View style={[pStyles.cell, { alignItems: align }]}>
+    <Wrapper style={[pStyles.cell, { alignItems: align }]} {...wrapperProps}>
       <View style={[pStyles.nameRow, { justifyContent: align }]}>
         <Text style={[pStyles.name, { color: c.text, flexShrink: 1, textAlign }]} numberOfLines={1}>{player.name}</Text>
         {hasDayGame && player.dayMatchup ? (
@@ -639,7 +655,7 @@ function PlayerCell({
         dimColor={c.secondaryText}
         textStyle={[pStyles.pts, { textAlign }]}
       />
-    </View>
+    </Wrapper>
   );
 }
 
@@ -657,6 +673,7 @@ function MatchupBoard({
   oppLiveBonus,
   futureSchedule,
   seedMap,
+  onPlayerPress,
 }: {
   myTeam: TeamMatchupData;
   opponentTeam: TeamMatchupData | null;
@@ -670,6 +687,7 @@ function MatchupBoard({
   oppLiveBonus: number;
   futureSchedule?: Map<string, string>;
   seedMap?: Map<string, number>;
+  onPlayerPress?: (playerId: string) => void;
 }) {
   const myWeek = round1(myTeam.weekTotal + myLiveBonus);
   const myDay = round1(myTeam.dayTotal + myLiveBonus);
@@ -710,7 +728,7 @@ function MatchupBoard({
       {Array.from({ length: slotCount }).map((_, i) => {
         const mySlot = mySlots[i] ?? null;
         const oppSlot = oppSlots[i] ?? null;
-        const slotLabel = mySlot?.slotPosition ?? oppSlot?.slotPosition ?? '';
+        const slotPos = mySlot?.slotPosition ?? oppSlot?.slotPosition ?? '';
 
         return (
           <View key={`slot-${i}`} style={[pStyles.slotRow, { borderBottomColor: c.border }]}>
@@ -722,10 +740,11 @@ function MatchupBoard({
               liveStats={mySlot?.player ? (liveMap.get(mySlot.player.player_id) ?? null) : null}
               scoring={scoring}
               futureSchedule={futureSchedule}
+              onPress={onPlayerPress}
             />
             <View style={pStyles.slotCenter}>
               <Text style={[pStyles.slotText, { color: c.secondaryText }]}>
-                {SLOT_LABELS[slotLabel] ?? slotLabel}
+                {slotLabel(slotPos)}
               </Text>
             </View>
             <PlayerCell
@@ -736,10 +755,75 @@ function MatchupBoard({
               liveStats={oppSlot?.player ? (liveMap.get(oppSlot.player.player_id) ?? null) : null}
               scoring={scoring}
               futureSchedule={futureSchedule}
+              onPress={onPlayerPress}
             />
           </View>
         );
       })}
+    </View>
+  );
+}
+
+// ─── Skeleton ─────────────────────────────────────────────────────────────────
+
+const SKELETON_SLOTS = 8;
+
+function SkeletonBlock({ width, height, color, style }: { width: number | string; height: number; color: string; style?: any }) {
+  const opacity = useRef(new Animated.Value(0.4)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0.4, duration: 700, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, []);
+  return <Animated.View style={[{ width: width as any, height, borderRadius: 4, backgroundColor: color, opacity }, style]} />;
+}
+
+function MatchupSkeleton({ c }: { c: any }) {
+  const blockColor = c.border;
+
+  return (
+    <View style={styles.body}>
+      {/* Score header skeleton */}
+      <View style={colStyles.scoreHeader}>
+        <View style={[colStyles.scoreCol, { alignItems: 'flex-start' }]}>
+          <SkeletonBlock width={100} height={14} color={blockColor} />
+          <SkeletonBlock width={60} height={20} color={blockColor} style={{ marginTop: 4 }} />
+          <SkeletonBlock width={50} height={11} color={blockColor} style={{ marginTop: 4 }} />
+        </View>
+        <Text style={[colStyles.vsText, { color: c.secondaryText }]}>vs</Text>
+        <View style={[colStyles.scoreCol, { alignItems: 'flex-end' }]}>
+          <SkeletonBlock width={100} height={14} color={blockColor} />
+          <SkeletonBlock width={60} height={20} color={blockColor} style={{ marginTop: 4 }} />
+          <SkeletonBlock width={50} height={11} color={blockColor} style={{ marginTop: 4 }} />
+        </View>
+      </View>
+
+      {/* Slot rows skeleton */}
+      {Array.from({ length: SKELETON_SLOTS }).map((_, i) => (
+        <View key={i} style={[pStyles.slotRow, { borderBottomColor: c.border }]}>
+          {/* Left player cell */}
+          <View style={[pStyles.cell, { alignItems: 'flex-start' }]}>
+            <SkeletonBlock width={80} height={12} color={blockColor} />
+            <SkeletonBlock width={40} height={10} color={blockColor} style={{ marginTop: 3 }} />
+            <SkeletonBlock width={28} height={13} color={blockColor} style={{ marginTop: 3 }} />
+          </View>
+          {/* Center slot label */}
+          <View style={pStyles.slotCenter}>
+            <SkeletonBlock width={24} height={10} color={blockColor} />
+          </View>
+          {/* Right player cell */}
+          <View style={[pStyles.cell, { alignItems: 'flex-end' }]}>
+            <SkeletonBlock width={80} height={12} color={blockColor} />
+            <SkeletonBlock width={40} height={10} color={blockColor} style={{ marginTop: 3 }} />
+            <SkeletonBlock width={28} height={13} color={blockColor} style={{ marginTop: 3 }} />
+          </View>
+        </View>
+      ))}
     </View>
   );
 }
@@ -758,6 +842,16 @@ export default function MatchupScreen() {
   const today = toDateStr(new Date());
   const [selectedDate, setSelectedDate] = useState<string>(today);
   const [scheduleVisible, setScheduleVisible] = useState(false);
+  const [selectedPlayer, setSelectedPlayer] = useState<PlayerSeasonStats | null>(null);
+
+  const handlePlayerPress = async (playerId: string) => {
+    const { data } = await supabase
+      .from('player_season_stats')
+      .select('*')
+      .eq('player_id', playerId)
+      .maybeSingle();
+    if (data) setSelectedPlayer(data as PlayerSeasonStats);
+  };
 
   // If the calendar date rolled over since the component mounted, snap to today
   const prevToday = useRef(today);
@@ -883,9 +977,18 @@ export default function MatchupScreen() {
 
   if (weeksLoading) {
     return (
-      <ThemedView style={styles.center}>
-        <ActivityIndicator />
-      </ThemedView>
+      <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
+        {/* Placeholder day nav */}
+        <View style={[styles.dayNav, { borderBottomColor: c.border }]}>
+          <View style={styles.navArrow}><Text style={[styles.arrow, { color: c.buttonDisabled }]}>‹</Text></View>
+          <View style={styles.dayInfo}>
+            <SkeletonBlock width={120} height={16} color={c.border} />
+            <SkeletonBlock width={160} height={11} color={c.border} style={{ marginTop: 4 }} />
+          </View>
+          <View style={styles.navArrow}><Text style={[styles.arrow, { color: c.buttonDisabled }]}>›</Text></View>
+        </View>
+        <MatchupSkeleton c={c} />
+      </SafeAreaView>
     );
   }
 
@@ -947,7 +1050,7 @@ export default function MatchupScreen() {
 
       {/* Matchup body */}
       <ScrollView contentContainerStyle={styles.body}>
-        {matchupLoading && <ActivityIndicator style={{ marginTop: 40 }} />}
+        {matchupLoading && <MatchupSkeleton c={c} />}
 
         {!matchupLoading && matchupError && (
           <ErrorState message="Failed to load matchup" onRetry={() => refetchMatchup()} />
@@ -1005,11 +1108,19 @@ export default function MatchupScreen() {
               oppLiveBonus={matchupData.opponentTeam ? computeLiveBonus(matchupData.opponentTeam.players) : 0}
               futureSchedule={futureSchedule}
               seedMap={seedMap ?? undefined}
+              onPlayerPress={handlePlayerPress}
             />
 
           </>
         )}
       </ScrollView>
+
+      <PlayerDetailModal
+        player={selectedPlayer}
+        leagueId={leagueId ?? ''}
+        teamId={teamId ?? undefined}
+        onClose={() => setSelectedPlayer(null)}
+      />
 
       {/* Schedule dropdown modal */}
       <Modal

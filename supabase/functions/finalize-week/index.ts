@@ -38,7 +38,7 @@ function calculateGameFpts(
       total += game[field] * w.point_value;
     }
   }
-  return Math.round(total * 10) / 10;
+  return Math.round(total * 100) / 100;
 }
 
 function resolveSlot(
@@ -109,7 +109,7 @@ async function computeTeamScore(
     teamTotal += calculateGameFpts(game as any, weights);
   }
 
-  return Math.round(teamTotal * 10) / 10;
+  return Math.round(teamTotal * 100) / 100;
 }
 
 async function computeStreak(
@@ -367,18 +367,21 @@ Deno.serve(async (req: Request) => {
 
     // ── Send matchup result notifications ──
     try {
-      // Build team name lookup for all involved teams
+      // Build team name + league name lookups
       const allTeamIds = new Set<string>();
       for (const r of matchupResults) {
         allTeamIds.add(r.homeTeamId);
         allTeamIds.add(r.awayTeamId);
       }
-      const { data: teamRows } = await supabase
-        .from('teams')
-        .select('id, name')
-        .in('id', [...allTeamIds]);
+      const [{ data: teamRows }, { data: leagueRows }] = await Promise.all([
+        supabase.from('teams').select('id, name').in('id', [...allTeamIds]),
+        supabase.from('leagues').select('id, name').in('id', leagueIds),
+      ]);
       const teamName = new Map<string, string>(
         (teamRows ?? []).map((t: any) => [t.id, t.name]),
+      );
+      const leagueName = new Map<string, string>(
+        (leagueRows ?? []).map((l: any) => [l.id, l.name]),
       );
 
       for (const r of matchupResults) {
@@ -386,18 +389,21 @@ Deno.serve(async (req: Request) => {
         const awayName = teamName.get(r.awayTeamId) ?? 'Away';
         const scoreLine = `${homeName} ${r.homeScore} - ${r.awayScore} ${awayName}`;
         const category = r.isPlayoff ? 'playoffs' : 'matchups';
+        const ln = leagueName.get(r.leagueId) ?? 'Your League';
 
         // Notify both teams with their result
         const homeResult = r.winnerId === r.homeTeamId ? 'You won!' : r.winnerId === r.awayTeamId ? 'You lost.' : 'It\'s a tie.';
         const awayResult = r.winnerId === r.awayTeamId ? 'You won!' : r.winnerId === r.homeTeamId ? 'You lost.' : 'It\'s a tie.';
 
+        const title = r.isPlayoff ? `${ln} — Playoff Matchup Final` : `${ln} — Matchup Final`;
+
         await notifyTeams(supabase, [r.homeTeamId], category,
-          r.isPlayoff ? 'Playoff Matchup Final' : 'Matchup Final',
+          title,
           `${scoreLine} — ${homeResult}`,
           { screen: r.isPlayoff ? 'playoff-bracket' : 'matchup' }
         );
         await notifyTeams(supabase, [r.awayTeamId], category,
-          r.isPlayoff ? 'Playoff Matchup Final' : 'Matchup Final',
+          title,
           `${scoreLine} — ${awayResult}`,
           { screen: r.isPlayoff ? 'playoff-bracket' : 'matchup' }
         );
@@ -410,7 +416,7 @@ Deno.serve(async (req: Request) => {
     for (const lid of leagueIds) {
       const { data: league } = await supabase
         .from('leagues')
-        .select('season, playoff_teams, playoff_seeding_format, reseed_each_round, regular_season_weeks')
+        .select('name, season, playoff_teams, playoff_seeding_format, reseed_each_round, regular_season_weeks')
         .eq('id', lid)
         .single();
 
@@ -473,8 +479,9 @@ Deno.serve(async (req: Request) => {
                   .eq('id', champMatchup.winner_id)
                   .single();
                 const champName = champTeam?.name ?? 'The champion';
+                const champLn = league?.name ?? 'Your League';
                 await notifyLeague(supabase, lid, 'playoffs',
-                  'Championship Winner!',
+                  `${champLn} — Championship Winner!`,
                   `${champName} has won the league championship!`,
                   { screen: 'playoff-bracket' }
                 );

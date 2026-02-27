@@ -205,7 +205,7 @@ export default function CreateLeague() {
       return;
     }
 
-    const rosterSize = state.rosterSlots.reduce((sum, s) => sum + s.count, 0);
+    const rosterSize = state.rosterSlots.reduce((sum, s) => s.position === 'IR' ? sum : sum + s.count, 0);
 
     // Compute season start: first eligible Monday from today
     const today = new Date();

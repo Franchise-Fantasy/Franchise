@@ -1,3 +1,13 @@
+Allow point scoring to go to hundreths (.75)
+
+Attempting to make a trade will sometimes result in a white screen.
+
+Playoff team numbers don't always line up. When in a 4-team league, it gives the option for 4, 6, 8 playoff teams
+
+"create rookie draft" the draft card does not appear without a refresh.
+
+Clicking a notification won't switch you to that league, just the one
+
 ## Existing Bugs
 
 - one person didn't get "draft is over" message

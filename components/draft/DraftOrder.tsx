@@ -18,6 +18,7 @@ import { ThemedView } from "../ThemedView";
 interface DraftOrderProps {
   draftId: string;
   teamId: string;
+  isCommissioner: boolean;
   onCurrentPickChange: (
     pick: { id: string; current_team_id: string } | null,
   ) => void;
@@ -26,6 +27,7 @@ interface DraftOrderProps {
 export function DraftOrder({
   draftId,
   teamId,
+  isCommissioner,
   onCurrentPickChange,
 }: DraftOrderProps) {
   const colorScheme = useColorScheme() ?? "light";
@@ -74,15 +76,19 @@ export function DraftOrder({
     const tick = async () => {
       const remaining = new Date(draftState.draft_date!).getTime() - Date.now();
       if (remaining <= 0) {
+        setTimeUntilDraft(null);
         if (startDraftCalledRef.current) return;
-        startDraftCalledRef.current = true;
-        // start-draft handles the DB transition AND schedules the first QStash autodraft job
-        // Don't set timeUntilDraft(null) here — let the [draftState?.status] effect do it
-        // once the refetch returns with current_pick_timestamp populated
-        await supabase.functions.invoke("start-draft", {
-          body: { draft_id: draftId },
-        });
-        queryClient.invalidateQueries({ queryKey: ["draftState", draftId] });
+        // Only the commissioner triggers the start-draft edge function;
+        // other users will see the status change via the real-time subscription
+        if (isCommissioner) {
+          startDraftCalledRef.current = true;
+          // Refresh session to ensure JWT hasn't expired while waiting
+          await supabase.auth.refreshSession();
+          await supabase.functions.invoke("start-draft", {
+            body: { draft_id: draftId },
+          });
+          queryClient.invalidateQueries({ queryKey: ["draftState", draftId] });
+        }
       } else {
         const totalSeconds = Math.floor(remaining / 1000);
         const mins = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
@@ -97,7 +103,7 @@ export function DraftOrder({
       clearInterval(interval);
       startDraftCalledRef.current = false;
     };
-  }, [draftState?.status, draftState?.draft_date, draftId]);
+  }, [draftState?.status, draftState?.draft_date, draftId, isCommissioner]);
 
   // NEW: Use the timer hook with the fetched draft state
   const countdown = useDraftTimer(currentPickTimestamp || draftState?.current_pick_timestamp, draftState?.time_limit);
@@ -205,6 +211,9 @@ export function DraftOrder({
             setTimeout(() => {
               queryClient.invalidateQueries({
                 queryKey: ["draftOrder", draftId],
+              });
+              queryClient.invalidateQueries({
+                queryKey: ["teamRoster"],
               });
             }, 1000);
           }

@@ -42,7 +42,7 @@ Deno.serve(async (req) => {
     // Fetch league config
     const { data: league, error: leagueErr } = await supabaseAdmin
       .from('leagues')
-      .select('created_by, season, teams, playoff_teams, playoff_weeks, rookie_draft_order, rookie_draft_rounds, lottery_draws, lottery_odds, waiver_type, faab_budget, offseason_step')
+      .select('created_by, name, season, teams, playoff_teams, playoff_weeks, rookie_draft_order, rookie_draft_rounds, lottery_draws, lottery_odds, waiver_type, faab_budget, offseason_step')
       .eq('id', league_id)
       .single();
     if (leagueErr || !league) throw new Error('League not found');
@@ -218,8 +218,9 @@ Deno.serve(async (req) => {
       const champName = championId
         ? allTeams.find(t => t.id === championId)?.name ?? 'The champion'
         : 'No champion';
+      const ln = league.name ?? 'Your League';
       await notifyLeague(supabaseAdmin, league_id, 'league_activity',
-        'Season Over — Offseason Begins!',
+        `${ln} — Season Over — Offseason Begins!`,
         `${champName} won the ${currentSeason} championship. The offseason is now underway.`,
         { screen: 'home' }
       );

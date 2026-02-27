@@ -14,7 +14,7 @@ const SLOT_ELIGIBLE_POSITIONS: Record<string, string[]> = {
   F: ['SF', 'PF'],
 };
 
-export const SLOT_LABELS: Record<string, string> = {
+const BASE_SLOT_LABELS: Record<string, string> = {
   PG: 'PG',
   SG: 'SG',
   SF: 'SF',
@@ -26,6 +26,19 @@ export const SLOT_LABELS: Record<string, string> = {
   BE: 'BE',
   IR: 'IR',
 };
+
+/** Returns the base slot name, stripping UTIL numbering (e.g. UTIL2 → UTIL). */
+export function baseSlotName(slot: string): string {
+  return /^UTIL\d+$/.test(slot) ? 'UTIL' : slot;
+}
+
+/** Returns the display label for a slot (numbered UTILs all show "UTIL"). */
+export function slotLabel(slot: string): string {
+  return BASE_SLOT_LABELS[baseSlotName(slot)] ?? slot;
+}
+
+// Keep SLOT_LABELS for backward compat — but prefer slotLabel() for numbered UTIL support
+export const SLOT_LABELS: Record<string, string> = BASE_SLOT_LABELS;
 
 /** Returns all positions a player is eligible for based on the spectrum. */
 export function getEligiblePositions(playerPosition: string): string[] {
@@ -41,11 +54,18 @@ export function getEligiblePositions(playerPosition: string): string[] {
 
 /** Returns true if a player with the given position can fill the given slot. */
 export function isEligibleForSlot(playerPosition: string, slotPosition: string): boolean {
-  if (['UTIL', 'BE', 'IR'].includes(slotPosition)) return true;
+  const base = baseSlotName(slotPosition);
+  if (['UTIL', 'BE', 'IR'].includes(base)) return true;
 
-  const eligible = SLOT_ELIGIBLE_POSITIONS[slotPosition];
+  const eligible = SLOT_ELIGIBLE_POSITIONS[base];
   if (!eligible) return false;
 
   const playerPositions = getEligiblePositions(playerPosition);
   return playerPositions.some(pos => eligible.includes(pos));
+}
+
+/** Returns true if the slot is an active starter slot (not bench/IR). */
+export function isStarterSlot(slot: string): boolean {
+  const base = baseSlotName(slot);
+  return base !== 'BE' && base !== 'IR';
 }

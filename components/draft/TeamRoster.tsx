@@ -1,153 +1,401 @@
 import { supabase } from '@/lib/supabase';
-import { Player } from '@/types/draft';
+import { PlayerSeasonStats } from '@/types/player';
 import { useQuery } from '@tanstack/react-query';
-import { ActivityIndicator, FlatList, StyleSheet } from 'react-native';
+import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { ThemedText } from '../ThemedText';
-import { ThemedView } from '../ThemedView';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { isEligibleForSlot, SLOT_LABELS } from '@/utils/rosterSlots';
+import { useLeagueRosterConfig } from '@/hooks/useLeagueRosterConfig';
+import { useLeagueScoring } from '@/hooks/useLeagueScoring';
+import { slotLabel } from '@/utils/rosterSlots';
+import { formatPosition } from '@/utils/formatting';
+import { getInjuryBadge } from '@/utils/injuryBadge';
+import { getPlayerHeadshotUrl, getTeamLogoUrl } from '@/utils/playerHeadshot';
+import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
+import { PlayerDetailModal } from '../player/PlayerDetailModal';
+import { useState } from 'react';
 
 interface TeamRosterProps {
-  draftId: string;
   teamId: string;
+  leagueId: string;
 }
 
-type RosterSpot = {
-  position: string;
-  player: Player | null;
-};
+interface RosterPlayer extends PlayerSeasonStats {
+  roster_slot: string | null;
+}
 
-// Default draft roster structure — ideally this would come from league_roster_config
-const DRAFT_SLOTS = [
-  { position: 'G', count: 3 },
-  { position: 'F', count: 3 },
-  { position: 'C', count: 1 },
-  { position: 'UTIL', count: 3 },
-];
+interface SlotEntry {
+  slotPosition: string;
+  slotIndex: number;
+  player: RosterPlayer | null;
+}
 
-export function TeamRoster({ draftId, teamId }: TeamRosterProps) {
+export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
   const colorScheme = useColorScheme() ?? 'light';
-  const colors = Colors[colorScheme];
-  const { data: players, isLoading } = useQuery<Player[] | undefined>({
+  const c = Colors[colorScheme];
+  const [selectedPlayer, setSelectedPlayer] = useState<PlayerSeasonStats | null>(null);
+
+  const { data: scoringWeights } = useLeagueScoring(leagueId);
+  const { data: rosterConfig, isLoading: isLoadingConfig } = useLeagueRosterConfig(leagueId);
+
+  const { data: rosterPlayers, isLoading: isLoadingPlayers } = useQuery<RosterPlayer[]>({
     queryKey: ['teamRoster', teamId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data: leaguePlayers, error: lpError } = await supabase
         .from('league_players')
-        .select(`
-          player_id,
-          position,
-          player:players (
-            id,
-            name,
-            position,
-            nba_team
-          )
-        `)
+        .select('player_id, roster_slot')
         .eq('team_id', teamId);
 
-      if (error) throw error;
-      return (data ?? []).map((item: any) => ({
-        id: item.player.id,
-        name: item.player.name,
-        position: item.position,
-        nba_team: item.player.nba_team
-      })) as Player[];
-    }
+      if (lpError) throw lpError;
+      if (!leaguePlayers || leaguePlayers.length === 0) return [];
+
+      const playerIds = leaguePlayers.map(lp => lp.player_id);
+
+      const { data: stats, error: statsError } = await supabase
+        .from('player_season_stats')
+        .select('*')
+        .in('player_id', playerIds);
+
+      if (statsError) throw statsError;
+
+      const slotMap = new Map(leaguePlayers.map(lp => [lp.player_id, lp.roster_slot]));
+
+      return (stats as PlayerSeasonStats[]).map(p => ({
+        ...p,
+        roster_slot: slotMap.get(p.player_id) ?? null,
+      }));
+    },
+    enabled: !!teamId,
   });
 
-  // Build roster structure from slot config
-  const rosterStructure: RosterSpot[] = [];
-  for (const slot of DRAFT_SLOTS) {
-    for (let i = 0; i < slot.count; i++) {
-      rosterStructure.push({ position: slot.position, player: null });
+  const isLoading = isLoadingConfig || isLoadingPlayers;
+
+  // Build slot entries from roster config (mirrors roster page logic)
+  const starterSlots: SlotEntry[] = [];
+  const benchSlots: SlotEntry[] = [];
+  const irSlots: SlotEntry[] = [];
+
+  if (rosterConfig && rosterPlayers) {
+    const benchConfig = rosterConfig.find(c => c.position === 'BE');
+    const irConfig = rosterConfig.find(c => c.position === 'IR');
+    const activeConfigs = rosterConfig.filter(c => c.position !== 'BE' && c.position !== 'IR');
+
+    const validSlotNames = new Set<string>();
+    for (const config of activeConfigs) {
+      if (config.position === 'UTIL') {
+        for (let i = 1; i <= config.slot_count; i++) validSlotNames.add(`UTIL${i}`);
+      } else {
+        validSlotNames.add(config.position);
+      }
+    }
+
+    for (const config of activeConfigs) {
+      if (config.position === 'UTIL') {
+        for (let i = 0; i < config.slot_count; i++) {
+          const numberedSlot = `UTIL${i + 1}`;
+          const player = rosterPlayers.find(p => p.roster_slot === numberedSlot) ?? null;
+          starterSlots.push({ slotPosition: numberedSlot, slotIndex: i, player });
+        }
+      } else {
+        const playersInSlot = rosterPlayers.filter(p => p.roster_slot === config.position);
+        for (let i = 0; i < config.slot_count; i++) {
+          starterSlots.push({
+            slotPosition: config.position,
+            slotIndex: i,
+            player: playersInSlot[i] ?? null,
+          });
+        }
+      }
+    }
+
+    const benchPlayers: RosterPlayer[] = [];
+    for (const player of rosterPlayers) {
+      if (player.roster_slot === 'IR') continue;
+      if (!player.roster_slot || player.roster_slot === 'BE' || !validSlotNames.has(player.roster_slot)) {
+        benchPlayers.push(player);
+      }
+    }
+
+    const benchSlotCount = Math.max(benchConfig?.slot_count ?? 0, benchPlayers.length);
+    for (let i = 0; i < benchSlotCount; i++) {
+      benchSlots.push({
+        slotPosition: 'BE',
+        slotIndex: i,
+        player: benchPlayers[i] ?? null,
+      });
+    }
+
+    if (irConfig && irConfig.slot_count > 0) {
+      const irPlayers = rosterPlayers.filter(p => p.roster_slot === 'IR');
+      const irSlotCount = Math.max(irConfig.slot_count, irPlayers.length);
+      for (let i = 0; i < irSlotCount; i++) {
+        irSlots.push({
+          slotPosition: 'IR',
+          slotIndex: i,
+          player: irPlayers[i] ?? null,
+        });
+      }
     }
   }
-
-  // Fill roster spots with players using shared eligibility
-  const filledRoster = rosterStructure.reduce((acc, spot) => {
-    if (!players) return [...acc, spot];
-
-    const assignedPlayerIds = acc
-      .filter(s => s.player !== null)
-      .map(s => s.player!.id);
-
-    const player = players.find(p =>
-      isEligibleForSlot(p.position, spot.position) &&
-      !assignedPlayerIds.includes(p.id)
-    );
-
-    return [...acc, {
-      ...spot,
-      player: player || null
-    }];
-  }, [] as RosterSpot[]);
-
-  const renderRosterSpot = ({ item }: { item: RosterSpot }) => (
-    <ThemedView style={[styles.playerRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
-      <ThemedText style={[styles.positionLabel, { color: colors.secondaryText }]}>
-        {SLOT_LABELS[item.position] ?? item.position}
-      </ThemedText>
-      {item.player ? (
-        <>
-          <ThemedText style={styles.playerName}>{item.player.name}</ThemedText>
-          <ThemedText style={[styles.teamName, { color: colors.secondaryText }]}>{item.player.nba_team}</ThemedText>
-        </>
-      ) : (
-        <ThemedText style={[styles.emptySpot, { color: colors.buttonDisabled }]}>Empty</ThemedText>
-      )}
-    </ThemedView>
-  );
 
   if (isLoading) {
     return (
-      <ThemedView style={styles.container}>
-        <ActivityIndicator />
-      </ThemedView>
+      <View style={[styles.container, { backgroundColor: c.cardAlt }]}>
+        <ActivityIndicator style={styles.centered} />
+      </View>
     );
   }
 
+  if (!rosterPlayers || rosterPlayers.length === 0) {
+    return (
+      <View style={[styles.container, { backgroundColor: c.cardAlt }]}>
+        <View style={styles.centered}>
+          <ThemedText style={{ color: c.secondaryText }}>
+            No players drafted yet.
+          </ThemedText>
+        </View>
+      </View>
+    );
+  }
+
+  const renderSlotRow = (slot: SlotEntry, idx: number, list: SlotEntry[]) => {
+    const avgFpts = slot.player && scoringWeights
+      ? calculateAvgFantasyPoints(slot.player, scoringWeights)
+      : null;
+
+    return (
+      <View
+        key={`${slot.slotPosition}-${slot.slotIndex}`}
+        style={[
+          styles.slotRow,
+          idx < list.length - 1 && {
+            borderBottomColor: c.border,
+            borderBottomWidth: StyleSheet.hairlineWidth,
+          },
+        ]}
+      >
+        <View
+          style={[
+            styles.slotLabel,
+            { backgroundColor: slot.player ? c.activeCard : c.cardAlt },
+          ]}
+        >
+          <ThemedText
+            style={[
+              styles.slotLabelText,
+              { color: slot.player ? c.activeText : c.secondaryText },
+            ]}
+          >
+            {slotLabel(slot.slotPosition)}
+          </ThemedText>
+        </View>
+
+        {slot.player ? (
+          <TouchableOpacity
+            style={styles.slotPlayer}
+            onPress={() => setSelectedPlayer(slot.player)}
+          >
+            <View style={styles.portraitWrap}>
+              {(() => {
+                const url = getPlayerHeadshotUrl(slot.player.external_id_nba);
+                return url ? (
+                  <Image source={{ uri: url }} style={styles.headshot} resizeMode="cover" />
+                ) : (
+                  <View style={[styles.headshot, { backgroundColor: c.border }]} />
+                );
+              })()}
+              {(() => {
+                const logoUrl = getTeamLogoUrl(slot.player.nba_team);
+                return (
+                  <View style={styles.teamPill}>
+                    {logoUrl && (
+                      <Image source={{ uri: logoUrl }} style={styles.teamPillLogo} resizeMode="contain" />
+                    )}
+                    <Text style={styles.teamPillText}>{slot.player.nba_team}</Text>
+                  </View>
+                );
+              })()}
+            </View>
+            <View style={styles.slotPlayerInfo}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexWrap: 'wrap', flexShrink: 1 }}>
+                <ThemedText type="defaultSemiBold" style={styles.slotPlayerName}>
+                  {slot.player.name}
+                </ThemedText>
+                {(() => {
+                  const badge = getInjuryBadge(slot.player.status);
+                  return badge ? (
+                    <View style={[styles.badge, { backgroundColor: badge.color }]}>
+                      <Text style={styles.badgeText}>{badge.label}</Text>
+                    </View>
+                  ) : null;
+                })()}
+              </View>
+              <ThemedText style={[styles.slotPlayerSub, { color: c.secondaryText }]} numberOfLines={1}>
+                {formatPosition(slot.player.position)}
+              </ThemedText>
+            </View>
+            {avgFpts !== null && (
+              <Text style={[styles.slotFpts, { color: c.accent }]}>
+                {avgFpts.toFixed(1)}
+              </Text>
+            )}
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.slotPlayer}>
+            <ThemedText style={[styles.emptySlotText, { color: c.secondaryText }]}>
+              Empty
+            </ThemedText>
+          </View>
+        )}
+      </View>
+    );
+  };
+
   return (
-    <ThemedView style={[styles.container, { backgroundColor: colors.background }]}>
-      <FlatList
-        data={filledRoster}
-        renderItem={renderRosterSpot}
-        keyExtractor={(item, index) => `${item.position}-${index}`}
-        contentContainerStyle={styles.listContent}
+    <View style={[styles.container, { backgroundColor: c.cardAlt }]}>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        {/* Starters */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <ThemedText type="subtitle">Starters</ThemedText>
+          </View>
+          <View style={[styles.card, { backgroundColor: c.card }]}>
+            {starterSlots.map((slot, idx) => renderSlotRow(slot, idx, starterSlots))}
+          </View>
+        </View>
+
+        {/* Bench */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <ThemedText type="subtitle">Bench</ThemedText>
+          </View>
+          <View style={[styles.card, { backgroundColor: c.card }]}>
+            {benchSlots.length > 0 ? (
+              benchSlots.map((slot, idx) => renderSlotRow(slot, idx, benchSlots))
+            ) : (
+              <View style={styles.emptyBench}>
+                <ThemedText style={[styles.emptySlotText, { color: c.secondaryText }]}>
+                  No bench slots
+                </ThemedText>
+              </View>
+            )}
+          </View>
+        </View>
+
+        {/* IR */}
+        {irSlots.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <ThemedText type="subtitle">Injured Reserve</ThemedText>
+            </View>
+            <View style={[styles.card, { backgroundColor: c.card }]}>
+              {irSlots.map((slot, idx) => renderSlotRow(slot, idx, irSlots))}
+            </View>
+          </View>
+        )}
+      </ScrollView>
+
+      <PlayerDetailModal
+        player={selectedPlayer}
+        leagueId={leagueId}
+        teamId={teamId}
+        onClose={() => setSelectedPlayer(null)}
       />
-    </ThemedView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  container: { flex: 1 },
+  scrollContent: { paddingBottom: 56 },
+  centered: {
     flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
   },
-  listContent: {
-    padding: 8,
-  },
-  playerRow: {
+  section: { padding: 16, paddingBottom: 0 },
+  sectionHeader: {
     flexDirection: 'row',
-    padding: 12,
-    marginVertical: 2,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  card: {
     borderRadius: 8,
-    borderWidth: 1,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  slotRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 56,
+  },
+  slotLabel: {
+    width: 44,
+    alignSelf: 'stretch',
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  positionLabel: {
-    width: 50,
-    fontWeight: 'bold',
-  },
-  playerName: {
+  slotLabelText: { fontSize: 11, fontWeight: '700' },
+  slotPlayer: {
     flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
   },
-  teamName: {
-    width: 80,
-    textAlign: 'right',
-    fontSize: 12,
+  portraitWrap: {
+    width: 44,
+    height: 36,
+    marginRight: 8,
   },
-  emptySpot: {
-    flex: 1,
-    fontStyle: 'italic',
+  headshot: {
+    width: 44,
+    height: 32,
+    borderRadius: 4,
+  },
+  teamPill: {
+    position: 'absolute',
+    bottom: -1,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    borderRadius: 8,
+    paddingHorizontal: 3,
+    paddingVertical: 1,
+    gap: 2,
+  },
+  teamPillLogo: {
+    width: 9,
+    height: 9,
+  },
+  teamPillText: {
+    color: '#fff',
+    fontSize: 7,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  slotPlayerInfo: { flex: 1, marginRight: 8 },
+  slotPlayerName: { fontSize: 14 },
+  slotPlayerSub: { fontSize: 11, marginTop: 1 },
+  slotFpts: { fontSize: 13, fontWeight: '600' },
+  emptySlotText: { fontSize: 13, fontStyle: 'italic' },
+  emptyBench: { padding: 16, alignItems: 'center' },
+  badge: {
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 3,
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: 8,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
 });

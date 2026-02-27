@@ -57,11 +57,15 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // Prepend league name to title
+    const { data: leagueInfo } = await supabaseAdmin.from('leagues').select('name').eq('id', league_id).single();
+    const prefixedTitle = `${leagueInfo?.name ?? 'Your League'} — ${title}`;
+
     // Send to specific teams or entire league
     if (team_ids && Array.isArray(team_ids) && team_ids.length > 0) {
-      await notifyTeams(supabaseAdmin, team_ids, category, title, body, data);
+      await notifyTeams(supabaseAdmin, team_ids, category, prefixedTitle, body, data);
     } else {
-      await notifyLeague(supabaseAdmin, league_id, category, title, body, data);
+      await notifyLeague(supabaseAdmin, league_id, category, prefixedTitle, body, data);
     }
 
     return new Response(JSON.stringify({ ok: true }), {

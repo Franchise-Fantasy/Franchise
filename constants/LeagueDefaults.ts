@@ -31,6 +31,7 @@ export const DEFAULT_SCORING: ScoringCategory[] = [
   { stat_name: 'BLK', label: 'Blocks', point_value: 3 },
   { stat_name: 'TO', label: 'Turnovers', point_value: -1 },
   { stat_name: '3PM', label: '3-Pointers Made', point_value: 1 },
+  { stat_name: '3PA', label: '3-Pointers Attempted', point_value: 0 },
   { stat_name: 'FGM', label: 'Field Goals Made', point_value: 2 },
   { stat_name: 'FGA', label: 'Field Goals Attempted', point_value: -1 },
   { stat_name: 'FTM', label: 'Free Throws Made', point_value: 1 },

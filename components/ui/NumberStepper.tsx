@@ -31,16 +31,18 @@ export function NumberStepper({
   const atMax = value >= max;
 
   const decrement = () => {
-    const next = Math.round((value - step) * 10) / 10;
+    const next = Math.round((value - step) * 100) / 100;
     if (next >= min) onValueChange(next);
   };
 
   const increment = () => {
-    const next = Math.round((value + step) * 10) / 10;
+    const next = Math.round((value + step) * 100) / 100;
     if (next <= max) onValueChange(next);
   };
 
-  const displayValue = step < 1 ? value.toFixed(1) : String(value);
+  const displayValue = step < 1
+    ? (value % 1 === 0 ? value.toFixed(1) : String(parseFloat(value.toFixed(2))))
+    : String(value);
 
   const startEditing = () => {
     setDraft(displayValue);
@@ -51,7 +53,7 @@ export function NumberStepper({
     setEditing(false);
     const parsed = parseFloat(draft);
     if (isNaN(parsed)) return;
-    const clamped = Math.min(max, Math.max(min, Math.round(parsed * 10) / 10));
+    const clamped = Math.min(max, Math.max(min, Math.round(parsed * 100) / 100));
     onValueChange(clamped);
   };
 
@@ -130,7 +132,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   valueBox: {
-    width: 52,
+    minWidth: 52,
+    paddingHorizontal: 6,
     height: 32,
     borderWidth: 1,
     borderRadius: 6,

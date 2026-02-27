@@ -5,7 +5,7 @@ const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 type NotifCategory =
   | 'draft' | 'trades' | 'matchups' | 'matchup_daily' | 'waivers'
   | 'injuries' | 'playoffs' | 'commissioner' | 'league_activity'
-  | 'roster_reminders' | 'lottery';
+  | 'roster_reminders' | 'lottery' | 'chat';
 
 const CHANNEL_MAP: Record<string, string> = {
   matchup_daily: 'matchups',
@@ -102,8 +102,14 @@ export async function notifyTeams(
 ): Promise<void> {
   const tokens = await getTokensForTeams(supabase, teamIds, category);
   if (tokens.length === 0) return;
+  // Auto-resolve league_id so notification taps can switch league context
+  let leagueId = data?.league_id;
+  if (!leagueId && teamIds.length > 0) {
+    const { data: team } = await supabase.from('teams').select('league_id').eq('id', teamIds[0]).single();
+    leagueId = team?.league_id;
+  }
   const channelId = CHANNEL_MAP[category] ?? category;
-  const dead = await sendPush(tokens.map(to => ({ to, title, body, data: { ...data, channelId }, channelId })));
+  const dead = await sendPush(tokens.map(to => ({ to, title, body, data: { ...data, league_id: leagueId, channelId }, channelId })));
   await cleanDeadTokens(supabase, dead);
 }
 
@@ -118,6 +124,6 @@ export async function notifyLeague(
   const tokens = await getTokensForLeague(supabase, leagueId, category);
   if (tokens.length === 0) return;
   const channelId = CHANNEL_MAP[category] ?? category;
-  const dead = await sendPush(tokens.map(to => ({ to, title, body, data: { ...data, channelId }, channelId })));
+  const dead = await sendPush(tokens.map(to => ({ to, title, body, data: { ...data, league_id: leagueId, channelId }, channelId })));
   await cleanDeadTokens(supabase, dead);
 }

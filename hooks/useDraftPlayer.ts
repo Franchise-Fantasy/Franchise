@@ -40,10 +40,10 @@ export const useDraftPlayer = (leagueId: string, draftId: string ) => {
       // You would show a toast notification here
     },
     onSettled: () => {
-      // This ensures data consistency after the mutation is complete
       queryClient.invalidateQueries({ queryKey: ['availablePlayers', leagueId] });
       queryClient.invalidateQueries({ queryKey: ['draftOrder', draftId] });
-      queryClient.invalidateQueries({ queryKey: ['draftState', draftId] })
+      queryClient.invalidateQueries({ queryKey: ['draftState', draftId] });
+      queryClient.invalidateQueries({ queryKey: ['teamRoster'] });
     },
   });
 };

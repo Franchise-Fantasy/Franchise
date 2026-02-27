@@ -12,6 +12,8 @@ import 'react-native-reanimated';
 // Sentry.init({ dsn: process.env.EXPO_PUBLIC_SENTRY_DSN });
 
 // Show foreground alerts for high-priority channels; suppress others.
+import { isDraftRoomOpen } from '@/lib/activeScreen';
+
 const FOREGROUND_CHANNELS = ['draft', 'trades', 'playoffs', 'commissioner'];
 
 Notifications.setNotificationHandler({
@@ -19,6 +21,18 @@ Notifications.setNotificationHandler({
     const channelId =
       (notification.request.content.data as any)?.channelId ??
       (notification.request.trigger as any)?.channelId;
+
+    // Don't show draft alerts when the user is already in the draft room
+    if (channelId === 'draft' && isDraftRoomOpen()) {
+      return {
+        shouldShowAlert: false,
+        shouldShowBanner: false,
+        shouldShowList: false,
+        shouldPlaySound: false,
+        shouldSetBadge: false,
+      };
+    }
+
     const show = FOREGROUND_CHANNELS.includes(channelId);
     return {
       shouldShowAlert: show,
@@ -31,9 +45,10 @@ Notifications.setNotificationHandler({
 });
 
 import { OfflineBanner } from '@/components/OfflineBanner';
-import { AppStateProvider } from '@/context/AppStateProvider';
-import { AuthProvider } from '@/context/AuthProvider';
+import { AppStateProvider, useAppState } from '@/context/AppStateProvider';
+import { AuthProvider, useSession } from '@/context/AuthProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { supabase } from '@/lib/supabase';
 import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useEffect } from 'react';
@@ -51,9 +66,55 @@ focusManager.setEventListener((handleFocus) => {
   return () => sub.remove();
 });
 
+const NOTIF_ROUTES: Record<string, string> = {
+  roster: '/(tabs)/roster',
+  matchup: '/(tabs)/matchup',
+  'free-agents': '/(tabs)/free-agents',
+  trades: '/trades',
+  'playoff-bracket': '/playoff-bracket',
+  scoreboard: '/scoreboard',
+  'league-info': '/league-info',
+  activity: '/activity',
+};
+
+function NotificationHandler() {
+  const router = useRouter();
+  const session = useSession();
+  const { setLeagueId, setTeamId } = useAppState();
+
+  useEffect(() => {
+    const sub = Notifications.addNotificationResponseReceivedListener(async (response) => {
+      const data = response.notification.request.content.data as Record<string, string> | undefined;
+      if (!data?.screen) return;
+
+      // Switch league context if the notification includes a league_id
+      if (data.league_id && session?.user) {
+        const { data: team } = await supabase
+          .from('teams')
+          .select('id, league_id')
+          .eq('user_id', session.user.id)
+          .eq('league_id', data.league_id)
+          .maybeSingle();
+        if (team) {
+          setLeagueId(team.league_id);
+          setTeamId(team.id);
+        }
+      }
+
+      if (data.screen === 'draft-room' && data.draft_id) {
+        router.push(`/draft-room/${data.draft_id}` as any);
+      } else if (NOTIF_ROUTES[data.screen]) {
+        router.push(NOTIF_ROUTES[data.screen] as any);
+      }
+    });
+    return () => sub.remove();
+  }, [router, session?.user, setLeagueId, setTeamId]);
+
+  return null;
+}
+
 export default function RootLayout() {
   const colorScheme = useColorScheme();
-  const router = useRouter();
   const [loaded] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
   });
@@ -81,32 +142,6 @@ export default function RootLayout() {
     })();
   }, []);
 
-  // Navigate to the relevant screen when user taps a notification
-  useEffect(() => {
-    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification.request.content.data as Record<string, string> | undefined;
-      if (!data?.screen) return;
-
-      const routes: Record<string, string> = {
-        roster: '/(tabs)/roster',
-        matchup: '/(tabs)/matchup',
-        'free-agents': '/(tabs)/free-agents',
-        trades: '/trades',
-        'playoff-bracket': '/playoff-bracket',
-        scoreboard: '/scoreboard',
-        'league-info': '/league-info',
-        activity: '/activity',
-      };
-
-      if (data.screen === 'draft-room' && data.draft_id) {
-        router.push(`/draft-room/${data.draft_id}` as any);
-      } else if (routes[data.screen]) {
-        router.push(routes[data.screen] as any);
-      }
-    });
-    return () => sub.remove();
-  }, [router]);
-
   if (!loaded) {
     // Async font loading only occurs in development.
     return null;
@@ -117,6 +152,7 @@ export default function RootLayout() {
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <AuthProvider>
           <AppStateProvider>
+            <NotificationHandler />
             <OfflineBanner />
             <Stack>
               <Stack.Screen name="index" options={{ headerShown: false }} />

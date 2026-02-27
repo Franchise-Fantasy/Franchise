@@ -92,18 +92,22 @@ Deno.serve(async (req: Request) => {
 
     // Notify the next seed picker
     try {
-      const { data: nextPick } = await supabase
-        .from('playoff_seed_picks')
-        .select('picking_team_id, picking_seed')
-        .eq('league_id', league_id).eq('round', round)
-        .is('picked_opponent_id', null)
-        .order('picking_seed', { ascending: true })
-        .limit(1)
-        .maybeSingle();
+      const [{ data: nextPick }, { data: leagueInfo }] = await Promise.all([
+        supabase
+          .from('playoff_seed_picks')
+          .select('picking_team_id, picking_seed')
+          .eq('league_id', league_id).eq('round', round)
+          .is('picked_opponent_id', null)
+          .order('picking_seed', { ascending: true })
+          .limit(1)
+          .maybeSingle(),
+        supabase.from('leagues').select('name').eq('id', league_id).single(),
+      ]);
 
       if (nextPick) {
+        const ln = leagueInfo?.name ?? 'Your League';
         await notifyTeams(supabase, [nextPick.picking_team_id], 'playoffs',
-          'Your Turn to Pick',
+          `${ln} — Your Turn to Pick`,
           `Seed #${nextPick.picking_seed}, choose your playoff opponent.`,
           { screen: 'playoff-bracket' }
         );

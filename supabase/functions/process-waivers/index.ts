@@ -33,7 +33,7 @@ Deno.serve(async (req: Request) => {
 
     for (const waiver of expiredWaivers ?? []) {
       const { data: league } = await supabase
-        .from('leagues').select('waiver_type, waiver_period_days')
+        .from('leagues').select('name, waiver_type, waiver_period_days')
         .eq('id', waiver.league_id).single();
 
       if (!league || league.waiver_type !== 'standard') {
@@ -59,9 +59,10 @@ Deno.serve(async (req: Request) => {
 
             // Notify winner
             try {
+              const ln = league.name ?? 'Your League';
               const { data: pd } = await supabase.from('players').select('name').eq('id', claim.player_id).single();
               await notifyTeams(supabase, [claim.team_id], 'waivers',
-                'Waiver Claim Won!',
+                `${ln} — Waiver Claim Won!`,
                 `You claimed ${pd?.name ?? 'a player'} off waivers.`,
                 { screen: 'roster' }
               );
@@ -76,8 +77,9 @@ Deno.serve(async (req: Request) => {
             const failedClaims = (claims ?? []).filter(c => c.id !== claim.id);
             for (const fc of failedClaims) {
               try {
+                const lnLost = league.name ?? 'Your League';
                 await notifyTeams(supabase, [fc.team_id], 'waivers',
-                  'Waiver Claim Lost',
+                  `${lnLost} — Waiver Claim Lost`,
                   'Your waiver claim was not awarded.',
                   { screen: 'free-agents' }
                 );
@@ -105,7 +107,7 @@ Deno.serve(async (req: Request) => {
   // Step B: Process FAAB Claims (weekly cycle)
   try {
     const { data: faabLeagues, error: flErr } = await supabase
-      .from('leagues').select('id, waiver_day_of_week, waiver_period_days')
+      .from('leagues').select('id, name, waiver_day_of_week, waiver_period_days')
       .eq('waiver_type', 'faab');
     if (flErr) throw flErr;
 
@@ -140,8 +142,9 @@ Deno.serve(async (req: Request) => {
               .eq('id', claim.id);
 
             try {
+              const ln = league.name ?? 'Your League';
               await notifyTeams(supabase, [claim.team_id], 'waivers',
-                'FAAB Bid Lost',
+                `${ln} — FAAB Bid Lost`,
                 'Your bid was not the highest.',
                 { screen: 'free-agents' }
               );
@@ -169,9 +172,10 @@ Deno.serve(async (req: Request) => {
 
               // Notify winner
               try {
+                const ln = league.name ?? 'Your League';
                 const { data: pd } = await supabase.from('players').select('name').eq('id', claim.player_id).single();
                 await notifyTeams(supabase, [claim.team_id], 'waivers',
-                  'FAAB Bid Won!',
+                  `${ln} — FAAB Bid Won!`,
                   `You won ${pd?.name ?? 'a player'} for $${claim.bid_amount}.`,
                   { screen: 'roster' }
                 );

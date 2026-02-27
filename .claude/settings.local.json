@@ -50,7 +50,13 @@
       "Bash(npm install @react-native-community/netinfo)",
       "Bash(for dir in start-draft autodraft finalize-week execute-trade poll-injuries process-pending-transactions process-waivers run-lottery generate-playoff-round submit-seed-pick reverse-trade commissioner-action send-notification advance-season create-rookie-draft start-lottery)",
       "Bash(do cp \"supabase/functions/make-draft-pick/push.ts\" \"supabase/functions/$dir/push.ts\")",
-      "Bash(git add .)"
+      "Bash(git add .)",
+      "Bash(/dev/null -exec wc -l {} ;)",
+      "Bash(node -e \"console.log\\(undefined * 0\\)\")",
+      "Bash(node -e \"console.log\\(NaN\\); console.log\\(undefined * 1\\); console.log\\(undefined * 0\\); console.log\\(Number\\(undefined\\)\\);\")",
+      "Bash(find supabase/functions -name \"push.ts\" ! -path \"*/send-notification/*\" -exec sed -i \"s/| ''roster_reminders'' | ''lottery'';/| ''roster_reminders'' | ''lottery'' | ''chat'';/\" {} ;)",
+      "Bash(wc -l \"c:\\\\Users\\\\jjspo\\\\OneDrive\\\\Desktop\\\\franchise.v2\\\\app\\\\\\(tabs\\)\\\\roster.tsx\")",
+      "Bash(wc -l /c/Users/jjspo/OneDrive/Desktop/franchise.v2/app/\\\\\\(tabs\\\\\\)/roster.tsx /c/Users/jjspo/OneDrive/Desktop/franchise.v2/components/player/PlayerDetailModal.tsx)"
     ]
   }
 }

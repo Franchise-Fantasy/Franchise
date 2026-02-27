@@ -33,7 +33,7 @@ Deno.serve(async (req) => {
 
     const { data: league, error: leagueErr } = await supabaseAdmin
       .from('leagues')
-      .select('created_by, season, teams, current_teams, rookie_draft_rounds, offseason_step')
+      .select('created_by, name, season, teams, current_teams, rookie_draft_rounds, offseason_step')
       .eq('id', league_id)
       .single();
     if (leagueErr || !league) throw new Error('League not found');
@@ -96,8 +96,9 @@ Deno.serve(async (req) => {
 
     // Notify league
     try {
+      const ln = league.name ?? 'Your League';
       await notifyLeague(supabaseAdmin, league_id, 'draft',
-        'Rookie Draft Created',
+        `${ln} — Rookie Draft Created`,
         'The rookie draft has been set up. The commissioner will schedule the date soon.',
         { screen: 'home' }
       );

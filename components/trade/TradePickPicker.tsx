@@ -2,7 +2,7 @@ import { ThemedText } from '@/components/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useTeamTradablePicks } from '@/hooks/useTrades';
-import { estimatePickFpts, formatPickLabel } from '@/types/trade';
+import { formatPickLabel } from '@/types/trade';
 import {
   ActivityIndicator,
   FlatList,
@@ -45,8 +45,6 @@ export function TradePickPicker({
   const renderItem = ({ item }: { item: TradablePickRow }) => {
     const isSelected = selectedPickIds.includes(item.id);
     const isTraded = item.current_team_id !== item.original_team_id;
-    const estFpts = estimatePickFpts(item.round);
-
     return (
       <TouchableOpacity
         style={[
@@ -66,9 +64,6 @@ export function TradePickPicker({
             </ThemedText>
           )}
         </View>
-        <ThemedText style={[styles.fpts, { color: c.secondaryText }]}>
-          ~{estFpts}
-        </ThemedText>
         <ThemedText style={styles.check}>{isSelected ? '✓' : ''}</ThemedText>
       </TouchableOpacity>
     );
@@ -171,11 +166,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 1,
   },
-  fpts: {
-    fontSize: 12,
-    marginRight: 10,
-  },
-  check: {
+check: {
     width: 22,
     fontSize: 16,
     fontWeight: '700',

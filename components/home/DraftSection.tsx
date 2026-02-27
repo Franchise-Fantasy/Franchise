@@ -123,14 +123,10 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
   const isActive = !!(draft.draft_date && isDraftSoon(draft.draft_date));
 
   return (
-    <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
+    <View style={[styles.section, { backgroundColor: isActive ? c.activeCard : c.card, borderColor: isActive ? c.activeBorder : c.border }]}>
       <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Draft</ThemedText>
       <TouchableOpacity
-        style={[
-          styles.draftRow,
-          { borderBottomWidth: 0 },
-          isActive && { backgroundColor: c.activeCard, borderRadius: 8, borderWidth: 1, borderColor: c.activeBorder },
-        ]}
+        style={[styles.draftRow, { borderBottomWidth: 0 }]}
         onPress={handlePress}
         activeOpacity={0.7}
       >
@@ -213,7 +209,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingTop: 14,
-    paddingBottom: 2,
+    paddingBottom: 10,
     marginBottom: 16,
   },
   sectionTitle: {

@@ -39,7 +39,7 @@ Deno.serve(async (req) => {
     }
 
     const { data: league } = await supabaseAdmin
-      .from('leagues').select('created_by').eq('id', proposal.league_id).single();
+      .from('leagues').select('created_by, name').eq('id', proposal.league_id).single();
     if (league?.created_by !== user.id) {
       throw new Error('Only the commissioner can reverse trades.');
     }
@@ -118,8 +118,9 @@ Deno.serve(async (req) => {
 
     // Notify all teams involved
     try {
+      const ln = league?.name ?? 'Your League';
       await notifyTeams(supabaseAdmin, allTeamIds, 'commissioner',
-        'Trade Reversed',
+        `${ln} — Trade Reversed`,
         notes,
         { screen: 'trades' }
       );

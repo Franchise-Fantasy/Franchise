@@ -4,7 +4,8 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats } from '@/types/player';
 import { getInjuryBadge } from '@/utils/injuryBadge';
-import { isEligibleForSlot, SLOT_LABELS } from '@/utils/rosterSlots';
+import { isEligibleForSlot, slotLabel } from '@/utils/rosterSlots';
+import { useLeagueRosterConfig } from '@/hooks/useLeagueRosterConfig';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -36,6 +37,7 @@ export function ForceRosterMoveModal({ visible, leagueId, teams, onClose }: Prop
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const queryClient = useQueryClient();
+  const { data: rosterConfig } = useLeagueRosterConfig(leagueId);
 
   const [step, setStep] = useState<Step>('team');
   const [selectedTeam, setSelectedTeam] = useState<{ id: string; name: string } | null>(null);
@@ -83,9 +85,20 @@ export function ForceRosterMoveModal({ visible, leagueId, teams, onClose }: Prop
     enabled: !!selectedTeam && step !== 'team',
   });
 
-  // Get available slots for the selected player
+  // Build all possible slot names from config (with numbered UTILs)
+  const allSlotNames: string[] = [];
+  if (rosterConfig) {
+    for (const cfg of rosterConfig) {
+      if (cfg.position === 'UTIL') {
+        for (let i = 1; i <= cfg.slot_count; i++) allSlotNames.push(`UTIL${i}`);
+      } else {
+        allSlotNames.push(cfg.position);
+      }
+    }
+  }
+
   const availableSlots = selectedPlayer
-    ? Object.keys(SLOT_LABELS).filter(
+    ? allSlotNames.filter(
         (slot) => isEligibleForSlot(selectedPlayer.position, slot) && slot !== selectedPlayer.roster_slot
       )
     : [];
@@ -94,7 +107,7 @@ export function ForceRosterMoveModal({ visible, leagueId, teams, onClose }: Prop
     if (!selectedPlayer || !selectedTeam) return;
     Alert.alert(
       'Force Roster Move',
-      `Move ${selectedPlayer.name} from ${SLOT_LABELS[selectedPlayer.roster_slot] ?? selectedPlayer.roster_slot} to ${SLOT_LABELS[targetSlot] ?? targetSlot}?`,
+      `Move ${selectedPlayer.name} from ${slotLabel(selectedPlayer.roster_slot)} to ${slotLabel(targetSlot)}?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -113,7 +126,7 @@ export function ForceRosterMoveModal({ visible, leagueId, teams, onClose }: Prop
               });
               if (error) throw new Error(error.message);
 
-              Alert.alert('Done', `${selectedPlayer.name} moved to ${SLOT_LABELS[targetSlot] ?? targetSlot}.`);
+              Alert.alert('Done', `${selectedPlayer.name} moved to ${slotLabel(targetSlot)}.`);
               queryClient.invalidateQueries({ queryKey: ['teamRoster'] });
               queryClient.invalidateQueries({ queryKey: ['transactions'] });
               queryClient.invalidateQueries({ queryKey: ['commishRosterMove'] });
@@ -191,7 +204,7 @@ export function ForceRosterMoveModal({ visible, leagueId, teams, onClose }: Prop
                         </View>
                         <View style={[styles.slotBadge, { backgroundColor: c.cardAlt }]}>
                           <ThemedText style={{ fontSize: 12, fontWeight: '600' }}>
-                            {SLOT_LABELS[item.roster_slot] ?? item.roster_slot}
+                            {slotLabel(item.roster_slot)}
                           </ThemedText>
                         </View>
                         <Ionicons name="chevron-forward" size={18} color={c.secondaryText} style={{ marginLeft: 8 }} />
@@ -206,7 +219,7 @@ export function ForceRosterMoveModal({ visible, leagueId, teams, onClose }: Prop
           {step === 'slot' && (
             <>
               <ThemedText style={[styles.slotHeader, { color: c.secondaryText }]}>
-                Current: {SLOT_LABELS[selectedPlayer?.roster_slot ?? ''] ?? selectedPlayer?.roster_slot}
+                Current: {slotLabel(selectedPlayer?.roster_slot ?? '')}
               </ThemedText>
               {availableSlots.length === 0 ? (
                 <ThemedText style={[styles.empty, { color: c.secondaryText }]}>
@@ -222,7 +235,7 @@ export function ForceRosterMoveModal({ visible, leagueId, teams, onClose }: Prop
                       onPress={() => handleMoveToSlot(slot)}
                       disabled={processing}
                     >
-                      <ThemedText style={{ fontWeight: '600' }}>{SLOT_LABELS[slot] ?? slot}</ThemedText>
+                      <ThemedText style={{ fontWeight: '600' }}>{slotLabel(slot)}</ThemedText>
                     </TouchableOpacity>
                   )}
                 />

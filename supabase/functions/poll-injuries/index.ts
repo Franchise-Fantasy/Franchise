@@ -15,6 +15,31 @@ const STATUS_MAP: Record<string, string> = {
   'game time decision': 'GTD', 'gtd': 'GTD', 'questionable': 'QUES',
 };
 
+// Maps full NBA team names to tricodes for PDF parsing
+const TEAM_NAME_TO_TRICODE: Record<string, string> = {
+  'atlanta hawks': 'ATL', 'boston celtics': 'BOS', 'brooklyn nets': 'BKN',
+  'charlotte hornets': 'CHA', 'chicago bulls': 'CHI', 'cleveland cavaliers': 'CLE',
+  'dallas mavericks': 'DAL', 'denver nuggets': 'DEN', 'detroit pistons': 'DET',
+  'golden state warriors': 'GSW', 'houston rockets': 'HOU', 'indiana pacers': 'IND',
+  'los angeles clippers': 'LAC', 'la clippers': 'LAC',
+  'los angeles lakers': 'LAL', 'la lakers': 'LAL',
+  'memphis grizzlies': 'MEM', 'miami heat': 'MIA', 'milwaukee bucks': 'MIL',
+  'minnesota timberwolves': 'MIN', 'new orleans pelicans': 'NOP',
+  'new york knicks': 'NYK', 'oklahoma city thunder': 'OKC', 'orlando magic': 'ORL',
+  'philadelphia 76ers': 'PHI', 'phoenix suns': 'PHX', 'portland trail blazers': 'POR',
+  'sacramento kings': 'SAC', 'san antonio spurs': 'SAS', 'toronto raptors': 'TOR',
+  'utah jazz': 'UTA', 'washington wizards': 'WAS',
+};
+
+function extractTeamsFromText(text: string): string[] {
+  const teams = new Set<string>();
+  const lower = text.toLowerCase();
+  for (const [name, tricode] of Object.entries(TEAM_NAME_TO_TRICODE)) {
+    if (lower.includes(name)) teams.add(tricode);
+  }
+  return [...teams].sort();
+}
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -89,7 +114,7 @@ function parseInjuriesFromText(text: string): Array<{ player_name: string; statu
   return injuries;
 }
 
-async function fetchInjuriesFromNba(): Promise<Array<{ player_name: string; status: string }> | null> {
+async function fetchInjuriesFromNba(): Promise<{ injuries: Array<{ player_name: string; status: string }>; teamsOnReport: string[] } | null> {
   const urls = buildPdfUrls();
   for (const url of urls) {
     try {
@@ -107,8 +132,9 @@ async function fetchInjuriesFromNba(): Promise<Array<{ player_name: string; stat
       console.log(`Extracted text: ${text.length} chars`);
       if (text.length < 100) continue;
       const injuries = parseInjuriesFromText(text);
-      console.log(`Parsed ${injuries.length} injuries`);
-      if (injuries.length > 0) return injuries;
+      const teamsOnReport = extractTeamsFromText(text);
+      console.log(`Parsed ${injuries.length} injuries from ${teamsOnReport.length} teams: ${teamsOnReport.join(', ')}`);
+      if (injuries.length > 0) return { injuries, teamsOnReport };
     } catch (err: any) {
       console.warn(`PDF fetch failed for ${url}: ${err?.message ?? err}`);
       continue;
@@ -119,15 +145,17 @@ async function fetchInjuriesFromNba(): Promise<Array<{ player_name: string; stat
 
 async function applyInjuries(
   injuries: Array<{ player_name: string; status: string }>,
-): Promise<{ matchedPlayers: number; statusUpdates: number; playersReset: number; unmatchedNames: string[]; changedPlayerIds: string[] }> {
+  teamsOnReport: string[],
+): Promise<{ matchedPlayers: number; statusUpdates: number; playersReset: number; unmatchedNames: string[]; changedPlayerIds: string[]; teamsReported: number }> {
   const { data: allPlayers, error: playerErr } = await supabase
-    .from('players').select('id, name, status');
+    .from('players').select('id, name, status, nba_team');
   if (playerErr) throw new Error(playerErr.message);
 
-  const nameToPlayer = new Map<string, { id: string; status: string }>(
-    (allPlayers ?? []).map((p: any) => [p.name.toLowerCase(), { id: p.id, status: p.status }]),
+  const nameToPlayer = new Map<string, { id: string; status: string; nba_team: string }>(
+    (allPlayers ?? []).map((p: any) => [p.name.toLowerCase(), { id: p.id, status: p.status, nba_team: p.nba_team }]),
   );
 
+  const reportedTeams = new Set(teamsOnReport);
   const matchedPlayerIds = new Set<string>();
   const unmatchedNames: string[] = [];
   const changedPlayerIds: string[] = [];
@@ -147,14 +175,27 @@ async function applyInjuries(
     }
   }
 
-  const idsToReset = (allPlayers ?? [])
-    .filter((p: any) => p.status !== 'active' && !matchedPlayerIds.has(p.id))
-    .map((p: any) => p.id);
+  // Only reset players whose team is on the report and who aren't listed as injured.
+  // This prevents resetting players from teams that haven't submitted yet or don't
+  // play today (e.g. a season-ending injury whose team has no game).
+  let playersReset = 0;
 
-  if (idsToReset.length > 0) {
-    const { error } = await supabase.from('players').update({ status: 'active' }).in('id', idsToReset);
-    if (error) console.error('Reset error:', error.message);
-    else { updateCount += idsToReset.length; changedPlayerIds.push(...idsToReset); }
+  if (reportedTeams.size > 0) {
+    const idsToReset = (allPlayers ?? [])
+      .filter((p: any) =>
+        p.status !== 'active' &&
+        !matchedPlayerIds.has(p.id) &&
+        reportedTeams.has(p.nba_team)
+      )
+      .map((p: any) => p.id);
+
+    if (idsToReset.length > 0) {
+      const { error } = await supabase.from('players').update({ status: 'active' }).in('id', idsToReset);
+      if (error) console.error('Reset error:', error.message);
+      else { updateCount += idsToReset.length; playersReset = idsToReset.length; changedPlayerIds.push(...idsToReset); }
+    }
+  } else {
+    console.log('Skipping reset: no teams identified on report');
   }
 
   if (updateCount > 0) {
@@ -162,29 +203,35 @@ async function applyInjuries(
     if (error) console.error('Mat view refresh error:', error.message);
   }
 
-  return { matchedPlayers: matchedPlayerIds.size, statusUpdates: updateCount, playersReset: idsToReset.length, unmatchedNames, changedPlayerIds };
+  return { matchedPlayers: matchedPlayerIds.size, statusUpdates: updateCount, playersReset, unmatchedNames, changedPlayerIds, teamsReported: reportedTeams.size };
 }
 
 async function sendInjuryNotifications(changedPlayerIds: string[]) {
   if (changedPlayerIds.length === 0) return;
 
-  // Find which teams roster these players
+  // Find which teams roster these players, including league name
   const { data: affectedRosters } = await supabase
-    .from('league_players').select('team_id, player_id')
+    .from('league_players').select('team_id, player_id, leagues!inner(name)')
     .in('player_id', changedPlayerIds);
 
   if (!affectedRosters || affectedRosters.length === 0) return;
 
-  // Group by team_id
-  const teamPlayers = new Map<string, string[]>();
+  // Group by team_id + league name (a user could own the same player in multiple leagues)
+  const teamLeaguePlayers = new Map<string, { leagueName: string; playerIds: string[] }>();
   for (const row of affectedRosters) {
-    const existing = teamPlayers.get(row.team_id) ?? [];
-    existing.push(row.player_id);
-    teamPlayers.set(row.team_id, existing);
+    const leagueName = (row as any).leagues?.name ?? 'Your League';
+    const key = `${row.team_id}::${leagueName}`;
+    const existing = teamLeaguePlayers.get(key);
+    if (existing) {
+      existing.playerIds.push(row.player_id);
+    } else {
+      teamLeaguePlayers.set(key, { leagueName, playerIds: [row.player_id] });
+    }
   }
 
-  // Send one notification per team
-  for (const [teamId, playerIds] of teamPlayers) {
+  // Send one notification per team per league
+  for (const [key, { leagueName, playerIds }] of teamLeaguePlayers) {
+    const teamId = key.split('::')[0];
     try {
       const { data: players } = await supabase
         .from('players').select('name, status').in('id', playerIds);
@@ -192,7 +239,7 @@ async function sendInjuryNotifications(changedPlayerIds: string[]) {
         .map((p: any) => `${p.name}: ${p.status}`)
         .join(', ');
       await notifyTeams(supabase, [teamId], 'injuries',
-        'Injury Update',
+        `Injury Update — ${leagueName}`,
         summary,
         { screen: 'roster' }
       );
@@ -215,6 +262,7 @@ Deno.serve(async (req: Request) => {
 
   try {
     let injuries: Array<{ player_name: string; status: string }> | null = null;
+    let teamsOnReport: string[] = [];
     let source = 'manual';
 
     const contentType = req.headers.get('content-type') ?? '';
@@ -231,24 +279,28 @@ Deno.serve(async (req: Request) => {
             }
           }
           injuries = body.injuries;
+          teamsOnReport = body.teams_on_report ?? [];
           source = 'manual';
         }
       } catch { /* empty or invalid JSON body — fall through */ }
     }
 
     if (!injuries) {
-      console.log('No manual data \u2014 auto-fetching from NBA injury report PDF...');
-      injuries = await fetchInjuriesFromNba();
+      console.log('No manual data — auto-fetching from NBA injury report PDF...');
+      const fetched = await fetchInjuriesFromNba();
       source = 'nba-pdf';
-      if (!injuries) {
+      if (!fetched) {
         return new Response(
           JSON.stringify({ ok: true, source, note: 'could not fetch or parse NBA injury PDF' }),
           { status: 200, headers: jsonHeaders },
         );
       }
+      injuries = fetched.injuries;
+      teamsOnReport = fetched.teamsOnReport;
     }
 
-    const result = await applyInjuries(injuries);
+    console.log(`Teams on report (${teamsOnReport.length}): ${teamsOnReport.join(', ')}`);
+    const result = await applyInjuries(injuries, teamsOnReport);
 
     // Send injury notifications for changed players
     try {
@@ -258,7 +310,7 @@ Deno.serve(async (req: Request) => {
     }
 
     return new Response(
-      JSON.stringify({ ok: true, source, injuriesReceived: injuries.length, matchedPlayers: result.matchedPlayers, statusUpdates: result.statusUpdates, playersReset: result.playersReset, unmatchedNames: result.unmatchedNames }),
+      JSON.stringify({ ok: true, source, injuriesReceived: injuries.length, matchedPlayers: result.matchedPlayers, statusUpdates: result.statusUpdates, playersReset: result.playersReset, teamsReported: result.teamsReported, unmatchedNames: result.unmatchedNames }),
       { status: 200, headers: jsonHeaders },
     );
   } catch (err: any) {

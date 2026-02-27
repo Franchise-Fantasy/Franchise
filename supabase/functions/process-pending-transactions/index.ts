@@ -104,8 +104,10 @@ Deno.serve(async (req: Request) => {
       // Notify the team owner
       if (notifBody) {
         try {
+          const { data: leagueInfo } = await supabase.from('leagues').select('name').eq('id', txn.league_id).single();
+          const ln = leagueInfo?.name ?? 'Your League';
           await notifyTeams(supabase, [txn.team_id], 'roster_reminders',
-            'Queued Transaction Processed',
+            `${ln} — Queued Transaction Processed`,
             notifBody,
             { screen: 'roster' }
           );

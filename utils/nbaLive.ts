@@ -131,6 +131,19 @@ function buildMap(rows: LivePlayerStats[]): Map<string, LivePlayerStats> {
   return map;
 }
 
+// Convert LivePlayerStats to the shape calculateGameFantasyPoints expects.
+export function liveToGameLog(live: LivePlayerStats): Record<string, number | boolean> {
+  const cats = [live.pts, live.reb, live.ast, live.stl, live.blk].filter(v => v >= 10).length;
+  return {
+    pts: live.pts, reb: live.reb, ast: live.ast, stl: live.stl,
+    blk: live.blk, tov: live.tov, fgm: live.fgm, fga: live.fga,
+    '3pm': live['3pm'], ftm: live.ftm, fta: live.fta, pf: live.pf,
+    min: 0,
+    double_double: cats >= 2,
+    triple_double: cats >= 3,
+  };
+}
+
 function toDateStr(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');

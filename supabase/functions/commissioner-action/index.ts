@@ -35,7 +35,7 @@ Deno.serve(async (req) => {
 
     const { data: league } = await supabaseAdmin
       .from('leagues')
-      .select('created_by')
+      .select('created_by, name')
       .eq('id', league_id)
       .single();
     if (league?.created_by !== user.id) {
@@ -99,8 +99,9 @@ Deno.serve(async (req) => {
 
     // Notify the affected team
     try {
+      const ln = league?.name ?? 'Your League';
       await notifyTeams(supabaseAdmin, [team_id], 'commissioner',
-        'Commissioner Action',
+        `${ln} — Commissioner Action`,
         notes,
         { screen: 'roster' }
       );

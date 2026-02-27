@@ -44,7 +44,7 @@ Deno.serve(async (req) => {
 
     const { data: league } = await supabaseAdmin
       .from('leagues')
-      .select('created_by')
+      .select('created_by, name')
       .eq('id', proposal.league_id)
       .single();
 
@@ -160,8 +160,9 @@ Deno.serve(async (req) => {
 
     // Notify all teams involved in the trade
     try {
+      const ln = league?.name ?? 'Your League';
       await notifyTeams(supabaseAdmin, allTeamIds, 'trades',
-        'Trade Completed!',
+        `${ln} — Trade Completed!`,
         notes,
         { screen: 'trades', proposal_id }
       );

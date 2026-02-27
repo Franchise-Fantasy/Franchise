@@ -14,6 +14,9 @@ interface Props {
   message: ChatMessage;
   isOwnMessage: boolean;
   showSender: boolean;
+  showTime: boolean;
+  isFirstInGroup: boolean;
+  isLastInGroup: boolean;
   reactions: ReactionGroup[];
   onLongPress: () => void;
   onReactionPress: (emoji: string) => void;
@@ -23,6 +26,9 @@ export function MessageBubble({
   message,
   isOwnMessage,
   showSender,
+  showTime,
+  isFirstInGroup,
+  isLastInGroup,
   reactions,
   onLongPress,
   onReactionPress,
@@ -40,9 +46,10 @@ export function MessageBubble({
       style={[
         styles.wrapper,
         isOwnMessage ? styles.wrapperRight : styles.wrapperLeft,
+        isFirstInGroup ? styles.wrapperGroupEnd : styles.wrapperGrouped,
       ]}
     >
-      {showSender && !isOwnMessage && (
+      {showSender && !isOwnMessage && isLastInGroup && (
         <ThemedText style={[styles.sender, { color: c.secondaryText }]}>
           {message.team_name}
         </ThemedText>
@@ -96,23 +103,30 @@ export function MessageBubble({
         </View>
       )}
 
-      <ThemedText
-        style={[
-          styles.time,
-          { color: c.secondaryText },
-          isOwnMessage ? styles.timeRight : styles.timeLeft,
-        ]}
-      >
-        {formatTime(message.created_at)}
-      </ThemedText>
+      {showTime && (
+        <ThemedText
+          style={[
+            styles.time,
+            { color: c.secondaryText },
+            isOwnMessage ? styles.timeRight : styles.timeLeft,
+          ]}
+        >
+          {formatTime(message.created_at)}
+        </ThemedText>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrapper: {
-    marginVertical: 2,
     maxWidth: '80%',
+  },
+  wrapperGrouped: {
+    marginTop: 1,
+  },
+  wrapperGroupEnd: {
+    marginTop: 8,
   },
   wrapperLeft: {
     alignSelf: 'flex-start',

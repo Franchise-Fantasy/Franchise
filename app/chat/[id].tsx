@@ -104,6 +104,7 @@ export default function ConversationScreen() {
     conversationId!,
     teamId!,
     myTeamName ?? 'Me',
+    leagueId,
   );
 
   const toggleReaction = useToggleReaction(conversationId!);
@@ -151,8 +152,13 @@ export default function ConversationScreen() {
 
   const isLeagueChat = convMeta?.type === 'league';
 
+  // Check if two timestamps are within the same minute
+  const sameMinute = useCallback((a: string, b: string) => {
+    return a.slice(0, 16) === b.slice(0, 16);
+  }, []);
+
   const renderItem = useCallback(
-    ({ item }: { item: ChatMessage }) => {
+    ({ item, index }: { item: ChatMessage; index: number }) => {
       const isOwn = item.team_id === teamId;
       const reactions: ReactionGroup[] = (reactionsMap?.[item.id] ?? []).map(
         (r) => ({
@@ -161,18 +167,43 @@ export default function ConversationScreen() {
         }),
       );
 
+      // Inverted list: index 0 = newest. "prev" = next index (older), "next" = prev index (newer).
+      const newerMsg = index > 0 ? messages[index - 1] : null;
+      const olderMsg = index < messages.length - 1 ? messages[index + 1] : null;
+
+      const sameSenderAsNewer =
+        newerMsg !== null &&
+        newerMsg.team_id === item.team_id &&
+        sameMinute(newerMsg.created_at, item.created_at);
+
+      const sameSenderAsOlder =
+        olderMsg !== null &&
+        olderMsg.team_id === item.team_id &&
+        sameMinute(olderMsg.created_at, item.created_at);
+
+      // First in group = no older message from same sender (top of visual group)
+      // Last in group = no newer message from same sender (bottom of visual group)
+      const isFirstInGroup = !sameSenderAsOlder;
+      const isLastInGroup = !sameSenderAsNewer;
+
+      // Show time only on the last message in a group (bottom, visually)
+      const showTime = isLastInGroup;
+
       return (
         <MessageBubble
           message={item}
           isOwnMessage={isOwn}
           showSender={isLeagueChat}
+          showTime={showTime}
+          isFirstInGroup={isFirstInGroup}
+          isLastInGroup={isLastInGroup}
           reactions={reactions}
           onLongPress={() => handleLongPress(item.id)}
           onReactionPress={(emoji) => handleReactionPress(item.id, emoji)}
         />
       );
     },
-    [teamId, reactionsMap, myTeamName, isLeagueChat, handleLongPress, handleReactionPress],
+    [teamId, reactionsMap, myTeamName, messages, isLeagueChat, sameMinute, handleLongPress, handleReactionPress],
   );
 
   return (

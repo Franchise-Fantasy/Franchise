@@ -62,7 +62,7 @@ type SettingGroup = 'basics' | 'roster' | 'scoring' | 'draft' | 'trade' | 'waive
 function sectionEditable(group: SettingGroup, lifecycle: Lifecycle, isCommissioner: boolean): boolean {
   if (!isCommissioner || lifecycle === 'mid_draft') return false;
   if (group === 'basics' || group === 'trade' || group === 'waivers') return true;
-  if (group === 'roster' || group === 'scoring') return lifecycle === 'pre_draft';
+  if (group === 'roster' || group === 'scoring') return lifecycle !== 'mid_season';
   if (group === 'draft') return lifecycle === 'pre_draft';
   if (group === 'season') return lifecycle !== 'mid_season';
   return false;
@@ -402,7 +402,7 @@ export default function LeagueInfoScreen() {
   }
 
   const commissionerTeam = league.league_teams?.find((t: any) => t.is_commissioner);
-  const teamCount = league.teams ?? 0;
+  const teamCount = league.league_teams?.length ?? league.teams ?? 0;
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>

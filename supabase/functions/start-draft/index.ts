@@ -81,7 +81,7 @@ Deno.serve(async (req) => {
     // Verify user is commissioner of this league
     const { data: league } = await supabaseAdmin
       .from('leagues')
-      .select('created_by')
+      .select('created_by, name')
       .eq('id', draft.league_id)
       .single();
 
@@ -103,8 +103,10 @@ Deno.serve(async (req) => {
 
     // Notify all league members that draft started
     try {
+      const ln = league?.name ?? 'Your League';
+
       await notifyLeague(supabaseAdmin, draft.league_id, 'draft',
-        'Draft Started!',
+        `${ln} — Draft Started!`,
         'The draft is live. Head to the draft room.',
         { screen: 'draft-room', draft_id }
       );
@@ -119,7 +121,7 @@ Deno.serve(async (req) => {
 
       if (firstPick) {
         await notifyTeams(supabaseAdmin, [firstPick.current_team_id], 'draft',
-          'Your turn to pick!',
+          `${ln} — Your turn to pick!`,
           'You\'re on the clock. Make your first pick.',
           { screen: 'draft-room', draft_id }
         );

@@ -154,6 +154,14 @@ export default function NotificationSettingsScreen() {
             Other
           </ThemedText>
           <ToggleRow
+            icon="chatbubbles-outline"
+            label="Chat Messages"
+            description="New messages in league chat and DMs"
+            value={prefs.chat}
+            onToggle={toggle('chat')}
+            c={c}
+          />
+          <ToggleRow
             icon="shield-outline"
             label="Commissioner Actions"
             description="Force add/drop/move on your team"

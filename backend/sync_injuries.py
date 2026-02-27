@@ -72,6 +72,22 @@ def download_pdf():
 
 import re
 
+# Maps full NBA team names (and common variants) to tricodes
+TEAM_NAME_TO_TRICODE = {
+    'atlanta hawks': 'ATL', 'boston celtics': 'BOS', 'brooklyn nets': 'BKN',
+    'charlotte hornets': 'CHA', 'chicago bulls': 'CHI', 'cleveland cavaliers': 'CLE',
+    'dallas mavericks': 'DAL', 'denver nuggets': 'DEN', 'detroit pistons': 'DET',
+    'golden state warriors': 'GSW', 'houston rockets': 'HOU', 'indiana pacers': 'IND',
+    'los angeles clippers': 'LAC', 'la clippers': 'LAC',
+    'los angeles lakers': 'LAL', 'la lakers': 'LAL',
+    'memphis grizzlies': 'MEM', 'miami heat': 'MIA', 'milwaukee bucks': 'MIL',
+    'minnesota timberwolves': 'MIN', 'new orleans pelicans': 'NOP',
+    'new york knicks': 'NYK', 'oklahoma city thunder': 'OKC', 'orlando magic': 'ORL',
+    'philadelphia 76ers': 'PHI', 'phoenix suns': 'PHX', 'portland trail blazers': 'POR',
+    'sacramento kings': 'SAC', 'san antonio spurs': 'SAS', 'toronto raptors': 'TOR',
+    'utah jazz': 'UTA', 'washington wizards': 'WAS',
+}
+
 # Pattern: "LastName,FirstName Status Reason..." or "LastNameSuffix,FirstName Status ..."
 # Status keywords appear right after the name and are one of our known values.
 PLAYER_LINE_RE = re.compile(
@@ -82,13 +98,29 @@ PLAYER_LINE_RE = re.compile(
 )
 
 
+def extract_teams_from_text(text):
+    """Find all NBA team names mentioned in the report text and return their tricodes."""
+    teams = set()
+    lower = text.lower()
+    for team_name, tricode in TEAM_NAME_TO_TRICODE.items():
+        if team_name in lower:
+            teams.add(tricode)
+    return sorted(teams)
+
+
 def parse_injuries(pdf_bytes):
-    """Extract injury data from the PDF text using regex."""
+    """Extract injury data and team names from the PDF."""
     injuries = []
+    teams_on_report = set()
     seen = set()
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
         for page in pdf.pages:
             text = page.extract_text() or ''
+
+            # Extract teams mentioned on this page
+            for tricode in extract_teams_from_text(text):
+                teams_on_report.add(tricode)
+
             for match in PLAYER_LINE_RE.finditer(text):
                 raw_name = match.group(1).strip()
                 raw_status = match.group(2).strip()
@@ -115,7 +147,7 @@ def parse_injuries(pdf_bytes):
 
                 injuries.append({'player_name': name, 'status': mapped})
 
-    return injuries
+    return injuries, sorted(teams_on_report)
 
 
 def sync_once():
@@ -126,15 +158,17 @@ def sync_once():
         print('  No injury report PDF found.')
         return
 
-    injuries = parse_injuries(pdf_bytes)
+    injuries, teams_on_report = parse_injuries(pdf_bytes)
     print(f'  Parsed {len(injuries)} injuries from PDF.')
+    print(f'  Teams on report: {teams_on_report}')
 
     if not injuries:
         print('  No injuries to sync.')
         return
 
-    # Post to edge function
-    resp = requests.post(EDGE_FN_URL, json={'injuries': injuries}, timeout=15)
+    # Post to edge function with teams_on_report so it only resets players from reported teams
+    payload = {'injuries': injuries, 'teams_on_report': teams_on_report}
+    resp = requests.post(EDGE_FN_URL, json=payload, timeout=15)
     result = resp.json()
     print(f'  Edge function response: {result}')
 

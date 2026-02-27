@@ -1,4 +1,5 @@
 import { useAppState } from '@/context/AppStateProvider';
+import { sendNotification } from '@/lib/notifications';
 import { supabase } from '@/lib/supabase';
 import type { ChatMessage, ConversationPreview, ReactionGroup } from '@/types/chat';
 import {
@@ -173,6 +174,7 @@ export function useSendMessage(
   conversationId: string,
   teamId: string,
   teamName: string,
+  leagueId?: string | null,
 ) {
   const queryClient = useQueryClient();
 
@@ -188,6 +190,30 @@ export function useSendMessage(
         .select()
         .single();
       if (error) throw error;
+
+      // Fire-and-forget push notification to other members
+      if (leagueId) {
+        supabase
+          .from('chat_members')
+          .select('team_id')
+          .eq('conversation_id', conversationId)
+          .neq('team_id', teamId)
+          .then(({ data: members }) => {
+            if (!members || members.length === 0) return;
+            const otherTeamIds = members.map((m) => m.team_id);
+            const preview =
+              content.length > 100 ? content.slice(0, 100) + '…' : content;
+            sendNotification({
+              league_id: leagueId,
+              team_ids: otherTeamIds,
+              category: 'chat',
+              title: teamName,
+              body: preview,
+              data: { screen: `chat/${conversationId}` },
+            });
+          });
+      }
+
       return data;
     },
     onMutate: async (content) => {

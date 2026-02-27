@@ -33,7 +33,7 @@ Deno.serve(async (req) => {
 
     const { data: league, error: leagueErr } = await supabaseAdmin
       .from('leagues')
-      .select('created_by, teams, playoff_weeks, playoff_teams, lottery_draws, lottery_odds, rookie_draft_rounds')
+      .select('created_by, name, teams, playoff_weeks, playoff_teams, lottery_draws, lottery_odds, rookie_draft_rounds')
       .eq('id', league_id)
       .single();
     if (leagueErr || !league) throw new Error('League not found');
@@ -122,8 +122,9 @@ Deno.serve(async (req) => {
     // Notify league about lottery results
     try {
       const topPick = finalOrder[0];
+      const ln = league.name ?? 'Your League';
       await notifyLeague(supabaseAdmin, league_id, 'lottery',
-        'Lottery Results Are In!',
+        `${ln} — Lottery Results Are In!`,
         `${topPick.team_name} wins the #1 pick. Check the full results.`,
         { screen: 'league-info' }
       );

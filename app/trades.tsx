@@ -15,10 +15,9 @@ import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  FlatList,
   ScrollView,
   StyleSheet,
   Text,
@@ -26,6 +25,8 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ProposeTradeModal } from '@/components/trade/ProposeTradeModal';
+import { TradeDetailModal } from '@/components/trade/TradeDetailModal';
 
 const TABS = ['Active', 'History'];
 const ACTIVE_STATUSES = ['pending', 'accepted', 'in_review'];
@@ -41,6 +42,7 @@ export default function Trades() {
   const [tab, setTab] = useState(0);
   const [showPropose, setShowPropose] = useState(false);
   const [preselectedTradeTeamId, setPreselectedTradeTeamId] = useState<string | undefined>();
+  const [preselectedPlayer, setPreselectedPlayer] = useState<TradeBlockPlayer | undefined>();
   const [selectedProposal, setSelectedProposal] = useState<TradeProposalRow | null>(null);
   const [tradeBlockExpanded, setTradeBlockExpanded] = useState(true);
 
@@ -71,32 +73,18 @@ export default function Trades() {
     return proposals.filter((p) => statuses.includes(p.status));
   }, [proposals, tab]);
 
-  const renderItem = useCallback(
-    ({ item }: { item: TradeProposalRow }) => (
-      <TradeCard proposal={item} onPress={() => setSelectedProposal(item)} />
-    ),
-    []
-  );
-
   const handleTradeBlockPlayerPress = (player: TradeBlockPlayer) => {
-    // Open propose trade with the player's team pre-selected
-    if (player.team_id === teamId) return; // Can't trade with yourself
+    if (player.team_id === teamId) return;
     setPreselectedTradeTeamId(player.team_id);
+    setPreselectedPlayer(player);
     setShowPropose(true);
   };
 
   const handleProposeClose = () => {
     setShowPropose(false);
     setPreselectedTradeTeamId(undefined);
+    setPreselectedPlayer(undefined);
   };
-
-  // Lazy-load modals
-  const ProposeTradeModal = showPropose
-    ? require('@/components/trade/ProposeTradeModal').ProposeTradeModal
-    : null;
-  const TradeDetailModal = selectedProposal
-    ? require('@/components/trade/TradeDetailModal').TradeDetailModal
-    : null;
 
   const hasTradeBlock = (tradeBlock ?? []).length > 0;
 
@@ -204,16 +192,17 @@ export default function Trades() {
       </View>
 
       {/* Modals */}
-      {ProposeTradeModal && showPropose && leagueId && teamId && (
+      {showPropose && leagueId && teamId && (
         <ProposeTradeModal
           leagueId={leagueId}
           teamId={teamId}
           preselectedTeamId={preselectedTradeTeamId}
+          preselectedPlayer={preselectedPlayer}
           onClose={handleProposeClose}
         />
       )}
 
-      {TradeDetailModal && selectedProposal && leagueId && teamId && (
+      {selectedProposal && leagueId && teamId && (
         <TradeDetailModal
           proposal={selectedProposal}
           leagueId={leagueId}
