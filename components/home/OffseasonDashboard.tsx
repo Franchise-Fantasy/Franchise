@@ -10,10 +10,12 @@ import { ActivityIndicator, Alert, StyleSheet, TouchableOpacity, View } from 're
 
 interface OffseasonDashboardProps {
   leagueId: string;
+  teamId: string;
   offseasonStep: string;
   isCommissioner: boolean;
   rookieDraftOrder: string;
   season: string;
+  rosterSize: number;
 }
 
 interface StepDef {
@@ -49,7 +51,7 @@ function getActiveStepIndex(offseasonStep: string, rookieDraftOrder: string): nu
   return 0;
 }
 
-export function OffseasonDashboard({ leagueId, offseasonStep, isCommissioner, rookieDraftOrder, season }: OffseasonDashboardProps) {
+export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissioner, rookieDraftOrder, season, rosterSize }: OffseasonDashboardProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const router = useRouter();
@@ -91,6 +93,41 @@ export function OffseasonDashboard({ leagueId, offseasonStep, isCommissioner, ro
         .single();
       return team;
     },
+  });
+
+  // Roster compliance check (after rookie draft)
+  const showCompliance = offseasonStep === 'rookie_draft_complete' || offseasonStep === 'ready_for_new_season';
+  const { data: compliance } = useQuery({
+    queryKey: ['rosterCompliance', leagueId, teamId],
+    queryFn: async () => {
+      // My team count
+      const { count: myCount } = await supabase
+        .from('league_players')
+        .select('id', { count: 'exact', head: true })
+        .eq('league_id', leagueId)
+        .eq('team_id', teamId);
+
+      // All teams (for commissioner view)
+      const { data: teams } = await supabase
+        .from('teams')
+        .select('id, name')
+        .eq('league_id', leagueId);
+
+      const teamCounts: { name: string; count: number }[] = [];
+      if (teams) {
+        for (const team of teams) {
+          const { count } = await supabase
+            .from('league_players')
+            .select('id', { count: 'exact', head: true })
+            .eq('league_id', leagueId)
+            .eq('team_id', team.id);
+          teamCounts.push({ name: team.name, count: count ?? 0 });
+        }
+      }
+
+      return { myCount: myCount ?? 0, teamCounts };
+    },
+    enabled: showCompliance,
   });
 
   const handleCreateRookieDraft = async () => {
@@ -187,7 +224,7 @@ export function OffseasonDashboard({ leagueId, offseasonStep, isCommissioner, ro
         </View>
       )}
 
-      <ThemedText type="defaultSemiBold" style={styles.title}>Offseason</ThemedText>
+      <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.title}>Offseason</ThemedText>
 
       {/* Progress stepper */}
       <View style={styles.stepper}>
@@ -195,7 +232,7 @@ export function OffseasonDashboard({ leagueId, offseasonStep, isCommissioner, ro
           const isComplete = idx < activeIndex;
           const isActive = idx === activeIndex;
           return (
-            <View key={step.key} style={styles.stepItem}>
+            <View key={step.key} style={styles.stepItem} accessibilityLabel={`${step.label}, ${isComplete ? 'complete' : isActive ? 'current step' : 'upcoming'}`}>
               <View style={[
                 styles.stepCircle,
                 isComplete && { backgroundColor: c.accent },
@@ -228,6 +265,8 @@ export function OffseasonDashboard({ leagueId, offseasonStep, isCommissioner, ro
         <View style={styles.actions}>
           {offseasonStep === 'lottery_pending' && (
             <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Enter lottery room"
               style={[styles.actionBtn, { backgroundColor: c.accent }]}
               onPress={() => router.push('/lottery-room' as any)}
             >
@@ -238,6 +277,9 @@ export function OffseasonDashboard({ leagueId, offseasonStep, isCommissioner, ro
 
           {(offseasonStep === 'lottery_complete' || offseasonStep === 'rookie_draft_pending') && !rookieDraft && (
             <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Create rookie draft"
+              accessibilityState={{ disabled: loading }}
               style={[styles.actionBtn, { backgroundColor: c.accent }, loading && { opacity: 0.6 }]}
               onPress={handleCreateRookieDraft}
               disabled={loading}
@@ -261,6 +303,9 @@ export function OffseasonDashboard({ leagueId, offseasonStep, isCommissioner, ro
 
           {(offseasonStep === 'rookie_draft_complete' || offseasonStep === 'ready_for_new_season') && (
             <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Start new season"
+              accessibilityState={{ disabled: loading }}
               style={[styles.actionBtn, { backgroundColor: c.accent }, loading && { opacity: 0.6 }]}
               onPress={handleStartNewSeason}
               disabled={loading}
@@ -282,6 +327,69 @@ export function OffseasonDashboard({ leagueId, offseasonStep, isCommissioner, ro
         <ThemedText style={[styles.statusText, { color: c.secondaryText }]}>
           The commissioner is managing the offseason. Stay tuned!
         </ThemedText>
+      )}
+
+      {/* Pre-rookie-draft info banner */}
+      {(offseasonStep === 'rookie_draft_pending' || offseasonStep === 'lottery_complete') && (
+        <View style={[styles.infoBanner, { backgroundColor: c.accent + '15', borderColor: c.accent }]}>
+          <Ionicons name="information-circle" size={18} color={c.accent} />
+          <ThemedText style={[styles.infoBannerText, { color: c.secondaryText }]}>
+            Teams may temporarily exceed the {rosterSize}-player roster limit during the rookie draft. All teams must cut down to {rosterSize} before the new season can begin.
+          </ThemedText>
+        </View>
+      )}
+
+      {/* Post-draft roster compliance */}
+      {showCompliance && compliance && (
+        <View style={styles.complianceSection}>
+          {compliance.myCount > rosterSize ? (
+            <View style={[styles.complianceBanner, { backgroundColor: '#FF950022', borderColor: '#FF9500' }]}>
+              <Ionicons name="warning" size={18} color="#FF9500" />
+              <View style={{ flex: 1, marginLeft: 8 }}>
+                <ThemedText type="defaultSemiBold" style={{ fontSize: 13 }}>
+                  Roster Over Limit ({compliance.myCount}/{rosterSize})
+                </ThemedText>
+                <ThemedText style={{ fontSize: 12, color: c.secondaryText, marginTop: 2 }}>
+                  Cut {compliance.myCount - rosterSize} player{compliance.myCount - rosterSize !== 1 ? 's' : ''} before the new season.
+                </ThemedText>
+              </View>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Manage roster" onPress={() => router.push('/(tabs)/roster')}>
+                <ThemedText style={{ color: c.accent, fontSize: 13, fontWeight: '600' }}>Manage</ThemedText>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={[styles.complianceBanner, { backgroundColor: '#34C75922', borderColor: '#34C759' }]}>
+              <Ionicons name="checkmark-circle" size={18} color="#34C759" />
+              <ThemedText style={{ marginLeft: 8, fontSize: 13 }}>
+                Roster compliant ({compliance.myCount}/{rosterSize})
+              </ThemedText>
+            </View>
+          )}
+
+          {/* Commissioner: all teams compliance */}
+          {isCommissioner && (
+            <View style={{ marginTop: 8 }}>
+              <ThemedText style={{ fontSize: 12, color: c.secondaryText, marginBottom: 6 }}>
+                All teams must be at or under {rosterSize} players before the season can begin.
+              </ThemedText>
+              {compliance.teamCounts
+                .filter((t) => t.count > rosterSize)
+                .map((t) => (
+                  <View key={t.name} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 }}>
+                    <ThemedText style={{ fontSize: 12, color: '#FF9500' }}>{t.name}</ThemedText>
+                    <ThemedText style={{ fontSize: 12, color: '#FF9500', fontWeight: '600' }}>
+                      {t.count}/{rosterSize}
+                    </ThemedText>
+                  </View>
+                ))}
+              {compliance.teamCounts.filter((t) => t.count > rosterSize).length === 0 && (
+                <ThemedText style={{ fontSize: 12, color: '#34C759' }}>
+                  All teams are at or under the roster limit.
+                </ThemedText>
+              )}
+            </View>
+          )}
+        </View>
       )}
     </View>
   );
@@ -355,5 +463,29 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textAlign: 'center',
     lineHeight: 18,
+  },
+  infoBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 12,
+    gap: 8,
+  },
+  infoBannerText: {
+    fontSize: 12,
+    flex: 1,
+    lineHeight: 17,
+  },
+  complianceSection: {
+    marginTop: 12,
+  },
+  complianceBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
   },
 });

@@ -19,19 +19,20 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
 
   return (
     <View style={styles.container}>
-      <ThemedText type="subtitle" style={styles.heading}>Review & Create</ThemedText>
+      <ThemedText accessibilityRole="header" type="subtitle" style={styles.heading}>Review & Create</ThemedText>
 
       {/* Basics */}
       <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
-        <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>League Basics</ThemedText>
+        <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>League Basics</ThemedText>
         <Row label="Name" value={state.name} c={c} />
         <Row label="Teams" value={String(state.teams)} c={c} />
         <Row label="Visibility" value={state.isPrivate ? 'Private' : 'Public'} c={c} />
+        <Row label="Buy-In" value={state.buyIn ? `$${state.buyIn}` : 'Free'} c={c} />
       </View>
 
       {/* Roster */}
       <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
-        <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Roster ({totalRoster} slots)</ThemedText>
+        <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>Roster ({totalRoster} slots)</ThemedText>
         <ThemedText style={[styles.rosterSummary, { color: c.secondaryText }]}>
           {activeSlots.map((s) => `${s.position}: ${s.count}`).join('  |  ')}
         </ThemedText>
@@ -39,7 +40,7 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
 
       {/* Scoring */}
       <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
-        <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Scoring</ThemedText>
+        <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>Scoring</ThemedText>
         <ThemedText style={[styles.rosterSummary, { color: c.secondaryText }]}>
           {state.scoring.map((s) => `${s.stat_name}: ${s.point_value > 0 ? '+' : ''}${s.point_value}`).join('  |  ')}
         </ThemedText>
@@ -47,7 +48,7 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
 
       {/* Draft */}
       <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
-        <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Draft Settings</ThemedText>
+        <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>Draft Settings</ThemedText>
         <Row label="Type" value={state.draftType} c={c} />
         <Row label="Time Per Pick" value={`${state.timePerPick}s`} c={c} />
         <Row label="Future Draft Years" value={String(state.maxDraftYears)} c={c} />
@@ -56,11 +57,12 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
         {state.rookieDraftOrder === 'Lottery' && (
           <Row label="Lottery Draws" value={String(state.lotteryDraws)} c={c} />
         )}
+        <Row label="Initial Draft, Pick Trading" value={state.draftPickTradingEnabled ? 'Enabled' : 'Disabled'} c={c} />
       </View>
 
       {/* Trade */}
       <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
-        <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Trade Settings</ThemedText>
+        <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>Trade Settings</ThemedText>
         <Row label="Veto Type" value={state.tradeVetoType} c={c} />
         {state.tradeVetoType !== 'None' && (
           <Row label="Review Period" value={`${state.tradeReviewPeriodHours} hrs`} c={c} />
@@ -68,11 +70,17 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
         {state.tradeVetoType === 'League Vote' && (
           <Row label="Votes to Veto" value={String(state.tradeVotesToVeto)} c={c} />
         )}
+        <Row label="Pick Protections & Swaps" value={state.pickConditionsEnabled ? 'Enabled' : 'Disabled'} c={c} />
+        <Row
+          label="Trade Deadline"
+          value={state.tradeDeadlineWeek === 0 ? 'None' : `After Week ${state.tradeDeadlineWeek}`}
+          c={c}
+        />
       </View>
 
       {/* Waivers */}
       <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
-        <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Waiver Settings</ThemedText>
+        <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>Waiver Settings</ThemedText>
         <Row label="Waiver Type" value={state.waiverType} c={c} />
         {state.waiverType !== 'None' && (
           <Row label="Waiver Period" value={`${state.waiverPeriodDays} days`} c={c} />
@@ -87,7 +95,7 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
 
       {/* Season */}
       <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
-        <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Season</ThemedText>
+        <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>Season</ThemedText>
         <Row label="NBA Season" value={state.season} c={c} />
         <Row label="Regular Season" value={`${state.regularSeasonWeeks} weeks`} c={c} />
         <Row label="Playoffs" value={`${state.playoffWeeks} weeks`} c={c} />
@@ -99,6 +107,9 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
       </View>
 
       <TouchableOpacity
+        accessibilityRole="button"
+        accessibilityLabel="Create league"
+        accessibilityState={{ disabled: loading }}
         onPress={onSubmit}
         disabled={loading}
         style={[styles.createBtn, { backgroundColor: loading ? c.buttonDisabled : c.accent }]}

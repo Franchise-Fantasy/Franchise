@@ -1,6 +1,7 @@
 import { PlayerDetailModal } from '@/components/player/PlayerDetailModal';
 import { ProposeTradeModal } from '@/components/trade/ProposeTradeModal';
 import { ThemedText } from '@/components/ThemedText';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -8,6 +9,7 @@ import { useLeagueRosterConfig, RosterConfigSlot } from '@/hooks/useLeagueRoster
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
+import { toDateStr } from '@/utils/dates';
 import { fetchLineupForDate } from '@/utils/dailyLineup';
 import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
 import { formatPosition } from '@/utils/formatting';
@@ -37,15 +39,6 @@ interface SlotEntry {
   player: RosterPlayer | null;
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function toDateStr(d: Date) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function TeamRosterScreen() {
@@ -59,6 +52,17 @@ export default function TeamRosterScreen() {
   const [showTradeModal, setShowTradeModal] = useState(false);
 
   const isOwnTeam = viewTeamId === myTeamId;
+
+  // Check trade deadline
+  const { data: leagueDeadline } = useQuery({
+    queryKey: ['leagueDeadline', leagueId],
+    queryFn: async () => {
+      const { data } = await supabase.from('leagues').select('trade_deadline').eq('id', leagueId!).single();
+      return data?.trade_deadline as string | null;
+    },
+    enabled: !!leagueId,
+  });
+  const isPastDeadline = !!leagueDeadline && new Date(leagueDeadline + 'T23:59:59') < new Date();
   const today = toDateStr(new Date());
 
   const { data: scoringWeights } = useLeagueScoring(leagueId ?? '');
@@ -241,6 +245,8 @@ export default function TeamRosterScreen() {
           <TouchableOpacity
             style={styles.slotPlayer}
             onPress={() => setSelectedPlayer(slot.player)}
+            accessibilityRole="button"
+            accessibilityLabel={`${slot.player.name}, ${formatPosition(slot.player.position)}, ${slot.player.nba_team}${avgFpts !== null ? `, ${avgFpts.toFixed(1)} average fantasy points` : ''}`}
           >
             <View style={styles.slotPlayerInfo}>
               <ThemedText type="defaultSemiBold" numberOfLines={1} style={styles.slotPlayerName}>
@@ -269,27 +275,13 @@ export default function TeamRosterScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
-      {/* Header */}
-      <View style={[styles.header, { borderBottomColor: c.border }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Text style={[styles.backText, { color: c.accent }]}>‹ Back</Text>
-        </TouchableOpacity>
-        <View style={styles.headerCenter}>
-          <ThemedText type="defaultSemiBold" style={styles.headerTitle} numberOfLines={1}>
-            {teamName ?? 'Team Roster'}
-          </ThemedText>
-          <ThemedText style={[styles.headerSub, { color: c.secondaryText }]}>
-            Avg FPTS per game
-          </ThemedText>
-        </View>
-        <View style={styles.backBtn} />
-      </View>
+      <PageHeader title={teamName ?? 'Team Roster'} />
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Starters */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <ThemedText type="subtitle">Starters</ThemedText>
+            <ThemedText type="subtitle" accessibilityRole="header">Starters</ThemedText>
             {starterTotal !== null && (
               <View style={[styles.totalBadge, { backgroundColor: c.activeCard, borderColor: c.activeBorder }]}>
                 <ThemedText style={[styles.totalLabel, { color: c.secondaryText }]}>AVG FPTS</ThemedText>
@@ -307,7 +299,7 @@ export default function TeamRosterScreen() {
         {/* Bench */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <ThemedText type="subtitle">Bench</ThemedText>
+            <ThemedText type="subtitle" accessibilityRole="header">Bench</ThemedText>
           </View>
           <View style={[styles.card, { backgroundColor: c.card }]}>
             {benchSlots.length > 0 ? (
@@ -326,7 +318,7 @@ export default function TeamRosterScreen() {
         {irSlots.length > 0 && (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <ThemedText type="subtitle">Injured Reserve</ThemedText>
+              <ThemedText type="subtitle" accessibilityRole="header">Injured Reserve</ThemedText>
             </View>
             <View style={[styles.card, { backgroundColor: c.card }]}>
               {irSlots.map((slot, idx) => renderSlotRow(slot, idx, irSlots))}
@@ -334,12 +326,14 @@ export default function TeamRosterScreen() {
           </View>
         )}
 
-        {/* Propose Trade button — only shown when viewing another team */}
-        {!isOwnTeam && myTeamId && leagueId && (
+        {/* Propose Trade button — only shown when viewing another team and before deadline */}
+        {!isOwnTeam && !isPastDeadline && myTeamId && leagueId && (
           <View style={styles.section}>
             <TouchableOpacity
               style={[styles.tradeBtn, { backgroundColor: c.accent }]}
               onPress={() => setShowTradeModal(true)}
+              accessibilityRole="button"
+              accessibilityLabel={`Propose Trade with ${teamName}`}
             >
               <Text style={[styles.tradeBtnText, { color: c.accentText }]}>
                 Propose Trade with {teamName}

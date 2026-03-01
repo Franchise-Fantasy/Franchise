@@ -1,18 +1,20 @@
 import { AvailablePlayers } from '@/components/draft/AvailablePlayers';
 import { DraftOrder } from '@/components/draft/DraftOrder';
 import { TeamRoster } from '@/components/draft/TeamRoster';
+import { ProposeTradeModal } from '@/components/trade/ProposeTradeModal';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import { supabase } from '@/lib/supabase';
 import { CurrentPick, DraftState } from '@/types/draft';
 import { setDraftRoomOpen } from '@/lib/activeScreen';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { Ionicons } from '@expo/vector-icons';
 
 type ViewMode = 'players' | 'roster';
 
@@ -21,9 +23,11 @@ type ViewMode = 'players' | 'roster';
 export default function DraftRoomScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const colors = Colors[colorScheme];
+  const queryClient = useQueryClient();
   const { id: draftId } = useLocalSearchParams<{ id: string }>();
   const [viewMode, setViewMode] = useState<ViewMode>('players');
   const [currentPick, setCurrentPick] = useState<CurrentPick | null>(null);
+  const [showTradeModal, setShowTradeModal] = useState(false);
 
   // First, get the league ID and draft type from the draft
   const { data: draftData } = useQuery({
@@ -90,7 +94,23 @@ export default function DraftRoomScreen() {
     enabled: !!draftData?.league_id
   });
 
+  // Fetch draft pick trading setting
+  const { data: leagueSettings } = useQuery({
+    queryKey: ['draftLeagueSettings', draftData?.league_id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('leagues')
+        .select('draft_pick_trading_enabled')
+        .eq('id', draftData!.league_id)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!draftData?.league_id,
+  });
 
+  const draftPickTradingEnabled = leagueSettings?.draft_pick_trading_enabled ?? false;
+  const showTradeButton = draftPickTradingEnabled && draftState?.status === 'in_progress' && !isDraftComplete;
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -98,17 +118,30 @@ export default function DraftRoomScreen() {
         <TouchableOpacity
           style={styles.headerButton}
           onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
         >
           <ThemedText style={[styles.backButton, { color: colors.activeText }]}>←</ThemedText>
         </TouchableOpacity>
 
-        <ThemedText type="title" style={styles.headerText}>
+        <ThemedText type="title" style={styles.headerText} accessibilityRole="header">
           {isDraftComplete
             ? (isRookieDraft ? 'Rookie Draft Complete' : 'Draft Complete')
             : (isRookieDraft ? 'Rookie Draft' : 'Draft Room')}
         </ThemedText>
 
-        <View style={styles.headerButton} />
+        {showTradeButton ? (
+          <TouchableOpacity
+            style={[styles.headerButton, { paddingVertical: 0 }]}
+            onPress={() => setShowTradeModal(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Trade draft picks"
+          >
+            <Ionicons name="swap-horizontal" size={22} color={colors.accent} accessible={false} />
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.headerButton} />
+        )}
       </ThemedView>
 
       <View style={styles.content}>
@@ -158,6 +191,9 @@ export default function DraftRoomScreen() {
               viewMode === 'players' && { backgroundColor: colors.activeCard }
             ]}
             onPress={() => setViewMode('players')}
+            accessibilityRole="button"
+            accessibilityLabel="Available Players"
+            accessibilityState={{ selected: viewMode === 'players' }}
           >
             <ThemedText style={[
               { color: colors.secondaryText },
@@ -172,6 +208,9 @@ export default function DraftRoomScreen() {
               viewMode === 'roster' && { backgroundColor: colors.activeCard }
             ]}
             onPress={() => setViewMode('roster')}
+            accessibilityRole="button"
+            accessibilityLabel="My Team"
+            accessibilityState={{ selected: viewMode === 'roster' }}
           >
             <ThemedText style={[
               { color: colors.secondaryText },
@@ -182,6 +221,18 @@ export default function DraftRoomScreen() {
           </TouchableOpacity>
         </View>
       </View>
+
+      {showTradeModal && draftData?.league_id && teamData?.id && (
+        <ProposeTradeModal
+          leagueId={draftData.league_id}
+          teamId={teamData.id}
+          instantExecute
+          onClose={() => {
+            setShowTradeModal(false);
+            queryClient.invalidateQueries({ queryKey: ['draftOrder', draftId] });
+          }}
+        />
+      )}
     </SafeAreaView>
   );
 }

@@ -57,6 +57,9 @@ export function TradePlayerPicker({
 
     return (
       <TouchableOpacity
+        accessibilityRole="button"
+        accessibilityLabel={`${item.name}, ${formatPosition(item.position)}${fpts !== null ? `, ${fpts} fantasy points` : ''}`}
+        accessibilityState={{ selected: isSelected }}
         style={[
           styles.row,
           { borderBottomColor: c.border },
@@ -108,18 +111,19 @@ export function TradePlayerPicker({
     <View style={styles.container}>
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: c.border }]}>
-        <TouchableOpacity onPress={onBack} style={styles.backBtn}>
+        <TouchableOpacity accessibilityRole="button" accessibilityLabel="Back" onPress={onBack} style={styles.backBtn}>
           <ThemedText style={[styles.backText, { color: c.accent }]}>‹ Back</ThemedText>
         </TouchableOpacity>
-        <ThemedText type="defaultSemiBold" style={styles.headerTitle} numberOfLines={1}>
+        <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.headerTitle} numberOfLines={1}>
           {teamName} Players
         </ThemedText>
-        <TouchableOpacity onPress={onBack} style={styles.doneBtn}>
+        <TouchableOpacity accessibilityRole="button" accessibilityLabel="Done" onPress={onBack} style={styles.doneBtn}>
           <ThemedText style={[styles.doneText, { color: c.accent }]}>Done</ThemedText>
         </TouchableOpacity>
       </View>
 
       <TextInput
+        accessibilityLabel="Search players"
         style={[styles.search, { backgroundColor: c.cardAlt, color: c.text, borderColor: c.border }]}
         placeholder="Search players..."
         placeholderTextColor={c.secondaryText}

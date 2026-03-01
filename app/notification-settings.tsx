@@ -1,5 +1,6 @@
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { ToggleRow } from '@/components/ToggleRow';
 import { Colors } from '@/constants/Colors';
 import { useSession } from '@/context/AuthProvider';
@@ -53,24 +54,15 @@ export default function NotificationSettingsScreen() {
 
   return (
     <ThemedView style={styles.container}>
+      <PageHeader title="Notifications" />
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} hitSlop={12}>
-            <Ionicons name="arrow-back" size={24} color={c.text} />
-          </TouchableOpacity>
-          <ThemedText type="title" style={styles.title}>
-            Notifications
-          </ThemedText>
-          <View style={{ width: 24 }} />
-        </View>
 
         {/* Core Alerts */}
         <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
-          <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>
+          <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">
             Core Alerts
           </ThemedText>
           <ToggleRow
@@ -127,7 +119,7 @@ export default function NotificationSettingsScreen() {
 
         {/* Playoffs & Lottery */}
         <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
-          <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>
+          <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">
             Playoffs & Lottery
           </ThemedText>
           <ToggleRow
@@ -150,7 +142,7 @@ export default function NotificationSettingsScreen() {
 
         {/* Other */}
         <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
-          <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>
+          <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">
             Other
           </ThemedText>
           <ToggleRow

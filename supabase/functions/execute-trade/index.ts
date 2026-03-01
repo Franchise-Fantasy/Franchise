@@ -1,16 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { notifyTeams } from './push.ts';
+import { notifyTeams } from '../_shared/push.ts';
+import { corsResponse } from '../_shared/cors.ts';
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', {
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-      },
-    });
-  }
+  if (req.method === 'OPTIONS') return corsResponse();
 
   try {
     const supabaseAdmin = createClient(
@@ -44,9 +38,17 @@ Deno.serve(async (req) => {
 
     const { data: league } = await supabaseAdmin
       .from('leagues')
-      .select('created_by, name')
+      .select('created_by, name, trade_deadline')
       .eq('id', proposal.league_id)
       .single();
+
+    // Block trades past the deadline
+    if (league?.trade_deadline) {
+      const deadline = new Date(league.trade_deadline + 'T23:59:59Z');
+      if (new Date() > deadline) {
+        throw new Error('The trade deadline has passed. No trades can be executed.');
+      }
+    }
 
     const isCommissioner = league?.created_by === user.id;
 
@@ -78,8 +80,32 @@ Deno.serve(async (req) => {
     if (!items || items.length === 0) throw new Error('No items in this trade proposal.');
 
     const timestamp = new Date().toISOString();
+    const todayDate = timestamp.slice(0, 10); // YYYY-MM-DD
     const playerItems = items.filter((i: any) => i.player_id != null);
     const pickItems = items.filter((i: any) => i.draft_pick_id != null);
+    const swapItems = items.filter((i: any) => i.pick_swap_season != null);
+
+    // Snapshot pre-trade rosters into daily_lineups so historical views are preserved
+    const affectedTeamIds = [...new Set(playerItems.flatMap((i: any) => [i.from_team_id, i.to_team_id]))];
+    for (const tid of affectedTeamIds) {
+      const { data: roster } = await supabaseAdmin
+        .from('league_players')
+        .select('player_id, roster_slot')
+        .eq('league_id', proposal.league_id)
+        .eq('team_id', tid);
+      if (roster && roster.length > 0) {
+        const rows = roster.map((r: any) => ({
+          league_id: proposal.league_id,
+          team_id: tid,
+          player_id: r.player_id,
+          lineup_date: todayDate,
+          roster_slot: r.roster_slot ?? 'BE',
+        }));
+        await supabaseAdmin
+          .from('daily_lineups')
+          .upsert(rows, { onConflict: 'team_id,player_id,lineup_date' });
+      }
+    }
 
     for (const item of playerItems) {
       const { error } = await supabaseAdmin
@@ -97,11 +123,30 @@ Deno.serve(async (req) => {
     }
 
     for (const item of pickItems) {
+      const updatePayload: any = { current_team_id: item.to_team_id };
+      if (item.protection_threshold) {
+        updatePayload.protection_threshold = item.protection_threshold;
+        updatePayload.protection_owner_id = item.from_team_id;
+      }
       const { error } = await supabaseAdmin
         .from('draft_picks')
-        .update({ current_team_id: item.to_team_id })
+        .update(updatePayload)
         .eq('id', item.draft_pick_id);
       if (error) throw new Error(`Failed to transfer pick ${item.draft_pick_id}: ${error.message}`);
+    }
+
+    // Insert pick swap rows
+    if (swapItems.length > 0) {
+      const swapRows = swapItems.map((item: any) => ({
+        league_id: proposal.league_id,
+        season: item.pick_swap_season,
+        round: item.pick_swap_round,
+        beneficiary_team_id: item.to_team_id,
+        counterparty_team_id: item.from_team_id,
+        created_by_proposal_id: proposal_id,
+      }));
+      const { error: swapError } = await supabaseAdmin.from('pick_swaps').insert(swapRows);
+      if (swapError) throw new Error(`Failed to create pick swaps: ${swapError.message}`);
     }
 
     const playerIds = playerItems.map((i: any) => i.player_id);
@@ -126,18 +171,24 @@ Deno.serve(async (req) => {
     }
 
     const notesParts = items.map((item: any) => {
+      if (item.pick_swap_season) {
+        const from = teamNameMap[item.from_team_id] ?? 'Unknown';
+        const to = teamNameMap[item.to_team_id] ?? 'Unknown';
+        return `${item.pick_swap_season} Rd ${item.pick_swap_round} swap (${to} gets better pick vs ${from})`;
+      }
       const asset = item.player_id
         ? playerNameMap[item.player_id] ?? 'Unknown Player'
         : pickInfoMap[item.draft_pick_id] ?? 'Unknown Pick';
+      const protection = item.protection_threshold ? ` [Top-${item.protection_threshold} protected]` : '';
       const from = teamNameMap[item.from_team_id] ?? 'Unknown';
       const to = teamNameMap[item.to_team_id] ?? 'Unknown';
-      return `${asset} (${from} -> ${to})`;
+      return `${asset}${protection} (${from} -> ${to})`;
     });
     const notes = `Trade completed: ${notesParts.join(', ')}`;
 
     const { data: txn, error: txnError } = await supabaseAdmin
       .from('league_transactions')
-      .insert({ league_id: proposal.league_id, type: 'trade', notes })
+      .insert({ league_id: proposal.league_id, type: 'trade', notes, team_id: proposal.proposed_by_team_id })
       .select('id')
       .single();
     if (txnError) throw new Error(`Failed to create transaction: ${txnError.message}`);

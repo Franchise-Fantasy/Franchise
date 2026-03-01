@@ -14,15 +14,21 @@ export default function CreateTeam() {
   const router = useRouter()
   const { leagueId, isCommissioner } = useLocalSearchParams()
   const [teamName, setTeamName] = useState('')
+  const [tricode, setTricode] = useState('')
   const [loading, setLoading] = useState(false)
   const queryClient = useQueryClient();
-  const { setTeamId, setLeagueId } = useAppState();
+  const { switchLeague } = useAppState();
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
 
   const handleCreateTeam = async () => {
     if (!teamName.trim()) {
       Alert.alert('Please enter a team name.')
+      return
+    }
+    const code = tricode.trim().toUpperCase();
+    if (!code || code.length < 2 || code.length > 4 || !/^[A-Z0-9]+$/.test(code)) {
+      Alert.alert('Tricode must be 2-4 characters (e.g. LAL, BOS).')
       return
     }
 
@@ -39,6 +45,7 @@ export default function CreateTeam() {
         .from('teams')
         .insert({
           name: teamName,
+          tricode: code,
           league_id: leagueId,
           user_id: user.id,
           is_commissioner: isCommissioner === 'true'
@@ -69,8 +76,7 @@ export default function CreateTeam() {
         faab_remaining: league.faab_budget ?? 100,
       });
 
-      setTeamId(teamData.id);
-      setLeagueId(leagueId as string);
+      switchLeague(leagueId as string, teamData.id);
       router.replace('/(tabs)');
 
       if (league && league.current_teams === league.teams) {
@@ -88,7 +94,7 @@ export default function CreateTeam() {
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
       <ThemedView style={styles.container}>
-        <ThemedText type="title" style={styles.heading}>Create Your Team</ThemedText>
+        <ThemedText type="title" style={styles.heading} accessibilityRole="header">Create Your Team</ThemedText>
 
         <TextInput
           style={[styles.input, { borderColor: c.border, backgroundColor: c.input, color: c.text }]}
@@ -96,14 +102,29 @@ export default function CreateTeam() {
           placeholderTextColor={c.secondaryText}
           value={teamName}
           onChangeText={setTeamName}
-          returnKeyType="done"
-          onSubmitEditing={handleCreateTeam}
+          returnKeyType="next"
+          accessibilityLabel="Team name"
         />
 
-        <Button 
-          title={loading ? 'Creating...' : 'Create Team'} 
-          onPress={handleCreateTeam} 
-          disabled={loading} 
+        <TextInput
+          style={[styles.input, { borderColor: c.border, backgroundColor: c.input, color: c.text }]}
+          placeholder="Tricode (e.g. LAL, BOS)"
+          placeholderTextColor={c.secondaryText}
+          value={tricode}
+          onChangeText={(t) => setTricode(t.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4))}
+          autoCapitalize="characters"
+          maxLength={4}
+          returnKeyType="done"
+          onSubmitEditing={handleCreateTeam}
+          accessibilityLabel="Team tricode"
+          accessibilityHint="2 to 4 characters, letters and numbers only"
+        />
+
+        <Button
+          title={loading ? 'Creating...' : 'Create Team'}
+          onPress={handleCreateTeam}
+          disabled={loading}
+          accessibilityLabel={loading ? 'Creating team' : 'Create Team'}
         />
       </ThemedView>
     </TouchableWithoutFeedback>

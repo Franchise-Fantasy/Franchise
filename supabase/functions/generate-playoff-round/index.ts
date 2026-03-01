@@ -1,16 +1,12 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { notifyTeams } from './push.ts';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { notifyTeams } from '../_shared/push.ts';
+import { CORS_HEADERS, corsResponse } from '../_shared/cors.ts';
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
   });
 }
 
@@ -117,7 +113,7 @@ function buildNextRoundPairings(
 // ── Main handler ──
 
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  if (req.method === 'OPTIONS') return corsResponse();
 
   try {
     const supabase = createClient(
@@ -127,6 +123,28 @@ Deno.serve(async (req: Request) => {
 
     const { league_id, round: requestedRound, from_seed_picks } = await req.json();
     if (!league_id) return json({ error: 'league_id required' }, 400);
+
+    // Allow internal service-role calls (from finalize-week, submit-seed-pick, self-recursive)
+    // but require JWT + commissioner check for external calls
+    const authHeader = req.headers.get('Authorization');
+    const isServiceRole = authHeader === `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`;
+
+    if (!isServiceRole) {
+      if (!authHeader) return json({ error: 'Missing authorization' }, 401);
+      const userClient = createClient(
+        Deno.env.get('SUPABASE_URL')!,
+        Deno.env.get('SUPABASE_ANON_KEY')!,
+        { global: { headers: { Authorization: authHeader.startsWith('Bearer ') ? authHeader : `Bearer ${authHeader}` } } }
+      );
+      const { data: { user } } = await userClient.auth.getUser();
+      if (!user) return json({ error: 'Unauthorized' }, 401);
+
+      const { data: commCheck } = await supabase
+        .from('leagues').select('created_by').eq('id', league_id).single();
+      if (!commCheck || commCheck.created_by !== user.id) {
+        return json({ error: 'Only the commissioner can generate playoff rounds' }, 403);
+      }
+    }
 
     const { data: league, error: leagueErr } = await supabase
       .from('leagues')
@@ -142,6 +160,12 @@ Deno.serve(async (req: Request) => {
     const reseed = league.reseed_each_round ?? false;
 
     const round = requestedRound ?? 1;
+    if (typeof round !== 'number' || round < 1 || !Number.isInteger(round)) {
+      return json({ error: 'round must be a positive integer' }, 400);
+    }
+    if (round > totalRounds) {
+      return json({ error: `round ${round} exceeds total playoff rounds (${totalRounds})` }, 400);
+    }
 
     const { data: playoffWeeks } = await supabase
       .from('league_schedule')

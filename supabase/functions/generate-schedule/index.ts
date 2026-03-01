@@ -117,22 +117,37 @@ Deno.serve(async (req: Request) => {
     const cycleLength = cycleRounds.length;
 
     const [sy, sm, sd] = league.season_start_date.split("-").map(Number);
-    const startDate = new Date(sy, sm - 1, sd);
+
+    // Week 1 may be a partial week (e.g. Tue–Sun) if the league was
+    // created mid-week.  Week 2+ are always full Mon–Sun.
+    const w1Start = new Date(Date.UTC(sy, sm - 1, sd));
+    const w1Dow = w1Start.getUTCDay(); // 0=Sun, 1=Mon, …, 6=Sat
+    const daysUntilSun = w1Dow === 0 ? 0 : 7 - w1Dow;
+    const w1EndDay = sd + daysUntilSun; // day-of-month for Week 1 Sunday
+    const week2StartDay = w1EndDay + 1;  // Monday after Week 1
 
     const totalWeeks = league.regular_season_weeks + league.playoff_weeks;
     const scheduleRows = [];
 
     for (let w = 0; w < totalWeeks; w++) {
-      const weekStart = new Date(startDate);
-      weekStart.setDate(startDate.getDate() + w * 7);
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekStart.getDate() + 6);
+      let wsDate: Date;
+      let weDate: Date;
+
+      if (w === 0) {
+        // Week 1: season_start_date through first Sunday
+        wsDate = w1Start;
+        weDate = new Date(Date.UTC(sy, sm - 1, w1EndDay));
+      } else {
+        // Week 2+: full Mon–Sun
+        wsDate = new Date(Date.UTC(sy, sm - 1, week2StartDay + (w - 1) * 7));
+        weDate = new Date(Date.UTC(sy, sm - 1, week2StartDay + (w - 1) * 7 + 6));
+      }
 
       scheduleRows.push({
         league_id,
         week_number: w + 1,
-        start_date: weekStart.toISOString().split("T")[0],
-        end_date: weekEnd.toISOString().split("T")[0],
+        start_date: wsDate.toISOString().split("T")[0],
+        end_date: weDate.toISOString().split("T")[0],
         is_playoff: w >= league.regular_season_weeks,
         season: league.season,
       });

@@ -1,15 +1,11 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { notifyTeams, notifyLeague } from './push.ts';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { notifyTeams, notifyLeague } from '../_shared/push.ts';
+import { CORS_HEADERS } from '../_shared/cors.ts';
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response('ok', { headers: CORS_HEADERS });
   }
 
   try {
@@ -30,7 +26,7 @@ Deno.serve(async (req: Request) => {
     if (!user) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
       });
     }
 
@@ -38,7 +34,15 @@ Deno.serve(async (req: Request) => {
     if (!league_id || !category || !title || !body) {
       return new Response(JSON.stringify({ error: 'league_id, category, title, and body are required' }), {
         status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const validCategories = ['draft', 'trades', 'matchups', 'matchup_daily', 'waivers', 'injuries', 'playoffs', 'commissioner', 'league_activity', 'roster_reminders', 'lottery'];
+    if (!validCategories.includes(category)) {
+      return new Response(JSON.stringify({ error: `Invalid category. Must be one of: ${validCategories.join(', ')}` }), {
+        status: 400,
+        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
       });
     }
 
@@ -53,7 +57,7 @@ Deno.serve(async (req: Request) => {
     if (!callerTeam) {
       return new Response(JSON.stringify({ error: 'Not a member of this league' }), {
         status: 403,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
       });
     }
 
@@ -70,13 +74,13 @@ Deno.serve(async (req: Request) => {
 
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
     });
   } catch (err: any) {
     console.error('send-notification error:', err);
     return new Response(JSON.stringify({ error: err?.message ?? String(err) }), {
       status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
     });
   }
 });

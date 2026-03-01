@@ -1,30 +1,4 @@
-Allow point scoring to go to hundreths (.75)
-
-Attempting to make a trade will sometimes result in a white screen.
-
-Playoff team numbers don't always line up. When in a 4-team league, it gives the option for 4, 6, 8 playoff teams
-
-"create rookie draft" the draft card does not appear without a refresh.
-
-Clicking a notification won't switch you to that league, just the one
-
-## Existing Bugs
-
-- one person didn't get "draft is over" message
-- venmo in league info
-
 ## Your Manual Steps (Tier 1 MVP)
-
-### Deploy delete-account edge function
-
-- Also create a `decrement_team_count` RPC in Supabase SQL editor if it doesn't exist:
-
-```sql
-CREATE OR REPLACE FUNCTION decrement_team_count(lid uuid)
-RETURNS void AS $$
-  UPDATE leagues SET current_teams = current_teams - 1 WHERE id = lid;
-$$ LANGUAGE sql SECURITY DEFINER;
-```
 
 ### Password reset - configure Supabase Auth
 
@@ -58,22 +32,39 @@ $$ LANGUAGE sql SECURITY DEFINER;
 - The `+error.tsx` file caused a white screen — needs investigation on correct Expo Router v4 API
 - Re-add once you have a custom dev build where you can debug it properly
 
-## Tier 2 — Should-Have (First Weeks)
+## Tier 1 — Now
 
-- [x] **OTA update prompts** — `_layout.tsx` checks for updates on launch, prompts user to install
-- [x] **Offline detection** — `OfflineBanner` component shows red bar when disconnected
-- [x] **UI error states** — `ErrorState` component with retry button, applied to home/roster/matchup tabs
-- [x] **Fix notification gap** — `push.ts` now parses Expo response, deletes `DeviceNotRegistered` tokens; `refreshPushToken()` re-registers on app foreground
-- [ ] **Edge function input validation** — validate POST body schemas on `make-draft-pick`, `execute-trade`, `commissioner-action`, `submit-seed-pick`
-- [ ] **Email verification** — enable "Confirm email" in Supabase Auth dashboard, show "Check your email" interstitial after sign-up
+- [ ] Integrate PostHog Analytics — instrument before real users
+- [ ] Implement Email Verification — Supabase toggle + interstitial
+- [ ] Set up rate limiting on edge functions
+- [ ] Build Onboarding Walkthrough — tooltip tour, scaffold now, polish closer to launch
+- [ ] League import tooling - ESPN and Yahoo (probably csv's or screenshots)
+- [ ] Deep-Linked Invite URL's (Needs dev build)
+- [ ] Google Login support
 
-## Tier 3 — Nice-to-Have (Post-Launch)
+## Tier 2 — Analytics/Design-Dependent Premium Features
 
-- [x] League creation wizard state persistence (AsyncStorage — resumes on re-open)
-- [ ] Analytics (PostHog — free 1M events/month, also has basic error tracking)
-- [ ] Onboarding walkthrough (tooltip tour for draft, trades, waivers)
-- [ ] Deep-linked invite URLs (`franchisev2://join?code=XXXX` + Universal Links / App Links)
-- [ ] Rate limiting on edge functions
-- [ ] Accessibility labels (zero a11y props exist currently)
-- [ ] iPad-specific layouts
-- [ ] QR codes for league invites
+- [ ] Build Roster Efficiency — needs methodology defined first
+- [ ] Build Luck Index + All-Play Record — needs thresholds defined first
+- [ ] Build Strength of Schedule — needs projection method defined first
+- [ ] Build Contender Score / Dynasty Power Rankings — needs weighting defined first
+- [ ] Build "What If" Trade Simulator — blocked by Contender Score
+- [ ] Build Age Curve Visualization — needs visual design first
+- [ ] Build Draft Pick Value Tracker — needs design.
+- [ ] Manager Report card - end-of-season grades: lineup accuracy, trade wins, waiver pickups, draft hits/misses. Awards ceremony UI.
+
+## Tier 3 - Awaiting Team Discussion
+
+- [ ] Build AI Trade Advisor — alignment needed on AI-in-app approach
+- [ ] Build Weekly Recap Narratives — LLM-related, pending AI-in-app discussion
+- [ ] Build Trade Value Chart — commissioner-editable tiers. Low priority
+- [ ] Prospect Scouting / Rookie Rankings - blurbs + ratings for incoming rookies before rookie draft. Commissioner-written initially, AI-generated later?
+- [ ] AI-generated yearly redrafts with overpick/underpick analysis
+
+## Tier 4 — Future
+
+- [ ] Venmo API integration (upgrade from simple ledger)
+- [ ] iPad/Tablet-specific layouts
+- [ ] Player News Feed — aggregated updates for rostered players
+- [ ] In-season tournament option
+- [ ] Build League Constitution Builder — structured, searchable, versioned rules doc

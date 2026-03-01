@@ -1,10 +1,14 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { useFonts } from 'expo-font';
-import * as Notifications from 'expo-notifications';
-import * as Updates from 'expo-updates';
-import { Stack } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import 'react-native-reanimated';
+import {
+  DarkTheme,
+  DefaultTheme,
+  ThemeProvider,
+} from "@react-navigation/native";
+import { useFonts } from "expo-font";
+import * as Notifications from "expo-notifications";
+import { Stack } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import * as Updates from "expo-updates";
+import "react-native-reanimated";
 
 // Sentry requires a custom dev build (not Expo Go). Initialize it only in production.
 // After running `eas build`, uncomment these lines:
@@ -12,9 +16,9 @@ import 'react-native-reanimated';
 // Sentry.init({ dsn: process.env.EXPO_PUBLIC_SENTRY_DSN });
 
 // Show foreground alerts for high-priority channels; suppress others.
-import { isDraftRoomOpen } from '@/lib/activeScreen';
+import { isDraftRoomOpen } from "@/lib/activeScreen";
 
-const FOREGROUND_CHANNELS = ['draft', 'trades', 'playoffs', 'commissioner'];
+const FOREGROUND_CHANNELS = ["draft", "trades", "playoffs", "commissioner"];
 
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
@@ -23,7 +27,7 @@ Notifications.setNotificationHandler({
       (notification.request.trigger as any)?.channelId;
 
     // Don't show draft alerts when the user is already in the draft room
-    if (channelId === 'draft' && isDraftRoomOpen()) {
+    if (channelId === "draft" && isDraftRoomOpen()) {
       return {
         shouldShowAlert: false,
         shouldShowBanner: false,
@@ -44,71 +48,157 @@ Notifications.setNotificationHandler({
   },
 });
 
-import { OfflineBanner } from '@/components/OfflineBanner';
-import { AppStateProvider, useAppState } from '@/context/AppStateProvider';
-import { AuthProvider, useSession } from '@/context/AuthProvider';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { supabase } from '@/lib/supabase';
-import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query';
-import { useRouter } from 'expo-router';
-import { useEffect } from 'react';
-import { Alert, AppState } from 'react-native';
+import { AnnouncementBanner } from "@/components/AnnouncementBanner";
+import { OfflineBanner } from "@/components/OfflineBanner";
+import { AppStateProvider, useAppState } from "@/context/AppStateProvider";
+import { AuthProvider, useSession } from "@/context/AuthProvider";
+import { globalToastRef, ToastProvider } from "@/context/ToastProvider";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import { supabase } from "@/lib/supabase";
+import NetInfo from "@react-native-community/netinfo";
+import {
+  focusManager,
+  MutationCache,
+  onlineManager,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
+import * as Linking from "expo-linking";
+import { useRouter } from "expo-router";
+import { useEffect } from "react";
+import { Alert, AppState } from "react-native";
+
+// Sync React Query's online state with actual device connectivity
+onlineManager.setEventListener((setOnline) => {
+  return NetInfo.addEventListener((state) => {
+    setOnline(!!state.isConnected);
+  });
+});
 
 // Single stable instance for the lifetime of the app
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  mutationCache: new MutationCache({
+    onError: (error, _variables, _context, mutation) => {
+      // Mutations with their own onError handle feedback themselves
+      if (mutation.options.onError) return;
+      globalToastRef.current?.(
+        "error",
+        (error as Error).message || "Something went wrong",
+      );
+    },
+  }),
+  defaultOptions: {
+    queries: {
+      staleTime: 2 * 60 * 1000, // 2 min
+      gcTime: 10 * 60 * 1000, // 10 min
+      retry: 2,
+      retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
+    },
+    mutations: {
+      retry: 1,
+    },
+  },
+});
 
 // Tell React Query to treat app foreground as a focus event
 // so refetchOnWindowFocus works correctly in React Native
 focusManager.setEventListener((handleFocus) => {
-  const sub = AppState.addEventListener('change', (state) => {
-    handleFocus(state === 'active');
+  const sub = AppState.addEventListener("change", (state) => {
+    handleFocus(state === "active");
   });
   return () => sub.remove();
 });
 
 const NOTIF_ROUTES: Record<string, string> = {
-  roster: '/(tabs)/roster',
-  matchup: '/(tabs)/matchup',
-  'free-agents': '/(tabs)/free-agents',
-  trades: '/trades',
-  'playoff-bracket': '/playoff-bracket',
-  scoreboard: '/scoreboard',
-  'league-info': '/league-info',
-  activity: '/activity',
+  roster: "/(tabs)/roster",
+  matchup: "/(tabs)/matchup",
+  "free-agents": "/(tabs)/free-agents",
+  trades: "/trades",
+  "playoff-bracket": "/playoff-bracket",
+  scoreboard: "/scoreboard",
+  "league-info": "/league-info",
+  activity: "/activity",
+  chat: "/chat",
+  "lottery-room": "/lottery-room",
 };
 
-function NotificationHandler() {
+/** Switch league/team context when a league_id is provided via notification or deep link. */
+async function switchLeagueContext(
+  leagueId: string,
+  userId: string,
+  switchLeague: (leagueId: string, teamId: string) => void,
+) {
+  const { data: team } = await supabase
+    .from("teams")
+    .select("id, league_id")
+    .eq("user_id", userId)
+    .eq("league_id", leagueId)
+    .maybeSingle();
+  if (team) {
+    switchLeague(team.league_id, team.id);
+    queryClient.removeQueries({
+      predicate: (q: { queryKey: readonly unknown[] }) => {
+        const key = q.queryKey[0];
+        return key !== "user-leagues" && key !== "userProfile";
+      },
+    });
+  }
+}
+
+function NotificationAndLinkHandler() {
   const router = useRouter();
   const session = useSession();
-  const { setLeagueId, setTeamId } = useAppState();
+  const { switchLeague } = useAppState();
 
+  // Handle notification taps → navigate + switch context
   useEffect(() => {
-    const sub = Notifications.addNotificationResponseReceivedListener(async (response) => {
-      const data = response.notification.request.content.data as Record<string, string> | undefined;
-      if (!data?.screen) return;
+    const sub = Notifications.addNotificationResponseReceivedListener(
+      async (response) => {
+        const data = response.notification.request.content.data as
+          | Record<string, string>
+          | undefined;
+        if (!data?.screen) return;
 
-      // Switch league context if the notification includes a league_id
-      if (data.league_id && session?.user) {
-        const { data: team } = await supabase
-          .from('teams')
-          .select('id, league_id')
-          .eq('user_id', session.user.id)
-          .eq('league_id', data.league_id)
-          .maybeSingle();
-        if (team) {
-          setLeagueId(team.league_id);
-          setTeamId(team.id);
+        if (data.league_id && session?.user) {
+          await switchLeagueContext(
+            data.league_id,
+            session.user.id,
+            switchLeague,
+          );
         }
-      }
 
-      if (data.screen === 'draft-room' && data.draft_id) {
-        router.push(`/draft-room/${data.draft_id}` as any);
-      } else if (NOTIF_ROUTES[data.screen]) {
-        router.push(NOTIF_ROUTES[data.screen] as any);
-      }
-    });
+        if (data.screen === "draft-room" && data.draft_id) {
+          router.push(`/draft-room/${data.draft_id}` as any);
+        } else if (NOTIF_ROUTES[data.screen]) {
+          router.push(NOTIF_ROUTES[data.screen] as any);
+        }
+      },
+    );
     return () => sub.remove();
-  }, [router, session?.user, setLeagueId, setTeamId]);
+  }, [router, session?.user, switchLeague]);
+
+  // Handle deep link URLs → switch league context if ?league_id= is present
+  // Expo Router handles the actual navigation automatically; we only need to
+  // ensure the app's league/team context matches the link.
+  useEffect(() => {
+    function handleUrl({ url }: { url: string }) {
+      if (!session?.user) return;
+      const parsed = Linking.parse(url);
+      const leagueId = parsed.queryParams?.league_id;
+      if (typeof leagueId === "string") {
+        switchLeagueContext(leagueId, session.user.id, switchLeague);
+      }
+    }
+
+    // URL that launched the app (cold start)
+    Linking.getInitialURL().then((url) => {
+      if (url) handleUrl({ url });
+    });
+
+    // URLs received while the app is already open
+    const sub = Linking.addEventListener("url", handleUrl);
+    return () => sub.remove();
+  }, [session?.user, switchLeague]);
 
   return null;
 }
@@ -116,7 +206,7 @@ function NotificationHandler() {
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const [loaded] = useFonts({
-    SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
+    SpaceMono: require("../assets/fonts/SpaceMono-Regular.ttf"),
   });
 
   // Check for OTA updates when the app launches
@@ -125,16 +215,20 @@ export default function RootLayout() {
       try {
         const update = await Updates.checkForUpdateAsync();
         if (update.isAvailable) {
-          Alert.alert('Update Available', 'A new version is ready to install.', [
-            { text: 'Later' },
-            {
-              text: 'Install',
-              onPress: async () => {
-                await Updates.fetchUpdateAsync();
-                await Updates.reloadAsync();
+          Alert.alert(
+            "Update Available",
+            "A new version is ready to install.",
+            [
+              { text: "Later" },
+              {
+                text: "Install",
+                onPress: async () => {
+                  await Updates.fetchUpdateAsync();
+                  await Updates.reloadAsync();
+                },
               },
-            },
-          ]);
+            ],
+          );
         }
       } catch {
         // No-op: Updates API throws in dev / Expo Go
@@ -149,37 +243,105 @@ export default function RootLayout() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-        <AuthProvider>
-          <AppStateProvider>
-            <NotificationHandler />
-            <OfflineBanner />
-            <Stack>
-              <Stack.Screen name="index" options={{ headerShown: false }} />
-              <Stack.Screen name="(tabs)" options={{ headerShown: false, gestureEnabled: false, animation: 'fade' }} />
-              <Stack.Screen name="(setup)" options={{ headerShown: false, animation: 'fade' }} />
-              <Stack.Screen name="draft-room/[id]" options={{ headerShown: false }} />
-              <Stack.Screen name="trades" options={{ headerShown: false }} />
-              <Stack.Screen name="activity" options={{ headerShown: false }} />
-              <Stack.Screen name="scoreboard" options={{ headerShown: false }} />
-              <Stack.Screen name="league-info" options={{ headerShown: false }} />
-              <Stack.Screen name="playoff-bracket" options={{ headerShown: false }} />
-              <Stack.Screen name="lottery-room" options={{ headerShown: false }} />
-              <Stack.Screen name="chat" options={{ headerShown: false }} />
-              <Stack.Screen name="chat/[id]" options={{ headerShown: false }} />
-              <Stack.Screen name="team-roster/[id]" options={{ headerShown: false }} />
-              <Stack.Screen name="create-league" options={{ headerShown: false }} />
-              <Stack.Screen name="create-team" options={{ headerShown: false }} />
-              <Stack.Screen name="join-league" options={{ headerShown: false }} />
-              <Stack.Screen name="notification-settings" options={{ headerShown: false }} />
-              <Stack.Screen name="auth" options={{ headerShown: false }} />
-              <Stack.Screen name="reset-password" options={{ headerShown: false }} />
-              <Stack.Screen name="legal" options={{ headerShown: false }} />
-              <Stack.Screen name="+not-found" />
-            </Stack>
-          </AppStateProvider>
-          <StatusBar style="auto" />
-        </AuthProvider>
+      <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
+        <ToastProvider>
+          <AuthProvider>
+            <AppStateProvider>
+              <NotificationAndLinkHandler />
+              <OfflineBanner />
+              <AnnouncementBanner />
+              <Stack>
+                <Stack.Screen name="index" options={{ headerShown: false }} />
+                <Stack.Screen
+                  name="(tabs)"
+                  options={{
+                    headerShown: false,
+                    gestureEnabled: false,
+                    animation: "fade",
+                  }}
+                />
+                <Stack.Screen
+                  name="(setup)"
+                  options={{ headerShown: false, animation: "fade" }}
+                />
+                <Stack.Screen
+                  name="draft-room/[id]"
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen name="trades" options={{ headerShown: false }} />
+                <Stack.Screen
+                  name="activity"
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="scoreboard"
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="matchup-detail/[id]"
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="import-league"
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="league-info"
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="draft-hub"
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="playoff-bracket"
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="lottery-room"
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen name="chat" options={{ headerShown: false }} />
+                <Stack.Screen
+                  name="chat/[id]"
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="team-roster/[id]"
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="league-history"
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="create-league"
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="create-team"
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="join-league"
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="notification-settings"
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen name="auth" options={{ headerShown: false }} />
+                <Stack.Screen
+                  name="reset-password"
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen name="legal" options={{ headerShown: false }} />
+                <Stack.Screen name="+not-found" />
+              </Stack>
+            </AppStateProvider>
+            <StatusBar style="auto" />
+          </AuthProvider>
+        </ToastProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );

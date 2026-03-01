@@ -35,7 +35,7 @@ export function LeagueSwitcher({ visible, onClose }: LeagueSwitcherProps) {
   const scheme = useColorScheme() ?? "light";
   const c = Colors[scheme];
   const session = useSession();
-  const { leagueId, setLeagueId, setTeamId } = useAppState();
+  const { leagueId, switchLeague } = useAppState();
   const queryClient = useQueryClient();
   const router = useRouter();
 
@@ -76,9 +76,15 @@ export function LeagueSwitcher({ visible, onClose }: LeagueSwitcherProps) {
   const favoriteLeagueId = data?.favoriteLeagueId ?? null;
 
   const handleSelect = (league: UserLeague) => {
-    setLeagueId(league.leagueId);
-    setTeamId(league.teamId);
-    queryClient.invalidateQueries({ queryKey: ["league"] });
+    switchLeague(league.leagueId, league.teamId);
+    // Clear all league-specific cached data so stale data from the previous
+    // league never appears. User-level queries are preserved.
+    queryClient.removeQueries({
+      predicate: (q) => {
+        const key = q.queryKey[0];
+        return key !== 'user-leagues' && key !== 'userProfile';
+      },
+    });
     onClose();
   };
 
@@ -106,6 +112,11 @@ export function LeagueSwitcher({ visible, onClose }: LeagueSwitcherProps) {
     router.push("/join-league");
   };
 
+  const handleImport = () => {
+    onClose();
+    router.push("/import-league");
+  };
+
   return (
     <Modal
       visible={visible}
@@ -113,13 +124,14 @@ export function LeagueSwitcher({ visible, onClose }: LeagueSwitcherProps) {
       animationType="fade"
       onRequestClose={onClose}
     >
-      <Pressable style={styles.backdrop} onPress={onClose}>
+      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close league switcher">
         <Pressable
           style={[
             styles.dropdown,
             { backgroundColor: c.background, borderColor: c.border },
           ]}
           onPress={(e) => e.stopPropagation()}
+          accessibilityRole="menu"
         >
           {loading ? (
             <ActivityIndicator style={styles.loader} />
@@ -151,6 +163,8 @@ export function LeagueSwitcher({ visible, onClose }: LeagueSwitcherProps) {
                     ]}
                     onPress={() => handleSelect(league)}
                     activeOpacity={0.7}
+                    accessibilityRole="menuitem"
+                    accessibilityLabel={`${league.leagueName}, ${league.teamName}${isActive ? ', currently selected' : ''}`}
                   >
                     <View style={styles.leagueInfo}>
                       <ThemedText
@@ -172,6 +186,8 @@ export function LeagueSwitcher({ visible, onClose }: LeagueSwitcherProps) {
                           handleToggleFavorite(league);
                         }}
                         hitSlop={8}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${isFav ? 'Remove' : 'Set'} ${league.leagueName} as favorite`}
                       >
                         <Ionicons
                           name={isFav ? "star" : "star-outline"}
@@ -199,8 +215,10 @@ export function LeagueSwitcher({ visible, onClose }: LeagueSwitcherProps) {
             style={styles.actionRow}
             onPress={handleCreateNew}
             activeOpacity={0.7}
+            accessibilityRole="menuitem"
+            accessibilityLabel="Create new league"
           >
-            <Ionicons name="add-circle-outline" size={18} color={c.accent} />
+            <Ionicons name="add-circle-outline" size={18} color={c.accent} accessible={false} />
             <Text style={[styles.actionText, { color: c.accent }]}>
               Create New League
             </Text>
@@ -210,10 +228,25 @@ export function LeagueSwitcher({ visible, onClose }: LeagueSwitcherProps) {
             style={styles.actionRow}
             onPress={handleJoin}
             activeOpacity={0.7}
+            accessibilityRole="menuitem"
+            accessibilityLabel="Join a league"
           >
-            <Ionicons name="people-outline" size={18} color={c.accent} />
+            <Ionicons name="people-outline" size={18} color={c.accent} accessible={false} />
             <Text style={[styles.actionText, { color: c.accent }]}>
               Join a League
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.actionRow}
+            onPress={handleImport}
+            activeOpacity={0.7}
+            accessibilityRole="menuitem"
+            accessibilityLabel="Import league"
+          >
+            <Ionicons name="download-outline" size={18} color={c.accent} accessible={false} />
+            <Text style={[styles.actionText, { color: c.accent }]}>
+              Import League
             </Text>
           </TouchableOpacity>
         </Pressable>

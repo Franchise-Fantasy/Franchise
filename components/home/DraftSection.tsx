@@ -100,10 +100,14 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
     return diffInMinutes <= 30 && diffInMinutes > -180;
   };
 
+  // Draft is enterable if it's actively running OR starting soon
+  const isDraftEnterable = draft?.status === 'in_progress' ||
+    !!(draft?.draft_date && isDraftSoon(draft.draft_date));
+
   const handlePress = () => {
     if (!draft) return;
 
-    if (draft.draft_date && isDraftSoon(draft.draft_date)) {
+    if (isDraftEnterable) {
       router.push({
         pathname: '/draft-room/[id]',
         params: { id: draft.id }
@@ -111,7 +115,7 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
       return;
     }
 
-    if (draft.status !== 'in_progress' && isCommissioner) {
+    if (isCommissioner) {
       setInitialDate(draft.draft_date ? new Date(draft.draft_date) : new Date());
       setShowDatePicker(true);
     }
@@ -120,7 +124,7 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
   if (isLoading) return <ActivityIndicator />;
   if (!draft) return null;
 
-  const isActive = !!(draft.draft_date && isDraftSoon(draft.draft_date));
+  const isActive = isDraftEnterable;
 
   return (
     <View style={[styles.section, { backgroundColor: isActive ? c.activeCard : c.card, borderColor: isActive ? c.activeBorder : c.border }]}>
@@ -139,7 +143,7 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
               ? 'Not yet scheduled'
               : `${new Date(draft.draft_date!).toLocaleString()}`}
           </ThemedText>
-          {draft.status !== 'unscheduled' && isCommissioner && !isDraftSoon(draft.draft_date!) && (
+          {draft.status !== 'unscheduled' && isCommissioner && !isDraftEnterable && (
             <ThemedText style={[styles.tapToReschedule, { color: c.secondaryText }]}>
               Tap to reschedule
             </ThemedText>

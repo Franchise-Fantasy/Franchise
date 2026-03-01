@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { notifyTeams, notifyLeague } from './push.ts';
+import { notifyTeams, notifyLeague } from '../_shared/push.ts';
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,

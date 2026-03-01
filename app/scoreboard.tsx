@@ -10,6 +10,7 @@ import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { useLeague } from '@/hooks/useLeague';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
+import { toDateStr, parseLocalDate, addDays } from '@/utils/dates';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -20,6 +21,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { PageHeader } from '@/components/ui/PageHeader';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -52,28 +54,10 @@ type WeekState = 'past' | 'live' | 'future';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function toDateStr(d: Date) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-function addDays(dateStr: string, n: number): string {
-  const [y, mo, d] = dateStr.split('-').map(Number);
-  const date = new Date(y, mo - 1, d);
-  date.setDate(date.getDate() + n);
-  return toDateStr(date);
-}
-
 function formatWeekRange(start: string, end: string): string {
-  const parse = (s: string) => {
-    const [y, m, d] = s.split('-').map(Number);
-    return new Date(y, m - 1, d);
-  };
   const fmt = (d: Date) =>
     d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  return `${fmt(parse(start))} – ${fmt(parse(end))}`;
+  return `${fmt(parseLocalDate(start))} – ${fmt(parseLocalDate(end))}`;
 }
 
 function round1(n: number) {
@@ -351,16 +335,7 @@ export default function ScoreboardScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
-      {/* Header */}
-      <View style={[styles.header, { borderBottomColor: c.border }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Text style={[styles.backText, { color: c.accent }]}>{'‹ Back'}</Text>
-        </TouchableOpacity>
-        <ThemedText type="defaultSemiBold" style={styles.headerTitle}>
-          Scoreboard
-        </ThemedText>
-        <View style={styles.backBtn} />
-      </View>
+      <PageHeader title="Scoreboard" />
 
       {/* Week Selector */}
       {weeks && weeks.length > 0 && selectedWeek && (
@@ -369,6 +344,9 @@ export default function ScoreboardScreen() {
             onPress={() => setSelectedWeekIndex((i) => Math.max(0, (i ?? 0) - 1))}
             disabled={selectedWeekIndex === 0}
             style={styles.arrowBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Previous week"
+            accessibilityState={{ disabled: selectedWeekIndex === 0 }}
           >
             <Text
               style={[
@@ -396,6 +374,9 @@ export default function ScoreboardScreen() {
             }
             disabled={selectedWeekIndex === weeks.length - 1}
             style={styles.arrowBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Next week"
+            accessibilityState={{ disabled: selectedWeekIndex === weeks.length - 1 }}
           >
             <Text
               style={[
@@ -438,6 +419,8 @@ export default function ScoreboardScreen() {
               <TouchableOpacity
                 style={[styles.bracketBtn, { backgroundColor: c.accent }]}
                 onPress={() => router.push('/playoff-bracket' as any)}
+                accessibilityRole="button"
+                accessibilityLabel="View Full Bracket"
               >
                 <Text style={[styles.bracketBtnText, { color: c.accentText }]}>
                   View Full Bracket
@@ -463,7 +446,7 @@ export default function ScoreboardScreen() {
               weekState !== 'future' && !isBye && awayScore > homeScore;
 
             return (
-              <View
+              <TouchableOpacity
                 key={matchup.id}
                 style={[
                   styles.matchupCard,
@@ -472,6 +455,11 @@ export default function ScoreboardScreen() {
                     borderColor: mine ? c.activeBorder : c.border,
                   },
                 ]}
+                activeOpacity={0.7}
+                onPress={() => router.push(`/matchup-detail/${matchup.id}` as any)}
+                accessibilityRole="button"
+                accessibilityLabel={`${homeTeam?.name ?? 'Unknown'} ${weekState !== 'future' ? homeScore.toFixed(1) : ''} vs ${isBye ? 'BYE' : `${awayTeam?.name ?? 'Unknown'} ${weekState !== 'future' ? awayScore.toFixed(1) : ''}`}${mine ? ', your matchup' : ''}`}
+                accessibilityHint="View matchup details"
               >
                 {/* Status badge */}
                 {weekState === 'live' && (
@@ -564,7 +552,7 @@ export default function ScoreboardScreen() {
                     )}
                   </View>
                 )}
-              </View>
+              </TouchableOpacity>
             );
           })
         )}
@@ -574,6 +562,8 @@ export default function ScoreboardScreen() {
           <TouchableOpacity
             style={[styles.bracketBtn, { backgroundColor: c.accent }]}
             onPress={() => router.push('/playoff-bracket' as any)}
+            accessibilityRole="button"
+            accessibilityLabel="View Full Bracket"
           >
             <Text style={[styles.bracketBtnText, { color: c.accentText }]}>
               View Full Bracket
@@ -590,26 +580,6 @@ export default function ScoreboardScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    height: 50,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  backBtn: {
-    width: 60,
-    paddingVertical: 8,
-  },
-  backText: {
-    fontSize: 17,
-    fontWeight: '400',
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: 17,
   },
   weekNav: {
     flexDirection: 'row',

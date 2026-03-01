@@ -27,6 +27,8 @@ const MAPPING = {
   'person.crop.circle': 'account-circle',
   'person.badge.plus': 'person-add',
   'trophy.fill': 'emoji-events',
+  'list.bullet.clipboard': 'assignment',
+  'book.fill': 'menu-book',
 } as IconMapping;
 
 /**
@@ -39,12 +41,15 @@ export function IconSymbol({
   size = 24,
   color,
   style,
+  accessible,
+  ...rest
 }: {
   name: IconSymbolName;
   size?: number;
   color: string | OpaqueColorValue;
   style?: StyleProp<TextStyle>;
   weight?: SymbolWeight;
+  accessible?: boolean;
 }) {
-  return <MaterialIcons color={color} size={size} name={MAPPING[name]} style={style} />;
+  return <MaterialIcons color={color} size={size} name={MAPPING[name]} style={style} accessible={accessible} />;
 }

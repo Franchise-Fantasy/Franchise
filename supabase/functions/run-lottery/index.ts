@@ -1,16 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { notifyLeague } from './push.ts';
+import { notifyLeague } from '../_shared/push.ts';
+import { corsResponse } from '../_shared/cors.ts';
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', {
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-      },
-    });
-  }
+  if (req.method === 'OPTIONS') return corsResponse();
 
   try {
     const supabaseAdmin = createClient(
@@ -33,13 +27,19 @@ Deno.serve(async (req) => {
 
     const { data: league, error: leagueErr } = await supabaseAdmin
       .from('leagues')
-      .select('created_by, name, teams, playoff_weeks, playoff_teams, lottery_draws, lottery_odds, rookie_draft_rounds')
+      .select('created_by, name, teams, playoff_weeks, playoff_teams, lottery_draws, lottery_odds, rookie_draft_rounds, offseason_step')
       .eq('id', league_id)
       .single();
     if (leagueErr || !league) throw new Error('League not found');
 
     if (league.created_by !== user.id) {
       throw new Error('Only the commissioner can run the lottery');
+    }
+
+    // Guard: only allow during offseason lottery phase
+    const validSteps = ['lottery_pending', 'lottery_scheduled'];
+    if (league.offseason_step && !validSteps.includes(league.offseason_step)) {
+      throw new Error(`Cannot run lottery during offseason step: ${league.offseason_step}`);
     }
 
     const { data: allTeams, error: teamsErr } = await supabaseAdmin

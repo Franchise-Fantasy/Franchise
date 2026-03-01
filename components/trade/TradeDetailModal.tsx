@@ -1,6 +1,7 @@
 import { TradeFairnessBar } from '@/components/trade/TradeFairnessBar';
 import { ThemedText } from '@/components/ThemedText';
 import { Colors } from '@/constants/Colors';
+import { useToast } from '@/context/ToastProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { TradeProposalRow, useTradeVotes } from '@/hooks/useTrades';
@@ -8,6 +9,7 @@ import { sendNotification } from '@/lib/notifications';
 import { supabase } from '@/lib/supabase';
 import { estimatePickFpts, formatPickLabel } from '@/types/trade';
 import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
+import { isOnline } from '@/utils/network';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
@@ -42,6 +44,7 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose }: TradeD
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const queryClient = useQueryClient();
+  const { showToast } = useToast();
   const [processing, setProcessing] = useState(false);
 
   const { data: votes } = useTradeVotes(
@@ -114,6 +117,7 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose }: TradeD
 
   // --- Actions ---
   const handleAccept = async () => {
+    if (!(await isOnline())) { showToast('error', 'No internet connection'); return; }
     setProcessing(true);
     try {
       // Update my team's status
@@ -185,6 +189,7 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose }: TradeD
   };
 
   const handleReject = async () => {
+    if (!(await isOnline())) { showToast('error', 'No internet connection'); return; }
     setProcessing(true);
     try {
       await supabase
@@ -222,6 +227,7 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose }: TradeD
   };
 
   const handleCancel = async () => {
+    if (!(await isOnline())) { showToast('error', 'No internet connection'); return; }
     setProcessing(true);
     try {
       await supabase
@@ -366,16 +372,16 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose }: TradeD
   return (
     <Modal visible animationType="slide" transparent>
       <View style={styles.overlay}>
-        <View style={[styles.sheet, { backgroundColor: c.background }]}>
+        <View style={[styles.sheet, { backgroundColor: c.background }]} accessibilityViewIsModal={true}>
           {/* Header */}
           <View style={[styles.header, { borderBottomColor: c.border }]}>
             <View>
-              <ThemedText type="defaultSemiBold" style={styles.headerTitle}>Trade Details</ThemedText>
+              <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.headerTitle}>Trade Details</ThemedText>
               <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
                 <ThemedText style={styles.statusText}>{proposal.status.replace('_', ' ')}</ThemedText>
               </View>
             </View>
-            <TouchableOpacity onPress={onClose}>
+            <TouchableOpacity onPress={onClose} accessibilityRole="button" accessibilityLabel="Close trade details">
               <ThemedText style={styles.closeText}>✕</ThemedText>
             </TouchableOpacity>
           </View>
@@ -384,18 +390,19 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose }: TradeD
             {/* Trade details by team */}
             {Object.entries(groupedByFrom).map(([fromTeamId, items]) => (
               <View key={fromTeamId} style={[styles.section, { borderColor: c.border }]}>
-                <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>
+                <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>
                   {teamNameMap[fromTeamId] ?? 'Unknown'} sends:
                 </ThemedText>
                 {items.map((item) => (
                   <ThemedText key={item.id} style={styles.itemText}>
                     {item.player_name
                       ? `${item.player_name} (${item.player_position})`
-                      : item.pick_season
-                        ? `${formatPickLabel(item.pick_season!, item.pick_round!)}${item.pick_original_team_name ? ` (via ${item.pick_original_team_name})` : ''}`
-                        : 'Unknown'}
-                    {' → '}
-                    {teamNameMap[item.to_team_id] ?? 'Unknown'}
+                      : item.pick_swap_season
+                        ? `${item.pick_swap_season} Rd ${item.pick_swap_round} swap — ${teamNameMap[item.to_team_id] ?? '?'} gets better pick`
+                        : item.pick_season
+                          ? `${formatPickLabel(item.pick_season!, item.pick_round!)}${item.protection_threshold ? ` [Top-${item.protection_threshold} protected]` : ''}${item.pick_original_team_name ? ` (via ${item.pick_original_team_name})` : ''}`
+                          : 'Unknown'}
+                    {!item.pick_swap_season && ` → ${teamNameMap[item.to_team_id] ?? 'Unknown'}`}
                   </ThemedText>
                 ))}
               </View>
@@ -425,7 +432,7 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose }: TradeD
             {/* Team acceptance statuses */}
             {proposal.status === 'pending' && (
               <View style={[styles.section, { borderColor: c.border }]}>
-                <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Responses</ThemedText>
+                <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>Responses</ThemedText>
                 {proposal.teams.map((t) => (
                   <View key={t.team_id} style={styles.responseRow}>
                     <ThemedText>{t.team_name}</ThemedText>
@@ -442,7 +449,7 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose }: TradeD
 
             {proposal.notes && (
               <View style={[styles.section, { borderColor: c.border }]}>
-                <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Note</ThemedText>
+                <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>Note</ThemedText>
                 <ThemedText style={{ color: c.secondaryText }}>{proposal.notes}</ThemedText>
               </View>
             )}
@@ -458,6 +465,8 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose }: TradeD
                 {proposal.status === 'pending' && isInvolved && !isProposer && myTeamStatus === 'pending' && (
                   <>
                     <TouchableOpacity
+                      accessibilityRole="button"
+                      accessibilityLabel="Accept trade"
                       style={[styles.actionBtn, { backgroundColor: '#28a745' }]}
                       onPress={() => Alert.alert('Accept Trade', 'Accept this trade?', [
                         { text: 'Cancel', style: 'cancel' },
@@ -467,6 +476,8 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose }: TradeD
                       <ThemedText style={styles.actionBtnText}>Accept</ThemedText>
                     </TouchableOpacity>
                     <TouchableOpacity
+                      accessibilityRole="button"
+                      accessibilityLabel="Decline trade"
                       style={[styles.actionBtn, { backgroundColor: '#dc3545' }]}
                       onPress={() => Alert.alert('Decline Trade', 'Decline this trade?', [
                         { text: 'Cancel', style: 'cancel' },
@@ -481,6 +492,8 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose }: TradeD
                 {/* Pending: proposer can cancel */}
                 {proposal.status === 'pending' && isProposer && (
                   <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="Cancel trade"
                     style={[styles.actionBtn, { backgroundColor: '#6c757d' }]}
                     onPress={() => Alert.alert('Cancel Trade', 'Withdraw this trade proposal?', [
                       { text: 'No', style: 'cancel' },
@@ -495,6 +508,8 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose }: TradeD
                 {proposal.status === 'in_review' && isCommissioner && leagueSettings?.trade_veto_type === 'commissioner' && (
                   <>
                     <TouchableOpacity
+                      accessibilityRole="button"
+                      accessibilityLabel="Approve trade"
                       style={[styles.actionBtn, { backgroundColor: '#28a745' }]}
                       onPress={() => Alert.alert('Approve Trade', 'Approve and execute this trade now?', [
                         { text: 'Cancel', style: 'cancel' },
@@ -504,6 +519,8 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose }: TradeD
                       <ThemedText style={styles.actionBtnText}>Approve</ThemedText>
                     </TouchableOpacity>
                     <TouchableOpacity
+                      accessibilityRole="button"
+                      accessibilityLabel="Veto trade"
                       style={[styles.actionBtn, { backgroundColor: '#dc3545' }]}
                       onPress={() => Alert.alert('Veto Trade', 'Veto this trade?', [
                         { text: 'Cancel', style: 'cancel' },
@@ -518,6 +535,8 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose }: TradeD
                 {/* In review: league vote */}
                 {proposal.status === 'in_review' && leagueSettings?.trade_veto_type === 'league_vote' && !isInvolved && !hasVoted && (
                   <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="Vote to veto trade"
                     style={[styles.actionBtn, { backgroundColor: '#dc3545' }]}
                     onPress={() => Alert.alert('Vote to Veto', 'Cast a veto vote on this trade?', [
                       { text: 'Cancel', style: 'cancel' },

@@ -39,6 +39,10 @@ export interface TradeProposalItem {
   draft_pick_id: string | null;
   from_team_id: string;
   to_team_id: string;
+  // Pick conditions
+  protection_threshold?: number | null;
+  pick_swap_season?: string | null;
+  pick_swap_round?: number | null;
   // Joined for display
   player_name?: string;
   player_position?: string;
@@ -73,6 +77,14 @@ export interface TradeBuilderPick {
   original_team_name: string;
   estimated_fpts: number;
   to_team_id: string; // destination team for this asset
+  protection_threshold?: number; // top-N protected (undefined = unprotected)
+}
+
+export interface TradeBuilderSwap {
+  season: string;
+  round: number;
+  beneficiary_team_id: string; // gets the better pick
+  counterparty_team_id: string; // the other team
 }
 
 export interface TradeBuilderTeam {
@@ -80,6 +92,7 @@ export interface TradeBuilderTeam {
   team_name: string;
   sending_players: TradeBuilderPlayer[];
   sending_picks: TradeBuilderPick[];
+  sending_swaps: TradeBuilderSwap[];
 }
 
 // Estimated avg FPTS value per draft round for fairness calculation
@@ -101,4 +114,10 @@ const ORDINALS = ['1st', '2nd', '3rd', '4th', '5th'];
 export function formatPickLabel(season: string, round: number): string {
   const year = season.split('-')[0];
   return `${year} ${ORDINALS[round - 1] ?? `${round}th`}`;
+}
+
+/** Format a protection for display: "Top-3 protected" */
+export function formatProtection(threshold: number | undefined | null): string {
+  if (!threshold) return '';
+  return `Top-${threshold} protected`;
 }

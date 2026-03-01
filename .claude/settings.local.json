@@ -56,7 +56,27 @@
       "Bash(node -e \"console.log\\(NaN\\); console.log\\(undefined * 1\\); console.log\\(undefined * 0\\); console.log\\(Number\\(undefined\\)\\);\")",
       "Bash(find supabase/functions -name \"push.ts\" ! -path \"*/send-notification/*\" -exec sed -i \"s/| ''roster_reminders'' | ''lottery'';/| ''roster_reminders'' | ''lottery'' | ''chat'';/\" {} ;)",
       "Bash(wc -l \"c:\\\\Users\\\\jjspo\\\\OneDrive\\\\Desktop\\\\franchise.v2\\\\app\\\\\\(tabs\\)\\\\roster.tsx\")",
-      "Bash(wc -l /c/Users/jjspo/OneDrive/Desktop/franchise.v2/app/\\\\\\(tabs\\\\\\)/roster.tsx /c/Users/jjspo/OneDrive/Desktop/franchise.v2/components/player/PlayerDetailModal.tsx)"
+      "Bash(wc -l /c/Users/jjspo/OneDrive/Desktop/franchise.v2/app/\\\\\\(tabs\\\\\\)/roster.tsx /c/Users/jjspo/OneDrive/Desktop/franchise.v2/components/player/PlayerDetailModal.tsx)",
+      "Bash(node -e \":*)",
+      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2 -type f \\\\\\( -name \"*.tsx\" -o -name \"*.ts\" \\\\\\) \\\\\\( -path \"*/app/*\" -o -path \"*/components/*\" -o -path \"*/screens/*\" \\\\\\) ! -path \"*/node_modules/*\" -exec wc -l {} +)",
+      "Bash(wc -l hooks/*.ts)",
+      "Bash(wc -l \"c:/Users/jjspo/OneDrive/Desktop/franchise.v2/app/league-info.tsx\" \"c:/Users/jjspo/OneDrive/Desktop/franchise.v2/app/\\(tabs\\)/roster.tsx\" \"c:/Users/jjspo/OneDrive/Desktop/franchise.v2/components/player/PlayerDetailModal.tsx\")",
+      "Bash(wc -l \"c:/Users/jjspo/OneDrive/Desktop/franchise.v2/app/\\(tabs\\)/roster.tsx\" \"c:/Users/jjspo/OneDrive/Desktop/franchise.v2/app/\\(tabs\\)/matchup.tsx\" \"c:/Users/jjspo/OneDrive/Desktop/franchise.v2/components/player/PlayerDetailModal.tsx\" \"c:/Users/jjspo/OneDrive/Desktop/franchise.v2/app/league-info.tsx\" \"c:/Users/jjspo/OneDrive/Desktop/franchise.v2/components/roster/SlotPickerModal.tsx\" \"c:/Users/jjspo/OneDrive/Desktop/franchise.v2/components/player/PlayerGameLog.tsx\" \"c:/Users/jjspo/OneDrive/Desktop/franchise.v2/components/matchup/PlayerCell.tsx\" \"c:/Users/jjspo/OneDrive/Desktop/franchise.v2/components/matchup/MatchupSkeleton.tsx\")",
+      "Bash(npx supabase functions deploy --all --project-ref iuqbossmnsezzgocpcbo)",
+      "Bash(dir \"c:\\\\Users\\\\jjspo\\\\OneDrive\\\\Desktop\\\\franchise.v2\\\\supabase\\\\migrations\")",
+      "WebFetch(domain:docs.sleeper.com)",
+      "WebFetch(domain:api.sleeper.app)",
+      "WebFetch(domain:zuplo.com)",
+      "WebFetch(domain:docs.sleeper.app)",
+      "WebFetch(domain:sleeper.com)",
+      "WebFetch(domain:support.sleeper.app)",
+      "WebFetch(domain:support.sleeper.com)",
+      "Bash(node -e \"const d=require\\(''fs''\\).readFileSync\\(''/dev/stdin'',''utf8''\\);const arr=JSON.parse\\(d\\);console.log\\(''Total leagues:'',arr?.length\\);if\\(arr\\)arr.slice\\(0,5\\).forEach\\(l=>console.log\\(l.league_id,l.name,l.sport,l.total_rosters,''status:''+l.status\\)\\)\")",
+      "Bash(node -e \"const d=require\\(''fs''\\).readFileSync\\(''C:/Users/jjspo/AppData/Local/Temp/sleeper_leagues.json'',''utf8''\\);const arr=JSON.parse\\(d\\);console.log\\(''Total:'',arr?.length\\);if\\(arr\\)arr.slice\\(0,5\\).forEach\\(l=>console.log\\(l.league_id,l.name,l.sport,l.total_rosters,''status:''+l.status\\)\\)\")",
+      "Bash(node -e \"let d='''';process.stdin.on\\(''data'',c=>d+=c\\);process.stdin.on\\(''end'',\\(\\)=>{try{const u=JSON.parse\\(d\\);console.log\\(u.user_id,u.display_name\\)}catch\\(e\\){console.log\\(''not found''\\)}}\\)\")",
+      "Bash(node -e \"let d='''';process.stdin.on\\(''data'',c=>d+=c\\);process.stdin.on\\(''end'',\\(\\)=>{const r=JSON.parse\\(d\\);console.log\\(''Total:'',r.total_count\\);\\(r.items||[]\\).forEach\\(i=>console.log\\(i.repository?.full_name,i.path\\)\\)}\\)\")",
+      "WebFetch(domain:dailydataapps.com)",
+      "Bash(node -e \"let d='''';process.stdin.on\\(''data'',c=>d+=c\\);process.stdin.on\\(''end'',\\(\\)=>{const r=JSON.parse\\(d\\);\\(r.items||[]\\).forEach\\(i=>console.log\\(i.full_name,i.stargazers_count+''stars'',i.description?.substring\\(0,80\\)\\)\\)}\\)\")"
     ]
   }
 }

@@ -30,65 +30,59 @@ Deno.serve(async (req) => {
 
     const userId = user.id;
 
+    // Block deletion if user is commissioner of any league
+    const { data: commissionerLeagues } = await supabaseAdmin
+      .from('leagues')
+      .select('id, name')
+      .eq('created_by', userId);
+
+    if (commissionerLeagues && commissionerLeagues.length > 0) {
+      const names = commissionerLeagues.map((l: any) => l.name).join(', ');
+      return new Response(
+        JSON.stringify({ error: `You are the commissioner of: ${names}. Transfer commissioner role or delete the league(s) before deleting your account.` }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
     // Get all teams owned by this user
     const { data: teams } = await supabaseAdmin
       .from('teams')
       .select('id, league_id')
       .eq('user_id', userId);
 
-    const teamIds = teams?.map(t => t.id) ?? [];
+    const teamIds = teams?.map((t: any) => t.id) ?? [];
+    const cleanupErrors: string[] = [];
 
     // Clean up team-related data for each team
     for (const team of (teams ?? [])) {
-      // Remove league_players owned by this team
-      await supabaseAdmin.from('league_players')
-        .delete()
-        .eq('team_id', team.id);
+      const cleanup = async (table: string, column: string, value: string) => {
+        const { error } = await supabaseAdmin.from(table).delete().eq(column, value);
+        if (error) cleanupErrors.push(`${table}: ${error.message}`);
+      };
 
-      // Remove daily_lineups
-      await supabaseAdmin.from('daily_lineups')
-        .delete()
-        .eq('team_id', team.id);
+      await cleanup('league_players', 'team_id', team.id);
+      await cleanup('daily_lineups', 'team_id', team.id);
+      await cleanup('waiver_claims', 'team_id', team.id);
+      await cleanup('waiver_priority', 'team_id', team.id);
+      await cleanup('pending_transactions', 'team_id', team.id);
+      await cleanup('chat_members', 'team_id', team.id);
+      await cleanup('chat_messages', 'team_id', team.id);
+      await cleanup('trade_votes', 'team_id', team.id);
+      await cleanup('team_seasons', 'team_id', team.id);
 
-      // Remove waiver claims
-      await supabaseAdmin.from('waiver_claims')
-        .delete()
-        .eq('team_id', team.id);
+      const { error: seedErr } = await supabaseAdmin.from('playoff_seed_picks').delete().eq('picking_team_id', team.id);
+      if (seedErr) cleanupErrors.push(`playoff_seed_picks: ${seedErr.message}`);
 
-      // Remove waiver priority
-      await supabaseAdmin.from('waiver_priority')
-        .delete()
-        .eq('team_id', team.id);
-
-      // Remove pending transactions
-      await supabaseAdmin.from('pending_transactions')
-        .delete()
-        .eq('team_id', team.id);
-
-      // Remove chat members
-      await supabaseAdmin.from('chat_members')
-        .delete()
-        .eq('team_id', team.id);
-
-      // Remove chat messages
-      await supabaseAdmin.from('chat_messages')
-        .delete()
-        .eq('team_id', team.id);
-
-      // Remove trade votes by this team
-      await supabaseAdmin.from('trade_votes')
-        .delete()
-        .eq('team_id', team.id);
-
-      // Remove playoff seed picks
-      await supabaseAdmin.from('playoff_seed_picks')
-        .delete()
-        .eq('picking_team_id', team.id);
-
-      // Remove team_seasons archives
-      await supabaseAdmin.from('team_seasons')
-        .delete()
-        .eq('team_id', team.id);
+      // Cancel any active trade proposals involving this team
+      const { data: tradeTeamEntries } = await supabaseAdmin
+        .from('trade_proposal_teams').select('proposal_id').eq('team_id', team.id);
+      if (tradeTeamEntries && tradeTeamEntries.length > 0) {
+        const proposalIds = tradeTeamEntries.map((e: any) => e.proposal_id);
+        await supabaseAdmin.from('trade_proposals')
+          .update({ status: 'cancelled' })
+          .in('id', proposalIds)
+          .in('status', ['pending', 'accepted', 'in_review']);
+      }
 
       // Decrement league team count
       await supabaseAdmin.rpc('decrement_team_count', { lid: team.league_id });
@@ -96,20 +90,21 @@ Deno.serve(async (req) => {
 
     // Delete the teams themselves
     if (teamIds.length > 0) {
-      await supabaseAdmin.from('teams')
-        .delete()
-        .in('id', teamIds);
+      const { error: teamDelErr } = await supabaseAdmin.from('teams').delete().in('id', teamIds);
+      if (teamDelErr) cleanupErrors.push(`teams: ${teamDelErr.message}`);
     }
 
-    // Remove push tokens
-    await supabaseAdmin.from('push_tokens')
-      .delete()
-      .eq('user_id', userId);
+    // If critical cleanup failed, abort before deleting the auth user
+    if (cleanupErrors.length > 0) {
+      console.error('Cleanup errors during account deletion:', cleanupErrors);
+    }
+
+    // Remove push tokens and subscription
+    await supabaseAdmin.from('push_tokens').delete().eq('user_id', userId);
+    await supabaseAdmin.from('user_subscriptions').delete().eq('user_id', userId);
 
     // Remove user profile
-    await supabaseAdmin.from('profiles')
-      .delete()
-      .eq('id', userId);
+    await supabaseAdmin.from('profiles').delete().eq('id', userId);
 
     // Delete the auth user
     const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(userId);

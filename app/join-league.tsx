@@ -24,6 +24,7 @@ interface League {
   created_by: string;
   teams: number;
   current_teams: number | null;
+  imported_from: string | null;
 }
 
 export default function JoinLeagueScreen() {
@@ -41,7 +42,7 @@ export default function JoinLeagueScreen() {
       const [leaguesResult, myTeamsResult] = await Promise.all([
         supabase
           .from('leagues')
-          .select('id, name, created_by, teams, current_teams')
+          .select('id, name, created_by, teams, current_teams, imported_from')
           .eq('private', false)
           .order('created_at', { ascending: false }),
         user
@@ -74,7 +75,7 @@ export default function JoinLeagueScreen() {
 
       const { data: league, error } = await supabase
         .from('leagues')
-        .select('id, name, teams, current_teams')
+        .select('id, name, teams, current_teams, imported_from')
         .eq('invite_code', trimmed)
         .maybeSingle();
 
@@ -100,6 +101,25 @@ export default function JoinLeagueScreen() {
         return;
       }
 
+      // Imported leagues: claim an existing team instead of creating a new one
+      if (league.imported_from) {
+        const { data: unclaimed } = await supabase
+          .from('teams')
+          .select('id')
+          .eq('league_id', league.id)
+          .is('user_id', null)
+          .not('sleeper_roster_id', 'is', null)
+          .limit(1);
+
+        if (unclaimed && unclaimed.length > 0) {
+          router.push({
+            pathname: '/claim-team',
+            params: { leagueId: league.id, isCommissioner: 'false' },
+          });
+          return;
+        }
+      }
+
       router.push({
         pathname: '/create-team',
         params: { leagueId: league.id, isCommissioner: 'false' },
@@ -112,7 +132,7 @@ export default function JoinLeagueScreen() {
     }
   };
 
-  const handleJoinLeague = async (leagueId: string) => {
+  const handleJoinLeague = async (league: League) => {
     try {
       const user = (await supabase.auth.getUser()).data.user;
       if (!user) {
@@ -120,9 +140,28 @@ export default function JoinLeagueScreen() {
         return;
       }
 
+      // Imported leagues: claim an existing team
+      if (league.imported_from) {
+        const { data: unclaimed } = await supabase
+          .from('teams')
+          .select('id')
+          .eq('league_id', league.id)
+          .is('user_id', null)
+          .not('sleeper_roster_id', 'is', null)
+          .limit(1);
+
+        if (unclaimed && unclaimed.length > 0) {
+          router.push({
+            pathname: '/claim-team',
+            params: { leagueId: league.id, isCommissioner: 'false' },
+          });
+          return;
+        }
+      }
+
       router.push({
         pathname: '/create-team',
-        params: { leagueId, isCommissioner: 'false' },
+        params: { leagueId: league.id, isCommissioner: 'false' },
       });
     } catch (error) {
       console.error('Error joining league:', error);
@@ -132,12 +171,12 @@ export default function JoinLeagueScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
-      <ThemedText type="title" style={styles.header}>Join a League</ThemedText>
+      <ThemedText type="title" style={styles.header} accessibilityRole="header">Join a League</ThemedText>
 
       <ScrollView style={styles.content} keyboardShouldPersistTaps="handled">
         {/* Invite code section */}
         <View style={[styles.codeSection, { backgroundColor: c.cardAlt }]}>
-          <ThemedText type="subtitle">Have an invite code?</ThemedText>
+          <ThemedText type="subtitle" accessibilityRole="header">Have an invite code?</ThemedText>
           <View style={styles.codeInputRow}>
             <TextInput
               style={[styles.codeInput, { borderColor: c.border, backgroundColor: c.input, color: c.text }]}
@@ -149,11 +188,16 @@ export default function JoinLeagueScreen() {
               maxLength={8}
               returnKeyType="go"
               onSubmitEditing={handleJoinByCode}
+              accessibilityLabel="League invite code"
+              accessibilityHint="Enter the invite code to join a private league"
             />
             <TouchableOpacity
               style={[styles.joinBtn, { backgroundColor: code.trim().length > 0 ? c.accent : c.border }]}
               onPress={handleJoinByCode}
               disabled={!code.trim() || joining}
+              accessibilityRole="button"
+              accessibilityLabel={joining ? 'Joining league' : 'Join league with code'}
+              accessibilityState={{ disabled: !code.trim() || joining }}
             >
               <Text style={[styles.joinBtnText, { color: code.trim().length > 0 ? c.accentText : c.secondaryText }]}>
                 {joining ? '...' : 'Join'}
@@ -170,7 +214,7 @@ export default function JoinLeagueScreen() {
         </View>
 
         {/* Public leagues */}
-        <ThemedText type="subtitle" style={styles.publicTitle}>Public Leagues</ThemedText>
+        <ThemedText type="subtitle" style={styles.publicTitle} accessibilityRole="header">Public Leagues</ThemedText>
 
         {isLoading ? (
           <ActivityIndicator style={styles.loading} />
@@ -183,7 +227,10 @@ export default function JoinLeagueScreen() {
             <TouchableOpacity
               key={league.id}
               style={[styles.leagueCard, { backgroundColor: c.cardAlt }]}
-              onPress={() => handleJoinLeague(league.id)}
+              onPress={() => handleJoinLeague(league)}
+              accessibilityRole="button"
+              accessibilityLabel={`${league.name}, ${league.current_teams ?? 0} of ${league.teams} teams`}
+              accessibilityHint="Join this league"
             >
               <ThemedText type="subtitle">{league.name}</ThemedText>
               <ThemedText style={[styles.leagueInfo, { color: c.secondaryText }]}>

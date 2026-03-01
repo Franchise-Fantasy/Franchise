@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { notifyTeams } from './push.ts';
+import { notifyTeams } from '../_shared/push.ts';
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -159,7 +159,6 @@ Deno.serve(async (req: Request) => {
               awarded = true;
               awardedPlayers.add(playerId);
 
-              await supabase.rpc('', {}).catch(() => {});
               const { data: wp } = await supabase
                 .from('waiver_priority').select('faab_remaining')
                 .eq('league_id', league.id).eq('team_id', claim.team_id).single();
@@ -277,7 +276,7 @@ async function checkAndProcessClaim(claim: any, leagueId: string, waiverPeriodDa
   }
 
   const { data: txn } = await supabase
-    .from('league_transactions').insert({ league_id: leagueId, type: 'waiver', notes })
+    .from('league_transactions').insert({ league_id: leagueId, type: 'waiver', notes, team_id: claim.team_id })
     .select('id').single();
 
   if (txn) {

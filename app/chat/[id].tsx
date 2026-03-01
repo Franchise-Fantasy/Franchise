@@ -1,8 +1,10 @@
 import { ChatInput } from '@/components/chat/ChatInput';
+import { CreatePollModal } from '@/components/chat/CreatePollModal';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { ReactionPicker } from '@/components/chat/ReactionPicker';
 import { ThemedText } from '@/components/ThemedText';
 import { Colors } from '@/constants/Colors';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { useAppState } from '@/context/AppStateProvider';
 import {
   useMarkRead,
@@ -10,7 +12,7 @@ import {
   useReactions,
   useSendMessage,
   useToggleReaction,
-} from '@/hooks/useChat';
+} from '@/hooks/chat';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import type { ChatMessage, ReactionGroup } from '@/types/chat';
@@ -76,6 +78,25 @@ export default function ConversationScreen() {
     enabled: !!teamId,
     staleTime: Infinity,
   });
+
+  // Check if current user is commissioner
+  const { data: isCommissioner } = useQuery({
+    queryKey: ['isCommissioner', leagueId],
+    queryFn: async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) return false;
+      const { data: league } = await supabase
+        .from('leagues')
+        .select('created_by')
+        .eq('id', leagueId!)
+        .single();
+      return league?.created_by === session.user.id;
+    },
+    enabled: !!leagueId,
+    staleTime: Infinity,
+  });
+
+  const [showCreatePoll, setShowCreatePoll] = useState(false);
 
   const {
     data: msgData,
@@ -200,24 +221,17 @@ export default function ConversationScreen() {
           reactions={reactions}
           onLongPress={() => handleLongPress(item.id)}
           onReactionPress={(emoji) => handleReactionPress(item.id, emoji)}
+          teamId={teamId ?? undefined}
+          isCommissioner={isCommissioner ?? false}
         />
       );
     },
-    [teamId, reactionsMap, myTeamName, messages, isLeagueChat, sameMinute, handleLongPress, handleReactionPress],
+    [teamId, reactionsMap, myTeamName, messages, isLeagueChat, isCommissioner, sameMinute, handleLongPress, handleReactionPress],
   );
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
-      {/* Header */}
-      <View style={[styles.header, { borderBottomColor: c.border }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
-          <Text style={[styles.backText, { color: c.accent }]}>&#8249; Back</Text>
-        </TouchableOpacity>
-        <ThemedText type="defaultSemiBold" style={styles.title} numberOfLines={1}>
-          {convMeta?.name ?? 'Chat'}
-        </ThemedText>
-        <View style={styles.headerBtn} />
-      </View>
+      <PageHeader title={convMeta?.name ?? 'Chat'} />
 
       <KeyboardAvoidingView
         style={styles.flex}
@@ -249,7 +263,13 @@ export default function ConversationScreen() {
           />
         )}
 
-        <ChatInput onSend={handleSend} sending={sendMessage.isPending} />
+        <ChatInput
+          onSend={handleSend}
+          sending={sendMessage.isPending}
+          isCommissioner={isCommissioner ?? false}
+          isLeagueChat={isLeagueChat}
+          onCreatePoll={() => setShowCreatePoll(true)}
+        />
       </KeyboardAvoidingView>
 
       {reactionTargetId && (
@@ -257,6 +277,16 @@ export default function ConversationScreen() {
           visible
           onSelect={handleReactionSelect}
           onClose={() => setReactionTargetId(null)}
+        />
+      )}
+
+      {showCreatePoll && leagueId && conversationId && teamId && (
+        <CreatePollModal
+          visible={showCreatePoll}
+          leagueId={leagueId}
+          conversationId={conversationId}
+          teamId={teamId}
+          onClose={() => setShowCreatePoll(false)}
         />
       )}
     </SafeAreaView>

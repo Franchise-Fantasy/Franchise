@@ -1,4 +1,6 @@
 import { ErrorState } from '@/components/ErrorState';
+import { MatchupSkeleton, SkeletonBlock } from '@/components/matchup/MatchupSkeleton';
+import { PlayerCell, pStyles, RosterPlayer, DisplayMode, round1, buildStatLine } from '@/components/matchup/PlayerCell';
 import { PlayerDetailModal } from '@/components/player/PlayerDetailModal';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
@@ -6,17 +8,18 @@ import { Colors } from '@/constants/Colors';
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
-import { formatGameInfo, LivePlayerStats, useLivePlayerStats } from '@/utils/nbaLive';
+import { liveToGameLog, LivePlayerStats, useLivePlayerStats } from '@/utils/nbaLive';
+import { toDateStr, parseLocalDate, addDays, formatDayLabel } from '@/utils/dates';
+import { fetchNbaScheduleForDate } from '@/utils/nbaSchedule';
 import { calculateGameFantasyPoints } from '@/utils/fantasyPoints';
-import { getInjuryBadge } from '@/utils/injuryBadge';
 import { useLeagueRosterConfig, RosterConfigSlot } from '@/hooks/useLeagueRosterConfig';
 import { slotLabel } from '@/utils/rosterSlots';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import {
-  Animated,
   FlatList,
   Modal,
   ScrollView,
@@ -46,23 +49,6 @@ interface Matchup {
   playoff_round: number | null;
 }
 
-interface RosterPlayer {
-  player_id: string;
-  name: string;
-  position: string;
-  nba_team: string;
-  nbaTricode: string | null; // real tricode from players.nba_team (e.g. "OKC")
-  roster_slot: string;
-  external_id_nba: number | null;
-  status: string;
-  weekPoints: number;
-  dayPoints: number;
-  // matchup string for past-date or future-date display (e.g. "vs MIA", "@BOS")
-  dayMatchup: string | null;
-  // stat line for past dates (e.g. "20 PTS · 8 REB · 5 AST")
-  dayStatLine: string | null;
-}
-
 interface TeamMatchupData {
   teamId: string;
   teamName: string;
@@ -79,83 +65,12 @@ interface MatchupSlotEntry {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function toDateStr(d: Date) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-function parseLocalDate(str: string): Date {
-  const [y, m, d] = str.split('-').map(Number);
-  return new Date(y, m - 1, d);
-}
-
-function addDays(dateStr: string, n: number): string {
-  const d = parseLocalDate(dateStr);
-  d.setDate(d.getDate() + n);
-  return toDateStr(d);
-}
-
-function formatDayLabel(dateStr: string): string {
-  return parseLocalDate(dateStr).toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  });
-}
 
 function formatWeekRange(start: string, end: string): string {
   const s = parseLocalDate(start);
   const e = parseLocalDate(end);
   const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   return `${fmt(s)} – ${fmt(e)}`;
-}
-
-function round1(n: number) {
-  return Math.round(n * 10) / 10;
-}
-
-// Build a stat line string for a live/historical stat object.
-// Only includes stats that the league actually scores.
-function buildStatLine(
-  stats: Record<string, number>,
-  scoring: ScoringWeight[]
-): string {
-  // Ordered display labels for each scoring stat key
-  const DISPLAY: Record<string, string> = {
-    PTS: 'PTS',
-    REB: 'REB',
-    AST: 'AST',
-    STL: 'STL',
-    BLK: 'BLK',
-    TO: 'TO',
-    '3PM': '3PM',
-    FGM: 'FGM',
-    FGA: 'FGA',
-    FTM: 'FTM',
-    FTA: 'FTA',
-    PF: 'PF',
-  };
-  // Map scoring stat_name → stat value from the stats object
-  const LIVE_KEY: Record<string, string> = {
-    PTS: 'pts', REB: 'reb', AST: 'ast', STL: 'stl', BLK: 'blk',
-    TO: 'tov', '3PM': '3pm', FGM: 'fgm', FGA: 'fga', FTM: 'ftm',
-    FTA: 'fta', PF: 'pf',
-  };
-
-  const scoredStatNames = new Set(scoring.map((w) => w.stat_name));
-  // Always show PF if the table has it, even if not scored (optional: only show scored stats)
-  const toShow = ['PTS', 'REB', 'AST', 'STL', 'BLK', 'TO', '3PM', 'PF'].filter(
-    (key) => scoredStatNames.has(key) || key === 'PF'
-  );
-
-  return toShow
-    .map((key) => {
-      const val = stats[LIVE_KEY[key]] ?? 0;
-      return `${val} ${DISPLAY[key]}`;
-    })
-    .join(' · ');
 }
 
 // Build a fixed-length array of slot entries from the roster config, mapping players into their slots.
@@ -188,26 +103,6 @@ function buildMatchupSlots(
   return slots;
 }
 
-// Convert a LivePlayerStats row to the shape calculateGameFantasyPoints expects
-function liveToGameLog(live: LivePlayerStats): Record<string, number | boolean> {
-  const cats = [live.pts, live.reb, live.ast, live.stl, live.blk].filter(v => v >= 10).length;
-  return {
-    pts: live.pts,
-    reb: live.reb,
-    ast: live.ast,
-    stl: live.stl,
-    blk: live.blk,
-    tov: live.tov,
-    fgm: live.fgm,
-    fga: live.fga,
-    '3pm': live['3pm'],
-    ftm: live.ftm,
-    fta: live.fta,
-    pf: live.pf,
-    double_double: cats >= 2,
-    triple_double: cats >= 3,
-  };
-}
 
 // ─── Data fetching ────────────────────────────────────────────────────────────
 
@@ -404,18 +299,6 @@ async function fetchWeekMatchupData(
   };
 }
 
-async function fetchScheduleForDate(date: string): Promise<Map<string, string>> {
-  const { data } = await supabase
-    .from('nba_schedule')
-    .select('home_team, away_team')
-    .eq('game_date', date);
-  const map = new Map<string, string>();
-  for (const game of data ?? []) {
-    map.set(game.home_team, `vs ${game.away_team}`);
-    map.set(game.away_team, `@${game.home_team}`);
-  }
-  return map;
-}
 
 // ─── Hooks ────────────────────────────────────────────────────────────────────
 
@@ -425,22 +308,6 @@ function useWeeks(leagueId: string | null) {
     queryFn: () => fetchWeeks(leagueId!),
     enabled: !!leagueId,
     staleTime: 1000 * 60 * 10,
-  });
-}
-
-function useScoring(leagueId: string | null) {
-  return useQuery<ScoringWeight[]>({
-    queryKey: ['leagueScoring', leagueId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('league_scoring_settings')
-        .select('stat_name, point_value')
-        .eq('league_id', leagueId!);
-      if (error) throw error;
-      return data ?? [];
-    },
-    enabled: !!leagueId,
-    staleTime: 1000 * 60 * 60,
   });
 }
 
@@ -463,200 +330,6 @@ function useWeekMatchup(
     staleTime: 1000 * 60 * 2,
     placeholderData: keepPreviousData,
   });
-}
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
-
-type DisplayMode = 'past' | 'today' | 'future';
-
-// Static green dot shown when player is actively on the floor.
-function OnCourtDot() {
-  return <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#2dc653', marginRight: 2 }} />;
-}
-
-// Pops on value change (1 → 1.35 → 1 spring)
-function AnimatedFpts({
-  value,
-  activeColor,
-  dimColor,
-  textStyle,
-}: {
-  value: number | null;
-  activeColor: string;
-  dimColor: string;
-  textStyle: any;
-}) {
-  const scale = useRef(new Animated.Value(1)).current;
-  const prev = useRef<number | null | undefined>(undefined);
-
-  useEffect(() => {
-    if (prev.current !== undefined && value !== prev.current) {
-      Animated.sequence([
-        Animated.timing(scale, { toValue: 1.35, duration: 150, useNativeDriver: true }),
-        Animated.spring(scale, { toValue: 1, useNativeDriver: true, bounciness: 12 }),
-      ]).start();
-    }
-    prev.current = value;
-  }, [value]);
-
-  return (
-    <Animated.Text style={[textStyle, { transform: [{ scale }], color: value !== null ? activeColor : dimColor }]}>
-      {value !== null ? value.toFixed(1) : '—'}
-    </Animated.Text>
-  );
-}
-
-// Renders a single player cell (one side of a matchup row). No slot badge — that's in the center.
-function PlayerCell({
-  player,
-  c,
-  side,
-  mode,
-  liveStats,
-  scoring,
-  futureSchedule,
-  onPress,
-}: {
-  player: RosterPlayer | null;
-  c: any;
-  side: 'left' | 'right';
-  mode: DisplayMode;
-  liveStats: LivePlayerStats | null;
-  scoring: ScoringWeight[];
-  futureSchedule?: Map<string, string>;
-  onPress?: (playerId: string) => void;
-}) {
-  const align = side === 'right' ? 'flex-end' : 'flex-start';
-  const textAlign = side === 'right' ? ('right' as const) : ('left' as const);
-
-  const injuryBadge = player ? getInjuryBadge(player.status) : null;
-
-  // Empty slot
-  if (!player) {
-    return (
-      <View style={[pStyles.cell, { alignItems: align }]}>
-        <Text style={[pStyles.name, { color: c.secondaryText, fontStyle: 'italic', textAlign }]}>Empty</Text>
-        <Text style={[pStyles.pts, { color: c.secondaryText, textAlign }]}>—</Text>
-      </View>
-    );
-  }
-
-  const Wrapper = onPress ? TouchableOpacity : View;
-  const wrapperProps = onPress ? { activeOpacity: 0.6, onPress: () => onPress(player.player_id) } : {};
-
-  if (mode === 'future') {
-    const futureMatchup = player.nbaTricode ? (futureSchedule?.get(player.nbaTricode) ?? null) : null;
-    return (
-      <Wrapper style={[pStyles.cell, { alignItems: align }]} {...wrapperProps}>
-        <View style={[pStyles.nameRow, { justifyContent: align }]}>
-          <Text style={[pStyles.name, { color: c.text, textAlign }]} numberOfLines={1}>{player.name}</Text>
-          {futureMatchup ? (
-            <Text style={[pStyles.matchup, { color: c.secondaryText }]}>{futureMatchup}</Text>
-          ) : null}
-          {injuryBadge && (
-            <View style={[pStyles.liveBadge, { backgroundColor: injuryBadge.color }]}>
-              <Text style={pStyles.liveText}>{injuryBadge.label}</Text>
-            </View>
-          )}
-        </View>
-        <Text style={[pStyles.meta, { color: c.secondaryText, textAlign }]}>
-          {futureMatchup ? `${player.position} · proj` : player.position}
-        </Text>
-        <Text style={[pStyles.pts, { color: c.secondaryText, textAlign }]}>—</Text>
-      </Wrapper>
-    );
-  }
-
-  if (mode === 'today' && liveStats) {
-    const liveFp = round1(calculateGameFantasyPoints(liveToGameLog(liveStats) as any, scoring));
-    const isLive = liveStats.game_status === 2;
-    const statLine = liveStats.game_status !== 1
-      ? buildStatLine(liveToGameLog(liveStats) as Record<string, number>, scoring)
-      : null;
-    const gameInfo = formatGameInfo(liveStats);
-
-    return (
-      <Wrapper style={[pStyles.cell, { alignItems: align }]} {...wrapperProps}>
-        <View style={[pStyles.nameRow, { justifyContent: align }]}>
-          {liveStats.oncourt && <OnCourtDot />}
-          <Text style={[pStyles.name, { color: c.text, flexShrink: 1, textAlign }]} numberOfLines={1}>{player.name}</Text>
-          {liveStats.matchup ? (
-            <Text style={[pStyles.matchup, { color: c.secondaryText }]}>{liveStats.matchup}</Text>
-          ) : null}
-          {injuryBadge && (
-            <View style={[pStyles.liveBadge, { backgroundColor: injuryBadge.color }]}>
-              <Text style={pStyles.liveText}>{injuryBadge.label}</Text>
-            </View>
-          )}
-          {isLive && (
-            <View style={[pStyles.liveBadge, { backgroundColor: '#e03131' }]}>
-              <Text style={pStyles.liveText}>LIVE</Text>
-            </View>
-          )}
-        </View>
-        {gameInfo ? (
-          <Text style={[pStyles.meta, { color: c.secondaryText, fontSize: 10, lineHeight: 13, textAlign }]} numberOfLines={1}>
-            {gameInfo}
-          </Text>
-        ) : null}
-        <Text style={[pStyles.meta, { color: c.secondaryText, textAlign }]} numberOfLines={1}>
-          {statLine ?? player.position}
-        </Text>
-        <AnimatedFpts value={liveFp} activeColor={c.text} dimColor={c.secondaryText} textStyle={[pStyles.pts, { textAlign }]} />
-      </Wrapper>
-    );
-  }
-
-  // today with no live entry yet
-  if (mode === 'today') {
-    const todayMatchup = player.nbaTricode ? (futureSchedule?.get(player.nbaTricode) ?? null) : null;
-    return (
-      <Wrapper style={[pStyles.cell, { alignItems: align }]} {...wrapperProps}>
-        <View style={[pStyles.nameRow, { justifyContent: align }]}>
-          <Text style={[pStyles.name, { color: c.text, flexShrink: 1, textAlign }]} numberOfLines={1}>{player.name}</Text>
-          {todayMatchup ? (
-            <Text style={[pStyles.matchup, { color: c.secondaryText }]}>{todayMatchup}</Text>
-          ) : null}
-          {injuryBadge && (
-            <View style={[pStyles.liveBadge, { backgroundColor: injuryBadge.color }]}>
-              <Text style={pStyles.liveText}>{injuryBadge.label}</Text>
-            </View>
-          )}
-        </View>
-        <Text style={[pStyles.meta, { color: c.secondaryText, textAlign }]}>
-          {todayMatchup ? `${player.position} · proj` : player.position}
-        </Text>
-        <AnimatedFpts value={todayMatchup ? 0 : null} activeColor={c.text} dimColor={c.secondaryText} textStyle={[pStyles.pts, { textAlign }]} />
-      </Wrapper>
-    );
-  }
-
-  // past
-  const hasDayGame = player.dayPoints > 0;
-  return (
-    <Wrapper style={[pStyles.cell, { alignItems: align }]} {...wrapperProps}>
-      <View style={[pStyles.nameRow, { justifyContent: align }]}>
-        <Text style={[pStyles.name, { color: c.text, flexShrink: 1, textAlign }]} numberOfLines={1}>{player.name}</Text>
-        {hasDayGame && player.dayMatchup ? (
-          <Text style={[pStyles.matchup, { color: c.secondaryText }]}>{player.dayMatchup}</Text>
-        ) : null}
-        {injuryBadge && (
-          <View style={[pStyles.liveBadge, { backgroundColor: injuryBadge.color }]}>
-            <Text style={pStyles.liveText}>{injuryBadge.label}</Text>
-          </View>
-        )}
-      </View>
-      <Text style={[pStyles.meta, { color: c.secondaryText, textAlign }]} numberOfLines={1}>
-        {hasDayGame && player.dayStatLine ? player.dayStatLine : player.position}
-      </Text>
-      <AnimatedFpts
-        value={hasDayGame ? player.dayPoints : null}
-        activeColor={c.text}
-        dimColor={c.secondaryText}
-        textStyle={[pStyles.pts, { textAlign }]}
-      />
-    </Wrapper>
-  );
 }
 
 // Renders the full matchup: score headers + slot rows with center position labels
@@ -700,9 +373,13 @@ function MatchupBoard({
   return (
     <View>
       {/* Score header: [My Team] vs [Opponent] */}
-      <View style={colStyles.scoreHeader}>
+      <View
+        style={colStyles.scoreHeader}
+        accessibilityRole="summary"
+        accessibilityLabel={`${myTeam.teamName} ${myWeek.toFixed(1)} versus ${opponentTeam ? `${opponentTeam.teamName} ${oppWeek.toFixed(1)}` : 'BYE'}`}
+      >
         <View style={[colStyles.scoreCol, { alignItems: 'flex-start' }]}>
-          <Text style={[colStyles.teamName, { color: c.text }]} numberOfLines={1}>
+          <Text style={[colStyles.teamName, { color: c.text }]} numberOfLines={1} accessibilityRole="header">
             {seedMap?.has(myTeam.teamId) ? `#${seedMap.get(myTeam.teamId)} ` : ''}{myTeam.teamName}
           </Text>
           <Text style={[colStyles.total, { color: c.accent }]}>{myWeek.toFixed(1)}</Text>
@@ -710,9 +387,9 @@ function MatchupBoard({
             <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>{myDay.toFixed(1)} today</Text>
           )}
         </View>
-        <Text style={[colStyles.vsText, { color: c.secondaryText }]}>vs</Text>
+        <Text style={[colStyles.vsText, { color: c.secondaryText }]} accessible={false}>vs</Text>
         <View style={[colStyles.scoreCol, { alignItems: 'flex-end' }]}>
-          <Text style={[colStyles.teamName, { color: c.text, textAlign: 'right' }]} numberOfLines={1}>
+          <Text style={[colStyles.teamName, { color: c.text, textAlign: 'right' }]} numberOfLines={1} accessibilityRole="header">
             {opponentTeam
               ? `${opponentTeam.teamName}${seedMap?.has(opponentTeam.teamId) ? ` #${seedMap.get(opponentTeam.teamId)}` : ''}`
               : 'BYE'}
@@ -764,70 +441,6 @@ function MatchupBoard({
   );
 }
 
-// ─── Skeleton ─────────────────────────────────────────────────────────────────
-
-const SKELETON_SLOTS = 8;
-
-function SkeletonBlock({ width, height, color, style }: { width: number | string; height: number; color: string; style?: any }) {
-  const opacity = useRef(new Animated.Value(0.4)).current;
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, { toValue: 1, duration: 700, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 0.4, duration: 700, useNativeDriver: true }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, []);
-  return <Animated.View style={[{ width: width as any, height, borderRadius: 4, backgroundColor: color, opacity }, style]} />;
-}
-
-function MatchupSkeleton({ c }: { c: any }) {
-  const blockColor = c.border;
-
-  return (
-    <View style={styles.body}>
-      {/* Score header skeleton */}
-      <View style={colStyles.scoreHeader}>
-        <View style={[colStyles.scoreCol, { alignItems: 'flex-start' }]}>
-          <SkeletonBlock width={100} height={14} color={blockColor} />
-          <SkeletonBlock width={60} height={20} color={blockColor} style={{ marginTop: 4 }} />
-          <SkeletonBlock width={50} height={11} color={blockColor} style={{ marginTop: 4 }} />
-        </View>
-        <Text style={[colStyles.vsText, { color: c.secondaryText }]}>vs</Text>
-        <View style={[colStyles.scoreCol, { alignItems: 'flex-end' }]}>
-          <SkeletonBlock width={100} height={14} color={blockColor} />
-          <SkeletonBlock width={60} height={20} color={blockColor} style={{ marginTop: 4 }} />
-          <SkeletonBlock width={50} height={11} color={blockColor} style={{ marginTop: 4 }} />
-        </View>
-      </View>
-
-      {/* Slot rows skeleton */}
-      {Array.from({ length: SKELETON_SLOTS }).map((_, i) => (
-        <View key={i} style={[pStyles.slotRow, { borderBottomColor: c.border }]}>
-          {/* Left player cell */}
-          <View style={[pStyles.cell, { alignItems: 'flex-start' }]}>
-            <SkeletonBlock width={80} height={12} color={blockColor} />
-            <SkeletonBlock width={40} height={10} color={blockColor} style={{ marginTop: 3 }} />
-            <SkeletonBlock width={28} height={13} color={blockColor} style={{ marginTop: 3 }} />
-          </View>
-          {/* Center slot label */}
-          <View style={pStyles.slotCenter}>
-            <SkeletonBlock width={24} height={10} color={blockColor} />
-          </View>
-          {/* Right player cell */}
-          <View style={[pStyles.cell, { alignItems: 'flex-end' }]}>
-            <SkeletonBlock width={80} height={12} color={blockColor} />
-            <SkeletonBlock width={40} height={10} color={blockColor} style={{ marginTop: 3 }} />
-            <SkeletonBlock width={28} height={13} color={blockColor} style={{ marginTop: 3 }} />
-          </View>
-        </View>
-      ))}
-    </View>
-  );
-}
-
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function MatchupScreen() {
@@ -836,7 +449,7 @@ export default function MatchupScreen() {
   const c = Colors[scheme];
 
   const { data: weeks, isLoading: weeksLoading } = useWeeks(leagueId);
-  const { data: scoring } = useScoring(leagueId);
+  const { data: scoring } = useLeagueScoring(leagueId ?? '');
   const { data: rosterConfig } = useLeagueRosterConfig(leagueId ?? '');
 
   const today = toDateStr(new Date());
@@ -893,7 +506,7 @@ export default function MatchupScreen() {
   // Future schedule: tricode → matchup string for the selected future date
   const { data: futureSchedule } = useQuery<Map<string, string>>({
     queryKey: ['futureSchedule', selectedDate],
-    queryFn: () => fetchScheduleForDate(selectedDate),
+    queryFn: () => fetchNbaScheduleForDate(selectedDate),
     enabled: isToday || isFutureDate,
     staleTime: 1000 * 60 * 60,
   });
@@ -919,7 +532,7 @@ export default function MatchupScreen() {
       if (day >= todayStr) {
         queryClient.prefetchQuery({
           queryKey: ['futureSchedule', day],
-          queryFn: () => fetchScheduleForDate(day),
+          queryFn: () => fetchNbaScheduleForDate(day),
           staleTime: 1000 * 60 * 60,
         });
       }
@@ -1011,6 +624,9 @@ export default function MatchupScreen() {
           disabled={selectedDate <= minDate}
           onPress={() => setSelectedDate(addDays(selectedDate, -1))}
           style={styles.navArrow}
+          accessibilityRole="button"
+          accessibilityLabel="Previous day"
+          accessibilityState={{ disabled: selectedDate <= minDate }}
         >
           <Text style={[styles.arrow, { color: selectedDate <= minDate ? c.buttonDisabled : c.text }]}>
             ‹
@@ -1021,6 +637,9 @@ export default function MatchupScreen() {
           style={styles.dayInfo}
           onPress={() => setScheduleVisible(true)}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={`${formatDayLabel(selectedDate)}${currentWeek ? `, Week ${currentWeek.week_number}` : ', outside season'}`}
+          accessibilityHint="Opens week schedule picker"
         >
           <ThemedText type="defaultSemiBold" style={styles.dayLabel}>
             {formatDayLabel(selectedDate)} ▾
@@ -1041,6 +660,9 @@ export default function MatchupScreen() {
           disabled={selectedDate >= maxDate}
           onPress={() => setSelectedDate(addDays(selectedDate, 1))}
           style={styles.navArrow}
+          accessibilityRole="button"
+          accessibilityLabel="Next day"
+          accessibilityState={{ disabled: selectedDate >= maxDate }}
         >
           <Text style={[styles.arrow, { color: selectedDate >= maxDate ? c.buttonDisabled : c.text }]}>
             ›
@@ -1133,9 +755,11 @@ export default function MatchupScreen() {
           style={styles.modalOverlay}
           activeOpacity={1}
           onPress={() => setScheduleVisible(false)}
+          accessibilityRole="button"
+          accessibilityLabel="Close schedule picker"
         >
           <View style={[styles.scheduleSheet, { backgroundColor: c.background, borderColor: c.border }]}>
-            <ThemedText type="defaultSemiBold" style={styles.scheduleTitle}>
+            <ThemedText type="defaultSemiBold" style={styles.scheduleTitle} accessibilityRole="header">
               Schedule
             </ThemedText>
             <FlatList
@@ -1158,6 +782,9 @@ export default function MatchupScreen() {
                       setSelectedDate(jumpDate);
                       setScheduleVisible(false);
                     }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${w.is_playoff ? 'Playoffs, ' : ''}Week ${w.week_number}, ${formatWeekRange(w.start_date, w.end_date)}`}
+                    accessibilityState={{ selected: isActive }}
                   >
                     <ThemedText
                       style={[styles.scheduleWeekLabel, isActive && { color: c.accent }]}
@@ -1235,16 +862,3 @@ const colStyles = StyleSheet.create({
   dayTotal: { fontSize: 11, fontWeight: '500', marginTop: 2 },
 });
 
-const pStyles = StyleSheet.create({
-  slotRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth },
-  cell: { flex: 1, paddingHorizontal: 2 },
-  slotCenter: { width: 34, alignItems: 'center', justifyContent: 'center' },
-  slotText: { fontSize: 10, fontWeight: '600' },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 3, flexShrink: 1 },
-  name: { fontSize: 12, fontWeight: '500' },
-  matchup: { fontSize: 9, fontWeight: '600' },
-  meta: { fontSize: 10 },
-  pts: { fontSize: 13, fontWeight: '700' },
-  liveBadge: { paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3 },
-  liveText: { color: '#fff', fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
-});

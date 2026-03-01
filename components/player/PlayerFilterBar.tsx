@@ -29,6 +29,7 @@ export function PlayerFilterBar({
   return (
     <View style={[styles.container, { backgroundColor: c.card, borderBottomColor: c.border }]}>
       <TextInput
+        accessibilityLabel="Search players"
         style={[styles.searchInput, { backgroundColor: c.input, color: c.text, borderColor: c.border }]}
         placeholder="Search players..."
         placeholderTextColor={c.secondaryText}
@@ -49,6 +50,9 @@ export function PlayerFilterBar({
             return (
               <TouchableOpacity
                 key={pos}
+                accessibilityRole="button"
+                accessibilityLabel={`Position: ${pos}`}
+                accessibilityState={{ selected: active }}
                 style={[
                   styles.chip,
                   { borderColor: c.border },
@@ -80,6 +84,9 @@ export function PlayerFilterBar({
             return (
               <TouchableOpacity
                 key={opt}
+                accessibilityRole="button"
+                accessibilityLabel={`Sort by ${opt}`}
+                accessibilityState={{ selected: active }}
                 style={[
                   styles.chip,
                   { borderColor: c.border },

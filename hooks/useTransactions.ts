@@ -21,6 +21,8 @@ export interface Transaction {
   type: string;
   notes: string | null;
   created_at: string;
+  team_id: string | null;
+  initiator: { name: string } | null;
   league_transaction_items: TransactionItem[];
 }
 
@@ -36,7 +38,8 @@ export function useTransactions() {
       const { data, error } = await supabase
         .from('league_transactions')
         .select(`
-          id, league_id, type, notes, created_at,
+          id, league_id, type, notes, created_at, team_id,
+          initiator:teams!league_transactions_team_id_fkey ( name ),
           league_transaction_items (
             id, player_id, draft_pick_id, team_from_id, team_to_id,
             player:players ( name, position, nba_team ),
@@ -49,11 +52,21 @@ export function useTransactions() {
         .range(from, to);
 
       if (error) throw error;
-      return data as Transaction[];
+      return (data as any[]).map((row) => ({
+        ...row,
+        initiator: Array.isArray(row.initiator) ? row.initiator[0] ?? null : row.initiator,
+        league_transaction_items: (row.league_transaction_items ?? []).map((item: any) => ({
+          ...item,
+          player: Array.isArray(item.player) ? item.player[0] ?? null : item.player,
+          team_from: Array.isArray(item.team_from) ? item.team_from[0] ?? null : item.team_from,
+          team_to: Array.isArray(item.team_to) ? item.team_to[0] ?? null : item.team_to,
+        })),
+      })) as Transaction[];
     },
     initialPageParam: 0,
     getNextPageParam: (lastPage, allPages) =>
       lastPage.length === PAGE_SIZE ? allPages.length : undefined,
     enabled: !!leagueId,
+    staleTime: 1000 * 60,
   });
 }

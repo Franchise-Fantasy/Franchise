@@ -10,6 +10,8 @@ import {
   registerPushToken,
   unregisterPushToken,
 } from "@/lib/notifications";
+import { useSubscription } from "@/hooks/useSubscription";
+import { TIER_LABELS, TIER_COLORS } from "@/constants/Subscriptions";
 import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -36,6 +38,7 @@ export default function ProfileScreen() {
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
 
   const userId = session?.user?.id;
+  const { tier, individualTier, leagueTier } = useSubscription();
 
   useEffect(() => {
     if (!userId) return;
@@ -126,7 +129,7 @@ export default function ProfileScreen() {
               {userEmail.charAt(0).toUpperCase()}
             </Text>
           </View>
-          <ThemedText type="subtitle" style={styles.email}>
+          <ThemedText type="subtitle" style={styles.email} accessibilityRole="header">
             {userEmail}
           </ThemedText>
           {isCommissioner && (
@@ -135,6 +138,7 @@ export default function ProfileScreen() {
                 styles.badge,
                 { backgroundColor: c.activeCard, borderColor: c.activeBorder },
               ]}
+              accessibilityLabel="Commissioner"
             >
               <ThemedText style={[styles.badgeText, { color: c.activeText }]}>
                 Commissioner
@@ -151,7 +155,7 @@ export default function ProfileScreen() {
               { backgroundColor: c.card, borderColor: c.border },
             ]}
           >
-            <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>
+            <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">
               League
             </ThemedText>
             <SettingRow
@@ -175,6 +179,56 @@ export default function ProfileScreen() {
           </View>
         )}
 
+        {/* Subscription */}
+        <View
+          style={[
+            styles.section,
+            { backgroundColor: c.card, borderColor: c.border },
+          ]}
+        >
+          <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">
+            Subscription
+          </ThemedText>
+          <SettingRow
+            icon="diamond-outline"
+            label="Current Plan"
+            value={TIER_LABELS[tier]}
+            c={c}
+          />
+          {individualTier && (
+            <SettingRow
+              icon="person-outline"
+              label="Individual"
+              value={TIER_LABELS[individualTier]}
+              c={c}
+            />
+          )}
+          {leagueTier && (
+            <SettingRow
+              icon="people-outline"
+              label="League Plan"
+              value={TIER_LABELS[leagueTier]}
+              c={c}
+            />
+          )}
+          {tier === 'free' && (
+            <View
+              style={[styles.actionRow, { borderBottomWidth: 0, opacity: 0.45 }]}
+              accessibilityLabel="Upgrade Plan, coming soon"
+            >
+              <View style={styles.actionLeft}>
+                <Ionicons name="arrow-up-circle-outline" size={20} color={c.secondaryText} accessible={false} />
+                <ThemedText style={[styles.actionLabel, { color: c.secondaryText }]}>
+                  Upgrade Plan
+                </ThemedText>
+              </View>
+              <ThemedText style={{ fontSize: 12, color: c.secondaryText }}>
+                Coming Soon
+              </ThemedText>
+            </View>
+          )}
+        </View>
+
         {/* Notifications */}
         <View
           style={[
@@ -182,18 +236,21 @@ export default function ProfileScreen() {
             { backgroundColor: c.card, borderColor: c.border },
           ]}
         >
-          <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>
+          <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">
             Notifications
           </ThemedText>
           <View style={[styles.settingRow, { borderBottomColor: c.border }]}>
             <View style={styles.actionLeft}>
-              <Ionicons name="notifications-outline" size={20} color={c.secondaryText} />
+              <Ionicons name="notifications-outline" size={20} color={c.secondaryText} accessible={false} />
               <ThemedText style={styles.actionLabel}>Push Notifications</ThemedText>
             </View>
             <Switch
               value={notificationsEnabled}
               onValueChange={handleNotificationsToggle}
               trackColor={{ false: c.border, true: c.accent }}
+              accessibilityLabel="Push Notifications"
+              accessibilityRole="switch"
+              accessibilityState={{ checked: notificationsEnabled }}
             />
           </View>
           {notificationsEnabled && (
@@ -201,12 +258,15 @@ export default function ProfileScreen() {
               style={[styles.actionRow, { borderBottomWidth: 0 }]}
               onPress={() => router.push('/notification-settings')}
               activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Notification Preferences"
+              accessibilityHint="Opens notification category settings"
             >
               <View style={styles.actionLeft}>
-                <Ionicons name="options-outline" size={20} color={c.secondaryText} />
+                <Ionicons name="options-outline" size={20} color={c.secondaryText} accessible={false} />
                 <ThemedText style={styles.actionLabel}>Notification Preferences</ThemedText>
               </View>
-              <Ionicons name="chevron-forward" size={18} color={c.secondaryText} />
+              <Ionicons name="chevron-forward" size={18} color={c.secondaryText} accessible={false} />
             </TouchableOpacity>
           )}
         </View>
@@ -218,30 +278,34 @@ export default function ProfileScreen() {
             { backgroundColor: c.card, borderColor: c.border },
           ]}
         >
-          <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>
+          <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">
             Legal
           </ThemedText>
           <TouchableOpacity
             style={styles.actionRow}
             onPress={() => router.push('/legal?tab=terms' as any)}
             activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Terms of Service"
           >
             <View style={styles.actionLeft}>
-              <Ionicons name="document-text-outline" size={20} color={c.secondaryText} />
+              <Ionicons name="document-text-outline" size={20} color={c.secondaryText} accessible={false} />
               <ThemedText style={styles.actionLabel}>Terms of Service</ThemedText>
             </View>
-            <Ionicons name="chevron-forward" size={18} color={c.secondaryText} />
+            <Ionicons name="chevron-forward" size={18} color={c.secondaryText} accessible={false} />
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.actionRow, { borderBottomWidth: 0 }]}
             onPress={() => router.push('/legal?tab=privacy' as any)}
             activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Privacy Policy"
           >
             <View style={styles.actionLeft}>
-              <Ionicons name="shield-checkmark-outline" size={20} color={c.secondaryText} />
+              <Ionicons name="shield-checkmark-outline" size={20} color={c.secondaryText} accessible={false} />
               <ThemedText style={styles.actionLabel}>Privacy Policy</ThemedText>
             </View>
-            <Ionicons name="chevron-forward" size={18} color={c.secondaryText} />
+            <Ionicons name="chevron-forward" size={18} color={c.secondaryText} accessible={false} />
           </TouchableOpacity>
         </View>
 
@@ -252,7 +316,7 @@ export default function ProfileScreen() {
             { backgroundColor: c.card, borderColor: c.border },
           ]}
         >
-          <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>
+          <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">
             Account
           </ThemedText>
 
@@ -261,15 +325,19 @@ export default function ProfileScreen() {
             onPress={handleSignOut}
             disabled={loading}
             activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Sign Out"
+            accessibilityState={{ disabled: loading }}
           >
             <View style={styles.actionLeft}>
-              <Ionicons name="log-out-outline" size={20} color={c.text} />
+              <Ionicons name="log-out-outline" size={20} color={c.text} accessible={false} />
               <ThemedText style={styles.actionLabel}>Sign Out</ThemedText>
             </View>
             <Ionicons
               name="chevron-forward"
               size={18}
               color={c.secondaryText}
+              accessible={false}
             />
           </TouchableOpacity>
 
@@ -277,9 +345,12 @@ export default function ProfileScreen() {
             style={[styles.actionRow, { borderBottomWidth: 0 }]}
             onPress={handleDeleteAccount}
             activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Delete Account"
+            accessibilityHint="Permanently deletes your account and all data"
           >
             <View style={styles.actionLeft}>
-              <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+              <Ionicons name="trash-outline" size={20} color="#FF3B30" accessible={false} />
               <Text style={[styles.actionLabel, { color: "#FF3B30" }]}>
                 Delete Account
               </Text>
@@ -288,6 +359,7 @@ export default function ProfileScreen() {
               name="chevron-forward"
               size={18}
               color={c.secondaryText}
+              accessible={false}
             />
           </TouchableOpacity>
         </View>
@@ -313,9 +385,12 @@ function SettingRow({
   c: any;
 }) {
   return (
-    <View style={[styles.settingRow, { borderBottomColor: c.border }]}>
+    <View
+      style={[styles.settingRow, { borderBottomColor: c.border }]}
+      accessibilityLabel={`${label}: ${value}`}
+    >
       <View style={styles.actionLeft}>
-        <Ionicons name={icon} size={20} color={c.secondaryText} />
+        <Ionicons name={icon} size={20} color={c.secondaryText} accessible={false} />
         <ThemedText style={[styles.settingLabel, { color: c.secondaryText }]}>
           {label}
         </ThemedText>

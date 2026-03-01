@@ -162,12 +162,12 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={handleClose}>
       <View style={styles.overlay}>
-        <View style={[styles.content, { backgroundColor: c.card }]}>
+        <View style={[styles.content, { backgroundColor: c.card }]} accessibilityViewIsModal={true}>
           <View style={styles.header}>
-            <TouchableOpacity onPress={goBack}>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel={step === 'team' ? 'Close' : 'Go back'} onPress={goBack}>
               <Ionicons name={step === 'team' ? 'close' : 'arrow-back'} size={24} color={c.text} />
             </TouchableOpacity>
-            <ThemedText type="subtitle">
+            <ThemedText accessibilityRole="header" type="subtitle">
               {step === 'team' ? 'Select Team' : step === 'action' ? selectedTeam?.name : `${action === 'add' ? 'Add' : 'Drop'} Player`}
             </ThemedText>
             <View style={{ width: 24 }} />
@@ -179,6 +179,8 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
               keyExtractor={(t) => t.id}
               renderItem={({ item }) => (
                 <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel={item.name}
                   style={[styles.row, { borderBottomColor: c.border }]}
                   onPress={() => { setSelectedTeam(item); setStep('action'); }}
                 >
@@ -192,6 +194,8 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
           {step === 'action' && (
             <View style={styles.actionButtons}>
               <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Add player"
                 style={[styles.actionBtn, { backgroundColor: c.accent }]}
                 onPress={() => { setAction('add'); setStep('player'); }}
               >
@@ -199,6 +203,8 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
                 <Text style={{ color: c.accentText, fontWeight: '600', marginLeft: 8 }}>Add Player</Text>
               </TouchableOpacity>
               <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Drop player"
                 style={[styles.actionBtn, { backgroundColor: '#dc3545' }]}
                 onPress={() => { setAction('drop'); setStep('player'); }}
               >
@@ -211,6 +217,7 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
           {step === 'player' && (
             <>
               <TextInput
+                accessibilityLabel="Search players"
                 style={[styles.searchInput, { backgroundColor: c.cardAlt, color: c.text, borderColor: c.border }]}
                 placeholder="Search players..."
                 placeholderTextColor={c.secondaryText}
@@ -229,6 +236,8 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
                     const badge = getInjuryBadge(item.status);
                     return (
                       <TouchableOpacity
+                        accessibilityRole="button"
+                        accessibilityLabel={`${item.name}, ${item.position}, ${item.nba_team}`}
                         style={[styles.row, { borderBottomColor: c.border }]}
                         onPress={() => handleSelectPlayer(item)}
                         disabled={processing}

@@ -93,8 +93,8 @@ export function SeedPickModal({ visible, onClose, pick, teamMap, season }: Props
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <View style={[styles.sheet, { backgroundColor: c.background, borderColor: c.border }]}>
-          <ThemedText type="subtitle" style={styles.title}>
+        <View style={[styles.sheet, { backgroundColor: c.background, borderColor: c.border }]} accessibilityViewIsModal={true}>
+          <ThemedText accessibilityRole="header" type="subtitle" style={styles.title}>
             Pick Your Opponent
           </ThemedText>
           <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>
@@ -120,6 +120,9 @@ export function SeedPickModal({ visible, onClose, pick, teamMap, season }: Props
                   return (
                     <TouchableOpacity
                       key={tid}
+                      accessibilityRole="button"
+                      accessibilityLabel={teamMap.get(tid) ?? 'Unknown'}
+                      accessibilityState={{ selected: isSelected }}
                       style={[
                         styles.opponentRow,
                         { borderColor: c.border },
@@ -137,12 +140,17 @@ export function SeedPickModal({ visible, onClose, pick, teamMap, season }: Props
 
               <View style={styles.actions}>
                 <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel"
                   onPress={onClose}
                   style={[styles.btn, { borderColor: c.border }]}
                 >
                   <Text style={[styles.btnText, { color: c.text }]}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel="Confirm opponent selection"
+                  accessibilityState={{ disabled: !selectedOpponent || submitting }}
                   onPress={handleSubmit}
                   disabled={!selectedOpponent || submitting}
                   style={[

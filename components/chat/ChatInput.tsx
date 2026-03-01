@@ -7,9 +7,12 @@ import { StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 interface Props {
   onSend: (text: string) => void;
   sending: boolean;
+  isCommissioner?: boolean;
+  isLeagueChat?: boolean;
+  onCreatePoll?: () => void;
 }
 
-export function ChatInput({ onSend, sending }: Props) {
+export function ChatInput({ onSend, sending, isCommissioner, isLeagueChat, onCreatePoll }: Props) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const [text, setText] = useState('');
@@ -24,6 +27,16 @@ export function ChatInput({ onSend, sending }: Props) {
 
   return (
     <View style={[styles.container, { borderTopColor: c.border }]}>
+      {isCommissioner && isLeagueChat && onCreatePoll && (
+        <TouchableOpacity
+          onPress={onCreatePoll}
+          style={styles.pollBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Create a poll"
+        >
+          <Ionicons name="bar-chart-outline" size={22} color={c.accent} />
+        </TouchableOpacity>
+      )}
       <TextInput
         style={[
           styles.input,
@@ -40,6 +53,7 @@ export function ChatInput({ onSend, sending }: Props) {
         multiline
         maxLength={2000}
         returnKeyType="default"
+        accessibilityLabel="Type a message"
       />
       <TouchableOpacity
         onPress={handleSend}
@@ -48,6 +62,9 @@ export function ChatInput({ onSend, sending }: Props) {
           styles.sendBtn,
           { backgroundColor: canSend ? c.accent : c.buttonDisabled },
         ]}
+        accessibilityRole="button"
+        accessibilityLabel="Send message"
+        accessibilityState={{ disabled: !canSend }}
       >
         <Ionicons name="arrow-up" size={20} color="#FFFFFF" />
       </TouchableOpacity>
@@ -71,6 +88,13 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     fontSize: 15,
     maxHeight: 100,
+  },
+  pollBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   sendBtn: {
     width: 34,

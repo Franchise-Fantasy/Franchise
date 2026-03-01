@@ -65,6 +65,9 @@ export function NumberStepper({
           onPress={decrement}
           disabled={atMin}
           style={[styles.btn, { backgroundColor: atMin ? c.buttonDisabled : c.accent }]}
+          accessibilityRole="button"
+          accessibilityLabel={`Decrease ${label}`}
+          accessibilityState={{ disabled: atMin }}
         >
           <Text style={[styles.btnText, { color: c.accentText }]}>-</Text>
         </TouchableOpacity>
@@ -78,9 +81,16 @@ export function NumberStepper({
             keyboardType="numeric"
             autoFocus
             selectTextOnFocus
+            accessibilityLabel={`Edit ${label}`}
           />
         ) : (
-          <TouchableOpacity onPress={startEditing} style={[styles.valueBox, { borderColor: c.border }]}>
+          <TouchableOpacity
+            onPress={startEditing}
+            style={[styles.valueBox, { borderColor: c.border }]}
+            accessibilityRole="adjustable"
+            accessibilityLabel={`${label}, ${displayValue}${suffix ?? ''}`}
+            accessibilityHint="Double tap to edit"
+          >
             <Text style={[styles.value, { color: c.text }]}>
               {displayValue}{suffix ?? ''}
             </Text>
@@ -90,6 +100,9 @@ export function NumberStepper({
           onPress={increment}
           disabled={atMax}
           style={[styles.btn, { backgroundColor: atMax ? c.buttonDisabled : c.accent }]}
+          accessibilityRole="button"
+          accessibilityLabel={`Increase ${label}`}
+          accessibilityState={{ disabled: atMax }}
         >
           <Text style={[styles.btnText, { color: c.accentText }]}>+</Text>
         </TouchableOpacity>

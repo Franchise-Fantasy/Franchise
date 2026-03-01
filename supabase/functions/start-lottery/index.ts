@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { notifyLeague } from './push.ts';
+import { notifyLeague } from '../_shared/push.ts';
+import { corsResponse } from '../_shared/cors.ts';
 
 function generateDefaultOdds(numTeams: number): number[] {
   if (numTeams <= 0) return [];
@@ -11,14 +12,7 @@ function generateDefaultOdds(numTeams: number): number[] {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', {
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-      },
-    });
-  }
+  if (req.method === 'OPTIONS') return corsResponse();
 
   try {
     const supabaseAdmin = createClient(
@@ -169,6 +163,69 @@ Deno.serve(async (req) => {
         }).eq('league_id', league_id).eq('season', season).eq('round', round)
           .eq('current_team_id', teamId).is('draft_id', null);
       }
+    }
+
+    // --- Resolve protections ---
+    const { data: protectedPicks } = await supabaseAdmin
+      .from('draft_picks')
+      .select('id, season, round, slot_number, current_team_id, original_team_id, protection_threshold, protection_owner_id')
+      .eq('league_id', league_id)
+      .eq('season', season)
+      .not('protection_threshold', 'is', null);
+
+    for (const pick of protectedPicks ?? []) {
+      if (pick.slot_number != null && pick.slot_number <= pick.protection_threshold) {
+        // Protected: revert ownership to protection_owner
+        await supabaseAdmin.from('draft_picks').update({
+          current_team_id: pick.protection_owner_id,
+          protection_threshold: null,
+          protection_owner_id: null,
+        }).eq('id', pick.id);
+      } else {
+        // Conveyed: clear protection columns, ownership stays
+        await supabaseAdmin.from('draft_picks').update({
+          protection_threshold: null,
+          protection_owner_id: null,
+        }).eq('id', pick.id);
+      }
+    }
+
+    // --- Resolve swaps ---
+    const { data: unresolvedSwaps } = await supabaseAdmin
+      .from('pick_swaps')
+      .select('id, season, round, beneficiary_team_id, counterparty_team_id')
+      .eq('league_id', league_id)
+      .eq('season', season)
+      .eq('resolved', false);
+
+    for (const swap of unresolvedSwaps ?? []) {
+      // Find both teams' picks in this round
+      const { data: benefPick } = await supabaseAdmin
+        .from('draft_picks')
+        .select('id, slot_number, current_team_id')
+        .eq('league_id', league_id).eq('season', season).eq('round', swap.round)
+        .eq('current_team_id', swap.beneficiary_team_id)
+        .is('player_id', null)
+        .maybeSingle();
+      const { data: counterPick } = await supabaseAdmin
+        .from('draft_picks')
+        .select('id, slot_number, current_team_id')
+        .eq('league_id', league_id).eq('season', season).eq('round', swap.round)
+        .eq('current_team_id', swap.counterparty_team_id)
+        .is('player_id', null)
+        .maybeSingle();
+
+      if (benefPick && counterPick) {
+        const benefSlot = benefPick.slot_number ?? 999;
+        const counterSlot = counterPick.slot_number ?? 999;
+        if (counterSlot < benefSlot) {
+          // Counterparty has the better pick — swap ownership
+          await supabaseAdmin.from('draft_picks').update({ current_team_id: swap.beneficiary_team_id }).eq('id', counterPick.id);
+          await supabaseAdmin.from('draft_picks').update({ current_team_id: swap.counterparty_team_id }).eq('id', benefPick.id);
+        }
+      }
+      // Mark swap as resolved
+      await supabaseAdmin.from('pick_swaps').update({ resolved: true }).eq('id', swap.id);
     }
 
     // Update league state

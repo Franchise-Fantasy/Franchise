@@ -1,45 +1,40 @@
 import { ThemedText } from '@/components/ThemedText';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { EditBasicsModal } from '@/components/commissioner/EditBasicsModal';
+import { EditRosterModal } from '@/components/commissioner/EditRosterModal';
+import { EditScoringModal } from '@/components/commissioner/EditScoringModal';
+import { EditDraftSettingsModal } from '@/components/commissioner/EditDraftSettingsModal';
+import { EditTradeSettingsModal } from '@/components/commissioner/EditTradeSettingsModal';
+import { EditWaiverSettingsModal } from '@/components/commissioner/EditWaiverSettingsModal';
+import { EditSeasonSettingsModal } from '@/components/commissioner/EditSeasonSettingsModal';
 import { ReverseTradeModal } from '@/components/commissioner/ReverseTradeModal';
 import { ForceAddDropModal } from '@/components/commissioner/ForceAddDropModal';
 import { ForceRosterMoveModal } from '@/components/commissioner/ForceRosterMoveModal';
+import { ManagePickConditionsModal } from '@/components/commissioner/ManagePickConditionsModal';
+import { PaymentLedgerModal } from '@/components/commissioner/PaymentLedgerModal';
+import { SendAnnouncementModal } from '@/components/commissioner/SendAnnouncementModal';
+import { TeamAssigner } from '@/components/import/TeamAssigner';
 import { SeasonHistory } from '@/components/home/SeasonHistory';
-import { NumberStepper } from '@/components/ui/NumberStepper';
-import { SegmentedControl } from '@/components/ui/SegmentedControl';
+import { useAnnouncements } from '@/hooks/useAnnouncements';
 import { Colors } from '@/constants/Colors';
-import { LotteryOddsEditor } from '@/components/create-league/LotteryOddsEditor';
-import {
-  DEFAULT_ROSTER_SLOTS,
-  DEFAULT_SCORING,
-  DRAFT_TYPE_OPTIONS,
-  ROOKIE_DRAFT_ORDER_OPTIONS,
-  TIME_PER_PICK_OPTIONS,
-  TRADE_VETO_OPTIONS,
-  PLAYOFF_SEEDING_OPTIONS,
-  SEEDING_DISPLAY,
-  SEEDING_TO_DB,
-  WAIVER_DAY_LABELS,
-  WAIVER_TYPE_OPTIONS,
-} from '@/constants/LeagueDefaults';
-import { calcLotteryPoolSize, generateDefaultOdds, getPlayoffTeamOptions } from '@/utils/lottery';
+import { SEEDING_DISPLAY, WAIVER_DAY_LABELS } from '@/constants/LeagueDefaults';
 import { useAppState } from '@/context/AppStateProvider';
 import { useSession } from '@/context/AuthProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeague } from '@/hooks/useLeague';
 import { useLeagueRosterConfig } from '@/hooks/useLeagueRosterConfig';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
+import { usePlayoffBracket } from '@/hooks/usePlayoffBracket';
+import { calcRounds } from '@/utils/playoff';
 import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Modal,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -71,29 +66,19 @@ function sectionEditable(group: SettingGroup, lifecycle: Lifecycle, isCommission
 // ── Display helpers ────────────────────────────────────────────────
 
 const VETO_DISPLAY: Record<string, string> = { commissioner: 'Commissioner', league_vote: 'League Vote', none: 'None' };
-const VETO_TO_DB: Record<string, string> = { Commissioner: 'commissioner', 'League Vote': 'league_vote', None: 'none' };
 const ORDER_DISPLAY: Record<string, string> = { reverse_record: 'Reverse Record', lottery: 'Lottery' };
-const ORDER_TO_DB: Record<string, string> = { 'Reverse Record': 'reverse_record', Lottery: 'lottery' };
 const WAIVER_DISPLAY: Record<string, string> = { standard: 'Standard', faab: 'FAAB', none: 'None' };
-const WAIVER_TO_DB: Record<string, string> = { Standard: 'standard', FAAB: 'faab', None: 'none' };
 const DRAFT_TYPE_DISPLAY = (v: string) => v.charAt(0).toUpperCase() + v.slice(1);
 
-function positionLabel(pos: string): string {
-  return DEFAULT_ROSTER_SLOTS.find((s) => s.position === pos)?.label ?? pos;
-}
-function statLabel(stat: string): string {
-  return DEFAULT_SCORING.find((s) => s.stat_name === stat)?.label ?? stat;
-}
 
 // ── Main component ─────────────────────────────────────────────────
 
 export default function LeagueInfoScreen() {
-  const router = useRouter();
   const session = useSession();
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const queryClient = useQueryClient();
-  const { leagueId } = useAppState();
+  const { leagueId, teamId } = useAppState();
 
   const { data: league, isLoading: leagueLoading } = useLeague();
   const { data: rosterConfig } = useLeagueRosterConfig(leagueId ?? '');
@@ -117,53 +102,32 @@ export default function LeagueInfoScreen() {
 
   const isCommissioner = !!(session?.user?.id && league?.created_by === session.user.id);
   const lifecycle = getLifecycle(draft?.status, league?.schedule_generated ?? false);
+  const { data: announcements } = useAnnouncements(leagueId ?? null);
+  const { data: bracket } = usePlayoffBracket(league?.season ?? '');
 
-  // ── Edit state ─────────────────────────────────────────────────
+  const playoffsComplete = (() => {
+    if (!bracket || bracket.length === 0) return false;
+    const totalRounds = calcRounds(league?.playoff_teams ?? 8);
+    const finalSlot = bracket.find(s => s.round === totalRounds);
+    return !!finalSlot?.winner_id;
+  })();
 
-  const [editingSection, setEditingSection] = useState<SettingGroup | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  // Basics edit state
-  const [editName, setEditName] = useState('');
-  const [editPrivate, setEditPrivate] = useState(false);
-
-  // Trade edit state
-  const [editVetoType, setEditVetoType] = useState('Commissioner');
-  const [editReviewHours, setEditReviewHours] = useState(24);
-  const [editVotesToVeto, setEditVotesToVeto] = useState(4);
-
-  // Waiver edit state
-  const [editWaiverType, setEditWaiverType] = useState('Standard');
-  const [editWaiverPeriod, setEditWaiverPeriod] = useState(2);
-  const [editFaabBudget, setEditFaabBudget] = useState(100);
-  const [editWaiverDay, setEditWaiverDay] = useState(3);
-
-  // Draft edit state
-  const [editDraftType, setEditDraftType] = useState('Snake');
-  const [editTimePick, setEditTimePick] = useState(90);
-  const [editMaxYears, setEditMaxYears] = useState(3);
-  const [editRookieRounds, setEditRookieRounds] = useState(2);
-  const [editRookieOrder, setEditRookieOrder] = useState('Reverse Record');
-  const [editLotteryDraws, setEditLotteryDraws] = useState(4);
-  const [editLotteryOdds, setEditLotteryOdds] = useState<number[] | null>(null);
-
-  // Season edit state
-  const [editRegWeeks, setEditRegWeeks] = useState(20);
-  const [editPlayoffWeeks, setEditPlayoffWeeks] = useState(3);
-  const [editPlayoffTeams, setEditPlayoffTeams] = useState(8);
-  const [editSeedingFormat, setEditSeedingFormat] = useState('Standard');
-  const [editReseed, setEditReseed] = useState(false);
-
-  // Modal state
+  // Settings modals
+  const [showBasicsModal, setShowBasicsModal] = useState(false);
   const [showRosterModal, setShowRosterModal] = useState(false);
-  const [editRoster, setEditRoster] = useState<{ position: string; slot_count: number }[]>([]);
   const [showScoringModal, setShowScoringModal] = useState(false);
-  const [editScoring, setEditScoring] = useState<{ stat_name: string; point_value: number }[]>([]);
+  const [showDraftModal, setShowDraftModal] = useState(false);
+  const [showTradeModal, setShowTradeModal] = useState(false);
+  const [showWaiverModal, setShowWaiverModal] = useState(false);
+  const [showSeasonModal, setShowSeasonModal] = useState(false);
 
   // Commissioner action modals
   const [showReverseTrade, setShowReverseTrade] = useState(false);
   const [showForceAddDrop, setShowForceAddDrop] = useState(false);
   const [showForceMove, setShowForceMove] = useState(false);
+  const [showPickConditions, setShowPickConditions] = useState(false);
+  const [showPaymentLedger, setShowPaymentLedger] = useState(false);
+  const [showSendAnnouncement, setShowSendAnnouncement] = useState(false);
   const [advancingseason, setAdvancingSeason] = useState(false);
 
   const handleAdvanceSeason = () => {
@@ -195,201 +159,6 @@ export default function LeagueInfoScreen() {
     );
   };
 
-  // ── Enter edit mode helpers ────────────────────────────────────
-
-  function enterEdit(group: SettingGroup) {
-    if (!league) return;
-    if (group === 'basics') {
-      setEditName(league.name);
-      setEditPrivate(league.private ?? false);
-    } else if (group === 'trade') {
-      setEditVetoType(VETO_DISPLAY[league.trade_veto_type] ?? 'Commissioner');
-      setEditReviewHours(league.trade_review_period_hours ?? 24);
-      setEditVotesToVeto(league.trade_votes_to_veto ?? 4);
-    } else if (group === 'waivers') {
-      setEditWaiverType(WAIVER_DISPLAY[league.waiver_type] ?? 'Standard');
-      setEditWaiverPeriod(league.waiver_period_days ?? 2);
-      setEditFaabBudget(league.faab_budget ?? 100);
-      setEditWaiverDay(league.waiver_day_of_week ?? 3);
-    } else if (group === 'draft' && draft) {
-      setEditDraftType(DRAFT_TYPE_DISPLAY(draft.draft_type ?? 'snake'));
-      setEditTimePick(draft.time_limit ?? 90);
-      setEditMaxYears(league.max_future_seasons ?? 3);
-      setEditRookieRounds(league.rookie_draft_rounds ?? 2);
-      setEditRookieOrder(ORDER_DISPLAY[league.rookie_draft_order] ?? 'Reverse Record');
-      setEditLotteryDraws(league.lottery_draws ?? 4);
-      setEditLotteryOdds(league.lottery_odds ?? null);
-    } else if (group === 'season') {
-      setEditRegWeeks(league.regular_season_weeks ?? 20);
-      setEditPlayoffWeeks(league.playoff_weeks ?? 3);
-      setEditPlayoffTeams(league.playoff_teams ?? Math.min(2 ** (league.playoff_weeks ?? 3), teamCount));
-      setEditSeedingFormat(SEEDING_DISPLAY[league.playoff_seeding_format] ?? 'Standard');
-      setEditReseed(league.reseed_each_round ?? false);
-    }
-    setEditingSection(group);
-  }
-
-  function openRosterModal() {
-    if (!rosterConfig) return;
-    // Build full position list from defaults, merging in current values
-    const merged = DEFAULT_ROSTER_SLOTS.map((d) => {
-      const existing = rosterConfig.find((r) => r.position === d.position);
-      return { position: d.position, slot_count: existing?.slot_count ?? 0 };
-    });
-    setEditRoster(merged);
-    setShowRosterModal(true);
-  }
-
-  function openScoringModal() {
-    if (!scoring) return;
-    const merged = DEFAULT_SCORING.map((d) => {
-      const existing = scoring.find((s) => s.stat_name === d.stat_name);
-      return { stat_name: d.stat_name, point_value: existing?.point_value ?? d.point_value };
-    });
-    setEditScoring(merged);
-    setShowScoringModal(true);
-  }
-
-  // ── Save handlers ──────────────────────────────────────────────
-
-  async function saveBasics() {
-    if (!league) return;
-    setSaving(true);
-    const { error } = await supabase
-      .from('leagues')
-      .update({ name: editName.trim(), private: editPrivate })
-      .eq('id', league.id);
-    setSaving(false);
-    if (error) { Alert.alert('Error', error.message); return; }
-    queryClient.invalidateQueries({ queryKey: ['league', leagueId] });
-    setEditingSection(null);
-  }
-
-  async function saveTrade() {
-    if (!league) return;
-    setSaving(true);
-    const vetoDb = VETO_TO_DB[editVetoType] ?? 'commissioner';
-    const { error } = await supabase
-      .from('leagues')
-      .update({
-        trade_veto_type: vetoDb,
-        trade_review_period_hours: vetoDb === 'none' ? 0 : editReviewHours,
-        trade_votes_to_veto: editVotesToVeto,
-      })
-      .eq('id', league.id);
-    setSaving(false);
-    if (error) { Alert.alert('Error', error.message); return; }
-    queryClient.invalidateQueries({ queryKey: ['league', leagueId] });
-    setEditingSection(null);
-  }
-
-  async function saveWaivers() {
-    if (!league) return;
-    setSaving(true);
-    const waiverDb = WAIVER_TO_DB[editWaiverType] ?? 'standard';
-    const { error } = await supabase
-      .from('leagues')
-      .update({
-        waiver_type: waiverDb,
-        waiver_period_days: waiverDb === 'none' ? 0 : editWaiverPeriod,
-        faab_budget: editFaabBudget,
-        waiver_day_of_week: editWaiverDay,
-      })
-      .eq('id', league.id);
-    setSaving(false);
-    if (error) { Alert.alert('Error', error.message); return; }
-    queryClient.invalidateQueries({ queryKey: ['league', leagueId] });
-    setEditingSection(null);
-  }
-
-  async function saveDraft() {
-    if (!league || !draft) return;
-    setSaving(true);
-    // Update leagues table fields
-    const { error: leagueErr } = await supabase
-      .from('leagues')
-      .update({
-        max_future_seasons: editMaxYears,
-        rookie_draft_rounds: editRookieRounds,
-        rookie_draft_order: ORDER_TO_DB[editRookieOrder] ?? 'reverse_record',
-        lottery_draws: editLotteryDraws,
-        lottery_odds: editLotteryOdds,
-      })
-      .eq('id', league.id);
-    // Update drafts table fields
-    const { error: draftErr } = await supabase
-      .from('drafts')
-      .update({
-        draft_type: editDraftType.toLowerCase(),
-        time_limit: editTimePick,
-      })
-      .eq('id', draft.id);
-    setSaving(false);
-    if (leagueErr || draftErr) {
-      Alert.alert('Error', (leagueErr ?? draftErr)!.message);
-      return;
-    }
-    queryClient.invalidateQueries({ queryKey: ['league', leagueId] });
-    queryClient.invalidateQueries({ queryKey: ['leagueDraft', leagueId] });
-    setEditingSection(null);
-  }
-
-  async function saveSeason() {
-    if (!league) return;
-    setSaving(true);
-    const { error } = await supabase
-      .from('leagues')
-      .update({
-        regular_season_weeks: editRegWeeks,
-        playoff_weeks: editPlayoffWeeks,
-        playoff_teams: editPlayoffTeams,
-        playoff_seeding_format: SEEDING_TO_DB[editSeedingFormat] ?? 'standard',
-        reseed_each_round: editReseed,
-      })
-      .eq('id', league.id);
-    setSaving(false);
-    if (error) { Alert.alert('Error', error.message); return; }
-    queryClient.invalidateQueries({ queryKey: ['league', leagueId] });
-    setEditingSection(null);
-  }
-
-  async function saveRoster() {
-    if (!leagueId) return;
-    setSaving(true);
-    const rows = editRoster
-      .filter((r) => r.slot_count > 0)
-      .map((r) => ({ league_id: leagueId, position: r.position, slot_count: r.slot_count }));
-    const rosterSize = rows.reduce((sum, r) => {
-      // IR doesn't count toward roster_size
-      return r.position === 'IR' ? sum : sum + r.slot_count;
-    }, 0);
-    const { error: delErr } = await supabase.from('league_roster_config').delete().eq('league_id', leagueId);
-    if (delErr) { setSaving(false); Alert.alert('Error', delErr.message); return; }
-    const { error: insErr } = await supabase.from('league_roster_config').insert(rows);
-    if (insErr) { setSaving(false); Alert.alert('Error', insErr.message); return; }
-    await supabase.from('leagues').update({ roster_size: rosterSize }).eq('id', leagueId);
-    setSaving(false);
-    queryClient.invalidateQueries({ queryKey: ['leagueRosterConfig', leagueId] });
-    queryClient.invalidateQueries({ queryKey: ['league', leagueId] });
-    setShowRosterModal(false);
-  }
-
-  async function saveScoring() {
-    if (!leagueId) return;
-    setSaving(true);
-    const rows = editScoring.map((s) => ({
-      league_id: leagueId,
-      stat_name: s.stat_name,
-      point_value: s.point_value,
-    }));
-    const { error: delErr } = await supabase.from('league_scoring_settings').delete().eq('league_id', leagueId);
-    if (delErr) { setSaving(false); Alert.alert('Error', delErr.message); return; }
-    const { error: insErr } = await supabase.from('league_scoring_settings').insert(rows);
-    if (insErr) { setSaving(false); Alert.alert('Error', insErr.message); return; }
-    setSaving(false);
-    queryClient.invalidateQueries({ queryKey: ['leagueScoring', leagueId] });
-    setShowScoringModal(false);
-  }
 
   // ── Render ─────────────────────────────────────────────────────
 
@@ -406,58 +175,125 @@ export default function LeagueInfoScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
-      {/* Header */}
-      <View style={[styles.header, { borderBottomColor: c.border }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Text style={[styles.backText, { color: c.accent }]}>‹ Back</Text>
-        </TouchableOpacity>
-        <ThemedText type="defaultSemiBold" style={styles.titleText}>League Info</ThemedText>
-        <View style={styles.backBtn} />
-      </View>
+      <PageHeader title="League Info" />
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
 
-        {/* ── League Basics ── */}
-        <SectionCard title="League Basics" c={c} editable={sectionEditable('basics', lifecycle, isCommissioner)} editing={editingSection === 'basics'} onEdit={() => enterEdit('basics')} onCancel={() => setEditingSection(null)} onSave={saveBasics} saving={saving}>
-          {editingSection === 'basics' ? (
-            <>
-              <View style={[styles.editRow, { borderBottomColor: c.border }]}>
-                <ThemedText style={[styles.rowLabel, { color: c.secondaryText }]}>Name</ThemedText>
-                <TextInput
-                  style={[styles.textInput, { color: c.text, backgroundColor: c.input, borderColor: c.border }]}
-                  value={editName}
-                  onChangeText={setEditName}
-                  placeholder="League name"
-                  placeholderTextColor={c.secondaryText}
-                />
-              </View>
-              <View style={styles.editRow}>
-                <ThemedText style={[styles.rowLabel, { color: c.secondaryText }]}>Visibility</ThemedText>
-                <View style={{ width: 160 }}>
-                  <SegmentedControl
-                    options={['Public', 'Private']}
-                    selectedIndex={editPrivate ? 1 : 0}
-                    onSelect={(i) => setEditPrivate(i === 1)}
-                  />
+        {/* ── Commissioner Dashboard ── */}
+        {isCommissioner && (
+          <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border, borderLeftWidth: 3, borderLeftColor: '#FF9500' }]}>
+            <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">Commissioner Dashboard</ThemedText>
+            <TouchableOpacity
+              style={[styles.commAction, { borderBottomColor: c.border }]}
+              onPress={() => setShowSendAnnouncement(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Send Announcement"
+            >
+              <Ionicons name="megaphone" size={18} color="#FF9500" accessible={false} />
+              <ThemedText style={[styles.commActionText, { color: '#FF9500' }]}>Send Announcement</ThemedText>
+              <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.commAction, { borderBottomColor: c.border }]}
+              onPress={() => setShowPaymentLedger(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Payment Ledger"
+            >
+              <Ionicons name="cash" size={18} color="#34C759" accessible={false} />
+              <ThemedText style={[styles.commActionText, { color: '#34C759' }]}>Payment Ledger</ThemedText>
+              <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
+            </TouchableOpacity>
+            <View style={[styles.commDivider, { borderBottomColor: c.border }]} />
+            {lifecycle === 'mid_season' && !league?.offseason_step && (
+              <TouchableOpacity
+                style={[styles.commAction, { borderBottomColor: c.border }, (advancingseason || !playoffsComplete) && { opacity: 0.5 }]}
+                onPress={handleAdvanceSeason}
+                disabled={advancingseason || !playoffsComplete}
+                accessibilityRole="button"
+                accessibilityLabel={playoffsComplete ? 'Advance to Offseason' : 'Advance to Offseason, disabled until playoffs complete'}
+                accessibilityState={{ disabled: advancingseason || !playoffsComplete }}
+              >
+                <Ionicons name="calendar" size={18} color="#FF9500" accessible={false} />
+                <View style={{ flex: 1 }}>
+                  <ThemedText style={[styles.commActionText, { color: '#FF9500' }]}>Advance to Offseason</ThemedText>
+                  {!playoffsComplete && (
+                    <ThemedText style={{ fontSize: 11, color: c.secondaryText, marginTop: 2 }}>
+                      Playoffs must finish first
+                    </ThemedText>
+                  )}
                 </View>
-              </View>
-            </>
-          ) : (
-            <>
-              <Row label="Name" value={league.name} c={c} />
-              <Row label="Visibility" value={league.private ? 'Private' : 'Public'} c={c} />
-              {league.private && league.invite_code && (
-                <Row label="Invite Code" value={league.invite_code} c={c} />
-              )}
-              <Row label="Teams" value={`${teamCount}`} c={c} />
-              <Row label="Season" value={league.season} c={c} />
-              {commissionerTeam && <Row label="Commissioner" value={commissionerTeam.name} c={c} last />}
-            </>
+                {advancingseason ? (
+                  <ActivityIndicator size="small" color="#FF9500" />
+                ) : (
+                  <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
+                )}
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={[styles.commAction, { borderBottomColor: c.border }]}
+              onPress={() => setShowReverseTrade(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Reverse Trade"
+            >
+              <Ionicons name="arrow-undo" size={18} color={c.text} accessible={false} />
+              <ThemedText style={styles.commActionText}>Reverse Trade</ThemedText>
+              <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.commAction, { borderBottomColor: c.border }]}
+              onPress={() => setShowForceAddDrop(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Force Add or Drop"
+            >
+              <Ionicons name="person-add" size={18} color={c.text} accessible={false} />
+              <ThemedText style={styles.commActionText}>Force Add/Drop</ThemedText>
+              <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.commAction, { borderBottomColor: c.border, borderBottomWidth: league?.pick_conditions_enabled ? StyleSheet.hairlineWidth : 0 }]}
+              onPress={() => setShowForceMove(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Force Roster Move"
+            >
+              <Ionicons name="swap-vertical" size={18} color={c.text} accessible={false} />
+              <ThemedText style={styles.commActionText}>Force Roster Move</ThemedText>
+              <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
+            </TouchableOpacity>
+            {league?.pick_conditions_enabled && (
+              <TouchableOpacity
+                style={[styles.commAction, { borderBottomWidth: 0 }]}
+                onPress={() => setShowPickConditions(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Manage Pick Conditions"
+              >
+                <Ionicons name="shield-checkmark" size={18} color={c.text} accessible={false} />
+                <ThemedText style={styles.commActionText}>Manage Pick Conditions</ThemedText>
+                <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
+        {/* ── Team Assignment (imported leagues) ── */}
+        {isCommissioner && league?.imported_from && leagueId && (
+          <TeamAssigner leagueId={leagueId} />
+        )}
+
+        {/* ── League Basics ── */}
+        <SectionCard title="League Basics" c={c} editable={sectionEditable('basics', lifecycle, isCommissioner)} onEdit={() => setShowBasicsModal(true)}>
+          <Row label="Name" value={league.name} c={c} />
+          <Row label="Visibility" value={league.private ? 'Private' : 'Public'} c={c} />
+          {league.private && league.invite_code && (
+            <Row label="Invite Code" value={league.invite_code} c={c} />
           )}
+          <Row label="Buy-In" value={league.buy_in_amount ? `$${league.buy_in_amount}` : 'Free'} c={c} />
+          <Row label="Teams" value={`${teamCount}`} c={c} />
+          <Row label="Season" value={league.season} c={c} />
+          {commissionerTeam && <Row label="Commissioner" value={commissionerTeam.name} c={c} last />}
         </SectionCard>
 
         {/* ── Roster Configuration ── */}
-        <SectionCard title={`Roster (${league.roster_size ?? '?'} slots)`} c={c} editable={sectionEditable('roster', lifecycle, isCommissioner)} onEdit={openRosterModal}>
+        <SectionCard title={`Roster (${league.roster_size ?? '?'} slots)`} c={c} editable={sectionEditable('roster', lifecycle, isCommissioner)} onEdit={() => setShowRosterModal(true)}>
           <ThemedText style={[styles.summaryText, { color: c.secondaryText }]}>
             {rosterConfig
               ? rosterConfig.map((r) => `${r.position}: ${r.slot_count}`).join('  |  ')
@@ -466,7 +302,7 @@ export default function LeagueInfoScreen() {
         </SectionCard>
 
         {/* ── Scoring ── */}
-        <SectionCard title="Scoring" c={c} editable={sectionEditable('scoring', lifecycle, isCommissioner)} onEdit={openScoringModal}>
+        <SectionCard title="Scoring" c={c} editable={sectionEditable('scoring', lifecycle, isCommissioner)} onEdit={() => setShowScoringModal(true)}>
           <ThemedText style={[styles.summaryText, { color: c.secondaryText }]}>
             {scoring
               ? scoring.map((s) => `${s.stat_name}: ${s.point_value > 0 ? '+' : ''}${s.point_value}`).join('  |  ')
@@ -475,366 +311,226 @@ export default function LeagueInfoScreen() {
         </SectionCard>
 
         {/* ── Draft Settings ── */}
-        <SectionCard title="Draft Settings" c={c} editable={sectionEditable('draft', lifecycle, isCommissioner)} editing={editingSection === 'draft'} onEdit={() => enterEdit('draft')} onCancel={() => setEditingSection(null)} onSave={saveDraft} saving={saving}>
-          {editingSection === 'draft' && draft ? (
-            <>
-              <View style={[styles.editRow, { borderBottomColor: c.border }]}>
-                <ThemedText style={[styles.rowLabel, { color: c.secondaryText }]}>Type</ThemedText>
-                <View style={{ width: 160 }}>
-                  <SegmentedControl
-                    options={DRAFT_TYPE_OPTIONS}
-                    selectedIndex={DRAFT_TYPE_OPTIONS.indexOf(editDraftType as any)}
-                    onSelect={(i) => setEditDraftType(DRAFT_TYPE_OPTIONS[i])}
-                  />
-                </View>
-              </View>
-              <View style={[styles.editRow, { borderBottomColor: c.border }]}>
-                <ThemedText style={[styles.rowLabel, { color: c.secondaryText }]}>Time Per Pick</ThemedText>
-                <View style={{ width: 200 }}>
-                  <SegmentedControl
-                    options={TIME_PER_PICK_OPTIONS.map((t) => `${t}s`)}
-                    selectedIndex={TIME_PER_PICK_OPTIONS.indexOf(editTimePick as any)}
-                    onSelect={(i) => setEditTimePick(TIME_PER_PICK_OPTIONS[i])}
-                  />
-                </View>
-              </View>
-              <NumberStepper label="Future Draft Years" value={editMaxYears} onValueChange={setEditMaxYears} min={1} max={10} />
-              <NumberStepper label="Rookie Draft Rounds" value={editRookieRounds} onValueChange={setEditRookieRounds} min={1} max={5} />
-              <View style={[styles.editRow, { borderBottomColor: c.border }]}>
-                <ThemedText style={[styles.rowLabel, { color: c.secondaryText }]}>Rookie Draft Order</ThemedText>
-                <View style={{ width: 220 }}>
-                  <SegmentedControl
-                    options={[...ROOKIE_DRAFT_ORDER_OPTIONS]}
-                    selectedIndex={ROOKIE_DRAFT_ORDER_OPTIONS.indexOf(editRookieOrder as any)}
-                    onSelect={(i) => setEditRookieOrder(ROOKIE_DRAFT_ORDER_OPTIONS[i])}
-                  />
-                </View>
-              </View>
-              {editRookieOrder === 'Lottery' && (() => {
-                const pt = league.playoff_teams ?? Math.min(2 ** (league.playoff_weeks ?? 3), teamCount);
-                const lotteryPool = calcLotteryPoolSize(teamCount, pt);
-                const effectiveOdds = editLotteryOdds ?? generateDefaultOdds(lotteryPool);
-                if (lotteryPool <= 0) return (
-                  <ThemedText style={{ fontSize: 13, color: '#b91c1c', marginTop: 4 }}>
-                    All teams make playoffs — no lottery pool.
-                  </ThemedText>
-                );
-                return (
-                  <>
-                    <ThemedText style={{ fontSize: 13, color: c.secondaryText, marginTop: 4, marginBottom: 8 }}>
-                      {lotteryPool} non-playoff team{lotteryPool !== 1 ? 's' : ''} in the lottery
-                    </ThemedText>
-                    <NumberStepper label="Lottery Draws" value={editLotteryDraws} onValueChange={setEditLotteryDraws} min={1} max={lotteryPool} />
-                    <View style={{ marginTop: 12 }}>
-                      <LotteryOddsEditor odds={effectiveOdds} onChange={setEditLotteryOdds} lotteryTeams={lotteryPool} />
-                    </View>
-                  </>
-                );
-              })()}
-            </>
-          ) : (
-            <>
-              <Row label="Type" value={draft ? DRAFT_TYPE_DISPLAY(draft.draft_type ?? 'snake') : '-'} c={c} />
-              <Row label="Time Per Pick" value={draft ? `${draft.time_limit ?? 90}s` : '-'} c={c} />
-              <Row label="Status" value={draft ? (draft.status.charAt(0).toUpperCase() + draft.status.slice(1).replace('_', ' ')) : '-'} c={c} />
-              <Row label="Future Draft Years" value={String(league.max_future_seasons ?? '-')} c={c} />
-              <Row label="Rookie Draft Rounds" value={String(league.rookie_draft_rounds ?? '-')} c={c} />
-              <Row label="Rookie Draft Order" value={ORDER_DISPLAY[league.rookie_draft_order] ?? '-'} c={c} />
-              {league.rookie_draft_order === 'lottery' && (
-                <Row label="Lottery Draws" value={String(league.lottery_draws ?? '-')} c={c} last />
-              )}
-            </>
+        <SectionCard title="Draft Settings" c={c} editable={sectionEditable('draft', lifecycle, isCommissioner)} onEdit={() => setShowDraftModal(true)}>
+          <Row label="Type" value={draft ? DRAFT_TYPE_DISPLAY(draft.draft_type ?? 'snake') : '-'} c={c} />
+          <Row label="Time Per Pick" value={draft ? `${draft.time_limit ?? 90}s` : '-'} c={c} />
+          <Row label="Status" value={draft ? (draft.status.charAt(0).toUpperCase() + draft.status.slice(1).replace('_', ' ')) : '-'} c={c} />
+          <Row label="Future Draft Years" value={String(league.max_future_seasons ?? '-')} c={c} />
+          <Row label="Rookie Draft Rounds" value={String(league.rookie_draft_rounds ?? '-')} c={c} />
+          <Row label="Rookie Draft Order" value={ORDER_DISPLAY[league.rookie_draft_order] ?? '-'} c={c} />
+          {league.rookie_draft_order === 'lottery' && (
+            <Row label="Lottery Draws" value={String(league.lottery_draws ?? '-')} c={c} />
           )}
+          <Row label="Initial Draft, Pick Trading" value={league.draft_pick_trading_enabled ? 'Enabled' : 'Disabled'} c={c} last />
         </SectionCard>
 
         {/* ── Trade Settings ── */}
-        <SectionCard title="Trade Settings" c={c} editable={sectionEditable('trade', lifecycle, isCommissioner)} editing={editingSection === 'trade'} onEdit={() => enterEdit('trade')} onCancel={() => setEditingSection(null)} onSave={saveTrade} saving={saving}>
-          {editingSection === 'trade' ? (
-            <>
-              <View style={[styles.editRow, { borderBottomColor: c.border }]}>
-                <ThemedText style={[styles.rowLabel, { color: c.secondaryText }]}>Veto Type</ThemedText>
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <SegmentedControl
-                    options={[...TRADE_VETO_OPTIONS]}
-                    selectedIndex={TRADE_VETO_OPTIONS.indexOf(editVetoType as any)}
-                    onSelect={(i) => setEditVetoType(TRADE_VETO_OPTIONS[i])}
-                  />
-                </View>
-              </View>
-              {editVetoType !== 'None' && (
-                <NumberStepper label="Review Period (hrs)" value={editReviewHours} onValueChange={setEditReviewHours} min={1} max={72} />
-              )}
-              {editVetoType === 'League Vote' && (
-                <NumberStepper label="Votes to Veto" value={editVotesToVeto} onValueChange={setEditVotesToVeto} min={1} max={teamCount - 1} />
-              )}
-            </>
-          ) : (
-            <>
-              <Row label="Veto Type" value={VETO_DISPLAY[league.trade_veto_type] ?? '-'} c={c} />
-              {league.trade_veto_type !== 'none' && (
-                <Row label="Review Period" value={`${league.trade_review_period_hours ?? 0} hrs`} c={c} />
-              )}
-              {league.trade_veto_type === 'league_vote' && (
-                <Row label="Votes to Veto" value={String(league.trade_votes_to_veto ?? '-')} c={c} last />
-              )}
-            </>
+        <SectionCard title="Trade Settings" c={c} editable={sectionEditable('trade', lifecycle, isCommissioner)} onEdit={() => setShowTradeModal(true)}>
+          <Row label="Veto Type" value={VETO_DISPLAY[league.trade_veto_type] ?? '-'} c={c} />
+          {league.trade_veto_type !== 'none' && (
+            <Row label="Review Period" value={`${league.trade_review_period_hours ?? 0} hrs`} c={c} />
           )}
+          {league.trade_veto_type === 'league_vote' && (
+            <Row label="Votes to Veto" value={String(league.trade_votes_to_veto ?? '-')} c={c} />
+          )}
+          <Row label="Pick Protections & Swaps" value={league.pick_conditions_enabled ? 'Enabled' : 'Disabled'} c={c} />
+          <Row label="Trade Deadline" value={league.trade_deadline ? `After Week ${(() => {
+            if (!league.season_start_date) return '?';
+            const deadline = new Date(league.trade_deadline + 'T00:00:00');
+            const start = new Date(league.season_start_date + 'T00:00:00');
+            const startDay = start.getDay();
+            const daysToFirstSunday = startDay === 0 ? 0 : 7 - startDay;
+            const week1End = new Date(start);
+            week1End.setDate(start.getDate() + daysToFirstSunday);
+            const diffDays = Math.round((deadline.getTime() - week1End.getTime()) / (1000 * 60 * 60 * 24));
+            return Math.max(1, Math.round(diffDays / 7) + 1);
+          })()}` : 'None'} c={c} last />
         </SectionCard>
 
         {/* ── Waiver Settings ── */}
-        <SectionCard title="Waiver Settings" c={c} editable={sectionEditable('waivers', lifecycle, isCommissioner)} editing={editingSection === 'waivers'} onEdit={() => enterEdit('waivers')} onCancel={() => setEditingSection(null)} onSave={saveWaivers} saving={saving}>
-          {editingSection === 'waivers' ? (
+        <SectionCard title="Waiver Settings" c={c} editable={sectionEditable('waivers', lifecycle, isCommissioner)} onEdit={() => setShowWaiverModal(true)}>
+          <Row label="Waiver Type" value={WAIVER_DISPLAY[league.waiver_type] ?? '-'} c={c} />
+          {league.waiver_type !== 'none' && (
+            <Row label="Waiver Period" value={`${league.waiver_period_days ?? 0} days`} c={c} />
+          )}
+          {league.waiver_type === 'faab' && (
             <>
-              <View style={[styles.editRow, { borderBottomColor: c.border }]}>
-                <ThemedText style={[styles.rowLabel, { color: c.secondaryText }]}>Waiver Type</ThemedText>
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <SegmentedControl
-                    options={[...WAIVER_TYPE_OPTIONS]}
-                    selectedIndex={WAIVER_TYPE_OPTIONS.indexOf(editWaiverType as any)}
-                    onSelect={(i) => setEditWaiverType(WAIVER_TYPE_OPTIONS[i])}
-                  />
-                </View>
-              </View>
-              {editWaiverType !== 'None' && (
-                <NumberStepper label="Waiver Period (days)" value={editWaiverPeriod} onValueChange={setEditWaiverPeriod} min={1} max={5} />
-              )}
-              {editWaiverType === 'FAAB' && (
-                <>
-                  <View style={[styles.editRow, { borderBottomColor: c.border }]}>
-                    <ThemedText style={[styles.rowLabel, { color: c.secondaryText }]}>Process Day</ThemedText>
-                    <View style={{ flex: 1, marginLeft: 12 }}>
-                      <SegmentedControl
-                        options={[...WAIVER_DAY_LABELS]}
-                        selectedIndex={editWaiverDay}
-                        onSelect={(i) => setEditWaiverDay(i)}
-                      />
-                    </View>
-                  </View>
-                  <NumberStepper label="FAAB Budget ($)" value={editFaabBudget} onValueChange={setEditFaabBudget} min={10} max={1000} step={10} />
-                </>
-              )}
-            </>
-          ) : (
-            <>
-              <Row label="Waiver Type" value={WAIVER_DISPLAY[league.waiver_type] ?? '-'} c={c} />
-              {league.waiver_type !== 'none' && (
-                <Row label="Waiver Period" value={`${league.waiver_period_days ?? 0} days`} c={c} />
-              )}
-              {league.waiver_type === 'faab' && (
-                <>
-                  <Row label="Process Day" value={WAIVER_DAY_LABELS[league.waiver_day_of_week ?? 3]} c={c} />
-                  <Row label="FAAB Budget" value={`$${league.faab_budget ?? 100}`} c={c} last />
-                </>
-              )}
+              <Row label="Process Day" value={WAIVER_DAY_LABELS[league.waiver_day_of_week ?? 3]} c={c} />
+              <Row label="FAAB Budget" value={`$${league.faab_budget ?? 100}`} c={c} last />
             </>
           )}
         </SectionCard>
 
         {/* ── Season Settings ── */}
-        <SectionCard title="Season" c={c} editable={sectionEditable('season', lifecycle, isCommissioner)} editing={editingSection === 'season'} onEdit={() => enterEdit('season')} onCancel={() => setEditingSection(null)} onSave={saveSeason} saving={saving}>
-          {editingSection === 'season' ? (
-            <>
-              <Row label="Start Date" value={league.season_start_date ?? '-'} c={c} />
-              <NumberStepper label="Regular Season Weeks" value={editRegWeeks} onValueChange={setEditRegWeeks} min={1} max={30} />
-              <NumberStepper label="Playoff Weeks" value={editPlayoffWeeks} onValueChange={(v) => {
-                setEditPlayoffWeeks(v);
-                // Auto-adjust playoff teams to closest valid option
-                const options = getPlayoffTeamOptions(v, teamCount);
-                if (!options.includes(editPlayoffTeams)) {
-                  const closest = options.reduce((best, o) => Math.abs(o - editPlayoffTeams) < Math.abs(best - editPlayoffTeams) ? o : best, options[0]);
-                  setEditPlayoffTeams(closest);
-                }
-              }} min={1} max={6} />
-              {(() => {
-                const options = getPlayoffTeamOptions(editPlayoffWeeks, teamCount);
-                return (
-                  <View style={{ marginTop: 8 }}>
-                    <ThemedText style={{ fontSize: 14, fontWeight: '500', marginBottom: 8, color: c.secondaryText }}>Playoff Teams</ThemedText>
-                    <SegmentedControl
-                      options={options.map(String)}
-                      selectedIndex={Math.max(0, options.indexOf(editPlayoffTeams))}
-                      onSelect={(i) => setEditPlayoffTeams(options[i])}
-                    />
-                  </View>
-                );
-              })()}
-              <View style={{ marginTop: 12 }}>
-                <ThemedText style={{ fontSize: 14, fontWeight: '500', marginBottom: 8, color: c.secondaryText }}>Seeding Format</ThemedText>
-                <SegmentedControl
-                  options={[...PLAYOFF_SEEDING_OPTIONS]}
-                  selectedIndex={PLAYOFF_SEEDING_OPTIONS.indexOf(editSeedingFormat as any)}
-                  onSelect={(i) => {
-                    setEditSeedingFormat(PLAYOFF_SEEDING_OPTIONS[i]);
-                    if (PLAYOFF_SEEDING_OPTIONS[i] === 'Fixed Bracket') setEditReseed(false);
-                  }}
-                />
-              </View>
-              {editSeedingFormat === 'Standard' && (
-                <View style={{ marginTop: 12 }}>
-                  <ThemedText style={{ fontSize: 14, fontWeight: '500', marginBottom: 8, color: c.secondaryText }}>Reseed Each Round</ThemedText>
-                  <SegmentedControl
-                    options={['Yes', 'No']}
-                    selectedIndex={editReseed ? 0 : 1}
-                    onSelect={(i) => setEditReseed(i === 0)}
-                  />
-                </View>
-              )}
-            </>
-          ) : (
-            <>
-              <Row label="Start Date" value={league.season_start_date ? new Date(league.season_start_date + 'T00:00:00').toLocaleDateString() : '-'} c={c} />
-              <Row label="Regular Season" value={`${league.regular_season_weeks ?? '-'} weeks`} c={c} />
-              <Row label="Playoffs" value={`${league.playoff_weeks ?? '-'} weeks`} c={c} />
-              <Row label="Playoff Teams" value={String(league.playoff_teams ?? '-')} c={c} />
-              <Row label="Seeding Format" value={SEEDING_DISPLAY[league.playoff_seeding_format] ?? 'Standard'} c={c} />
-              {league.playoff_seeding_format === 'standard' && (
-                <Row label="Reseed Each Round" value={league.reseed_each_round ? 'Yes' : 'No'} c={c} />
-              )}
-              <Row label="Schedule" value={league.schedule_generated ? 'Generated' : 'Not yet generated'} c={c} last />
-            </>
+        <SectionCard title="Season" c={c} editable={sectionEditable('season', lifecycle, isCommissioner)} onEdit={() => setShowSeasonModal(true)}>
+          <Row label="Start Date" value={league.season_start_date ? new Date(league.season_start_date + 'T00:00:00').toLocaleDateString() : '-'} c={c} />
+          <Row label="Regular Season" value={`${league.regular_season_weeks ?? '-'} weeks`} c={c} />
+          <Row label="Playoffs" value={`${league.playoff_weeks ?? '-'} weeks`} c={c} />
+          <Row label="Playoff Teams" value={String(league.playoff_teams ?? '-')} c={c} />
+          <Row label="Seeding Format" value={SEEDING_DISPLAY[league.playoff_seeding_format] ?? 'Standard'} c={c} />
+          {league.playoff_seeding_format === 'standard' && (
+            <Row label="Reseed Each Round" value={league.reseed_each_round ? 'Yes' : 'No'} c={c} />
           )}
+          <Row label="Schedule" value={league.schedule_generated ? 'Generated' : 'Not yet generated'} c={c} last />
         </SectionCard>
 
         {/* ── Members ── */}
         <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
-          <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Members</ThemedText>
-          {(league.league_teams ?? []).map((team: any, idx: number) => (
-            <View
-              key={team.id}
-              style={[styles.memberRow, idx === (league.league_teams?.length ?? 0) - 1 && { borderBottomWidth: 0 }, { borderBottomColor: c.border }]}
-            >
-              <ThemedText>{team.name}</ThemedText>
-              {team.is_commissioner && (
-                <View style={[styles.commBadge, { backgroundColor: c.activeCard, borderColor: c.activeBorder }]}>
-                  <ThemedText style={[styles.commBadgeText, { color: c.activeText }]}>Commish</ThemedText>
+          <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">Members</ThemedText>
+          {(league.league_teams ?? []).map((team: any, idx: number) => {
+            const isMine = team.id === teamId;
+            return (
+              <View
+                key={team.id}
+                style={[styles.memberRow, idx === (league.league_teams?.length ?? 0) - 1 && { borderBottomWidth: 0 }, { borderBottomColor: c.border }]}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                  <ThemedText>{team.name}</ThemedText>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel={`Tricode: ${team.tricode ?? 'not set'}${isMine ? ', tap to edit' : ''}`}
+                    onPress={() => {
+                      if (!isMine) return;
+                      Alert.prompt(
+                        'Edit Tricode',
+                        '2-4 characters (letters/numbers)',
+                        async (value) => {
+                          const code = (value ?? '').trim().toUpperCase();
+                          if (!code || code.length < 2 || code.length > 4 || !/^[A-Z0-9]+$/.test(code)) {
+                            Alert.alert('Invalid tricode', 'Must be 2-4 letters/numbers.');
+                            return;
+                          }
+                          const { error } = await supabase.from('teams').update({ tricode: code }).eq('id', team.id);
+                          if (error) { Alert.alert('Error', error.message); return; }
+                          queryClient.invalidateQueries({ queryKey: ['league'] });
+                        },
+                        'plain-text',
+                        team.tricode ?? '',
+                      );
+                    }}
+                    disabled={!isMine}
+                    activeOpacity={isMine ? 0.6 : 1}
+                  >
+                    <View style={[styles.tricodeBadge, { backgroundColor: c.cardAlt }]}>
+                      <ThemedText style={[styles.tricodeText, { color: c.secondaryText }]}>
+                        {team.tricode ?? '—'}
+                      </ThemedText>
+                      {isMine && <Ionicons name="pencil" size={10} color={c.secondaryText} />}
+                    </View>
+                  </TouchableOpacity>
                 </View>
+                {team.is_commissioner && (
+                  <View style={[styles.commBadge, { backgroundColor: c.activeCard, borderColor: c.activeBorder }]}>
+                    <ThemedText style={[styles.commBadgeText, { color: c.activeText }]}>Commish</ThemedText>
+                  </View>
+                )}
+              </View>
+            );
+          })}
+        </View>
+
+        {/* ── Announcements ── */}
+        {(announcements ?? []).length > 0 && (
+          <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">Announcements</ThemedText>
+              {isCommissioner && (
+                <TouchableOpacity onPress={() => setShowSendAnnouncement(true)} style={{ paddingHorizontal: 12, paddingVertical: 4 }} accessibilityRole="button" accessibilityLabel="Add announcement">
+                  <Ionicons name="add-circle" size={22} color={c.accent} accessible={false} />
+                </TouchableOpacity>
               )}
             </View>
-          ))}
-        </View>
+            {(announcements ?? []).map((a, idx) => (
+              <View
+                key={a.id}
+                style={[
+                  styles.announcementRow,
+                  idx < (announcements?.length ?? 1) - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.border },
+                ]}
+              >
+                <ThemedText style={[styles.announcementDate, { color: c.secondaryText }]}>
+                  {new Date(a.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                </ThemedText>
+                <ThemedText style={styles.announcementText}>{a.content}</ThemedText>
+              </View>
+            ))}
+          </View>
+        )}
 
         {/* ── Season History ── */}
         <SeasonHistory leagueId={league.id} />
 
-        {/* ── Commissioner Actions ── */}
-        {isCommissioner && (
-          <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
-            <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Commissioner Actions</ThemedText>
-            {/* Advance to Offseason — only show when season is complete (mid_season + no active offseason) */}
-            {lifecycle === 'mid_season' && !league?.offseason_step && (
-              <TouchableOpacity
-                style={[styles.commAction, { borderBottomColor: c.border }, advancingseason && { opacity: 0.6 }]}
-                onPress={handleAdvanceSeason}
-                disabled={advancingseason}
-              >
-                <Ionicons name="calendar" size={18} color="#FF9500" />
-                <ThemedText style={[styles.commActionText, { color: '#FF9500' }]}>Advance to Offseason</ThemedText>
-                {advancingseason ? (
-                  <ActivityIndicator size="small" color="#FF9500" />
-                ) : (
-                  <Ionicons name="chevron-forward" size={16} color={c.secondaryText} />
-                )}
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity
-              style={[styles.commAction, { borderBottomColor: c.border }]}
-              onPress={() => setShowReverseTrade(true)}
-            >
-              <Ionicons name="arrow-undo" size={18} color={c.text} />
-              <ThemedText style={styles.commActionText}>Reverse Trade</ThemedText>
-              <Ionicons name="chevron-forward" size={16} color={c.secondaryText} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.commAction, { borderBottomColor: c.border }]}
-              onPress={() => setShowForceAddDrop(true)}
-            >
-              <Ionicons name="person-add" size={18} color={c.text} />
-              <ThemedText style={styles.commActionText}>Force Add/Drop</ThemedText>
-              <Ionicons name="chevron-forward" size={16} color={c.secondaryText} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.commAction, { borderBottomWidth: 0 }]}
-              onPress={() => setShowForceMove(true)}
-            >
-              <Ionicons name="swap-vertical" size={18} color={c.text} />
-              <ThemedText style={styles.commActionText}>Force Roster Move</ThemedText>
-              <Ionicons name="chevron-forward" size={16} color={c.secondaryText} />
-            </TouchableOpacity>
-          </View>
-        )}
-
       </ScrollView>
 
-      {/* ── Roster Edit Modal ── */}
-      <Modal visible={showRosterModal} animationType="slide" transparent onRequestClose={() => setShowRosterModal(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: c.card }]}>
-            <ThemedText type="subtitle" style={styles.modalTitle}>Edit Roster</ThemedText>
-            <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
-              {editRoster.map((slot, idx) => (
-                <NumberStepper
-                  key={slot.position}
-                  label={positionLabel(slot.position)}
-                  value={slot.slot_count}
-                  onValueChange={(v) => {
-                    const next = [...editRoster];
-                    next[idx] = { ...slot, slot_count: v };
-                    setEditRoster(next);
-                  }}
-                  min={0}
-                  max={slot.position === 'IR' ? 5 : 10}
-                />
-              ))}
-            </ScrollView>
-            <View style={styles.modalButtons}>
-              <TouchableOpacity style={[styles.modalBtn, { backgroundColor: c.cardAlt }]} onPress={() => setShowRosterModal(false)}>
-                <ThemedText>Cancel</ThemedText>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.modalBtn, { backgroundColor: saving ? c.buttonDisabled : c.accent }]} onPress={saveRoster} disabled={saving}>
-                {saving ? <ActivityIndicator color={c.accentText} size="small" /> : <Text style={{ color: c.accentText, fontWeight: '600' }}>Save</Text>}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ── Scoring Edit Modal ── */}
-      <Modal visible={showScoringModal} animationType="slide" transparent onRequestClose={() => setShowScoringModal(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: c.card }]}>
-            <ThemedText type="subtitle" style={styles.modalTitle}>Edit Scoring</ThemedText>
-            <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
-              {editScoring.map((s, idx) => (
-                <NumberStepper
-                  key={s.stat_name}
-                  label={statLabel(s.stat_name)}
-                  value={s.point_value}
-                  onValueChange={(v) => {
-                    const next = [...editScoring];
-                    next[idx] = { ...s, point_value: v };
-                    setEditScoring(next);
-                  }}
-                  min={-10}
-                  max={10}
-                  step={0.5}
-                />
-              ))}
-            </ScrollView>
-            <View style={styles.modalButtons}>
-              <TouchableOpacity style={[styles.modalBtn, { backgroundColor: c.cardAlt }]} onPress={() => setShowScoringModal(false)}>
-                <ThemedText>Cancel</ThemedText>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.modalBtn, { backgroundColor: saving ? c.buttonDisabled : c.accent }]} onPress={saveScoring} disabled={saving}>
-                {saving ? <ActivityIndicator color={c.accentText} size="small" /> : <Text style={{ color: c.accentText, fontWeight: '600' }}>Save</Text>}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      {/* ── Settings Modals ── */}
+      {leagueId && (
+        <>
+          <EditBasicsModal
+            visible={showBasicsModal}
+            onClose={() => setShowBasicsModal(false)}
+            league={league}
+            leagueId={leagueId}
+          />
+          <EditRosterModal
+            visible={showRosterModal}
+            onClose={() => setShowRosterModal(false)}
+            leagueId={leagueId}
+            rosterConfig={rosterConfig}
+          />
+          <EditScoringModal
+            visible={showScoringModal}
+            onClose={() => setShowScoringModal(false)}
+            leagueId={leagueId}
+            scoring={scoring}
+          />
+          <EditDraftSettingsModal
+            visible={showDraftModal}
+            onClose={() => setShowDraftModal(false)}
+            league={league}
+            leagueId={leagueId}
+            draft={draft ?? null}
+            teamCount={teamCount}
+          />
+          <EditTradeSettingsModal
+            visible={showTradeModal}
+            onClose={() => setShowTradeModal(false)}
+            league={league}
+            leagueId={leagueId}
+            teamCount={teamCount}
+          />
+          <EditWaiverSettingsModal
+            visible={showWaiverModal}
+            onClose={() => setShowWaiverModal(false)}
+            league={league}
+            leagueId={leagueId}
+          />
+          <EditSeasonSettingsModal
+            visible={showSeasonModal}
+            onClose={() => setShowSeasonModal(false)}
+            league={league}
+            leagueId={leagueId}
+            teamCount={teamCount}
+          />
+        </>
+      )}
 
       {/* ── Commissioner Modals ── */}
       {isCommissioner && leagueId && (
         <>
+          <SendAnnouncementModal
+            visible={showSendAnnouncement}
+            leagueId={leagueId}
+            teamId={teamId ?? ''}
+            onClose={() => setShowSendAnnouncement(false)}
+          />
+          <PaymentLedgerModal
+            visible={showPaymentLedger}
+            leagueId={leagueId}
+            season={league?.season ?? ''}
+            buyInAmount={league?.buy_in_amount ?? null}
+            teams={(league?.league_teams ?? []).map((t: any) => ({ id: t.id, name: t.name }))}
+            onClose={() => setShowPaymentLedger(false)}
+          />
           <ReverseTradeModal
             visible={showReverseTrade}
             leagueId={leagueId}
@@ -851,6 +547,12 @@ export default function LeagueInfoScreen() {
             leagueId={leagueId}
             teams={(league?.league_teams ?? []).map((t: any) => ({ id: t.id, name: t.name }))}
             onClose={() => setShowForceMove(false)}
+          />
+          <ManagePickConditionsModal
+            visible={showPickConditions}
+            leagueId={leagueId}
+            teams={(league?.league_teams ?? []).map((t: any) => ({ id: t.id, name: t.name }))}
+            onClose={() => setShowPickConditions(false)}
           />
         </>
       )}
@@ -870,39 +572,25 @@ function Row({ label, value, c, last }: { label: string; value: string; c: any; 
 }
 
 function SectionCard({
-  title, c, editable, editing, onEdit, onCancel, onSave, saving, children,
+  title, c, editable, onEdit, children,
 }: {
   title: string;
   c: any;
   editable?: boolean;
-  editing?: boolean;
   onEdit?: () => void;
-  onCancel?: () => void;
-  onSave?: () => void;
-  saving?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
       <View style={styles.sectionHeader}>
-        <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>{title}</ThemedText>
-        {editable && !editing && onEdit && (
-          <TouchableOpacity onPress={onEdit} hitSlop={8}>
-            <Ionicons name="pencil" size={16} color={c.accent} />
+        <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">{title}</ThemedText>
+        {editable && onEdit && (
+          <TouchableOpacity onPress={onEdit} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Edit ${title}`}>
+            <Ionicons name="pencil" size={16} color={c.accent} accessible={false} />
           </TouchableOpacity>
         )}
       </View>
       {children}
-      {editing && (
-        <View style={styles.editActions}>
-          <TouchableOpacity style={[styles.editBtn, { backgroundColor: c.cardAlt }]} onPress={onCancel}>
-            <ThemedText style={{ fontSize: 14 }}>Cancel</ThemedText>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.editBtn, { backgroundColor: saving ? c.buttonDisabled : c.accent }]} onPress={onSave} disabled={saving}>
-            {saving ? <ActivityIndicator color={c.accentText} size="small" /> : <Text style={{ color: c.accentText, fontWeight: '600', fontSize: 14 }}>Save</Text>}
-          </TouchableOpacity>
-        </View>
-      )}
     </View>
   );
 }
@@ -951,36 +639,6 @@ const styles = StyleSheet.create({
   rowValue: { fontSize: 14, fontWeight: '500' },
   summaryText: { fontSize: 14, lineHeight: 22 },
 
-  // Edit mode
-  editRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  textInput: {
-    flex: 1,
-    marginLeft: 12,
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    fontSize: 14,
-  },
-  editActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 10,
-    marginTop: 12,
-  },
-  editBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-
   // Members
   memberRow: {
     flexDirection: 'row',
@@ -996,6 +654,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   commBadgeText: { fontSize: 11, fontWeight: '600' },
+  tricodeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  tricodeText: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
 
   // Commissioner actions
   commAction: {
@@ -1006,31 +673,9 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   commActionText: { flex: 1, fontSize: 14 },
+  commDivider: { borderBottomWidth: StyleSheet.hairlineWidth, marginVertical: 4 },
+  announcementRow: { paddingVertical: 10, paddingHorizontal: 12 },
+  announcementDate: { fontSize: 12, marginBottom: 2 },
+  announcementText: { fontSize: 14 },
 
-  // Modals
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    padding: 20,
-    maxHeight: '80%',
-  },
-  modalTitle: { marginBottom: 16 },
-  modalScroll: { marginBottom: 16 },
-  modalButtons: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 10,
-  },
-  modalBtn: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-    minWidth: 80,
-  },
 });

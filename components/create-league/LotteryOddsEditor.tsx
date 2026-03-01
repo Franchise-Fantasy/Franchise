@@ -64,8 +64,8 @@ export function LotteryOddsEditor({ odds, onChange, lotteryTeams }: LotteryOddsE
   return (
     <View style={[styles.container, { borderColor: c.border }]}>
       <View style={styles.header}>
-        <ThemedText style={styles.title}>Lottery Odds</ThemedText>
-        <TouchableOpacity onPress={handleReset}>
+        <ThemedText accessibilityRole="header" style={styles.title}>Lottery Odds</ThemedText>
+        <TouchableOpacity accessibilityRole="button" accessibilityLabel="Reset odds to defaults" onPress={handleReset}>
           <Text style={[styles.resetBtn, { color: c.accent }]}>Reset</Text>
         </TouchableOpacity>
       </View>
@@ -77,6 +77,8 @@ export function LotteryOddsEditor({ odds, onChange, lotteryTeams }: LotteryOddsE
           </Text>
           <View style={styles.controls}>
             <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel={`Decrease ${POSITION_LABELS[i] ?? `${i + 1}th`} odds`}
               onPress={() => updateOdd(i, pct - 0.5)}
               disabled={pct <= 0}
               style={[styles.btn, { backgroundColor: pct <= 0 ? c.buttonDisabled : c.accent }]}
@@ -86,6 +88,7 @@ export function LotteryOddsEditor({ odds, onChange, lotteryTeams }: LotteryOddsE
 
             {editingIdx === i ? (
               <TextInput
+                accessibilityLabel={`${POSITION_LABELS[i] ?? `${i + 1}th`} odds percentage`}
                 style={[styles.valueText, styles.valueBox, { color: c.text, borderColor: c.accent }]}
                 value={draft}
                 onChangeText={setDraft}
@@ -102,6 +105,8 @@ export function LotteryOddsEditor({ odds, onChange, lotteryTeams }: LotteryOddsE
             )}
 
             <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel={`Increase ${POSITION_LABELS[i] ?? `${i + 1}th`} odds`}
               onPress={() => updateOdd(i, pct + 0.5)}
               disabled={pct >= 100}
               style={[styles.btn, { backgroundColor: pct >= 100 ? c.buttonDisabled : c.accent }]}
@@ -117,7 +122,7 @@ export function LotteryOddsEditor({ odds, onChange, lotteryTeams }: LotteryOddsE
           Total: {totalRounded.toFixed(1)}%{!isValid ? ' (must equal 100%)' : ''}
         </Text>
         {!isValid && (
-          <TouchableOpacity onPress={() => onChange(normalizeOdds(odds))}>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Auto-fix odds to total 100 percent" onPress={() => onChange(normalizeOdds(odds))}>
             <Text style={[styles.resetBtn, { color: c.accent }]}>Auto-fix</Text>
           </TouchableOpacity>
         )}

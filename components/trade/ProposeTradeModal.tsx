@@ -1,8 +1,10 @@
 import { TradeFairnessBar } from '@/components/trade/TradeFairnessBar';
 import { TradePickPicker } from '@/components/trade/TradePickPicker';
 import { TradePlayerPicker } from '@/components/trade/TradePlayerPicker';
+import { TradeSwapPicker } from '@/components/trade/TradeSwapPicker';
 import { ThemedText } from '@/components/ThemedText';
 import { Colors } from '@/constants/Colors';
+import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { sendNotification } from '@/lib/notifications';
 import { supabase } from '@/lib/supabase';
@@ -10,9 +12,11 @@ import { PlayerSeasonStats } from '@/types/player';
 import {
   TradeBuilderPick,
   TradeBuilderPlayer,
+  TradeBuilderSwap,
   TradeBuilderTeam,
   estimatePickFpts,
   formatPickLabel,
+  formatProtection,
 } from '@/types/trade';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -42,6 +46,8 @@ interface ProposeTradeModalProps {
   teamId: string;
   preselectedTeamId?: string;
   preselectedPlayer?: PreselectedPlayer;
+  /** When true, trade executes immediately (both teams auto-accepted, no veto). Used in draft room. */
+  instantExecute?: boolean;
   onClose: () => void;
 }
 
@@ -65,6 +71,9 @@ type TradeAction =
   | { type: 'REMOVE_PICK'; teamId: string; pickId: string }
   | { type: 'SET_PLAYER_DEST'; teamId: string; playerId: string; toTeamId: string }
   | { type: 'SET_PICK_DEST'; teamId: string; pickId: string; toTeamId: string }
+  | { type: 'SET_PICK_PROTECTION'; teamId: string; pickId: string; threshold: number | undefined }
+  | { type: 'ADD_SWAP'; teamId: string; swap: TradeBuilderSwap }
+  | { type: 'REMOVE_SWAP'; teamId: string; season: string; round: number }
   | { type: 'SET_NOTES'; notes: string };
 
 function reducer(state: TradeState, action: TradeAction): TradeState {
@@ -72,7 +81,7 @@ function reducer(state: TradeState, action: TradeAction): TradeState {
     case 'SEED_MY_TEAM': {
       // One-time initialization: add my team (and optional preselected partner) to builder
       const builderTeams: TradeBuilderTeam[] = [
-        { team_id: action.teamId, team_name: action.teamName, sending_players: [], sending_picks: [] },
+        { team_id: action.teamId, team_name: action.teamName, sending_players: [], sending_picks: [], sending_swaps: [] },
       ];
       const selectedTeamIds: string[] = [];
       if (action.partnerTeamId && action.partnerTeamName) {
@@ -92,6 +101,7 @@ function reducer(state: TradeState, action: TradeAction): TradeState {
           team_name: action.partnerTeamName,
           sending_players: sendingPlayers,
           sending_picks: [],
+          sending_swaps: [],
         });
         selectedTeamIds.push(action.partnerTeamId);
       }
@@ -128,6 +138,7 @@ function reducer(state: TradeState, action: TradeAction): TradeState {
             team_name: action.teamName,
             sending_players: [],
             sending_picks: [],
+            sending_swaps: [],
           },
         ];
         return { ...state, selectedTeamIds, builderTeams };
@@ -189,6 +200,32 @@ function reducer(state: TradeState, action: TradeAction): TradeState {
       );
       return { ...state, builderTeams };
     }
+    case 'SET_PICK_PROTECTION': {
+      const builderTeams = state.builderTeams.map((t) =>
+        t.team_id === action.teamId
+          ? { ...t, sending_picks: t.sending_picks.map((pk) =>
+              pk.draft_pick_id === action.pickId ? { ...pk, protection_threshold: action.threshold } : pk
+            ) }
+          : t
+      );
+      return { ...state, builderTeams };
+    }
+    case 'ADD_SWAP': {
+      const builderTeams = state.builderTeams.map((t) =>
+        t.team_id === action.teamId
+          ? { ...t, sending_swaps: [...t.sending_swaps, action.swap] }
+          : t
+      );
+      return { ...state, builderTeams };
+    }
+    case 'REMOVE_SWAP': {
+      const builderTeams = state.builderTeams.map((t) =>
+        t.team_id === action.teamId
+          ? { ...t, sending_swaps: t.sending_swaps.filter((s) => !(s.season === action.season && s.round === action.round)) }
+          : t
+      );
+      return { ...state, builderTeams };
+    }
     case 'SET_NOTES':
       return { ...state, notes: action.notes };
     default:
@@ -203,6 +240,7 @@ export function ProposeTradeModal({
   teamId,
   preselectedTeamId,
   preselectedPlayer,
+  instantExecute = false,
   onClose,
 }: ProposeTradeModalProps) {
   const scheme = useColorScheme() ?? 'light';
@@ -211,7 +249,7 @@ export function ProposeTradeModal({
 
   const [submitting, setSubmitting] = useState(false);
   // Inline picker state: null = show assets, { type, teamId } = show picker inline
-  const [pickerFor, setPickerFor] = useState<{ type: 'player' | 'pick'; teamId: string } | null>(null);
+  const [pickerFor, setPickerFor] = useState<{ type: 'player' | 'pick' | 'swap'; teamId: string } | null>(null);
 
   // Fetch all teams in the league
   const { data: leagueTeams } = useQuery({
@@ -227,6 +265,39 @@ export function ProposeTradeModal({
     },
     enabled: !!leagueId,
   });
+
+  // Fetch league settings for pick conditions
+  const { data: leagueSettings } = useQuery({
+    queryKey: ['leagueTradeConditions', leagueId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('leagues')
+        .select('pick_conditions_enabled, draft_pick_trading_enabled, teams, max_future_seasons, rookie_draft_rounds')
+        .eq('id', leagueId)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!leagueId,
+  });
+
+  const pickConditionsEnabled = leagueSettings?.pick_conditions_enabled ?? false;
+  const draftPickTradingEnabled = leagueSettings?.draft_pick_trading_enabled ?? false;
+  const teamCount = leagueSettings?.teams ?? 10;
+  const maxFutureSeasons = leagueSettings?.max_future_seasons ?? 3;
+  const rookieDraftRounds = leagueSettings?.rookie_draft_rounds ?? 2;
+
+  // Build valid seasons for swap picker
+  const validSeasons = (() => {
+    const currentStartYear = parseInt(CURRENT_NBA_SEASON.split('-')[0], 10);
+    const seasons: string[] = [];
+    for (let i = 0; i <= maxFutureSeasons; i++) {
+      const sy = currentStartYear + i;
+      const ey = (sy + 1) % 100;
+      seasons.push(`${sy}-${String(ey).padStart(2, '0')}`);
+    }
+    return seasons;
+  })();
 
   // Find my team name
   const myTeam = leagueTeams?.find((t) => t.id === teamId);
@@ -280,7 +351,7 @@ export function ProposeTradeModal({
 
   const otherTeams = (leagueTeams ?? []).filter((t) => t.id !== teamId);
   const hasAssets = allBuilderTeams.some(
-    (t) => t.sending_players.length > 0 || t.sending_picks.length > 0
+    (t) => t.sending_players.length > 0 || t.sending_picks.length > 0 || t.sending_swaps.length > 0
   );
 
   const isSimpleTrade = state.selectedTeamIds.length === 1;
@@ -307,6 +378,9 @@ export function ProposeTradeModal({
         draft_pick_id: string | null;
         from_team_id: string;
         to_team_id: string;
+        protection_threshold?: number | null;
+        pick_swap_season?: string | null;
+        pick_swap_round?: number | null;
       }> = [];
 
       if (isSimpleTrade) {
@@ -319,13 +393,19 @@ export function ProposeTradeModal({
           items.push({ player_id: p.player_id, draft_pick_id: null, from_team_id: teamId, to_team_id: otherTeamId });
         }
         for (const pk of myBuilder?.sending_picks ?? []) {
-          items.push({ player_id: null, draft_pick_id: pk.draft_pick_id, from_team_id: teamId, to_team_id: otherTeamId });
+          items.push({ player_id: null, draft_pick_id: pk.draft_pick_id, from_team_id: teamId, to_team_id: otherTeamId, protection_threshold: pk.protection_threshold ?? null });
+        }
+        for (const sw of myBuilder?.sending_swaps ?? []) {
+          items.push({ player_id: null, draft_pick_id: null, from_team_id: sw.counterparty_team_id, to_team_id: sw.beneficiary_team_id, pick_swap_season: sw.season, pick_swap_round: sw.round });
         }
         for (const p of otherBuilder?.sending_players ?? []) {
           items.push({ player_id: p.player_id, draft_pick_id: null, from_team_id: otherTeamId, to_team_id: teamId });
         }
         for (const pk of otherBuilder?.sending_picks ?? []) {
-          items.push({ player_id: null, draft_pick_id: pk.draft_pick_id, from_team_id: otherTeamId, to_team_id: teamId });
+          items.push({ player_id: null, draft_pick_id: pk.draft_pick_id, from_team_id: otherTeamId, to_team_id: teamId, protection_threshold: pk.protection_threshold ?? null });
+        }
+        for (const sw of otherBuilder?.sending_swaps ?? []) {
+          items.push({ player_id: null, draft_pick_id: null, from_team_id: sw.counterparty_team_id, to_team_id: sw.beneficiary_team_id, pick_swap_season: sw.season, pick_swap_round: sw.round });
         }
       } else {
         // Multi-team: use each asset's explicit to_team_id destination
@@ -334,13 +414,22 @@ export function ProposeTradeModal({
             items.push({ player_id: p.player_id, draft_pick_id: null, from_team_id: bt.team_id, to_team_id: p.to_team_id });
           }
           for (const pk of bt.sending_picks) {
-            items.push({ player_id: null, draft_pick_id: pk.draft_pick_id, from_team_id: bt.team_id, to_team_id: pk.to_team_id });
+            items.push({ player_id: null, draft_pick_id: pk.draft_pick_id, from_team_id: bt.team_id, to_team_id: pk.to_team_id, protection_threshold: pk.protection_threshold ?? null });
+          }
+          for (const sw of bt.sending_swaps) {
+            items.push({ player_id: null, draft_pick_id: null, from_team_id: sw.counterparty_team_id, to_team_id: sw.beneficiary_team_id, pick_swap_season: sw.season, pick_swap_round: sw.round });
           }
         }
       }
 
       if (items.length === 0) {
         Alert.alert('No assets selected');
+        setSubmitting(false);
+        return;
+      }
+
+      if (instantExecute && state.selectedTeamIds.length > 1) {
+        Alert.alert('Draft Trades', 'Only 2-team trades can be executed during the draft.');
         setSubmitting(false);
         return;
       }
@@ -377,7 +466,35 @@ export function ProposeTradeModal({
       const { error: itemsError } = await supabase.from('trade_proposal_items').insert(itemRows);
       if (itemsError) throw itemsError;
 
-      // Notify the other teams about the proposal
+      if (instantExecute) {
+        // Draft room trades: set all teams accepted and execute immediately
+        const { error: acceptError } = await supabase
+          .from('trade_proposal_teams')
+          .update({ status: 'accepted', responded_at: new Date().toISOString() })
+          .eq('proposal_id', proposal.id);
+        if (acceptError) throw acceptError;
+
+        const { error: statusError } = await supabase
+          .from('trade_proposals')
+          .update({ status: 'accepted', accepted_at: new Date().toISOString() })
+          .eq('id', proposal.id);
+        if (statusError) throw statusError;
+
+        const { error: execError } = await supabase.functions.invoke('execute-trade', {
+          body: { proposal_id: proposal.id },
+        });
+        if (execError) throw execError;
+
+        queryClient.invalidateQueries({ queryKey: ['tradeProposals', leagueId] });
+        queryClient.invalidateQueries({ queryKey: ['pendingTradeCount'] });
+        queryClient.invalidateQueries({ queryKey: ['tradablePicks'] });
+        queryClient.invalidateQueries({ queryKey: ['draftOrder'] });
+        Alert.alert('Trade Completed', 'The trade has been executed.');
+        onClose();
+        return;
+      }
+
+      // Normal flow: notify the other teams about the proposal
       sendNotification({
         league_id: leagueId,
         team_ids: state.selectedTeamIds,
@@ -456,7 +573,7 @@ export function ProposeTradeModal({
   return (
     <Modal visible animationType="slide" transparent>
       <View style={styles.overlay}>
-        <View style={[styles.sheet, { backgroundColor: c.background }]}>
+        <View style={[styles.sheet, { backgroundColor: c.background }]} accessibilityViewIsModal={true}>
 
           {/* If a picker is active, show it inline instead of the normal content */}
           {pickerFor ? (
@@ -471,7 +588,7 @@ export function ProposeTradeModal({
                 onToggle={handleTogglePlayer(pickerFor.teamId)}
                 onBack={() => setPickerFor(null)}
               />
-            ) : (
+            ) : pickerFor.type === 'pick' ? (
               <TradePickPicker
                 teamId={pickerFor.teamId}
                 teamName={pickerTeamName}
@@ -479,7 +596,51 @@ export function ProposeTradeModal({
                 selectedPickIds={
                   pickerTeamBuilder?.sending_picks.map((p) => p.draft_pick_id) ?? []
                 }
+                pickProtections={
+                  Object.fromEntries(
+                    (pickerTeamBuilder?.sending_picks ?? []).map((p) => [p.draft_pick_id, p.protection_threshold])
+                  )
+                }
+                pickConditionsEnabled={pickConditionsEnabled}
+                draftPickTradingEnabled={draftPickTradingEnabled}
+                teamCount={teamCount}
                 onToggle={handleTogglePick(pickerFor.teamId)}
+                onSetProtection={(pickId, threshold) =>
+                  dispatch({ type: 'SET_PICK_PROTECTION', teamId: pickerFor.teamId, pickId, threshold })
+                }
+                onBack={() => setPickerFor(null)}
+              />
+            ) : (
+              <TradeSwapPicker
+                validSeasons={validSeasons}
+                rookieDraftRounds={rookieDraftRounds}
+                counterpartyTeamId={pickerFor.teamId}
+                counterpartyTeamName={pickerTeamName}
+                {...(isSimpleTrade
+                  ? {
+                      beneficiaryTeamId: allTradeTeamIds.find((id) => id !== pickerFor.teamId) ?? teamId,
+                      beneficiaryTeamName: teamNameMap[allTradeTeamIds.find((id) => id !== pickerFor.teamId) ?? teamId] ?? '',
+                    }
+                  : {
+                      beneficiaryOptions: allTradeTeamIds
+                        .filter((id) => id !== pickerFor.teamId)
+                        .map((id) => ({ id, name: teamNameMap[id] ?? 'Unknown' })),
+                    }
+                )}
+                onAdd={(season, round, selectedBeneficiaryId) => {
+                  const beneficiaryId = selectedBeneficiaryId ?? allTradeTeamIds.find((id) => id !== pickerFor.teamId) ?? teamId;
+                  dispatch({
+                    type: 'ADD_SWAP',
+                    teamId: pickerFor.teamId,
+                    swap: {
+                      season,
+                      round,
+                      counterparty_team_id: pickerFor.teamId,
+                      beneficiary_team_id: beneficiaryId,
+                    },
+                  });
+                  setPickerFor(null);
+                }}
                 onBack={() => setPickerFor(null)}
               />
             )
@@ -487,10 +648,10 @@ export function ProposeTradeModal({
             <>
               {/* Header */}
               <View style={[styles.header, { borderBottomColor: c.border }]}>
-                <ThemedText type="defaultSemiBold" style={styles.headerTitle}>
-                  {state.step === 0 ? 'Select Teams' : state.step === 1 ? 'Select Assets' : 'Review Trade'}
+                <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.headerTitle}>
+                  {state.step === 0 ? 'Select Teams' : state.step === 1 ? 'Select Assets' : (instantExecute ? 'Confirm & Execute' : 'Review Trade')}
                 </ThemedText>
-                <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                   <ThemedText style={styles.closeText}>✕</ThemedText>
                 </TouchableOpacity>
               </View>
@@ -505,6 +666,9 @@ export function ProposeTradeModal({
                     const selected = state.selectedTeamIds.includes(item.id);
                     return (
                       <TouchableOpacity
+                        accessibilityRole="button"
+                        accessibilityLabel={item.name}
+                        accessibilityState={{ selected }}
                         style={[
                           styles.teamRow,
                           { borderBottomColor: c.border },
@@ -532,22 +696,36 @@ export function ProposeTradeModal({
                         <View key={bt.team_id} style={[styles.teamCard, { backgroundColor: c.card }]}>
                           {/* Card header: title left, add icons right */}
                           <View style={styles.cardHeader}>
-                            <ThemedText type="defaultSemiBold" style={styles.cardTitle} numberOfLines={1}>
+                            <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.cardTitle} numberOfLines={1}>
                               {isMe ? 'You Send' : `${bt.team_name} Sends`}
                             </ThemedText>
                             <View style={styles.addIcons}>
                               <TouchableOpacity
+                                accessibilityRole="button"
+                                accessibilityLabel={`Add player from ${bt.team_name}`}
                                 onPress={() => setPickerFor({ type: 'player', teamId: bt.team_id })}
                                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 4 }}
                               >
                                 <Ionicons name="person-add-outline" size={18} color={c.accent} />
                               </TouchableOpacity>
                               <TouchableOpacity
+                                accessibilityRole="button"
+                                accessibilityLabel={`Add pick from ${bt.team_name}`}
                                 onPress={() => setPickerFor({ type: 'pick', teamId: bt.team_id })}
-                                hitSlop={{ top: 8, bottom: 8, left: 4, right: 8 }}
+                                hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
                               >
                                 <Ionicons name="document-text-outline" size={18} color={c.accent} />
                               </TouchableOpacity>
+                              {pickConditionsEnabled && (
+                                <TouchableOpacity
+                                  accessibilityRole="button"
+                                  accessibilityLabel={`Add pick swap from ${bt.team_name}`}
+                                  onPress={() => setPickerFor({ type: 'swap', teamId: bt.team_id })}
+                                  hitSlop={{ top: 8, bottom: 8, left: 4, right: 8 }}
+                                >
+                                  <Ionicons name="swap-horizontal-outline" size={18} color={c.accent} />
+                                </TouchableOpacity>
+                              )}
                             </View>
                           </View>
 
@@ -560,6 +738,8 @@ export function ProposeTradeModal({
                               {/* Per-asset destination chip (multi-team only) */}
                               {isMultiTeam && (
                                 <TouchableOpacity
+                                  accessibilityRole="button"
+                                  accessibilityLabel={`Change destination for ${p.name}, currently ${teamNameMap[p.to_team_id] ?? '?'}`}
                                   style={[styles.assetDestChip, { backgroundColor: c.accent }]}
                                   onPress={() => {
                                     const idx = destOptions.indexOf(p.to_team_id);
@@ -579,6 +759,8 @@ export function ProposeTradeModal({
                                 {p.avg_fpts}
                               </ThemedText>
                               <TouchableOpacity
+                                accessibilityRole="button"
+                                accessibilityLabel={`Remove ${p.name}`}
                                 onPress={() => dispatch({ type: 'REMOVE_PLAYER', teamId: bt.team_id, playerId: p.player_id })}
                                 hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                               >
@@ -593,9 +775,17 @@ export function ProposeTradeModal({
                               <ThemedText style={styles.assetName} numberOfLines={1}>
                                 {formatPickLabel(pk.season, pk.round)}
                               </ThemedText>
-                              {/* Per-asset destination chip (multi-team only) */}
+                              {pk.protection_threshold && (
+                                <View style={styles.protectionBadge}>
+                                  <ThemedText style={styles.protectionBadgeText}>
+                                    Top-{pk.protection_threshold}
+                                  </ThemedText>
+                                </View>
+                              )}
                               {isMultiTeam && (
                                 <TouchableOpacity
+                                  accessibilityRole="button"
+                                  accessibilityLabel={`Change destination for ${formatPickLabel(pk.season, pk.round)}, currently ${teamNameMap[pk.to_team_id] ?? '?'}`}
                                   style={[styles.assetDestChip, { backgroundColor: c.accent }]}
                                   onPress={() => {
                                     const idx = destOptions.indexOf(pk.to_team_id);
@@ -615,6 +805,8 @@ export function ProposeTradeModal({
                                 ~{pk.estimated_fpts}
                               </ThemedText>
                               <TouchableOpacity
+                                accessibilityRole="button"
+                                accessibilityLabel={`Remove ${formatPickLabel(pk.season, pk.round)}`}
                                 onPress={() => dispatch({ type: 'REMOVE_PICK', teamId: bt.team_id, pickId: pk.draft_pick_id })}
                                 hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                               >
@@ -623,8 +815,29 @@ export function ProposeTradeModal({
                             </View>
                           ))}
 
+                          {/* Compact asset list — swaps */}
+                          {bt.sending_swaps.map((sw) => (
+                            <View key={`${sw.season}-${sw.round}`} style={[styles.assetRow, { borderTopColor: c.border }]}>
+                              <Ionicons name="swap-horizontal" size={14} color={c.accent} style={{ marginRight: 4 }} />
+                              <ThemedText style={styles.assetName} numberOfLines={1}>
+                                {formatPickLabel(sw.season, sw.round)} swap
+                              </ThemedText>
+                              <ThemedText style={[styles.assetMeta, { color: c.secondaryText }]}>
+                                {teamNameMap[sw.beneficiary_team_id] ?? '?'} gets better
+                              </ThemedText>
+                              <TouchableOpacity
+                                accessibilityRole="button"
+                                accessibilityLabel={`Remove ${formatPickLabel(sw.season, sw.round)} swap`}
+                                onPress={() => dispatch({ type: 'REMOVE_SWAP', teamId: bt.team_id, season: sw.season, round: sw.round })}
+                                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                              >
+                                <ThemedText style={styles.removeBtn}>✕</ThemedText>
+                              </TouchableOpacity>
+                            </View>
+                          ))}
+
                           {/* Empty state hint */}
-                          {bt.sending_players.length === 0 && bt.sending_picks.length === 0 && (
+                          {bt.sending_players.length === 0 && bt.sending_picks.length === 0 && bt.sending_swaps.length === 0 && (
                             <ThemedText style={[styles.emptyHint, { color: c.secondaryText }]}>
                               Tap icons above to add assets
                             </ThemedText>
@@ -681,6 +894,13 @@ export function ProposeTradeModal({
                                 <ThemedText style={styles.reviewItem}>
                                   {formatPickLabel(pk.season, pk.round)} (~{pk.estimated_fpts} FPTS)
                                 </ThemedText>
+                                {pk.protection_threshold && (
+                                  <View style={styles.protectionBadge}>
+                                    <ThemedText style={styles.protectionBadgeText}>
+                                      Top-{pk.protection_threshold}
+                                    </ThemedText>
+                                  </View>
+                                )}
                                 {isMultiTeam && dest && (
                                   <ThemedText style={[styles.reviewDest, { color: c.secondaryText }]}>
                                     → {dest}
@@ -689,7 +909,15 @@ export function ProposeTradeModal({
                               </View>
                             );
                           })}
-                          {bt.sending_players.length === 0 && bt.sending_picks.length === 0 && (
+                          {bt.sending_swaps.map((sw) => (
+                            <View key={`${sw.season}-${sw.round}`} style={styles.reviewItemRow}>
+                              <Ionicons name="swap-horizontal" size={14} color={c.accent} style={{ marginRight: 4 }} />
+                              <ThemedText style={styles.reviewItem}>
+                                {formatPickLabel(sw.season, sw.round)} swap — {teamNameMap[sw.beneficiary_team_id] ?? '?'} gets better pick
+                              </ThemedText>
+                            </View>
+                          ))}
+                          {bt.sending_players.length === 0 && bt.sending_picks.length === 0 && bt.sending_swaps.length === 0 && (
                             <ThemedText style={[styles.reviewItem, { color: c.secondaryText }]}>
                               No assets
                             </ThemedText>
@@ -699,6 +927,7 @@ export function ProposeTradeModal({
                     })}
 
                     <TextInput
+                      accessibilityLabel="Trade note"
                       style={[styles.notesInput, { backgroundColor: c.cardAlt, color: c.text, borderColor: c.border }]}
                       placeholder="Add a note (optional)"
                       placeholderTextColor={c.secondaryText}
@@ -721,6 +950,8 @@ export function ProposeTradeModal({
               <View style={[styles.navRow, { borderTopColor: c.border }]}>
                 {state.step > 0 ? (
                   <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="Back"
                     style={[styles.navBtn, { borderColor: c.border }]}
                     onPress={() => dispatch({ type: 'PREV_STEP' })}
                   >
@@ -732,6 +963,9 @@ export function ProposeTradeModal({
 
                 {state.step < 2 ? (
                   <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="Next"
+                    accessibilityState={{ disabled: (state.step === 0 && state.selectedTeamIds.length === 0) || (state.step === 1 && !hasAssets) }}
                     style={[
                       styles.navBtn,
                       {
@@ -752,6 +986,9 @@ export function ProposeTradeModal({
                   </TouchableOpacity>
                 ) : (
                   <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel={instantExecute ? 'Execute trade' : 'Propose trade'}
+                    accessibilityState={{ disabled: submitting }}
                     style={[styles.navBtn, { backgroundColor: '#28a745' }]}
                     onPress={handleSubmit}
                     disabled={submitting}
@@ -759,7 +996,7 @@ export function ProposeTradeModal({
                     {submitting ? (
                       <ActivityIndicator size="small" color="#fff" />
                     ) : (
-                      <ThemedText style={[styles.navBtnText, { color: '#fff' }]}>Propose Trade</ThemedText>
+                      <ThemedText style={[styles.navBtnText, { color: '#fff' }]}>{instantExecute ? 'Execute Trade' : 'Propose Trade'}</ThemedText>
                     )}
                   </TouchableOpacity>
                 )}
@@ -933,6 +1170,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     padding: 4,
     color: '#dc3545',
+  },
+  protectionBadge: {
+    backgroundColor: '#d4920040',
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    marginRight: 4,
+  },
+  protectionBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#d49200',
   },
 
   emptyHint: {

@@ -17,7 +17,7 @@ export function StepScoring({ state, onScoringChange, onResetScoring }: StepScor
 
   return (
     <View style={styles.container}>
-      <ThemedText type="subtitle" style={styles.heading}>Scoring Settings</ThemedText>
+      <ThemedText accessibilityRole="header" type="subtitle" style={styles.heading}>Scoring Settings</ThemedText>
       <ThemedText style={[styles.description, { color: c.secondaryText }]}>
         Adjust point values for each stat category.
       </ThemedText>
@@ -34,7 +34,7 @@ export function StepScoring({ state, onScoringChange, onResetScoring }: StepScor
         />
       ))}
 
-      <TouchableOpacity onPress={onResetScoring} style={styles.resetBtn}>
+      <TouchableOpacity accessibilityRole="button" accessibilityLabel="Reset scoring to defaults" onPress={onResetScoring} style={styles.resetBtn}>
         <ThemedText style={{ color: c.accent }}>Reset to Defaults</ThemedText>
       </TouchableOpacity>
     </View>

@@ -21,7 +21,7 @@ export function TradeFairnessBar({ teams }: TradeFairnessBarProps) {
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
-        <ThemedText type="defaultSemiBold" style={styles.title}>Trade Fairness</ThemedText>
+        <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.title}>Trade Fairness</ThemedText>
         <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>Avg FPTS +/-</ThemedText>
       </View>
       {teams.map((team) => {
@@ -29,7 +29,7 @@ export function TradeFairnessBar({ teams }: TradeFairnessBarProps) {
         const barWidth = Math.min((Math.abs(team.netFpts) / maxAbs) * 100, 100);
 
         return (
-          <View key={team.teamName} style={styles.row}>
+          <View key={team.teamName} style={styles.row} accessibilityLabel={`${team.teamName}: ${isPositive ? '+' : ''}${team.netFpts.toFixed(1)} average fantasy points`}>
             <ThemedText style={styles.teamName} numberOfLines={1}>{team.teamName}</ThemedText>
             <View style={styles.barContainer}>
               <View

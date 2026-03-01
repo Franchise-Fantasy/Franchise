@@ -13,8 +13,8 @@ export default function FreeAgentsScreen() {
 
   if (!leagueId || !teamId) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
-        <View style={styles.empty}>
+      <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]} accessibilityLabel="Free Agents">
+        <View style={styles.empty} accessibilityRole="summary">
           <ThemedText style={{ color: c.secondaryText }}>
             Join a league to browse free agents.
           </ThemedText>

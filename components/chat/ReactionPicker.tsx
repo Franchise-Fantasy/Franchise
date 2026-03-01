@@ -70,6 +70,8 @@ export function ReactionPicker({ visible, onSelect, onClose }: Props) {
             {MORE_EMOJIS.map((emoji, i) => (
               <TouchableOpacity
                 key={`${emoji}-${i}`}
+                accessibilityRole="button"
+                accessibilityLabel={`React with ${emoji}`}
                 onPress={() => handleSelect(emoji)}
                 style={styles.gridEmoji}
               >
@@ -88,6 +90,8 @@ export function ReactionPicker({ visible, onSelect, onClose }: Props) {
         {QUICK_REACTIONS.map((emoji) => (
           <TouchableOpacity
             key={emoji}
+            accessibilityRole="button"
+            accessibilityLabel={`React with ${emoji}`}
             onPress={() => handleSelect(emoji)}
             style={styles.emojiBtn}
           >
@@ -95,6 +99,9 @@ export function ReactionPicker({ visible, onSelect, onClose }: Props) {
           </TouchableOpacity>
         ))}
         <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel={expanded ? 'Collapse emoji picker' : 'Show more emojis'}
+          accessibilityState={{ expanded }}
           onPress={() => setExpanded(!expanded)}
           style={[styles.expandBtn, expanded && { backgroundColor: c.activeCard }]}
         >

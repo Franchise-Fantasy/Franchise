@@ -32,7 +32,7 @@ export function ToggleRow({
       ]}
     >
       <View style={styles.left}>
-        <Ionicons name={icon} size={20} color={c.secondaryText} />
+        <Ionicons name={icon} size={20} color={c.secondaryText} accessible={false} />
         <View style={styles.labelWrap}>
           <ThemedText style={styles.label}>{label}</ThemedText>
           {description ? (
@@ -47,6 +47,8 @@ export function ToggleRow({
         onValueChange={onToggle}
         trackColor={{ false: c.border, true: c.accent }}
         disabled={disabled}
+        accessibilityLabel={label}
+        accessibilityState={{ disabled, checked: value }}
       />
     </View>
   );

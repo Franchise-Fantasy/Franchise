@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { notifyLeague } from './push.ts';
+import { notifyLeague } from '../_shared/push.ts';
+import { corsResponse } from '../_shared/cors.ts';
 
 function nextSeason(current: string): string {
   const [startStr] = current.split('-');
@@ -10,14 +11,7 @@ function nextSeason(current: string): string {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', {
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-      },
-    });
-  }
+  if (req.method === 'OPTIONS') return corsResponse();
 
   try {
     const supabaseAdmin = createClient(
@@ -48,6 +42,23 @@ Deno.serve(async (req) => {
     if (leagueErr || !league) throw new Error('League not found');
     if (league.created_by !== user.id) throw new Error('Only the commissioner can advance the season');
     if (league.offseason_step !== null) throw new Error('League is already in the offseason');
+
+    // Verify playoffs are complete (bracket exists and final round has a winner)
+    const { data: bracketCheck } = await supabaseAdmin
+      .from('playoff_bracket')
+      .select('round, winner_id, is_bye')
+      .eq('league_id', league_id)
+      .eq('season', league.season)
+      .order('round', { ascending: false })
+      .limit(1);
+
+    if (!bracketCheck || bracketCheck.length === 0) {
+      throw new Error('Cannot advance season: no playoff bracket found. Playoffs must be completed first.');
+    }
+    const finalEntry = bracketCheck[0];
+    if (!finalEntry.winner_id && !finalEntry.is_bye) {
+      throw new Error('Cannot advance season: the final playoff round has not been decided yet.');
+    }
 
     const currentSeason = league.season;
     const newSeason = nextSeason(currentSeason);

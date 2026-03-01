@@ -54,6 +54,8 @@ export function TradeCard({ proposal, onPress }: TradeCardProps) {
       style={[styles.card, { backgroundColor: c.card }]}
       onPress={onPress}
       activeOpacity={0.7}
+      accessibilityRole="button"
+      accessibilityLabel={`Trade: ${teamNames.join(' and ')}, ${STATUS_LABELS[proposal.status] ?? proposal.status}`}
     >
       {/* Status row */}
       <View style={styles.statusRow}>
@@ -98,8 +100,12 @@ function buildTradeSummary(proposal: TradeProposalRow): string[] {
     if (!sendsByTeam[from]) sendsByTeam[from] = [];
     if (item.player_name) {
       sendsByTeam[from].push(item.player_name);
+    } else if (item.pick_swap_season && item.pick_swap_round) {
+      const to = teamNameMap[item.to_team_id] ?? '?';
+      sendsByTeam[from].push(`Rd ${item.pick_swap_round} swap → ${to}`);
     } else if (item.pick_season && item.pick_round) {
-      sendsByTeam[from].push(formatPickLabel(item.pick_season!, item.pick_round!));
+      const protLabel = item.protection_threshold ? ` (Top-${item.protection_threshold} P)` : '';
+      sendsByTeam[from].push(formatPickLabel(item.pick_season!, item.pick_round!) + protLabel);
     }
   }
 

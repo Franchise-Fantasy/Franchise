@@ -44,6 +44,8 @@ export function ConversationRow({ conversation, onPress }: Props) {
       style={[styles.row, { backgroundColor: c.card, borderColor: c.border }]}
       onPress={onPress}
       activeOpacity={0.7}
+      accessibilityRole="button"
+      accessibilityLabel={`${name}${hasUnread ? `, ${conversation.unread_count} unread` : ''}`}
     >
       <View style={[styles.iconCircle, { backgroundColor: c.cardAlt }]}>
         <Ionicons

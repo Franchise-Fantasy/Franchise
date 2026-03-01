@@ -12,7 +12,7 @@ interface StepWaiversProps {
 export function StepWaivers({ state, onChange }: StepWaiversProps) {
   return (
     <View style={styles.container}>
-      <ThemedText type="subtitle" style={styles.heading}>Waiver Settings</ThemedText>
+      <ThemedText accessibilityRole="header" type="subtitle" style={styles.heading}>Waiver Settings</ThemedText>
 
       <View style={styles.section}>
         <ThemedText style={styles.label}>Waiver Type</ThemedText>

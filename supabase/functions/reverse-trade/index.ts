@@ -1,16 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { notifyTeams } from './push.ts';
+import { notifyTeams } from '../_shared/push.ts';
+import { corsResponse } from '../_shared/cors.ts';
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', {
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-      },
-    });
-  }
+  if (req.method === 'OPTIONS') return corsResponse();
 
   try {
     const supabaseAdmin = createClient(
@@ -79,9 +73,18 @@ Deno.serve(async (req) => {
         warnings.push(`${pick.season} Rd ${pick.round} pick already used — skipped.`);
         continue;
       }
-      const { error } = await supabaseAdmin.from('draft_picks').update({ current_team_id: item.from_team_id }).eq('id', item.draft_pick_id);
+      const { error } = await supabaseAdmin.from('draft_picks')
+        .update({ current_team_id: item.from_team_id, protection_threshold: null, protection_owner_id: null })
+        .eq('id', item.draft_pick_id);
       if (error) throw new Error(`Failed to reverse pick ${item.draft_pick_id}: ${error.message}`);
     }
+
+    // Delete pick swaps created by this trade
+    const { error: swapDelError } = await supabaseAdmin
+      .from('pick_swaps')
+      .delete()
+      .eq('created_by_proposal_id', proposal_id);
+    if (swapDelError) throw new Error(`Failed to delete pick swaps: ${swapDelError.message}`);
 
     const playerIds = playerItems.map((i: any) => i.player_id);
     let playerNameMap: Record<string, string> = {};
@@ -102,7 +105,7 @@ Deno.serve(async (req) => {
       (warnings.length > 0 ? ` (${warnings.length} item(s) skipped)` : '');
 
     const { data: txn, error: txnError } = await supabaseAdmin
-      .from('league_transactions').insert({ league_id: proposal.league_id, type: 'commissioner', notes }).select('id').single();
+      .from('league_transactions').insert({ league_id: proposal.league_id, type: 'commissioner', notes, team_id: proposal.proposed_by_team_id }).select('id').single();
     if (txnError) throw new Error(`Failed to create transaction: ${txnError.message}`);
 
     const txnItems = items.map((item: any) => ({

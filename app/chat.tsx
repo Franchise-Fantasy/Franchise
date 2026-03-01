@@ -2,8 +2,9 @@ import { ConversationRow } from '@/components/chat/ConversationRow';
 import { NewDMPicker } from '@/components/chat/NewDMPicker';
 import { ThemedText } from '@/components/ThemedText';
 import { Colors } from '@/constants/Colors';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { useAppState } from '@/context/AppStateProvider';
-import { useConversations, useCreateDM } from '@/hooks/useChat';
+import { useConversations, useCreateDM } from '@/hooks/chat';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { ConversationPreview } from '@/types/chat';
 import { Ionicons } from '@expo/vector-icons';
@@ -64,27 +65,25 @@ export default function ChatList() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
-      <View style={[styles.header, { borderBottomColor: c.border }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
-          <Text style={[styles.backText, { color: c.accent }]}>&#8249; Back</Text>
-        </TouchableOpacity>
-        <ThemedText type="defaultSemiBold" style={styles.title}>
-          Chat
-        </ThemedText>
-        <TouchableOpacity
-          onPress={() => setDmPickerVisible(true)}
-          style={styles.headerBtn}
-          hitSlop={8}
-        >
-          <Ionicons name="create-outline" size={22} color={c.accent} />
-        </TouchableOpacity>
-      </View>
+      <PageHeader
+        title="Chat"
+        rightAction={
+          <TouchableOpacity
+            onPress={() => setDmPickerVisible(true)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="New conversation"
+          >
+            <Ionicons name="create-outline" size={22} color={c.accent} accessible={false} />
+          </TouchableOpacity>
+        }
+      />
 
       {isLoading ? (
         <ActivityIndicator style={styles.loader} />
       ) : !conversations || conversations.length === 0 ? (
         <View style={styles.empty}>
-          <Ionicons name="chatbubbles-outline" size={40} color={c.secondaryText} />
+          <Ionicons name="chatbubbles-outline" size={40} color={c.secondaryText} accessible={false} />
           <ThemedText style={[styles.emptyText, { color: c.secondaryText }]}>
             No conversations yet
           </ThemedText>

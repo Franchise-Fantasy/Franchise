@@ -105,10 +105,10 @@ export function ReverseTradeModal({ visible, leagueId, onClose }: Props) {
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={handleClose}>
       <View style={styles.overlay}>
-        <View style={[styles.content, { backgroundColor: c.card }]}>
+        <View style={[styles.content, { backgroundColor: c.card }]} accessibilityViewIsModal={true}>
           <View style={styles.header}>
-            <ThemedText type="subtitle">Reverse Trade</ThemedText>
-            <TouchableOpacity onPress={handleClose}>
+            <ThemedText accessibilityRole="header" type="subtitle">Reverse Trade</ThemedText>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close" onPress={handleClose}>
               <Ionicons name="close" size={24} color={c.text} />
             </TouchableOpacity>
           </View>
@@ -126,12 +126,17 @@ export function ReverseTradeModal({ visible, leagueId, onClose }: Props) {
               </ThemedText>
               <View style={styles.buttons}>
                 <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel="Back"
                   style={[styles.btn, { backgroundColor: c.cardAlt }]}
                   onPress={() => setSelected(null)}
                 >
                   <ThemedText>Back</ThemedText>
                 </TouchableOpacity>
                 <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel="Reverse trade"
+                  accessibilityState={{ disabled: processing }}
                   style={[styles.btn, { backgroundColor: processing ? c.buttonDisabled : '#dc3545' }]}
                   onPress={handleReverse}
                   disabled={processing}
@@ -158,6 +163,8 @@ export function ReverseTradeModal({ visible, leagueId, onClose }: Props) {
                     const teamList = item.teams.map((t) => t.team_name).join(' & ');
                     return (
                       <TouchableOpacity
+                        accessibilityRole="button"
+                        accessibilityLabel={`Trade: ${teamList}, ${formatTradeDate(item.completed_at)}, ${item.items.length} item${item.items.length !== 1 ? 's' : ''}`}
                         style={[styles.tradeRow, { borderBottomColor: c.border }]}
                         onPress={() => setSelected(item)}
                       >

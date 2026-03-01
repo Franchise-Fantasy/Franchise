@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { notifyTeams, notifyLeague } from './push.ts';
+import { notifyTeams, notifyLeague } from '../_shared/push.ts';
+import { corsResponse } from '../_shared/cors.ts';
 
 // Position eligibility (mirrors utils/rosterSlots.ts)
 const POSITION_SPECTRUM = ['PG', 'SG', 'SF', 'PF', 'C'];
@@ -86,14 +87,7 @@ async function scheduleAutodraft(draft_id: string, pick_number: number, time_lim
 }
 
 Deno.serve(async (req)=>{
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', {
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type'
-      }
-    });
-  }
+  if (req.method === 'OPTIONS') return corsResponse();
   try {
     const supabaseAdmin = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '');
     const authHeader = req.headers.get("Authorization");
@@ -106,6 +100,12 @@ Deno.serve(async (req)=>{
 
     const payload = await req.json();
     const { draft_id, player_id, player_position, league_id } = payload;
+
+    if (!draft_id || !player_id || !player_position || !league_id) {
+      return new Response(JSON.stringify({ error: 'draft_id, player_id, player_position, and league_id are required' }), {
+        status: 400, headers: { 'Content-Type': 'application/json' },
+      });
+    }
 
     const { data: userTeam, error: teamError } = await supabaseAdmin.from('teams').select('id').eq('league_id', league_id).eq('user_id', user.id).single();
     if (teamError || !userTeam) throw new Error('User does not have a team in this league.');
@@ -122,6 +122,13 @@ Deno.serve(async (req)=>{
 
     if (currentPick.current_team_id !== userTeam.id) throw new Error('It is not your turn to pick.');
     if (currentPick.player_id) throw new Error('A player has already been selected for this pick.');
+
+    // Verify player isn't already on a roster in this league
+    const { data: alreadyRostered } = await supabaseAdmin
+      .from('league_players').select('id').eq('league_id', league_id).eq('player_id', player_id).limit(1);
+    if (alreadyRostered && alreadyRostered.length > 0) {
+      throw new Error('This player is already on a roster in this league.');
+    }
 
     const timestamp = new Date().toISOString();
     const isRookieDraft = draft.type === 'rookie';
@@ -214,7 +221,6 @@ Deno.serve(async (req)=>{
     console.error("make-draft-pick error:", error);
     return new Response(JSON.stringify({
       error: error.message,
-      stack: error.stack,
     }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' }

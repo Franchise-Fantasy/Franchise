@@ -17,60 +17,52 @@ interface StepSeasonProps {
   onChange: (field: keyof LeagueWizardState, value: any) => void;
 }
 
-// Returns the Monday that starts the fantasy season.
-// If today has >= 5 days left in its Mon-Sun week, use this Monday.
-// Otherwise use next Monday (week 1 will be extended to cover the short partial week).
+// Returns the date that starts the fantasy season.
+// Mon/Tue/Wed: start today (Week 1 may be a short week ending Sunday).
+// Thu–Sun: start next Monday (full week).
 export function computeSeasonStart(): Date {
   const today = new Date();
-  // dayOfWeek: 0=Sun, 1=Mon, ..., 6=Sat
-  const dayOfWeek = today.getDay();
-  // Days since the most recent Monday (Monday = 0 offset)
-  const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-  const thisMonday = new Date(today);
-  thisMonday.setDate(today.getDate() - daysSinceMonday);
-  thisMonday.setHours(0, 0, 0, 0);
-
-  // Days remaining in this week including today (Sun = last day)
+  today.setHours(0, 0, 0, 0);
+  const dow = today.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+  const daysSinceMonday = dow === 0 ? 6 : dow - 1;
   const daysLeftInWeek = 7 - daysSinceMonday;
 
   if (daysLeftInWeek >= 5) {
-    return thisMonday;
+    // Mon/Tue/Wed — start today
+    return today;
   }
-  // Too late in the week — start next Monday
-  const nextMonday = new Date(thisMonday);
-  nextMonday.setDate(thisMonday.getDate() + 7);
+  // Thu–Sun — start next Monday
+  const nextMonday = new Date(today);
+  nextMonday.setDate(today.getDate() + (7 - daysSinceMonday));
   return nextMonday;
-}
-
-// Days remaining in current week from today (used to detect short first week)
-function daysRemainingInCurrentWeek(): number {
-  const today = new Date();
-  const dayOfWeek = today.getDay();
-  const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-  return 7 - daysSinceMonday;
-}
-
-function addWeeks(date: Date, weeks: number): Date {
-  const result = new Date(date);
-  result.setDate(date.getDate() + weeks * 7);
-  return result;
 }
 
 function formatDate(date: Date): string {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-/** Max full weeks between season start and NBA season end for a given season string.
- *  The end date is inclusive (it's the last day of the last valid week), so we add 1 day. */
+/** Max weeks between season start and NBA season end.
+ *  Week 1 may be partial (e.g. Tue–Sun), Week 2+ are full Mon–Sun. */
 export function computeMaxWeeks(season: string): number {
   const start = computeSeasonStart();
   const endStr = NBA_SEASON_END[season] ?? NBA_SEASON_END[CURRENT_NBA_SEASON];
   const [y, m, d] = endStr.split('-').map(Number);
-  // Use UTC to avoid DST skewing the millisecond difference
+  const msPerDay = 24 * 60 * 60 * 1000;
+
   const startUtc = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
   const endUtc = Date.UTC(y, m - 1, d);
-  const msPerDay = 24 * 60 * 60 * 1000;
-  return Math.floor((endUtc - startUtc + msPerDay) / (7 * msPerDay));
+
+  // Week 1 ends the first Sunday after (or on) start
+  const startDow = start.getDay(); // 0=Sun
+  const daysUntilSun = startDow === 0 ? 0 : 7 - startDow;
+  const week1EndUtc = startUtc + daysUntilSun * msPerDay;
+
+  // Week 2+ starts the Monday after Week 1
+  const week2StartUtc = week1EndUtc + msPerDay;
+  if (week2StartUtc > endUtc) return 1;
+
+  const remainingDays = (endUtc - week2StartUtc) / msPerDay + 1;
+  return 1 + Math.floor(remainingDays / 7);
 }
 
 export function StepSeason({ state, onChange }: StepSeasonProps) {
@@ -78,7 +70,8 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
   const c = Colors[scheme];
 
   const seasonStart = computeSeasonStart();
-  const shortFirstWeek = daysRemainingInCurrentWeek() < 5;
+  const startDow = seasonStart.getDay(); // 0=Sun
+  const shortFirstWeek = startDow !== 1; // not Monday
 
   // NBA season boundary — parse as local midnight to avoid UTC timezone shift
   const nbaEndStr = NBA_SEASON_END[state.season] ?? NBA_SEASON_END[CURRENT_NBA_SEASON];
@@ -90,18 +83,22 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
   const maxRegularSeasonWeeks = Math.max(1, maxTotalWeeks - state.playoffWeeks);
   const maxPlayoffWeeks = Math.max(1, maxTotalWeeks - state.regularSeasonWeeks);
 
-  // Regular season ends after regularSeasonWeeks full weeks from start
-  const regularSeasonEnd = addWeeks(seasonStart, state.regularSeasonWeeks);
-  // Subtract 1 day to get the last day (Sunday) of the final regular season week
-  regularSeasonEnd.setDate(regularSeasonEnd.getDate() - 1);
+  // Week 1 ends the first Sunday after (or on) seasonStart
+  const daysUntilSun = startDow === 0 ? 0 : 7 - startDow;
+  const week1End = new Date(seasonStart);
+  week1End.setDate(seasonStart.getDate() + daysUntilSun);
+
+  // Regular season end = Week 1 Sunday + (regularSeasonWeeks - 1) full weeks
+  const regularSeasonEnd = new Date(week1End);
+  regularSeasonEnd.setDate(week1End.getDate() + (state.regularSeasonWeeks - 1) * 7);
 
   // Playoffs start the next Monday after regular season
   const playoffsStart = new Date(regularSeasonEnd);
   playoffsStart.setDate(regularSeasonEnd.getDate() + 1);
 
-  // Playoffs end after playoffWeeks weeks
-  const playoffsEnd = addWeeks(playoffsStart, state.playoffWeeks);
-  playoffsEnd.setDate(playoffsEnd.getDate() - 1);
+  // Playoffs end after playoffWeeks full weeks (each Mon-Sun)
+  const playoffsEnd = new Date(playoffsStart);
+  playoffsEnd.setDate(playoffsStart.getDate() + state.playoffWeeks * 7 - 1);
 
   // With odd team count, byes are only equal if regularSeasonWeeks is a multiple of team count
   const isOdd = state.teams % 2 !== 0;
@@ -112,7 +109,7 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
 
   return (
     <View style={styles.container}>
-      <ThemedText type="subtitle" style={styles.heading}>Season Settings</ThemedText>
+      <ThemedText accessibilityRole="header" type="subtitle" style={styles.heading}>Season Settings</ThemedText>
 
       <View style={styles.section}>
         <NumberStepper
@@ -203,11 +200,11 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
 
       {/* Season preview card */}
       <View style={[styles.previewCard, { backgroundColor: c.card, borderColor: c.border }]}>
-        <ThemedText type="defaultSemiBold" style={styles.previewTitle}>Season Preview</ThemedText>
+        <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.previewTitle}>Season Preview</ThemedText>
 
         {shortFirstWeek && (
           <ThemedText style={[styles.note, { color: c.secondaryText }]}>
-            Week 1 will cover the current partial week + the first full week.
+            Week 1 is a short week ({daysUntilSun + 1} days) ending Sunday.
           </ThemedText>
         )}
 

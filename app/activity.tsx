@@ -3,9 +3,9 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Transaction, TransactionItem, useTransactions } from '@/hooks/useTransactions';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { useCallback } from 'react';
-import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, FlatList, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 function getTransactionIcon(type: string): keyof typeof Ionicons.glyphMap {
@@ -64,7 +64,6 @@ function formatDate(dateStr: string): string {
 }
 
 export default function Activity() {
-  const router = useRouter();
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
 
@@ -80,14 +79,19 @@ export default function Activity() {
       const descriptions = items.map(formatItemDescription).filter(Boolean) as string[];
 
       return (
-        <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
+        <View
+          style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}
+          accessibilityLabel={`${label}${item.initiator ? ` by ${item.initiator.name}` : ''}, ${formatDate(item.created_at)}${descriptions.length > 0 ? `, ${descriptions.join(', ')}` : ''}`}
+        >
           <View style={styles.cardRow}>
             <View style={[styles.iconCircle, { backgroundColor: c.cardAlt }]}>
-              <Ionicons name={icon} size={18} color={c.accent} />
+              <Ionicons name={icon} size={18} color={c.accent} accessible={false} />
             </View>
             <View style={styles.cardContent}>
               <View style={styles.cardHeader}>
-                <ThemedText style={styles.typeLabel}>{label}</ThemedText>
+                <ThemedText style={styles.typeLabel}>
+                  {label}{item.initiator ? ` · ${item.initiator.name}` : ''}
+                </ThemedText>
                 <ThemedText style={[styles.time, { color: c.secondaryText }]}>
                   {formatDate(item.created_at)}
                 </ThemedText>
@@ -117,20 +121,13 @@ export default function Activity() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
-      {/* Header */}
-      <View style={[styles.header, { borderBottomColor: c.border }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Text style={[styles.backText, { color: c.accent }]}>‹ Back</Text>
-        </TouchableOpacity>
-        <ThemedText type="defaultSemiBold" style={styles.title}>Transactions</ThemedText>
-        <View style={styles.backBtn} />
-      </View>
+      <PageHeader title="Transactions" />
 
       {isLoading ? (
         <ActivityIndicator style={styles.loader} />
       ) : transactions.length === 0 ? (
         <View style={styles.empty}>
-          <Ionicons name="document-text-outline" size={40} color={c.secondaryText} />
+          <Ionicons name="document-text-outline" size={40} color={c.secondaryText} accessible={false} />
           <ThemedText style={[styles.emptyText, { color: c.secondaryText }]}>
             No transactions yet
           </ThemedText>
@@ -155,26 +152,6 @@ export default function Activity() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 8,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  backBtn: {
-    width: 70,
-    paddingHorizontal: 8,
-  },
-  backText: {
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  title: {
-    fontSize: 16,
-    textAlign: 'center',
   },
   loader: {
     marginTop: 40,

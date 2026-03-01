@@ -1,11 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { notifyLeague, notifyTeams } from './push.ts';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { notifyLeague, notifyTeams } from '../_shared/push.ts';
+import { CORS_HEADERS } from '../_shared/cors.ts';
 
 async function scheduleAutodraft(draft_id: string, pick_number: number, time_limit: number) {
   const token = Deno.env.get('QSTASH_TOKEN')?.trim();
@@ -33,7 +29,7 @@ async function scheduleAutodraft(draft_id: string, pick_number: number, time_lim
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response('ok', { headers: CORS_HEADERS });
   }
 
   try {
@@ -54,6 +50,7 @@ Deno.serve(async (req) => {
     if (!user) throw new Error('Unauthorized');
 
     const { draft_id } = await req.json();
+    if (!draft_id) throw new Error('draft_id is required');
 
     const { data: draft, error: draftError } = await supabaseAdmin
       .from('drafts')
@@ -66,7 +63,7 @@ Deno.serve(async (req) => {
     if (draft.status === 'in_progress') {
       return new Response(JSON.stringify({ message: 'Draft already in progress' }), {
         status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
       });
     }
 
@@ -132,13 +129,13 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({ message: 'Draft started', qstash: qstashResult }), {
       status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
     });
   } catch (error) {
     console.error('start-draft error:', error);
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
     });
   }
 });

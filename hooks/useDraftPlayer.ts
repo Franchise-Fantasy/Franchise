@@ -1,5 +1,6 @@
 // hooks/useDraftPlayer.ts
 
+import { globalToastRef } from '@/context/ToastProvider';
 import { supabase } from '@/lib/supabase';
 import { Player } from '@/types/draft';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -32,12 +33,11 @@ export const useDraftPlayer = (leagueId: string, draftId: string ) => {
       );
       return { previousPlayers };
     },
-    onError: (err, newTodo, context) => {
+    onError: (err, _player, context) => {
       if (context?.previousPlayers) {
         queryClient.setQueryData(['availablePlayers', leagueId], context.previousPlayers);
       }
-      console.error('Error drafting player:', err);
-      // You would show a toast notification here
+      globalToastRef.current?.('error', (err as Error).message || 'Failed to draft player');
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['availablePlayers', leagueId] });

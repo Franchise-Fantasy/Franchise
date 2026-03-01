@@ -9,7 +9,9 @@ const NAV_ITEMS = [
   { icon: 'chart.bar', label: 'Scoreboard', route: '/scoreboard' },
   { icon: 'arrow.triangle.2.circlepath', label: 'Trade Room', route: '/trades' },
   { icon: 'trophy.fill', label: 'Playoffs', route: '/playoff-bracket' },
+  { icon: 'list.bullet.clipboard', label: 'Draft Hub', route: '/draft-hub' },
   { icon: 'clock', label: 'Transactions', route: '/activity' },
+  { icon: 'book.fill', label: 'History', route: '/league-history' },
   { icon: 'info.circle', label: 'League Info', route: '/league-info' },
 ] as const;
 
@@ -18,23 +20,19 @@ export function QuickNav() {
   const c = Colors[scheme];
   const router = useRouter();
 
-  const gridItems = NAV_ITEMS.slice(0, -1);
-  const lastItem = NAV_ITEMS[NAV_ITEMS.length - 1];
-
   return (
     <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
-      <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Quick Navigation</ThemedText>
+      <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">Quick Navigation</ThemedText>
       <View style={styles.grid}>
-        {gridItems.map(item => (
-          <TouchableOpacity key={item.route} style={[styles.navItem, { backgroundColor: c.cardAlt }]} onPress={() => router.push(item.route as any)}>
-            <IconSymbol name={item.icon} size={24} color={c.icon} />
-            <ThemedText style={styles.label}>{item.label}</ThemedText>
-          </TouchableOpacity>
-        ))}
-        <TouchableOpacity style={[styles.navItemWide, { backgroundColor: c.cardAlt }]} onPress={() => router.push(lastItem.route as any)}>
-          <IconSymbol name={lastItem.icon} size={20} color={c.icon} />
-          <ThemedText style={styles.labelWide}>{lastItem.label}</ThemedText>
-        </TouchableOpacity>
+        {NAV_ITEMS.map(item => {
+          const isLeagueInfo = item.route === '/league-info';
+          return (
+            <TouchableOpacity key={item.route} style={[styles.navItem, isLeagueInfo && styles.navItemCompact, { backgroundColor: c.cardAlt }]} onPress={() => router.push(item.route as any)} accessibilityRole="button" accessibilityLabel={item.label}>
+              <IconSymbol name={item.icon} size={isLeagueInfo ? 20 : 24} color={c.icon} />
+              <ThemedText style={[styles.label, isLeagueInfo && { marginTop: 0 }]}>{item.label}</ThemedText>
+            </TouchableOpacity>
+          );
+        })}
       </View>
     </View>
   );
@@ -64,14 +62,11 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 10,
   },
-  navItemWide: {
+  navItemCompact: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'center',
-    width: '100%',
-    padding: 12,
-    borderRadius: 10,
+    paddingVertical: 10,
+    gap: 8,
   },
   label: { marginTop: 8, fontSize: 12 },
-  labelWide: { marginLeft: 10, fontSize: 12 },
 });

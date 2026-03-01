@@ -4,14 +4,20 @@ import { useDraftTimer } from "@/hooks/useDraftTimer";
 import { supabase } from "@/lib/supabase";
 import { DraftState, Pick } from "@/types/draft";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Animated,
-  ScrollView,
-  StyleSheet,
-  View,
-} from "react-native";
+import * as Haptics from "expo-haptics";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
+import Animated, {
+  runOnJS,
+  scrollTo,
+  useAnimatedReaction,
+  useAnimatedRef,
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
 import { ThemedText } from "../ThemedText";
 import { ThemedView } from "../ThemedView";
 
@@ -32,11 +38,11 @@ export function DraftOrder({
 }: DraftOrderProps) {
   const colorScheme = useColorScheme() ?? "light";
   const colors = Colors[colorScheme];
-  const scrollViewRef = useRef<ScrollView>(null);
+  const scrollRef = useAnimatedRef<Animated.ScrollView>();
   const queryClient = useQueryClient();
-  const [lastPickId, setLastPickId] = useState<string | null>(null);
   const [flashingPickId, setFlashingPickId] = useState<string | null>(null);
-  const flashAnim = useRef(new Animated.Value(0)).current;
+  const scrollTarget = useSharedValue(0);
+  const flashOpacity = useSharedValue(0);
 
   // NEW: Fetch the main draft state for the timer
   const { data: draftState, isLoading: isLoadingDraftState } =
@@ -108,31 +114,28 @@ export function DraftOrder({
   // NEW: Use the timer hook with the fetched draft state
   const countdown = useDraftTimer(currentPickTimestamp || draftState?.current_pick_timestamp, draftState?.time_limit);
 
-  // Set state first, then animate after the overlay is mounted
-  const flashPick = (pickId: string) => {
-    setLastPickId(pickId);
-    setFlashingPickId(pickId);
-  };
+  // Flash overlay style driven by Reanimated on the UI thread
+  const flashStyle = useAnimatedStyle(() => ({
+    opacity: flashOpacity.value,
+  }));
 
-  useEffect(() => {
-    if (!lastPickId) return;
-    flashAnim.setValue(0);
-    Animated.sequence([
-      Animated.timing(flashAnim, {
-        toValue: 1,
-        duration: 350,
-        useNativeDriver: false,
+  const flashPick = useCallback((pickId: string) => {
+    setFlashingPickId(pickId);
+    flashOpacity.value = withSequence(
+      withTiming(1, { duration: 300 }),
+      withTiming(0, { duration: 700 }, (finished) => {
+        if (finished) runOnJS(setFlashingPickId)(null);
       }),
-      Animated.timing(flashAnim, {
-        toValue: 0,
-        duration: 900,
-        useNativeDriver: false,
-      }),
-    ]).start(() => {
-      setLastPickId(null);
-      setFlashingPickId(null);
-    });
-  }, [lastPickId]);
+    );
+  }, []);
+
+  // Spring-driven scroll: drives the scroll position frame-by-frame on the UI thread
+  useAnimatedReaction(
+    () => scrollTarget.value,
+    (val) => {
+      scrollTo(scrollRef, val, 0, false);
+    },
+  );
 
   const {
     data: picks = [],
@@ -205,17 +208,23 @@ export function DraftOrder({
           filter: `draft_id=eq.${draftId}`,
         },
         (payload) => {
-          if (payload.eventType === "UPDATE" && payload.new.player_id) {
-            flashPick(payload.new.id);
-
-            setTimeout(() => {
+          if (payload.eventType === "UPDATE") {
+            if (payload.new.player_id) {
+              // A pick was used (player drafted)
+              flashPick(payload.new.id);
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               queryClient.invalidateQueries({
                 queryKey: ["draftOrder", draftId],
               });
               queryClient.invalidateQueries({
                 queryKey: ["teamRoster"],
               });
-            }, 1000);
+            } else if (payload.old?.current_team_id !== payload.new.current_team_id) {
+              // A pick changed ownership (traded during draft)
+              queryClient.invalidateQueries({
+                queryKey: ["draftOrder", draftId],
+              });
+            }
           }
         },
       )
@@ -232,26 +241,15 @@ export function DraftOrder({
   const currentPick = picks[currentPickIndex];
   const isMyTurn = currentPick?.current_team_id === teamId;
 
-  // Scroll to current pick when component mounts or picks change
+  // Spring-scroll to the current pick when it changes
   useEffect(() => {
-    if (currentPickIndex > -1) {
-      // Add a small delay to ensure layout is complete
-      setTimeout(() => {
-        const blockWidth = 120; // width of block
-        const margin = 4; // margin on each side
-        const padding = 2; // reduced padding before block
-
-        const scrollPosition = Math.max(
-          0,
-          currentPickIndex * (blockWidth + margin * 2) - padding,
-        );
-
-        scrollViewRef.current?.scrollTo({
-          x: scrollPosition,
-          animated: true,
-        });
-      }, 100);
-    }
+    if (currentPickIndex < 0) return;
+    const targetX = Math.max(0, currentPickIndex * (120 + 4 * 2) - 2);
+    scrollTarget.value = withSpring(targetX, {
+      damping: 120,
+      mass: 4,
+      stiffness: 900,
+    });
   }, [currentPickIndex]);
 
   // Notify parent of current pick — only expose when the draft is actually running
@@ -288,20 +286,22 @@ export function DraftOrder({
   }
 
   return (
-    <ScrollView
-      ref={scrollViewRef}
+    <Animated.ScrollView
+      ref={scrollRef}
       horizontal
       style={[
         styles.container,
         { borderColor: colors.border, backgroundColor: colors.cardAlt },
       ]}
       showsHorizontalScrollIndicator={false}
+      scrollEventThrottle={16}
     >
       {picks.map((pick, index) => {
         const isCurrentOnTheClock = index === currentPickIndex;
         return (
           <View
             key={pick.id}
+            accessibilityLabel={`Pick ${pick.round}-${pick.slot_number}, ${pick.current_team?.name || 'TBD'}${pick.player_id ? `, ${pick.player?.name}, ${pick.player?.position}` : isCurrentOnTheClock ? ', on the clock' : ''}`}
             style={[
               styles.pickBlock,
               { backgroundColor: colors.card, borderColor: colors.border },
@@ -312,12 +312,13 @@ export function DraftOrder({
               isCurrentOnTheClock && styles.currentPick,
             ]}
           >
-            {pick.id === lastPickId && (
+            {pick.id === flashingPickId && (
               <Animated.View
                 pointerEvents="none"
                 style={[
                   StyleSheet.absoluteFill,
-                  { backgroundColor: "rgba(74, 222, 128, 0.4)", opacity: flashAnim },
+                  { backgroundColor: "rgba(74, 222, 128, 0.4)" },
+                  flashStyle,
                 ]}
               />
             )}
@@ -362,7 +363,7 @@ export function DraftOrder({
           </View>
         );
       })}
-    </ScrollView>
+    </Animated.ScrollView>
   );
 }
 

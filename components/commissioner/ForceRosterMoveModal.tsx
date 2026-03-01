@@ -145,12 +145,12 @@ export function ForceRosterMoveModal({ visible, leagueId, teams, onClose }: Prop
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={handleClose}>
       <View style={styles.overlay}>
-        <View style={[styles.content, { backgroundColor: c.card }]}>
+        <View style={[styles.content, { backgroundColor: c.card }]} accessibilityViewIsModal={true}>
           <View style={styles.header}>
-            <TouchableOpacity onPress={goBack}>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel={step === 'team' ? 'Close' : 'Go back'} onPress={goBack}>
               <Ionicons name={step === 'team' ? 'close' : 'arrow-back'} size={24} color={c.text} />
             </TouchableOpacity>
-            <ThemedText type="subtitle">
+            <ThemedText accessibilityRole="header" type="subtitle">
               {step === 'team' ? 'Select Team' : step === 'player' ? selectedTeam?.name : selectedPlayer?.name}
             </ThemedText>
             <View style={{ width: 24 }} />
@@ -162,6 +162,8 @@ export function ForceRosterMoveModal({ visible, leagueId, teams, onClose }: Prop
               keyExtractor={(t) => t.id}
               renderItem={({ item }) => (
                 <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel={item.name}
                   style={[styles.row, { borderBottomColor: c.border }]}
                   onPress={() => { setSelectedTeam(item); setStep('player'); }}
                 >
@@ -186,6 +188,8 @@ export function ForceRosterMoveModal({ visible, leagueId, teams, onClose }: Prop
                     const badge = getInjuryBadge(item.status);
                     return (
                       <TouchableOpacity
+                        accessibilityRole="button"
+                        accessibilityLabel={`${item.name}, ${item.position}, current slot ${slotLabel(item.roster_slot)}`}
                         style={[styles.row, { borderBottomColor: c.border }]}
                         onPress={() => { setSelectedPlayer(item); setStep('slot'); }}
                       >
@@ -231,6 +235,8 @@ export function ForceRosterMoveModal({ visible, leagueId, teams, onClose }: Prop
                   keyExtractor={(s) => s}
                   renderItem={({ item: slot }) => (
                     <TouchableOpacity
+                      accessibilityRole="button"
+                      accessibilityLabel={`Move to ${slotLabel(slot)}`}
                       style={[styles.row, { borderBottomColor: c.border }]}
                       onPress={() => handleMoveToSlot(slot)}
                       disabled={processing}

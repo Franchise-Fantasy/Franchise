@@ -1,5 +1,6 @@
 import { DraftSection } from '@/components/home/DraftSection';
 import { ErrorState } from '@/components/ErrorState';
+import { ImportedLeagueSection } from '@/components/home/ImportedLeagueSection';
 import { InviteSection } from '@/components/home/InviteSection';
 import { LeagueSwitcher } from '@/components/home/LeagueSwitcher';
 import { OffseasonDashboard } from '@/components/home/OffseasonDashboard';
@@ -9,8 +10,9 @@ import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { Colors } from '@/constants/Colors';
+import { useAppState } from '@/context/AppStateProvider';
 import { useSession } from '@/context/AuthProvider';
-import { useTotalUnread } from '@/hooks/useChat';
+import { useTotalUnread } from '@/hooks/chat';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeague } from '@/hooks/useLeague';
 import { useRouter } from 'expo-router';
@@ -20,6 +22,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function HomeScreen() {
   const { data: league, isLoading, isError, refetch } = useLeague();
+  const { teamId } = useAppState();
   const session = useSession();
   const isCommissioner = session?.user?.id === league?.created_by;
   const scheme = useColorScheme() ?? 'light';
@@ -36,30 +39,37 @@ export default function HomeScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
       <ThemedView style={[styles.header, { borderBottomColor: c.border }]}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.leagueSwitcher}
           onPress={() => setSwitcherVisible(true)}
-        > 
-          <IconSymbol 
-            name="chevron.down" 
-            size={20}   
+          accessibilityRole="button"
+          accessibilityLabel="Switch league"
+          accessibilityHint="Opens league switcher"
+        >
+          <IconSymbol
+            name="chevron.down"
+            size={20}
             color={c.icon}
+            accessible={false}
           />
         </TouchableOpacity>
-        <ThemedText type="title" style={styles.headerText}>
+        <ThemedText type="title" style={styles.headerText} accessibilityRole="header">
           {isLoading ? 'Loading...' : league?.name}
         </ThemedText>
         <TouchableOpacity
           style={styles.chatButton}
           onPress={handleChatPress}
+          accessibilityRole="button"
+          accessibilityLabel={`Chat${(unreadCount ?? 0) > 0 ? `, ${unreadCount! > 99 ? '99+' : unreadCount} unread` : ''}`}
         >
           <IconSymbol
             name="bubble.right"
             size={20}
             color={c.icon}
+            accessible={false}
           />
           {(unreadCount ?? 0) > 0 && (
-            <View style={styles.unreadBadge}>
+            <View style={styles.unreadBadge} accessible={false}>
               <ThemedText style={styles.unreadText}>
                 {unreadCount! > 99 ? '99+' : unreadCount}
               </ThemedText>
@@ -76,20 +86,33 @@ export default function HomeScreen() {
             {league.offseason_step ? (
               <OffseasonDashboard
                 leagueId={league.id}
+                teamId={teamId!}
                 offseasonStep={league.offseason_step}
                 isCommissioner={isCommissioner}
                 rookieDraftOrder={league.rookie_draft_order ?? 'reverse_record'}
                 season={league.season}
+                rosterSize={league.roster_size ?? 13}
               />
             ) : null}
-            <DraftSection leagueId={league.id} isCommissioner={isCommissioner} />
-            <InviteSection
-              isCommissioner={isCommissioner}
-              isPrivate={league.private}
-              inviteCode={league.invite_code}
-              leagueId={league.id}
-              isFull={(league.current_teams ?? 0) >= league.teams}
-            />
+            {league.imported_from && !league.schedule_generated ? (
+              <ImportedLeagueSection
+                leagueId={league.id}
+                inviteCode={league.invite_code}
+                isCommissioner={isCommissioner}
+                scheduleGenerated={league.schedule_generated ?? false}
+              />
+            ) : (
+              <>
+                <DraftSection leagueId={league.id} isCommissioner={isCommissioner} />
+                <InviteSection
+                  isCommissioner={isCommissioner}
+                  isPrivate={league.private}
+                  inviteCode={league.invite_code}
+                  leagueId={league.id}
+                  isFull={(league.current_teams ?? 0) >= league.teams}
+                />
+              </>
+            )}
             <QuickNav />
             <StandingsSection leagueId={league.id} playoffTeams={league.playoff_teams} />
           </>

@@ -9,4 +9,6 @@ Code quality:
 
 - If there is something I've told you to remember, or something that you think will be needed in future sessions, please write a rule in this file under the "Iterations" section.
 
+- Accessibility labelling needs to be added to an changes or new files by default.
+
 Iterations:

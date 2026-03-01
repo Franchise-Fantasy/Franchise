@@ -13,7 +13,7 @@ import {
 } from '@/hooks/useTrades';
 import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -27,6 +27,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ProposeTradeModal } from '@/components/trade/ProposeTradeModal';
 import { TradeDetailModal } from '@/components/trade/TradeDetailModal';
+import { PageHeader } from '@/components/ui/PageHeader';
 
 const TABS = ['Active', 'History'];
 const ACTIVE_STATUSES = ['pending', 'accepted', 'in_review'];
@@ -48,6 +49,17 @@ export default function Trades() {
 
   const { data: proposals, isLoading } = useTradeProposals(leagueId);
   const { data: tradeBlock } = useTradeBlock(leagueId);
+
+  // Check trade deadline
+  const { data: leagueDeadline } = useQuery({
+    queryKey: ['leagueDeadline', leagueId],
+    queryFn: async () => {
+      const { data } = await supabase.from('leagues').select('trade_deadline').eq('id', leagueId!).single();
+      return data?.trade_deadline as string | null;
+    },
+    enabled: !!leagueId,
+  });
+  const isPastDeadline = !!leagueDeadline && new Date(leagueDeadline + 'T23:59:59') < new Date();
 
   // Auto-complete trades whose review period has expired (client-side check)
   useEffect(() => {
@@ -90,23 +102,27 @@ export default function Trades() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
-      {/* Header */}
-      <View style={[styles.header, { borderBottomColor: c.border }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Text style={[styles.backText, { color: c.accent }]}>‹ Back</Text>
-        </TouchableOpacity>
-        <ThemedText type="defaultSemiBold" style={styles.title}>Trade Room</ThemedText>
-        <View style={styles.backBtn} />
-      </View>
+      <PageHeader title="Trade Room" />
 
-      {/* Propose Trade Button */}
-      <TouchableOpacity
-        style={[styles.proposeBtn, { backgroundColor: c.accent }]}
-        onPress={() => setShowPropose(true)}
-        activeOpacity={0.8}
-      >
-        <Text style={[styles.proposeBtnText, { color: c.accentText }]}>+ Propose Trade</Text>
-      </TouchableOpacity>
+      {/* Propose Trade Button / Deadline Banner */}
+      {isPastDeadline ? (
+        <View style={[styles.deadlineBanner, { backgroundColor: c.card, borderColor: c.border }]}>
+          <Ionicons name="lock-closed" size={14} color={c.secondaryText} accessible={false} />
+          <ThemedText style={[styles.deadlineText, { color: c.secondaryText }]}>
+            The trade deadline has passed. No new trades can be proposed.
+          </ThemedText>
+        </View>
+      ) : (
+        <TouchableOpacity
+          style={[styles.proposeBtn, { backgroundColor: c.accent }]}
+          onPress={() => setShowPropose(true)}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="Propose Trade"
+        >
+          <Text style={[styles.proposeBtnText, { color: c.accentText }]}>+ Propose Trade</Text>
+        </TouchableOpacity>
+      )}
 
       {/* Scrollable content: trade block + trade list */}
       <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false}>
@@ -117,9 +133,12 @@ export default function Trades() {
               style={styles.tradeBlockHeader}
               onPress={() => setTradeBlockExpanded(!tradeBlockExpanded)}
               activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel={`Trade Block, ${(tradeBlock ?? []).reduce((sum, g) => sum + g.players.length, 0)} players`}
+              accessibilityState={{ expanded: tradeBlockExpanded }}
             >
               <View style={styles.tradeBlockHeaderLeft}>
-                <Ionicons name="megaphone-outline" size={16} color={c.accent} />
+                <Ionicons name="megaphone-outline" size={16} color={c.accent} accessible={false} />
                 <ThemedText type="defaultSemiBold" style={styles.tradeBlockTitle}>
                   Trade Block
                 </ThemedText>
@@ -131,6 +150,7 @@ export default function Trades() {
                 name={tradeBlockExpanded ? 'chevron-up' : 'chevron-down'}
                 size={18}
                 color={c.secondaryText}
+                accessible={false}
               />
             </TouchableOpacity>
 
@@ -145,6 +165,9 @@ export default function Trades() {
                     style={[styles.tradeBlockRow, { backgroundColor: c.card }]}
                     onPress={() => handleTradeBlockPlayerPress(p)}
                     activeOpacity={p.team_id === teamId ? 1 : 0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${p.name}, ${p.position}, ${p.nba_team}`}
+                    accessibilityHint={p.team_id !== teamId ? 'Propose a trade for this player' : undefined}
                   >
                     <View style={styles.tradeBlockPlayerInfo}>
                       <ThemedText style={styles.tradeBlockPlayerName} numberOfLines={1}>
@@ -155,7 +178,7 @@ export default function Trades() {
                       </ThemedText>
                     </View>
                     {p.team_id !== teamId && (
-                      <Ionicons name="swap-horizontal-outline" size={16} color={c.accent} />
+                      <Ionicons name="swap-horizontal-outline" size={16} color={c.accent} accessible={false} />
                     )}
                   </TouchableOpacity>
                 ))}
@@ -249,6 +272,22 @@ const styles = StyleSheet.create({
   proposeBtnText: {
     fontSize: 15,
     fontWeight: '700',
+  },
+  deadlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 10,
+    marginBottom: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  deadlineText: {
+    fontSize: 13,
+    flex: 1,
   },
   scrollArea: {
     flex: 1,

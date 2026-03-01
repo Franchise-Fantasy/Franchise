@@ -1,12 +1,15 @@
 import { ThemedText } from '@/components/ThemedText';
+import { PlayerGameLog } from '@/components/player/PlayerGameLog';
 import { Colors } from '@/constants/Colors';
+import { useToast } from '@/context/ToastProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { usePlayerGameLog } from '@/hooks/usePlayerGameLog';
 import { supabase } from '@/lib/supabase';
-import { PlayerGameLog, PlayerSeasonStats } from '@/types/player';
+import { isOnline } from '@/utils/network';
+import { PlayerSeasonStats } from '@/types/player';
 import { Ionicons } from '@expo/vector-icons';
-import { calculateAvgFantasyPoints, calculateGameFantasyPoints } from '@/utils/fantasyPoints';
+import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
 import { formatPosition } from '@/utils/formatting';
 import { getInjuryBadge } from '@/utils/injuryBadge';
 import { useTodayGameTimes, isGameStarted } from '@/utils/gameStarted';
@@ -42,18 +45,9 @@ interface PlayerDetailModalProps {
   onClaimPlayer?: () => void;
 }
 
-// Returns the Monday (start of week) for a given YYYY-MM-DD date string
-function getWeekMonday(dateStr: string): string {
-  const d = new Date(dateStr + 'T00:00:00');
-  const day = d.getDay(); // 0=Sun, 1=Mon, ...
-  const diff = day === 0 ? 6 : day - 1;
-  d.setDate(d.getDate() - diff);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
 function StatBox({ label, value, color }: { label: string; value: string; color: string }) {
   return (
-    <View style={styles.statBox}>
+    <View style={styles.statBox} accessibilityLabel={`${label}: ${value}`}>
       <ThemedText style={[styles.statLabel, { color }]}>{label}</ThemedText>
       <ThemedText type="defaultSemiBold">{value}</ThemedText>
     </View>
@@ -64,6 +58,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const queryClient = useQueryClient();
+  const { showToast } = useToast();
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [showDropPicker, setShowDropPicker] = useState(false);
@@ -348,6 +343,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
 
   const handleAddPlayer = async () => {
     if (!teamId || !player) return;
+    if (!(await isOnline())) { showToast('error', 'No internet connection'); return; }
 
     // If this player requires a waiver claim, delegate to the claim callback
     if (needsWaiverClaim) {
@@ -399,6 +395,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
           league_id: leagueId,
           type: 'waiver',
           notes: `Added ${player.name} from free agency`,
+          team_id: teamId,
         })
         .select('id')
         .single();
@@ -422,6 +419,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
   const handleDropPlayer = async (playerToDrop?: PlayerSeasonStats) => {
     const dropping = playerToDrop ?? player;
     if (!teamId || !dropping) return;
+    if (!(await isOnline())) { showToast('error', 'No internet connection'); return; }
 
     setIsProcessing(true);
     try {
@@ -465,6 +463,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
             league_id: leagueId,
             type: 'waiver',
             notes: `Added ${player.name} (dropped ${dropping.name})`,
+            team_id: teamId,
           })
           .select('id')
           .single();
@@ -487,6 +486,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
             league_id: leagueId,
             type: 'waiver',
             notes: `Dropped ${dropping.name}`,
+            team_id: teamId,
           })
           .select('id')
           .single();
@@ -638,91 +638,6 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
   const canTransact = !!teamId && !hasActiveDraft && !isProcessing;
   const canAdd = canTransact;
 
-  const formatGameDate = (dateStr?: string) => {
-    if (!dateStr) return '—';
-    const d = new Date(dateStr + 'T00:00:00');
-    return `${d.getMonth() + 1}/${d.getDate()}`;
-  };
-
-  const statColumns = [
-    'MIN', 'PTS', 'REB', 'AST', 'STL', 'BLK', 'TO',
-    'FGM', 'FGA', '3PM', '3PA', 'FTM', 'FTA', 'PF',
-  ] as const;
-
-  const getStatValue = (item: PlayerGameLog, col: string) => {
-    switch (col) {
-      case 'MIN': return item.min;
-      case 'PTS': return item.pts;
-      case 'REB': return item.reb;
-      case 'AST': return item.ast;
-      case 'STL': return item.stl;
-      case 'BLK': return item.blk;
-      case 'TO': return item.tov;
-      case 'FGM': return item.fgm;
-      case 'FGA': return item.fga;
-      case '3PM': return item['3pm'];
-      case '3PA': return item['3pa'];
-      case 'FTM': return item.ftm;
-      case 'FTA': return item.fta;
-      case 'PF': return item.pf;
-      default: return 0;
-    }
-  };
-
-  // Build combined row list: upcoming (furthest first) → live → historical
-  type RowType = { kind: 'upcoming'; key: string; date: string; opp: string; rawDate: string }
-    | { kind: 'live'; key: string; date: string; opp: string; stats: Record<string, number | boolean>; gameInfo: string; isLive: boolean; rawDate: string }
-    | { kind: 'history'; key: string; item: PlayerGameLog };
-
-  const combinedRows: RowType[] = [];
-
-  // Upcoming games (reversed so furthest is at top, nearest is closest to live/history)
-  // Skip today's game if it already appears as the live row
-  const today = new Date().toISOString().slice(0, 10);
-  const hasLiveRow = liveStats && liveStats.game_status >= 2;
-  const filteredUpcoming = (upcomingGames ?? [])
-    .filter((g) => !(hasLiveRow && g.game_date === today))
-    .slice(0, 3);
-  for (let i = filteredUpcoming.length - 1; i >= 0; i--) {
-    const g = filteredUpcoming[i];
-    combinedRows.push({
-      kind: 'upcoming',
-      key: `upcoming-${g.game_date}`,
-      date: formatGameDate(g.game_date),
-      opp: g.prefix === '@' ? `@${g.opponent}` : g.opponent,
-      rawDate: g.game_date,
-    });
-  }
-
-  // Live/final row for today
-  if (liveStats && liveStats.game_status >= 2) {
-    combinedRows.push({
-      kind: 'live',
-      key: 'live-today',
-      date: formatGameDate(today),
-      opp: liveStats.matchup?.replace(/^vs\s*/i, '').replace(/^@\s*/, '@') ?? '—',
-      stats: liveToGameLog(liveStats),
-      gameInfo: formatGameInfo(liveStats),
-      isLive: liveStats.game_status === 2,
-      rawDate: today,
-    });
-  }
-
-  // Historical game log (skip today if already shown as live/final row)
-  for (const item of (gameLog ?? [])) {
-    if (hasLiveRow && item.game_date === today) continue;
-    combinedRows.push({ kind: 'history', key: item.id, item });
-  }
-
-  // Thicker border between Mon-Sun week boundaries
-  const rawDateOf = (r: RowType): string => r.kind === 'history' ? r.item.game_date ?? '' : r.rawDate;
-  const weekBorderKeys = new Set<string>();
-  for (let i = 0; i < combinedRows.length - 1; i++) {
-    if (getWeekMonday(rawDateOf(combinedRows[i])) !== getWeekMonday(rawDateOf(combinedRows[i + 1]))) {
-      weekBorderKeys.add(combinedRows[i].key);
-    }
-  }
-
   const renderDropPickerItem = ({ item }: { item: PlayerSeasonStats }) => {
     const fpts = scoringWeights
       ? calculateAvgFantasyPoints(item, scoringWeights)
@@ -731,6 +646,8 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
     return (
       <TouchableOpacity
         style={[styles.dropPickerRow, { borderBottomColor: c.border }]}
+        accessibilityRole="button"
+        accessibilityLabel={`Drop ${item.name}, ${formatPosition(item.position)}, ${item.nba_team}${fpts !== null ? `, ${fpts} fantasy points` : ''}`}
         onPress={() => {
           if (onDropForClaim) {
             Alert.alert(
@@ -774,16 +691,16 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
     return (
       <Modal visible animationType="slide" transparent>
         <View style={styles.overlay}>
-          <Animated.View style={[styles.sheet, { backgroundColor: c.background, transform: [{ translateY }] }]}>
+          <Animated.View style={[styles.sheet, { backgroundColor: c.background, transform: [{ translateY }] }]} accessibilityViewIsModal={true}>
             <View {...panResponder.panHandlers}>
               <View style={[styles.header, { borderBottomColor: c.border }]}>
                 <View style={styles.headerInfo}>
-                  <ThemedText type="title" style={styles.playerName}>Drop a Player</ThemedText>
+                  <ThemedText type="title" style={styles.playerName} accessibilityRole="header">Drop a Player</ThemedText>
                   <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>
                     Your roster is full. Select a player to drop in order to add {player.name}.
                   </ThemedText>
                 </View>
-                <TouchableOpacity onPress={() => startInDropPicker ? handleClose() : setShowDropPicker(false)} style={styles.closeButton}>
+                <TouchableOpacity onPress={() => startInDropPicker ? handleClose() : setShowDropPicker(false)} style={styles.closeButton} accessibilityRole="button" accessibilityLabel="Close">
                   <ThemedText style={styles.closeText}>✕</ThemedText>
                 </TouchableOpacity>
               </View>
@@ -815,7 +732,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
   return (
     <Modal visible={!!player} animationType="slide" transparent>
       <View style={styles.overlay}>
-        <Animated.View style={[styles.sheet, { backgroundColor: c.background, transform: [{ translateY }] }]}>
+        <Animated.View style={[styles.sheet, { backgroundColor: c.background, transform: [{ translateY }] }]} accessibilityViewIsModal={true}>
           {/* Header - swipe area */}
           <View {...panResponder.panHandlers}>
             <View style={[styles.header, { borderBottomColor: c.border }]}>
@@ -826,6 +743,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                     source={{ uri: headshotUrl }}
                     style={styles.headerHeadshot}
                     resizeMode="cover"
+                    accessibilityLabel={`${player.name} headshot`}
                   />
                 ) : null;
               })()}
@@ -842,6 +760,8 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                               style={[styles.headerBtn, styles.headerBtnActivate, (!canTransact || playerGameStarted) && styles.buttonDisabled]}
                               onPress={handleActivateFromIR}
                               disabled={!canTransact || playerGameStarted}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Activate ${player.name} from IR`}
                             >
                               {isProcessing ? <ActivityIndicator size="small" color="#fff" /> : (
                                 <ThemedText style={styles.headerBtnText}>Activate</ThemedText>
@@ -854,6 +774,8 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                               playerGameStarted ? styles.headerBtnQueue : styles.headerBtnDrop,
                               !canTransact && styles.buttonDisabled,
                             ]}
+                            accessibilityRole="button"
+                            accessibilityLabel={playerGameStarted ? `Queue drop for ${player.name}` : `Drop ${player.name}`}
                             onPress={() => {
                               if (playerGameStarted) {
                                 handleQueueDrop();
@@ -881,6 +803,8 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                               style={[styles.headerBtn, styles.headerBtnIR, !canTransact && styles.buttonDisabled]}
                               onPress={handleMoveToIR}
                               disabled={!canTransact}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Move ${player.name} to IR`}
                             >
                               <ThemedText style={styles.headerBtnText}>IR</ThemedText>
                             </TouchableOpacity>
@@ -889,6 +813,8 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                             style={[styles.headerBtn, isOnTradeBlock ? styles.headerBtnTradeBlockActive : styles.headerBtnTradeBlock, isProcessing && styles.buttonDisabled]}
                             onPress={handleToggleTradeBlock}
                             disabled={isProcessing}
+                            accessibilityRole="button"
+                            accessibilityLabel={isOnTradeBlock ? `Remove ${player.name} from trade block` : `Add ${player.name} to trade block`}
                           >
                             <Ionicons
                               name={isOnTradeBlock ? 'megaphone' : 'megaphone-outline'}
@@ -902,6 +828,8 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                           style={[styles.headerBtn, needsWaiverClaim ? styles.headerBtnClaim : styles.headerBtnAdd, !canAdd && styles.buttonDisabled]}
                           onPress={handleAddPlayer}
                           disabled={!canAdd}
+                          accessibilityRole="button"
+                          accessibilityLabel={needsWaiverClaim ? `Claim ${player.name}` : `Add ${player.name}`}
                         >
                           {isProcessing ? <ActivityIndicator size="small" color="#fff" /> : (
                             <ThemedText style={styles.headerBtnText}>{needsWaiverClaim ? 'Claim' : 'Add'}</ThemedText>
@@ -932,7 +860,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                   )}
                 </View>
               </View>
-              <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
+              <TouchableOpacity onPress={handleClose} style={styles.closeButton} accessibilityRole="button" accessibilityLabel="Close player details">
                 <ThemedText style={styles.closeText}>✕</ThemedText>
               </TouchableOpacity>
             </View>
@@ -972,173 +900,16 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                   </ThemedText>
                 </View>
 
-                {isLoadingGameLog && (
-                  <View style={styles.gameLogContainer}>
-                    <View style={styles.pinnedLeft}>
-                      <View style={[styles.gameRow, styles.gameHeader, { borderBottomColor: c.border }]}>
-                        <ThemedText style={[styles.gameCell, styles.gameCellDate, styles.gameHeaderText, { color: c.secondaryText }]}>DATE</ThemedText>
-                        <ThemedText style={[styles.gameCell, styles.gameCellMatchup, styles.gameHeaderText, { color: c.secondaryText }]}>OPP</ThemedText>
-                      </View>
-                      {Array.from({ length: 12 }).map((_, i) => (
-                        <View key={i} style={[styles.gameRow, { borderBottomColor: c.border }]}>
-                          <View style={[styles.skeletonBlock, styles.gameCellDate, { backgroundColor: c.border }]} />
-                          <View style={[styles.skeletonBlock, styles.gameCellMatchup, { backgroundColor: c.border }]} />
-                        </View>
-                      ))}
-                    </View>
-                    <View style={styles.scrollableStats}>
-                      <View style={[styles.gameRow, styles.gameHeader, { borderBottomColor: c.border }]}>
-                        {statColumns.map((col) => (
-                          <ThemedText key={col} style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}>{col}</ThemedText>
-                        ))}
-                      </View>
-                      {Array.from({ length: 12 }).map((_, i) => (
-                        <View key={i} style={[styles.gameRow, { borderBottomColor: c.border }]}>
-                          {statColumns.map((col) => (
-                            <View key={col} style={[styles.skeletonBlock, { width: 38, backgroundColor: c.border }]} />
-                          ))}
-                        </View>
-                      ))}
-                    </View>
-                    {scoringWeights && (
-                      <View style={styles.pinnedRight}>
-                        <View style={[styles.gameRow, styles.gameHeader, { borderBottomColor: c.border }]}>
-                          <ThemedText style={[styles.gameCell, styles.gameCellFpts, styles.gameHeaderText, { color: c.accent }]}>FPTS</ThemedText>
-                        </View>
-                        {Array.from({ length: 12 }).map((_, i) => (
-                          <View key={i} style={[styles.gameRow, { borderBottomColor: c.border }]}>
-                            <View style={[styles.skeletonBlock, { width: 44, backgroundColor: c.border }]} />
-                          </View>
-                        ))}
-                      </View>
-                    )}
-                  </View>
-                )}
-
-                {/* Game log table: DATE + OPP pinned left, stats scroll together, FPTS pinned right */}
-                {!isLoadingGameLog && <View style={styles.gameLogContainer}>
-                  {/* Pinned left: DATE + OPP */}
-                  <View style={styles.pinnedLeft}>
-                    <View style={[styles.gameRow, styles.gameHeader, { borderBottomColor: c.border }]}>
-                      <ThemedText style={[styles.gameCell, styles.gameCellDate, styles.gameHeaderText, { color: c.secondaryText }]}>
-                        DATE
-                      </ThemedText>
-                      <ThemedText style={[styles.gameCell, styles.gameCellMatchup, styles.gameHeaderText, { color: c.secondaryText }]}>
-                        OPP
-                      </ThemedText>
-                    </View>
-                    {combinedRows.map((row) => {
-                      const isUpcoming = row.kind === 'upcoming';
-                      const isLiveRow = row.kind === 'live';
-                      return (
-                        <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, isLiveRow && styles.gameRowLive, isUpcoming && styles.gameCellDNP, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd]}>
-                          <ThemedText style={[styles.gameCell, styles.gameCellDate, { color: c.secondaryText }]} numberOfLines={1}>
-                            {row.kind === 'history' ? formatGameDate(row.item.game_date) : row.date}
-                          </ThemedText>
-                          <ThemedText style={[styles.gameCell, styles.gameCellMatchup, { color: c.secondaryText }]} numberOfLines={1}>
-                            {row.kind === 'history'
-                              ? (row.item.matchup ? row.item.matchup.replace(/^vs\s*/i, '') : '—')
-                              : row.opp}
-                          </ThemedText>
-                        </View>
-                      );
-                    })}
-                  </View>
-
-                  {/* Scrollable middle: all stat columns scroll as one */}
-                  <ScrollView horizontal showsHorizontalScrollIndicator style={styles.scrollableStats}>
-                    <View>
-                      <View style={[styles.gameRow, styles.gameHeader, { borderBottomColor: c.border }]}>
-                        {statColumns.map((col) => (
-                          <ThemedText
-                            key={col}
-                            style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}
-                          >
-                            {col}
-                          </ThemedText>
-                        ))}
-                      </View>
-                      {combinedRows.map((row) => {
-                        if (row.kind === 'upcoming') {
-                          return (
-                            <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, styles.gameCellDNP, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd]}>
-                              {statColumns.map((col) => (
-                                <ThemedText key={col} style={[styles.gameCell, styles.gameCellDNP]}>—</ThemedText>
-                              ))}
-                            </View>
-                          );
-                        }
-                        if (row.kind === 'live') {
-                          return (
-                            <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, styles.gameRowLive, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd]}>
-                              {statColumns.map((col) => {
-                                const statKey = col === 'TO' ? 'tov' : col === '3PM' ? '3pm' : col === '3PA' ? '3pa' : col.toLowerCase();
-                                const val = (row.stats as any)[statKey];
-                                return (
-                                  <ThemedText key={col} style={styles.gameCell}>
-                                    {col === 'MIN' ? '—' : (val ?? 0)}
-                                  </ThemedText>
-                                );
-                              })}
-                            </View>
-                          );
-                        }
-                        const isDNP = row.item.min === 0;
-                        return (
-                          <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd]}>
-                            {statColumns.map((col) => (
-                              <ThemedText
-                                key={col}
-                                style={[styles.gameCell, isDNP && styles.gameCellDNP]}
-                              >
-                                {getStatValue(row.item, col)}
-                              </ThemedText>
-                            ))}
-                          </View>
-                        );
-                      })}
-                    </View>
-                  </ScrollView>
-
-                  {/* Pinned right: FPTS */}
-                  {scoringWeights && (
-                    <View style={styles.pinnedRight}>
-                      <View style={[styles.gameRow, styles.gameHeader, { borderBottomColor: c.border }]}>
-                        <ThemedText style={[styles.gameCell, styles.gameCellFpts, styles.gameHeaderText, { color: c.accent }]}>
-                          FPTS
-                        </ThemedText>
-                      </View>
-                      {combinedRows.map((row) => {
-                        if (row.kind === 'upcoming') {
-                          return (
-                            <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, styles.gameCellDNP, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd]}>
-                              <ThemedText style={[styles.gameCell, styles.gameCellFpts, styles.gameCellDNP]}>—</ThemedText>
-                            </View>
-                          );
-                        }
-                        if (row.kind === 'live') {
-                          const fpts = calculateGameFantasyPoints(row.stats as any, scoringWeights);
-                          return (
-                            <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, styles.gameRowLive, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd]}>
-                              <ThemedText style={[styles.gameCell, styles.gameCellFpts, { color: c.accent, fontWeight: '600' }]}>
-                                {fpts}
-                              </ThemedText>
-                            </View>
-                          );
-                        }
-                        const isDNP = row.item.min === 0;
-                        const fpts = calculateGameFantasyPoints(row.item, scoringWeights);
-                        return (
-                          <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd]}>
-                            <ThemedText style={[styles.gameCell, styles.gameCellFpts, isDNP ? styles.gameCellDNP : { color: c.accent, fontWeight: '600' }]}>
-                              {fpts}
-                            </ThemedText>
-                          </View>
-                        );
-                      })}
-                    </View>
-                  )}
-                </View>}
+                <PlayerGameLog
+                  gameLog={gameLog}
+                  isLoading={isLoadingGameLog}
+                  scoringWeights={scoringWeights}
+                  upcomingGames={upcomingGames}
+                  liveStats={liveStats}
+                  liveToGameLog={liveToGameLog}
+                  formatGameInfo={formatGameInfo}
+                  colors={{ border: c.border, secondaryText: c.secondaryText, accent: c.accent }}
+                />
           </ScrollView>
         </Animated.View>
       </View>
@@ -1291,64 +1062,6 @@ const styles = StyleSheet.create({
   statLabel: {
     fontSize: 11,
     marginBottom: 2,
-  },
-  gameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingLeft: 8,
-    paddingRight: 2,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  gameHeader: {
-    paddingBottom: 6,
-  },
-  gameHeaderText: {
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  gameCell: {
-    width: 38,
-    textAlign: 'center',
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  gameCellDate: {
-    width: 42,
-    textAlign: 'left',
-  },
-  gameCellMatchup: {
-    width: 42,
-    textAlign: 'left',
-  },
-  gameCellFpts: {
-    width: 44,
-  },
-  gameCellDNP: {
-    opacity: 0.35,
-  },
-  gameRowLive: {
-    backgroundColor: 'rgba(59, 130, 246, 0.08)',
-  },
-  gameRowWeekEnd: {
-    borderBottomWidth: 2,
-  },
-  gameLogContainer: {
-    flexDirection: 'row',
-  },
-  pinnedLeft: {
-    flexShrink: 0,
-  },
-  pinnedRight: {
-    flexShrink: 0,
-  },
-  scrollableStats: {
-    flex: 1,
-  },
-  skeletonBlock: {
-    height: 18,
-    borderRadius: 4,
-    opacity: 0.4,
   },
   loading: {
     padding: 20,

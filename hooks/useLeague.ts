@@ -22,6 +22,7 @@ export function useLeague() {
           league_teams:teams!teams_league_id_fkey (
             id,
             name,
+            tricode,
             is_commissioner
           )
         `)

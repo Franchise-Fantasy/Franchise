@@ -22,7 +22,7 @@ export function StepRoster({ state, onSlotChange, onResetRoster }: StepRosterPro
 
   return (
     <View style={styles.container}>
-      <ThemedText type="subtitle" style={styles.heading}>Roster Configuration</ThemedText>
+      <ThemedText accessibilityRole="header" type="subtitle" style={styles.heading}>Roster Configuration</ThemedText>
       <ThemedText style={[styles.description, { color: c.secondaryText }]}>
         Set the number of slots for each position.
       </ThemedText>
@@ -45,7 +45,7 @@ export function StepRoster({ state, onSlotChange, onResetRoster }: StepRosterPro
 
       {irSlot !== undefined && irIndex !== -1 && (
         <View style={styles.irSection}>
-          <ThemedText type="defaultSemiBold" style={styles.irHeading}>Injured Reserve</ThemedText>
+          <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.irHeading}>Injured Reserve</ThemedText>
           <ThemedText style={[styles.irNote, { color: c.secondaryText }]}>
             IR slots are extra capacity and do not count toward the roster total. Only players with an OUT designation can be placed here.
           </ThemedText>
@@ -59,7 +59,7 @@ export function StepRoster({ state, onSlotChange, onResetRoster }: StepRosterPro
         </View>
       )}
 
-      <TouchableOpacity onPress={onResetRoster} style={styles.resetBtn}>
+      <TouchableOpacity accessibilityRole="button" accessibilityLabel="Reset roster to defaults" onPress={onResetRoster} style={styles.resetBtn}>
         <ThemedText style={{ color: c.accent }}>Reset to Defaults</ThemedText>
       </TouchableOpacity>
     </View>

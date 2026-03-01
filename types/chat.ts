@@ -18,6 +18,7 @@ export interface ChatMessage {
   conversation_id: string;
   team_id: string;
   content: string;
+  type: 'text' | 'poll';
   created_at: string;
   team_name?: string;
 }

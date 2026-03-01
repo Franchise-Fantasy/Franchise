@@ -31,6 +31,9 @@ export interface TradeProposalRow {
     pick_season: string | null;
     pick_round: number | null;
     pick_original_team_name: string | null;
+    protection_threshold: number | null;
+    pick_swap_season: string | null;
+    pick_swap_round: number | null;
   }>;
 }
 
@@ -59,7 +62,7 @@ export function useTradeProposals(leagueId: string | null) {
       // Fetch items for all proposals
       const { data: proposalItems, error: itemsError } = await supabase
         .from('trade_proposal_items')
-        .select('id, proposal_id, player_id, draft_pick_id, from_team_id, to_team_id, players(name, position, nba_team), draft_picks(season, round, original_team_id)')
+        .select('id, proposal_id, player_id, draft_pick_id, from_team_id, to_team_id, protection_threshold, pick_swap_season, pick_swap_round, players(name, position, nba_team), draft_picks(season, round, original_team_id)')
         .in('proposal_id', proposalIds);
       if (itemsError) throw itemsError;
 
@@ -104,10 +107,14 @@ export function useTradeProposals(leagueId: string | null) {
             pick_original_team_name: i.draft_picks?.original_team_id
               ? origTeamNameMap[i.draft_picks.original_team_id] ?? null
               : null,
+            protection_threshold: i.protection_threshold ?? null,
+            pick_swap_season: i.pick_swap_season ?? null,
+            pick_swap_round: i.pick_swap_round ?? null,
           })),
       }));
     },
     enabled: !!leagueId,
+    staleTime: 30_000,
   });
 }
 
@@ -126,12 +133,13 @@ export function useTradeVotes(proposalId: string | null) {
       }));
     },
     enabled: !!proposalId,
+    staleTime: 30_000,
   });
 }
 
-export function useTeamTradablePicks(teamId: string | null, leagueId: string | null) {
+export function useTeamTradablePicks(teamId: string | null, leagueId: string | null, draftPickTradingEnabled: boolean = true) {
   return useQuery({
-    queryKey: ['tradablePicks', teamId, leagueId],
+    queryKey: ['tradablePicks', teamId, leagueId, draftPickTradingEnabled],
     queryFn: async () => {
       // Get max_future_seasons from league
       const { data: league, error: leagueError } = await supabase
@@ -154,9 +162,10 @@ export function useTeamTradablePicks(teamId: string | null, leagueId: string | n
       }
 
       // Fetch picks owned by this team that haven't been used
+      // Join drafts(type) to distinguish initial vs rookie draft picks
       const { data: picks, error: picksError } = await supabase
         .from('draft_picks')
-        .select('id, season, round, pick_number, current_team_id, original_team_id, player_id, league_id')
+        .select('id, season, round, pick_number, current_team_id, original_team_id, player_id, league_id, drafts(type)')
         .eq('current_team_id', teamId!)
         .eq('league_id', leagueId!)
         .is('player_id', null)
@@ -173,12 +182,20 @@ export function useTeamTradablePicks(teamId: string | null, leagueId: string | n
         if (teams) nameMap = Object.fromEntries(teams.map((t) => [t.id, t.name]));
       }
 
-      return (picks ?? []).map((p) => ({
+      const results = (picks ?? []).map((p) => ({
         ...p,
         original_team_name: nameMap[p.original_team_id] ?? 'Unknown',
       }));
+
+      // When draft pick trading is disabled, exclude initial draft picks only
+      // Rookie draft picks (type='rookie') and future picks (no draft) remain tradeable
+      if (!draftPickTradingEnabled) {
+        return results.filter((p) => (p.drafts as any)?.type !== 'initial');
+      }
+      return results;
     },
     enabled: !!teamId && !!leagueId,
+    staleTime: 1000 * 60 * 5,
   });
 }
 
@@ -195,6 +212,7 @@ export function useMyPendingTrades(teamId: string | null, leagueId: string | nul
       return count ?? 0;
     },
     enabled: !!teamId && !!leagueId,
+    staleTime: 1000 * 60,
   });
 }
 
@@ -248,5 +266,6 @@ export function useTradeBlock(leagueId: string | null) {
       return Object.values(grouped);
     },
     enabled: !!leagueId,
+    staleTime: 1000 * 60 * 2,
   });
 }

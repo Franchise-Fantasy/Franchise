@@ -1,16 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { notifyTeams } from './push.ts';
+import { notifyTeams } from '../_shared/push.ts';
+import { corsResponse } from '../_shared/cors.ts';
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', {
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-      },
-    });
-  }
+  if (req.method === 'OPTIONS') return corsResponse();
 
   try {
     const supabaseAdmin = createClient(
@@ -33,6 +27,11 @@ Deno.serve(async (req) => {
       throw new Error('action, league_id, team_id, and player_id are required');
     }
 
+    const validActions = ['force_add', 'force_drop', 'force_move'];
+    if (!validActions.includes(action)) {
+      throw new Error(`Unknown action: ${action}. Must be one of: ${validActions.join(', ')}`);
+    }
+
     const { data: league } = await supabaseAdmin
       .from('leagues')
       .select('created_by, name')
@@ -43,7 +42,10 @@ Deno.serve(async (req) => {
     }
 
     const { data: player } = await supabaseAdmin.from('players').select('name').eq('id', player_id).single();
-    const { data: team } = await supabaseAdmin.from('teams').select('name').eq('id', team_id).single();
+    const { data: team } = await supabaseAdmin.from('teams').select('name, league_id').eq('id', team_id).single();
+    if (!team || team.league_id !== league_id) {
+      throw new Error('Team does not belong to this league.');
+    }
     const playerName = player?.name ?? 'Unknown';
     const teamName = team?.name ?? 'Unknown';
 
@@ -90,7 +92,7 @@ Deno.serve(async (req) => {
     }
 
     const { data: txn, error: txnError } = await supabaseAdmin
-      .from('league_transactions').insert({ league_id, type: 'commissioner', notes }).select('id').single();
+      .from('league_transactions').insert({ league_id, type: 'commissioner', notes, team_id }).select('id').single();
     if (txnError) throw new Error(`Failed to create transaction: ${txnError.message}`);
 
     const { error: txnItemError } = await supabaseAdmin

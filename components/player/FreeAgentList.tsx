@@ -370,6 +370,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
           league_id: leagueId,
           type: "waiver",
           notes: `Added ${player.name} from free agency`,
+          team_id: teamId,
         })
         .select("id")
         .single();
@@ -415,6 +416,8 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       if (error) throw error;
 
       queryClient.invalidateQueries({ queryKey: ["pendingClaims", leagueId, teamId] });
+      queryClient.invalidateQueries({ queryKey: ["faabRemaining", leagueId, teamId] });
+      queryClient.invalidateQueries({ queryKey: ["waiverOrder", leagueId] });
       Alert.alert("Claim Submitted", `Waiver claim for ${player.name} submitted.`);
     } catch (err: any) {
       Alert.alert("Error", err.message ?? "Failed to submit claim");
@@ -445,6 +448,8 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       if (error) throw error;
 
       queryClient.invalidateQueries({ queryKey: ["pendingClaims", leagueId, teamId] });
+      queryClient.invalidateQueries({ queryKey: ["faabRemaining", leagueId, teamId] });
+      queryClient.invalidateQueries({ queryKey: ["waiverOrder", leagueId] });
       Alert.alert("Bid Submitted", `$${bid} bid for ${player.name} submitted.`);
     } catch (err: any) {
       Alert.alert("Error", err.message ?? "Failed to submit bid");
@@ -464,6 +469,8 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       return;
     }
     queryClient.invalidateQueries({ queryKey: ["pendingClaims", leagueId, teamId] });
+    queryClient.invalidateQueries({ queryKey: ["faabRemaining", leagueId, teamId] });
+    queryClient.invalidateQueries({ queryKey: ["waiverOrder", leagueId] });
   };
 
   // State to track if the drop picker is in "claim with drop" mode
@@ -528,6 +535,8 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         style={[styles.row, { borderBottomColor: c.border }]}
         onPress={() => setSelectedPlayer(item)}
         activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityLabel={`${item.name}, ${formatPosition(item.position)}, ${item.nba_team}${fpts !== undefined ? `, ${fpts} fantasy points` : ''}`}
       >
         <View style={styles.portraitWrap}>
           {headshotUrl ? (
@@ -589,6 +598,8 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
             ]}
             onPress={() => handleButtonPress(item)}
             disabled={isAdding || draftInProgress}
+            accessibilityRole="button"
+            accessibilityLabel={needsClaim ? `Claim ${item.name}` : `Add ${item.name}`}
           >
             <ThemedText style={styles.addButtonText}>
               {needsClaim ? "Claim" : "+"}
@@ -624,9 +635,12 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
           <TouchableOpacity
             style={[styles.claimsHeader, { backgroundColor: c.card, borderColor: c.border }]}
             onPress={() => setShowClaimsSection(!showClaimsSection)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: showClaimsSection }}
+            accessibilityLabel={`Pending Claims, ${claimCount}`}
           >
             <View style={styles.claimsHeaderLeft}>
-              <Ionicons name="time-outline" size={16} color="#D4A017" />
+              <Ionicons name="time-outline" size={16} color="#D4A017" accessible={false} />
               <ThemedText style={styles.claimsHeaderText}>
                 Pending Claims ({claimCount})
               </ThemedText>
@@ -659,6 +673,8 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
                       ])
                     }
                     hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Cancel claim for ${claim.player?.name ?? 'player'}`}
                   >
                     <Ionicons name="close-circle" size={20} color={c.secondaryText} />
                   </TouchableOpacity>
@@ -675,9 +691,12 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
           <TouchableOpacity
             style={[styles.claimsHeader, { backgroundColor: c.card, borderColor: c.border }]}
             onPress={() => setShowWaiverOrder(!showWaiverOrder)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: showWaiverOrder }}
+            accessibilityLabel={`Waiver Order${waiverType === 'faab' ? ' and FAAB' : ''}`}
           >
             <View style={styles.claimsHeaderLeft}>
-              <Ionicons name="list-outline" size={16} color={c.accent} />
+              <Ionicons name="list-outline" size={16} color={c.accent} accessible={false} />
               <ThemedText style={styles.claimsHeaderText}>
                 Waiver Order{waiverType === 'faab' ? ' / FAAB' : ''}
               </ThemedText>
@@ -767,6 +786,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
                 onChangeText={setBidAmount}
                 keyboardType="number-pad"
                 selectTextOnFocus
+                accessibilityLabel="Bid amount in dollars"
               />
             </View>
             <ThemedText style={{ fontSize: 11, color: c.secondaryText, marginBottom: 16 }}>
@@ -777,11 +797,15 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
               <TouchableOpacity
                 style={[styles.modalBtn, { backgroundColor: c.cardAlt }]}
                 onPress={() => { setFaabModalPlayer(null); setFaabDropPlayerId(null); }}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel bid"
               >
                 <ThemedText>Cancel</ThemedText>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.modalBtn, { backgroundColor: c.accent }]}
+                accessibilityRole="button"
+                accessibilityLabel="Submit bid"
                 onPress={() => {
                   const bid = Math.max(0, Math.min(parseInt(bidAmount) || 0, faabRemaining ?? 0));
                   const dropId = faabDropPlayerId ?? undefined;

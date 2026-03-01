@@ -17,12 +17,13 @@ export function StepBasics({ state, onChange }: StepBasicsProps) {
 
   return (
     <View style={styles.container}>
-      <ThemedText type="subtitle" style={styles.heading}>
+      <ThemedText accessibilityRole="header" type="subtitle" style={styles.heading}>
         League Basics
       </ThemedText>
 
       <ThemedText style={styles.label}>League Name</ThemedText>
       <TextInput
+        accessibilityLabel="League name"
         style={[
           styles.input,
           { borderColor: c.border, backgroundColor: c.input, color: c.text },
@@ -49,6 +50,17 @@ export function StepBasics({ state, onChange }: StepBasicsProps) {
           options={["Public", "Private"]}
           selectedIndex={state.isPrivate ? 1 : 0}
           onSelect={(i) => onChange("isPrivate", i === 1)}
+        />
+      </View>
+
+      <View style={styles.section}>
+        <NumberStepper
+          label="Buy-In ($)"
+          value={state.buyIn}
+          onValueChange={(v) => onChange("buyIn", v)}
+          min={0}
+          max={1000}
+          step={5}
         />
       </View>
     </View>

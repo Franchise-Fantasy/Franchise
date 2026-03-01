@@ -1,7 +1,10 @@
+import { ToggleRow } from '@/components/ToggleRow';
 import { ThemedText } from '@/components/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
+import { Colors } from '@/constants/Colors';
 import { LeagueWizardState, TRADE_VETO_OPTIONS } from '@/constants/LeagueDefaults';
+import { useColorScheme } from '@/hooks/useColorScheme';
 import { StyleSheet, View } from 'react-native';
 
 interface StepTradeProps {
@@ -10,9 +13,12 @@ interface StepTradeProps {
 }
 
 export function StepTrade({ state, onChange }: StepTradeProps) {
+  const scheme = useColorScheme() ?? 'light';
+  const c = Colors[scheme];
+
   return (
     <View style={styles.container}>
-      <ThemedText type="subtitle" style={styles.heading}>Trade Settings</ThemedText>
+      <ThemedText accessibilityRole="header" type="subtitle" style={styles.heading}>Trade Settings</ThemedText>
 
       <View style={styles.section}>
         <ThemedText style={styles.label}>Veto Type</ThemedText>
@@ -46,6 +52,32 @@ export function StepTrade({ state, onChange }: StepTradeProps) {
           />
         </View>
       )}
+
+      <View style={styles.section}>
+        <ToggleRow
+          icon="shield-checkmark-outline"
+          label="Pick Protections & Swaps"
+          description="Allow draft pick protections and pick swap rights in trades"
+          value={state.pickConditionsEnabled}
+          onToggle={(v) => onChange('pickConditionsEnabled', v)}
+          c={{ border: c.border, accent: c.accent, secondaryText: c.secondaryText }}
+        />
+      </View>
+
+      <View style={styles.section}>
+        <NumberStepper
+          label="Trade Deadline (Week)"
+          value={state.tradeDeadlineWeek}
+          onValueChange={(v) => onChange('tradeDeadlineWeek', v)}
+          min={0}
+          max={state.regularSeasonWeeks}
+        />
+        <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
+          {state.tradeDeadlineWeek === 0
+            ? 'No trade deadline — trades allowed all season.'
+            : `Trades lock after Week ${state.tradeDeadlineWeek}.`}
+        </ThemedText>
+      </View>
     </View>
   );
 }
@@ -64,5 +96,10 @@ const styles = StyleSheet.create({
   },
   section: {
     marginBottom: 20,
+  },
+  hint: {
+    fontSize: 13,
+    marginTop: 6,
+    lineHeight: 18,
   },
 });

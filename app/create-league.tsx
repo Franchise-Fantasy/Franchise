@@ -72,6 +72,10 @@ const initialState: LeagueWizardState = {
   playoffTeams: defaultPlayoffTeams(DEFAULT_PLAYOFF_WEEKS, 10),
   playoffSeedingFormat: "Standard",
   reseedEachRound: false,
+  pickConditionsEnabled: false,
+  draftPickTradingEnabled: false,
+  tradeDeadlineWeek: 0,
+  buyIn: 0,
 };
 
 function clampLotteryState(s: LeagueWizardState): LeagueWizardState {
@@ -207,14 +211,18 @@ export default function CreateLeague() {
 
     const rosterSize = state.rosterSlots.reduce((sum, s) => s.position === 'IR' ? sum : sum + s.count, 0);
 
-    // Compute season start: first eligible Monday from today
+    // Compute season start (mirrors computeSeasonStart in StepSeason.tsx)
+    // Mon/Tue/Wed: start today. Thu–Sun: start next Monday.
     const today = new Date();
+    today.setHours(0, 0, 0, 0);
     const dow = today.getDay(); // 0=Sun
     const daysSinceMon = dow === 0 ? 6 : dow - 1;
-    const thisMonday = new Date(today);
-    thisMonday.setDate(today.getDate() - daysSinceMon);
     const daysLeft = 7 - daysSinceMon;
-    const seasonStart = daysLeft >= 5 ? thisMonday : new Date(thisMonday.getTime() + 7 * 86400000);
+    let seasonStart = today;
+    if (daysLeft < 5) {
+      seasonStart = new Date(today);
+      seasonStart.setDate(today.getDate() + (7 - daysSinceMon));
+    }
     const seasonStartDate = `${seasonStart.getFullYear()}-${String(seasonStart.getMonth() + 1).padStart(2, "0")}-${String(seasonStart.getDate()).padStart(2, "0")}`;
 
     // 1. Create league
@@ -255,6 +263,23 @@ export default function CreateLeague() {
         waiver_day_of_week: state.waiverDayOfWeek,
         playoff_seeding_format: SEEDING_TO_DB[state.playoffSeedingFormat] ?? 'standard',
         reseed_each_round: state.reseedEachRound,
+        buy_in_amount: state.buyIn || null,
+        pick_conditions_enabled: state.pickConditionsEnabled,
+        draft_pick_trading_enabled: state.draftPickTradingEnabled,
+        trade_deadline: state.tradeDeadlineWeek > 0
+          ? (() => {
+              // Week 1 ends on the first Sunday after (or on) seasonStart.
+              // Each subsequent week adds 7 days.
+              const start = new Date(seasonStart);
+              const dayOfWeek = start.getDay(); // 0=Sun
+              const daysToFirstSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
+              const week1End = new Date(start);
+              week1End.setDate(start.getDate() + daysToFirstSunday);
+              const deadlineDate = new Date(week1End);
+              deadlineDate.setDate(week1End.getDate() + (state.tradeDeadlineWeek - 1) * 7);
+              return `${deadlineDate.getFullYear()}-${String(deadlineDate.getMonth() + 1).padStart(2, '0')}-${String(deadlineDate.getDate()).padStart(2, '0')}`;
+            })()
+          : null,
       })
       .select()
       .single();
@@ -401,6 +426,8 @@ export default function CreateLeague() {
             <TouchableOpacity
               onPress={() => setStep((s) => s - 1)}
               style={[styles.navBtn, { borderColor: c.border }]}
+              accessibilityRole="button"
+              accessibilityLabel="Back"
             >
               <Text style={[styles.navBtnText, { color: c.text }]}>Back</Text>
             </TouchableOpacity>
@@ -414,6 +441,9 @@ export default function CreateLeague() {
               styles.navBtn,
               { backgroundColor: canAdvance ? c.accent : c.buttonDisabled },
             ]}
+            accessibilityRole="button"
+            accessibilityLabel={`Next, step ${step + 2} of ${TOTAL_STEPS}`}
+            accessibilityState={{ disabled: !canAdvance }}
           >
             <Text style={[styles.navBtnText, { color: c.accentText }]}>
               Next

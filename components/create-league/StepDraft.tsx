@@ -1,4 +1,5 @@
 import { LotteryOddsEditor } from '@/components/create-league/LotteryOddsEditor';
+import { ToggleRow } from '@/components/ToggleRow';
 import { ThemedText } from '@/components/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
@@ -23,7 +24,7 @@ export function StepDraft({ state, onChange }: StepDraftProps) {
 
   return (
     <View style={styles.container}>
-      <ThemedText type="subtitle" style={styles.heading}>Draft Settings</ThemedText>
+      <ThemedText accessibilityRole="header" type="subtitle" style={styles.heading}>Draft Settings</ThemedText>
 
       <View style={styles.section}>
         <ThemedText style={styles.label}>Draft Type</ThemedText>
@@ -53,7 +54,18 @@ export function StepDraft({ state, onChange }: StepDraftProps) {
         />
       </View>
 
-      <ThemedText type="subtitle" style={styles.heading}>Rookie Draft</ThemedText>
+      <View style={styles.section}>
+        <ToggleRow
+          icon="swap-horizontal-outline"
+          label="Initial Draft, Pick Trading"
+          description="Allow trading of startup draft picks before and during the draft"
+          value={state.draftPickTradingEnabled}
+          onToggle={(v) => onChange('draftPickTradingEnabled', v)}
+          c={{ border: c.border, accent: c.accent, secondaryText: c.secondaryText }}
+        />
+      </View>
+
+      <ThemedText accessibilityRole="header" type="subtitle" style={styles.heading}>Rookie Draft</ThemedText>
 
       <View style={styles.section}>
         <NumberStepper

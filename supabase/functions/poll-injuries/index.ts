@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { notifyTeams } from './push.ts';
+import { notifyTeams } from '../_shared/push.ts';
+import { CORS_HEADERS } from '../_shared/cors.ts';
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -40,11 +41,7 @@ function extractTeamsFromText(text: string): string[] {
   return [...teams].sort();
 }
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
-const jsonHeaders = { ...corsHeaders, 'Content-Type': 'application/json' };
+const jsonHeaders = { ...CORS_HEADERS, 'Content-Type': 'application/json' };
 
 function buildPdfUrls(): string[] {
   const now = new Date();
@@ -249,7 +246,7 @@ async function sendInjuryNotifications(changedPlayerIds: string[]) {
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response('ok', { headers: CORS_HEADERS });
   }
 
   const cronSecret = Deno.env.get('CRON_SECRET');
@@ -315,6 +312,6 @@ Deno.serve(async (req: Request) => {
     );
   } catch (err: any) {
     console.error('Unhandled error in poll-injuries:', err?.message ?? err);
-    return new Response(JSON.stringify({ error: err?.message ?? String(err) }), { status: 500, headers: corsHeaders });
+    return new Response(JSON.stringify({ error: err?.message ?? String(err) }), { status: 500, headers: CORS_HEADERS });
   }
 });

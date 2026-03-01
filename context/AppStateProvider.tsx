@@ -8,6 +8,7 @@ interface AppState {
   loading: boolean;
   setTeamId: (id: string | null) => void;
   setLeagueId: (id: string | null) => void;
+  switchLeague: (leagueId: string, teamId: string) => void;
 }
 
 const AppStateContext = createContext<AppState | null>(null);
@@ -35,6 +36,10 @@ export const AppStateProvider = ({ children }: { children: React.ReactNode }) =>
 
   const setLeagueId = (id: string | null) => {
     setState(prev => ({ ...prev, leagueId: id }));
+  };
+
+  const switchLeague = (leagueId: string, teamId: string) => {
+    setState({ leagueId, teamId, loading: false });
   };
 
   useEffect(() => {
@@ -90,7 +95,8 @@ export const AppStateProvider = ({ children }: { children: React.ReactNode }) =>
   const value = {
     ...state,
     setTeamId,
-    setLeagueId
+    setLeagueId,
+    switchLeague,
   };
 
   return (

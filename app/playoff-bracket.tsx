@@ -224,10 +224,10 @@ export default function PlayoffBracketScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: c.border }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
           <Text style={[styles.backText, { color: c.accent }]}>{'‹ Back'}</Text>
         </TouchableOpacity>
-        <ThemedText type="defaultSemiBold" style={styles.headerTitle}>
+        <ThemedText type="defaultSemiBold" style={styles.headerTitle} accessibilityRole="header">
           Playoff Bracket
         </ThemedText>
         <View style={styles.backBtn} />
@@ -247,6 +247,9 @@ export default function PlayoffBracketScreen() {
         <TouchableOpacity
           style={[styles.pickBanner, { backgroundColor: c.accent }]}
           onPress={() => setSeedPickVisible(true)}
+          accessibilityRole="button"
+          accessibilityLabel="It's your turn to pick an opponent"
+          accessibilityHint="Tap to select your playoff opponent"
         >
           <Text style={[styles.pickBannerText, { color: c.accentText }]}>
             It's your turn to pick an opponent! Tap here.

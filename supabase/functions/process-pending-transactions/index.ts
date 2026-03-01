@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { notifyTeams } from './push.ts';
+import { notifyTeams } from '../_shared/push.ts';
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -59,7 +59,7 @@ Deno.serve(async (req: Request) => {
 
         const { data: leagueTxn, error: txnError } = await supabase
           .from("league_transactions")
-          .insert({ league_id: txn.league_id, type: "waiver", notes: `Dropped ${playerName} (queued drop)` })
+          .insert({ league_id: txn.league_id, type: "waiver", notes: `Dropped ${playerName} (queued drop)`, team_id: txn.team_id })
           .select("id").single();
         if (txnError) throw txnError;
 
@@ -88,7 +88,7 @@ Deno.serve(async (req: Request) => {
 
         const { data: leagueTxn, error: txnError } = await supabase
           .from("league_transactions")
-          .insert({ league_id: txn.league_id, type: "waiver", notes: `Added ${addPlayer?.name ?? "Unknown"} (dropped ${dropPlayer?.name ?? "Unknown"}) (queued)` })
+          .insert({ league_id: txn.league_id, type: "waiver", notes: `Added ${addPlayer?.name ?? "Unknown"} (dropped ${dropPlayer?.name ?? "Unknown"}) (queued)`, team_id: txn.team_id })
           .select("id").single();
         if (txnError) throw txnError;
 

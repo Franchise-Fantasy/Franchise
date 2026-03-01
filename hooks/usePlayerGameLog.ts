@@ -10,11 +10,13 @@ export function usePlayerGameLog(playerId: string) {
         .from('player_games')
         .select('*')
         .eq('player_id', playerId)
-        .order('game_date', { ascending: false });
+        .order('game_date', { ascending: false })
+        .limit(50);
 
       if (error) throw error;
       return data as PlayerGameLog[];
     },
     enabled: !!playerId,
+    staleTime: 1000 * 60 * 5,
   });
 }

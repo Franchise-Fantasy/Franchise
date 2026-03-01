@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { Receiver } from 'https://esm.sh/@upstash/qstash';
-import { notifyTeams, notifyLeague } from './push.ts';
+import { notifyTeams, notifyLeague } from '../_shared/push.ts';
 
 // Position eligibility (mirrors utils/rosterSlots.ts)
 const POSITION_SPECTRUM = ['PG', 'SG', 'SF', 'PF', 'C'];

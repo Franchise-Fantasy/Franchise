@@ -27,5 +27,6 @@ export function useLeagueRosterConfig(leagueId: string) {
       );
     },
     enabled: !!leagueId,
+    staleTime: 1000 * 60 * 30,
   });
 }

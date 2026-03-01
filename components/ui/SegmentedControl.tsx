@@ -13,7 +13,7 @@ export function SegmentedControl({ options, selectedIndex, onSelect }: Segmented
   const c = Colors[scheme];
 
   return (
-    <View style={[styles.container, { backgroundColor: c.cardAlt, borderColor: c.border }]}>
+    <View style={[styles.container, { backgroundColor: c.cardAlt, borderColor: c.border }]} accessibilityRole="radiogroup">
       {options.map((option, index) => {
         const selected = index === selectedIndex;
         return (
@@ -24,6 +24,9 @@ export function SegmentedControl({ options, selectedIndex, onSelect }: Segmented
               styles.option,
               selected && { backgroundColor: c.accent },
             ]}
+            accessibilityRole="radio"
+            accessibilityState={{ selected }}
+            accessibilityLabel={option}
           >
             <Text
               style={[

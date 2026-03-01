@@ -109,4 +109,10 @@ export interface LeagueWizardState {
   playoffTeams: number;
   playoffSeedingFormat: PlayoffSeedingOption;
   reseedEachRound: boolean;
+  pickConditionsEnabled: boolean;
+  draftPickTradingEnabled: boolean;
+  /** 0 = no deadline, 1+ = trades locked after this week ends */
+  tradeDeadlineWeek: number;
+  /** 0 = free league, positive = buy-in amount in dollars */
+  buyIn: number;
 }

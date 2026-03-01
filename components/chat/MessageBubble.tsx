@@ -1,3 +1,4 @@
+import { PollBubble } from '@/components/chat/PollBubble';
 import { ThemedText } from '@/components/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -20,6 +21,8 @@ interface Props {
   reactions: ReactionGroup[];
   onLongPress: () => void;
   onReactionPress: (emoji: string) => void;
+  teamId?: string;
+  isCommissioner?: boolean;
 }
 
 export function MessageBubble({
@@ -32,6 +35,8 @@ export function MessageBubble({
   reactions,
   onLongPress,
   onReactionPress,
+  teamId,
+  isCommissioner = false,
 }: Props) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
@@ -40,6 +45,47 @@ export function MessageBubble({
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onLongPress();
   };
+
+  // Poll messages render as full-width poll cards
+  if (message.type === 'poll' && teamId) {
+    return (
+      <View style={[styles.pollWrapper, isFirstInGroup ? styles.wrapperGroupEnd : styles.wrapperGrouped]}>
+        <PollBubble
+          pollId={message.content}
+          teamId={teamId}
+          isCommissioner={isCommissioner}
+        />
+        {reactions.length > 0 && (
+          <View style={[styles.reactions, styles.reactionsLeft]}>
+            {reactions.map((r) => (
+              <TouchableOpacity
+                key={r.emoji}
+                onPress={() => onReactionPress(r.emoji)}
+                style={[
+                  styles.reactionPill,
+                  {
+                    backgroundColor: r.reacted_by_me ? c.activeCard : c.cardAlt,
+                    borderColor: r.reacted_by_me ? c.activeBorder : c.border,
+                  },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={`${r.emoji} reaction, ${r.count}${r.reacted_by_me ? ', you reacted' : ''}`}
+              >
+                <ThemedText style={styles.reactionText}>
+                  {r.emoji} {r.count}
+                </ThemedText>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+        {showTime && (
+          <ThemedText style={[styles.time, { color: c.secondaryText }, styles.timeLeft]}>
+            {formatTime(message.created_at)}
+          </ThemedText>
+        )}
+      </View>
+    );
+  }
 
   return (
     <View
@@ -65,6 +111,8 @@ export function MessageBubble({
             ? [styles.bubbleOwn, { backgroundColor: c.accent }]
             : [styles.bubbleOther, { backgroundColor: c.cardAlt }],
         ]}
+        accessibilityLabel={`${isOwnMessage ? 'You' : message.team_name}: ${message.content}`}
+        accessibilityHint="Long press to add reaction"
       >
         <ThemedText
           style={[
@@ -94,6 +142,8 @@ export function MessageBubble({
                   borderColor: r.reacted_by_me ? c.activeBorder : c.border,
                 },
               ]}
+              accessibilityRole="button"
+              accessibilityLabel={`${r.emoji} reaction, ${r.count}${r.reacted_by_me ? ', you reacted' : ''}`}
             >
               <ThemedText style={styles.reactionText}>
                 {r.emoji} {r.count}
@@ -119,6 +169,10 @@ export function MessageBubble({
 }
 
 const styles = StyleSheet.create({
+  pollWrapper: {
+    width: '100%',
+    alignSelf: 'center',
+  },
   wrapper: {
     maxWidth: '80%',
   },

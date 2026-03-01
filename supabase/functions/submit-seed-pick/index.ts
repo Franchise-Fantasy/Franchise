@@ -1,21 +1,17 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { notifyTeams } from './push.ts';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { notifyTeams } from '../_shared/push.ts';
+import { CORS_HEADERS } from '../_shared/cors.ts';
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
   });
 }
 
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS });
 
   try {
     const supabase = createClient(
@@ -37,10 +33,16 @@ Deno.serve(async (req: Request) => {
     if (!league_id || !round || !opponent_team_id) {
       return json({ error: 'league_id, round, and opponent_team_id required' }, 400);
     }
+    if (typeof round !== 'number' || round < 1 || !Number.isInteger(round)) {
+      return json({ error: 'round must be a positive integer' }, 400);
+    }
 
     const { data: myTeam } = await supabase
       .from('teams').select('id').eq('league_id', league_id).eq('user_id', user.id).single();
     if (!myTeam) return json({ error: 'Team not found in league' }, 403);
+    if (opponent_team_id === myTeam.id) {
+      return json({ error: 'Cannot pick your own team as an opponent' }, 400);
+    }
 
     const { data: myPick } = await supabase
       .from('playoff_seed_picks').select('id, picking_seed')

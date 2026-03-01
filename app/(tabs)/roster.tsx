@@ -1,9 +1,12 @@
 import { ErrorState } from "@/components/ErrorState";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
+import { SlotPickerModal, RosterPlayer, SlotEntry } from "@/components/roster/SlotPickerModal";
 import { ThemedText } from "@/components/ThemedText";
 import { Colors } from "@/constants/Colors";
 import { useAppState } from "@/context/AppStateProvider";
+import { useToast } from "@/context/ToastProvider";
 import { useColorScheme } from "@/hooks/useColorScheme";
+import { isOnline } from "@/utils/network";
 import { useLeagueRosterConfig } from "@/hooks/useLeagueRosterConfig";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
 import { supabase } from "@/lib/supabase";
@@ -13,7 +16,9 @@ import { calculateAvgFantasyPoints, calculateGameFantasyPoints } from "@/utils/f
 import { formatPosition } from "@/utils/formatting";
 import { getInjuryBadge } from "@/utils/injuryBadge";
 import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
-import { formatGameInfo, LivePlayerStats, useLivePlayerStats } from "@/utils/nbaLive";
+import { formatGameInfo, liveToGameLog, useLivePlayerStats } from "@/utils/nbaLive";
+import { toDateStr, addDays, formatDayLabel } from "@/utils/dates";
+import { fetchNbaScheduleForDate } from "@/utils/nbaSchedule";
 import { useTodayGameTimes, isGameStarted } from "@/utils/gameStarted";
 import { isEligibleForSlot, slotLabel, baseSlotName } from "@/utils/rosterSlots";
 import { optimizeLineup, LineupPlayer } from "@/utils/autoLineup";
@@ -25,8 +30,6 @@ import {
   Alert,
   Animated,
   Image,
-  Modal,
-  PanResponder,
   ScrollView,
   StyleSheet,
   Text,
@@ -36,17 +39,6 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
-
-interface RosterPlayer extends PlayerSeasonStats {
-  roster_slot: string | null;
-  nbaTricode: string | null; // real team tricode from players.nba_team (e.g. "OKC")
-}
-
-interface SlotEntry {
-  slotPosition: string;
-  slotIndex: number;
-  player: RosterPlayer | null;
-}
 
 // Per-player game stats fetched for a specific past date
 interface DayGameStats {
@@ -59,31 +51,6 @@ interface DayGameStats {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function toDateStr(d: Date) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function parseLocalDate(str: string): Date {
-  const [y, m, d] = str.split("-").map(Number);
-  return new Date(y, m - 1, d);
-}
-
-function addDays(dateStr: string, n: number): string {
-  const d = parseLocalDate(dateStr);
-  d.setDate(d.getDate() + n);
-  return toDateStr(d);
-}
-
-function formatDayLabel(dateStr: string): string {
-  return parseLocalDate(dateStr).toLocaleDateString("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
-}
 
 // Compact stat line shown below player name: "20 PTS · 8 REB · 5 AST · 2 BLK · 1 PF"
 function buildStatLine(stats: Record<string, number>): string {
@@ -98,15 +65,6 @@ function buildStatLine(stats: Record<string, number>): string {
     .join(' · ');
 }
 
-function liveToStatRecord(live: LivePlayerStats): Record<string, number | boolean> {
-  const cats = [live.pts, live.reb, live.ast, live.stl, live.blk].filter(v => v >= 10).length;
-  return {
-    pts: live.pts, reb: live.reb, ast: live.ast, stl: live.stl,
-    blk: live.blk, tov: live.tov, fgm: live.fgm, fga: live.fga,
-    '3pm': live['3pm'], ftm: live.ftm, fta: live.fta, pf: live.pf,
-    double_double: cats >= 2, triple_double: cats >= 3,
-  };
-}
 
 function dayToStatRecord(g: DayGameStats): Record<string, number | boolean> {
   return {
@@ -202,18 +160,6 @@ async function fetchTeamRosterForDate(
   }));
 }
 
-async function fetchNbaScheduleForDate(date: string): Promise<Map<string, string>> {
-  const { data } = await supabase
-    .from("nba_schedule")
-    .select("home_team, away_team")
-    .eq("game_date", date);
-  const map = new Map<string, string>();
-  for (const game of data ?? []) {
-    map.set(game.home_team, `vs ${game.away_team}`);
-    map.set(game.away_team, `@${game.home_team}`);
-  }
-  return map;
-}
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
@@ -222,6 +168,7 @@ export default function RosterScreen() {
   const c = Colors[scheme];
   const { leagueId, teamId } = useAppState();
   const queryClient = useQueryClient();
+  const { showToast } = useToast();
 
   const today = toDateStr(new Date());
   const [selectedDate, setSelectedDate] = useState<string>(today);
@@ -484,6 +431,7 @@ export default function RosterScreen() {
 
   const handleAssignPlayer = async (player: RosterPlayer) => {
     if (!activeSlot || !teamId || !leagueId || isPastDate) return;
+    if (!(await isOnline())) { showToast('error', 'No internet connection'); return; }
 
     setIsAssigning(true);
     try {
@@ -542,6 +490,7 @@ export default function RosterScreen() {
 
   const handleClearSlot = async () => {
     if (!activeSlot?.player || !teamId || !leagueId || isPastDate) return;
+    if (!(await isOnline())) { showToast('error', 'No internet connection'); return; }
 
     setIsAssigning(true);
     try {
@@ -564,6 +513,7 @@ export default function RosterScreen() {
 
   const handleAutoLineup = async () => {
     if (!rosterPlayers || !rosterConfig || !scoringWeights || !teamId || !leagueId) return;
+    if (!(await isOnline())) { showToast('error', 'No internet connection'); return; }
 
     setIsOptimizing(true);
     try {
@@ -691,7 +641,7 @@ export default function RosterScreen() {
     if (isToday) {
       const live = liveMap.get(player.player_id);
       if (live) {
-        const stats = liveToStatRecord(live);
+        const stats = liveToGameLog(live);
         const fpts = Math.round(calculateGameFantasyPoints(stats as any, scoringWeights) * 10) / 10;
         return {
           fpts,
@@ -826,6 +776,10 @@ export default function RosterScreen() {
             locked && { opacity: 0.6 },
           ]}
           onPress={() => !isPastDate && !locked && setActiveSlot(slot)}
+          accessibilityRole="button"
+          accessibilityLabel={`${slotLabel(slot.slotPosition)} slot${slot.player ? `, ${slot.player.name}` : ', empty'}`}
+          accessibilityState={{ selected: isActive, disabled: isPastDate || locked }}
+          accessibilityHint={isPastDate || locked ? undefined : 'Opens slot picker'}
         >
           <ThemedText
             style={[
@@ -853,18 +807,21 @@ export default function RosterScreen() {
               setActiveSlot(slot);
             }}
             delayLongPress={400}
+            accessibilityRole="button"
+            accessibilityLabel={`${slot.player!.name}, ${formatPosition(slot.player!.position)}, ${slot.player!.nba_team}${fpts !== null ? `, ${fpts.toFixed(1)} fantasy points` : ''}${isLive ? ', live' : ''}${locked ? ', locked' : ''}`}
+            accessibilityHint="Tap for player details, long press to change slot"
           >
             {/* Headshot with team pill + on-court dot */}
-            <View style={styles.rosterPortraitWrap}>
+            <View style={styles.rosterPortraitWrap} accessible={false}>
               {(() => {
                 const url = getPlayerHeadshotUrl(slot.player.external_id_nba);
                 return url ? (
-                  <Image source={{ uri: url }} style={styles.rosterHeadshot} resizeMode="cover" />
+                  <Image source={{ uri: url }} style={styles.rosterHeadshot} resizeMode="cover" accessible={false} />
                 ) : (
                   <View style={[styles.rosterHeadshot, { backgroundColor: c.border }]} />
                 );
               })()}
-              {liveData?.oncourt && <View style={styles.onCourtDot} />}
+              {liveData?.oncourt && <View style={styles.onCourtDot} accessible={false} />}
               {(() => {
                 const logoUrl = getTeamLogoUrl(slot.player.nba_team);
                 return (
@@ -946,6 +903,10 @@ export default function RosterScreen() {
           <TouchableOpacity
             style={styles.slotPlayer}
             onPress={() => !isPastDate && setActiveSlot(slot)}
+            accessibilityRole="button"
+            accessibilityLabel={`Empty ${slotLabel(slot.slotPosition)} slot`}
+            accessibilityState={{ disabled: isPastDate }}
+            accessibilityHint={isPastDate ? undefined : 'Opens slot picker to assign a player'}
           >
             <ThemedText
               style={[styles.emptySlotText, { color: c.secondaryText }]}
@@ -965,6 +926,8 @@ export default function RosterScreen() {
         <TouchableOpacity
           onPress={() => setSelectedDate(addDays(selectedDate, -1))}
           style={styles.navArrow}
+          accessibilityRole="button"
+          accessibilityLabel="Previous day"
         >
           <Text style={[styles.navArrowText, { color: c.text }]}>‹</Text>
         </TouchableOpacity>
@@ -995,6 +958,8 @@ export default function RosterScreen() {
         <TouchableOpacity
           onPress={() => setSelectedDate(addDays(selectedDate, 1))}
           style={styles.navArrow}
+          accessibilityRole="button"
+          accessibilityLabel="Next day"
         >
           <Text style={[styles.navArrowText, { color: c.text }]}>›</Text>
         </TouchableOpacity>
@@ -1003,6 +968,8 @@ export default function RosterScreen() {
           <TouchableOpacity
             onPress={() => setSelectedDate(today)}
             style={[styles.todayChip, isFutureDate ? styles.todayChipLeft : styles.todayChipRight]}
+            accessibilityRole="button"
+            accessibilityLabel="Go to today"
           >
             <ThemedText style={[styles.todayChipText, { color: c.accent }]}>
               Today
@@ -1016,12 +983,16 @@ export default function RosterScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <ThemedText type="subtitle">Starters</ThemedText>
+              <ThemedText type="subtitle" accessibilityRole="header">Starters</ThemedText>
               {canAutoLineup && (
                 <TouchableOpacity
                   onPress={handleAutoLineup}
                   disabled={isOptimizing}
                   style={[styles.autoButton, { backgroundColor: c.accent }]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Auto-optimize lineup"
+                  accessibilityState={{ disabled: isOptimizing }}
+                  accessibilityHint="Automatically sets the best lineup for the rest of the week"
                 >
                   {isOptimizing ? (
                     <ActivityIndicator size="small" color="#fff" style={{ height: 14 }} />
@@ -1064,7 +1035,7 @@ export default function RosterScreen() {
         {/* Bench */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <ThemedText type="subtitle">Bench</ThemedText>
+            <ThemedText type="subtitle" accessibilityRole="header">Bench</ThemedText>
           </View>
           <View style={[styles.card, { backgroundColor: c.card }]}>
             {benchSlots.length > 0 ? (
@@ -1087,7 +1058,7 @@ export default function RosterScreen() {
         {irSlots.length > 0 && (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <ThemedText type="subtitle">Injured Reserve</ThemedText>
+              <ThemedText type="subtitle" accessibilityRole="header">Injured Reserve</ThemedText>
             </View>
             <View style={[styles.card, { backgroundColor: c.card }]}>
               {irSlots.map((slot, idx) => renderSlotRow(slot, idx, irSlots))}
@@ -1129,268 +1100,6 @@ export default function RosterScreen() {
         onClose={() => setSelectedPlayer(null)}
       />
     </SafeAreaView>
-  );
-}
-
-// ─── Slot Picker Modal ────────────────────────────────────────────────────────
-
-interface SlotPickerModalProps {
-  visible: boolean;
-  slot: SlotEntry | null;
-  eligiblePlayers: RosterPlayer[];
-  benchPlayerIds: Set<string>;
-  scoringWeights: any;
-  isAssigning: boolean;
-  seatLocked?: boolean;
-  daySchedule: Map<string, string> | undefined;
-  onSelectPlayer: (player: RosterPlayer) => void;
-  onClear: () => void;
-  onClose: () => void;
-}
-
-function SlotPickerModal({
-  visible,
-  slot,
-  eligiblePlayers,
-  benchPlayerIds,
-  scoringWeights,
-  isAssigning,
-  seatLocked,
-  daySchedule,
-  onSelectPlayer,
-  onClear,
-  onClose,
-}: SlotPickerModalProps) {
-  const scheme = useColorScheme() ?? "light";
-  const c = Colors[scheme];
-
-  const translateY = useRef(new Animated.Value(0)).current;
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_, gestureState) => gestureState.dy > 10,
-      onPanResponderMove: (_, gestureState) => {
-        if (gestureState.dy > 0) {
-          translateY.setValue(gestureState.dy);
-        }
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        if (gestureState.dy > 80 || gestureState.vy > 0.5) {
-          Animated.timing(translateY, {
-            toValue: 500,
-            duration: 200,
-            useNativeDriver: true,
-          }).start(() => {
-            onCloseRef.current();
-            translateY.setValue(0);
-          });
-        } else {
-          Animated.spring(translateY, {
-            toValue: 0,
-            useNativeDriver: true,
-            bounciness: 8,
-          }).start();
-        }
-      },
-    }),
-  ).current;
-
-  if (!slot) return null;
-
-  const label = slotLabel(slot.slotPosition);
-  const listData = eligiblePlayers.filter(
-    (p) => p.player_id !== slot.player?.player_id,
-  );
-  const isStarterSlot = slot.slotPosition !== "BE" && slot.slotPosition !== "IR";
-
-  const hasGame = (player: RosterPlayer) =>
-    player.nbaTricode ? !!daySchedule?.get(player.nbaTricode) : false;
-
-  const playerFpts = (player: RosterPlayer): number | null => {
-    if (!scoringWeights) return null;
-    if (!hasGame(player)) return 0;
-    return calculateAvgFantasyPoints(player, scoringWeights);
-  };
-
-  const isBenchSlot = slot.slotPosition === "BE";
-  const currentFpts = slot.player ? playerFpts(slot.player) : null;
-
-  return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      transparent
-      onRequestClose={onClose}
-    >
-      <TouchableOpacity
-        style={styles.pickerOverlay}
-        activeOpacity={1}
-        onPress={onClose}
-      >
-        <Animated.View
-          style={[
-            styles.pickerSheet,
-            { backgroundColor: c.background, transform: [{ translateY }] },
-          ]}
-          {...panResponder.panHandlers}
-        >
-          <View style={[styles.pickerHeader, { borderBottomColor: c.border }]}>
-            <View style={{ flex: 1 }}>
-              <ThemedText type="defaultSemiBold" style={{ fontSize: 17 }}>
-                {label} Slot
-              </ThemedText>
-            </View>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <ThemedText style={{ fontSize: 16 }}>✕</ThemedText>
-            </TouchableOpacity>
-          </View>
-
-          {isAssigning ? (
-            <ActivityIndicator style={{ padding: 20 }} />
-          ) : (
-            <ScrollView style={styles.pickerScroll} bounces={false}>
-              {slot.player && (
-                <View
-                  style={[
-                    styles.currentPlayerRow,
-                    {
-                      borderBottomColor: c.border,
-                      borderBottomWidth: StyleSheet.hairlineWidth,
-                    },
-                  ]}
-                >
-                  <View style={{ flex: 1 }}>
-                    <ThemedText type="defaultSemiBold">
-                      {slot.player.name}
-                    </ThemedText>
-                    <ThemedText
-                      style={{ color: c.secondaryText, fontSize: 12 }}
-                    >
-                      {formatPosition(slot.player.position)} ·{" "}
-                      {slot.player.nba_team}
-                    </ThemedText>
-                  </View>
-                  {(isStarterSlot || slot.slotPosition === "IR") && !seatLocked && (
-                    <TouchableOpacity
-                      style={[styles.clearButton, { borderColor: c.border }]}
-                      onPress={onClear}
-                    >
-                      <ThemedText
-                        style={{
-                          color: "#dc3545",
-                          fontSize: 13,
-                          fontWeight: "600",
-                        }}
-                      >
-                        {slot.slotPosition === "IR" ? "Activate" : "Bench"}
-                      </ThemedText>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              )}
-
-              {listData.length === 0 && !slot.player && (
-                <View style={{ padding: 20, alignItems: "center" }}>
-                  <ThemedText style={{ color: c.secondaryText }}>
-                    {slot.slotPosition === "IR"
-                      ? "No players with OUT designation on your roster"
-                      : "No eligible players available"}
-                  </ThemedText>
-                </View>
-              )}
-              {listData.map((item, idx) => {
-                const fpts = playerFpts(item);
-                const itemOnBench = benchPlayerIds.has(item.player_id);
-                // Show diff when promoting bench→starter or when bench slot views starters
-                const showDiff =
-                  fpts !== null &&
-                  currentFpts !== null &&
-                  ((isStarterSlot && itemOnBench) || (isBenchSlot && !itemOnBench));
-                const diff = showDiff
-                  ? isBenchSlot
-                    ? currentFpts! - fpts!   // bench perspective: positive = bench player is better
-                    : fpts! - currentFpts!   // starter perspective: positive = candidate is better
-                  : null;
-
-                return (
-                  <TouchableOpacity
-                    key={item.player_id}
-                    style={[
-                      styles.pickerRow,
-                      idx < listData.length - 1 && {
-                        borderBottomColor: c.border,
-                        borderBottomWidth: StyleSheet.hairlineWidth,
-                      },
-                    ]}
-                    onPress={() => onSelectPlayer(item)}
-                  >
-                    <View style={[styles.pickerSlotChip, { backgroundColor: c.cardAlt }]}>
-                      <Text style={[styles.pickerSlotChipText, { color: c.secondaryText }]}>
-                        {itemOnBench ? 'BE' : slotLabel(item.roster_slot!)}
-                      </Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                        <ThemedText type="defaultSemiBold" numberOfLines={1} style={{ flexShrink: 1 }}>
-                          {item.name}
-                        </ThemedText>
-                        {(() => {
-                          const badge = getInjuryBadge(item.status);
-                          return badge ? (
-                            <View style={[styles.liveBadge, { backgroundColor: badge.color }]}>
-                              <Text style={styles.liveText}>{badge.label}</Text>
-                            </View>
-                          ) : null;
-                        })()}
-                      </View>
-                      <ThemedText
-                        style={{ color: c.secondaryText, fontSize: 12 }}
-                      >
-                        {formatPosition(item.position)} · {item.nba_team}
-                      </ThemedText>
-                    </View>
-                    {fpts !== null && (
-                      <View style={{ alignItems: "flex-end" }}>
-                        <ThemedText
-                          style={{
-                            color: c.accent,
-                            fontWeight: "600",
-                            fontSize: 14,
-                          }}
-                        >
-                          {fpts} FPTS
-                        </ThemedText>
-                        {diff !== null && (
-                          <ThemedText
-                            style={{
-                              fontSize: 11,
-                              fontWeight: "600",
-                              marginTop: 1,
-                              color:
-                                diff > 0
-                                  ? "#28a745"
-                                  : diff < 0
-                                    ? "#dc3545"
-                                    : c.secondaryText,
-                            }}
-                          >
-                            ({diff > 0 ? "+" : ""}
-                            {diff.toFixed(1)})
-                          </ThemedText>
-                        )}
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          )}
-        </Animated.View>
-      </TouchableOpacity>
-    </Modal>
   );
 }
 
@@ -1550,51 +1259,5 @@ const styles = StyleSheet.create({
     fontSize: 8,
     fontWeight: "800",
     letterSpacing: 0.5,
-  },
-  pickerHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    padding: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  closeButton: { padding: 8, marginTop: -4, marginRight: -4 },
-  currentPlayerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  clearButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    borderWidth: 1,
-  },
-  pickerOverlay: { flex: 1, justifyContent: "flex-end" },
-  pickerSheet: {
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
-    maxHeight: "70%",
-    overflow: "hidden",
-    paddingBottom: 32,
-  },
-  pickerScroll: { flexGrow: 0 },
-  pickerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-  },
-  pickerSlotChip: {
-    width: 36,
-    paddingVertical: 4,
-    borderRadius: 6,
-    alignItems: "center",
-    marginRight: 10,
-  },
-  pickerSlotChipText: {
-    fontSize: 10,
-    fontWeight: "700",
   },
 });

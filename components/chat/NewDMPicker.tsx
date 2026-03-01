@@ -32,12 +32,12 @@ export function NewDMPicker({ visible, currentTeamId, onSelect, onClose }: Props
   return (
     <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
       <Pressable style={styles.overlay} onPress={onClose}>
-        <View style={[styles.content, { backgroundColor: c.card }]} onStartShouldSetResponder={() => true}>
+        <View style={[styles.content, { backgroundColor: c.card }]} onStartShouldSetResponder={() => true} accessibilityViewIsModal={true}>
           <View style={styles.header}>
-            <TouchableOpacity onPress={onClose}>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close" onPress={onClose}>
               <Ionicons name="close" size={24} color={c.text} />
             </TouchableOpacity>
-            <ThemedText type="subtitle">New Message</ThemedText>
+            <ThemedText accessibilityRole="header" type="subtitle">New Message</ThemedText>
             <View style={{ width: 24 }} />
           </View>
 
@@ -53,6 +53,8 @@ export function NewDMPicker({ visible, currentTeamId, onSelect, onClose }: Props
               keyExtractor={(item: any) => item.id}
               renderItem={({ item }: { item: any }) => (
                 <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel={`Message ${item.name}`}
                   style={[styles.row, { borderBottomColor: c.border }]}
                   onPress={() => onSelect(item.id)}
                 >

@@ -30,7 +30,7 @@ function TeamLine({
   c: any;
 }) {
   return (
-    <View style={[bStyles.teamLine, isWinner && { backgroundColor: c.accent + '22' }]}>
+    <View accessibilityLabel={`${seed !== null ? `Seed ${seed}, ` : ''}${name}${isWinner ? ', winner' : ''}`} style={[bStyles.teamLine, isWinner && { backgroundColor: c.accent + '22' }]}>
       {seed !== null && (
         <ThemedText style={[bStyles.seed, { color: c.secondaryText }]}>
           {seed}
@@ -149,7 +149,7 @@ export function PlayoffBracket({ slots, teamMap, playoffTeams }: Props) {
 
             return (
               <View key={round} style={[bStyles.roundCol, { left: ri * colWidth }]}>
-                <ThemedText style={[bStyles.roundLabel, { color: c.secondaryText }]}>
+                <ThemedText accessibilityRole="header" style={[bStyles.roundLabel, { color: c.secondaryText }]}>
                   {roundLabel(round)}
                 </ThemedText>
                 {Array.from({ length: matchupsInRound }).map((_, mi) => {

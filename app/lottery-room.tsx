@@ -182,7 +182,11 @@ export default function LotteryRoomScreen() {
     const pickNumber = totalSlots - displayIndex; // Convert display order to pick number
 
     return (
-      <View key={entry.team_id} style={[styles.slot, { backgroundColor: c.card, borderColor: c.border }]}>
+      <View
+        key={entry.team_id}
+        style={[styles.slot, { backgroundColor: c.card, borderColor: c.border }]}
+        accessibilityLabel={isRevealed ? `Pick ${pickNumber}: ${entry.team_name}${entry.was_drawn ? ', lottery winner' : ''}` : `Pick ${pickNumber}: not yet revealed`}
+      >
         <View style={[styles.pickNumberBadge, { backgroundColor: pickNumber === 1 ? '#FFD700' : c.cardAlt }]}>
           <ThemedText style={[styles.pickNumber, pickNumber === 1 && { color: '#000' }]}>
             #{pickNumber}
@@ -204,7 +208,7 @@ export default function LotteryRoomScreen() {
           </Animated.View>
         ) : (
           <View style={styles.hiddenContent}>
-            <Ionicons name="help-circle" size={24} color={c.secondaryText} />
+            <Ionicons name="help-circle" size={24} color={c.secondaryText} accessible={false} />
           </View>
         )}
       </View>
@@ -219,12 +223,12 @@ export default function LotteryRoomScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
       <View style={[styles.header, { borderBottomColor: c.border }]}>
-        <TouchableOpacity style={styles.headerButton} onPress={() => router.back()}>
+        <TouchableOpacity style={styles.headerButton} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back">
           <ThemedText style={[styles.backButton, { color: c.activeText }]}>
             {'\u2190'}
           </ThemedText>
         </TouchableOpacity>
-        <ThemedText type="title" style={styles.headerText}>Draft Lottery</ThemedText>
+        <ThemedText type="title" style={styles.headerText} accessibilityRole="header">Draft Lottery</ThemedText>
         <View style={styles.headerButton} />
       </View>
 
@@ -232,7 +236,7 @@ export default function LotteryRoomScreen() {
         {!lotteryResults ? (
           // Phase 1: Commissioner runs the lottery
           <View style={styles.preStartContainer}>
-            <Ionicons name="trophy" size={64} color={c.accent} style={{ marginBottom: 16 }} />
+            <Ionicons name="trophy" size={64} color={c.accent} style={{ marginBottom: 16 }} accessible={false} />
             <ThemedText type="subtitle" style={{ textAlign: 'center', marginBottom: 8 }}>
               Draft Lottery
             </ThemedText>
@@ -246,6 +250,9 @@ export default function LotteryRoomScreen() {
                 style={[styles.actionButton, { backgroundColor: c.accent }, isRunning && { opacity: 0.6 }]}
                 onPress={handleRunLottery}
                 disabled={isRunning}
+                accessibilityRole="button"
+                accessibilityLabel={isRunning ? 'Running lottery' : 'Run Lottery'}
+                accessibilityState={{ disabled: isRunning }}
               >
                 {isRunning ? (
                   <ActivityIndicator color="#fff" />
@@ -258,7 +265,7 @@ export default function LotteryRoomScreen() {
         ) : !ceremonyStarted ? (
           // Phase 2: Results computed, commissioner starts the reveal ceremony
           <View style={styles.preStartContainer}>
-            <Ionicons name="play-circle" size={64} color={c.accent} style={{ marginBottom: 16 }} />
+            <Ionicons name="play-circle" size={64} color={c.accent} style={{ marginBottom: 16 }} accessible={false} />
             <ThemedText type="subtitle" style={{ textAlign: 'center', marginBottom: 8 }}>
               Results Are In!
             </ThemedText>
@@ -271,6 +278,8 @@ export default function LotteryRoomScreen() {
               <TouchableOpacity
                 style={[styles.actionButton, { backgroundColor: c.accent }]}
                 onPress={handleStartCeremony}
+                accessibilityRole="button"
+                accessibilityLabel="Begin Reveal"
               >
                 <ThemedText style={styles.actionButtonText}>Begin Reveal</ThemedText>
               </TouchableOpacity>
@@ -279,7 +288,7 @@ export default function LotteryRoomScreen() {
         ) : (
           // Phase 3: Reveal ceremony
           <View style={styles.revealContainer}>
-            <View style={styles.slotList}>
+            <View style={styles.slotList} accessibilityRole="list" accessibilityLiveRegion="polite">
               {displayOrder.map((entry, idx) => renderSlot(entry, idx))}
             </View>
 
@@ -293,6 +302,8 @@ export default function LotteryRoomScreen() {
                   <TouchableOpacity
                     style={[styles.actionButton, { backgroundColor: c.accent }]}
                     onPress={handleDone}
+                    accessibilityRole="button"
+                    accessibilityLabel="Done"
                   >
                     <ThemedText style={styles.actionButtonText}>Done</ThemedText>
                   </TouchableOpacity>
@@ -301,6 +312,8 @@ export default function LotteryRoomScreen() {
                 <TouchableOpacity
                   style={[styles.actionButton, { backgroundColor: c.accent }]}
                   onPress={handleRevealNext}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Reveal Pick number ${totalSlots - revealedCount}`}
                 >
                   <ThemedText style={styles.actionButtonText}>
                     Reveal Pick #{totalSlots - revealedCount}

@@ -1,14 +1,8 @@
 import { supabase } from '@/lib/supabase';
+import { toDateStr } from '@/utils/dates';
 import { useQuery } from '@tanstack/react-query';
 
 export type GameTimeMap = Map<string, string>;
-
-function toDateStr(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
 
 /**
  * Returns a map of NBA tricode → game_time_utc ISO string for today's games.
