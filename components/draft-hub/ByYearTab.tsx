@@ -200,7 +200,7 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
               onPress={() => { setSelectedSeason(season); setSimResult(null); }}
             >
               <ThemedText style={[styles.pillText, { color: active ? c.accentText : c.text }]}>
-                {parseInt(season.split('-')[0], 10) + 1}
+                {season.split('-')[0]}
               </ThemedText>
             </TouchableOpacity>
           );

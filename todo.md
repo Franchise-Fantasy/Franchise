@@ -13,27 +13,6 @@ someone saw a pllayer who had aallreaaday been picked
 
 If a player autodrafts twice in a row, their picks should immediately fire until they re-enter the draft room.
 
-### Password reset - configure Supabase Auth
-
-1. Go to Supabase Dashboard > Authentication > URL Configuration
-2. Add `franchisev2://reset-password` to the Redirect URLs list
-3. This allows the magic link email to deep link back into the app
-
-### Sentry (for production builds only)
-
-1. Create a project at https://sentry.io (free tier: 5K errors/month)
-2. Add `EXPO_PUBLIC_SENTRY_DSN=https://your-dsn@sentry.io/xxx` to `.env.local`
-3. Before doing `eas build`, re-add to `app.json` plugins: `"@sentry/react-native"`
-4. Uncomment in `_layout.tsx`:
-   - `import * as Sentry from '@sentry/react-native';`
-   - `Sentry.init({ dsn: process.env.EXPO_PUBLIC_SENTRY_DSN });`
-5. Does NOT work in Expo Go — only in custom dev builds / production
-
-### Error boundary (re-add later)
-
-- The `+error.tsx` file caused a white screen — needs investigation on correct Expo Router v4 API
-- Re-add once you have a custom dev build where you can debug it properly
-
 - [ ] Implement Email Verification — Supabase toggle
   - needs SMTP + Supabase Pro
 
@@ -42,13 +21,6 @@ If a player autodrafts twice in a row, their picks should immediately fire until
 - [ ] Build Onboarding Walkthrough — tooltip tour, scaffold now, polish closer to launch
 - Sleeper ID: 851103743612141568
 - [ ] Deep-Linked Invite URL's (Needs dev build)
-- [ ] Google login (Needs dev build)
-  - Create OAuth credentials in Google Cloud Console (Web + Android + iOS client IDs)
-  - Enable Google provider in your Supabase dashboard with the Web Client ID/Secret
-  - Uncomment and fill in the env vars in .env.local
-  - Build a new dev client (eas build --profile development) since this is a native module
-
-- [ ]
 
 ## Tier 2 — Analytics/Design-Dependent Premium Features
 

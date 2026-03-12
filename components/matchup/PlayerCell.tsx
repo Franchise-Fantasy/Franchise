@@ -28,6 +28,7 @@ export interface RosterPlayer {
   dayPoints: number;
   dayMatchup: string | null;
   dayStatLine: string | null;
+  projectedFpts: number | null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -160,6 +161,7 @@ export function PlayerCell({
 
   if (mode === 'future') {
     const futureMatchup = player.nbaTricode ? (futureSchedule?.get(player.nbaTricode) ?? null) : null;
+    const projValue = futureMatchup && player.projectedFpts != null ? player.projectedFpts : null;
     return (
       <Wrapper style={[pStyles.cell, { alignItems: align }]} {...wrapperProps}>
         <View style={[pStyles.nameRow, { justifyContent: align }]}>
@@ -177,7 +179,9 @@ export function PlayerCell({
           {futureMatchup ? `${player.position} · proj` : player.position}
         </Text>
         {!isCategories && (
-          <Text style={[pStyles.pts, { color: c.secondaryText, textAlign }]}>—</Text>
+          <Text style={[pStyles.pts, { color: projValue != null ? c.text : c.secondaryText, textAlign }]}>
+            {projValue != null ? projValue.toFixed(1) : '—'}
+          </Text>
         )}
       </Wrapper>
     );
@@ -228,6 +232,7 @@ export function PlayerCell({
   // today with no live entry yet
   if (mode === 'today') {
     const todayMatchup = player.nbaTricode ? (futureSchedule?.get(player.nbaTricode) ?? null) : null;
+    const projValue = todayMatchup && player.projectedFpts != null ? player.projectedFpts : null;
     return (
       <Wrapper style={[pStyles.cell, { alignItems: align }]} {...wrapperProps}>
         <View style={[pStyles.nameRow, { justifyContent: align }]}>
@@ -245,7 +250,7 @@ export function PlayerCell({
           {todayMatchup ? `${player.position} · proj` : player.position}
         </Text>
         {!isCategories && (
-          <AnimatedFpts value={todayMatchup ? 0 : null} activeColor={c.text} dimColor={c.secondaryText} textStyle={[pStyles.pts, { textAlign }]} />
+          <AnimatedFpts value={projValue} activeColor={c.text} dimColor={c.secondaryText} textStyle={[pStyles.pts, { textAlign }]} />
         )}
       </Wrapper>
     );

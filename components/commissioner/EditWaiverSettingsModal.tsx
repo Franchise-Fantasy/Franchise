@@ -38,6 +38,7 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
   const [waiverPeriod, setWaiverPeriod] = useState(2);
   const [faabBudget, setFaabBudget] = useState(100);
   const [waiverDay, setWaiverDay] = useState(3);
+  const [weeklyLimit, setWeeklyLimit] = useState(0);
   const [saving, setSaving] = useState(false);
 
   // Initialize from league when modal opens
@@ -47,6 +48,7 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
       setWaiverPeriod(league.waiver_period_days ?? 2);
       setFaabBudget(league.faab_budget ?? 100);
       setWaiverDay(league.waiver_day_of_week ?? 3);
+      setWeeklyLimit(league.weekly_acquisition_limit ?? 0);
     }
   }, [visible, league]);
 
@@ -58,6 +60,7 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
       waiver_period_days: waiverDb === 'none' ? 0 : waiverPeriod,
       faab_budget: faabBudget,
       waiver_day_of_week: waiverDay,
+      weekly_acquisition_limit: weeklyLimit === 0 ? null : weeklyLimit,
     }).eq('id', leagueId);
     setSaving(false);
     if (error) { Alert.alert('Error', error.message); return; }
@@ -132,6 +135,17 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
                 suffix="$"
               />
             )}
+
+            {/* Weekly Acquisition Limit */}
+            <NumberStepper
+              label="Weekly Add Limit"
+              value={weeklyLimit}
+              onValueChange={setWeeklyLimit}
+              min={0}
+              max={20}
+              suffix={weeklyLimit === 0 ? ' (unlimited)' : ' per week'}
+              accessibilityLabel="Weekly acquisition limit, 0 means unlimited"
+            />
           </ScrollView>
 
           {/* Footer */}

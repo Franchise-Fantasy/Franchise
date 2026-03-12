@@ -37,14 +37,14 @@ export function MatchupSkeleton({ c }: { c: any }) {
       <View style={skeletonStyles.scoreHeader}>
         <View style={[skeletonStyles.scoreCol, { alignItems: 'flex-start' }]}>
           <SkeletonBlock width={100} height={14} color={blockColor} />
-          <SkeletonBlock width={60} height={20} color={blockColor} style={{ marginTop: 4 }} />
-          <SkeletonBlock width={50} height={11} color={blockColor} style={{ marginTop: 4 }} />
+          <SkeletonBlock width={60} height={20} color={blockColor} style={{ marginTop: 2 }} />
+          <SkeletonBlock width={50} height={11} color={blockColor} style={{ marginTop: 2 }} />
         </View>
         <Text style={[skeletonStyles.vsText, { color: c.secondaryText }]}>vs</Text>
         <View style={[skeletonStyles.scoreCol, { alignItems: 'flex-end' }]}>
           <SkeletonBlock width={100} height={14} color={blockColor} />
-          <SkeletonBlock width={60} height={20} color={blockColor} style={{ marginTop: 4 }} />
-          <SkeletonBlock width={50} height={11} color={blockColor} style={{ marginTop: 4 }} />
+          <SkeletonBlock width={60} height={20} color={blockColor} style={{ marginTop: 2 }} />
+          <SkeletonBlock width={50} height={11} color={blockColor} style={{ marginTop: 2 }} />
         </View>
       </View>
 
@@ -76,7 +76,7 @@ export function MatchupSkeleton({ c }: { c: any }) {
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
 const skeletonStyles = StyleSheet.create({
-  body: { padding: 12, flexGrow: 1 },
+  body: { flexGrow: 1 },
   scoreHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
   scoreCol: { flex: 1 },
   vsText: { fontSize: 12, fontWeight: '600', marginHorizontal: 10 },

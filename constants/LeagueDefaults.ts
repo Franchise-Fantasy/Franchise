@@ -192,4 +192,6 @@ export interface LeagueWizardState {
   buyIn: number;
   /** null = no max, 1 = rookies only, 2-4 = max years of NBA experience */
   taxiMaxExperience: number | null;
+  /** null = unlimited, positive = max adds per matchup week */
+  weeklyAcquisitionLimit: number | null;
 }

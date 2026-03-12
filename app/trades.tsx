@@ -1,21 +1,24 @@
-import { TradeCard } from '@/components/trade/TradeCard';
-import { ThemedText } from '@/components/ThemedText';
-import { SegmentedControl } from '@/components/ui/SegmentedControl';
-import { Colors } from '@/constants/Colors';
-import { useAppState } from '@/context/AppStateProvider';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { ThemedText } from "@/components/ThemedText";
+import { ProposeTradeModal } from "@/components/trade/ProposeTradeModal";
+import { TradeBlockSheet } from "@/components/trade/TradeBlockSheet";
+import { TradeCard } from "@/components/trade/TradeCard";
+import { TradeDetailModal } from "@/components/trade/TradeDetailModal";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { Colors } from "@/constants/Colors";
+import { useAppState } from "@/context/AppStateProvider";
+import { useColorScheme } from "@/hooks/useColorScheme";
 import {
   TradeBlockPlayer,
-  TradeBlockTeamGroup,
   TradeProposalRow,
   useTradeBlock,
   useTradeProposals,
-} from '@/hooks/useTrades';
-import { supabase } from '@/lib/supabase';
-import { Ionicons } from '@expo/vector-icons';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+} from "@/hooks/useTrades";
+import { supabase } from "@/lib/supabase";
+import { Ionicons } from "@expo/vector-icons";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "expo-router";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   ScrollView,
@@ -23,43 +26,50 @@ import {
   Text,
   TouchableOpacity,
   View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { ProposeTradeModal } from '@/components/trade/ProposeTradeModal';
-import { TradeDetailModal } from '@/components/trade/TradeDetailModal';
-import { PageHeader } from '@/components/ui/PageHeader';
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-const TABS = ['Active', 'History'];
-const ACTIVE_STATUSES = ['pending', 'accepted', 'in_review'];
-const HISTORY_STATUSES = ['completed', 'rejected', 'cancelled', 'vetoed'];
+const TABS = ["Active", "History"];
+const ACTIVE_STATUSES = ["pending", "accepted", "in_review"];
+const HISTORY_STATUSES = ["completed", "rejected", "cancelled", "vetoed"];
 
 export default function Trades() {
   const router = useRouter();
-  const scheme = useColorScheme() ?? 'light';
+  const scheme = useColorScheme() ?? "light";
   const c = Colors[scheme];
   const { leagueId, teamId } = useAppState();
   const queryClient = useQueryClient();
 
   const [tab, setTab] = useState(0);
   const [showPropose, setShowPropose] = useState(false);
-  const [preselectedTradeTeamId, setPreselectedTradeTeamId] = useState<string | undefined>();
-  const [preselectedPlayer, setPreselectedPlayer] = useState<TradeBlockPlayer | undefined>();
-  const [selectedProposal, setSelectedProposal] = useState<TradeProposalRow | null>(null);
-  const [tradeBlockExpanded, setTradeBlockExpanded] = useState(true);
+  const [preselectedTradeTeamId, setPreselectedTradeTeamId] = useState<
+    string | undefined
+  >();
+  const [preselectedPlayer, setPreselectedPlayer] = useState<
+    TradeBlockPlayer | undefined
+  >();
+  const [selectedProposal, setSelectedProposal] =
+    useState<TradeProposalRow | null>(null);
+  const [showTradeBlock, setShowTradeBlock] = useState(false);
 
   const { data: proposals, isLoading } = useTradeProposals(leagueId);
   const { data: tradeBlock } = useTradeBlock(leagueId);
 
   // Check trade deadline
   const { data: leagueDeadline } = useQuery({
-    queryKey: ['leagueDeadline', leagueId],
+    queryKey: ["leagueDeadline", leagueId],
     queryFn: async () => {
-      const { data } = await supabase.from('leagues').select('trade_deadline').eq('id', leagueId!).single();
+      const { data } = await supabase
+        .from("leagues")
+        .select("trade_deadline")
+        .eq("id", leagueId!)
+        .single();
       return data?.trade_deadline as string | null;
     },
     enabled: !!leagueId,
   });
-  const isPastDeadline = !!leagueDeadline && new Date(leagueDeadline + 'T23:59:59') < new Date();
+  const isPastDeadline =
+    !!leagueDeadline && new Date(leagueDeadline + "T23:59:59") < new Date();
 
   // Auto-complete trades whose review period has expired (client-side check)
   useEffect(() => {
@@ -67,14 +77,18 @@ export default function Trades() {
     const now = Date.now();
     const expired = proposals.filter(
       (p) =>
-        p.status === 'in_review' &&
+        p.status === "in_review" &&
         p.review_expires_at &&
-        new Date(p.review_expires_at).getTime() < now
+        new Date(p.review_expires_at).getTime() < now,
     );
     for (const p of expired) {
       supabase.functions
-        .invoke('execute-trade', { body: { proposal_id: p.id } })
-        .then(() => queryClient.invalidateQueries({ queryKey: ['tradeProposals', leagueId] }))
+        .invoke("execute-trade", { body: { proposal_id: p.id } })
+        .then(() =>
+          queryClient.invalidateQueries({
+            queryKey: ["tradeProposals", leagueId],
+          }),
+        )
         .catch(console.error);
     }
   }, [proposals, leagueId, queryClient]);
@@ -106,8 +120,18 @@ export default function Trades() {
 
       {/* Propose Trade Button / Deadline Banner */}
       {isPastDeadline ? (
-        <View style={[styles.deadlineBanner, { backgroundColor: c.card, borderColor: c.border }]}>
-          <Ionicons name="lock-closed" size={14} color={c.secondaryText} accessible={false} />
+        <View
+          style={[
+            styles.deadlineBanner,
+            { backgroundColor: c.card, borderColor: c.border },
+          ]}
+        >
+          <Ionicons
+            name="lock-closed"
+            size={14}
+            color={c.secondaryText}
+            accessible={false}
+          />
           <ThemedText style={[styles.deadlineText, { color: c.secondaryText }]}>
             The trade deadline has passed. No new trades can be proposed.
           </ThemedText>
@@ -120,86 +144,65 @@ export default function Trades() {
           accessibilityRole="button"
           accessibilityLabel="Propose Trade"
         >
-          <Text style={[styles.proposeBtnText, { color: c.accentText }]}>+ Propose Trade</Text>
+          <Text style={[styles.proposeBtnText, { color: c.accentText }]}>
+            + Propose Trade
+          </Text>
         </TouchableOpacity>
       )}
 
-      {/* Scrollable content: trade block + trade list */}
-      <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false}>
-        {/* Trade Block */}
-        {tab === 0 && hasTradeBlock && (
-          <View style={styles.tradeBlockSection}>
-            <TouchableOpacity
-              style={styles.tradeBlockHeader}
-              onPress={() => setTradeBlockExpanded(!tradeBlockExpanded)}
-              activeOpacity={0.7}
-              accessibilityRole="button"
-              accessibilityLabel={`Trade Block, ${(tradeBlock ?? []).reduce((sum, g) => sum + g.players.length, 0)} players`}
-              accessibilityState={{ expanded: tradeBlockExpanded }}
-            >
-              <View style={styles.tradeBlockHeaderLeft}>
-                <Ionicons name="megaphone-outline" size={16} color={c.accent} accessible={false} />
-                <ThemedText type="defaultSemiBold" style={styles.tradeBlockTitle}>
-                  Trade Block
-                </ThemedText>
-                <ThemedText style={[styles.tradeBlockCount, { color: c.secondaryText }]}>
-                  ({(tradeBlock ?? []).reduce((sum, g) => sum + g.players.length, 0)})
-                </ThemedText>
-              </View>
-              <Ionicons
-                name={tradeBlockExpanded ? 'chevron-up' : 'chevron-down'}
-                size={18}
-                color={c.secondaryText}
-                accessible={false}
-              />
-            </TouchableOpacity>
-
-            {tradeBlockExpanded && (tradeBlock ?? []).map((group: TradeBlockTeamGroup) => (
-              <View key={group.team_id} style={styles.tradeBlockGroup}>
-                <ThemedText style={[styles.tradeBlockTeamName, { color: c.secondaryText }]}>
-                  {group.team_id === teamId ? 'Your Team' : group.team_name}
-                </ThemedText>
-                {group.players.map((p: TradeBlockPlayer) => (
-                  <TouchableOpacity
-                    key={p.player_id}
-                    style={[styles.tradeBlockRow, { backgroundColor: c.card }]}
-                    onPress={() => handleTradeBlockPlayerPress(p)}
-                    activeOpacity={p.team_id === teamId ? 1 : 0.7}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${p.name}, ${p.position}, ${p.nba_team}`}
-                    accessibilityHint={p.team_id !== teamId ? 'Propose a trade for this player' : undefined}
-                  >
-                    <View style={styles.tradeBlockPlayerInfo}>
-                      <ThemedText style={styles.tradeBlockPlayerName} numberOfLines={1}>
-                        {p.name}
-                      </ThemedText>
-                      <ThemedText style={[styles.tradeBlockPlayerMeta, { color: c.secondaryText }]}>
-                        {p.position} · {p.nba_team}
-                      </ThemedText>
-                    </View>
-                    {p.team_id !== teamId && (
-                      <Ionicons name="swap-horizontal-outline" size={16} color={c.accent} accessible={false} />
-                    )}
-                  </TouchableOpacity>
-                ))}
-              </View>
-            ))}
+      {/* Trade Block pill */}
+      {tab === 0 && hasTradeBlock && (
+        <TouchableOpacity
+          style={[
+            styles.tradeBlockPill,
+            { backgroundColor: c.card, borderColor: c.border },
+          ]}
+          onPress={() => setShowTradeBlock(true)}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={`Trade Block, ${(tradeBlock ?? []).reduce((sum, g) => sum + g.players.length, 0)} players`}
+        >
+          <View style={styles.tradeBlockPillIcon}>
+            <Ionicons
+              name="megaphone-outline"
+              size={13}
+              color={c.accent}
+              accessible={false}
+            />
           </View>
-        )}
+          <ThemedText style={styles.tradeBlockPillText}>Trade Block</ThemedText>
+          <View style={[styles.tradeBlockBadge, { backgroundColor: c.accent }]}>
+            <ThemedText
+              style={[styles.tradeBlockBadgeText, { color: c.accentText }]}
+            >
+              {(tradeBlock ?? []).reduce((sum, g) => sum + g.players.length, 0)}
+            </ThemedText>
+          </View>
+        </TouchableOpacity>
+      )}
 
+      {/* Scrollable content: trade list */}
+      <ScrollView
+        style={styles.scrollArea}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Trade list */}
         {isLoading ? (
           <ActivityIndicator style={styles.loader} />
         ) : filtered.length === 0 ? (
           <View style={styles.empty}>
             <ThemedText style={[styles.emptyText, { color: c.secondaryText }]}>
-              {tab === 0 ? 'No active trades' : 'No trade history'}
+              {tab === 0 ? "No active trades" : "No trade history"}
             </ThemedText>
           </View>
         ) : (
           <View style={styles.list}>
             {filtered.map((item) => (
-              <TradeCard key={item.id} proposal={item} onPress={() => setSelectedProposal(item)} />
+              <TradeCard
+                key={item.id}
+                proposal={item}
+                onPress={() => setSelectedProposal(item)}
+              />
             ))}
           </View>
         )}
@@ -213,6 +216,20 @@ export default function Trades() {
           onSelect={setTab}
         />
       </View>
+
+      {/* Trade Block Sheet */}
+      {showTradeBlock && leagueId && teamId && (
+        <TradeBlockSheet
+          visible={showTradeBlock}
+          tradeBlock={tradeBlock ?? []}
+          teamId={teamId}
+          onClose={() => setShowTradeBlock(false)}
+          onPlayerPress={(player) => {
+            setShowTradeBlock(false);
+            handleTradeBlockPlayerPress(player);
+          }}
+        />
+      )}
 
       {/* Modals */}
       {showPropose && leagueId && teamId && (
@@ -242,9 +259,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 8,
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -255,11 +272,11 @@ const styles = StyleSheet.create({
   },
   backText: {
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: "500",
   },
   title: {
     fontSize: 16,
-    textAlign: 'center',
+    textAlign: "center",
   },
   proposeBtn: {
     marginHorizontal: 16,
@@ -267,15 +284,15 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     paddingVertical: 12,
     borderRadius: 10,
-    alignItems: 'center',
+    alignItems: "center",
   },
   proposeBtnText: {
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   deadlineBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
     marginHorizontal: 16,
     marginTop: 10,
@@ -293,57 +310,41 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
-  // Trade Block
-  tradeBlockSection: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 4,
-  },
-  tradeBlockHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 8,
-  },
-  tradeBlockHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  // Trade Block pill
+  tradeBlockPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
     gap: 6,
+    marginHorizontal: 16,
+    marginBottom: 6,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    borderWidth: 1,
   },
-  tradeBlockTitle: {
-    fontSize: 14,
+  tradeBlockPillIcon: {
+    width: 14,
+    height: 14,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
   },
-  tradeBlockCount: {
+  tradeBlockPillText: {
     fontSize: 13,
+    fontWeight: "600",
   },
-  tradeBlockGroup: {
-    marginBottom: 8,
+  tradeBlockBadge: {
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 5,
   },
-  tradeBlockTeamName: {
+  tradeBlockBadgeText: {
     fontSize: 11,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 4,
-    marginTop: 4,
-  },
-  tradeBlockRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    marginBottom: 4,
-  },
-  tradeBlockPlayerInfo: {
-    flex: 1,
-  },
-  tradeBlockPlayerName: {
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  tradeBlockPlayerMeta: {
-    fontSize: 11,
+    fontWeight: "700",
+    lineHeight: 20,
   },
 
   // Trade list
@@ -352,8 +353,8 @@ const styles = StyleSheet.create({
   },
   empty: {
     paddingVertical: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   emptyText: {
     fontSize: 15,

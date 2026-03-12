@@ -18,7 +18,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#1a1a1a"
       },
       "edgeToEdgeEnabled": true,
       "package": "com.chewers.franchisev2"
@@ -36,7 +36,7 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
+          "backgroundColor": "#1a1a1a"
         }
       ],
       "@react-native-community/datetimepicker",
@@ -50,7 +50,11 @@
           "sounds": []
         }
       ],
-      "@react-native-google-signin/google-signin"
+      [
+        "@react-native-google-signin/google-signin",
+        { "iosUrlScheme": "com.googleusercontent.apps.352302197811-pt3tu6ohuktd738g1gtk81jsrqmk7p14" }
+      ],
+      ["@sentry/react-native/expo", { "uploadSourceMaps": false }]
     ],
     "experiments": {
       "typedRoutes": true

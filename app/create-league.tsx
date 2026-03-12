@@ -89,6 +89,7 @@ const initialState: LeagueWizardState = {
   tradeDeadlineWeek: 0,
   buyIn: 0,
   taxiMaxExperience: null,
+  weeklyAcquisitionLimit: null,
 };
 
 function clampLotteryState(s: LeagueWizardState): LeagueWizardState {
@@ -301,6 +302,7 @@ export default function CreateLeague() {
         buy_in_amount: state.buyIn || null,
         taxi_slots: taxiSlotCount,
         taxi_max_experience: taxiSlotCount > 0 ? state.taxiMaxExperience : null,
+        weekly_acquisition_limit: state.weeklyAcquisitionLimit,
         pick_conditions_enabled: isDynasty ? state.pickConditionsEnabled : false,
         draft_pick_trading_enabled: isDynasty ? state.draftPickTradingEnabled : false,
         trade_deadline: state.tradeDeadlineWeek > 0

@@ -17,33 +17,17 @@ import {
   calculateRosterAgeProfile,
   getInsightText,
 } from "@/utils/rosterAge";
-import { isExpoGo } from "@/utils/buildConfig";
 import { Ionicons } from "@expo/vector-icons";
+import {
+  Canvas,
+  Circle,
+  DashPathEffect,
+  Group,
+  Rect,
+  Line as SkiaLine,
+  vec,
+} from "@shopify/react-native-skia";
 import { scaleLinear } from "d3-scale";
-
-// Skia requires native modules — lazy-load to avoid crash in Expo Go.
-let Canvas: any = null;
-let Circle: any = null;
-let DashPathEffect: any = null;
-let Group: any = null;
-let Rect: any = null;
-let SkiaLine: any = null;
-let vec: any = null;
-
-if (!isExpoGo) {
-  try {
-    const skia = require("@shopify/react-native-skia");
-    Canvas = skia.Canvas;
-    Circle = skia.Circle;
-    DashPathEffect = skia.DashPathEffect;
-    Group = skia.Group;
-    Rect = skia.Rect;
-    SkiaLine = skia.Line;
-    vec = skia.vec;
-  } catch {
-    // Native module not available
-  }
-}
 import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -377,13 +361,7 @@ export default function AnalyticsScreen() {
               accessibilityRole="image"
               accessibilityLabel={`Age versus fantasy points scatterplot with ${scatterData.length} players`}
             >
-              {!Canvas ? (
-                  <View style={styles.emptyState}>
-                    <ThemedText style={{ color: c.secondaryText }}>
-                      Charts require a development build
-                    </ThemedText>
-                  </View>
-              ) : canvasWidth > 0 && xScale && yScale ? (
+              {canvasWidth > 0 && xScale && yScale ? (
                 <>
                   {/* Skia Canvas — graphics only, no text */}
                   <Canvas

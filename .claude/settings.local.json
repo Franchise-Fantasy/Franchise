@@ -138,7 +138,13 @@
       "Bash(find c:/Users/jjspo/OneDrive/Desktop/franchise.v2 -name *.md -type f)",
       "Bash(find c:/Users/jjspo/OneDrive/Desktop/franchise.v2 -type f \\\\\\(-name *.md -o -name schema* \\\\\\))",
       "Bash(npm install:*)",
-      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2 -path node_modules -prune -o -path dist -prune -o -type f -name *Auth* -o -name *auth*)"
+      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2 -path node_modules -prune -o -path dist -prune -o -type f -name *Auth* -o -name *auth*)",
+      "Bash(python3 -c \"from PIL import Image; print\\(''pillow available''\\)\")",
+      "Bash(python -c \"from PIL import Image; print\\(''pillow available''\\)\")",
+      "Bash(python3 -c \"from PIL import Image; img = Image.open\\(''/c/Users/jjspo/Downloads/franchise logo.png''\\); print\\(f''Size: {img.size}, Mode: {img.mode}''\\)\")",
+      "Bash(python -c \"from PIL import Image; img = Image.open\\(''c:/Users/jjspo/Downloads/franchise logo.png''\\); print\\(f''Size: {img.size}, Mode: {img.mode}''\\)\")",
+      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2/utils -maxdepth 1 -type f -name *.ts)",
+      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2/app -name *free* -o -name *agent*)"
     ]
   }
 }

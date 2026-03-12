@@ -3,7 +3,7 @@ import { PlayerCell, pStyles, RosterPlayer, DisplayMode, round1, buildStatLine }
 import { MatchupSkeleton } from '@/components/matchup/MatchupSkeleton';
 import { PlayerDetailModal } from '@/components/player/PlayerDetailModal';
 import { ThemedText } from '@/components/ThemedText';
-import { PageHeader } from '@/components/ui/PageHeader';
+import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -16,10 +16,10 @@ import { aggregateTeamStats, computeCategoryResults, TeamStatTotals } from '@/ut
 import { liveToGameLog, LivePlayerStats, useLivePlayerStats } from '@/utils/nbaLive';
 import { toDateStr, parseLocalDate, addDays, formatDayLabel, useToday } from '@/utils/dates';
 import { fetchNbaScheduleForDate } from '@/utils/nbaSchedule';
-import { calculateGameFantasyPoints } from '@/utils/fantasyPoints';
+import { calculateGameFantasyPoints, calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
 import { slotLabel } from '@/utils/rosterSlots';
 import { useQuery } from '@tanstack/react-query';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -155,6 +155,17 @@ async function fetchTeamData(
 
   const teamStats = aggregateTeamStats(activeGames);
 
+  // Fetch season stats for projected FPTS
+  const { data: seasonStats } = await supabase
+    .from('player_season_stats')
+    .select('player_id, games_played, total_pts, total_reb, total_ast, total_stl, total_blk, total_tov, total_fgm, total_fga, total_3pm, total_3pa, total_ftm, total_fta, total_pf, total_dd, total_td')
+    .in('player_id', playerIds);
+
+  const projMap = new Map<string, number>();
+  for (const ps of seasonStats ?? []) {
+    projMap.set(ps.player_id, calculateAvgFantasyPoints(ps as any, scoring));
+  }
+
   return { players: leaguePlayers.map((lp: any) => ({
     player_id: lp.player_id,
     name: lp.players?.name ?? '—',
@@ -174,6 +185,7 @@ async function fetchTeamData(
       const ds = dayStatsMap.get(lp.player_id);
       return ds ? buildStatLine(ds, scoring) : null;
     })(),
+    projectedFpts: projMap.get(lp.player_id) ?? null,
   })), teamStats };
 }
 
@@ -298,6 +310,16 @@ export default function MatchupDetailScreen() {
 
   const mode: DisplayMode = effectiveDate < today ? 'past' : effectiveDate === today ? 'today' : 'future';
 
+  // For future mode, compute projected day total from active players' season averages
+  const computeProjectedDay = (players: RosterPlayer[], schedule?: Map<string, string>) => {
+    if (!schedule) return 0;
+    return round1(players.reduce((sum, p) => {
+      if (p.roster_slot === 'BE' || p.roster_slot === 'IR') return sum;
+      if (!p.nbaTricode || !schedule.has(p.nbaTricode)) return sum;
+      return sum + (p.projectedFpts ?? 0);
+    }, 0));
+  };
+
   function computeLiveBonus(players: RosterPlayer[]): number {
     if (!isToday) return 0;
     return round1(
@@ -340,12 +362,20 @@ export default function MatchupDetailScreen() {
   const homeLiveBonus = teamData?.homeTeam ? computeLiveBonus(teamData.homeTeam.players) : 0;
   const awayLiveBonus = teamData?.awayTeam ? computeLiveBonus(teamData.awayTeam.players) : 0;
 
-  const headerTitle = week ? `Week ${week.week_number}` : 'Matchup';
+  const router = useRouter();
 
   if (infoLoading) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
-        <PageHeader title="Matchup" />
+        <View style={[styles.dayNav, { borderBottomColor: c.border }]}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
+            <Ionicons name="chevron-back" size={22} color={c.accent} />
+          </TouchableOpacity>
+          <View style={styles.dayInfo}>
+            <ThemedText type="defaultSemiBold" style={styles.dayLabel}>Matchup</ThemedText>
+          </View>
+          <View style={styles.navArrow} />
+        </View>
         <ActivityIndicator style={{ marginTop: 40 }} />
       </SafeAreaView>
     );
@@ -353,113 +383,125 @@ export default function MatchupDetailScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
-      <PageHeader
-        title={headerTitle}
-        rightAction={
-          week ? (
-            <ThemedText style={[styles.weekRange, { color: c.secondaryText }]}>
-              {formatWeekRange(week.start_date, week.end_date)}
-            </ThemedText>
-          ) : undefined
-        }
-      />
+      {/* Day navigation with integrated back button */}
+      <View style={[styles.dayNav, { borderBottomColor: c.border }]}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
+          <Ionicons name="chevron-back" size={22} color={c.accent} />
+        </TouchableOpacity>
 
-      {/* Day navigation */}
-      {week && (
-        <View style={[styles.dayNav, { borderBottomColor: c.border }]}>
-          <TouchableOpacity
-            onPress={goBack}
-            style={styles.navArrow}
-            disabled={!canGoBack}
-            accessibilityRole="button"
-            accessibilityLabel="Previous day"
-            accessibilityState={{ disabled: !canGoBack }}
-          >
-            <Text style={[styles.arrow, { color: canGoBack ? c.accent : c.buttonDisabled }]}>‹</Text>
-          </TouchableOpacity>
+        {week ? (
+          <>
+            <TouchableOpacity
+              onPress={goBack}
+              style={styles.navArrow}
+              disabled={!canGoBack}
+              accessibilityRole="button"
+              accessibilityLabel="Previous day"
+              accessibilityState={{ disabled: !canGoBack }}
+            >
+              <Text style={[styles.arrow, { color: canGoBack ? c.text : c.buttonDisabled }]}>‹</Text>
+            </TouchableOpacity>
+            <View style={styles.dayInfo}>
+              <ThemedText type="defaultSemiBold" style={styles.dayLabel}>
+                {formatDayLabel(effectiveDate)}
+              </ThemedText>
+              <ThemedText style={[styles.weekMeta, { color: c.secondaryText }]}>
+                {week.is_playoff ? 'Playoffs · ' : ''}Week {week.week_number} · {formatWeekRange(week.start_date, week.end_date)}
+              </ThemedText>
+            </View>
+            <TouchableOpacity
+              onPress={goForward}
+              style={styles.navArrow}
+              disabled={!canGoForward}
+              accessibilityRole="button"
+              accessibilityLabel="Next day"
+              accessibilityState={{ disabled: !canGoForward }}
+            >
+              <Text style={[styles.arrow, { color: canGoForward ? c.text : c.buttonDisabled }]}>›</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
           <View style={styles.dayInfo}>
-            <ThemedText type="defaultSemiBold" style={styles.dayLabel}>
-              {formatDayLabel(effectiveDate)}
-            </ThemedText>
+            <ThemedText type="defaultSemiBold" style={styles.dayLabel}>Matchup</ThemedText>
           </View>
-          <TouchableOpacity
-            onPress={goForward}
-            style={styles.navArrow}
-            disabled={!canGoForward}
-            accessibilityRole="button"
-            accessibilityLabel="Next day"
-            accessibilityState={{ disabled: !canGoForward }}
-          >
-            <Text style={[styles.arrow, { color: canGoForward ? c.accent : c.buttonDisabled }]}>›</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+        )}
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+        {/* Spacer to balance the back button */}
+        <View style={styles.backBtn} />
+      </View>
+
+      <ScrollView style={styles.scroll} contentContainerStyle={{ padding: 12, paddingBottom: 56 }} showsVerticalScrollIndicator={false}>
         {teamLoading ? (
           <MatchupSkeleton c={c} />
         ) : teamData ? (
           <View>
             {/* Score header */}
-            {isCategories && teamData.awayTeam ? (() => {
-              const catComparison = computeCategoryResults(
-                teamData.homeTeam.teamStats,
-                teamData.awayTeam.teamStats,
-                (scoring ?? []).filter((s) => s.is_enabled).map((s) => ({ stat_name: s.stat_name, inverse: s.inverse })),
-              );
+            {(() => {
+              const homeWeek = round1(teamData.homeTeam.weekTotal + homeLiveBonus);
+              const awayWeek = teamData.awayTeam ? round1(teamData.awayTeam.weekTotal + awayLiveBonus) : 0;
+              const homeDay = mode === 'future'
+                ? computeProjectedDay(teamData.homeTeam.players, futureSchedule)
+                : round1(teamData.homeTeam.dayTotal + homeLiveBonus);
+              const awayDay = mode === 'future' && teamData.awayTeam
+                ? computeProjectedDay(teamData.awayTeam.players, futureSchedule)
+                : (teamData.awayTeam ? round1(teamData.awayTeam.dayTotal + awayLiveBonus) : 0);
+
+              if (isCategories && teamData.awayTeam) {
+                const catComparison = computeCategoryResults(
+                  teamData.homeTeam.teamStats,
+                  teamData.awayTeam.teamStats,
+                  (scoring as any[] ?? []).filter((s) => s.is_enabled).map((s) => ({ stat_name: s.stat_name, inverse: !!s.inverse })),
+                );
+                return (
+                  <View style={{ marginBottom: 14 }}>
+                    <CategoryScoreboard
+                      results={catComparison.results}
+                      homeWins={catComparison.homeWins}
+                      awayWins={catComparison.awayWins}
+                      ties={catComparison.ties}
+                      homeTeamName={teamData.homeTeam.teamName}
+                      awayTeamName={teamData.awayTeam.teamName}
+                    />
+                  </View>
+                );
+              }
+
               return (
-                <View style={colStyles.scoreHeader}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <Text style={[colStyles.teamName, { color: c.text }]} numberOfLines={1}>
+                <View
+                  style={colStyles.scoreHeader}
+                  accessibilityRole="summary"
+                  accessibilityLabel={`${teamData.homeTeam.teamName} ${homeWeek.toFixed(1)} versus ${teamData.awayTeam ? `${teamData.awayTeam.teamName} ${awayWeek.toFixed(1)}` : 'BYE'}`}
+                >
+                  <View style={[colStyles.scoreCol, { alignItems: 'flex-start' }]}>
+                    <Text style={[colStyles.teamName, { color: c.text }]} numberOfLines={1} accessibilityRole="header">
                       {teamData.homeTeam.teamName}
                     </Text>
-                    <Text style={[colStyles.teamName, { color: c.text, textAlign: 'right' }]} numberOfLines={1}>
-                      {teamData.awayTeam.teamName}
+                    <Text style={[colStyles.total, { color: c.accent }]}>
+                      {homeWeek.toFixed(1)}
                     </Text>
+                    {mode === 'future' ? (
+                      <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>{homeDay.toFixed(1)} proj</Text>
+                    ) : (
+                      <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>{homeDay.toFixed(1)} today</Text>
+                    )}
                   </View>
-                  <CategoryScoreboard
-                    results={catComparison.results}
-                    homeWins={catComparison.homeWins}
-                    awayWins={catComparison.awayWins}
-                    ties={catComparison.ties}
-                    homeTeamName={teamData.homeTeam.teamName}
-                    awayTeamName={teamData.awayTeam.teamName}
-                  />
+                  <Text style={[colStyles.vsText, { color: c.secondaryText }]} accessible={false}>vs</Text>
+                  <View style={[colStyles.scoreCol, { alignItems: 'flex-end' }]}>
+                    <Text style={[colStyles.teamName, { color: c.text, textAlign: 'right' }]} numberOfLines={1} accessibilityRole="header">
+                      {teamData.awayTeam?.teamName ?? 'BYE'}
+                    </Text>
+                    <Text style={[colStyles.total, { color: c.accent }]}>
+                      {teamData.awayTeam ? awayWeek.toFixed(1) : '0.0'}
+                    </Text>
+                    {mode === 'future' ? (
+                      teamData.awayTeam && <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>{awayDay.toFixed(1)} proj</Text>
+                    ) : (
+                      teamData.awayTeam && <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>{awayDay.toFixed(1)} today</Text>
+                    )}
+                  </View>
                 </View>
               );
-            })() : (
-              <View style={colStyles.scoreHeader} accessibilityLabel={`${teamData.homeTeam.teamName} ${round1(teamData.homeTeam.weekTotal + homeLiveBonus).toFixed(1)} vs ${teamData.awayTeam?.teamName ?? 'BYE'} ${teamData.awayTeam ? round1(teamData.awayTeam.weekTotal + awayLiveBonus).toFixed(1) : '0.0'}`}>
-                <View style={[colStyles.scoreCol, { alignItems: 'flex-start' }]}>
-                  <Text style={[colStyles.teamName, { color: c.text }]} numberOfLines={1}>
-                    {teamData.homeTeam.teamName}
-                  </Text>
-                  <Text style={[colStyles.total, { color: c.accent }]}>
-                    {round1(teamData.homeTeam.weekTotal + homeLiveBonus).toFixed(1)}
-                  </Text>
-                  {mode !== 'future' && (
-                    <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>
-                      {round1(teamData.homeTeam.dayTotal + homeLiveBonus).toFixed(1)} today
-                    </Text>
-                  )}
-                </View>
-                <Text style={[colStyles.vsText, { color: c.secondaryText }]}>vs</Text>
-                <View style={[colStyles.scoreCol, { alignItems: 'flex-end' }]}>
-                  <Text style={[colStyles.teamName, { color: c.text, textAlign: 'right' }]} numberOfLines={1}>
-                    {teamData.awayTeam?.teamName ?? 'BYE'}
-                  </Text>
-                  <Text style={[colStyles.total, { color: c.accent }]}>
-                    {teamData.awayTeam
-                      ? round1(teamData.awayTeam.weekTotal + awayLiveBonus).toFixed(1)
-                      : '0.0'}
-                  </Text>
-                  {mode !== 'future' && teamData.awayTeam && (
-                    <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>
-                      {round1(teamData.awayTeam.dayTotal + awayLiveBonus).toFixed(1)} today
-                    </Text>
-                  )}
-                </View>
-              </View>
-            )}
+            })()}
 
             {/* Slot rows */}
             {Array.from({ length: Math.max(homeSlots.length, awaySlots.length) }).map((_, i) => {
@@ -478,6 +520,7 @@ export default function MatchupDetailScreen() {
                     scoring={scoring ?? []}
                     futureSchedule={futureSchedule}
                     onPress={handlePlayerPress}
+                    isCategories={isCategories}
                   />
                   <View style={pStyles.slotCenter}>
                     <Text style={[pStyles.slotText, { color: c.secondaryText }]}>
@@ -493,10 +536,55 @@ export default function MatchupDetailScreen() {
                     scoring={scoring ?? []}
                     futureSchedule={futureSchedule}
                     onPress={handlePlayerPress}
+                    isCategories={isCategories}
                   />
                 </View>
               );
             })}
+
+            {/* Bench section */}
+            {(() => {
+              const homeBench = teamData.homeTeam.players.filter((p) => p.roster_slot === 'BE');
+              const awayBench = teamData.awayTeam?.players.filter((p) => p.roster_slot === 'BE') ?? [];
+              if (homeBench.length === 0 && awayBench.length === 0) return null;
+              const maxBench = Math.max(homeBench.length, awayBench.length);
+              return (
+                <View style={{ marginTop: 12 }}>
+                  <View style={{ alignItems: 'center', paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.border }}>
+                    <Text style={{ color: c.secondaryText, fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>BENCH</Text>
+                  </View>
+                  {Array.from({ length: maxBench }).map((_, i) => (
+                    <View key={`bench-${i}`} style={[pStyles.slotRow, { borderBottomColor: c.border, opacity: 0.7 }]}>
+                      <PlayerCell
+                        player={homeBench[i] ?? null}
+                        c={c}
+                        side="left"
+                        mode={mode}
+                        liveStats={homeBench[i] ? (liveMap.get(homeBench[i].player_id) ?? null) : null}
+                        scoring={scoring ?? []}
+                        futureSchedule={futureSchedule}
+                        onPress={handlePlayerPress}
+                        isCategories={isCategories}
+                      />
+                      <View style={pStyles.slotCenter}>
+                        <Text style={[pStyles.slotText, { color: c.secondaryText }]}>BE</Text>
+                      </View>
+                      <PlayerCell
+                        player={awayBench[i] ?? null}
+                        c={c}
+                        side="right"
+                        mode={mode}
+                        liveStats={awayBench[i] ? (liveMap.get(awayBench[i].player_id) ?? null) : null}
+                        scoring={scoring ?? []}
+                        futureSchedule={futureSchedule}
+                        onPress={handlePlayerPress}
+                        isCategories={isCategories}
+                      />
+                    </View>
+                  ))}
+                </View>
+              );
+            })()}
           </View>
         ) : (
           <View style={styles.empty}>
@@ -520,7 +608,8 @@ export default function MatchupDetailScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  weekRange: { fontSize: 11 },
+  backBtn: { width: 36, alignItems: 'center' as const, justifyContent: 'center' as const },
+  weekMeta: { fontSize: 11, marginTop: 2 },
   dayNav: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -540,17 +629,12 @@ const styles = StyleSheet.create({
 });
 
 const colStyles = StyleSheet.create({
-  scoreHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
+  scoreHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
   scoreCol: { flex: 1 },
-  teamName: { fontSize: 14, fontWeight: '600', marginBottom: 4 },
-  total: { fontSize: 22, fontWeight: '700' },
-  dayTotal: { fontSize: 12, marginTop: 2 },
-  vsText: { fontSize: 12, marginHorizontal: 8, marginTop: 2 },
+  vsText: { fontSize: 12, fontWeight: '600', marginHorizontal: 10 },
+  teamName: { fontWeight: '600', fontSize: 14, marginBottom: 2 },
+  total: { fontSize: 20, fontWeight: '700' },
+  dayTotal: { fontSize: 11, fontWeight: '500', marginTop: 2 },
 });
 
 export const options = { headerShown: false };

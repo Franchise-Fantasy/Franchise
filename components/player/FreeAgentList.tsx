@@ -4,7 +4,7 @@ import { ThemedText } from "@/components/ThemedText";
 import { Colors } from "@/constants/Colors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
-import { usePlayerFilter } from "@/hooks/usePlayerFilter";
+import { TimeRange, usePlayerFilter } from "@/hooks/usePlayerFilter";
 import { sendNotification } from "@/lib/notifications";
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
@@ -12,9 +12,11 @@ import { calculateAvgFantasyPoints } from "@/utils/fantasyPoints";
 import { formatPosition } from "@/utils/formatting";
 import { getInjuryBadge } from "@/utils/injuryBadge";
 import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
+import { fetchNbaScheduleForDate } from "@/utils/nbaSchedule";
+import { toDateStr } from "@/utils/dates";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Animated,
@@ -85,6 +87,30 @@ function SkeletonRow({ color, index }: { color: string; index: number }) {
   );
 }
 
+function SkeletonWaiverHeader({ color }: { color: string }) {
+  const pulse = useRef(new Animated.Value(0.3)).current;
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 800, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.3, duration: 800, useNativeDriver: true }),
+      ]),
+    );
+    anim.start();
+    return () => anim.stop();
+  }, []);
+
+  return (
+    <View style={[styles.claimsHeader, { borderColor: color }]}>
+      <View style={styles.claimsHeaderLeft}>
+        <Animated.View style={{ width: 16, height: 16, borderRadius: 4, backgroundColor: color, opacity: pulse }} />
+        <Animated.View style={[styles.skeletonBar, { width: 110, backgroundColor: color, opacity: pulse }]} />
+      </View>
+      <Animated.View style={{ width: 16, height: 16, borderRadius: 4, backgroundColor: color, opacity: pulse }} />
+    </View>
+  );
+}
+
 function FadeInImage({ uri, style, resizeMode }: { uri: string; style: any; resizeMode: any }) {
   const opacity = useRef(new Animated.Value(0)).current;
   return (
@@ -124,7 +150,17 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   const [bidAmount, setBidAmount] = useState("0");
   const [faabDropPlayerId, setFaabDropPlayerId] = useState<string | null>(null);
 
+  const [timeRange, setTimeRange] = useState<TimeRange>('season');
+
   const { data: scoringWeights } = useLeagueScoring(leagueId);
+
+  // Fetch today's NBA schedule for "playing today" indicator
+  const todayStr = toDateStr(new Date());
+  const { data: todaySchedule } = useQuery({
+    queryKey: ["todaySchedule", todayStr],
+    queryFn: () => fetchNbaScheduleForDate(todayStr),
+    staleTime: 1000 * 60 * 30,
+  });
 
   const { data: hasActiveDraft } = useQuery({
     queryKey: ["hasActiveDraft", leagueId],
@@ -162,7 +198,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
           .eq("roster_slot", "IR"),
         supabase
           .from("leagues")
-          .select("roster_size, waiver_type, waiver_day_of_week, offseason_step")
+          .select("roster_size, waiver_type, waiver_day_of_week, offseason_step, weekly_acquisition_limit")
           .eq("id", leagueId)
           .single(),
       ]);
@@ -177,6 +213,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         waiverType: (leagueRes.data?.waiver_type ?? 'none') as 'standard' | 'faab' | 'none',
         waiverDayOfWeek: leagueRes.data?.waiver_day_of_week ?? 3,
         offseasonStep: leagueRes.data?.offseason_step as string | null,
+        weeklyAcquisitionLimit: leagueRes.data?.weekly_acquisition_limit as number | null,
       };
     },
     enabled: !!leagueId && !!teamId,
@@ -187,6 +224,33 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     : false;
   const waiverType = rosterInfo?.waiverType ?? 'none';
   const isOffseason = rosterInfo?.offseasonStep != null;
+  const weeklyLimit = rosterInfo?.weeklyAcquisitionLimit ?? null;
+
+  // Count this week's acquisitions (Mon-Sun) for weekly limit enforcement
+  const { data: weeklyAddsUsed } = useQuery({
+    queryKey: ["weeklyAdds", leagueId, teamId],
+    queryFn: async () => {
+      const now = new Date();
+      const day = now.getDay(); // 0=Sun
+      const mondayOffset = day === 0 ? -6 : 1 - day;
+      const monday = new Date(now);
+      monday.setDate(now.getDate() + mondayOffset);
+      const weekStart = monday.toISOString().split("T")[0];
+
+      const { count, error } = await supabase
+        .from("league_transactions")
+        .select("id", { count: "exact", head: true })
+        .eq("league_id", leagueId)
+        .eq("team_id", teamId)
+        .eq("type", "waiver")
+        .gte("created_at", weekStart + "T00:00:00");
+      if (error) throw error;
+      return count ?? 0;
+    },
+    enabled: !!leagueId && !!teamId && weeklyLimit != null,
+  });
+
+  const weeklyLimitReached = weeklyLimit != null && (weeklyAddsUsed ?? 0) >= weeklyLimit;
 
   // Fetch players currently on waivers in this league (with expiry times)
   const { data: waiverPlayerMap } = useQuery({
@@ -221,8 +285,8 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     enabled: !!leagueId && !!teamId && waiverType === 'faab',
   });
 
-  // Fetch waiver priority order for all teams in the league
-  const { data: waiverOrder } = useQuery({
+  // Fetch waiver priority order for all teams in the league (no dependency on rosterInfo)
+  const { data: waiverOrder, isLoading: waiverOrderLoading } = useQuery({
     queryKey: ["waiverOrder", leagueId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -233,7 +297,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       if (error) throw error;
       return data ?? [];
     },
-    enabled: !!leagueId && waiverType !== 'none',
+    enabled: !!leagueId,
   });
 
   // Fetch pending claims for this team
@@ -286,10 +350,142 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     enabled: !!leagueId,
   });
 
+  // Fetch last 30 days of game logs for free agents (time-range stats + "Minutes Up" filter)
+  const freeAgentIds = useMemo(() => freeAgents?.map(p => p.player_id) ?? [], [freeAgents]);
+  const { data: recentGameLogs } = useQuery({
+    queryKey: ["recentGameLogs", leagueId],
+    queryFn: async () => {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 30);
+      const cutoffStr = cutoff.toISOString().split("T")[0];
+
+      // Batch into chunks of 200 IDs to stay within URL length limits
+      const CHUNK = 200;
+      const allRows: any[] = [];
+      for (let i = 0; i < freeAgentIds.length; i += CHUNK) {
+        const chunk = freeAgentIds.slice(i, i + CHUNK);
+        const { data, error } = await supabase
+          .from("player_games")
+          .select('player_id, game_date, min, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double')
+          .in("player_id", chunk)
+          .gte("game_date", cutoffStr)
+          .order("game_date", { ascending: false })
+          .limit(5000);
+        if (error) throw error;
+        if (data) allRows.push(...data);
+      }
+      return allRows;
+    },
+    enabled: !!leagueId && freeAgentIds.length > 0,
+    staleTime: 1000 * 60 * 15,
+  });
+
+  // Derive recentMinutesMap from game logs (for "Minutes Up" filter)
+  const recentMinutesMap = useMemo(() => {
+    if (!recentGameLogs) return undefined;
+    const playerGames = new Map<string, number[]>();
+    for (const g of recentGameLogs) {
+      if (g.min == null) continue;
+      const mins = playerGames.get(g.player_id);
+      if (!mins) {
+        playerGames.set(g.player_id, [g.min]);
+      } else if (mins.length < 5) {
+        mins.push(g.min);
+      }
+    }
+    const map = new Map<string, number>();
+    for (const [pid, mins] of playerGames) {
+      if (mins.length < 3) continue;
+      const avg = mins.reduce((a, b) => a + b, 0) / mins.length;
+      map.set(pid, Math.round(avg * 10) / 10);
+    }
+    return map;
+  }, [recentGameLogs]);
+
+  // Build time-range-adjusted player stats when a non-season range is selected
+  const adjustedPlayers = useMemo(() => {
+    if (!freeAgents) return undefined;
+    if (timeRange === 'season' || !recentGameLogs) return freeAgents;
+
+    const days = timeRange === '7d' ? 7 : timeRange === '14d' ? 14 : 30;
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+    const cutoffStr = cutoff.toISOString().split("T")[0];
+
+    // Group game logs by player within the time window
+    const grouped = new Map<string, typeof recentGameLogs>();
+    for (const g of recentGameLogs) {
+      const gDate = (g.game_date ?? '').slice(0, 10);
+      if (gDate < cutoffStr) continue;
+      const arr = grouped.get(g.player_id);
+      if (arr) arr.push(g);
+      else grouped.set(g.player_id, [g]);
+    }
+
+    const round = (v: number) => Math.round(v * 10) / 10;
+
+    return freeAgents
+      .filter(p => grouped.has(p.player_id))
+      .map(p => {
+        const games = grouped.get(p.player_id)!;
+        const gp = games.length;
+        const t = { pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fgm: 0, fga: 0, threepm: 0, threepa: 0, ftm: 0, fta: 0, pf: 0, min: 0, dd: 0, td: 0 };
+        for (const g of games) {
+          t.pts += g.pts ?? 0;
+          t.reb += g.reb ?? 0;
+          t.ast += g.ast ?? 0;
+          t.stl += g.stl ?? 0;
+          t.blk += g.blk ?? 0;
+          t.tov += g.tov ?? 0;
+          t.fgm += g.fgm ?? 0;
+          t.fga += g.fga ?? 0;
+          t.threepm += g['3pm'] ?? 0;
+          t.threepa += g['3pa'] ?? 0;
+          t.ftm += g.ftm ?? 0;
+          t.fta += g.fta ?? 0;
+          t.pf += g.pf ?? 0;
+          t.min += g.min ?? 0;
+          t.dd += g.double_double ? 1 : 0;
+          t.td += g.triple_double ? 1 : 0;
+        }
+        return {
+          ...p,
+          games_played: gp,
+          total_pts: t.pts, avg_pts: round(t.pts / gp),
+          total_reb: t.reb, avg_reb: round(t.reb / gp),
+          total_ast: t.ast, avg_ast: round(t.ast / gp),
+          total_stl: t.stl, avg_stl: round(t.stl / gp),
+          total_blk: t.blk, avg_blk: round(t.blk / gp),
+          total_tov: t.tov, avg_tov: round(t.tov / gp),
+          total_fgm: t.fgm, avg_fgm: round(t.fgm / gp),
+          total_fga: t.fga, avg_fga: round(t.fga / gp),
+          total_3pm: t.threepm, avg_3pm: round(t.threepm / gp),
+          total_3pa: t.threepa, avg_3pa: round(t.threepa / gp),
+          total_ftm: t.ftm, avg_ftm: round(t.ftm / gp),
+          total_fta: t.fta, avg_fta: round(t.fta / gp),
+          total_pf: t.pf, avg_pf: round(t.pf / gp),
+          total_dd: t.dd, total_td: t.td,
+          avg_min: round(t.min / gp),
+        } as PlayerSeasonStats;
+      });
+  }, [freeAgents, recentGameLogs, timeRange]);
+
   const { filteredPlayers, filterBarProps } = usePlayerFilter(
-    freeAgents,
+    adjustedPlayers,
     scoringWeights,
+    recentMinutesMap,
+    todaySchedule ?? undefined,
   );
+
+  // Look up original season stats for PlayerDetailModal (avoid passing time-range-adjusted stats)
+  const seasonStatsMap = useMemo(() => {
+    if (!freeAgents) return new Map<string, PlayerSeasonStats>();
+    return new Map(freeAgents.map(p => [p.player_id, p]));
+  }, [freeAgents]);
+
+  const selectPlayer = (player: PlayerSeasonStats) => {
+    setSelectedPlayer(seasonStatsMap.get(player.player_id) ?? player);
+  };
 
   // Compute when a claim will process
   function getProcessDate(playerId: string): string {
@@ -517,7 +713,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     if (!needsClaim) {
       if (rosterIsFull) {
         setOpenAsDropPicker(true);
-        setSelectedPlayer(player);
+        selectPlayer(player);
       } else {
         handleAddPlayer(player);
       }
@@ -529,7 +725,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       // Open drop picker in claim mode — player will be claimed, not instant added
       setClaimWithDropPlayer(player);
       setOpenAsDropPicker(true);
-      setSelectedPlayer(player);
+      selectPlayer(player);
     } else {
       triggerClaimFlow(player);
     }
@@ -544,11 +740,12 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     const logoUrl = getTeamLogoUrl(item.nba_team);
     const badge = getInjuryBadge(item.status);
     const needsClaim = isOnWaivers(item.player_id);
+    const gameToday = todaySchedule?.get(item.nba_team) ?? null;
 
     return (
       <TouchableOpacity
         style={[styles.row, { borderBottomColor: c.border }]}
-        onPress={() => setSelectedPlayer(item)}
+        onPress={() => selectPlayer(item)}
         activeOpacity={0.7}
         accessibilityRole="button"
         accessibilityLabel={`${item.name}, ${formatPosition(item.position)}, ${item.nba_team}${fpts !== undefined ? `, ${fpts} fantasy points` : ''}`}
@@ -590,9 +787,16 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
               </View>
             )}
           </View>
-          <ThemedText style={[styles.posText, { color: c.secondaryText }]}>
-            {formatPosition(item.position)}
-          </ThemedText>
+          <View style={styles.posRow}>
+            <ThemedText style={[styles.posText, { color: c.secondaryText }]}>
+              {formatPosition(item.position)}
+            </ThemedText>
+            {gameToday && (
+              <View style={styles.gameTodayBadge}>
+                <Text style={styles.gameTodayText}>{gameToday}</Text>
+              </View>
+            )}
+          </View>
         </View>
 
         <View style={styles.rightSide}>
@@ -609,10 +813,10 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
           <TouchableOpacity
             style={[
               needsClaim ? styles.claimButton : styles.addButton,
-              (isAdding || draftInProgress || isOffseason) && styles.addButtonDisabled,
+              (isAdding || draftInProgress || isOffseason || weeklyLimitReached) && styles.addButtonDisabled,
             ]}
             onPress={() => handleButtonPress(item)}
-            disabled={isAdding || draftInProgress || isOffseason}
+            disabled={isAdding || draftInProgress || isOffseason || weeklyLimitReached}
             accessibilityRole="button"
             accessibilityLabel={needsClaim ? `Claim ${item.name}` : `Add ${item.name}`}
           >
@@ -630,7 +834,8 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   if (isLoading) {
     return (
       <View style={styles.container}>
-        <PlayerFilterBar {...filterBarProps} />
+        <PlayerFilterBar {...filterBarProps} timeRange={timeRange} onTimeRangeChange={setTimeRange} />
+        {waiverOrderLoading && <SkeletonWaiverHeader color={c.border} />}
         <View style={styles.listContent}>
           {Array.from({ length: SKELETON_COUNT }, (_, i) => (
             <SkeletonRow key={i} color={c.border} index={i} />
@@ -642,13 +847,31 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
   return (
     <View style={styles.container}>
-      <PlayerFilterBar {...filterBarProps} />
+      <PlayerFilterBar {...filterBarProps} timeRange={timeRange} onTimeRangeChange={setTimeRange} />
 
       {isOffseason && (
         <View style={[styles.offseasonBanner, { backgroundColor: '#FF950022', borderColor: '#FF9500' }]}>
           <Ionicons name="lock-closed" size={14} color="#FF9500" />
           <ThemedText style={{ fontSize: 12, marginLeft: 6, color: c.secondaryText }}>
             Free agent transactions are locked during the offseason.
+          </ThemedText>
+        </View>
+      )}
+
+      {weeklyLimit != null && !isOffseason && (
+        <View style={[styles.offseasonBanner, {
+          backgroundColor: weeklyLimitReached ? '#dc354522' : '#007AFF12',
+          borderColor: weeklyLimitReached ? '#dc3545' : '#007AFF',
+        }]}>
+          <Ionicons
+            name={weeklyLimitReached ? "lock-closed" : "swap-horizontal"}
+            size={14}
+            color={weeklyLimitReached ? '#dc3545' : '#007AFF'}
+          />
+          <ThemedText style={{ fontSize: 12, marginLeft: 6, color: c.secondaryText }}>
+            {weeklyLimitReached
+              ? `Weekly add limit reached (${weeklyLimit}/${weeklyLimit})`
+              : `Adds this week: ${weeklyAddsUsed ?? 0}/${weeklyLimit}`}
           </ThemedText>
         </View>
       )}
@@ -710,7 +933,8 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       )}
 
       {/* Waiver Priority Order */}
-      {waiverType !== 'none' && waiverOrder && waiverOrder.length > 0 && (
+      {waiverOrderLoading && <SkeletonWaiverHeader color={c.border} />}
+      {waiverOrder && waiverOrder.length > 0 && (
         <View>
           <TouchableOpacity
             style={[styles.claimsHeader, { backgroundColor: c.card, borderColor: c.border }]}
@@ -733,7 +957,11 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
           </TouchableOpacity>
           {showWaiverOrder && (
             <View style={[styles.claimsList, { backgroundColor: c.card, borderColor: c.border }]}>
-              {waiverOrder.map((wp: any) => (
+              {!waiverOrder ? (
+                <View style={[styles.claimRow, { borderBottomWidth: 0 }]}>
+                  <ThemedText style={{ fontSize: 13, color: c.secondaryText }}>Loading…</ThemedText>
+                </View>
+              ) : waiverOrder.map((wp: any) => (
                 <View key={wp.team_id} style={[styles.claimRow, { borderBottomColor: c.border }]}>
                   <ThemedText style={{ fontSize: 14, fontWeight: '700', width: 24, color: c.secondaryText }}>
                     {wp.priority}
@@ -923,9 +1151,25 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: 0.5,
   },
+  posRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
   posText: {
     fontSize: 11,
     marginTop: 0,
+  },
+  gameTodayBadge: {
+    backgroundColor: "#007AFF22",
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 3,
+  },
+  gameTodayText: {
+    color: "#007AFF",
+    fontSize: 9,
+    fontWeight: "700",
   },
   rightSide: {
     flexDirection: "row",

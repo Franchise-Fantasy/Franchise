@@ -93,7 +93,7 @@ export function ByTeamTab({ picks, swaps, teams, validSeasons, pickConditionsEna
               item.bySeason.map(({ season, picks: seasonPicks, swaps: seasonSwaps }) => (
                 <View key={season} style={styles.seasonBlock}>
                   <ThemedText style={[styles.seasonLabel, { color: c.accent }]}>
-                    {parseInt(season.split('-')[0], 10) + 1}
+                    {season.split('-')[0]}
                   </ThemedText>
                   {seasonPicks.map((pick) => (
                     <View key={pick.id} style={[styles.pickRow, { borderBottomColor: c.border }]}>

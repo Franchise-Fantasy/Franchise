@@ -317,19 +317,20 @@ export function ProposeTradeModal({
   const [seeded, setSeeded] = useState(false);
   useEffect(() => {
     if (seeded || !leagueTeams?.length || !myTeam) return;
-    setSeeded(true);
     const preselectedTeam = preselectedTeamId
       ? leagueTeams.find((t) => t.id === preselectedTeamId)
       : null;
 
     // If a player is preselected, fetch their stats and compute avg_fpts before seeding
     if (preselectedPlayer) {
+      let cancelled = false;
       supabase
         .from('player_season_stats')
         .select('*')
         .eq('player_id', preselectedPlayer.player_id)
         .maybeSingle()
         .then(({ data }) => {
+          if (cancelled) return;
           const avgFpts = data && scoringWeights
             ? calculateAvgFantasyPoints(data as PlayerSeasonStats, scoringWeights)
             : 0;
@@ -341,7 +342,9 @@ export function ProposeTradeModal({
             partnerTeamName: preselectedTeam?.name,
             preselectedPlayer: { ...preselectedPlayer, avg_fpts: avgFpts },
           });
+          setSeeded(true);
         });
+      return () => { cancelled = true; };
     } else {
       dispatch({
         type: 'SEED_MY_TEAM',
@@ -350,6 +353,7 @@ export function ProposeTradeModal({
         partnerTeamId: preselectedTeam?.id,
         partnerTeamName: preselectedTeam?.name,
       });
+      setSeeded(true);
     }
   }, [leagueTeams, myTeam, seeded, teamId, preselectedTeamId, preselectedPlayer, scoringWeights]);
 
@@ -692,7 +696,12 @@ export function ProposeTradeModal({
               )}
 
               {/* Step 1: Asset selection — team cards scroll, fairness pinned below */}
-              {state.step === 1 && (
+              {state.step === 1 && !seeded && (
+                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                  <ActivityIndicator size="large" />
+                </View>
+              )}
+              {state.step === 1 && seeded && (
                 <View style={styles.assetLayout}>
                   <ScrollView contentContainerStyle={styles.assetScroll} showsVerticalScrollIndicator={false}>
                     {allBuilderTeams.map((bt) => {
@@ -877,7 +886,7 @@ export function ProposeTradeModal({
                           </ThemedText>
                           {bt.sending_players.map((p) => {
                             const dest = isSimpleTrade
-                              ? (isMe ? teamNameMap[state.selectedTeamIds[0]] : myTeam?.name)
+                              ? (isMe ? teamNameMap[state.selectedTeamIds[0]] : myTeam?.name ?? 'Unknown')
                               : teamNameMap[p.to_team_id];
                             return (
                               <View key={p.player_id} style={styles.reviewItemRow}>
@@ -894,7 +903,7 @@ export function ProposeTradeModal({
                           })}
                           {bt.sending_picks.map((pk) => {
                             const dest = isSimpleTrade
-                              ? (isMe ? teamNameMap[state.selectedTeamIds[0]] : myTeam?.name)
+                              ? (isMe ? teamNameMap[state.selectedTeamIds[0]] : myTeam?.name ?? 'Unknown')
                               : teamNameMap[pk.to_team_id];
                             return (
                               <View key={pk.draft_pick_id} style={styles.reviewItemRow}>
@@ -984,7 +993,7 @@ export function ProposeTradeModal({
                       },
                     ]}
                     disabled={
-                      (state.step === 0 && state.selectedTeamIds.length === 0) ||
+                      (state.step === 0 && (state.selectedTeamIds.length === 0 || !seeded)) ||
                       (state.step === 1 && !hasAssets)
                     }
                     onPress={() => dispatch({ type: 'NEXT_STEP' })}

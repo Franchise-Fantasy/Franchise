@@ -14,8 +14,14 @@ import { isExpoGo } from "@/utils/buildConfig";
 
 // Sentry requires native modules — only initialize in TestFlight / production builds.
 if (!isExpoGo) {
-  const Sentry = require("@sentry/react-native");
-  Sentry.init({ dsn: process.env.EXPO_PUBLIC_SENTRY_DSN });
+  try {
+    const Sentry = require("@sentry/react-native");
+    if (process.env.EXPO_PUBLIC_SENTRY_DSN) {
+      Sentry.init({ dsn: process.env.EXPO_PUBLIC_SENTRY_DSN });
+    }
+  } catch {
+    // Sentry native module not available — skip silently
+  }
 }
 
 // Show foreground alerts for high-priority channels; suppress others.

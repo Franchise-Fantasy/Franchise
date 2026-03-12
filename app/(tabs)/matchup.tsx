@@ -17,7 +17,7 @@ import { aggregateTeamStats, computeCategoryResults, TeamStatTotals } from '@/ut
 import { liveToGameLog, LivePlayerStats, useLivePlayerStats } from '@/utils/nbaLive';
 import { toDateStr, parseLocalDate, addDays, formatDayLabel, useToday } from '@/utils/dates';
 import { fetchNbaScheduleForDate } from '@/utils/nbaSchedule';
-import { calculateGameFantasyPoints } from '@/utils/fantasyPoints';
+import { calculateGameFantasyPoints, calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
 import { useLeagueRosterConfig, RosterConfigSlot } from '@/hooks/useLeagueRosterConfig';
 import { slotLabel } from '@/utils/rosterSlots';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -218,6 +218,17 @@ async function fetchTeamData(
 
   const teamStats = aggregateTeamStats(activeGames);
 
+  // Fetch season stats for projected FPTS (season avg per game)
+  const { data: seasonStats } = await supabase
+    .from('player_season_stats')
+    .select('player_id, games_played, total_pts, total_reb, total_ast, total_stl, total_blk, total_tov, total_fgm, total_fga, total_3pm, total_3pa, total_ftm, total_fta, total_pf, total_dd, total_td')
+    .in('player_id', playerIds);
+
+  const projMap = new Map<string, number>();
+  for (const ps of seasonStats ?? []) {
+    projMap.set(ps.player_id, calculateAvgFantasyPoints(ps as any, scoring));
+  }
+
   return { players: leaguePlayers.map((lp: any) => ({
       player_id: lp.player_id,
       name: lp.players?.name ?? '—',
@@ -237,6 +248,7 @@ async function fetchTeamData(
         const ds = dayStatsMap.get(lp.player_id);
         return ds ? buildStatLine(ds, scoring) : null;
       })(),
+      projectedFpts: projMap.get(lp.player_id) ?? null,
     })), teamStats };
 }
 
@@ -380,10 +392,25 @@ function MatchupBoard({
   scoringType?: string;
 }) {
   const isCategories = scoringType === 'h2h_categories';
+
+  // For future mode, compute projected day total from active players' season averages
+  const computeProjectedDay = (players: RosterPlayer[], schedule?: Map<string, string>) => {
+    if (!schedule) return 0;
+    return round1(players.reduce((sum, p) => {
+      if (p.roster_slot === 'BE' || p.roster_slot === 'IR') return sum;
+      if (!p.nbaTricode || !schedule.has(p.nbaTricode)) return sum;
+      return sum + (p.projectedFpts ?? 0);
+    }, 0));
+  };
+
   const myWeek = round1(myTeam.weekTotal + myLiveBonus);
-  const myDay = round1(myTeam.dayTotal + myLiveBonus);
+  const myDay = mode === 'future'
+    ? computeProjectedDay(myTeam.players, futureSchedule)
+    : round1(myTeam.dayTotal + myLiveBonus);
   const oppWeek = opponentTeam ? round1(opponentTeam.weekTotal + oppLiveBonus) : 0;
-  const oppDay = opponentTeam ? round1(opponentTeam.dayTotal + oppLiveBonus) : 0;
+  const oppDay = mode === 'future' && opponentTeam
+    ? computeProjectedDay(opponentTeam.players, futureSchedule)
+    : (opponentTeam ? round1(opponentTeam.dayTotal + oppLiveBonus) : 0);
 
   // For category leagues, compute live category comparison
   const categoryComparison = isCategories && opponentTeam
@@ -424,7 +451,9 @@ function MatchupBoard({
               {seedMap?.has(myTeam.teamId) ? `#${seedMap.get(myTeam.teamId)} ` : ''}{myTeam.teamName}
             </Text>
             <Text style={[colStyles.total, { color: c.accent }]}>{myWeek.toFixed(1)}</Text>
-            {mode !== 'future' && (
+            {mode === 'future' ? (
+              <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>{myDay.toFixed(1)} proj</Text>
+            ) : (
               <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>{myDay.toFixed(1)} today</Text>
             )}
           </View>
@@ -436,7 +465,9 @@ function MatchupBoard({
                 : 'BYE'}
             </Text>
             <Text style={[colStyles.total, { color: c.accent }]}>{oppWeek.toFixed(1)}</Text>
-            {mode !== 'future' && (
+            {mode === 'future' ? (
+              <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>{oppDay.toFixed(1)} proj</Text>
+            ) : (
               <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>{oppDay.toFixed(1)} today</Text>
             )}
           </View>
@@ -481,6 +512,50 @@ function MatchupBoard({
           </View>
         );
       })}
+
+      {/* Bench section */}
+      {(() => {
+        const myBench = myTeam.players.filter((p) => p.roster_slot === 'BE');
+        const oppBench = opponentTeam?.players.filter((p) => p.roster_slot === 'BE') ?? [];
+        if (myBench.length === 0 && oppBench.length === 0) return null;
+        const maxBench = Math.max(myBench.length, oppBench.length);
+        return (
+          <View style={{ marginTop: 12 }}>
+            <View style={{ alignItems: 'center', paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.border }}>
+              <Text style={{ color: c.secondaryText, fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>BENCH</Text>
+            </View>
+            {Array.from({ length: maxBench }).map((_, i) => (
+              <View key={`bench-${i}`} style={[pStyles.slotRow, { borderBottomColor: c.border, opacity: 0.7 }]}>
+                <PlayerCell
+                  player={myBench[i] ?? null}
+                  c={c}
+                  side="left"
+                  mode={mode}
+                  liveStats={myBench[i] ? (liveMap.get(myBench[i].player_id) ?? null) : null}
+                  scoring={scoring}
+                  futureSchedule={futureSchedule}
+                  onPress={onPlayerPress}
+                  isCategories={isCategories}
+                />
+                <View style={pStyles.slotCenter}>
+                  <Text style={[pStyles.slotText, { color: c.secondaryText }]}>BE</Text>
+                </View>
+                <PlayerCell
+                  player={oppBench[i] ?? null}
+                  c={c}
+                  side="right"
+                  mode={mode}
+                  liveStats={oppBench[i] ? (liveMap.get(oppBench[i].player_id) ?? null) : null}
+                  scoring={scoring}
+                  futureSchedule={futureSchedule}
+                  onPress={onPlayerPress}
+                  isCategories={isCategories}
+                />
+              </View>
+            ))}
+          </View>
+        );
+      })()}
     </View>
   );
 }
@@ -655,7 +730,9 @@ export default function MatchupScreen() {
           </View>
           <View style={styles.navArrow}><Text style={[styles.arrow, { color: c.buttonDisabled }]}>›</Text></View>
         </View>
-        <MatchupSkeleton c={c} />
+        <View style={{ padding: 12 }}>
+          <MatchupSkeleton c={c} />
+        </View>
       </SafeAreaView>
     );
   }

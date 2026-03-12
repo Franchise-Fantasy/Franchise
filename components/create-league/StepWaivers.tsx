@@ -35,6 +35,20 @@ export function StepWaivers({ state, onChange }: StepWaiversProps) {
         </View>
       )}
 
+      <View style={styles.section}>
+        <NumberStepper
+          label="Weekly Add Limit"
+          value={state.weeklyAcquisitionLimit ?? 0}
+          onValueChange={(v) => onChange('weeklyAcquisitionLimit', v === 0 ? null : v)}
+          min={0}
+          max={20}
+          accessibilityLabel="Weekly acquisition limit, 0 means unlimited"
+        />
+        <ThemedText style={[styles.hint]}>
+          {state.weeklyAcquisitionLimit ? `Max ${state.weeklyAcquisitionLimit} adds per week` : 'Unlimited adds per week'}
+        </ThemedText>
+      </View>
+
       {state.waiverType === 'FAAB' && (
         <>
           <View style={styles.section}>
@@ -76,5 +90,10 @@ const styles = StyleSheet.create({
   },
   section: {
     marginBottom: 20,
+  },
+  hint: {
+    fontSize: 11,
+    marginTop: 4,
+    opacity: 0.6,
   },
 });

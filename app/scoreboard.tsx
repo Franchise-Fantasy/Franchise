@@ -99,7 +99,7 @@ async function fetchPlayoffSeeds(
   leagueId: string,
   season: string,
   round: number,
-): Promise<Map<string, number>> {
+): Promise<Record<string, number>> {
   const { data, error } = await supabase
     .from('playoff_bracket')
     .select('team_a_id, team_a_seed, team_b_id, team_b_seed')
@@ -107,22 +107,22 @@ async function fetchPlayoffSeeds(
     .eq('season', season)
     .eq('round', round);
   if (error) throw error;
-  const map = new Map<string, number>();
+  const map: Record<string, number> = {};
   for (const row of data ?? []) {
-    if (row.team_a_id && row.team_a_seed) map.set(row.team_a_id, row.team_a_seed);
-    if (row.team_b_id && row.team_b_seed) map.set(row.team_b_id, row.team_b_seed);
+    if (row.team_a_id && row.team_a_seed) map[row.team_a_id] = row.team_a_seed;
+    if (row.team_b_id && row.team_b_seed) map[row.team_b_id] = row.team_b_seed;
   }
   return map;
 }
 
-async function fetchLeagueTeams(leagueId: string): Promise<Map<string, LeagueTeam>> {
+async function fetchLeagueTeams(leagueId: string): Promise<Record<string, LeagueTeam>> {
   const { data, error } = await supabase
     .from('teams')
     .select('id, name, wins, losses, ties')
     .eq('league_id', leagueId);
   if (error) throw error;
-  const map = new Map<string, LeagueTeam>();
-  for (const t of data ?? []) map.set(t.id, t);
+  const map: Record<string, LeagueTeam> = {};
+  for (const t of data ?? []) map[t.id] = t;
   return map;
 }
 
@@ -131,12 +131,12 @@ async function computeAllTeamScores(
   leagueId: string,
   week: Week,
   scoring: ScoringWeight[],
-): Promise<Map<string, number>> {
+): Promise<Record<string, number>> {
   const today = toDateStr(new Date());
   const endDate = addDays(today, -1); // through yesterday (today's games not finalized)
 
   // If the week hasn't started or no past days yet, return empty
-  if (week.start_date > endDate) return new Map();
+  if (week.start_date > endDate) return {};
 
   // Fetch all rostered players
   const { data: leaguePlayers } = await supabase
@@ -144,7 +144,7 @@ async function computeAllTeamScores(
     .select('player_id, team_id, roster_slot')
     .eq('league_id', leagueId);
 
-  if (!leaguePlayers || leaguePlayers.length === 0) return new Map();
+  if (!leaguePlayers || leaguePlayers.length === 0) return {};
 
   const playerIds = leaguePlayers.map((lp) => lp.player_id);
   const defaultSlotByPlayer = new Map<string, { teamId: string; slot: string }>();
@@ -188,7 +188,7 @@ async function computeAllTeamScores(
     .lte('game_date', endDate);
 
   // Sum fantasy points per team
-  const teamScores = new Map<string, number>();
+  const teamScores: Record<string, number> = {};
   for (const game of gameLogs ?? []) {
     const info = defaultSlotByPlayer.get(game.player_id);
     if (!info) continue;
@@ -197,11 +197,11 @@ async function computeAllTeamScores(
     if (slot === 'BE' || slot === 'IR') continue;
 
     const fp = calculateGameFantasyPoints(game as any, scoring);
-    teamScores.set(info.teamId, (teamScores.get(info.teamId) ?? 0) + fp);
+    teamScores[info.teamId] = (teamScores[info.teamId] ?? 0) + fp;
   }
 
   // Round all values
-  for (const [k, v] of teamScores) teamScores.set(k, round1(v));
+  for (const k of Object.keys(teamScores)) teamScores[k] = round1(teamScores[k]);
 
   return teamScores;
 }
@@ -234,7 +234,7 @@ function useScoreboardData(
 
   // All teams in the league
   const teamsQuery = useQuery({
-    queryKey: ['leagueTeams', leagueId],
+    queryKey: ['leagueTeamsRecord', leagueId],
     queryFn: () => fetchLeagueTeams(leagueId!),
     enabled: !!leagueId,
     staleTime: 1000 * 60 * 10,
@@ -265,7 +265,7 @@ function useScoreboardData(
     matchups: matchupsQuery.data,
     teamMap: teamsQuery.data,
     computedScores: computedQuery.data,
-    seedMap: seedsQuery.data ?? null,
+    seedMap: seedsQuery.data ?? {},
     isPlayoff: week?.is_playoff ?? false,
     isLoading:
       matchupsQuery.isLoading || teamsQuery.isLoading || (weekState === 'live' && computedQuery.isLoading),
@@ -323,7 +323,7 @@ export default function ScoreboardScreen() {
   // Get score for a team in a matchup
   const getScore = (m: ScoreboardMatchup, teamIdToCheck: string): number => {
     if (weekState === 'live' && computedScores) {
-      return computedScores.get(teamIdToCheck) ?? 0;
+      return computedScores[teamIdToCheck] ?? 0;
     }
     // Past/finalized weeks use stored scores
     return teamIdToCheck === m.home_team_id ? m.home_score ?? 0 : m.away_score ?? 0;
@@ -451,9 +451,9 @@ export default function ScoreboardScreen() {
         ) : (
           sortedMatchups.map((matchup) => {
             const mine = isMyMatchup(matchup);
-            const homeTeam = teamMap?.get(matchup.home_team_id);
+            const homeTeam = teamMap?.[matchup.home_team_id];
             const awayTeam = matchup.away_team_id
-              ? teamMap?.get(matchup.away_team_id)
+              ? teamMap?.[matchup.away_team_id]
               : null;
             const isBye = !matchup.away_team_id;
             const homeScore = getScore(matchup, matchup.home_team_id);
@@ -474,6 +474,7 @@ export default function ScoreboardScreen() {
                     backgroundColor: mine ? c.activeCard : c.card,
                     borderColor: mine ? c.activeBorder : c.border,
                   },
+                  mine && styles.myMatchupCard,
                 ]}
                 activeOpacity={0.7}
                 onPress={() => router.push(`/matchup-detail/${matchup.id}` as any)}
@@ -500,9 +501,9 @@ export default function ScoreboardScreen() {
                 {/* Home team row */}
                 <View style={styles.teamRow}>
                   <View style={styles.teamInfo}>
-                    {isPlayoff && seedMap?.has(matchup.home_team_id) && (
+                    {isPlayoff && seedMap?.[matchup.home_team_id] && (
                       <Text style={[styles.seedBadge, { color: c.secondaryText }]}>
-                        #{seedMap.get(matchup.home_team_id)}
+                        #{seedMap[matchup.home_team_id]}
                       </Text>
                     )}
                     <ThemedText style={styles.teamName} numberOfLines={1}>
@@ -546,9 +547,9 @@ export default function ScoreboardScreen() {
                 ) : (
                   <View style={styles.teamRow}>
                     <View style={styles.teamInfo}>
-                      {isPlayoff && matchup.away_team_id && seedMap?.has(matchup.away_team_id) && (
+                      {isPlayoff && matchup.away_team_id && seedMap?.[matchup.away_team_id] && (
                         <Text style={[styles.seedBadge, { color: c.secondaryText }]}>
-                          #{seedMap.get(matchup.away_team_id)}
+                          #{seedMap[matchup.away_team_id]}
                         </Text>
                       )}
                       <ThemedText style={styles.teamName} numberOfLines={1}>
@@ -650,6 +651,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     marginBottom: 10,
+  },
+  myMatchupCard: {
+    borderWidth: 1.5,
+    marginBottom: 14,
+    paddingVertical: 14,
   },
   statusRow: {
     marginBottom: 8,

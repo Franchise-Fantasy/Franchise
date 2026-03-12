@@ -70,7 +70,7 @@ export function useDraftHub(leagueId: string | null) {
       const currentStartYear = parseInt(CURRENT_NBA_SEASON.split('-')[0], 10);
 
       const validSeasons: string[] = [];
-      for (let i = 0; i <= maxFuture; i++) {
+      for (let i = 1; i <= maxFuture; i++) {
         const startYear = currentStartYear + i;
         const endYear = (startYear + 1) % 100;
         validSeasons.push(`${startYear}-${String(endYear).padStart(2, '0')}`);

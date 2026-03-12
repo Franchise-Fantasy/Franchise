@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { isExpoGo } from "@/utils/buildConfig";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import * as Crypto from "expo-crypto";
 import React, { useState } from "react";
 import {
   Alert,
@@ -152,8 +153,23 @@ export default function Auth() {
     if (!GOOGLE_ENABLED) return;
     setLoading(true);
     try {
-      await GoogleSignin.hasPlayServices();
-      const response = await GoogleSignin.signIn();
+      if (Platform.OS === "android") await GoogleSignin.hasPlayServices();
+
+      // Android supports nonce in the ID token; iOS does not embed it reliably.
+      let rawNonce: string | undefined;
+      let signInOptions: Record<string, string> | undefined;
+
+      if (Platform.OS === "android") {
+        rawNonce = Crypto.getRandomValues(new Uint8Array(16))
+          .reduce((s: string, b: number) => s + b.toString(16).padStart(2, "0"), "");
+        const hashedNonce = await Crypto.digestStringAsync(
+          Crypto.CryptoDigestAlgorithm.SHA256,
+          rawNonce,
+        );
+        signInOptions = { nonce: hashedNonce };
+      }
+
+      const response = await GoogleSignin.signIn(signInOptions);
 
       if (!response.data?.idToken) {
         Alert.alert("Google Sign-In failed", "No ID token returned.");
@@ -164,6 +180,7 @@ export default function Auth() {
       const { data, error } = await supabase.auth.signInWithIdToken({
         provider: "google",
         token: response.data.idToken,
+        ...(rawNonce ? { nonce: rawNonce } : {}),
       });
 
       if (error) {

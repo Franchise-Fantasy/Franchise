@@ -489,23 +489,63 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose }: TradeD
                   </>
                 )}
 
-                {/* Pending: proposer can cancel */}
-                {proposal.status === 'pending' && isProposer && (
+                {/* Pending: commissioner can push through or veto */}
+                {proposal.status === 'pending' && isCommissioner && (
+                  <>
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      accessibilityLabel="Push trade through"
+                      style={[styles.actionBtn, { backgroundColor: '#28a745' }]}
+                      onPress={() => Alert.alert(
+                        'Push Trade Through',
+                        'Force-execute this trade immediately, even if not all parties have accepted?',
+                        [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Push Through', onPress: handleCommissionerApprove },
+                        ]
+                      )}
+                    >
+                      <ThemedText style={styles.actionBtnText}>Push Through</ThemedText>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      accessibilityLabel="Veto trade"
+                      style={[styles.actionBtn, { backgroundColor: '#dc3545' }]}
+                      onPress={() => Alert.alert('Veto Trade', 'Veto this trade?', [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Veto', style: 'destructive', onPress: handleCommissionerVeto },
+                      ])}
+                    >
+                      <ThemedText style={styles.actionBtnText}>Veto</ThemedText>
+                    </TouchableOpacity>
+                  </>
+                )}
+
+                {/* Pending: any involved team can back out */}
+                {proposal.status === 'pending' && isInvolved && (
                   <TouchableOpacity
                     accessibilityRole="button"
-                    accessibilityLabel="Cancel trade"
+                    accessibilityLabel={isProposer ? 'Cancel trade' : 'Back out of trade'}
                     style={[styles.actionBtn, { backgroundColor: '#6c757d' }]}
-                    onPress={() => Alert.alert('Cancel Trade', 'Withdraw this trade proposal?', [
-                      { text: 'No', style: 'cancel' },
-                      { text: 'Withdraw', style: 'destructive', onPress: handleCancel },
-                    ])}
+                    onPress={() => Alert.alert(
+                      isProposer ? 'Cancel Trade' : 'Back Out',
+                      isProposer
+                        ? 'Withdraw this trade proposal?'
+                        : 'Back out and cancel this trade for all parties?',
+                      [
+                        { text: 'No', style: 'cancel' },
+                        { text: isProposer ? 'Withdraw' : 'Back Out', style: 'destructive', onPress: handleCancel },
+                      ]
+                    )}
                   >
-                    <ThemedText style={styles.actionBtnText}>Cancel Trade</ThemedText>
+                    <ThemedText style={styles.actionBtnText}>
+                      {isProposer ? 'Cancel Trade' : 'Back Out'}
+                    </ThemedText>
                   </TouchableOpacity>
                 )}
 
-                {/* In review: commissioner actions */}
-                {proposal.status === 'in_review' && isCommissioner && leagueSettings?.trade_veto_type === 'commissioner' && (
+                {/* In review: commissioner can always approve/veto regardless of veto type */}
+                {proposal.status === 'in_review' && isCommissioner && (
                   <>
                     <TouchableOpacity
                       accessibilityRole="button"
@@ -532,8 +572,8 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose }: TradeD
                   </>
                 )}
 
-                {/* In review: league vote */}
-                {proposal.status === 'in_review' && leagueSettings?.trade_veto_type === 'league_vote' && !isInvolved && !hasVoted && (
+                {/* In review: league vote (non-commissioner members) */}
+                {proposal.status === 'in_review' && leagueSettings?.trade_veto_type === 'league_vote' && !isCommissioner && !isInvolved && !hasVoted && (
                   <TouchableOpacity
                     accessibilityRole="button"
                     accessibilityLabel="Vote to veto trade"
@@ -545,6 +585,13 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose }: TradeD
                   >
                     <ThemedText style={styles.actionBtnText}>Vote to Veto</ThemedText>
                   </TouchableOpacity>
+                )}
+
+                {/* Already voted indicator */}
+                {proposal.status === 'in_review' && leagueSettings?.trade_veto_type === 'league_vote' && !isCommissioner && hasVoted && (
+                  <View style={[styles.actionBtn, { backgroundColor: c.cardAlt }]} accessibilityLabel="You voted to veto this trade">
+                    <ThemedText style={[styles.votedText, { color: c.secondaryText }]}>You voted to veto</ThemedText>
+                  </View>
                 )}
               </>
             )}
@@ -687,6 +734,10 @@ const styles = StyleSheet.create({
   actionBtnText: {
     color: '#fff',
     fontSize: 15,
+    fontWeight: '600',
+  },
+  votedText: {
+    fontSize: 13,
     fontWeight: '600',
   },
 });

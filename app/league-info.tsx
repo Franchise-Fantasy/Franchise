@@ -378,9 +378,10 @@ export default function LeagueInfoScreen() {
           {league.waiver_type === 'faab' && (
             <>
               <Row label="Process Day" value={WAIVER_DAY_LABELS[league.waiver_day_of_week ?? 3]} c={c} />
-              <Row label="FAAB Budget" value={`$${league.faab_budget ?? 100}`} c={c} last />
+              <Row label="FAAB Budget" value={`$${league.faab_budget ?? 100}`} c={c} />
             </>
           )}
+          <Row label="Weekly Add Limit" value={league.weekly_acquisition_limit != null ? String(league.weekly_acquisition_limit) : 'Unlimited'} c={c} last />
         </SectionCard>
 
         {/* ── Season Settings ── */}
