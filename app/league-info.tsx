@@ -17,7 +17,7 @@ import { TeamAssigner } from '@/components/import/TeamAssigner';
 import { SeasonHistory } from '@/components/home/SeasonHistory';
 import { useAnnouncements } from '@/hooks/useAnnouncements';
 import { Colors } from '@/constants/Colors';
-import { SEEDING_DISPLAY, WAIVER_DAY_LABELS } from '@/constants/LeagueDefaults';
+import { LEAGUE_TYPE_DISPLAY, SEEDING_DISPLAY, WAIVER_DAY_LABELS } from '@/constants/LeagueDefaults';
 import { useAppState } from '@/context/AppStateProvider';
 import { useSession } from '@/context/AuthProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -183,6 +183,9 @@ export default function LeagueInfoScreen() {
         {isCommissioner && (
           <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border, borderLeftWidth: 3, borderLeftColor: '#FF9500' }]}>
             <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">Commissioner Dashboard</ThemedText>
+
+            {/* ── League Management ── */}
+            <ThemedText style={[styles.commGroupLabel, { color: c.secondaryText }]} accessibilityRole="header">League Management</ThemedText>
             <TouchableOpacity
               style={[styles.commAction, { borderBottomColor: c.border }]}
               onPress={() => setShowSendAnnouncement(true)}
@@ -194,7 +197,7 @@ export default function LeagueInfoScreen() {
               <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.commAction, { borderBottomColor: c.border }]}
+              style={[styles.commAction, { borderBottomWidth: 0 }]}
               onPress={() => setShowPaymentLedger(true)}
               accessibilityRole="button"
               accessibilityLabel="Payment Ledger"
@@ -203,32 +206,39 @@ export default function LeagueInfoScreen() {
               <ThemedText style={[styles.commActionText, { color: '#34C759' }]}>Payment Ledger</ThemedText>
               <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
             </TouchableOpacity>
-            <View style={[styles.commDivider, { borderBottomColor: c.border }]} />
+
+            {/* ── Season ── */}
             {lifecycle === 'mid_season' && !league?.offseason_step && (
-              <TouchableOpacity
-                style={[styles.commAction, { borderBottomColor: c.border }, (advancingseason || !playoffsComplete) && { opacity: 0.5 }]}
-                onPress={handleAdvanceSeason}
-                disabled={advancingseason || !playoffsComplete}
-                accessibilityRole="button"
-                accessibilityLabel={playoffsComplete ? 'Advance to Offseason' : 'Advance to Offseason, disabled until playoffs complete'}
-                accessibilityState={{ disabled: advancingseason || !playoffsComplete }}
-              >
-                <Ionicons name="calendar" size={18} color="#FF9500" accessible={false} />
-                <View style={{ flex: 1 }}>
-                  <ThemedText style={[styles.commActionText, { color: '#FF9500' }]}>Advance to Offseason</ThemedText>
-                  {!playoffsComplete && (
-                    <ThemedText style={{ fontSize: 11, color: c.secondaryText, marginTop: 2 }}>
-                      Playoffs must finish first
-                    </ThemedText>
+              <>
+                <ThemedText style={[styles.commGroupLabel, { color: c.secondaryText }]} accessibilityRole="header">Season</ThemedText>
+                <TouchableOpacity
+                  style={[styles.commAction, { borderBottomWidth: 0 }, (advancingseason || !playoffsComplete) && { opacity: 0.5 }]}
+                  onPress={handleAdvanceSeason}
+                  disabled={advancingseason || !playoffsComplete}
+                  accessibilityRole="button"
+                  accessibilityLabel={playoffsComplete ? 'Advance to Offseason' : 'Advance to Offseason, disabled until playoffs complete'}
+                  accessibilityState={{ disabled: advancingseason || !playoffsComplete }}
+                >
+                  <Ionicons name="calendar" size={18} color="#FF9500" accessible={false} />
+                  <View style={{ flex: 1 }}>
+                    <ThemedText style={[styles.commActionText, { color: '#FF9500' }]}>Advance to Offseason</ThemedText>
+                    {!playoffsComplete && (
+                      <ThemedText style={{ fontSize: 11, color: c.secondaryText, marginTop: 2 }}>
+                        Playoffs must finish first
+                      </ThemedText>
+                    )}
+                  </View>
+                  {advancingseason ? (
+                    <ActivityIndicator size="small" color="#FF9500" />
+                  ) : (
+                    <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
                   )}
-                </View>
-                {advancingseason ? (
-                  <ActivityIndicator size="small" color="#FF9500" />
-                ) : (
-                  <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
-                )}
-              </TouchableOpacity>
+                </TouchableOpacity>
+              </>
             )}
+
+            {/* ── Roster & Trade Corrections ── */}
+            <ThemedText style={[styles.commGroupLabel, { color: c.secondaryText }]} accessibilityRole="header">Roster & Trade Corrections</ThemedText>
             <TouchableOpacity
               style={[styles.commAction, { borderBottomColor: c.border }]}
               onPress={() => setShowReverseTrade(true)}
@@ -250,7 +260,7 @@ export default function LeagueInfoScreen() {
               <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.commAction, { borderBottomColor: c.border, borderBottomWidth: league?.pick_conditions_enabled ? StyleSheet.hairlineWidth : 0 }]}
+              style={[styles.commAction, { borderBottomColor: c.border, borderBottomWidth: (league?.league_type ?? 'dynasty') === 'dynasty' && league?.pick_conditions_enabled ? StyleSheet.hairlineWidth : 0 }]}
               onPress={() => setShowForceMove(true)}
               accessibilityRole="button"
               accessibilityLabel="Force Roster Move"
@@ -259,7 +269,7 @@ export default function LeagueInfoScreen() {
               <ThemedText style={styles.commActionText}>Force Roster Move</ThemedText>
               <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
             </TouchableOpacity>
-            {league?.pick_conditions_enabled && (
+            {(league?.league_type ?? 'dynasty') === 'dynasty' && league?.pick_conditions_enabled && (
               <TouchableOpacity
                 style={[styles.commAction, { borderBottomWidth: 0 }]}
                 onPress={() => setShowPickConditions(true)}
@@ -282,6 +292,10 @@ export default function LeagueInfoScreen() {
         {/* ── League Basics ── */}
         <SectionCard title="League Basics" c={c} editable={sectionEditable('basics', lifecycle, isCommissioner)} onEdit={() => setShowBasicsModal(true)}>
           <Row label="Name" value={league.name} c={c} />
+          <Row label="League Type" value={LEAGUE_TYPE_DISPLAY[league.league_type] ?? 'Dynasty'} c={c} />
+          {league.league_type === 'keeper' && (
+            <Row label="Keepers Per Team" value={String(league.keeper_count ?? '-')} c={c} />
+          )}
           <Row label="Visibility" value={league.private ? 'Private' : 'Public'} c={c} />
           {league.private && league.invite_code && (
             <Row label="Invite Code" value={league.invite_code} c={c} />
@@ -302,10 +316,12 @@ export default function LeagueInfoScreen() {
         </SectionCard>
 
         {/* ── Scoring ── */}
-        <SectionCard title="Scoring" c={c} editable={sectionEditable('scoring', lifecycle, isCommissioner)} onEdit={() => setShowScoringModal(true)}>
+        <SectionCard title={league?.scoring_type === 'h2h_categories' ? 'Categories' : 'Scoring'} c={c} editable={sectionEditable('scoring', lifecycle, isCommissioner)} onEdit={() => setShowScoringModal(true)}>
           <ThemedText style={[styles.summaryText, { color: c.secondaryText }]}>
             {scoring
-              ? scoring.map((s) => `${s.stat_name}: ${s.point_value > 0 ? '+' : ''}${s.point_value}`).join('  |  ')
+              ? league?.scoring_type === 'h2h_categories'
+                ? scoring.map((s) => `${s.stat_name}${s.inverse ? ' ▼' : ''}`).join('  |  ')
+                : scoring.map((s) => `${s.stat_name}: ${s.point_value > 0 ? '+' : ''}${s.point_value}`).join('  |  ')
               : 'Loading...'}
           </ThemedText>
         </SectionCard>
@@ -315,13 +331,17 @@ export default function LeagueInfoScreen() {
           <Row label="Type" value={draft ? DRAFT_TYPE_DISPLAY(draft.draft_type ?? 'snake') : '-'} c={c} />
           <Row label="Time Per Pick" value={draft ? `${draft.time_limit ?? 90}s` : '-'} c={c} />
           <Row label="Status" value={draft ? (draft.status.charAt(0).toUpperCase() + draft.status.slice(1).replace('_', ' ')) : '-'} c={c} />
-          <Row label="Future Draft Years" value={String(league.max_future_seasons ?? '-')} c={c} />
-          <Row label="Rookie Draft Rounds" value={String(league.rookie_draft_rounds ?? '-')} c={c} />
-          <Row label="Rookie Draft Order" value={ORDER_DISPLAY[league.rookie_draft_order] ?? '-'} c={c} />
-          {league.rookie_draft_order === 'lottery' && (
-            <Row label="Lottery Draws" value={String(league.lottery_draws ?? '-')} c={c} />
+          {(league.league_type ?? 'dynasty') === 'dynasty' && (
+            <>
+              <Row label="Future Draft Years" value={String(league.max_future_seasons ?? '-')} c={c} />
+              <Row label="Rookie Draft Rounds" value={String(league.rookie_draft_rounds ?? '-')} c={c} />
+              <Row label="Rookie Draft Order" value={ORDER_DISPLAY[league.rookie_draft_order] ?? '-'} c={c} />
+              {league.rookie_draft_order === 'lottery' && (
+                <Row label="Lottery Draws" value={String(league.lottery_draws ?? '-')} c={c} />
+              )}
+              <Row label="Initial Draft, Pick Trading" value={league.draft_pick_trading_enabled ? 'Enabled' : 'Disabled'} c={c} />
+            </>
           )}
-          <Row label="Initial Draft, Pick Trading" value={league.draft_pick_trading_enabled ? 'Enabled' : 'Disabled'} c={c} last />
         </SectionCard>
 
         {/* ── Trade Settings ── */}
@@ -333,7 +353,9 @@ export default function LeagueInfoScreen() {
           {league.trade_veto_type === 'league_vote' && (
             <Row label="Votes to Veto" value={String(league.trade_votes_to_veto ?? '-')} c={c} />
           )}
-          <Row label="Pick Protections & Swaps" value={league.pick_conditions_enabled ? 'Enabled' : 'Disabled'} c={c} />
+          {(league.league_type ?? 'dynasty') === 'dynasty' && (
+            <Row label="Pick Protections & Swaps" value={league.pick_conditions_enabled ? 'Enabled' : 'Disabled'} c={c} />
+          )}
           <Row label="Trade Deadline" value={league.trade_deadline ? `After Week ${(() => {
             if (!league.season_start_date) return '?';
             const deadline = new Date(league.trade_deadline + 'T00:00:00');
@@ -482,6 +504,7 @@ export default function LeagueInfoScreen() {
             onClose={() => setShowScoringModal(false)}
             leagueId={leagueId}
             scoring={scoring}
+            scoringType={league?.scoring_type}
           />
           <EditDraftSettingsModal
             visible={showDraftModal}
@@ -673,7 +696,14 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   commActionText: { flex: 1, fontSize: 14 },
-  commDivider: { borderBottomWidth: StyleSheet.hairlineWidth, marginVertical: 4 },
+  commGroupLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginTop: 14,
+    marginBottom: 4,
+  },
   announcementRow: { paddingVertical: 10, paddingHorizontal: 12 },
   announcementDate: { fontSize: 12, marginBottom: 2 },
   announcementText: { fontSize: 14 },

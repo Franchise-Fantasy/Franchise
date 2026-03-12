@@ -11,7 +11,7 @@ export function usePlayerGameLog(playerId: string) {
         .select('*')
         .eq('player_id', playerId)
         .order('game_date', { ascending: false })
-        .limit(50);
+        .limit(82);
 
       if (error) throw error;
       return data as PlayerGameLog[];

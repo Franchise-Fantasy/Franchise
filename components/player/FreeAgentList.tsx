@@ -5,6 +5,7 @@ import { Colors } from "@/constants/Colors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
 import { usePlayerFilter } from "@/hooks/usePlayerFilter";
+import { sendNotification } from "@/lib/notifications";
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
 import { calculateAvgFantasyPoints } from "@/utils/fantasyPoints";
@@ -161,7 +162,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
           .eq("roster_slot", "IR"),
         supabase
           .from("leagues")
-          .select("roster_size, waiver_type, waiver_day_of_week")
+          .select("roster_size, waiver_type, waiver_day_of_week, offseason_step")
           .eq("id", leagueId)
           .single(),
       ]);
@@ -175,6 +176,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         maxSize: leagueRes.data?.roster_size ?? 13,
         waiverType: (leagueRes.data?.waiver_type ?? 'none') as 'standard' | 'faab' | 'none',
         waiverDayOfWeek: leagueRes.data?.waiver_day_of_week ?? 3,
+        offseasonStep: leagueRes.data?.offseason_step as string | null,
       };
     },
     enabled: !!leagueId && !!teamId,
@@ -184,6 +186,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     ? rosterInfo.activeCount >= rosterInfo.maxSize
     : false;
   const waiverType = rosterInfo?.waiverType ?? 'none';
+  const isOffseason = rosterInfo?.offseasonStep != null;
 
   // Fetch players currently on waivers in this league (with expiry times)
   const { data: waiverPlayerMap } = useQuery({
@@ -382,6 +385,18 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         player_id: player.player_id,
         team_to_id: teamId,
       });
+
+      // Fire-and-forget notification to league
+      (async () => {
+        const { data: team } = await supabase.from("teams").select("team_name").eq("id", teamId).single();
+        sendNotification({
+          league_id: leagueId,
+          category: "roster_moves",
+          title: "Roster Move",
+          body: `${team?.team_name ?? "A team"} added ${player.name}`,
+          data: { screen: "roster" },
+        });
+      })();
 
       queryClient.invalidateQueries({ queryKey: ["freeAgents", leagueId] });
       queryClient.invalidateQueries({ queryKey: ["teamRoster", teamId] });
@@ -594,10 +609,10 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
           <TouchableOpacity
             style={[
               needsClaim ? styles.claimButton : styles.addButton,
-              (isAdding || draftInProgress) && styles.addButtonDisabled,
+              (isAdding || draftInProgress || isOffseason) && styles.addButtonDisabled,
             ]}
             onPress={() => handleButtonPress(item)}
-            disabled={isAdding || draftInProgress}
+            disabled={isAdding || draftInProgress || isOffseason}
             accessibilityRole="button"
             accessibilityLabel={needsClaim ? `Claim ${item.name}` : `Add ${item.name}`}
           >
@@ -628,6 +643,15 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   return (
     <View style={styles.container}>
       <PlayerFilterBar {...filterBarProps} />
+
+      {isOffseason && (
+        <View style={[styles.offseasonBanner, { backgroundColor: '#FF950022', borderColor: '#FF9500' }]}>
+          <Ionicons name="lock-closed" size={14} color="#FF9500" />
+          <ThemedText style={{ fontSize: 12, marginLeft: 6, color: c.secondaryText }}>
+            Free agent transactions are locked during the offseason.
+          </ThemedText>
+        </View>
+      )}
 
       {/* Pending Claims Header */}
       {claimCount > 0 && (
@@ -827,6 +851,15 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  offseasonBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    marginHorizontal: 8,
+    marginTop: 4,
+    borderRadius: 8,
+    borderWidth: 1,
   },
   listContent: {
     padding: 8,

@@ -40,6 +40,9 @@ interface ScoreboardMatchup {
   home_score: number;
   away_score: number;
   playoff_round: number | null;
+  home_category_wins: number | null;
+  away_category_wins: number | null;
+  category_ties: number | null;
 }
 
 interface LeagueTeam {
@@ -85,7 +88,7 @@ async function fetchWeeks(leagueId: string): Promise<Week[]> {
 async function fetchMatchups(scheduleId: string): Promise<ScoreboardMatchup[]> {
   const { data, error } = await supabase
     .from('league_matchups')
-    .select('id, home_team_id, away_team_id, home_score, away_score, playoff_round')
+    .select('id, home_team_id, away_team_id, home_score, away_score, playoff_round, home_category_wins, away_category_wins, category_ties')
     .eq('schedule_id', scheduleId);
   if (error) throw error;
   return data ?? [];
@@ -178,7 +181,7 @@ async function computeAllTeamScores(
   const { data: gameLogs } = await supabase
     .from('player_games')
     .select(
-      'player_id, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", ftm, fta, pf, game_date',
+      'player_id, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double, game_date',
     )
     .in('player_id', playerIds)
     .gte('game_date', week.start_date)
@@ -315,6 +318,8 @@ export default function ScoreboardScreen() {
   const isMyMatchup = (m: ScoreboardMatchup) =>
     m.home_team_id === teamId || m.away_team_id === teamId;
 
+  const isCategories = league?.scoring_type === 'h2h_categories';
+
   // Get score for a team in a matchup
   const getScore = (m: ScoreboardMatchup, teamIdToCheck: string): number => {
     if (weekState === 'live' && computedScores) {
@@ -322,6 +327,21 @@ export default function ScoreboardScreen() {
     }
     // Past/finalized weeks use stored scores
     return teamIdToCheck === m.home_team_id ? m.home_score ?? 0 : m.away_score ?? 0;
+  };
+
+  // Get formatted score display string
+  const getScoreDisplay = (m: ScoreboardMatchup, teamIdToCheck: string): string => {
+    if (isCategories && weekState === 'past' && m.home_category_wins != null) {
+      // Show category record for the matchup
+      const catTies = m.category_ties ?? 0;
+      const homeW = m.home_category_wins ?? 0;
+      const awayW = m.away_category_wins ?? 0;
+      const isHome = teamIdToCheck === m.home_team_id;
+      const myW = isHome ? homeW : awayW;
+      const oppW = isHome ? awayW : homeW;
+      return catTies > 0 ? `${myW}-${oppW}-${catTies}` : `${myW}-${oppW}`;
+    }
+    return getScore(m, teamIdToCheck).toFixed(1);
   };
 
   // Sort matchups: user's matchup first
@@ -501,7 +521,7 @@ export default function ScoreboardScreen() {
                         homeWinning && { color: c.accent },
                       ]}
                     >
-                      {homeScore.toFixed(1)}
+                      {getScoreDisplay(matchup, matchup.home_team_id)}
                     </ThemedText>
                   )}
                 </View>
@@ -547,7 +567,7 @@ export default function ScoreboardScreen() {
                           awayWinning && { color: c.accent },
                         ]}
                       >
-                        {awayScore.toFixed(1)}
+                        {matchup.away_team_id ? getScoreDisplay(matchup, matchup.away_team_id) : '0.0'}
                       </ThemedText>
                     )}
                   </View>

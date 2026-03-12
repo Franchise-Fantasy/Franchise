@@ -1,4 +1,5 @@
 import { ErrorState } from '@/components/ErrorState';
+import { CategoryScoreboard } from '@/components/matchup/CategoryScoreboard';
 import { MatchupSkeleton, SkeletonBlock } from '@/components/matchup/MatchupSkeleton';
 import { PlayerCell, pStyles, RosterPlayer, DisplayMode, round1, buildStatLine } from '@/components/matchup/PlayerCell';
 import { PlayerDetailModal } from '@/components/player/PlayerDetailModal';
@@ -8,16 +9,18 @@ import { Colors } from '@/constants/Colors';
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { useLeague } from '@/hooks/useLeague';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
+import { aggregateTeamStats, computeCategoryResults, TeamStatTotals } from '@/utils/categoryScoring';
 import { liveToGameLog, LivePlayerStats, useLivePlayerStats } from '@/utils/nbaLive';
-import { toDateStr, parseLocalDate, addDays, formatDayLabel } from '@/utils/dates';
+import { toDateStr, parseLocalDate, addDays, formatDayLabel, useToday } from '@/utils/dates';
 import { fetchNbaScheduleForDate } from '@/utils/nbaSchedule';
 import { calculateGameFantasyPoints } from '@/utils/fantasyPoints';
 import { useLeagueRosterConfig, RosterConfigSlot } from '@/hooks/useLeagueRosterConfig';
 import { slotLabel } from '@/utils/rosterSlots';
-import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import {
   FlatList,
@@ -55,6 +58,7 @@ interface TeamMatchupData {
   players: RosterPlayer[];
   weekTotal: number;
   dayTotal: number;
+  teamStats: TeamStatTotals;
 }
 
 interface MatchupSlotEntry {
@@ -138,7 +142,7 @@ async function fetchTeamData(
   week: Week,
   selectedDate: string,
   scoring: ScoringWeight[]
-): Promise<RosterPlayer[]> {
+): Promise<{ players: RosterPlayer[]; teamStats: Record<string, number> }> {
   const { data: leaguePlayers, error: lpErr } = await supabase
     .from('league_players')
     .select('player_id, roster_slot, players(name, position, nba_team, external_id_nba, status)')
@@ -146,7 +150,7 @@ async function fetchTeamData(
     .eq('league_id', leagueId);
 
   if (lpErr) throw lpErr;
-  if (!leaguePlayers || leaguePlayers.length === 0) return [];
+  if (!leaguePlayers || leaguePlayers.length === 0) return { players: [], teamStats: {} };
 
   const playerIds = leaguePlayers.map((lp: any) => lp.player_id);
 
@@ -191,11 +195,13 @@ async function fetchTeamData(
   const dayPointsMap = new Map<string, number>();
   const dayMatchupMap = new Map<string, string>();
   const dayStatsMap = new Map<string, Record<string, number>>();
+  const activeGames: Record<string, any>[] = [];
 
   for (const game of gameLogs ?? []) {
     const slot = resolveSlot(game.player_id, game.game_date);
     if (slot === 'BE' || slot === 'IR') continue;
 
+    activeGames.push(game);
     const fp = calculateGameFantasyPoints(game as any, scoring);
     weekPointsMap.set(game.player_id, (weekPointsMap.get(game.player_id) ?? 0) + fp);
 
@@ -210,7 +216,9 @@ async function fetchTeamData(
     }
   }
 
-  return leaguePlayers.map((lp: any) => ({
+  const teamStats = aggregateTeamStats(activeGames);
+
+  return { players: leaguePlayers.map((lp: any) => ({
       player_id: lp.player_id,
       name: lp.players?.name ?? '—',
       position: lp.players?.position ?? '—',
@@ -229,7 +237,7 @@ async function fetchTeamData(
         const ds = dayStatsMap.get(lp.player_id);
         return ds ? buildStatLine(ds, scoring) : null;
       })(),
-    }));
+    })), teamStats };
 }
 
 // Fetch seeds for a specific team in the current playoff round
@@ -266,23 +274,24 @@ async function fetchWeekMatchupData(
   const opponentId =
     matchup.home_team_id === teamId ? matchup.away_team_id : matchup.home_team_id;
 
-  const [myPlayers, myName] = await Promise.all([
+  const [myResult, myName] = await Promise.all([
     fetchTeamData(teamId, leagueId, week, selectedDate, scoring),
     fetchTeamName(teamId),
   ]);
 
   let opponentTeam: TeamMatchupData | null = null;
   if (opponentId) {
-    const [oppPlayers, oppName] = await Promise.all([
+    const [oppResult, oppName] = await Promise.all([
       fetchTeamData(opponentId, leagueId, week, selectedDate, scoring),
       fetchTeamName(opponentId),
     ]);
     opponentTeam = {
       teamId: opponentId,
       teamName: oppName,
-      players: oppPlayers,
-      weekTotal: round1(oppPlayers.reduce((s, p) => s + p.weekPoints, 0)),
-      dayTotal: round1(oppPlayers.reduce((s, p) => s + p.dayPoints, 0)),
+      players: oppResult.players,
+      weekTotal: round1(oppResult.players.reduce((s, p) => s + p.weekPoints, 0)),
+      dayTotal: round1(oppResult.players.reduce((s, p) => s + p.dayPoints, 0)),
+      teamStats: oppResult.teamStats,
     };
   }
 
@@ -290,9 +299,10 @@ async function fetchWeekMatchupData(
     myTeam: {
       teamId,
       teamName: myName,
-      players: myPlayers,
-      weekTotal: round1(myPlayers.reduce((s, p) => s + p.weekPoints, 0)),
-      dayTotal: round1(myPlayers.reduce((s, p) => s + p.dayPoints, 0)),
+      players: myResult.players,
+      weekTotal: round1(myResult.players.reduce((s, p) => s + p.weekPoints, 0)),
+      dayTotal: round1(myResult.players.reduce((s, p) => s + p.dayPoints, 0)),
+      teamStats: myResult.teamStats,
     },
     opponentTeam,
     week,
@@ -321,14 +331,19 @@ function useWeekMatchup(
   const week = weeks?.find((w) => w.start_date <= selectedDate && selectedDate <= w.end_date) ?? null;
 
   return useQuery({
-    queryKey: ['weekMatchup', week?.id, teamId, selectedDate],
+    queryKey: ['weekMatchup', leagueId, week?.id, teamId, selectedDate],
     queryFn: () => {
       if (!week || !teamId || !leagueId) return null;
       return fetchWeekMatchupData(week, teamId, leagueId, selectedDate, scoring);
     },
     enabled: !!week && !!teamId && !!leagueId && scoring.length > 0,
     staleTime: 1000 * 60 * 2,
-    placeholderData: keepPreviousData,
+    placeholderData: (prev, prevQuery) => {
+      // Only keep previous data when navigating within the same league
+      const prevKey = prevQuery?.queryKey as string[] | undefined;
+      if (prevKey && prevKey[1] === leagueId) return prev;
+      return undefined;
+    },
   });
 }
 
@@ -347,6 +362,7 @@ function MatchupBoard({
   futureSchedule,
   seedMap,
   onPlayerPress,
+  scoringType,
 }: {
   myTeam: TeamMatchupData;
   opponentTeam: TeamMatchupData | null;
@@ -361,11 +377,22 @@ function MatchupBoard({
   futureSchedule?: Map<string, string>;
   seedMap?: Map<string, number>;
   onPlayerPress?: (playerId: string) => void;
+  scoringType?: string;
 }) {
+  const isCategories = scoringType === 'h2h_categories';
   const myWeek = round1(myTeam.weekTotal + myLiveBonus);
   const myDay = round1(myTeam.dayTotal + myLiveBonus);
   const oppWeek = opponentTeam ? round1(opponentTeam.weekTotal + oppLiveBonus) : 0;
   const oppDay = opponentTeam ? round1(opponentTeam.dayTotal + oppLiveBonus) : 0;
+
+  // For category leagues, compute live category comparison
+  const categoryComparison = isCategories && opponentTeam
+    ? computeCategoryResults(
+        myTeam.teamStats,
+        opponentTeam.teamStats,
+        scoring.filter((s) => s.is_enabled).map((s) => ({ stat_name: s.stat_name, inverse: s.inverse })),
+      )
+    : null;
 
   // Use the longer slot list (should always be the same length)
   const slotCount = Math.max(mySlots.length, oppSlots.length);
@@ -373,33 +400,48 @@ function MatchupBoard({
   return (
     <View>
       {/* Score header: [My Team] vs [Opponent] */}
-      <View
-        style={colStyles.scoreHeader}
-        accessibilityRole="summary"
-        accessibilityLabel={`${myTeam.teamName} ${myWeek.toFixed(1)} versus ${opponentTeam ? `${opponentTeam.teamName} ${oppWeek.toFixed(1)}` : 'BYE'}`}
-      >
-        <View style={[colStyles.scoreCol, { alignItems: 'flex-start' }]}>
-          <Text style={[colStyles.teamName, { color: c.text }]} numberOfLines={1} accessibilityRole="header">
-            {seedMap?.has(myTeam.teamId) ? `#${seedMap.get(myTeam.teamId)} ` : ''}{myTeam.teamName}
-          </Text>
-          <Text style={[colStyles.total, { color: c.accent }]}>{myWeek.toFixed(1)}</Text>
-          {mode !== 'future' && (
-            <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>{myDay.toFixed(1)} today</Text>
-          )}
-        </View>
-        <Text style={[colStyles.vsText, { color: c.secondaryText }]} accessible={false}>vs</Text>
-        <View style={[colStyles.scoreCol, { alignItems: 'flex-end' }]}>
-          <Text style={[colStyles.teamName, { color: c.text, textAlign: 'right' }]} numberOfLines={1} accessibilityRole="header">
-            {opponentTeam
+      {isCategories && categoryComparison ? (
+        <View style={{ marginBottom: 14 }}>
+          <CategoryScoreboard
+            results={categoryComparison.results}
+            homeWins={categoryComparison.homeWins}
+            awayWins={categoryComparison.awayWins}
+            ties={categoryComparison.ties}
+            homeTeamName={`${seedMap?.has(myTeam.teamId) ? `#${seedMap.get(myTeam.teamId)} ` : ''}${myTeam.teamName}`}
+            awayTeamName={opponentTeam
               ? `${opponentTeam.teamName}${seedMap?.has(opponentTeam.teamId) ? ` #${seedMap.get(opponentTeam.teamId)}` : ''}`
               : 'BYE'}
-          </Text>
-          <Text style={[colStyles.total, { color: c.accent }]}>{oppWeek.toFixed(1)}</Text>
-          {mode !== 'future' && (
-            <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>{oppDay.toFixed(1)} today</Text>
-          )}
+          />
         </View>
-      </View>
+      ) : (
+        <View
+          style={colStyles.scoreHeader}
+          accessibilityRole="summary"
+          accessibilityLabel={`${myTeam.teamName} ${myWeek.toFixed(1)} versus ${opponentTeam ? `${opponentTeam.teamName} ${oppWeek.toFixed(1)}` : 'BYE'}`}
+        >
+          <View style={[colStyles.scoreCol, { alignItems: 'flex-start' }]}>
+            <Text style={[colStyles.teamName, { color: c.text }]} numberOfLines={1} accessibilityRole="header">
+              {seedMap?.has(myTeam.teamId) ? `#${seedMap.get(myTeam.teamId)} ` : ''}{myTeam.teamName}
+            </Text>
+            <Text style={[colStyles.total, { color: c.accent }]}>{myWeek.toFixed(1)}</Text>
+            {mode !== 'future' && (
+              <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>{myDay.toFixed(1)} today</Text>
+            )}
+          </View>
+          <Text style={[colStyles.vsText, { color: c.secondaryText }]} accessible={false}>vs</Text>
+          <View style={[colStyles.scoreCol, { alignItems: 'flex-end' }]}>
+            <Text style={[colStyles.teamName, { color: c.text, textAlign: 'right' }]} numberOfLines={1} accessibilityRole="header">
+              {opponentTeam
+                ? `${opponentTeam.teamName}${seedMap?.has(opponentTeam.teamId) ? ` #${seedMap.get(opponentTeam.teamId)}` : ''}`
+                : 'BYE'}
+            </Text>
+            <Text style={[colStyles.total, { color: c.accent }]}>{oppWeek.toFixed(1)}</Text>
+            {mode !== 'future' && (
+              <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>{oppDay.toFixed(1)} today</Text>
+            )}
+          </View>
+        </View>
+      )}
 
       {/* Slot rows: [left player] [POS] [right player] */}
       {Array.from({ length: slotCount }).map((_, i) => {
@@ -418,6 +460,7 @@ function MatchupBoard({
               scoring={scoring}
               futureSchedule={futureSchedule}
               onPress={onPlayerPress}
+              isCategories={isCategories}
             />
             <View style={pStyles.slotCenter}>
               <Text style={[pStyles.slotText, { color: c.secondaryText }]}>
@@ -433,6 +476,7 @@ function MatchupBoard({
               scoring={scoring}
               futureSchedule={futureSchedule}
               onPress={onPlayerPress}
+              isCategories={isCategories}
             />
           </View>
         );
@@ -449,10 +493,11 @@ export default function MatchupScreen() {
   const c = Colors[scheme];
 
   const { data: weeks, isLoading: weeksLoading } = useWeeks(leagueId);
+  const { data: league } = useLeague();
   const { data: scoring } = useLeagueScoring(leagueId ?? '');
   const { data: rosterConfig } = useLeagueRosterConfig(leagueId ?? '');
 
-  const today = toDateStr(new Date());
+  const today = useToday();
   const [selectedDate, setSelectedDate] = useState<string>(today);
   const [scheduleVisible, setScheduleVisible] = useState(false);
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerSeasonStats | null>(null);
@@ -466,7 +511,16 @@ export default function MatchupScreen() {
     if (data) setSelectedPlayer(data as PlayerSeasonStats);
   };
 
-  // If the calendar date rolled over since the component mounted, snap to today
+  // Reset to today when switching leagues so stale data doesn't linger
+  const prevLeague = useRef(leagueId);
+  useEffect(() => {
+    if (leagueId !== prevLeague.current) {
+      setSelectedDate(today);
+      prevLeague.current = leagueId;
+    }
+  }, [leagueId]);
+
+  // If the calendar date rolled over (e.g. app resumed from background after midnight), snap to today
   const prevToday = useRef(today);
   useEffect(() => {
     if (today !== prevToday.current) {
@@ -524,7 +578,7 @@ export default function MatchupScreen() {
       if (!wk) continue;
 
       queryClient.prefetchQuery({
-        queryKey: ['weekMatchup', wk.id, teamId, day],
+        queryKey: ['weekMatchup', leagueId, wk.id, teamId, day],
         queryFn: () => fetchWeekMatchupData(wk, teamId, leagueId, day, scoring),
         staleTime: 1000 * 60 * 2,
       });
@@ -573,6 +627,7 @@ export default function MatchupScreen() {
     if (!isToday) return 0;
     return round1(
       players.reduce((sum, p) => {
+        if (p.roster_slot === 'BE' || p.roster_slot === 'IR') return sum;
         const live = liveMap.get(p.player_id);
         if (!live) return sum;
         return sum + calculateGameFantasyPoints(liveToGameLog(live) as any, scoring ?? []);
@@ -709,14 +764,6 @@ export default function MatchupScreen() {
               </View>
             )}
 
-            {mode === 'future' && (
-              <View style={[styles.futureBanner, { backgroundColor: c.card }]}>
-                <ThemedText style={{ color: c.secondaryText, fontSize: 13 }}>
-                  Future date — projected averages shown. Points will accumulate when games are played.
-                </ThemedText>
-              </View>
-            )}
-
             <MatchupBoard
               myTeam={matchupData.myTeam}
               opponentTeam={matchupData.opponentTeam}
@@ -731,6 +778,7 @@ export default function MatchupScreen() {
               futureSchedule={futureSchedule}
               seedMap={seedMap ?? undefined}
               onPlayerPress={handlePlayerPress}
+              scoringType={league?.scoring_type}
             />
 
           </>
@@ -823,9 +871,8 @@ const styles = StyleSheet.create({
   dayInfo: { flex: 1, alignItems: 'center' },
   dayLabel: { fontSize: 16 },
   weekMeta: { fontSize: 11, marginTop: 2 },
-  body: { padding: 12, flexGrow: 1 },
+  body: { padding: 12, paddingBottom: 56, flexGrow: 1 },
   byeBanner: { borderRadius: 8, padding: 16, alignItems: 'center', marginBottom: 12 },
-  futureBanner: { borderRadius: 8, padding: 10, marginBottom: 12 },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.4)',

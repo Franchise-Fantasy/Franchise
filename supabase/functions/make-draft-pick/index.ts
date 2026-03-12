@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { notifyTeams, notifyLeague } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
+import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 // Position eligibility (mirrors utils/rosterSlots.ts)
 const POSITION_SPECTRUM = ['PG', 'SG', 'SF', 'PF', 'C'];
@@ -97,6 +98,9 @@ Deno.serve(async (req)=>{
     });
     const { data: { user } } = await userClient.auth.getUser();
     if (!user) throw new Error('Unauthorized');
+
+    const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'make-draft-pick');
+    if (rateLimited) return rateLimited;
 
     const payload = await req.json();
     const { draft_id, player_id, player_position, league_id } = payload;

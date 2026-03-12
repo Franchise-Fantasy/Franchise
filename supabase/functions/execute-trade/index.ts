@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { notifyTeams } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
+import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return corsResponse();
@@ -22,6 +23,9 @@ Deno.serve(async (req) => {
     const { data: { user } } = await userClient.auth.getUser();
     if (!user) throw new Error('Unauthorized');
 
+    const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'execute-trade');
+    if (rateLimited) return rateLimited;
+
     const { proposal_id } = await req.json();
     if (!proposal_id) throw new Error('proposal_id is required');
 
@@ -38,7 +42,7 @@ Deno.serve(async (req) => {
 
     const { data: league } = await supabaseAdmin
       .from('leagues')
-      .select('created_by, name, trade_deadline')
+      .select('created_by, name, trade_deadline, taxi_slots, taxi_max_experience, season')
       .eq('id', proposal.league_id)
       .single();
 
@@ -107,14 +111,56 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Pre-compute taxi counts per receiving team for taxi-to-taxi trades
+    const taxiCountByTeam = new Map<string, number>();
+    if (league?.taxi_slots && league.taxi_slots > 0) {
+      const receivingTeamIds = [...new Set(playerItems.map((i: any) => i.to_team_id))];
+      for (const tid of receivingTeamIds) {
+        const { count } = await supabaseAdmin
+          .from('league_players')
+          .select('id', { count: 'exact', head: true })
+          .eq('league_id', proposal.league_id)
+          .eq('team_id', tid)
+          .eq('roster_slot', 'TAXI');
+        taxiCountByTeam.set(tid, count ?? 0);
+      }
+    }
+
+    // Get current roster slots and draft years for traded players
+    const tradedPlayerIds = playerItems.map((i: any) => i.player_id);
+    const [slotRes, draftYearRes] = await Promise.all([
+      supabaseAdmin.from('league_players').select('player_id, roster_slot')
+        .eq('league_id', proposal.league_id).in('player_id', tradedPlayerIds),
+      supabaseAdmin.from('players').select('id, nba_draft_year')
+        .in('id', tradedPlayerIds),
+    ]);
+    const currentSlotMap = new Map((slotRes.data ?? []).map((r: any) => [r.player_id, r.roster_slot]));
+    const draftYearMap = new Map((draftYearRes.data ?? []).map((p: any) => [p.id, p.nba_draft_year]));
+
     for (const item of playerItems) {
+      let targetSlot = 'BE';
+
+      // If player was on taxi and receiving team has taxi capacity + player is eligible, keep on taxi
+      if (currentSlotMap.get(item.player_id) === 'TAXI' && league?.taxi_slots && league.taxi_slots > 0) {
+        const currentTaxiCount = taxiCountByTeam.get(item.to_team_id) ?? 0;
+        if (currentTaxiCount < league.taxi_slots) {
+          const draftYear = draftYearMap.get(item.player_id);
+          const maxExp = league.taxi_max_experience;
+          const eligible = maxExp === null || (draftYear != null && (parseInt(league.season.split('-')[0]) + 1 - draftYear) <= maxExp);
+          if (eligible) {
+            targetSlot = 'TAXI';
+            taxiCountByTeam.set(item.to_team_id, currentTaxiCount + 1);
+          }
+        }
+      }
+
       const { error } = await supabaseAdmin
         .from('league_players')
         .update({
           team_id: item.to_team_id,
           acquired_via: 'trade',
           acquired_at: timestamp,
-          roster_slot: 'BE',
+          roster_slot: targetSlot,
         })
         .eq('league_id', proposal.league_id)
         .eq('player_id', item.player_id)

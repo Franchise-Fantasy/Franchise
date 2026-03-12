@@ -7,6 +7,8 @@ export interface PlayerSeasonStats {
   external_id_nba: string | null;
   rookie: boolean;
   season_added: string | null;
+  nba_draft_year: number | null;
+  birthdate: string | null;
   games_played: number;
   // Totals
   total_pts: number;
@@ -67,4 +69,10 @@ export interface PlayerGameLog {
 export interface ScoringWeight {
   stat_name: string;
   point_value: number;
+  inverse?: boolean;
+}
+
+export interface LeagueScoringConfig extends ScoringWeight {
+  is_enabled: boolean;
+  inverse: boolean;
 }

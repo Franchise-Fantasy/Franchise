@@ -1,11 +1,13 @@
 import { ByTeamTab } from '@/components/draft-hub/ByTeamTab';
 import { ByYearTab } from '@/components/draft-hub/ByYearTab';
+import { ThemedText } from '@/components/ThemedText';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useDraftHub } from '@/hooks/useDraftHub';
+import { useLeague } from '@/hooks/useLeague';
 import { useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -16,9 +18,23 @@ export default function DraftHub() {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const { leagueId } = useAppState();
+  const { data: league } = useLeague();
 
   const [tab, setTab] = useState(0);
   const { data, isLoading } = useDraftHub(leagueId);
+
+  if (league && (league.league_type ?? 'dynasty') !== 'dynasty') {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
+        <PageHeader title="Draft Hub" />
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 }}>
+          <ThemedText style={{ color: c.secondaryText, textAlign: 'center', fontSize: 15 }}>
+            Draft Hub is only available for dynasty leagues.
+          </ThemedText>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>

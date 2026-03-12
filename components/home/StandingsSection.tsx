@@ -24,7 +24,7 @@ function streakColor(streak: string, c: any): string {
   return c.secondaryText;
 }
 
-export function StandingsSection({ leagueId, playoffTeams }: { leagueId: string; playoffTeams?: number | null }) {
+export function StandingsSection({ leagueId, playoffTeams, scoringType }: { leagueId: string; playoffTeams?: number | null; scoringType?: string }) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const router = useRouter();
@@ -68,8 +68,8 @@ export function StandingsSection({ leagueId, playoffTeams }: { leagueId: string;
               <ThemedText style={[styles.rank, styles.headerText, { color: c.secondaryText }]}>#</ThemedText>
               <ThemedText style={[styles.teamName, styles.headerText, { color: c.secondaryText }]}>Team</ThemedText>
               <ThemedText style={[styles.record, styles.headerText, { color: c.secondaryText }]}>W-L-T</ThemedText>
-              <ThemedText style={[styles.pf, styles.headerText, { color: c.secondaryText }]}>PF</ThemedText>
-              <ThemedText style={[styles.pa, styles.headerText, { color: c.secondaryText }]}>PA</ThemedText>
+              <ThemedText style={[styles.pf, styles.headerText, { color: c.secondaryText }]}>{scoringType === 'h2h_categories' ? 'CW' : 'PF'}</ThemedText>
+              <ThemedText style={[styles.pa, styles.headerText, { color: c.secondaryText }]}>{scoringType === 'h2h_categories' ? 'CL' : 'PA'}</ThemedText>
               <ThemedText style={[styles.streakCol, styles.headerText, { color: c.secondaryText }]}>STK</ThemedText>
             </View>
             {standings.map((team) => (
@@ -94,10 +94,10 @@ export function StandingsSection({ leagueId, playoffTeams }: { leagueId: string;
                     {team.wins}-{team.losses}-{team.ties}
                   </ThemedText>
                   <ThemedText style={[styles.pf, { color: c.secondaryText }]}>
-                    {Number(team.points_for).toFixed(1)}
+                    {scoringType === 'h2h_categories' ? Math.round(Number(team.points_for)) : Number(team.points_for).toFixed(1)}
                   </ThemedText>
                   <ThemedText style={[styles.pa, { color: c.secondaryText }]}>
-                    {Number(team.points_against).toFixed(1)}
+                    {scoringType === 'h2h_categories' ? Math.round(Number(team.points_against)) : Number(team.points_against).toFixed(1)}
                   </ThemedText>
                   <ThemedText style={[styles.streakCol, { color: streakColor(team.streak, c) }]}>
                     {team.streak || '—'}

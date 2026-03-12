@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -27,6 +28,9 @@ Deno.serve(async (req) => {
     );
     const { data: { user } } = await userClient.auth.getUser();
     if (!user) throw new Error('Unauthorized');
+
+    const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'delete-account');
+    if (rateLimited) return rateLimited;
 
     const userId = user.id;
 

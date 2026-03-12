@@ -55,6 +55,8 @@ export function EditDraftSettingsModal({
   const c = Colors[scheme];
   const queryClient = useQueryClient();
 
+  const isDynasty = (league?.league_type ?? 'dynasty') === 'dynasty';
+
   const [draftType, setDraftType] = useState('Snake');
   const [timePick, setTimePick] = useState(90);
   const [maxYears, setMaxYears] = useState(3);
@@ -92,17 +94,19 @@ export function EditDraftSettingsModal({
     if (!draft) return;
     setSaving(true);
 
-    const { error: leagueErr } = await supabase
-      .from('leagues')
-      .update({
-        max_future_seasons: maxYears,
-        rookie_draft_rounds: rookieRounds,
-        rookie_draft_order: ORDER_TO_DB[rookieOrder] ?? 'reverse_record',
-        lottery_draws: lotteryDraws,
-        lottery_odds: lotteryOdds,
-        draft_pick_trading_enabled: draftPickTrading,
-      })
-      .eq('id', leagueId);
+    const leagueUpdate: Record<string, any> = {};
+    if (isDynasty) {
+      leagueUpdate.max_future_seasons = maxYears;
+      leagueUpdate.rookie_draft_rounds = rookieRounds;
+      leagueUpdate.rookie_draft_order = ORDER_TO_DB[rookieOrder] ?? 'reverse_record';
+      leagueUpdate.lottery_draws = lotteryDraws;
+      leagueUpdate.lottery_odds = lotteryOdds;
+      leagueUpdate.draft_pick_trading_enabled = draftPickTrading;
+    }
+
+    const { error: leagueErr } = Object.keys(leagueUpdate).length > 0
+      ? await supabase.from('leagues').update(leagueUpdate).eq('id', leagueId)
+      : { error: null };
 
     const { error: draftErr } = await supabase
       .from('drafts')
@@ -183,82 +187,86 @@ export function EditDraftSettingsModal({
               />
             </View>
 
-            {/* Future Draft Years */}
-            <NumberStepper
-              label="Future Draft Years"
-              value={maxYears}
-              onValueChange={setMaxYears}
-              min={1}
-              max={10}
-            />
-
-            {/* Rookie Draft Rounds */}
-            <NumberStepper
-              label="Rookie Draft Rounds"
-              value={rookieRounds}
-              onValueChange={setRookieRounds}
-              min={1}
-              max={5}
-            />
-
-            {/* Rookie Draft Order */}
-            <View style={[styles.editRow, { borderBottomColor: c.border }]}>
-              <ThemedText style={styles.rowLabel}>Rookie Draft Order</ThemedText>
-            </View>
-            <View style={{ paddingVertical: 8 }}>
-              <SegmentedControl
-                options={ROOKIE_DRAFT_ORDER_OPTIONS}
-                selectedIndex={orderIndex >= 0 ? orderIndex : 0}
-                onSelect={(i) => setRookieOrder(ROOKIE_DRAFT_ORDER_OPTIONS[i])}
-              />
-            </View>
-
-            {/* Lottery settings (conditional) */}
-            {rookieOrder === 'Lottery' && (
+            {isDynasty && (
               <>
-                {lotteryPool <= 0 ? (
-                  <ThemedText
-                    style={[styles.helperText, { color: c.secondaryText, marginBottom: 8 }]}
-                  >
-                    All teams make playoffs — no lottery pool.
-                  </ThemedText>
-                ) : (
+                {/* Future Draft Years */}
+                <NumberStepper
+                  label="Future Draft Years"
+                  value={maxYears}
+                  onValueChange={setMaxYears}
+                  min={1}
+                  max={10}
+                />
+
+                {/* Rookie Draft Rounds */}
+                <NumberStepper
+                  label="Rookie Draft Rounds"
+                  value={rookieRounds}
+                  onValueChange={setRookieRounds}
+                  min={1}
+                  max={5}
+                />
+
+                {/* Rookie Draft Order */}
+                <View style={[styles.editRow, { borderBottomColor: c.border }]}>
+                  <ThemedText style={styles.rowLabel}>Rookie Draft Order</ThemedText>
+                </View>
+                <View style={{ paddingVertical: 8 }}>
+                  <SegmentedControl
+                    options={ROOKIE_DRAFT_ORDER_OPTIONS}
+                    selectedIndex={orderIndex >= 0 ? orderIndex : 0}
+                    onSelect={(i) => setRookieOrder(ROOKIE_DRAFT_ORDER_OPTIONS[i])}
+                  />
+                </View>
+
+                {/* Lottery settings (conditional) */}
+                {rookieOrder === 'Lottery' && (
                   <>
-                    <ThemedText
-                      style={[styles.helperText, { color: c.secondaryText, marginBottom: 8 }]}
-                    >
-                      {lotteryPool} non-playoff team(s) in the lottery
-                    </ThemedText>
+                    {lotteryPool <= 0 ? (
+                      <ThemedText
+                        style={[styles.helperText, { color: c.secondaryText, marginBottom: 8 }]}
+                      >
+                        All teams make playoffs — no lottery pool.
+                      </ThemedText>
+                    ) : (
+                      <>
+                        <ThemedText
+                          style={[styles.helperText, { color: c.secondaryText, marginBottom: 8 }]}
+                        >
+                          {lotteryPool} non-playoff team(s) in the lottery
+                        </ThemedText>
 
-                    <NumberStepper
-                      label="Lottery Draws"
-                      value={lotteryDraws}
-                      onValueChange={setLotteryDraws}
-                      min={1}
-                      max={lotteryPool}
-                    />
+                        <NumberStepper
+                          label="Lottery Draws"
+                          value={lotteryDraws}
+                          onValueChange={setLotteryDraws}
+                          min={1}
+                          max={lotteryPool}
+                        />
 
-                    <View style={{ marginTop: 12 }}>
-                      <LotteryOddsEditor
-                        odds={lotteryOdds ?? generateDefaultOdds(lotteryPool)}
-                        onChange={setLotteryOdds}
-                        lotteryTeams={lotteryPool}
-                      />
-                    </View>
+                        <View style={{ marginTop: 12 }}>
+                          <LotteryOddsEditor
+                            odds={lotteryOdds ?? generateDefaultOdds(lotteryPool)}
+                            onChange={setLotteryOdds}
+                            lotteryTeams={lotteryPool}
+                          />
+                        </View>
+                      </>
+                    )}
                   </>
                 )}
+
+                {/* Draft Pick Trading */}
+                <ToggleRow
+                  icon="swap-horizontal-outline"
+                  label="Initial Draft Pick Trading"
+                  description="Allow trading of startup draft picks before and during the draft"
+                  value={draftPickTrading}
+                  onToggle={setDraftPickTrading}
+                  c={c}
+                />
               </>
             )}
-
-            {/* Draft Pick Trading */}
-            <ToggleRow
-              icon="swap-horizontal-outline"
-              label="Initial Draft Pick Trading"
-              description="Allow trading of startup draft picks before and during the draft"
-              value={draftPickTrading}
-              onToggle={setDraftPickTrading}
-              c={c}
-            />
           </ScrollView>
 
           {/* Footer */}

@@ -33,10 +33,12 @@ const TEAM_NAME_TO_TRICODE: Record<string, string> = {
 };
 
 function extractTeamsFromText(text: string): string[] {
+  // NBA PDFs often strip spaces from team names (e.g. "OrlandoMagic"),
+  // so we normalize both text and team names by removing spaces.
   const teams = new Set<string>();
-  const lower = text.toLowerCase();
+  const normalized = text.toLowerCase().replace(/\s/g, '');
   for (const [name, tricode] of Object.entries(TEAM_NAME_TO_TRICODE)) {
-    if (lower.includes(name)) teams.add(tricode);
+    if (normalized.includes(name.replace(/\s/g, ''))) teams.add(tricode);
   }
   return [...teams].sort();
 }
@@ -152,7 +154,23 @@ async function applyInjuries(
     (allPlayers ?? []).map((p: any) => [p.name.toLowerCase(), { id: p.id, status: p.status, nba_team: p.nba_team }]),
   );
 
-  const reportedTeams = new Set(teamsOnReport);
+  // Cross-reference reported teams with today's schedule to avoid false positives
+  // (spaceless PDF matching can pick up team names that aren't actually playing today)
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+  const { data: todayGames } = await supabase
+    .from('nba_schedule')
+    .select('home_team, away_team')
+    .eq('game_date', todayStr);
+  const teamsPlayingToday = new Set<string>();
+  for (const g of todayGames ?? []) {
+    teamsPlayingToday.add(g.home_team);
+    teamsPlayingToday.add(g.away_team);
+  }
+  // Only reset players from teams that are both on the report AND actually play today
+  const reportedTeams = new Set(teamsOnReport.filter(t => teamsPlayingToday.has(t)));
+  console.log(`Teams playing today: ${teamsPlayingToday.size}, filtered reported teams: ${reportedTeams.size}`);
+
   const matchedPlayerIds = new Set<string>();
   const unmatchedNames: string[] = [];
   const changedPlayerIds: string[] = [];

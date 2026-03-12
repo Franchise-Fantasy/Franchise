@@ -1,0 +1,219 @@
+import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
+import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
+
+// Age bucket boundaries
+const RISING_MAX = 25;
+const PRIME_MAX = 31;
+
+export interface AgeFptsPoint {
+  name: string;
+  shortName: string;
+  age: number;
+  avgFpts: number;
+  playerId: string;
+  position: string;
+}
+
+export interface RosterAgeProfile {
+  avgAge: number;
+  weightedProductionAge: number;
+  risingCount: number;
+  primeCount: number;
+  vetCount: number;
+  totalWithAge: number;
+}
+
+export interface TeamAgeProfile extends RosterAgeProfile {
+  teamId: string;
+}
+
+export interface LeagueAgeComparison {
+  myProfile: TeamAgeProfile;
+  leagueAvgWeightedAge: number;
+  leagueAvgRosterAge: number;
+  weightedAgeRank: number;  // 1 = youngest weighted age in league
+  totalTeams: number;
+  allProfiles: TeamAgeProfile[];
+}
+
+export const BUCKET_COLORS = {
+  rising: '#17a2b8',
+  prime: '#28a745',
+  vet: '#e67e22',
+} as const;
+
+const SUFFIXES = new Set(['Jr.', 'Jr', 'Sr.', 'Sr', 'II', 'III', 'IV', 'V']);
+
+/** Returns a short display name: last name + suffix if present (e.g. "Porter Jr.") */
+export function shortDisplayName(fullName: string): string {
+  const parts = fullName.split(' ');
+  if (parts.length <= 1) return fullName;
+  const last = parts[parts.length - 1];
+  if (SUFFIXES.has(last) && parts.length > 2) {
+    return `${parts[parts.length - 2]} ${last}`;
+  }
+  return last;
+}
+
+export function calculateAge(birthdate: string): number {
+  const birth = new Date(birthdate);
+  const now = new Date();
+  const msPerYear = 365.25 * 24 * 60 * 60 * 1000;
+  return Math.round(((now.getTime() - birth.getTime()) / msPerYear) * 10) / 10;
+}
+
+export function ageBucket(age: number): 'rising' | 'prime' | 'vet' {
+  if (age < RISING_MAX) return 'rising';
+  if (age < PRIME_MAX) return 'prime';
+  return 'vet';
+}
+
+export function calculateRosterAgeProfile(
+  players: PlayerSeasonStats[],
+  scoringWeights: ScoringWeight[],
+): RosterAgeProfile {
+  let totalAge = 0;
+  let weightedAgeSum = 0;
+  let totalFpts = 0;
+  let risingCount = 0;
+  let primeCount = 0;
+  let vetCount = 0;
+  let totalWithAge = 0;
+
+  for (const p of players) {
+    if (!p.birthdate) continue;
+    const age = calculateAge(p.birthdate);
+    const fpts = calculateAvgFantasyPoints(p, scoringWeights);
+
+    totalWithAge++;
+    totalAge += age;
+    weightedAgeSum += age * Math.max(fpts, 0);
+    totalFpts += Math.max(fpts, 0);
+
+    const bucket = ageBucket(age);
+    if (bucket === 'rising') risingCount++;
+    else if (bucket === 'prime') primeCount++;
+    else vetCount++;
+  }
+
+  return {
+    avgAge: totalWithAge > 0 ? Math.round((totalAge / totalWithAge) * 10) / 10 : 0,
+    weightedProductionAge: totalFpts > 0
+      ? Math.round((weightedAgeSum / totalFpts) * 10) / 10
+      : 0,
+    risingCount,
+    primeCount,
+    vetCount,
+    totalWithAge,
+  };
+}
+
+export function buildScatterData(
+  players: PlayerSeasonStats[],
+  scoringWeights: ScoringWeight[],
+): AgeFptsPoint[] {
+  return players
+    .filter((p) => p.birthdate && p.games_played >= 5)
+    .map((p) => ({
+      name: p.name,
+      shortName: shortDisplayName(p.name),
+      age: calculateAge(p.birthdate!),
+      avgFpts: calculateAvgFantasyPoints(p, scoringWeights),
+      playerId: p.player_id,
+      position: p.position,
+    }));
+}
+
+/** Compute age profiles for every team in the league, then rank & compare */
+export function buildLeagueComparison(
+  allPlayers: { team_id: string }[] & PlayerSeasonStats[],
+  scoringWeights: ScoringWeight[],
+  myTeamId: string,
+): LeagueAgeComparison | null {
+  // Group players by team
+  const byTeam = new Map<string, PlayerSeasonStats[]>();
+  for (const p of allPlayers) {
+    const tid = (p as any).team_id as string;
+    if (!tid) continue;
+    if (!byTeam.has(tid)) byTeam.set(tid, []);
+    byTeam.get(tid)!.push(p);
+  }
+
+  // Compute profile for each team
+  const profiles: TeamAgeProfile[] = [];
+  for (const [teamId, teamPlayers] of byTeam) {
+    const profile = calculateRosterAgeProfile(teamPlayers, scoringWeights);
+    if (profile.totalWithAge >= 3) {
+      profiles.push({ ...profile, teamId });
+    }
+  }
+
+  const myProfile = profiles.find((p) => p.teamId === myTeamId);
+  if (!myProfile || profiles.length < 2) return null;
+
+  // League averages
+  const leagueAvgWeightedAge =
+    Math.round(
+      (profiles.reduce((s, p) => s + p.weightedProductionAge, 0) / profiles.length) * 10,
+    ) / 10;
+  const leagueAvgRosterAge =
+    Math.round(
+      (profiles.reduce((s, p) => s + p.avgAge, 0) / profiles.length) * 10,
+    ) / 10;
+
+  // Rank by weighted age (1 = youngest)
+  const sorted = [...profiles].sort(
+    (a, b) => a.weightedProductionAge - b.weightedProductionAge,
+  );
+  const weightedAgeRank = sorted.findIndex((p) => p.teamId === myTeamId) + 1;
+
+  return {
+    myProfile,
+    leagueAvgWeightedAge,
+    leagueAvgRosterAge,
+    weightedAgeRank,
+    totalTeams: profiles.length,
+    allProfiles: sorted,
+  };
+}
+
+export function getInsightText(
+  profile: RosterAgeProfile,
+  comparison?: LeagueAgeComparison | null,
+): string {
+  // If we have league comparison, give contextual insight
+  if (comparison) {
+    const diff = comparison.myProfile.weightedProductionAge - comparison.leagueAvgWeightedAge;
+    const rank = comparison.weightedAgeRank;
+    const total = comparison.totalTeams;
+
+    if (rank <= Math.ceil(total * 0.33)) {
+      // Youngest third
+      return `Your core produces younger than ${total - rank} of ${total} teams — long window ahead`;
+    } else if (rank >= Math.ceil(total * 0.67)) {
+      // Oldest third
+      const aboveAvg = Math.abs(diff).toFixed(1);
+      return `Production skews ${aboveAvg}yr older than league avg — consider selling high on veterans`;
+    }
+    return 'Mid-pack production age — flexible to pivot either direction';
+  }
+
+  // Fallback: team-only insight
+  const { avgAge, weightedProductionAge, risingCount, primeCount } = profile;
+  const diff = weightedProductionAge - avgAge;
+  const gap = Math.abs(diff).toFixed(1);
+
+  if (diff > 1) {
+    return `Your best output comes from older players (+${gap}yr) — win-now window`;
+  } else if (diff < -1) {
+    return `Your best output comes from younger players (${gap}yr) — core is ascending`;
+  }
+
+  let insight = 'Balanced age profile across your roster';
+  if (risingCount >= primeCount && risingCount > 0) {
+    insight += ' · Rising talent pipeline';
+  }
+  return insight;
+}
+
+export const PEAK_YEARS = { start: 25, end: 30 };

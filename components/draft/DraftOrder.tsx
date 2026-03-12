@@ -142,7 +142,7 @@ export function DraftOrder({
     isLoading,
     error,
   } = useQuery({
-    queryKey: ["draftOrder", draftId],
+    queryKey: ["draftOrder", draftId, draftState?.picks_per_round],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("draft_picks")
@@ -167,9 +167,15 @@ export function DraftOrder({
         .order("pick_number");
 
       if (error) throw error;
+
+      const picksPerRound = draftState?.picks_per_round;
       // Map arrays to objects for current_team and player
       return (data ?? []).map((pick: any) => ({
         ...pick,
+        // Compute the pick's position within its round (1-based)
+        pick_in_round: picksPerRound
+          ? ((pick.pick_number - 1) % picksPerRound) + 1
+          : pick.slot_number,
         current_team: Array.isArray(pick.current_team)
           ? pick.current_team[0]
           : pick.current_team,
@@ -301,7 +307,7 @@ export function DraftOrder({
         return (
           <View
             key={pick.id}
-            accessibilityLabel={`Pick ${pick.round}-${pick.slot_number}, ${pick.current_team?.name || 'TBD'}${pick.player_id ? `, ${pick.player?.name}, ${pick.player?.position}` : isCurrentOnTheClock ? ', on the clock' : ''}`}
+            accessibilityLabel={`Pick ${pick.round}-${pick.pick_in_round}, ${pick.current_team?.name || 'TBD'}${pick.player_id ? `, ${pick.player?.name}, ${pick.player?.position}` : isCurrentOnTheClock ? ', on the clock' : ''}`}
             style={[
               styles.pickBlock,
               { backgroundColor: colors.card, borderColor: colors.border },
@@ -326,7 +332,7 @@ export function DraftOrder({
               <ThemedText
                 style={[styles.pickNumber, { color: colors.secondaryText }]}
               >
-                {pick.round}-{pick.slot_number}
+                {pick.round}-{pick.pick_in_round}
               </ThemedText>
               <ThemedText
                 style={[styles.teamName, { color: colors.secondaryText }]}

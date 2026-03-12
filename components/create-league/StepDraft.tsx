@@ -18,6 +18,7 @@ export function StepDraft({ state, onChange }: StepDraftProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const timeLabels = TIME_PER_PICK_OPTIONS.map((t) => `${t}s`);
+  const isDynasty = (state.leagueType ?? 'Dynasty') === 'Dynasty';
 
   const lotteryTeams = calcLotteryPoolSize(state.teams, state.playoffTeams);
   const effectiveOdds = state.lotteryOdds ?? generateDefaultOdds(lotteryTeams);
@@ -44,81 +45,85 @@ export function StepDraft({ state, onChange }: StepDraftProps) {
         />
       </View>
 
-      <View style={styles.section}>
-        <NumberStepper
-          label="Max Future Draft Years"
-          value={state.maxDraftYears}
-          onValueChange={(v) => onChange('maxDraftYears', v)}
-          min={1}
-          max={10}
-        />
-      </View>
-
-      <View style={styles.section}>
-        <ToggleRow
-          icon="swap-horizontal-outline"
-          label="Initial Draft, Pick Trading"
-          description="Allow trading of startup draft picks before and during the draft"
-          value={state.draftPickTradingEnabled}
-          onToggle={(v) => onChange('draftPickTradingEnabled', v)}
-          c={{ border: c.border, accent: c.accent, secondaryText: c.secondaryText }}
-        />
-      </View>
-
-      <ThemedText accessibilityRole="header" type="subtitle" style={styles.heading}>Rookie Draft</ThemedText>
-
-      <View style={styles.section}>
-        <NumberStepper
-          label="Rounds"
-          value={state.rookieDraftRounds}
-          onValueChange={(v) => onChange('rookieDraftRounds', v)}
-          min={1}
-          max={5}
-        />
-      </View>
-
-      <View style={styles.section}>
-        <ThemedText style={styles.label}>Draft Order</ThemedText>
-        <SegmentedControl
-          options={ROOKIE_DRAFT_ORDER_OPTIONS}
-          selectedIndex={ROOKIE_DRAFT_ORDER_OPTIONS.indexOf(state.rookieDraftOrder)}
-          onSelect={(i) => onChange('rookieDraftOrder', ROOKIE_DRAFT_ORDER_OPTIONS[i])}
-        />
-      </View>
-
-      {state.rookieDraftOrder === 'Lottery' && (
+      {isDynasty && (
         <>
-          {lotteryTeams <= 0 ? (
-            <View style={[styles.warningBox, { backgroundColor: '#fee2e2', borderColor: '#ef4444' }]}>
-              <ThemedText style={[styles.warningText, { color: '#b91c1c' }]}>
-                All teams make the playoffs — no lottery pool. Adjust playoff teams in Season settings.
-              </ThemedText>
-            </View>
-          ) : (
+          <View style={styles.section}>
+            <NumberStepper
+              label="Max Future Draft Years"
+              value={state.maxDraftYears}
+              onValueChange={(v) => onChange('maxDraftYears', v)}
+              min={1}
+              max={10}
+            />
+          </View>
+
+          <View style={styles.section}>
+            <ToggleRow
+              icon="swap-horizontal-outline"
+              label="Initial Draft, Pick Trading"
+              description="Allow trading of startup draft picks before and during the draft"
+              value={state.draftPickTradingEnabled}
+              onToggle={(v) => onChange('draftPickTradingEnabled', v)}
+              c={{ border: c.border, accent: c.accent, secondaryText: c.secondaryText }}
+            />
+          </View>
+
+          <ThemedText accessibilityRole="header" type="subtitle" style={styles.heading}>Rookie Draft</ThemedText>
+
+          <View style={styles.section}>
+            <NumberStepper
+              label="Rounds"
+              value={state.rookieDraftRounds}
+              onValueChange={(v) => onChange('rookieDraftRounds', v)}
+              min={1}
+              max={5}
+            />
+          </View>
+
+          <View style={styles.section}>
+            <ThemedText style={styles.label}>Draft Order</ThemedText>
+            <SegmentedControl
+              options={ROOKIE_DRAFT_ORDER_OPTIONS}
+              selectedIndex={ROOKIE_DRAFT_ORDER_OPTIONS.indexOf(state.rookieDraftOrder)}
+              onSelect={(i) => onChange('rookieDraftOrder', ROOKIE_DRAFT_ORDER_OPTIONS[i])}
+            />
+          </View>
+
+          {state.rookieDraftOrder === 'Lottery' && (
             <>
-              <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
-                {lotteryTeams} non-playoff team{lotteryTeams !== 1 ? 's' : ''} enter the lottery.
-                The top {Math.min(state.lotteryDraws, lotteryTeams)} pick{Math.min(state.lotteryDraws, lotteryTeams) !== 1 ? 's are' : ' is'} drawn
-                randomly; the rest slot in by reverse record.
-              </ThemedText>
+              {lotteryTeams <= 0 ? (
+                <View style={[styles.warningBox, { backgroundColor: '#fee2e2', borderColor: '#ef4444' }]}>
+                  <ThemedText style={[styles.warningText, { color: '#b91c1c' }]}>
+                    All teams make the playoffs — no lottery pool. Adjust playoff teams in Season settings.
+                  </ThemedText>
+                </View>
+              ) : (
+                <>
+                  <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
+                    {lotteryTeams} non-playoff team{lotteryTeams !== 1 ? 's' : ''} enter the lottery.
+                    The top {Math.min(state.lotteryDraws, lotteryTeams)} pick{Math.min(state.lotteryDraws, lotteryTeams) !== 1 ? 's are' : ' is'} drawn
+                    randomly; the rest slot in by reverse record.
+                  </ThemedText>
 
-              <View style={styles.section}>
-                <NumberStepper
-                  label="Lottery Draws"
-                  value={state.lotteryDraws}
-                  onValueChange={(v) => onChange('lotteryDraws', v)}
-                  min={1}
-                  max={lotteryTeams}
-                />
-              </View>
+                  <View style={styles.section}>
+                    <NumberStepper
+                      label="Lottery Draws"
+                      value={state.lotteryDraws}
+                      onValueChange={(v) => onChange('lotteryDraws', v)}
+                      min={1}
+                      max={lotteryTeams}
+                    />
+                  </View>
 
-              <View style={styles.section}>
-                <LotteryOddsEditor
-                  odds={effectiveOdds}
-                  onChange={(odds) => onChange('lotteryOdds', odds)}
-                  lotteryTeams={lotteryTeams}
-                />
-              </View>
+                  <View style={styles.section}>
+                    <LotteryOddsEditor
+                      odds={effectiveOdds}
+                      onChange={(odds) => onChange('lotteryOdds', odds)}
+                      lotteryTeams={lotteryTeams}
+                    />
+                  </View>
+                </>
+              )}
             </>
           )}
         </>

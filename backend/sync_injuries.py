@@ -99,11 +99,15 @@ PLAYER_LINE_RE = re.compile(
 
 
 def extract_teams_from_text(text):
-    """Find all NBA team names mentioned in the report text and return their tricodes."""
+    """Find all NBA team names mentioned in the report text and return their tricodes.
+
+    NBA PDFs often have spaces stripped from team names (e.g. 'OrlandoMagic'),
+    so we normalize both the text and team names by removing spaces before matching.
+    """
     teams = set()
-    lower = text.lower()
+    normalized = text.lower().replace(' ', '')
     for team_name, tricode in TEAM_NAME_TO_TRICODE.items():
-        if team_name in lower:
+        if team_name.replace(' ', '') in normalized:
             teams.add(tricode)
     return sorted(teams)
 

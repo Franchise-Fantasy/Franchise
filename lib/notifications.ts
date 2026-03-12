@@ -20,6 +20,7 @@ export interface PushPreferences {
   roster_reminders: boolean;
   lottery: boolean;
   chat: boolean;
+  roster_moves: boolean;
 }
 
 export const DEFAULT_PREFERENCES: PushPreferences = {
@@ -35,6 +36,7 @@ export const DEFAULT_PREFERENCES: PushPreferences = {
   roster_reminders: false,
   lottery: false,
   chat: false,
+  roster_moves: false,
 };
 
 export async function hasBeenAsked(): Promise<boolean> {
@@ -61,24 +63,29 @@ export async function registerPushToken(userId: string): Promise<boolean> {
   if (finalStatus !== 'granted') return false;
 
   if (Platform.OS === 'android') {
-    const channels = [
-      { id: 'draft',        name: 'Draft',                importance: Notifications.AndroidImportance.HIGH },
-      { id: 'trades',       name: 'Trades',               importance: Notifications.AndroidImportance.HIGH },
-      { id: 'matchups',     name: 'Matchup Results',      importance: Notifications.AndroidImportance.DEFAULT },
-      { id: 'waivers',      name: 'Waiver Results',       importance: Notifications.AndroidImportance.DEFAULT },
-      { id: 'injuries',     name: 'Injury Updates',       importance: Notifications.AndroidImportance.DEFAULT },
-      { id: 'playoffs',     name: 'Playoffs',             importance: Notifications.AndroidImportance.HIGH },
-      { id: 'commissioner', name: 'Commissioner Actions', importance: Notifications.AndroidImportance.HIGH },
-      { id: 'league',       name: 'League Activity',      importance: Notifications.AndroidImportance.LOW },
-      { id: 'roster',       name: 'Roster Reminders',     importance: Notifications.AndroidImportance.DEFAULT },
-      { id: 'lottery',      name: 'Lottery',              importance: Notifications.AndroidImportance.DEFAULT },
-      { id: 'chat',         name: 'Chat Messages',        importance: Notifications.AndroidImportance.DEFAULT },
-    ];
-    for (const ch of channels) {
-      await Notifications.setNotificationChannelAsync(ch.id, {
-        name: ch.name,
-        importance: ch.importance,
-      });
+    try {
+      const channels = [
+        { id: 'draft',        name: 'Draft',                importance: Notifications.AndroidImportance.HIGH },
+        { id: 'trades',       name: 'Trades',               importance: Notifications.AndroidImportance.HIGH },
+        { id: 'matchups',     name: 'Matchup Results',      importance: Notifications.AndroidImportance.DEFAULT },
+        { id: 'waivers',      name: 'Waiver Results',       importance: Notifications.AndroidImportance.DEFAULT },
+        { id: 'injuries',     name: 'Injury Updates',       importance: Notifications.AndroidImportance.DEFAULT },
+        { id: 'playoffs',     name: 'Playoffs',             importance: Notifications.AndroidImportance.HIGH },
+        { id: 'commissioner', name: 'Commissioner Actions', importance: Notifications.AndroidImportance.HIGH },
+        { id: 'league',       name: 'League Activity',      importance: Notifications.AndroidImportance.LOW },
+        { id: 'roster',       name: 'Roster Reminders',     importance: Notifications.AndroidImportance.DEFAULT },
+        { id: 'lottery',      name: 'Lottery',              importance: Notifications.AndroidImportance.DEFAULT },
+        { id: 'chat',         name: 'Chat Messages',        importance: Notifications.AndroidImportance.DEFAULT },
+        { id: 'roster_moves', name: 'League Roster Moves',  importance: Notifications.AndroidImportance.LOW },
+      ];
+      for (const ch of channels) {
+        await Notifications.setNotificationChannelAsync(ch.id, {
+          name: ch.name,
+          importance: ch.importance,
+        });
+      }
+    } catch {
+      // Channel creation may fail in Expo Go — non-fatal
     }
   }
 

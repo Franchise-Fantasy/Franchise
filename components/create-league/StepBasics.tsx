@@ -2,7 +2,7 @@ import { ThemedText } from "@/components/ThemedText";
 import { NumberStepper } from "@/components/ui/NumberStepper";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Colors } from "@/constants/Colors";
-import { LeagueWizardState } from "@/constants/LeagueDefaults";
+import { LEAGUE_TYPE_OPTIONS, LeagueWizardState } from "@/constants/LeagueDefaults";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { StyleSheet, TextInput, View } from "react-native";
 
@@ -20,6 +20,28 @@ export function StepBasics({ state, onChange }: StepBasicsProps) {
       <ThemedText accessibilityRole="header" type="subtitle" style={styles.heading}>
         League Basics
       </ThemedText>
+
+      <View style={styles.section}>
+        <ThemedText style={styles.label}>League Type</ThemedText>
+        <SegmentedControl
+          options={[...LEAGUE_TYPE_OPTIONS]}
+          selectedIndex={LEAGUE_TYPE_OPTIONS.indexOf(state.leagueType ?? 'Dynasty')}
+          onSelect={(i) => onChange("leagueType", LEAGUE_TYPE_OPTIONS[i])}
+          accessibilityLabel="Select league type"
+        />
+      </View>
+
+      {state.leagueType === 'Keeper' && (
+        <View style={styles.section}>
+          <NumberStepper
+            label="Keepers Per Team"
+            value={state.keeperCount ?? 5}
+            onValueChange={(v) => onChange("keeperCount", v)}
+            min={1}
+            max={20}
+          />
+        </View>
+      )}
 
       <ThemedText style={styles.label}>League Name</ThemedText>
       <TextInput

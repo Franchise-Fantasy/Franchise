@@ -110,6 +110,7 @@ function buildTeamRows(
       fgm: s.fieldGoalsMade ?? 0,
       fga: s.fieldGoalsAttempted ?? 0,
       "3pm": s.threePointersMade ?? 0,
+      "3pa": s.threePointersAttempted ?? 0,
       ftm: s.freeThrowsMade ?? 0,
       fta: s.freeThrowsAttempted ?? 0,
       pf: s.foulsPersonal ?? 0,

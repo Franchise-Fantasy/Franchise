@@ -31,6 +31,7 @@ interface Pick {
   current_team_id: string;
   player_id?: string;
   slot_number: number;
+  pick_in_round: number;
   current_team?: {
     name: string;
   };

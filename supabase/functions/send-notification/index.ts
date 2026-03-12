@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { notifyTeams, notifyLeague } from '../_shared/push.ts';
 import { CORS_HEADERS } from '../_shared/cors.ts';
+import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -30,6 +31,9 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'send-notification');
+    if (rateLimited) return rateLimited;
+
     const { league_id, team_ids, category, title, body, data } = await req.json();
     if (!league_id || !category || !title || !body) {
       return new Response(JSON.stringify({ error: 'league_id, category, title, and body are required' }), {
@@ -38,7 +42,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const validCategories = ['draft', 'trades', 'matchups', 'matchup_daily', 'waivers', 'injuries', 'playoffs', 'commissioner', 'league_activity', 'roster_reminders', 'lottery'];
+    const validCategories = ['draft', 'trades', 'matchups', 'matchup_daily', 'waivers', 'injuries', 'playoffs', 'commissioner', 'league_activity', 'roster_reminders', 'lottery', 'roster_moves'];
     if (!validCategories.includes(category)) {
       return new Response(JSON.stringify({ error: `Invalid category. Must be one of: ${validCategories.join(', ')}` }), {
         status: 400,

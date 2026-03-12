@@ -126,6 +126,7 @@ export function PlayerCell({
   scoring,
   futureSchedule,
   onPress,
+  isCategories,
 }: {
   player: RosterPlayer | null;
   c: any;
@@ -135,6 +136,7 @@ export function PlayerCell({
   scoring: ScoringWeight[];
   futureSchedule?: Map<string, string>;
   onPress?: (playerId: string) => void;
+  isCategories?: boolean;
 }) {
   const align = side === 'right' ? 'flex-end' : 'flex-start';
   const textAlign = side === 'right' ? ('right' as const) : ('left' as const);
@@ -174,7 +176,9 @@ export function PlayerCell({
         <Text style={[pStyles.meta, { color: c.secondaryText, textAlign }]}>
           {futureMatchup ? `${player.position} · proj` : player.position}
         </Text>
-        <Text style={[pStyles.pts, { color: c.secondaryText, textAlign }]}>—</Text>
+        {!isCategories && (
+          <Text style={[pStyles.pts, { color: c.secondaryText, textAlign }]}>—</Text>
+        )}
       </Wrapper>
     );
   }
@@ -190,7 +194,7 @@ export function PlayerCell({
     return (
       <Wrapper style={[pStyles.cell, { alignItems: align }]} {...wrapperProps}>
         <View style={[pStyles.nameRow, { justifyContent: align }]}>
-          {liveStats.oncourt && <OnCourtDot />}
+          {liveStats.oncourt && isLive && <OnCourtDot />}
           <Text style={[pStyles.name, { color: c.text, flexShrink: 1, textAlign }]} numberOfLines={1}>{player.name}</Text>
           {liveStats.matchup ? (
             <Text style={[pStyles.matchup, { color: c.secondaryText }]}>{liveStats.matchup}</Text>
@@ -214,7 +218,9 @@ export function PlayerCell({
         <Text style={[pStyles.meta, { color: c.secondaryText, textAlign }]} numberOfLines={1}>
           {statLine ?? player.position}
         </Text>
-        <AnimatedFpts value={liveFp} activeColor={c.text} dimColor={c.secondaryText} textStyle={[pStyles.pts, { textAlign }]} />
+        {!isCategories && (
+          <AnimatedFpts value={liveFp} activeColor={c.text} dimColor={c.secondaryText} textStyle={[pStyles.pts, { textAlign }]} />
+        )}
       </Wrapper>
     );
   }
@@ -238,7 +244,9 @@ export function PlayerCell({
         <Text style={[pStyles.meta, { color: c.secondaryText, textAlign }]}>
           {todayMatchup ? `${player.position} · proj` : player.position}
         </Text>
-        <AnimatedFpts value={todayMatchup ? 0 : null} activeColor={c.text} dimColor={c.secondaryText} textStyle={[pStyles.pts, { textAlign }]} />
+        {!isCategories && (
+          <AnimatedFpts value={todayMatchup ? 0 : null} activeColor={c.text} dimColor={c.secondaryText} textStyle={[pStyles.pts, { textAlign }]} />
+        )}
       </Wrapper>
     );
   }
@@ -261,12 +269,14 @@ export function PlayerCell({
       <Text style={[pStyles.meta, { color: c.secondaryText, textAlign }]} numberOfLines={1}>
         {hasDayGame && player.dayStatLine ? player.dayStatLine : player.position}
       </Text>
-      <AnimatedFpts
-        value={hasDayGame ? player.dayPoints : null}
-        activeColor={c.text}
-        dimColor={c.secondaryText}
-        textStyle={[pStyles.pts, { textAlign }]}
-      />
+      {!isCategories && (
+        <AnimatedFpts
+          value={hasDayGame ? player.dayPoints : null}
+          activeColor={c.text}
+          dimColor={c.secondaryText}
+          textStyle={[pStyles.pts, { textAlign }]}
+        />
+      )}
     </Wrapper>
   );
 }

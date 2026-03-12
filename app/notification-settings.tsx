@@ -177,6 +177,14 @@ export default function NotificationSettingsScreen() {
             onToggle={toggle('roster_reminders')}
             c={c}
           />
+          <ToggleRow
+            icon="person-add-outline"
+            label="League Roster Moves"
+            description="When other teams add or drop players"
+            value={prefs.roster_moves}
+            onToggle={toggle('roster_moves')}
+            c={c}
+          />
         </View>
       </ScrollView>
     </ThemedView>

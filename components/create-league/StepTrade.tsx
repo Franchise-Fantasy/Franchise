@@ -53,16 +53,18 @@ export function StepTrade({ state, onChange }: StepTradeProps) {
         </View>
       )}
 
-      <View style={styles.section}>
-        <ToggleRow
-          icon="shield-checkmark-outline"
-          label="Pick Protections & Swaps"
-          description="Allow draft pick protections and pick swap rights in trades"
-          value={state.pickConditionsEnabled}
-          onToggle={(v) => onChange('pickConditionsEnabled', v)}
-          c={{ border: c.border, accent: c.accent, secondaryText: c.secondaryText }}
-        />
-      </View>
+      {(state.leagueType ?? 'Dynasty') === 'Dynasty' && (
+        <View style={styles.section}>
+          <ToggleRow
+            icon="shield-checkmark-outline"
+            label="Pick Protections & Swaps"
+            description="Allow draft pick protections and pick swap rights in trades"
+            value={state.pickConditionsEnabled}
+            onToggle={(v) => onChange('pickConditionsEnabled', v)}
+            c={{ border: c.border, accent: c.accent, secondaryText: c.secondaryText }}
+          />
+        </View>
+      )}
 
       <View style={styles.section}>
         <NumberStepper

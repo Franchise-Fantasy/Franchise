@@ -1,5 +1,18 @@
 ## Your Manual Steps (Tier 1 MVP)
 
+long names look weird in drsft cards
+in-draft roster sometimes doesn't auto-sort
+
+- As soon as someone else, picked, all your players go to the bench
+
+Draft room needs:
+Queue
+Filled Positions (1/5 centers, etc)
+
+someone saw a pllayer who had aallreaaday been picked
+
+If a player autodrafts twice in a row, their picks should immediately fire until they re-enter the draft room.
+
 ### Password reset - configure Supabase Auth
 
 1. Go to Supabase Dashboard > Authentication > URL Configuration
@@ -16,31 +29,26 @@
    - `Sentry.init({ dsn: process.env.EXPO_PUBLIC_SENTRY_DSN });`
 5. Does NOT work in Expo Go — only in custom dev builds / production
 
-### DB schema backup (requires Docker)
-
-1. Install and start Docker Desktop
-2. Run: `npx supabase db dump -f supabase/migrations/00000000000000_baseline.sql`
-3. Commit the file to git
-
-### Terms of Service / Privacy Policy
-
-- Template content is in `app/legal.tsx` — review and customize the text
-- Update contact info, company name, specific data practices as needed
-
 ### Error boundary (re-add later)
 
 - The `+error.tsx` file caused a white screen — needs investigation on correct Expo Router v4 API
 - Re-add once you have a custom dev build where you can debug it properly
 
+- [ ] Implement Email Verification — Supabase toggle
+  - needs SMTP + Supabase Pro
+
 ## Tier 1 — Now
 
-- [ ] Integrate PostHog Analytics — instrument before real users
-- [ ] Implement Email Verification — Supabase toggle + interstitial
-- [ ] Set up rate limiting on edge functions
 - [ ] Build Onboarding Walkthrough — tooltip tour, scaffold now, polish closer to launch
-- [ ] League import tooling - ESPN and Yahoo (probably csv's or screenshots)
+- Sleeper ID: 851103743612141568
 - [ ] Deep-Linked Invite URL's (Needs dev build)
-- [ ] Google Login support
+- [ ] Google login (Needs dev build)
+  - Create OAuth credentials in Google Cloud Console (Web + Android + iOS client IDs)
+  - Enable Google provider in your Supabase dashboard with the Web Client ID/Secret
+  - Uncomment and fill in the env vars in .env.local
+  - Build a new dev client (eas build --profile development) since this is a native module
+
+- [ ]
 
 ## Tier 2 — Analytics/Design-Dependent Premium Features
 

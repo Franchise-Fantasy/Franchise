@@ -53,7 +53,7 @@ export function calculateAvgFantasyPoints(
       totalFantasy += (player[field] as number) * weight.point_value;
     }
   }
-  return Math.round((totalFantasy / player.games_played) * 100) / 100;
+  return Math.round((totalFantasy / player.games_played) * 10) / 10;
 }
 
 // Computes fantasy points for a single game.

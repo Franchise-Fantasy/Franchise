@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { notifyLeague, notifyTeams } from '../_shared/push.ts';
 import { CORS_HEADERS } from '../_shared/cors.ts';
+import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 async function scheduleAutodraft(draft_id: string, pick_number: number, time_limit: number) {
   const token = Deno.env.get('QSTASH_TOKEN')?.trim();
@@ -48,6 +49,9 @@ Deno.serve(async (req) => {
 
     const { data: { user } } = await userClient.auth.getUser();
     if (!user) throw new Error('Unauthorized');
+
+    const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'start-draft');
+    if (rateLimited) return rateLimited;
 
     const { draft_id } = await req.json();
     if (!draft_id) throw new Error('draft_id is required');

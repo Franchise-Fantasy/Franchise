@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { toDateStr } from '@/utils/dates';
 import { useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 
 export interface LivePlayerStats {
   player_id: string;
@@ -22,6 +23,7 @@ export interface LivePlayerStats {
   fgm: number;
   fga: number;
   '3pm': number;
+  '3pa': number;
   ftm: number;
   fta: number;
   pf: number;
@@ -69,12 +71,30 @@ export function formatGameInfo(live: LivePlayerStats): string {
 // Returns a map of player_id → LivePlayerStats for today's games.
 // Performs an initial fetch then subscribes to Realtime for push updates.
 // Cleans up the channel when disabled or unmounted.
+// Tracks the current date so stale data from a previous day is cleared
+// when the app resumes from background after midnight.
 export function useLivePlayerStats(
   playerIds: string[],
   enabled: boolean
 ): Map<string, LivePlayerStats> {
   const [liveMap, setLiveMap] = useState<Map<string, LivePlayerStats>>(new Map());
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const dateRef = useRef<string>(toDateStr(new Date()));
+
+  // Track date changes from AppState (background → foreground after midnight)
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        const now = toDateStr(new Date());
+        if (now !== dateRef.current) {
+          dateRef.current = now;
+          // Clear stale live data from the previous day
+          setLiveMap(new Map());
+        }
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   useEffect(() => {
     if (!enabled || playerIds.length === 0) {
@@ -83,6 +103,7 @@ export function useLivePlayerStats(
     }
 
     const today = toDateStr(new Date());
+    dateRef.current = today;
 
     // Initial fetch
     supabase
@@ -91,6 +112,8 @@ export function useLivePlayerStats(
       .in('player_id', playerIds)
       .eq('game_date', today)
       .then(({ data }) => {
+        // Verify date hasn't changed since we started the fetch
+        if (toDateStr(new Date()) !== today) return;
         if (data) {
           setLiveMap(buildMap(data as LivePlayerStats[]));
         }
@@ -105,6 +128,8 @@ export function useLivePlayerStats(
         (payload) => {
           const row = payload.new as LivePlayerStats;
           if (!playerIds.includes(row.player_id)) return;
+          // Only accept updates for today's date
+          if (row.game_date !== dateRef.current) return;
           setLiveMap((prev) => {
             const next = new Map(prev);
             next.set(row.player_id, row);
@@ -138,8 +163,8 @@ export function liveToGameLog(live: LivePlayerStats): Record<string, number | bo
   return {
     pts: live.pts, reb: live.reb, ast: live.ast, stl: live.stl,
     blk: live.blk, tov: live.tov, fgm: live.fgm, fga: live.fga,
-    '3pm': live['3pm'], ftm: live.ftm, fta: live.fta, pf: live.pf,
-    min: 0,
+    '3pm': live['3pm'], '3pa': live['3pa'] ?? 0, ftm: live.ftm,
+    fta: live.fta, pf: live.pf, min: 0,
     double_double: cats >= 2,
     triple_double: cats >= 3,
   };

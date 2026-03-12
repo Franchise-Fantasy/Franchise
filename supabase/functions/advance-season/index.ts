@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { notifyLeague } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
+import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 function nextSeason(current: string): string {
   const [startStr] = current.split('-');
@@ -30,13 +31,16 @@ Deno.serve(async (req) => {
     const { data: { user } } = await userClient.auth.getUser();
     if (!user) throw new Error('Unauthorized');
 
+    const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'advance-season');
+    if (rateLimited) return rateLimited;
+
     const { league_id } = await req.json();
     if (!league_id) throw new Error('league_id is required');
 
     // Fetch league config
     const { data: league, error: leagueErr } = await supabaseAdmin
       .from('leagues')
-      .select('created_by, name, season, teams, playoff_teams, playoff_weeks, rookie_draft_order, rookie_draft_rounds, lottery_draws, lottery_odds, waiver_type, faab_budget, offseason_step')
+      .select('created_by, name, season, teams, playoff_teams, playoff_weeks, rookie_draft_order, rookie_draft_rounds, lottery_draws, lottery_odds, waiver_type, faab_budget, offseason_step, league_type, taxi_slots, taxi_max_experience')
       .eq('id', league_id)
       .single();
     if (leagueErr || !league) throw new Error('League not found');
@@ -193,38 +197,118 @@ Deno.serve(async (req) => {
         .eq('team_id', team.id);
     }
 
-    // ── 11. Determine offseason step ──
-    if (league.rookie_draft_order === 'lottery') {
-      leagueUpdates.offseason_step = 'lottery_pending';
+    // ── 11. Determine offseason step based on league type ──
+    const leagueType = league.league_type ?? 'dynasty';
+
+    if (leagueType === 'redraft') {
+      // Release all players back to the free agent pool
+      await supabaseAdmin
+        .from('league_players')
+        .delete()
+        .eq('league_id', league_id);
+
+      // Clean up any orphaned future draft picks
+      await supabaseAdmin
+        .from('draft_picks')
+        .delete()
+        .eq('league_id', league_id)
+        .is('draft_id', null);
+
+      leagueUpdates.offseason_step = 'ready_for_new_season';
+
+    } else if (leagueType === 'keeper') {
+      // Players stay on rosters until keepers are declared
+      leagueUpdates.offseason_step = 'keeper_pending';
+
     } else {
-      const reversedTeams = [...allTeams].reverse();
-      for (let pos = 0; pos < reversedTeams.length; pos++) {
-        const team = reversedTeams[pos];
-        for (let round = 1; round <= (league.rookie_draft_rounds ?? 2); round++) {
-          await supabaseAdmin
-            .from('draft_picks')
-            .update({
-              pick_number: (round - 1) * reversedTeams.length + (pos + 1),
-              slot_number: pos + 1,
-            })
-            .eq('league_id', league_id)
-            .eq('season', newSeason)
-            .eq('round', round)
-            .eq('current_team_id', team.id)
-            .is('draft_id', null);
+      // Dynasty: existing logic
+      if (league.rookie_draft_order === 'lottery') {
+        leagueUpdates.offseason_step = 'lottery_pending';
+      } else {
+        const reversedTeams = [...allTeams].reverse();
+        for (let pos = 0; pos < reversedTeams.length; pos++) {
+          const team = reversedTeams[pos];
+          for (let round = 1; round <= (league.rookie_draft_rounds ?? 2); round++) {
+            await supabaseAdmin
+              .from('draft_picks')
+              .update({
+                pick_number: (round - 1) * reversedTeams.length + (pos + 1),
+                slot_number: pos + 1,
+              })
+              .eq('league_id', league_id)
+              .eq('season', newSeason)
+              .eq('round', round)
+              .eq('current_team_id', team.id)
+              .is('draft_id', null);
+          }
         }
+        leagueUpdates.offseason_step = 'rookie_draft_pending';
       }
-      leagueUpdates.offseason_step = 'rookie_draft_pending';
     }
 
-    // ── 12. Update league ──
+    // ── 12. Auto-promote aged-out taxi squad players ──
+    if (league.taxi_slots > 0 && league.taxi_max_experience !== null) {
+      const { data: taxiPlayers } = await supabaseAdmin
+        .from('league_players')
+        .select('id, player_id, team_id')
+        .eq('league_id', league_id)
+        .eq('roster_slot', 'TAXI');
+
+      if (taxiPlayers && taxiPlayers.length > 0) {
+        const taxiPlayerIds = taxiPlayers.map(tp => tp.player_id);
+        const { data: players } = await supabaseAdmin
+          .from('players')
+          .select('id, nba_draft_year')
+          .in('id', taxiPlayerIds);
+
+        const draftYearMap = new Map((players ?? []).map(p => [p.id, p.nba_draft_year]));
+        const newYear = parseInt(newSeason.split('-')[0], 10) + 1;
+        const promotedIds: string[] = [];
+
+        for (const tp of taxiPlayers) {
+          const draftYear = draftYearMap.get(tp.player_id);
+          const ineligible = draftYear == null || (newYear - draftYear) > league.taxi_max_experience;
+          if (ineligible) {
+            promotedIds.push(tp.id);
+          }
+        }
+
+        if (promotedIds.length > 0) {
+          await supabaseAdmin
+            .from('league_players')
+            .update({ roster_slot: 'BE' })
+            .in('id', promotedIds);
+
+          // Log auto-promotions
+          const promotedPlayers = taxiPlayers.filter(tp => promotedIds.includes(tp.id));
+          const { data: pNames } = await supabaseAdmin
+            .from('players')
+            .select('id, name')
+            .in('id', promotedPlayers.map(p => p.player_id));
+          const nameMap = new Map((pNames ?? []).map(p => [p.id, p.name]));
+
+          for (const tp of promotedPlayers) {
+            await supabaseAdmin
+              .from('league_transactions')
+              .insert({
+                league_id,
+                type: 'commissioner',
+                team_id: tp.team_id,
+                notes: `${nameMap.get(tp.player_id) ?? 'Unknown'} auto-promoted from taxi squad (aged out)`,
+              });
+          }
+        }
+      }
+    }
+
+    // ── 13. Update league ──
     const { error: leagueUpdateErr } = await supabaseAdmin
       .from('leagues')
       .update(leagueUpdates)
       .eq('id', league_id);
     if (leagueUpdateErr) throw new Error(`Failed to update league: ${leagueUpdateErr.message}`);
 
-    // ── 13. Notify league ──
+    // ── 14. Notify league ──
     try {
       const champName = championId
         ? allTeams.find(t => t.id === championId)?.name ?? 'The champion'

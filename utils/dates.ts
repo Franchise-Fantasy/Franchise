@@ -1,3 +1,6 @@
+import { useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
+
 /** Format a Date as "YYYY-MM-DD" in local time. */
 export function toDateStr(d: Date): string {
   const y = d.getFullYear();
@@ -17,6 +20,30 @@ export function addDays(dateStr: string, n: number): string {
   const d = parseLocalDate(dateStr);
   d.setDate(d.getDate() + n);
   return toDateStr(d);
+}
+
+/**
+ * Hook that returns today's date string and refreshes when the app
+ * returns from background (handles midnight rollover while backgrounded).
+ */
+export function useToday(): string {
+  const [today, setToday] = useState<string>(() => toDateStr(new Date()));
+  const todayRef = useRef(today);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        const now = toDateStr(new Date());
+        if (now !== todayRef.current) {
+          todayRef.current = now;
+          setToday(now);
+        }
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
+  return today;
 }
 
 /** Format "YYYY-MM-DD" as "Mon, Feb 27" style label. */

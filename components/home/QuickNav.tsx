@@ -15,16 +15,22 @@ const NAV_ITEMS = [
   { icon: 'info.circle', label: 'League Info', route: '/league-info' },
 ] as const;
 
-export function QuickNav() {
+export function QuickNav({ leagueType = 'dynasty' }: { leagueType?: string }) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const router = useRouter();
+  const isDynasty = leagueType === 'dynasty';
+
+  const visibleItems = NAV_ITEMS.filter(item => {
+    if (!isDynasty && item.route === '/draft-hub') return false;
+    return true;
+  });
 
   return (
     <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
       <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">Quick Navigation</ThemedText>
       <View style={styles.grid}>
-        {NAV_ITEMS.map(item => {
+        {visibleItems.map(item => {
           const isLeagueInfo = item.route === '/league-info';
           return (
             <TouchableOpacity key={item.route} style={[styles.navItem, isLeagueInfo && styles.navItemCompact, { backgroundColor: c.cardAlt }]} onPress={() => router.push(item.route as any)} accessibilityRole="button" accessibilityLabel={item.label}>

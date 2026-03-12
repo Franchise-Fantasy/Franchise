@@ -72,7 +72,7 @@ export function LotteryOddsEditor({ odds, onChange, lotteryTeams }: LotteryOddsE
 
       {odds.map((pct, i) => (
         <View key={i} style={[styles.row, { borderBottomColor: c.border }]}>
-          <Text style={[styles.posLabel, { color: c.textSecondary }]}>
+          <Text style={[styles.posLabel, { color: c.secondaryText }]}>
             {POSITION_LABELS[i] ?? `${i + 1}th`}
           </Text>
           <View style={styles.controls}>
@@ -118,7 +118,7 @@ export function LotteryOddsEditor({ odds, onChange, lotteryTeams }: LotteryOddsE
       ))}
 
       <View style={styles.footer}>
-        <Text style={[styles.totalLabel, { color: isValid ? c.textSecondary : '#e74c3c' }]}>
+        <Text style={[styles.totalLabel, { color: isValid ? c.secondaryText : '#e74c3c' }]}>
           Total: {totalRounded.toFixed(1)}%{!isValid ? ' (must equal 100%)' : ''}
         </Text>
         {!isValid && (

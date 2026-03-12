@@ -11,9 +11,14 @@ import { StepIndicator } from "@/components/ui/StepIndicator";
 import { Colors } from "@/constants/Colors";
 import {
   CURRENT_NBA_SEASON,
+  DEFAULT_CATEGORIES,
   DEFAULT_ROSTER_SLOTS,
   DEFAULT_SCORING,
+  CategoryConfig,
+  LEAGUE_TYPE_TO_DB,
   LeagueWizardState,
+  SCORING_TYPE_TO_DB,
+  ScoringTypeOption,
   SEEDING_TO_DB,
   STEP_LABELS,
 } from "@/constants/LeagueDefaults";
@@ -40,18 +45,25 @@ type Action =
   | { type: "SET_ROSTER_SLOT"; index: number; count: number }
   | { type: "SET_SCORING"; index: number; value: number }
   | { type: "RESET_SCORING" }
-  | { type: "RESET_ROSTER" };
+  | { type: "RESET_ROSTER" }
+  | { type: "SET_SCORING_TYPE"; value: ScoringTypeOption }
+  | { type: "SET_CATEGORY_ENABLED"; index: number; enabled: boolean }
+  | { type: "RESET_CATEGORIES" };
 
 const DEFAULT_PLAYOFF_WEEKS = 3;
 const maxWeeks = computeMaxWeeks(CURRENT_NBA_SEASON);
 const WIZARD_STORAGE_KEY = '@league_wizard';
 
 const initialState: LeagueWizardState = {
+  leagueType: 'Dynasty',
+  keeperCount: 5,
   name: "",
   teams: 10,
   isPrivate: false,
   rosterSlots: DEFAULT_ROSTER_SLOTS.map((s) => ({ ...s })),
+  scoringType: 'Points',
   scoring: DEFAULT_SCORING.map((s) => ({ ...s })),
+  categories: DEFAULT_CATEGORIES.map((c) => ({ ...c })),
   draftType: "Snake",
   timePerPick: 90,
   maxDraftYears: 3,
@@ -76,6 +88,7 @@ const initialState: LeagueWizardState = {
   draftPickTradingEnabled: false,
   tradeDeadlineWeek: 0,
   buyIn: 0,
+  taxiMaxExperience: null,
 };
 
 function clampLotteryState(s: LeagueWizardState): LeagueWizardState {
@@ -104,6 +117,13 @@ function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
       if (action.field === 'teams' || action.field === 'playoffWeeks' || action.field === 'playoffTeams') {
         return clampLotteryState(next);
       }
+      // When switching away from dynasty, disable pick-related features
+      if (action.field === 'leagueType' && action.value !== 'Dynasty') {
+        return { ...next, draftPickTradingEnabled: false, pickConditionsEnabled: false, maxDraftYears: 0 };
+      }
+      if (action.field === 'leagueType' && action.value === 'Dynasty') {
+        return { ...next, maxDraftYears: 3 };
+      }
       return next;
     }
     case "SET_ROSTER_SLOT": {
@@ -126,6 +146,15 @@ function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
         ...state,
         rosterSlots: DEFAULT_ROSTER_SLOTS.map((s) => ({ ...s })),
       };
+    case "SET_SCORING_TYPE":
+      return { ...state, scoringType: action.value };
+    case "SET_CATEGORY_ENABLED": {
+      const cats = [...state.categories];
+      cats[action.index] = { ...cats[action.index], is_enabled: action.enabled };
+      return { ...state, categories: cats };
+    }
+    case "RESET_CATEGORIES":
+      return { ...state, categories: DEFAULT_CATEGORIES.map((c) => ({ ...c })) };
     default:
       return state;
   }
@@ -209,7 +238,8 @@ export default function CreateLeague() {
       return;
     }
 
-    const rosterSize = state.rosterSlots.reduce((sum, s) => s.position === 'IR' ? sum : sum + s.count, 0);
+    const rosterSize = state.rosterSlots.reduce((sum, s) => (s.position === 'IR' || s.position === 'TAXI') ? sum : sum + s.count, 0);
+    const taxiSlotCount = state.rosterSlots.find((s) => s.position === 'TAXI')?.count ?? 0;
 
     // Compute season start (mirrors computeSeasonStart in StepSeason.tsx)
     // Mon/Tue/Wed: start today. Thu–Sun: start next Monday.
@@ -225,13 +255,17 @@ export default function CreateLeague() {
     }
     const seasonStartDate = `${seasonStart.getFullYear()}-${String(seasonStart.getMonth() + 1).padStart(2, "0")}-${String(seasonStart.getDate()).padStart(2, "0")}`;
 
+    const isDynasty = state.leagueType === 'Dynasty';
+
     // 1. Create league
     const { data: leagueData, error: leagueError } = await supabase
       .from("leagues")
       .insert({
         name: state.name,
         created_by: user.id,
-        max_future_seasons: state.maxDraftYears,
+        league_type: LEAGUE_TYPE_TO_DB[state.leagueType],
+        keeper_count: state.leagueType === 'Keeper' ? state.keeperCount : null,
+        max_future_seasons: isDynasty ? state.maxDraftYears : 0,
         teams: state.teams,
         roster_size: rosterSize,
         private: state.isPrivate,
@@ -246,12 +280,12 @@ export default function CreateLeague() {
             ? 'league_vote'
             : 'none',
         trade_votes_to_veto: state.tradeVotesToVeto,
-        rookie_draft_rounds: state.rookieDraftRounds,
-        rookie_draft_order: state.rookieDraftOrder === 'Reverse Record'
-          ? 'reverse_record'
-          : 'lottery',
-        lottery_draws: state.lotteryDraws,
-        lottery_odds: state.lotteryOdds,
+        rookie_draft_rounds: isDynasty ? state.rookieDraftRounds : 0,
+        rookie_draft_order: isDynasty
+          ? (state.rookieDraftOrder === 'Reverse Record' ? 'reverse_record' : 'lottery')
+          : 'reverse_record',
+        lottery_draws: isDynasty ? state.lotteryDraws : 0,
+        lottery_odds: isDynasty ? state.lotteryOdds : null,
         playoff_teams: state.playoffTeams,
         waiver_type: state.waiverType === 'Standard'
           ? 'standard'
@@ -263,9 +297,12 @@ export default function CreateLeague() {
         waiver_day_of_week: state.waiverDayOfWeek,
         playoff_seeding_format: SEEDING_TO_DB[state.playoffSeedingFormat] ?? 'standard',
         reseed_each_round: state.reseedEachRound,
+        scoring_type: SCORING_TYPE_TO_DB[state.scoringType] ?? 'points',
         buy_in_amount: state.buyIn || null,
-        pick_conditions_enabled: state.pickConditionsEnabled,
-        draft_pick_trading_enabled: state.draftPickTradingEnabled,
+        taxi_slots: taxiSlotCount,
+        taxi_max_experience: taxiSlotCount > 0 ? state.taxiMaxExperience : null,
+        pick_conditions_enabled: isDynasty ? state.pickConditionsEnabled : false,
+        draft_pick_trading_enabled: isDynasty ? state.draftPickTradingEnabled : false,
         trade_deadline: state.tradeDeadlineWeek > 0
           ? (() => {
               // Week 1 ends on the first Sunday after (or on) seasonStart.
@@ -310,11 +347,23 @@ export default function CreateLeague() {
     }
 
     // 3. Insert scoring settings
-    const scoringRows = state.scoring.map((s) => ({
-      league_id: leagueData.id,
-      stat_name: s.stat_name,
-      point_value: s.point_value,
-    }));
+    const scoringRows = state.scoringType === 'Points'
+      ? state.scoring.map((s) => ({
+          league_id: leagueData.id,
+          stat_name: s.stat_name,
+          point_value: s.point_value,
+          is_enabled: true,
+          inverse: false,
+        }))
+      : state.categories
+          .filter((c) => c.is_enabled)
+          .map((c) => ({
+            league_id: leagueData.id,
+            stat_name: c.stat_name,
+            point_value: 0,
+            is_enabled: true,
+            inverse: c.inverse,
+          }));
 
     const { error: scoringError } = await supabase
       .from("league_scoring_settings")
@@ -348,8 +397,8 @@ export default function CreateLeague() {
       return;
     }
 
-    // 5. Generate draft picks + future tradeable picks in the background
-    Promise.all([
+    // 5. Generate draft picks (+ future tradeable picks for dynasty only)
+    const pickPromises: Promise<any>[] = [
       generateDraftPicks(
         draftData.id,
         state.teams,
@@ -358,14 +407,19 @@ export default function CreateLeague() {
         leagueData.id,
         state.draftType.toLowerCase() as "snake" | "linear",
       ),
-      generateFutureDraftPicks(
-        leagueData.id,
-        state.teams,
-        state.rookieDraftRounds,
-        state.season,
-        state.maxDraftYears,
-      ),
-    ]).catch((error) => console.error("Error generating draft picks:", error));
+    ];
+    if (isDynasty) {
+      pickPromises.push(
+        generateFutureDraftPicks(
+          leagueData.id,
+          state.teams,
+          state.rookieDraftRounds,
+          state.season,
+          state.maxDraftYears,
+        ),
+      );
+    }
+    Promise.all(pickPromises).catch((error) => console.error("Error generating draft picks:", error));
 
     AsyncStorage.removeItem(WIZARD_STORAGE_KEY).catch(() => {});
     setLoading(false);
@@ -395,6 +449,7 @@ export default function CreateLeague() {
             onSlotChange={(i, count) =>
               dispatch({ type: "SET_ROSTER_SLOT", index: i, count })
             }
+            onChange={handleChange}
             onResetRoster={() => dispatch({ type: "RESET_ROSTER" })}
           />
         )}
@@ -405,6 +460,13 @@ export default function CreateLeague() {
               dispatch({ type: "SET_SCORING", index: i, value: v })
             }
             onResetScoring={() => dispatch({ type: "RESET_SCORING" })}
+            onScoringTypeChange={(v) =>
+              dispatch({ type: "SET_SCORING_TYPE", value: v })
+            }
+            onCategoryToggle={(i, enabled) =>
+              dispatch({ type: "SET_CATEGORY_ENABLED", index: i, enabled })
+            }
+            onResetCategories={() => dispatch({ type: "RESET_CATEGORIES" })}
           />
         )}
         {step === 3 && <StepTrade state={state} onChange={handleChange} />}

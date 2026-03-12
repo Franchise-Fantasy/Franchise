@@ -44,6 +44,42 @@ export default function SetupProfileScreen() {
     }
   }
 
+  async function handleDeleteAccount() {
+    Alert.alert(
+      "Delete Account",
+      "Are you sure? This will permanently delete your account and all associated data. This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            setLoading(true);
+            try {
+              const { data: { session: currentSession } } = await supabase.auth.getSession();
+              const { error } = await supabase.functions.invoke('delete-account', {
+                headers: { Authorization: `Bearer ${currentSession?.access_token}` },
+              });
+              if (error) throw error;
+
+              const keys = await AsyncStorage.getAllKeys();
+              const supabaseKeys = keys.filter((k) => k.startsWith("sb-"));
+              if (supabaseKeys.length > 0) {
+                await AsyncStorage.multiRemove(supabaseKeys);
+              }
+              await supabase.auth.signOut();
+              router.replace("/auth");
+            } catch (err: any) {
+              Alert.alert("Error", err.message ?? "Failed to delete account");
+            } finally {
+              setLoading(false);
+            }
+          },
+        },
+      ]
+    );
+  }
+
   return (
     <ThemedView style={styles.container}>
       <ScrollView
@@ -61,31 +97,86 @@ export default function SetupProfileScreen() {
           </ThemedText>
         </View>
 
+        {/* Legal */}
         <View
           style={[
             styles.section,
             { backgroundColor: c.card, borderColor: c.border },
           ]}
         >
-          <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>
+          <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">
+            Legal
+          </ThemedText>
+          <TouchableOpacity
+            style={styles.actionRow}
+            onPress={() => router.push('/legal?tab=terms' as any)}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Terms of Service"
+          >
+            <View style={styles.actionLeft}>
+              <Ionicons name="document-text-outline" size={20} color={c.secondaryText} accessible={false} />
+              <ThemedText style={styles.actionLabel}>Terms of Service</ThemedText>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={c.secondaryText} accessible={false} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.actionRow, { borderBottomWidth: 0 }]}
+            onPress={() => router.push('/legal?tab=privacy' as any)}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Privacy Policy"
+          >
+            <View style={styles.actionLeft}>
+              <Ionicons name="shield-checkmark-outline" size={20} color={c.secondaryText} accessible={false} />
+              <ThemedText style={styles.actionLabel}>Privacy Policy</ThemedText>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={c.secondaryText} accessible={false} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Account */}
+        <View
+          style={[
+            styles.section,
+            { backgroundColor: c.card, borderColor: c.border },
+          ]}
+        >
+          <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">
             Account
           </ThemedText>
 
           <TouchableOpacity
-            style={[styles.actionRow, { borderBottomWidth: 0 }]}
+            style={styles.actionRow}
             onPress={handleSignOut}
             disabled={loading}
             activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Sign Out"
+            accessibilityState={{ disabled: loading }}
           >
             <View style={styles.actionLeft}>
-              <Ionicons name="log-out-outline" size={20} color={c.text} />
+              <Ionicons name="log-out-outline" size={20} color={c.text} accessible={false} />
               <ThemedText style={styles.actionLabel}>Sign Out</ThemedText>
             </View>
-            <Ionicons
-              name="chevron-forward"
-              size={18}
-              color={c.secondaryText}
-            />
+            <Ionicons name="chevron-forward" size={18} color={c.secondaryText} accessible={false} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.actionRow, { borderBottomWidth: 0 }]}
+            onPress={handleDeleteAccount}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Delete Account"
+            accessibilityHint="Permanently deletes your account and all data"
+          >
+            <View style={styles.actionLeft}>
+              <Ionicons name="trash-outline" size={20} color="#FF3B30" accessible={false} />
+              <Text style={[styles.actionLabel, { color: "#FF3B30" }]}>
+                Delete Account
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={c.secondaryText} accessible={false} />
           </TouchableOpacity>
         </View>
 

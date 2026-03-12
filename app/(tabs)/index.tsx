@@ -1,3 +1,4 @@
+import { AnalyticsPreviewCard } from '@/components/home/AnalyticsPreviewCard';
 import { DraftSection } from '@/components/home/DraftSection';
 import { ErrorState } from '@/components/ErrorState';
 import { ImportedLeagueSection } from '@/components/home/ImportedLeagueSection';
@@ -92,6 +93,8 @@ export default function HomeScreen() {
                 rookieDraftOrder={league.rookie_draft_order ?? 'reverse_record'}
                 season={league.season}
                 rosterSize={league.roster_size ?? 13}
+                leagueType={league.league_type ?? 'dynasty'}
+                keeperCount={league.keeper_count ?? 5}
               />
             ) : null}
             {league.imported_from && !league.schedule_generated ? (
@@ -103,7 +106,9 @@ export default function HomeScreen() {
               />
             ) : (
               <>
-                <DraftSection leagueId={league.id} isCommissioner={isCommissioner} />
+                {(!league.offseason_step || (league.league_type ?? 'dynasty') === 'dynasty') && (
+                  <DraftSection leagueId={league.id} isCommissioner={isCommissioner} />
+                )}
                 <InviteSection
                   isCommissioner={isCommissioner}
                   isPrivate={league.private}
@@ -113,8 +118,9 @@ export default function HomeScreen() {
                 />
               </>
             )}
-            <QuickNav />
-            <StandingsSection leagueId={league.id} playoffTeams={league.playoff_teams} />
+            <AnalyticsPreviewCard leagueId={league.id} />
+            <QuickNav leagueType={league.league_type ?? 'dynasty'} />
+            <StandingsSection leagueId={league.id} playoffTeams={league.playoff_teams} scoringType={league.scoring_type} />
           </>
         ) : isError ? (
           <ErrorState message="Failed to load league data" onRetry={() => refetch()} />

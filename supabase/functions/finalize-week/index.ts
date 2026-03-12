@@ -15,16 +15,99 @@ const STAT_TO_GAME: Record<string, string> = {
   BLK: "blk",
   TO: "tov",
   "3PM": "3pm",
+  "3PA": "3pa",
   FGM: "fgm",
   FGA: "fga",
   FTM: "ftm",
   FTA: "fta",
   PF: "pf",
+  DD: "double_double",
+  TD: "triple_double",
 };
 
 interface ScoringWeight {
   stat_name: string;
   point_value: number;
+  is_enabled: boolean;
+  inverse: boolean;
+}
+
+// ── Category scoring helpers ───────────────────────────────────────────────
+
+const PERCENTAGE_STATS: Record<string, { numerator: string; denominator: string }> = {
+  'FG%': { numerator: 'fgm', denominator: 'fga' },
+  'FT%': { numerator: 'ftm', denominator: 'fta' },
+};
+
+interface CategoryResult {
+  stat: string;
+  home: number;
+  away: number;
+  winner: 'home' | 'away' | 'tie';
+}
+
+function aggregateGameStats(
+  gameLogs: Record<string, any>[],
+): Record<string, number> {
+  const totals: Record<string, number> = {};
+  for (const game of gameLogs) {
+    for (const [, gameKey] of Object.entries(STAT_TO_GAME)) {
+      const raw = game[gameKey];
+      if (raw == null) continue;
+      const val = typeof raw === 'boolean' ? (raw ? 1 : 0) : Number(raw);
+      totals[gameKey] = (totals[gameKey] ?? 0) + val;
+    }
+  }
+  return totals;
+}
+
+function compareCategoryStats(
+  homeStats: Record<string, number>,
+  awayStats: Record<string, number>,
+  categories: ScoringWeight[],
+): { results: CategoryResult[]; homeWins: number; awayWins: number; ties: number } {
+  const results: CategoryResult[] = [];
+  let homeWins = 0;
+  let awayWins = 0;
+  let ties = 0;
+
+  for (const cat of categories) {
+    if (!cat.is_enabled) continue;
+
+    const pctDef = PERCENTAGE_STATS[cat.stat_name];
+    let homeVal: number;
+    let awayVal: number;
+
+    if (pctDef) {
+      const hNum = homeStats[pctDef.numerator] ?? 0;
+      const hDen = homeStats[pctDef.denominator] ?? 0;
+      const aNum = awayStats[pctDef.numerator] ?? 0;
+      const aDen = awayStats[pctDef.denominator] ?? 0;
+      homeVal = hDen > 0 ? Math.round((hNum / hDen) * 1000) / 1000 : 0;
+      awayVal = aDen > 0 ? Math.round((aNum / aDen) * 1000) / 1000 : 0;
+    } else {
+      const gameKey = STAT_TO_GAME[cat.stat_name];
+      if (!gameKey) continue;
+      homeVal = homeStats[gameKey] ?? 0;
+      awayVal = awayStats[gameKey] ?? 0;
+    }
+
+    let winner: 'home' | 'away' | 'tie';
+    if (homeVal === awayVal) {
+      winner = 'tie';
+      ties++;
+    } else if (cat.inverse) {
+      winner = homeVal < awayVal ? 'home' : 'away';
+      if (winner === 'home') homeWins++; else awayWins++;
+    } else {
+      winner = homeVal > awayVal ? 'home' : 'away';
+      if (winner === 'home') homeWins++; else awayWins++;
+    }
+
+    results.push({ stat: cat.stat_name, home: homeVal, away: awayVal, winner });
+  }
+
+  return { results, homeWins, awayWins, ties };
 }
 
 function calculateGameFpts(
@@ -92,7 +175,7 @@ async function computeTeamScore(
   const { data: gameLogs } = await supabase
     .from("player_games")
     .select(
-      'player_id, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", ftm, fta, pf, game_date',
+      'player_id, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double, game_date',
     )
     .in("player_id", playerIds)
     .gte("game_date", startDate)
@@ -105,11 +188,73 @@ async function computeTeamScore(
       game.game_date,
       defaultSlotMap.get(game.player_id) ?? "BE",
     );
-    if (slot === "BE" || slot === "IR") continue;
+    if (slot === "BE" || slot === "IR" || slot === "TAXI") continue;
     teamTotal += calculateGameFpts(game as any, weights);
   }
 
   return Math.round(teamTotal * 100) / 100;
+}
+
+async function computeTeamCategoryStats(
+  teamId: string,
+  leagueId: string,
+  startDate: string,
+  endDate: string,
+): Promise<Record<string, number>> {
+  const { data: leaguePlayers } = await supabase
+    .from("league_players")
+    .select("player_id, roster_slot")
+    .eq("team_id", teamId)
+    .eq("league_id", leagueId);
+
+  if (!leaguePlayers || leaguePlayers.length === 0) return {};
+
+  const playerIds = leaguePlayers.map((lp: any) => lp.player_id);
+  const defaultSlotMap = new Map<string, string>(
+    leaguePlayers.map((lp: any) => [lp.player_id, lp.roster_slot ?? "BE"]),
+  );
+
+  const { data: dailyEntries } = await supabase
+    .from("daily_lineups")
+    .select("player_id, roster_slot, lineup_date")
+    .eq("team_id", teamId)
+    .eq("league_id", leagueId)
+    .lte("lineup_date", endDate)
+    .order("lineup_date", { ascending: false });
+
+  const dailyByPlayer = new Map<
+    string,
+    Array<{ lineup_date: string; roster_slot: string }>
+  >();
+  for (const entry of dailyEntries ?? []) {
+    if (!dailyByPlayer.has(entry.player_id)) {
+      dailyByPlayer.set(entry.player_id, []);
+    }
+    dailyByPlayer.get(entry.player_id)!.push(entry);
+  }
+
+  const { data: gameLogs } = await supabase
+    .from("player_games")
+    .select(
+      'player_id, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double, game_date',
+    )
+    .in("player_id", playerIds)
+    .gte("game_date", startDate)
+    .lte("game_date", endDate);
+
+  // Filter to active-slot games then aggregate raw stats
+  const activeGames: Record<string, any>[] = [];
+  for (const game of gameLogs ?? []) {
+    const slot = resolveSlot(
+      dailyByPlayer.get(game.player_id) ?? [],
+      game.game_date,
+      defaultSlotMap.get(game.player_id) ?? "BE",
+    );
+    if (slot === "BE" || slot === "IR" || slot === "TAXI") continue;
+    activeGames.push(game);
+  }
+
+  return aggregateGameStats(activeGames);
 }
 
 async function computeStreak(
@@ -213,13 +358,22 @@ Deno.serve(async (req: Request) => {
 
     const leagueIds = [...new Set(unfinalizedMatchups.map((m: any) => m.league_id))];
     const scoringByLeague = new Map<string, ScoringWeight[]>();
+    const scoringTypeByLeague = new Map<string, string>();
 
     for (const lid of leagueIds) {
-      const { data: scoring } = await supabase
-        .from("league_scoring_settings")
-        .select("stat_name, point_value")
-        .eq("league_id", lid);
+      const [{ data: scoring }, { data: leagueRow }] = await Promise.all([
+        supabase
+          .from("league_scoring_settings")
+          .select("stat_name, point_value, is_enabled, inverse")
+          .eq("league_id", lid),
+        supabase
+          .from("leagues")
+          .select("scoring_type")
+          .eq("id", lid)
+          .single(),
+      ]);
       scoringByLeague.set(lid, scoring ?? []);
+      scoringTypeByLeague.set(lid, leagueRow?.scoring_type ?? 'points');
     }
 
     let finalizedCount = 0;
@@ -237,6 +391,10 @@ Deno.serve(async (req: Request) => {
       winnerId: string | null;
       isPlayoff: boolean;
       playoffRound: number | null;
+      homeCatWins?: number | null;
+      awayCatWins?: number | null;
+      catTies?: number | null;
+      scoringType?: string;
     }> = [];
 
     for (const matchup of unfinalizedMatchups) {
@@ -255,32 +413,48 @@ Deno.serve(async (req: Request) => {
         continue;
       }
 
-      const [homeScore, awayScore] = await Promise.all([
-        computeTeamScore(
-          matchup.home_team_id,
-          matchup.league_id,
-          week.start_date,
-          week.end_date,
-          weights,
-        ),
-        computeTeamScore(
-          matchup.away_team_id,
-          matchup.league_id,
-          week.start_date,
-          week.end_date,
-          weights,
-        ),
-      ]);
-
+      const scoringType = scoringTypeByLeague.get(matchup.league_id) ?? 'points';
       let winnerId: string | null = null;
-      if (homeScore > awayScore) winnerId = matchup.home_team_id;
-      else if (awayScore > homeScore) winnerId = matchup.away_team_id;
+      let homeScore = 0;
+      let awayScore = 0;
+      let homeCatWins: number | null = null;
+      let awayCatWins: number | null = null;
+      let catTies: number | null = null;
+      let catResults: CategoryResult[] | null = null;
+
+      if (scoringType === 'h2h_categories') {
+        // Category scoring — compare raw stats per category
+        const [homeStats, awayStats] = await Promise.all([
+          computeTeamCategoryStats(matchup.home_team_id, matchup.league_id, week.start_date, week.end_date),
+          computeTeamCategoryStats(matchup.away_team_id, matchup.league_id, week.start_date, week.end_date),
+        ]);
+        const comparison = compareCategoryStats(homeStats, awayStats, weights);
+        homeCatWins = comparison.homeWins;
+        awayCatWins = comparison.awayWins;
+        catTies = comparison.ties;
+        catResults = comparison.results;
+
+        if (comparison.homeWins > comparison.awayWins) winnerId = matchup.home_team_id;
+        else if (comparison.awayWins > comparison.homeWins) winnerId = matchup.away_team_id;
+      } else {
+        // Points scoring — existing logic
+        [homeScore, awayScore] = await Promise.all([
+          computeTeamScore(matchup.home_team_id, matchup.league_id, week.start_date, week.end_date, weights),
+          computeTeamScore(matchup.away_team_id, matchup.league_id, week.start_date, week.end_date, weights),
+        ]);
+        if (homeScore > awayScore) winnerId = matchup.home_team_id;
+        else if (awayScore > homeScore) winnerId = matchup.away_team_id;
+      }
 
       await supabase
         .from("league_matchups")
         .update({
-          home_score: homeScore,
-          away_score: awayScore,
+          home_score: scoringType === 'points' ? homeScore : null,
+          away_score: scoringType === 'points' ? awayScore : null,
+          home_category_wins: homeCatWins,
+          away_category_wins: awayCatWins,
+          category_ties: catTies,
+          category_results: catResults,
           winner_team_id: winnerId,
           is_finalized: true,
         })
@@ -295,41 +469,51 @@ Deno.serve(async (req: Request) => {
         winnerId,
         isPlayoff,
         playoffRound: matchup.playoff_round,
+        homeCatWins,
+        awayCatWins,
+        catTies,
+        scoringType,
       });
 
       if (!isPlayoff) {
+        // For category leagues, store category wins/losses as PF/PA for tiebreaking
+        const homePF = scoringType === 'h2h_categories' ? (homeCatWins ?? 0) : homeScore;
+        const homePa = scoringType === 'h2h_categories' ? (awayCatWins ?? 0) : awayScore;
+        const awayPF = scoringType === 'h2h_categories' ? (awayCatWins ?? 0) : awayScore;
+        const awayPa = scoringType === 'h2h_categories' ? (homeCatWins ?? 0) : homeScore;
+
         if (winnerId === matchup.home_team_id) {
           await supabase.rpc("increment_team_stats", {
             p_team_id: matchup.home_team_id,
             p_wins: 1, p_losses: 0, p_ties: 0,
-            p_pf: homeScore, p_pa: awayScore,
+            p_pf: homePF, p_pa: homePa,
           });
           await supabase.rpc("increment_team_stats", {
             p_team_id: matchup.away_team_id,
             p_wins: 0, p_losses: 1, p_ties: 0,
-            p_pf: awayScore, p_pa: homeScore,
+            p_pf: awayPF, p_pa: awayPa,
           });
         } else if (winnerId === matchup.away_team_id) {
           await supabase.rpc("increment_team_stats", {
             p_team_id: matchup.away_team_id,
             p_wins: 1, p_losses: 0, p_ties: 0,
-            p_pf: awayScore, p_pa: homeScore,
+            p_pf: awayPF, p_pa: awayPa,
           });
           await supabase.rpc("increment_team_stats", {
             p_team_id: matchup.home_team_id,
             p_wins: 0, p_losses: 1, p_ties: 0,
-            p_pf: homeScore, p_pa: awayScore,
+            p_pf: homePF, p_pa: homePa,
           });
         } else {
           await supabase.rpc("increment_team_stats", {
             p_team_id: matchup.home_team_id,
             p_wins: 0, p_losses: 0, p_ties: 1,
-            p_pf: homeScore, p_pa: awayScore,
+            p_pf: homePF, p_pa: homePa,
           });
           await supabase.rpc("increment_team_stats", {
             p_team_id: matchup.away_team_id,
             p_wins: 0, p_losses: 0, p_ties: 1,
-            p_pf: awayScore, p_pa: homeScore,
+            p_pf: awayPF, p_pa: awayPa,
           });
         }
 
@@ -387,7 +571,9 @@ Deno.serve(async (req: Request) => {
       for (const r of matchupResults) {
         const homeName = teamName.get(r.homeTeamId) ?? 'Home';
         const awayName = teamName.get(r.awayTeamId) ?? 'Away';
-        const scoreLine = `${homeName} ${r.homeScore} - ${r.awayScore} ${awayName}`;
+        const scoreLine = r.scoringType === 'h2h_categories'
+          ? `${homeName} ${r.homeCatWins ?? 0}-${r.awayCatWins ?? 0}${(r.catTies ?? 0) > 0 ? `-${r.catTies}` : ''} ${awayName}`
+          : `${homeName} ${r.homeScore} - ${r.awayScore} ${awayName}`;
         const category = r.isPlayoff ? 'playoffs' : 'matchups';
         const ln = leagueName.get(r.leagueId) ?? 'Your League';
 
@@ -416,7 +602,7 @@ Deno.serve(async (req: Request) => {
     for (const lid of leagueIds) {
       const { data: league } = await supabase
         .from('leagues')
-        .select('name, season, playoff_teams, playoff_seeding_format, reseed_each_round, regular_season_weeks')
+        .select('name, season, scoring_type, playoff_teams, playoff_seeding_format, reseed_each_round, regular_season_weeks')
         .eq('id', lid)
         .single();
 

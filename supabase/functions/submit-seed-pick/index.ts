@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { notifyTeams } from '../_shared/push.ts';
 import { CORS_HEADERS } from '../_shared/cors.ts';
+import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -28,6 +29,9 @@ Deno.serve(async (req: Request) => {
     );
     const { data: { user } } = await userClient.auth.getUser();
     if (!user) return json({ error: 'Unauthorized' }, 401);
+
+    const rateLimited = await checkRateLimit(supabase, user.id, 'submit-seed-pick');
+    if (rateLimited) return rateLimited;
 
     const { league_id, round, opponent_team_id } = await req.json();
     if (!league_id || !round || !opponent_team_id) {

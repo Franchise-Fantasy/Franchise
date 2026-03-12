@@ -1,10 +1,12 @@
 import { ThemedText } from '@/components/ThemedText';
 import { PlayerGameLog } from '@/components/player/PlayerGameLog';
+import { PlayerInsightsCard } from '@/components/player/PlayerInsights';
 import { Colors } from '@/constants/Colors';
 import { useToast } from '@/context/ToastProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { usePlayerGameLog } from '@/hooks/usePlayerGameLog';
+import { sendNotification } from '@/lib/notifications';
 import { supabase } from '@/lib/supabase';
 import { isOnline } from '@/utils/network';
 import { PlayerSeasonStats } from '@/types/player';
@@ -16,6 +18,7 @@ import { useTodayGameTimes, isGameStarted } from '@/utils/gameStarted';
 import { useLivePlayerStats, liveToGameLog, formatGameInfo } from '@/utils/nbaLive';
 import { getPlayerHeadshotUrl, getTeamLogoUrl } from '@/utils/playerHeadshot';
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
+import { isTaxiEligible } from '@/utils/taxiEligibility';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -62,6 +65,8 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [showDropPicker, setShowDropPicker] = useState(false);
+  const [insightsWindow, setInsightsWindow] = useState(10);
+  const [showWindowPicker, setShowWindowPicker] = useState(false);
 
   useEffect(() => {
     if (player && startInDropPicker) setShowDropPicker(true);
@@ -71,6 +76,22 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
   const { data: gameLog, isLoading: isLoadingGameLog } = usePlayerGameLog(
     player?.player_id ?? ''
   );
+
+  // Fetch scoring type for insights branching
+  const { data: leagueScoringType } = useQuery({
+    queryKey: ['leagueScoringType', leagueId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('leagues')
+        .select('scoring_type')
+        .eq('id', leagueId)
+        .single();
+      return data?.scoring_type as string | null;
+    },
+    enabled: !!leagueId,
+    staleTime: 1000 * 60 * 30,
+  });
+  const isCategories = leagueScoringType === 'h2h_categories';
 
   // Check if this player is on the user's team and get their current slot
   const { data: ownershipInfo } = useQuery({
@@ -95,11 +116,29 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
   const playerRosterSlot = ownershipInfo?.rosterSlot ?? null;
   const isOnTradeBlock = ownershipInfo?.onTradeBlock ?? false;
 
+  // Check if player is owned by ANY team in the league (prevents adding rostered players)
+  const { data: isOwnedByOther } = useQuery({
+    queryKey: ['playerLeagueOwnership', leagueId, player?.player_id],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from('league_players')
+        .select('id', { count: 'exact', head: true })
+        .eq('league_id', leagueId)
+        .eq('player_id', player!.player_id);
+
+      if (error) throw error;
+      return (count ?? 0) > 0;
+    },
+    enabled: !!player && !isOnMyTeam && !!leagueId,
+  });
+
+  const isFreeAgent = !isOnMyTeam && !(isOwnedByOther ?? true);
+
   // Get roster counts, max size, IR capacity, and waiver settings
   const { data: rosterInfo } = useQuery({
     queryKey: ['rosterInfo', leagueId, teamId],
     queryFn: async () => {
-      const [allPlayersRes, irPlayersRes, leagueRes, irConfigRes] = await Promise.all([
+      const [allPlayersRes, irPlayersRes, taxiPlayersRes, leagueRes, irConfigRes, taxiConfigRes] = await Promise.all([
         supabase
           .from('league_players')
           .select('id', { count: 'exact', head: true })
@@ -112,8 +151,14 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
           .eq('team_id', teamId!)
           .eq('roster_slot', 'IR'),
         supabase
+          .from('league_players')
+          .select('id', { count: 'exact', head: true })
+          .eq('league_id', leagueId)
+          .eq('team_id', teamId!)
+          .eq('roster_slot', 'TAXI'),
+        supabase
           .from('leagues')
-          .select('roster_size, waiver_type, waiver_period_days')
+          .select('roster_size, waiver_type, waiver_period_days, taxi_slots, taxi_max_experience, season, offseason_step')
           .eq('id', leagueId)
           .single(),
         supabase
@@ -122,6 +167,12 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
           .eq('league_id', leagueId)
           .eq('position', 'IR')
           .maybeSingle(),
+        supabase
+          .from('league_roster_config')
+          .select('slot_count')
+          .eq('league_id', leagueId)
+          .eq('position', 'TAXI')
+          .maybeSingle(),
       ]);
 
       if (allPlayersRes.error) throw allPlayersRes.error;
@@ -129,14 +180,20 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
       if (leagueRes.error) throw leagueRes.error;
 
       const irCount = irPlayersRes.count ?? 0;
-      const activeCount = (allPlayersRes.count ?? 0) - irCount;
+      const taxiCount = taxiPlayersRes.count ?? 0;
+      const activeCount = (allPlayersRes.count ?? 0) - irCount - taxiCount;
       return {
         activeCount,
         irCount,
         irSlotCount: irConfigRes.data?.slot_count ?? 0,
+        taxiCount,
+        taxiSlotCount: taxiConfigRes.data?.slot_count ?? 0,
+        taxiMaxExperience: leagueRes.data?.taxi_max_experience as number | null,
+        season: leagueRes.data?.season as string,
         maxSize: leagueRes.data?.roster_size ?? 13,
         waiverType: (leagueRes.data?.waiver_type ?? 'none') as 'standard' | 'faab' | 'none',
         waiverPeriodDays: leagueRes.data?.waiver_period_days ?? 2,
+        offseasonStep: leagueRes.data?.offseason_step as string | null,
       };
     },
     enabled: !!teamId && !!leagueId,
@@ -474,6 +531,18 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
           { transaction_id: txn.id, player_id: dropping.player_id, team_from_id: teamId },
         ]);
 
+        // Fire-and-forget notification to league
+        (async () => {
+          const { data: team } = await supabase.from('teams').select('team_name').eq('id', teamId).single();
+          sendNotification({
+            league_id: leagueId,
+            category: 'roster_moves',
+            title: 'Roster Move',
+            body: `${team?.team_name ?? 'A team'} added ${player.name} (dropped ${dropping.name})`,
+            data: { screen: 'roster' },
+          });
+        })();
+
         invalidateRosterQueries();
         queryClient.invalidateQueries({ queryKey: ['leagueWaivers', leagueId] });
         setShowDropPicker(false);
@@ -497,6 +566,18 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
           player_id: dropping.player_id,
           team_from_id: teamId,
         });
+
+        // Fire-and-forget notification to league
+        (async () => {
+          const { data: team } = await supabase.from('teams').select('team_name').eq('id', teamId).single();
+          sendNotification({
+            league_id: leagueId,
+            category: 'roster_moves',
+            title: 'Roster Move',
+            body: `${team?.team_name ?? 'A team'} dropped ${dropping.name}`,
+            data: { screen: 'roster' },
+          });
+        })();
 
         invalidateRosterQueries();
         queryClient.invalidateQueries({ queryKey: ['leagueWaivers', leagueId] });
@@ -554,6 +635,58 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const handleMoveToTaxi = async () => {
+    if (!teamId || !player) return;
+    setIsProcessing(true);
+    try {
+      const { error } = await supabase
+        .from('league_players')
+        .update({ roster_slot: 'TAXI' })
+        .eq('league_id', leagueId)
+        .eq('team_id', teamId)
+        .eq('player_id', player.player_id);
+      if (error) throw error;
+      invalidateRosterQueries();
+      onClose();
+    } catch (err: any) {
+      Alert.alert('Error', err.message ?? 'Failed to move player to taxi squad');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handlePromoteFromTaxi = () => {
+    if (!teamId || !player) return;
+    Alert.alert(
+      'Promote from Taxi',
+      `Move ${player.name} to bench? This is permanent — they cannot return to the taxi squad.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Promote',
+          onPress: async () => {
+            setIsProcessing(true);
+            try {
+              const { error } = await supabase
+                .from('league_players')
+                .update({ roster_slot: 'BE' })
+                .eq('league_id', leagueId)
+                .eq('team_id', teamId)
+                .eq('player_id', player.player_id);
+              if (error) throw error;
+              invalidateRosterQueries();
+              onClose();
+            } catch (err: any) {
+              Alert.alert('Error', err.message ?? 'Failed to promote player');
+            } finally {
+              setIsProcessing(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleToggleTradeBlock = () => {
@@ -635,7 +768,8 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
     }
   };
 
-  const canTransact = !!teamId && !hasActiveDraft && !isProcessing;
+  const isOffseason = rosterInfo?.offseasonStep != null;
+  const canTransact = !!teamId && !hasActiveDraft && !isProcessing && !isOffseason;
   const canAdd = canTransact;
 
   const renderDropPickerItem = ({ item }: { item: PlayerSeasonStats }) => {
@@ -768,6 +902,19 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                               )}
                             </TouchableOpacity>
                           )}
+                          {playerRosterSlot === 'TAXI' && (
+                            <TouchableOpacity
+                              style={[styles.headerBtn, styles.headerBtnActivate, !canTransact && styles.buttonDisabled]}
+                              onPress={handlePromoteFromTaxi}
+                              disabled={!canTransact}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Promote ${player.name} from taxi squad`}
+                            >
+                              {isProcessing ? <ActivityIndicator size="small" color="#fff" /> : (
+                                <ThemedText style={styles.headerBtnText}>Promote</ThemedText>
+                              )}
+                            </TouchableOpacity>
+                          )}
                           <TouchableOpacity
                             style={[
                               styles.headerBtn,
@@ -798,7 +945,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                               </ThemedText>
                             )}
                           </TouchableOpacity>
-                          {canMoveToIR && !playerGameStarted && playerRosterSlot !== 'IR' && (
+                          {canMoveToIR && !playerGameStarted && playerRosterSlot !== 'IR' && playerRosterSlot !== 'TAXI' && (
                             <TouchableOpacity
                               style={[styles.headerBtn, styles.headerBtnIR, !canTransact && styles.buttonDisabled]}
                               onPress={handleMoveToIR}
@@ -807,6 +954,20 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                               accessibilityLabel={`Move ${player.name} to IR`}
                             >
                               <ThemedText style={styles.headerBtnText}>IR</ThemedText>
+                            </TouchableOpacity>
+                          )}
+                          {rosterInfo && rosterInfo.taxiSlotCount > 0 && rosterInfo.taxiCount < rosterInfo.taxiSlotCount
+                            && playerRosterSlot !== 'TAXI' && playerRosterSlot !== 'IR'
+                            && (!playerRosterSlot || playerRosterSlot === 'BE')
+                            && isTaxiEligible(player.nba_draft_year, rosterInfo.season, rosterInfo.taxiMaxExperience) && (
+                            <TouchableOpacity
+                              style={[styles.headerBtn, styles.headerBtnTaxi, !canTransact && styles.buttonDisabled]}
+                              onPress={handleMoveToTaxi}
+                              disabled={!canTransact}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Move ${player.name} to taxi squad`}
+                            >
+                              <ThemedText style={styles.headerBtnText}>Taxi</ThemedText>
                             </TouchableOpacity>
                           )}
                           <TouchableOpacity
@@ -823,7 +984,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                             />
                           </TouchableOpacity>
                         </>
-                      ) : (
+                      ) : isFreeAgent ? (
                         <TouchableOpacity
                           style={[styles.headerBtn, needsWaiverClaim ? styles.headerBtnClaim : styles.headerBtnAdd, !canAdd && styles.buttonDisabled]}
                           onPress={handleAddPlayer}
@@ -835,7 +996,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                             <ThemedText style={styles.headerBtnText}>{needsWaiverClaim ? 'Claim' : 'Add'}</ThemedText>
                           )}
                         </TouchableOpacity>
-                      )}
+                      ) : null}
                     </View>
                   )}
                 </View>
@@ -858,6 +1019,9 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                   {hasActiveDraft && (
                     <ThemedText style={[styles.headerWarning, { color: c.secondaryText }]}> · Draft locked</ThemedText>
                   )}
+                  {isOffseason && !hasActiveDraft && (
+                    <ThemedText style={[styles.headerWarning, { color: c.secondaryText }]}> · Offseason locked</ThemedText>
+                  )}
                 </View>
               </View>
               <TouchableOpacity onPress={handleClose} style={styles.closeButton} accessibilityRole="button" accessibilityLabel="Close player details">
@@ -873,7 +1037,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                     <ThemedText type="subtitle" style={styles.sectionTitle}>
                       Season Averages
                     </ThemedText>
-                    {avgFpts !== null && (
+                    {avgFpts !== null && !isCategories && (
                       <ThemedText style={[styles.fptsInline, { color: c.accent }]}>
                         {avgFpts} FPTS
                       </ThemedText>
@@ -892,6 +1056,115 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                     <StatBox label="MPG" value={String(player.avg_min)} color={c.secondaryText} />
                   </View>
                 </View>
+
+                {/* Player Insights */}
+                <View style={styles.section}>
+                  <View style={styles.sectionHeader}>
+                    <ThemedText type="subtitle" style={styles.sectionTitle}>
+                      Player Insights
+                    </ThemedText>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <View>
+                        <TouchableOpacity
+                          onPress={() => setShowWindowPicker((v) => !v)}
+                          style={[styles.windowPickerBtn, { borderColor: c.border }]}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Trend window: last ${insightsWindow} games. Tap to change.`}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Ionicons name="filter-outline" size={14} color={c.secondaryText} />
+                          <ThemedText style={[styles.windowPickerLabel, { color: c.secondaryText }]}>
+                            {insightsWindow}
+                          </ThemedText>
+                        </TouchableOpacity>
+                        {showWindowPicker && (
+                          <>
+                            <TouchableOpacity
+                              style={styles.windowDropdownBackdrop}
+                              activeOpacity={1}
+                              onPress={() => setShowWindowPicker(false)}
+                              accessibilityLabel="Close window picker"
+                            />
+                            <View style={[styles.windowDropdown, { backgroundColor: c.card, borderColor: c.border }]}>
+                              {[5, 10, 15, 25, 50].map((w) => (
+                                <TouchableOpacity
+                                  key={w}
+                                  onPress={() => { setInsightsWindow(w); setShowWindowPicker(false); }}
+                                  style={[
+                                    styles.windowDropdownItem,
+                                    w === insightsWindow && { backgroundColor: c.accent },
+                                  ]}
+                                  accessibilityRole="button"
+                                  accessibilityState={{ selected: w === insightsWindow }}
+                                  accessibilityLabel={`Last ${w} games`}
+                                >
+                                  <ThemedText style={[
+                                    styles.windowDropdownText,
+                                    { color: c.secondaryText },
+                                    w === insightsWindow && { color: '#fff' },
+                                  ]}>
+                                    {w}
+                                  </ThemedText>
+                                </TouchableOpacity>
+                              ))}
+                            </View>
+                          </>
+                        )}
+                      </View>
+                      <TouchableOpacity
+                        onPress={() => Alert.alert(
+                          'Player Insights',
+                          isCategories
+                            ? 'Strengths — Per-category consistency, sorted by reliability:\n'
+                              + '• Rock Solid: Very consistent output\n'
+                              + '• Steady: Reliable most nights\n'
+                              + '• Variable: Notable swings\n'
+                              + '• Boom or Bust: Huge range\n\n'
+                              + '↓ — Indicates an inverse stat (lower is better, e.g. turnovers).\n\n'
+                              + 'Trends — How each category is trending recently vs the season average:\n'
+                              + '• Scorching / Hot: Trending up\n'
+                              + '• Stable: Playing as expected\n'
+                              + '• Cold / Frigid: Trending down\n\n'
+                              + 'For inverse stats, trend colors are flipped — a downward trend (fewer turnovers) shows green.\n\n'
+                              + 'Use the filter icon to change how many recent games are used for the trend calculation.'
+                            : 'Consistency — How predictable this player\'s scoring is, based on game-to-game variability:\n'
+                              + '• Rock Solid: Very consistent output\n'
+                              + '• Steady: Reliable most nights\n'
+                              + '• Variable: Notable swings\n'
+                              + '• Boom or Bust: Huge range\n\n'
+                              + '± FPTS/game — Standard deviation. Lower = more consistent.\n\n'
+                              + 'Trend — Compares the recent average to the season average, relative to the player\'s own variability:\n'
+                              + '• Scorching: Well above normal\n'
+                              + '• Hot: Trending up\n'
+                              + '• Stable: Playing as expected\n'
+                              + '• Cold: Trending down\n'
+                              + '• Frigid: Well below normal\n\n'
+                              + 'Range Bar — Shows the full scoring range (low to high). The shaded area is the 25th–75th percentile (where most games land). The marker is the season average.\n\n'
+                              + 'Floor — 25th percentile. On a bad night, expect around this.\n\n'
+                              + 'Ceiling — 75th percentile. On a good night, expect around this.\n\n'
+                              + 'Minutes — Whether playing time is trending up or down recently.\n\n'
+                              + 'Home / Away — Average FPTS split by home and away games.\n\n'
+                              + 'Back-to-Back — Performance on the 2nd game of back-to-backs vs rest games.\n\n'
+                              + 'Bounce-Back Rate — How often the player recovers to their average after a bad game (below 25th percentile).\n\n'
+                              + 'Use the filter icon to change how many recent games are used for the trend calculation.',
+                        )}
+                        accessibilityRole="button"
+                        accessibilityLabel="Player insights info"
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Ionicons name="information-circle-outline" size={18} color={c.secondaryText} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+                <PlayerInsightsCard
+                  games={gameLog}
+                  scoringWeights={scoringWeights}
+                  seasonAvg={avgFpts}
+                  recentWindow={insightsWindow}
+                  colors={{ border: c.border, secondaryText: c.secondaryText, accent: c.accent, card: c.card }}
+                  scoringType={leagueScoringType ?? undefined}
+                />
 
                 {/* Game Log */}
                 <View style={styles.section}>
@@ -1008,6 +1281,9 @@ const styles = StyleSheet.create({
   headerBtnIR: {
     backgroundColor: '#e67e22',
   },
+  headerBtnTaxi: {
+    backgroundColor: '#8e44ad',
+  },
   headerBtnActivate: {
     backgroundColor: '#28a745',
   },
@@ -1088,5 +1364,51 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     marginLeft: 12,
+  },
+  windowPickerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  windowPickerLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  windowDropdownBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: -1000,
+    right: -1000,
+    bottom: -1000,
+    zIndex: 9,
+  },
+  windowDropdown: {
+    position: 'absolute',
+    top: '100%',
+    right: 0,
+    marginTop: 4,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingVertical: 4,
+    zIndex: 10,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    minWidth: 52,
+  },
+  windowDropdownItem: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    alignItems: 'center',
+  },
+  windowDropdownText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

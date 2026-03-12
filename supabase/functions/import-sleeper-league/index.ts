@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -83,6 +84,9 @@ Deno.serve(async (req) => {
     );
     const { data: { user } } = await userClient.auth.getUser();
     if (!user) throw new Error('Unauthorized');
+
+    const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'import-sleeper-league');
+    if (rateLimited) return rateLimited;
 
     const body = await req.json();
     const { action } = body;
@@ -419,9 +423,9 @@ async function handleExecute(
     playerLookup.set(pm.sleeper_id, { player_id: pm.player_id, position: pm.position });
   }
 
-  // Compute roster size (sum of non-IR slots)
+  // Compute roster size (exclude IR and TAXI from draft rounds)
   const rosterSize = roster_slots.reduce(
-    (sum, s) => (s.position === 'IR' ? sum : sum + s.count),
+    (sum, s) => (s.position === 'IR' || s.position === 'TAXI' ? sum : sum + s.count),
     0
   );
 

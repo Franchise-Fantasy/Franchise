@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { notifyLeague } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
+import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return corsResponse();
@@ -21,6 +22,9 @@ Deno.serve(async (req) => {
     );
     const { data: { user } } = await userClient.auth.getUser();
     if (!user) throw new Error('Unauthorized');
+
+    const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'run-lottery');
+    if (rateLimited) return rateLimited;
 
     const { league_id, season } = await req.json();
     if (!league_id || !season) throw new Error('league_id and season are required');

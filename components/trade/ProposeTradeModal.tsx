@@ -6,9 +6,11 @@ import { ThemedText } from '@/components/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { sendNotification } from '@/lib/notifications';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats } from '@/types/player';
+import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
 import {
   TradeBuilderPick,
   TradeBuilderPlayer,
@@ -272,7 +274,7 @@ export function ProposeTradeModal({
     queryFn: async () => {
       const { data, error } = await supabase
         .from('leagues')
-        .select('pick_conditions_enabled, draft_pick_trading_enabled, teams, max_future_seasons, rookie_draft_rounds')
+        .select('pick_conditions_enabled, draft_pick_trading_enabled, teams, max_future_seasons, rookie_draft_rounds, league_type')
         .eq('id', leagueId)
         .single();
       if (error) throw error;
@@ -281,8 +283,10 @@ export function ProposeTradeModal({
     enabled: !!leagueId,
   });
 
-  const pickConditionsEnabled = leagueSettings?.pick_conditions_enabled ?? false;
-  const draftPickTradingEnabled = leagueSettings?.draft_pick_trading_enabled ?? false;
+  const { data: scoringWeights } = useLeagueScoring(leagueId);
+  const isDynastyLeague = (leagueSettings?.league_type ?? 'dynasty') === 'dynasty';
+  const pickConditionsEnabled = isDynastyLeague && (leagueSettings?.pick_conditions_enabled ?? false);
+  const draftPickTradingEnabled = isDynastyLeague && (leagueSettings?.draft_pick_trading_enabled ?? false);
   const teamCount = leagueSettings?.teams ?? 10;
   const maxFutureSeasons = leagueSettings?.max_future_seasons ?? 3;
   const rookieDraftRounds = leagueSettings?.rookie_draft_rounds ?? 2;
@@ -318,21 +322,24 @@ export function ProposeTradeModal({
       ? leagueTeams.find((t) => t.id === preselectedTeamId)
       : null;
 
-    // If a player is preselected, fetch their avg_fpts before seeding
+    // If a player is preselected, fetch their stats and compute avg_fpts before seeding
     if (preselectedPlayer) {
       supabase
         .from('player_season_stats')
-        .select('avg_fpts')
+        .select('*')
         .eq('player_id', preselectedPlayer.player_id)
         .maybeSingle()
         .then(({ data }) => {
+          const avgFpts = data && scoringWeights
+            ? calculateAvgFantasyPoints(data as PlayerSeasonStats, scoringWeights)
+            : 0;
           dispatch({
             type: 'SEED_MY_TEAM',
             teamId: teamId,
             teamName: myTeam.name,
             partnerTeamId: preselectedTeam?.id,
             partnerTeamName: preselectedTeam?.name,
-            preselectedPlayer: { ...preselectedPlayer, avg_fpts: data?.avg_fpts ?? 0 },
+            preselectedPlayer: { ...preselectedPlayer, avg_fpts: avgFpts },
           });
         });
     } else {
@@ -344,7 +351,7 @@ export function ProposeTradeModal({
         partnerTeamName: preselectedTeam?.name,
       });
     }
-  }, [leagueTeams, myTeam, seeded, teamId, preselectedTeamId, preselectedPlayer]);
+  }, [leagueTeams, myTeam, seeded, teamId, preselectedTeamId, preselectedPlayer, scoringWeights]);
 
   // allBuilderTeams: just use reducer state (seeding ensures my team is present)
   const allBuilderTeams = state.builderTeams;

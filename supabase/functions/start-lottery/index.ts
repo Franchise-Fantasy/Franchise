@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { notifyLeague } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
+import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 function generateDefaultOdds(numTeams: number): number[] {
   if (numTeams <= 0) return [];
@@ -29,6 +30,9 @@ Deno.serve(async (req) => {
     );
     const { data: { user } } = await userClient.auth.getUser();
     if (!user) throw new Error('Unauthorized');
+
+    const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'start-lottery');
+    if (rateLimited) return rateLimited;
 
     const { league_id } = await req.json();
     if (!league_id) throw new Error('league_id is required');

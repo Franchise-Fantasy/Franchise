@@ -54,7 +54,7 @@ export function useConversations() {
         .order('created_at', { ascending: false });
 
       // Keep only the newest message per conversation
-      const latestByConv = new Map<string, (typeof allLatestMsgs)[0]>();
+      const latestByConv = new Map<string, NonNullable<typeof allLatestMsgs>[0]>();
       for (const msg of allLatestMsgs ?? []) {
         if (!latestByConv.has(msg.conversation_id)) {
           latestByConv.set(msg.conversation_id, msg);

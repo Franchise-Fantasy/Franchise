@@ -5,12 +5,13 @@ const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 type NotifCategory =
   | 'draft' | 'trades' | 'matchups' | 'matchup_daily' | 'waivers'
   | 'injuries' | 'playoffs' | 'commissioner' | 'league_activity'
-  | 'roster_reminders' | 'lottery' | 'chat';
+  | 'roster_reminders' | 'lottery' | 'chat' | 'roster_moves';
 
 const CHANNEL_MAP: Record<string, string> = {
   matchup_daily: 'matchups',
   league_activity: 'league',
   roster_reminders: 'roster',
+  roster_moves: 'roster_moves',
 };
 
 interface PushMessage {

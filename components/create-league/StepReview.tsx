@@ -1,6 +1,7 @@
 import { ThemedText } from '@/components/ThemedText';
 import { Colors } from '@/constants/Colors';
-import { LeagueWizardState, WAIVER_DAY_LABELS } from '@/constants/LeagueDefaults';
+import { LEAGUE_TYPE_DISPLAY, LeagueWizardState, WAIVER_DAY_LABELS } from '@/constants/LeagueDefaults';
+import { taxiExperienceLabel } from '@/utils/taxiEligibility';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
@@ -16,6 +17,8 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
 
   const totalRoster = state.rosterSlots.reduce((sum, s) => sum + s.count, 0);
   const activeSlots = state.rosterSlots.filter((s) => s.count > 0);
+  const isDynasty = (state.leagueType ?? 'Dynasty') === 'Dynasty';
+  const taxiSlotCount = state.rosterSlots.find((s) => s.position === 'TAXI')?.count ?? 0;
 
   return (
     <View style={styles.container}>
@@ -24,6 +27,10 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
       {/* Basics */}
       <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
         <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>League Basics</ThemedText>
+        <Row label="League Type" value={state.leagueType ?? 'Dynasty'} c={c} />
+        {state.leagueType === 'Keeper' && (
+          <Row label="Keepers Per Team" value={String(state.keeperCount ?? 5)} c={c} />
+        )}
         <Row label="Name" value={state.name} c={c} />
         <Row label="Teams" value={String(state.teams)} c={c} />
         <Row label="Visibility" value={state.isPrivate ? 'Private' : 'Public'} c={c} />
@@ -36,14 +43,25 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
         <ThemedText style={[styles.rosterSummary, { color: c.secondaryText }]}>
           {activeSlots.map((s) => `${s.position}: ${s.count}`).join('  |  ')}
         </ThemedText>
+        {taxiSlotCount > 0 && (
+          <Row label="Taxi Eligibility" value={taxiExperienceLabel(state.taxiMaxExperience)} c={c} />
+        )}
       </View>
 
       {/* Scoring */}
       <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
         <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>Scoring</ThemedText>
-        <ThemedText style={[styles.rosterSummary, { color: c.secondaryText }]}>
-          {state.scoring.map((s) => `${s.stat_name}: ${s.point_value > 0 ? '+' : ''}${s.point_value}`).join('  |  ')}
-        </ThemedText>
+        <Row label="Type" value={state.scoringType} c={c} />
+        {state.scoringType === 'H2H Categories' ? (
+          <ThemedText style={[styles.rosterSummary, { color: c.secondaryText }]}>
+            {state.categories.filter((cat) => cat.is_enabled).map((cat) => cat.label).join('  |  ')}
+            {'\n'}({state.categories.filter((cat) => cat.is_enabled).length} categories)
+          </ThemedText>
+        ) : (
+          <ThemedText style={[styles.rosterSummary, { color: c.secondaryText }]}>
+            {state.scoring.map((s) => `${s.stat_name}: ${s.point_value > 0 ? '+' : ''}${s.point_value}`).join('  |  ')}
+          </ThemedText>
+        )}
       </View>
 
       {/* Draft */}
@@ -51,13 +69,17 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
         <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>Draft Settings</ThemedText>
         <Row label="Type" value={state.draftType} c={c} />
         <Row label="Time Per Pick" value={`${state.timePerPick}s`} c={c} />
-        <Row label="Future Draft Years" value={String(state.maxDraftYears)} c={c} />
-        <Row label="Rookie Draft Rounds" value={String(state.rookieDraftRounds)} c={c} />
-        <Row label="Rookie Draft Order" value={state.rookieDraftOrder} c={c} />
-        {state.rookieDraftOrder === 'Lottery' && (
-          <Row label="Lottery Draws" value={String(state.lotteryDraws)} c={c} />
+        {isDynasty && (
+          <>
+            <Row label="Future Draft Years" value={String(state.maxDraftYears)} c={c} />
+            <Row label="Rookie Draft Rounds" value={String(state.rookieDraftRounds)} c={c} />
+            <Row label="Rookie Draft Order" value={state.rookieDraftOrder} c={c} />
+            {state.rookieDraftOrder === 'Lottery' && (
+              <Row label="Lottery Draws" value={String(state.lotteryDraws)} c={c} />
+            )}
+            <Row label="Initial Draft, Pick Trading" value={state.draftPickTradingEnabled ? 'Enabled' : 'Disabled'} c={c} />
+          </>
         )}
-        <Row label="Initial Draft, Pick Trading" value={state.draftPickTradingEnabled ? 'Enabled' : 'Disabled'} c={c} />
       </View>
 
       {/* Trade */}
@@ -70,7 +92,9 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
         {state.tradeVetoType === 'League Vote' && (
           <Row label="Votes to Veto" value={String(state.tradeVotesToVeto)} c={c} />
         )}
-        <Row label="Pick Protections & Swaps" value={state.pickConditionsEnabled ? 'Enabled' : 'Disabled'} c={c} />
+        {isDynasty && (
+          <Row label="Pick Protections & Swaps" value={state.pickConditionsEnabled ? 'Enabled' : 'Disabled'} c={c} />
+        )}
         <Row
           label="Trade Deadline"
           value={state.tradeDeadlineWeek === 0 ? 'None' : `After Week ${state.tradeDeadlineWeek}`}

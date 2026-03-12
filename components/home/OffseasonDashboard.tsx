@@ -1,3 +1,5 @@
+import { DeclareKeepers } from '@/components/home/DeclareKeepers';
+import { DraftSection } from '@/components/home/DraftSection';
 import { ThemedText } from '@/components/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -16,6 +18,8 @@ interface OffseasonDashboardProps {
   rookieDraftOrder: string;
   season: string;
   rosterSize: number;
+  leagueType?: string;
+  keeperCount?: number;
 }
 
 interface StepDef {
@@ -24,7 +28,23 @@ interface StepDef {
   icon: keyof typeof Ionicons.glyphMap;
 }
 
-function getSteps(rookieDraftOrder: string): StepDef[] {
+function getSteps(leagueType: string, rookieDraftOrder: string): StepDef[] {
+  if (leagueType === 'redraft') {
+    return [
+      { key: 'season_complete', label: 'Season Over', icon: 'flag' },
+      { key: 'draft', label: 'Draft', icon: 'people' },
+      { key: 'new_season', label: 'New Season', icon: 'play' },
+    ];
+  }
+  if (leagueType === 'keeper') {
+    return [
+      { key: 'season_complete', label: 'Season Over', icon: 'flag' },
+      { key: 'declare_keepers', label: 'Keepers', icon: 'bookmark' },
+      { key: 'draft', label: 'Draft', icon: 'people' },
+      { key: 'new_season', label: 'New Season', icon: 'play' },
+    ];
+  }
+  // Dynasty
   const steps: StepDef[] = [
     { key: 'season_complete', label: 'Season Over', icon: 'flag' },
   ];
@@ -38,7 +58,19 @@ function getSteps(rookieDraftOrder: string): StepDef[] {
   return steps;
 }
 
-function getActiveStepIndex(offseasonStep: string, rookieDraftOrder: string): number {
+function getActiveStepIndex(offseasonStep: string, leagueType: string, rookieDraftOrder: string, draftComplete?: boolean): number {
+  if (leagueType === 'redraft') {
+    // Steps: [Season Over, Draft, New Season]
+    if (offseasonStep === 'ready_for_new_season') return draftComplete ? 2 : 1;
+    return 0;
+  }
+  if (leagueType === 'keeper') {
+    // Steps: [Season Over, Keepers, Draft, New Season]
+    if (offseasonStep === 'keeper_pending') return 1;
+    if (offseasonStep === 'ready_for_new_season') return draftComplete ? 3 : 2;
+    return 0;
+  }
+  // Dynasty
   if (rookieDraftOrder === 'lottery') {
     if (offseasonStep === 'lottery_pending' || offseasonStep === 'lottery_scheduled') return 1;
     if (offseasonStep === 'lottery_complete') return 2;
@@ -51,17 +83,17 @@ function getActiveStepIndex(offseasonStep: string, rookieDraftOrder: string): nu
   return 0;
 }
 
-export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissioner, rookieDraftOrder, season, rosterSize }: OffseasonDashboardProps) {
+export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissioner, rookieDraftOrder, season, rosterSize, leagueType = 'dynasty', keeperCount = 5 }: OffseasonDashboardProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const router = useRouter();
   const queryClient = useQueryClient();
   const [loading, setLoading] = useState(false);
+  const isDynasty = leagueType === 'dynasty';
 
-  const steps = getSteps(rookieDraftOrder);
-  const activeIndex = getActiveStepIndex(offseasonStep, rookieDraftOrder);
+  const steps = getSteps(leagueType, rookieDraftOrder);
 
-  // Fetch rookie draft if it exists
+  // Fetch rookie draft if it exists (dynasty only)
   const { data: rookieDraft } = useQuery({
     queryKey: ['rookieDraft', leagueId, season],
     queryFn: async () => {
@@ -74,7 +106,28 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
         .maybeSingle();
       return data;
     },
+    enabled: isDynasty,
   });
+
+  // Fetch season draft for keeper/redraft leagues
+  const { data: seasonDraft } = useQuery({
+    queryKey: ['seasonDraft', leagueId, season],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('drafts')
+        .select('id, status, draft_date')
+        .eq('league_id', leagueId)
+        .eq('season', season)
+        .eq('type', 'initial')
+        .maybeSingle();
+      return data;
+    },
+    enabled: !isDynasty && offseasonStep === 'ready_for_new_season',
+  });
+
+  const seasonDraftComplete = seasonDraft?.status === 'complete';
+
+  const activeIndex = getActiveStepIndex(offseasonStep, leagueType, rookieDraftOrder, seasonDraftComplete);
 
   // Fetch champion info
   const { data: champion } = useQuery({
@@ -95,19 +148,17 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
     },
   });
 
-  // Roster compliance check (after rookie draft)
-  const showCompliance = offseasonStep === 'rookie_draft_complete' || offseasonStep === 'ready_for_new_season';
+  // Roster compliance check (dynasty only, after rookie draft)
+  const showCompliance = isDynasty && (offseasonStep === 'rookie_draft_complete' || offseasonStep === 'ready_for_new_season');
   const { data: compliance } = useQuery({
     queryKey: ['rosterCompliance', leagueId, teamId],
     queryFn: async () => {
-      // My team count
       const { count: myCount } = await supabase
         .from('league_players')
         .select('id', { count: 'exact', head: true })
         .eq('league_id', leagueId)
         .eq('team_id', teamId);
 
-      // All teams (for commissioner view)
       const { data: teams } = await supabase
         .from('teams')
         .select('id, name')
@@ -148,37 +199,102 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
     }
   };
 
+  const handleFinalizeKeepers = async () => {
+    Alert.alert(
+      'Finalize Keepers',
+      'This will release all non-kept players to free agency. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Finalize',
+          style: 'destructive',
+          onPress: async () => {
+            setLoading(true);
+            try {
+              const { error } = await supabase.functions.invoke('finalize-keepers', {
+                body: { league_id: leagueId },
+              });
+              if (error) throw error;
+              queryClient.invalidateQueries({ queryKey: ['league', leagueId] });
+              queryClient.invalidateQueries({ queryKey: ['keeperDeclarations'] });
+              Alert.alert('Keepers Finalized', 'Non-kept players have been released.');
+            } catch (err: any) {
+              Alert.alert('Error', err.message ?? 'Failed to finalize keepers');
+            } finally {
+              setLoading(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const handleCreateSeasonDraft = async () => {
+    setLoading(true);
+    try {
+      // Fetch team count + previous draft config for defaults
+      const [teamsRes, prevDraftRes] = await Promise.all([
+        supabase.from('teams').select('id', { count: 'exact', head: true }).eq('league_id', leagueId),
+        supabase.from('drafts').select('draft_type, time_limit').eq('league_id', leagueId).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+      ]);
+      const teamCount = teamsRes.count ?? 10;
+      const draftType = prevDraftRes.data?.draft_type ?? 'snake';
+      const timeLimit = prevDraftRes.data?.time_limit ?? 120;
+
+      const { error } = await supabase.from('drafts').insert({
+        league_id: leagueId,
+        season,
+        type: 'initial',
+        status: 'unscheduled',
+        draft_type: draftType,
+        rounds: teamCount,
+        time_limit: timeLimit,
+      });
+      if (error) throw error;
+
+      queryClient.invalidateQueries({ queryKey: ['seasonDraft', leagueId] });
+      queryClient.invalidateQueries({ queryKey: ['activeDraft', leagueId] });
+      Alert.alert('Draft Created', 'Schedule the date to begin.');
+    } catch (err: any) {
+      Alert.alert('Error', err.message ?? 'Failed to create draft');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleStartNewSeason = async () => {
-    // Check roster compliance first
-    const { data: teams } = await supabase
-      .from('teams')
-      .select('id, name')
-      .eq('league_id', leagueId);
+    // Dynasty only: check roster compliance
+    if (isDynasty) {
+      const { data: teams } = await supabase
+        .from('teams')
+        .select('id, name')
+        .eq('league_id', leagueId);
 
-    const { data: league } = await supabase
-      .from('leagues')
-      .select('roster_size')
-      .eq('id', leagueId)
-      .single();
+      const { data: league } = await supabase
+        .from('leagues')
+        .select('roster_size')
+        .eq('id', leagueId)
+        .single();
 
-    if (teams && league) {
-      const overTeams: string[] = [];
-      for (const team of teams) {
-        const { count } = await supabase
-          .from('league_players')
-          .select('id', { count: 'exact', head: true })
-          .eq('league_id', leagueId)
-          .eq('team_id', team.id);
-        if ((count ?? 0) > league.roster_size) {
-          overTeams.push(team.name);
+      if (teams && league) {
+        const overTeams: string[] = [];
+        for (const team of teams) {
+          const { count } = await supabase
+            .from('league_players')
+            .select('id', { count: 'exact', head: true })
+            .eq('league_id', leagueId)
+            .eq('team_id', team.id);
+          if ((count ?? 0) > league.roster_size) {
+            overTeams.push(team.name);
+          }
         }
-      }
-      if (overTeams.length > 0) {
-        Alert.alert(
-          'Roster Overage',
-          `These teams are over the roster limit and need to make cuts before the season can start:\n\n${overTeams.join('\n')}`,
-        );
-        return;
+        if (overTeams.length > 0) {
+          Alert.alert(
+            'Roster Overage',
+            `These teams are over the roster limit and need to make cuts before the season can start:\n\n${overTeams.join('\n')}`,
+          );
+          return;
+        }
       }
     }
 
@@ -211,6 +327,10 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
       ],
     );
   };
+
+  const canStartNewSeason =
+    (isDynasty && (offseasonStep === 'ready_for_new_season' || offseasonStep === 'rookie_draft_complete')) ||
+    (!isDynasty && offseasonStep === 'ready_for_new_season' && seasonDraftComplete);
 
   return (
     <View style={[styles.container, { backgroundColor: c.card, borderColor: c.border }]}>
@@ -260,10 +380,22 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
         })}
       </View>
 
+      {/* Keeper declaration UI (visible to everyone in keeper leagues) */}
+      {leagueType === 'keeper' && offseasonStep === 'keeper_pending' && (
+        <DeclareKeepers
+          leagueId={leagueId}
+          teamId={teamId}
+          season={season}
+          keeperCount={keeperCount}
+          isCommissioner={isCommissioner}
+        />
+      )}
+
       {/* Commissioner actions based on current step */}
       {isCommissioner && (
         <View style={styles.actions}>
-          {offseasonStep === 'lottery_pending' && (
+          {/* Dynasty: Lottery */}
+          {isDynasty && offseasonStep === 'lottery_pending' && (
             <TouchableOpacity
               accessibilityRole="button"
               accessibilityLabel="Enter lottery room"
@@ -275,7 +407,8 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
             </TouchableOpacity>
           )}
 
-          {(offseasonStep === 'lottery_complete' || offseasonStep === 'rookie_draft_pending') && !rookieDraft && (
+          {/* Dynasty: Create Rookie Draft */}
+          {isDynasty && (offseasonStep === 'lottery_complete' || offseasonStep === 'rookie_draft_pending') && !rookieDraft && (
             <TouchableOpacity
               accessibilityRole="button"
               accessibilityLabel="Create rookie draft"
@@ -295,13 +428,56 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
             </TouchableOpacity>
           )}
 
-          {rookieDraft && rookieDraft.status === 'unscheduled' && (
+          {isDynasty && rookieDraft && rookieDraft.status === 'unscheduled' && (
             <ThemedText style={[styles.statusText, { color: c.secondaryText }]}>
               Rookie draft created — schedule a date from the draft card above.
             </ThemedText>
           )}
 
-          {(offseasonStep === 'rookie_draft_complete' || offseasonStep === 'ready_for_new_season') && (
+          {/* Keeper: Finalize Keepers */}
+          {leagueType === 'keeper' && offseasonStep === 'keeper_pending' && (
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Finalize keepers and release remaining players"
+              accessibilityState={{ disabled: loading }}
+              style={[styles.actionBtn, { backgroundColor: c.accent }, loading && { opacity: 0.6 }]}
+              onPress={handleFinalizeKeepers}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <>
+                  <Ionicons name="bookmark" size={18} color="#fff" />
+                  <ThemedText style={styles.actionBtnText}>Finalize Keepers</ThemedText>
+                </>
+              )}
+            </TouchableOpacity>
+          )}
+
+          {/* Keeper/Redraft: Create Draft (when ready_for_new_season but draft not created) */}
+          {!isDynasty && offseasonStep === 'ready_for_new_season' && !seasonDraft && (
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Create draft"
+              accessibilityState={{ disabled: loading }}
+              style={[styles.actionBtn, { backgroundColor: c.accent }, loading && { opacity: 0.6 }]}
+              onPress={handleCreateSeasonDraft}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <>
+                  <Ionicons name="people" size={18} color="#fff" />
+                  <ThemedText style={styles.actionBtnText}>Create Draft</ThemedText>
+                </>
+              )}
+            </TouchableOpacity>
+          )}
+
+          {/* All types: Start New Season */}
+          {canStartNewSeason && (
             <TouchableOpacity
               accessibilityRole="button"
               accessibilityLabel="Start new season"
@@ -323,14 +499,27 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
         </View>
       )}
 
-      {!isCommissioner && (
+      {/* Keeper/Redraft: show DraftSection when draft exists but not complete */}
+      {!isDynasty && offseasonStep === 'ready_for_new_season' && seasonDraft && !seasonDraftComplete && (
+        <View style={{ marginTop: 8 }}>
+          <DraftSection leagueId={leagueId} isCommissioner={isCommissioner} />
+        </View>
+      )}
+
+      {!isCommissioner && leagueType !== 'keeper' && (
         <ThemedText style={[styles.statusText, { color: c.secondaryText }]}>
           The commissioner is managing the offseason. Stay tuned!
         </ThemedText>
       )}
 
-      {/* Pre-rookie-draft info banner */}
-      {(offseasonStep === 'rookie_draft_pending' || offseasonStep === 'lottery_complete') && (
+      {!isCommissioner && leagueType === 'keeper' && offseasonStep !== 'keeper_pending' && (
+        <ThemedText style={[styles.statusText, { color: c.secondaryText }]}>
+          The commissioner is managing the offseason. Stay tuned!
+        </ThemedText>
+      )}
+
+      {/* Dynasty: Pre-rookie-draft info banner */}
+      {isDynasty && (offseasonStep === 'rookie_draft_pending' || offseasonStep === 'lottery_complete') && (
         <View style={[styles.infoBanner, { backgroundColor: c.accent + '15', borderColor: c.accent }]}>
           <Ionicons name="information-circle" size={18} color={c.accent} />
           <ThemedText style={[styles.infoBannerText, { color: c.secondaryText }]}>
@@ -339,7 +528,7 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
         </View>
       )}
 
-      {/* Post-draft roster compliance */}
+      {/* Dynasty: Post-draft roster compliance */}
       {showCompliance && compliance && (
         <View style={styles.complianceSection}>
           {compliance.myCount > rosterSize ? (
@@ -366,7 +555,6 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
             </View>
           )}
 
-          {/* Commissioner: all teams compliance */}
           {isCommissioner && (
             <View style={{ marginTop: 8 }}>
               <ThemedText style={{ fontSize: 12, color: c.secondaryText, marginBottom: 6 }}>

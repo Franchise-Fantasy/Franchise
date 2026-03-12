@@ -16,7 +16,8 @@ const RESULT_LABELS: Record<string, string> = {
   playoff_participant: 'Playoffs',
 };
 
-function resultLabel(result: string): string {
+function resultLabel(result: string | null): string {
+  if (!result) return '—';
   if (RESULT_LABELS[result]) return RESULT_LABELS[result];
   if (result.startsWith('eliminated_round_')) {
     const round = result.replace('eliminated_round_', '');
@@ -98,7 +99,7 @@ export function StandingsHistory({ leagueId }: StandingsHistoryProps) {
             <ThemedText style={[styles.colRecord, { color: c.secondaryText }]}>
               {t.wins}-{t.losses}{t.ties > 0 ? `-${t.ties}` : ''}
             </ThemedText>
-            <ThemedText style={[styles.colPF, { color: c.secondaryText }]}>{t.points_for.toFixed(1)}</ThemedText>
+            <ThemedText style={[styles.colPF, { color: c.secondaryText }]}>{(t.points_for ?? 0).toFixed(1)}</ThemedText>
             <View style={[styles.resultBadge, t.playoff_result === 'champion' && { backgroundColor: '#FFD700' + '33' }]}>
               <ThemedText style={[styles.resultText, { color: c.secondaryText }]}>
                 {resultLabel(t.playoff_result)}

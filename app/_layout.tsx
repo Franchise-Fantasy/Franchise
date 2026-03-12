@@ -10,10 +10,13 @@ import { StatusBar } from "expo-status-bar";
 import * as Updates from "expo-updates";
 import "react-native-reanimated";
 
-// Sentry requires a custom dev build (not Expo Go). Initialize it only in production.
-// After running `eas build`, uncomment these lines:
-// import * as Sentry from '@sentry/react-native';
-// Sentry.init({ dsn: process.env.EXPO_PUBLIC_SENTRY_DSN });
+import { isExpoGo } from "@/utils/buildConfig";
+
+// Sentry requires native modules — only initialize in TestFlight / production builds.
+if (!isExpoGo) {
+  const Sentry = require("@sentry/react-native");
+  Sentry.init({ dsn: process.env.EXPO_PUBLIC_SENTRY_DSN });
+}
 
 // Show foreground alerts for high-priority channels; suppress others.
 import { isDraftRoomOpen } from "@/lib/activeScreen";
@@ -54,6 +57,7 @@ import { AppStateProvider, useAppState } from "@/context/AppStateProvider";
 import { AuthProvider, useSession } from "@/context/AuthProvider";
 import { globalToastRef, ToastProvider } from "@/context/ToastProvider";
 import { useColorScheme } from "@/hooks/useColorScheme";
+import { posthog } from "@/lib/posthog";
 import { supabase } from "@/lib/supabase";
 import NetInfo from "@react-native-community/netinfo";
 import {
@@ -64,7 +68,12 @@ import {
   QueryClientProvider,
 } from "@tanstack/react-query";
 import * as Linking from "expo-linking";
-import { useRouter } from "expo-router";
+import { usePathname, useRouter } from "expo-router";
+import {
+  PostHogProvider,
+  PostHogSurveyProvider,
+  usePostHog,
+} from "posthog-react-native";
 import { useEffect } from "react";
 import { Alert, AppState } from "react-native";
 
@@ -145,6 +154,43 @@ async function switchLeagueContext(
   }
 }
 
+/** Identify users and set league/team context as super properties. */
+function PostHogIdentifier() {
+  const ph = usePostHog();
+  const session = useSession();
+  const { leagueId, teamId } = useAppState();
+
+  useEffect(() => {
+    if (session?.user) {
+      ph.identify(session.user.id, { email: session.user.email ?? null });
+    } else {
+      ph.reset();
+    }
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    if (leagueId || teamId) {
+      ph.register({ league_id: leagueId, team_id: teamId });
+    }
+  }, [leagueId, teamId]);
+
+  return null;
+}
+
+/** Track screen views using Expo Router's pathname (PostHog autocapture is incompatible with Expo Router). */
+function ScreenTracker() {
+  const ph = usePostHog();
+  const pathname = usePathname();
+
+  useEffect(() => {
+    if (pathname) {
+      ph.screen(pathname);
+    }
+  }, [pathname]);
+
+  return null;
+}
+
 function NotificationAndLinkHandler() {
   const router = useRouter();
   const session = useSession();
@@ -209,8 +255,9 @@ export default function RootLayout() {
     SpaceMono: require("../assets/fonts/SpaceMono-Regular.ttf"),
   });
 
-  // Check for OTA updates when the app launches
+  // Check for OTA updates when the app launches (only in TestFlight / production)
   useEffect(() => {
+    if (isExpoGo) return;
     (async () => {
       try {
         const update = await Updates.checkForUpdateAsync();
@@ -231,7 +278,7 @@ export default function RootLayout() {
           );
         }
       } catch {
-        // No-op: Updates API throws in dev / Expo Go
+        // No-op in case Updates API isn't available
       }
     })();
   }, []);
@@ -242,107 +289,137 @@ export default function RootLayout() {
   }
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
-        <ToastProvider>
-          <AuthProvider>
-            <AppStateProvider>
-              <NotificationAndLinkHandler />
-              <OfflineBanner />
-              <AnnouncementBanner />
-              <Stack>
-                <Stack.Screen name="index" options={{ headerShown: false }} />
-                <Stack.Screen
-                  name="(tabs)"
-                  options={{
-                    headerShown: false,
-                    gestureEnabled: false,
-                    animation: "fade",
-                  }}
-                />
-                <Stack.Screen
-                  name="(setup)"
-                  options={{ headerShown: false, animation: "fade" }}
-                />
-                <Stack.Screen
-                  name="draft-room/[id]"
-                  options={{ headerShown: false }}
-                />
-                <Stack.Screen name="trades" options={{ headerShown: false }} />
-                <Stack.Screen
-                  name="activity"
-                  options={{ headerShown: false }}
-                />
-                <Stack.Screen
-                  name="scoreboard"
-                  options={{ headerShown: false }}
-                />
-                <Stack.Screen
-                  name="matchup-detail/[id]"
-                  options={{ headerShown: false }}
-                />
-                <Stack.Screen
-                  name="import-league"
-                  options={{ headerShown: false }}
-                />
-                <Stack.Screen
-                  name="league-info"
-                  options={{ headerShown: false }}
-                />
-                <Stack.Screen
-                  name="draft-hub"
-                  options={{ headerShown: false }}
-                />
-                <Stack.Screen
-                  name="playoff-bracket"
-                  options={{ headerShown: false }}
-                />
-                <Stack.Screen
-                  name="lottery-room"
-                  options={{ headerShown: false }}
-                />
-                <Stack.Screen name="chat" options={{ headerShown: false }} />
-                <Stack.Screen
-                  name="chat/[id]"
-                  options={{ headerShown: false }}
-                />
-                <Stack.Screen
-                  name="team-roster/[id]"
-                  options={{ headerShown: false }}
-                />
-                <Stack.Screen
-                  name="league-history"
-                  options={{ headerShown: false }}
-                />
-                <Stack.Screen
-                  name="create-league"
-                  options={{ headerShown: false }}
-                />
-                <Stack.Screen
-                  name="create-team"
-                  options={{ headerShown: false }}
-                />
-                <Stack.Screen
-                  name="join-league"
-                  options={{ headerShown: false }}
-                />
-                <Stack.Screen
-                  name="notification-settings"
-                  options={{ headerShown: false }}
-                />
-                <Stack.Screen name="auth" options={{ headerShown: false }} />
-                <Stack.Screen
-                  name="reset-password"
-                  options={{ headerShown: false }}
-                />
-                <Stack.Screen name="legal" options={{ headerShown: false }} />
-                <Stack.Screen name="+not-found" />
-              </Stack>
-            </AppStateProvider>
-            <StatusBar style="auto" />
-          </AuthProvider>
-        </ToastProvider>
-      </ThemeProvider>
-    </QueryClientProvider>
+    <PostHogProvider
+      client={posthog}
+      autocapture={{ captureScreens: false, captureTouches: false }}
+    >
+      <PostHogSurveyProvider>
+        <QueryClientProvider client={queryClient}>
+          <ThemeProvider
+            value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
+          >
+            <ToastProvider>
+              <AuthProvider>
+                <AppStateProvider>
+                  <PostHogIdentifier />
+                  <ScreenTracker />
+                  <NotificationAndLinkHandler />
+                  <OfflineBanner />
+                  <AnnouncementBanner />
+                  <Stack>
+                    <Stack.Screen
+                      name="index"
+                      options={{ headerShown: false }}
+                    />
+                    <Stack.Screen
+                      name="(tabs)"
+                      options={{
+                        headerShown: false,
+                        gestureEnabled: false,
+                        animation: "fade",
+                      }}
+                    />
+                    <Stack.Screen
+                      name="(setup)"
+                      options={{ headerShown: false, animation: "fade" }}
+                    />
+                    <Stack.Screen
+                      name="draft-room/[id]"
+                      options={{ headerShown: false }}
+                    />
+                    <Stack.Screen
+                      name="trades"
+                      options={{ headerShown: false }}
+                    />
+                    <Stack.Screen
+                      name="activity"
+                      options={{ headerShown: false }}
+                    />
+                    <Stack.Screen
+                      name="scoreboard"
+                      options={{ headerShown: false }}
+                    />
+                    <Stack.Screen
+                      name="analytics"
+                      options={{ headerShown: false }}
+                    />
+                    <Stack.Screen
+                      name="matchup-detail/[id]"
+                      options={{ headerShown: false }}
+                    />
+                    <Stack.Screen
+                      name="import-league"
+                      options={{ headerShown: false }}
+                    />
+                    <Stack.Screen
+                      name="league-info"
+                      options={{ headerShown: false }}
+                    />
+                    <Stack.Screen
+                      name="draft-hub"
+                      options={{ headerShown: false }}
+                    />
+                    <Stack.Screen
+                      name="playoff-bracket"
+                      options={{ headerShown: false }}
+                    />
+                    <Stack.Screen
+                      name="lottery-room"
+                      options={{ headerShown: false }}
+                    />
+                    <Stack.Screen
+                      name="chat"
+                      options={{ headerShown: false }}
+                    />
+                    <Stack.Screen
+                      name="chat/[id]"
+                      options={{ headerShown: false }}
+                    />
+                    <Stack.Screen
+                      name="team-roster/[id]"
+                      options={{ headerShown: false }}
+                    />
+                    <Stack.Screen
+                      name="league-history"
+                      options={{ headerShown: false }}
+                    />
+                    <Stack.Screen
+                      name="create-league"
+                      options={{ headerShown: false }}
+                    />
+                    <Stack.Screen
+                      name="create-team"
+                      options={{ headerShown: false }}
+                    />
+                    <Stack.Screen
+                      name="join-league"
+                      options={{ headerShown: false }}
+                    />
+                    <Stack.Screen
+                      name="notification-settings"
+                      options={{ headerShown: false }}
+                    />
+                    <Stack.Screen
+                      name="auth"
+                      options={{ headerShown: false }}
+                    />
+                    <Stack.Screen
+                      name="reset-password"
+                      options={{ headerShown: false }}
+                    />
+                    <Stack.Screen
+                      name="legal"
+                      options={{ headerShown: false }}
+                    />
+                    <Stack.Screen name="+not-found" />
+                  </Stack>
+                </AppStateProvider>
+                <StatusBar style="auto" />
+              </AuthProvider>
+            </ToastProvider>
+          </ThemeProvider>
+        </QueryClientProvider>
+      </PostHogSurveyProvider>
+    </PostHogProvider>
   );
 }

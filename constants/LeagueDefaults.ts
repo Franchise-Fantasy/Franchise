@@ -21,6 +21,7 @@ export const DEFAULT_ROSTER_SLOTS: RosterSlot[] = [
   { position: 'UTIL', label: 'Utility', count: 3 },
   { position: 'BE', label: 'Bench', count: 3 },
   { position: 'IR', label: 'Injured Reserve', count: 0 },
+  { position: 'TAXI', label: 'Taxi Squad', count: 0 },
 ];
 
 export const DEFAULT_SCORING: ScoringCategory[] = [
@@ -40,6 +41,68 @@ export const DEFAULT_SCORING: ScoringCategory[] = [
   { stat_name: 'DD', label: 'Double Doubles', point_value: 0 },
   { stat_name: 'TD', label: 'Triple Doubles', point_value: 0 },
 ];
+
+// ── Scoring Type ──────────────────────────────────────────────────────────────
+
+export const SCORING_TYPE_OPTIONS = ['Points', 'H2H Categories'] as const;
+export type ScoringTypeOption = (typeof SCORING_TYPE_OPTIONS)[number];
+
+export const SCORING_TYPE_TO_DB: Record<string, string> = {
+  'Points': 'points',
+  'H2H Categories': 'h2h_categories',
+};
+export const SCORING_TYPE_DISPLAY: Record<string, string> = {
+  points: 'Points',
+  h2h_categories: 'H2H Categories',
+};
+
+export interface CategoryConfig {
+  stat_name: string;
+  label: string;
+  is_enabled: boolean;
+  inverse: boolean;
+  is_percentage: boolean;
+  numerator?: string;
+  denominator?: string;
+}
+
+export const DEFAULT_CATEGORIES: CategoryConfig[] = [
+  // Standard 9-cat (enabled by default)
+  { stat_name: 'PTS', label: 'Points', is_enabled: true, inverse: false, is_percentage: false },
+  { stat_name: 'REB', label: 'Rebounds', is_enabled: true, inverse: false, is_percentage: false },
+  { stat_name: 'AST', label: 'Assists', is_enabled: true, inverse: false, is_percentage: false },
+  { stat_name: 'STL', label: 'Steals', is_enabled: true, inverse: false, is_percentage: false },
+  { stat_name: 'BLK', label: 'Blocks', is_enabled: true, inverse: false, is_percentage: false },
+  { stat_name: 'TO', label: 'Turnovers', is_enabled: true, inverse: true, is_percentage: false },
+  { stat_name: '3PM', label: '3-Pointers Made', is_enabled: true, inverse: false, is_percentage: false },
+  { stat_name: 'FG%', label: 'Field Goal %', is_enabled: true, inverse: false, is_percentage: true, numerator: 'FGM', denominator: 'FGA' },
+  { stat_name: 'FT%', label: 'Free Throw %', is_enabled: true, inverse: false, is_percentage: true, numerator: 'FTM', denominator: 'FTA' },
+  // Additional categories (disabled by default)
+  { stat_name: 'FGM', label: 'Field Goals Made', is_enabled: false, inverse: false, is_percentage: false },
+  { stat_name: 'FGA', label: 'Field Goals Attempted', is_enabled: false, inverse: false, is_percentage: false },
+  { stat_name: 'FTM', label: 'Free Throws Made', is_enabled: false, inverse: false, is_percentage: false },
+  { stat_name: 'FTA', label: 'Free Throws Attempted', is_enabled: false, inverse: false, is_percentage: false },
+  { stat_name: 'PF', label: 'Personal Fouls', is_enabled: false, inverse: true, is_percentage: false },
+  { stat_name: 'DD', label: 'Double Doubles', is_enabled: false, inverse: false, is_percentage: false },
+  { stat_name: 'TD', label: 'Triple Doubles', is_enabled: false, inverse: false, is_percentage: false },
+  { stat_name: '3PA', label: '3-Pointers Attempted', is_enabled: false, inverse: false, is_percentage: false },
+];
+
+// ── League Type ──────────────────────────────────────────────────────────────
+
+export const LEAGUE_TYPE_OPTIONS = ['Dynasty', 'Keeper', 'Redraft'] as const;
+export type LeagueTypeOption = (typeof LEAGUE_TYPE_OPTIONS)[number];
+
+export const LEAGUE_TYPE_TO_DB: Record<LeagueTypeOption, string> = {
+  Dynasty: 'dynasty',
+  Keeper: 'keeper',
+  Redraft: 'redraft',
+};
+export const LEAGUE_TYPE_DISPLAY: Record<string, string> = {
+  dynasty: 'Dynasty',
+  keeper: 'Keeper',
+  redraft: 'Redraft',
+};
 
 export const DRAFT_TYPE_OPTIONS = ['Snake', 'Linear'] as const;
 export const TIME_PER_PICK_OPTIONS = [60, 90, 120] as const;
@@ -69,6 +132,14 @@ export const SEEDING_DISPLAY: Record<string, string> = {
   higher_seed_picks: 'Higher Seed Picks',
 };
 
+export const TAXI_EXPERIENCE_OPTIONS = [
+  { label: 'Rookies Only', value: 1 },
+  { label: '2 Years', value: 2 },
+  { label: '3 Years', value: 3 },
+  { label: '4 Years', value: 4 },
+  { label: 'No Max', value: null },
+] as const;
+
 export const STEP_LABELS = ['Basics', 'Roster', 'Scoring', 'Trade', 'Waivers', 'Season', 'Draft', 'Review'];
 
 // Hardcoded NBA regular season end dates per season string.
@@ -84,11 +155,15 @@ export type DraftType = (typeof DRAFT_TYPE_OPTIONS)[number];
 export type TimePerPick = (typeof TIME_PER_PICK_OPTIONS)[number];
 
 export interface LeagueWizardState {
+  leagueType: LeagueTypeOption;
+  keeperCount: number;
   name: string;
   teams: number;
   isPrivate: boolean;
   rosterSlots: RosterSlot[];
+  scoringType: ScoringTypeOption;
   scoring: ScoringCategory[];
+  categories: CategoryConfig[];
   draftType: DraftType;
   timePerPick: TimePerPick;
   maxDraftYears: number;
@@ -115,4 +190,6 @@ export interface LeagueWizardState {
   tradeDeadlineWeek: number;
   /** 0 = free league, positive = buy-in amount in dollars */
   buyIn: number;
+  /** null = no max, 1 = rookies only, 2-4 = max years of NBA experience */
+  taxiMaxExperience: number | null;
 }

@@ -1,4 +1,5 @@
 import { PlayerMatchList } from '@/components/import/PlayerMatchList';
+import { ScreenshotImport } from '@/components/import/ScreenshotImport';
 import { SleeperPreview } from '@/components/import/SleeperPreview';
 import { StepDraft } from '@/components/create-league/StepDraft';
 import { StepSeason, computeMaxWeeks } from '@/components/create-league/StepSeason';
@@ -10,6 +11,7 @@ import { StepIndicator } from '@/components/ui/StepIndicator';
 import { Colors } from '@/constants/Colors';
 import {
   CURRENT_NBA_SEASON,
+  DEFAULT_CATEGORIES,
   DEFAULT_ROSTER_SLOTS,
   DEFAULT_SCORING,
   type LeagueWizardState,
@@ -71,11 +73,15 @@ function buildWizardState(data: SleeperPreviewResult): LeagueWizardState {
   const scoring = mapSleeperScoring(data.league.scoring_settings);
 
   return {
+    leagueType: 'Dynasty',
+    keeperCount: 5,
     name: data.league.name,
     teams: data.teams.length,
     isPrivate: true,
     rosterSlots,
+    scoringType: 'Points',
     scoring,
+    categories: DEFAULT_CATEGORIES.map(c => ({ ...c })),
     draftType: 'Snake',
     timePerPick: 90,
     maxDraftYears: 3,
@@ -100,6 +106,7 @@ function buildWizardState(data: SleeperPreviewResult): LeagueWizardState {
     draftPickTradingEnabled: true,
     tradeDeadlineWeek: 0,
     buyIn: 0,
+    taxiMaxExperience: null,
   };
 }
 
@@ -109,11 +116,15 @@ const initialState: ImportState = {
   resolvedMappings: new Map(),
   skippedPlayers: new Set(),
   wizardState: {
+    leagueType: 'Dynasty',
+    keeperCount: 5,
     name: '',
     teams: 10,
     isPrivate: true,
     rosterSlots: DEFAULT_ROSTER_SLOTS.map(s => ({ ...s })),
+    scoringType: 'Points',
     scoring: DEFAULT_SCORING.map(s => ({ ...s })),
+    categories: DEFAULT_CATEGORIES.map(c => ({ ...c })),
     draftType: 'Snake',
     timePerPick: 90,
     maxDraftYears: 3,
@@ -138,6 +149,7 @@ const initialState: ImportState = {
     draftPickTradingEnabled: false,
     tradeDeadlineWeek: 0,
     buyIn: 0,
+    taxiMaxExperience: null,
   },
 };
 
@@ -379,11 +391,11 @@ export default function ImportLeague() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.sourceCard, { backgroundColor: c.card, borderColor: c.border, opacity: 0.5 }]}
-            disabled
+            style={[styles.sourceCard, { backgroundColor: c.card, borderColor: c.border }]}
+            onPress={() => setSource('screenshots')}
+            activeOpacity={0.7}
             accessibilityRole="button"
-            accessibilityLabel="Import from screenshots, coming soon"
-            accessibilityState={{ disabled: true }}
+            accessibilityLabel="Import from screenshots"
           >
             <View style={[styles.sourceIcon, { backgroundColor: c.accent + '18' }]}>
               <Ionicons name="camera-outline" size={28} color={c.accent} accessible={false} />
@@ -391,14 +403,19 @@ export default function ImportLeague() {
             <View style={styles.sourceInfo}>
               <ThemedText type="defaultSemiBold" style={styles.sourceTitle}>Screenshots</ThemedText>
               <ThemedText style={[styles.sourceDesc, { color: c.secondaryText }]}>
-                Take screenshots of your league and we'll extract the data for you.
+                Take screenshots of your league and we'll extract the data for you using AI.
               </ThemedText>
-              <ThemedText style={[styles.comingSoon, { color: c.accent }]}>Coming Soon</ThemedText>
             </View>
+            <Ionicons name="chevron-forward" size={20} color={c.secondaryText} accessible={false} />
           </TouchableOpacity>
         </View>
       </ThemedView>
     );
+  }
+
+  // Screenshot import has its own full wizard
+  if (source === 'screenshots') {
+    return <ScreenshotImport />;
   }
 
   return (
