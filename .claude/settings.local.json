@@ -144,7 +144,23 @@
       "Bash(python3 -c \"from PIL import Image; img = Image.open\\(''/c/Users/jjspo/Downloads/franchise logo.png''\\); print\\(f''Size: {img.size}, Mode: {img.mode}''\\)\")",
       "Bash(python -c \"from PIL import Image; img = Image.open\\(''c:/Users/jjspo/Downloads/franchise logo.png''\\); print\\(f''Size: {img.size}, Mode: {img.mode}''\\)\")",
       "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2/utils -maxdepth 1 -type f -name *.ts)",
-      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2/app -name *free* -o -name *agent*)"
+      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2/app -name *free* -o -name *agent*)",
+      "Bash(wc -l /c/Users/jjspo/OneDrive/Desktop/franchise.v2/components/**/*.tsx)",
+      "Bash(wc -l /c/Users/jjspo/OneDrive/Desktop/franchise.v2/components/trade/TradeDetailModal.tsx /c/Users/jjspo/OneDrive/Desktop/franchise.v2/components/player/PlayerDetailModal.tsx /c/Users/jjspo/OneDrive/Desktop/franchise.v2/app/\\\\\\(tabs\\\\\\)/roster.tsx)",
+      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2/components -name \"*.tsx\" -exec wc -l {} +)",
+      "Bash(wc -l /c/Users/jjspo/OneDrive/Desktop/franchise.v2/app/\\\\\\(tabs\\\\\\)/*.tsx)",
+      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2 -maxdepth 3 -name *matchup* -o -name *standings* -o -name *quicknav*)",
+      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2 -name *[Ss]tandings* -o -name *[Qq]uicknav*)",
+      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2 -name *nbaLive* -o -name *injuryBadge*)",
+      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2/utils -name *.ts -type f)",
+      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2/app -maxdepth 2 -name *home* -o -name *index*)",
+      "Bash(sed \"s/''''\\).*//\")",
+      "Bash(sed \"s/\"\"\\).*//\")",
+      "Bash(sed \"s/.*\\\\.rpc\\(''''//\")",
+      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2/supabase/migrations -type f -name *.sql)",
+      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2 -type f \\\\\\(-name *.sql -o -name *.ts \\\\\\))",
+      "Bash(find c:/Users/jjspo/OneDrive/Desktop/franchise.v2/supabase/migrations -name *.sql -exec cat {})",
+      "Bash(2)"
     ]
   }
 }

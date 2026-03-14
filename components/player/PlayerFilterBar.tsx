@@ -38,6 +38,12 @@ interface PlayerFilterBarProps {
   hasScheduleData?: boolean;
   timeRange?: TimeRange;
   onTimeRangeChange?: (range: TimeRange) => void;
+  showWatchlistOnly?: boolean;
+  onWatchlistOnlyChange?: (show: boolean) => void;
+  hasWatchlistData?: boolean;
+  showFreeAgentsOnly?: boolean;
+  onFreeAgentsOnlyChange?: (show: boolean) => void;
+  hasRosteredData?: boolean;
 }
 
 export function PlayerFilterBar({
@@ -55,18 +61,25 @@ export function PlayerFilterBar({
   hasScheduleData,
   timeRange,
   onTimeRangeChange,
+  showWatchlistOnly,
+  onWatchlistOnlyChange,
+  hasWatchlistData,
+  showFreeAgentsOnly,
+  onFreeAgentsOnlyChange,
+  hasRosteredData,
 }: PlayerFilterBarProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const [modalVisible, setModalVisible] = useState(false);
 
-  // Count active filters (non-default)
+  // Count active filters (non-default) — excludes "All Players" toggle which is inline
   const activeFilterCount =
     (selectedPosition !== 'All' ? 1 : 0) +
     (sortBy !== 'FPTS' ? 1 : 0) +
     (showMinutesUp ? 1 : 0) +
     (showAvailableToday ? 1 : 0) +
-    (timeRange && timeRange !== 'season' ? 1 : 0);
+    (timeRange && timeRange !== 'season' ? 1 : 0) +
+    (showWatchlistOnly ? 1 : 0);
 
   const resetFilters = () => {
     onPositionChange('All');
@@ -74,6 +87,8 @@ export function PlayerFilterBar({
     onMinutesUpChange?.(false);
     onAvailableTodayChange?.(false);
     onTimeRangeChange?.('season');
+    onWatchlistOnlyChange?.(false);
+    onFreeAgentsOnlyChange?.(true);
   };
 
   return (
@@ -90,6 +105,21 @@ export function PlayerFilterBar({
           autoCorrect={false}
           returnKeyType="search"
         />
+        {onFreeAgentsOnlyChange && (
+          <TouchableOpacity
+            onPress={() => onFreeAgentsOnlyChange(!showFreeAgentsOnly)}
+            style={[
+              styles.filterBtn,
+              { backgroundColor: c.input, borderColor: c.border },
+              !showFreeAgentsOnly && { backgroundColor: '#007AFF15', borderColor: '#007AFF' },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={showFreeAgentsOnly ? 'Show all players' : 'Show free agents only'}
+            hitSlop={4}
+          >
+            <Ionicons name="people" size={18} color={!showFreeAgentsOnly ? '#007AFF' : c.secondaryText} />
+          </TouchableOpacity>
+        )}
         <TouchableOpacity
           onPress={() => setModalVisible(true)}
           style={[styles.filterBtn, { backgroundColor: c.input, borderColor: c.border }]}
@@ -134,49 +164,67 @@ export function PlayerFilterBar({
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false}>
-              {/* Quick Filters — side by side */}
-              {(hasMinutesData || hasScheduleData) && (
-                <View style={styles.section}>
-                  <ThemedText style={[styles.sectionLabel, { color: c.secondaryText }]}>Quick Filters</ThemedText>
-                  <View style={styles.toggleGrid}>
-                    {hasMinutesData && onMinutesUpChange && (
-                      <TouchableOpacity
-                        accessibilityRole="button"
-                        accessibilityLabel="Show players with rising minutes"
-                        accessibilityState={{ selected: showMinutesUp }}
-                        style={[
-                          styles.toggleCompact,
-                          { borderColor: c.border },
-                          showMinutesUp && { backgroundColor: '#FF950015', borderColor: '#FF9500' },
-                        ]}
-                        onPress={() => onMinutesUpChange(!showMinutesUp)}
-                      >
-                        <Ionicons name="trending-up" size={14} color={showMinutesUp ? '#FF9500' : c.secondaryText} />
-                        <ThemedText style={[styles.toggleCompactLabel, showMinutesUp && { color: '#FF9500' }]}>
-                          Min Up
-                        </ThemedText>
-                      </TouchableOpacity>
-                    )}
-                    {hasScheduleData && onAvailableTodayChange && (
-                      <TouchableOpacity
-                        accessibilityRole="button"
-                        accessibilityLabel="Show only players with a game today"
-                        accessibilityState={{ selected: showAvailableToday }}
-                        style={[
-                          styles.toggleCompact,
-                          { borderColor: c.border },
-                          showAvailableToday && { backgroundColor: '#34C75915', borderColor: '#34C759' },
-                        ]}
-                        onPress={() => onAvailableTodayChange(!showAvailableToday)}
-                      >
-                        <Ionicons name="basketball-outline" size={14} color={showAvailableToday ? '#34C759' : c.secondaryText} />
-                        <ThemedText style={[styles.toggleCompactLabel, showAvailableToday && { color: '#34C759' }]}>
-                          Playing Today
-                        </ThemedText>
-                      </TouchableOpacity>
-                    )}
-                  </View>
+              {/* Quick Filters */}
+              {(onWatchlistOnlyChange || hasMinutesData || hasScheduleData) && (
+              <View style={styles.section}>
+                <ThemedText style={[styles.sectionLabel, { color: c.secondaryText }]}>Quick Filters</ThemedText>
+                <View style={styles.toggleGrid}>
+                  {onWatchlistOnlyChange && (
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      accessibilityLabel="Show only watchlisted players"
+                      accessibilityState={{ selected: showWatchlistOnly }}
+                      style={[
+                        styles.toggleCompact,
+                        { borderColor: c.border },
+                        showWatchlistOnly && { backgroundColor: '#007AFF15', borderColor: '#007AFF' },
+                      ]}
+                      onPress={() => onWatchlistOnlyChange(!showWatchlistOnly)}
+                    >
+                      <Ionicons name={showWatchlistOnly ? 'eye' : 'eye-outline'} size={14} color={showWatchlistOnly ? '#007AFF' : c.secondaryText} />
+                      <ThemedText style={[styles.toggleCompactLabel, showWatchlistOnly && { color: '#007AFF' }]}>
+                        Watchlist
+                      </ThemedText>
+                    </TouchableOpacity>
+                  )}
+                  {hasMinutesData && onMinutesUpChange && (
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      accessibilityLabel="Show players with rising minutes"
+                      accessibilityState={{ selected: showMinutesUp }}
+                      style={[
+                        styles.toggleCompact,
+                        { borderColor: c.border },
+                        showMinutesUp && { backgroundColor: '#FF950015', borderColor: '#FF9500' },
+                      ]}
+                      onPress={() => onMinutesUpChange(!showMinutesUp)}
+                    >
+                      <Ionicons name="trending-up" size={14} color={showMinutesUp ? '#FF9500' : c.secondaryText} />
+                      <ThemedText style={[styles.toggleCompactLabel, showMinutesUp && { color: '#FF9500' }]}>
+                        Min Up
+                      </ThemedText>
+                    </TouchableOpacity>
+                  )}
+                  {hasScheduleData && onAvailableTodayChange && (
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      accessibilityLabel="Show only players with a game today"
+                      accessibilityState={{ selected: showAvailableToday }}
+                      style={[
+                        styles.toggleCompact,
+                        { borderColor: c.border },
+                        showAvailableToday && { backgroundColor: '#34C75915', borderColor: '#34C759' },
+                      ]}
+                      onPress={() => onAvailableTodayChange(!showAvailableToday)}
+                    >
+                      <Ionicons name="basketball-outline" size={14} color={showAvailableToday ? '#34C759' : c.secondaryText} />
+                      <ThemedText style={[styles.toggleCompactLabel, showAvailableToday && { color: '#34C759' }]}>
+                        Playing Today
+                      </ThemedText>
+                    </TouchableOpacity>
+                  )}
                 </View>
+              </View>
               )}
 
               {/* Time Range section */}
@@ -402,10 +450,12 @@ const styles = StyleSheet.create({
   // Quick filter toggles — side by side
   toggleGrid: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
   },
   toggleCompact: {
-    flex: 1,
+    flexBasis: '47%',
+    flexGrow: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

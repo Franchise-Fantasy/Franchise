@@ -1,6 +1,6 @@
 import { PlayerGameLog, PlayerSeasonStats, ScoringWeight } from "@/types/player";
 import { CategoryDef } from "@/utils/categoryScoring";
-import { calculateGameFantasyPoints } from "@/utils/fantasyPoints";
+import { calculateGameFantasyPoints, STAT_TO_TOTAL } from "@/utils/fantasyPoints";
 
 export type ConsistencyLabel =
   | "Rock Solid"
@@ -141,25 +141,6 @@ export function calculatePlayerInsights(
     minutesDelta: round1(recentAvgMin - avgMin),
   };
 }
-
-// Maps stat_name to PlayerSeasonStats total column
-const STAT_TO_TOTAL: Record<string, keyof PlayerSeasonStats> = {
-  PTS: "total_pts",
-  REB: "total_reb",
-  AST: "total_ast",
-  STL: "total_stl",
-  BLK: "total_blk",
-  TO: "total_tov",
-  "3PM": "total_3pm",
-  "3PA": "total_3pa",
-  FGM: "total_fgm",
-  FGA: "total_fga",
-  FTM: "total_ftm",
-  FTA: "total_fta",
-  PF: "total_pf",
-  DD: "total_dd",
-  TD: "total_td",
-};
 
 /**
  * Breaks down what % of a player's FPTS comes from each scoring category.

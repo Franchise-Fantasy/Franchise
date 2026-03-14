@@ -1,5 +1,5 @@
 import { useAuthInitialized, useSession } from '@/context/AuthProvider';
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
 
 interface AppState {
@@ -30,17 +30,17 @@ export const AppStateProvider = ({ children }: { children: React.ReactNode }) =>
     loading: true
   });
 
-  const setTeamId = (id: string | null) => {
+  const setTeamId = useCallback((id: string | null) => {
     setState(prev => ({ ...prev, teamId: id }));
-  };
+  }, []);
 
-  const setLeagueId = (id: string | null) => {
+  const setLeagueId = useCallback((id: string | null) => {
     setState(prev => ({ ...prev, leagueId: id }));
-  };
+  }, []);
 
-  const switchLeague = (leagueId: string, teamId: string) => {
+  const switchLeague = useCallback((leagueId: string, teamId: string) => {
     setState({ leagueId, teamId, loading: false });
-  };
+  }, []);
 
   useEffect(() => {
     // Don't resolve loading until we know the auth state for certain.
@@ -92,12 +92,12 @@ export const AppStateProvider = ({ children }: { children: React.ReactNode }) =>
     fetchTeam();
   }, [initialized, session?.user?.id]);
 
-  const value = {
+  const value = useMemo(() => ({
     ...state,
     setTeamId,
     setLeagueId,
     switchLeague,
-  };
+  }), [state, setTeamId, setLeagueId, switchLeague]);
 
   return (
     <AppStateContext.Provider value={value}>

@@ -25,6 +25,7 @@ interface TradePlayerPickerProps {
   teamName: string;
   leagueId: string;
   selectedPlayerIds: string[];
+  lockedPlayerIds?: Set<string>;
   onToggle: (player: PlayerSeasonStats, avgFpts: number) => void;
   onBack: () => void;
 }
@@ -34,6 +35,7 @@ export function TradePlayerPicker({
   teamName,
   leagueId,
   selectedPlayerIds,
+  lockedPlayerIds,
   onToggle,
   onBack,
 }: TradePlayerPickerProps) {
@@ -50,6 +52,7 @@ export function TradePlayerPicker({
 
   const renderItem = ({ item }: { item: PlayerSeasonStats }) => {
     const isSelected = selectedPlayerIds.includes(item.player_id);
+    const isLocked = lockedPlayerIds?.has(item.player_id) ?? false;
     const fpts = scoringWeights ? calculateAvgFantasyPoints(item, scoringWeights) : null;
     const headshotUrl = getPlayerHeadshotUrl(item.external_id_nba);
     const logoUrl = getTeamLogoUrl(item.nba_team);
@@ -58,12 +61,14 @@ export function TradePlayerPicker({
     return (
       <TouchableOpacity
         accessibilityRole="button"
-        accessibilityLabel={`${item.name}, ${formatPosition(item.position)}${fpts !== null ? `, ${fpts} fantasy points` : ''}`}
-        accessibilityState={{ selected: isSelected }}
+        accessibilityLabel={`${item.name}, ${formatPosition(item.position)}${isLocked ? ', in active trade' : ''}${fpts !== null ? `, ${fpts} fantasy points` : ''}`}
+        accessibilityState={{ selected: isSelected, disabled: isLocked }}
+        disabled={isLocked}
         style={[
           styles.row,
           { borderBottomColor: c.border },
           isSelected && { backgroundColor: c.activeCard },
+          isLocked && { opacity: 0.45 },
         ]}
         onPress={() => onToggle(item, fpts ?? 0)}
       >
@@ -90,6 +95,11 @@ export function TradePlayerPicker({
             {badge && (
               <View style={[styles.injuryBadge, { backgroundColor: badge.color }]}>
                 <Text style={styles.injuryBadgeText}>{badge.label}</Text>
+              </View>
+            )}
+            {isLocked && (
+              <View style={[styles.injuryBadge, { backgroundColor: '#f59e0b' }]}>
+                <Text style={styles.injuryBadgeText}>IN TRADE</Text>
               </View>
             )}
           </View>

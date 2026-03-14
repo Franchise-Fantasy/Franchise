@@ -5,13 +5,14 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { supabase } from '@/lib/supabase';
 import { ScoringWeight } from '@/types/player';
-import { calculateGameFantasyPoints } from '@/utils/fantasyPoints';
+import { calculateGameFantasyPoints, formatScore } from '@/utils/fantasyPoints';
+import { useLivePlayerStats, liveToGameLog } from '@/utils/nbaLive';
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { useLeague } from '@/hooks/useLeague';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { toDateStr, parseLocalDate, addDays } from '@/utils/dates';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   ScrollView,
@@ -21,6 +22,8 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '@/components/ui/PageHeader';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -64,7 +67,7 @@ function formatWeekRange(start: string, end: string): string {
 }
 
 function round1(n: number) {
-  return Math.round(n * 10) / 10;
+  return Math.round(n * 100) / 100;
 }
 
 function getWeekState(week: Week, today: string): WeekState {
@@ -133,7 +136,8 @@ async function computeAllTeamScores(
   scoring: ScoringWeight[],
 ): Promise<Record<string, number>> {
   const today = toDateStr(new Date());
-  const endDate = addDays(today, -1); // through yesterday (today's games not finalized)
+  // For past weeks use the full week range; for live weeks use through yesterday
+  const endDate = week.end_date < today ? week.end_date : addDays(today, -1);
 
   // If the week hasn't started or no past days yet, return empty
   if (week.start_date > endDate) return {};
@@ -144,18 +148,16 @@ async function computeAllTeamScores(
     .select('player_id, team_id, roster_slot')
     .eq('league_id', leagueId);
 
-  if (!leaguePlayers || leaguePlayers.length === 0) return {};
-
-  const playerIds = leaguePlayers.map((lp) => lp.player_id);
-  const defaultSlotByPlayer = new Map<string, { teamId: string; slot: string }>();
-  for (const lp of leaguePlayers) {
-    defaultSlotByPlayer.set(lp.player_id, {
+  const currentPlayerIds = new Set((leaguePlayers ?? []).map((lp) => lp.player_id));
+  const defaultByPlayer = new Map<string, { teamId: string; slot: string }>();
+  for (const lp of leaguePlayers ?? []) {
+    defaultByPlayer.set(lp.player_id, {
       teamId: lp.team_id,
       slot: lp.roster_slot ?? 'BE',
     });
   }
 
-  // Fetch daily lineup overrides
+  // Fetch daily lineup overrides (includes snapshots from dropped players)
   const { data: dailyEntries } = await supabase
     .from('daily_lineups')
     .select('player_id, team_id, roster_slot, lineup_date')
@@ -163,18 +165,38 @@ async function computeAllTeamScores(
     .lte('lineup_date', week.end_date)
     .order('lineup_date', { ascending: false });
 
-  const dailyByPlayer = new Map<string, Array<{ lineup_date: string; roster_slot: string }>>();
+  const dailyByPlayer = new Map<string, Array<{ lineup_date: string; roster_slot: string; team_id: string }>>();
+  // Track which team dropped players belonged to (from daily_lineups)
+  const droppedPlayerTeam = new Map<string, string>();
   for (const entry of dailyEntries ?? []) {
     if (!dailyByPlayer.has(entry.player_id)) {
       dailyByPlayer.set(entry.player_id, []);
     }
     dailyByPlayer.get(entry.player_id)!.push(entry);
+
+    // Track dropped players: in daily_lineups for this week but not in league_players
+    if (
+      !currentPlayerIds.has(entry.player_id) &&
+      entry.lineup_date >= week.start_date &&
+      !droppedPlayerTeam.has(entry.player_id)
+    ) {
+      droppedPlayerTeam.set(entry.player_id, entry.team_id);
+    }
   }
 
-  const resolveSlot = (playerId: string, day: string): string => {
+  const allPlayerIds = [...currentPlayerIds, ...droppedPlayerTeam.keys()];
+  if (allPlayerIds.length === 0) return {};
+
+  // Resolve both team ownership and roster slot for a player on a given day
+  // using daily_lineups history, matching how fetchTeamData works per-team
+  const resolveOwnership = (playerId: string, day: string): { teamId: string | null; slot: string } => {
     const entries = dailyByPlayer.get(playerId) ?? [];
     const entry = entries.find((e) => e.lineup_date <= day);
-    return entry?.roster_slot ?? defaultSlotByPlayer.get(playerId)?.slot ?? 'BE';
+    if (entry) {
+      return { teamId: entry.team_id, slot: entry.roster_slot };
+    }
+    const info = defaultByPlayer.get(playerId);
+    return { teamId: info?.teamId ?? null, slot: info?.slot ?? 'BE' };
   };
 
   // Fetch game logs for all players in the week range
@@ -183,21 +205,19 @@ async function computeAllTeamScores(
     .select(
       'player_id, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double, game_date',
     )
-    .in('player_id', playerIds)
+    .in('player_id', allPlayerIds)
     .gte('game_date', week.start_date)
     .lte('game_date', endDate);
 
-  // Sum fantasy points per team
+  // Sum fantasy points per team, resolving ownership per game date
   const teamScores: Record<string, number> = {};
   for (const game of gameLogs ?? []) {
-    const info = defaultSlotByPlayer.get(game.player_id);
-    if (!info) continue;
-
-    const slot = resolveSlot(game.player_id, game.game_date);
-    if (slot === 'BE' || slot === 'IR') continue;
+    const { teamId, slot } = resolveOwnership(game.player_id, game.game_date);
+    if (!teamId) continue;
+    if (slot === 'BE' || slot === 'IR' || slot === 'DROPPED') continue;
 
     const fp = calculateGameFantasyPoints(game as any, scoring);
-    teamScores[info.teamId] = (teamScores[info.teamId] ?? 0) + fp;
+    teamScores[teamId] = (teamScores[teamId] ?? 0) + fp;
   }
 
   // Round all values
@@ -230,6 +250,7 @@ function useScoreboardData(
     queryFn: () => fetchMatchups(week!.id),
     enabled: !!week,
     staleTime: 1000 * 60 * 5,
+    refetchInterval: weekState === 'live' ? 90_000 : false,
   });
 
   // All teams in the league
@@ -240,11 +261,27 @@ function useScoreboardData(
     staleTime: 1000 * 60 * 10,
   });
 
-  // Computed scores (current week only)
+  // Computed scores from player_games (for both past and live weeks)
   const computedQuery = useQuery({
     queryKey: ['scoreboardComputed', leagueId, week?.id],
     queryFn: () => computeAllTeamScores(leagueId!, week!, scoring),
-    enabled: !!leagueId && !!week && weekState === 'live' && scoring.length > 0,
+    enabled: !!leagueId && !!week && weekState !== 'future' && scoring.length > 0,
+    staleTime: weekState === 'live' ? 1000 * 60 * 5 : 1000 * 60 * 30,
+    refetchInterval: weekState === 'live' ? 300_000 : false,
+  });
+
+  // All rostered players for live stats subscription
+  const leaguePlayersQuery = useQuery({
+    queryKey: ['scoreboardLeaguePlayers', leagueId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('league_players')
+        .select('player_id, team_id, roster_slot')
+        .eq('league_id', leagueId!);
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: !!leagueId && weekState === 'live',
     staleTime: 1000 * 60 * 5,
   });
 
@@ -265,10 +302,11 @@ function useScoreboardData(
     matchups: matchupsQuery.data,
     teamMap: teamsQuery.data,
     computedScores: computedQuery.data,
+    leaguePlayers: leaguePlayersQuery.data,
     seedMap: seedsQuery.data ?? {},
     isPlayoff: week?.is_playoff ?? false,
     isLoading:
-      matchupsQuery.isLoading || teamsQuery.isLoading || (weekState === 'live' && computedQuery.isLoading),
+      matchupsQuery.isLoading || teamsQuery.isLoading || (weekState !== 'future' && computedQuery.isLoading),
   };
 }
 
@@ -280,10 +318,20 @@ export default function ScoreboardScreen() {
   const c = Colors[scheme];
   const { leagueId, teamId } = useAppState();
 
+  const queryClient = useQueryClient();
   const { data: league } = useLeague();
   const { data: weeks, isLoading: weeksLoading } = useWeeks(leagueId);
   const { data: scoring } = useLeagueScoring(leagueId ?? '');
   const season = league?.season ?? CURRENT_NBA_SEASON;
+
+  // Refresh scoreboard data every time the screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      queryClient.invalidateQueries({ queryKey: ['scoreboardMatchups'] });
+      queryClient.invalidateQueries({ queryKey: ['scoreboardComputed'] });
+      queryClient.invalidateQueries({ queryKey: ['leagueTeamsRecord'] });
+    }, [queryClient])
+  );
 
   const [selectedWeekIndex, setSelectedWeekIndex] = useState<number | null>(null);
 
@@ -306,7 +354,7 @@ export default function ScoreboardScreen() {
   const today = toDateStr(new Date());
   const weekState: WeekState = selectedWeek ? getWeekState(selectedWeek, today) : 'past';
 
-  const { matchups, teamMap, computedScores, seedMap, isPlayoff, isLoading } = useScoreboardData(
+  const { matchups, teamMap, computedScores, leaguePlayers, seedMap, isPlayoff, isLoading } = useScoreboardData(
     selectedWeek,
     leagueId,
     scoring ?? [],
@@ -314,18 +362,39 @@ export default function ScoreboardScreen() {
     season,
   );
 
+  // Live stats subscription for today's in-progress + completed games
+  const allPlayerIds = useMemo(
+    () => (leaguePlayers ?? []).map(lp => lp.player_id),
+    [leaguePlayers]
+  );
+  const liveMap = useLivePlayerStats(allPlayerIds, weekState === 'live');
+
+  // Compute today's live fantasy points per team
+  const liveBonusByTeam = useMemo(() => {
+    if (liveMap.size === 0 || !leaguePlayers || !scoring?.length) return {};
+    const bonuses: Record<string, number> = {};
+    for (const lp of leaguePlayers) {
+      if (lp.roster_slot === 'BE' || lp.roster_slot === 'IR') continue;
+      const live = liveMap.get(lp.player_id);
+      if (!live) continue;
+      const fp = calculateGameFantasyPoints(liveToGameLog(live) as any, scoring);
+      bonuses[lp.team_id] = round1((bonuses[lp.team_id] ?? 0) + fp);
+    }
+    return bonuses;
+  }, [liveMap, leaguePlayers, scoring]);
+
   // Determine if a matchup involves the current user's team
   const isMyMatchup = (m: ScoreboardMatchup) =>
     m.home_team_id === teamId || m.away_team_id === teamId;
 
   const isCategories = league?.scoring_type === 'h2h_categories';
 
-  // Get score for a team in a matchup
+  // Get score for a team in a matchup — prefer computed scores (from player_games)
+  // to ensure consistency with matchup screens, especially for dropped players
   const getScore = (m: ScoreboardMatchup, teamIdToCheck: string): number => {
-    if (weekState === 'live' && computedScores) {
-      return computedScores[teamIdToCheck] ?? 0;
+    if (computedScores && weekState !== 'future') {
+      return round1((computedScores[teamIdToCheck] ?? 0) + (liveBonusByTeam[teamIdToCheck] ?? 0));
     }
-    // Past/finalized weeks use stored scores
     return teamIdToCheck === m.home_team_id ? m.home_score ?? 0 : m.away_score ?? 0;
   };
 
@@ -341,7 +410,7 @@ export default function ScoreboardScreen() {
       const oppW = isHome ? awayW : homeW;
       return catTies > 0 ? `${myW}-${oppW}-${catTies}` : `${myW}-${oppW}`;
     }
-    return getScore(m, teamIdToCheck).toFixed(1);
+    return formatScore(getScore(m, teamIdToCheck));
   };
 
   // Sort matchups: user's matchup first
@@ -479,7 +548,7 @@ export default function ScoreboardScreen() {
                 activeOpacity={0.7}
                 onPress={() => router.push(`/matchup-detail/${matchup.id}` as any)}
                 accessibilityRole="button"
-                accessibilityLabel={`${homeTeam?.name ?? 'Unknown'} ${weekState !== 'future' ? homeScore.toFixed(1) : ''} vs ${isBye ? 'BYE' : `${awayTeam?.name ?? 'Unknown'} ${weekState !== 'future' ? awayScore.toFixed(1) : ''}`}${mine ? ', your matchup' : ''}`}
+                accessibilityLabel={`${homeTeam?.name ?? 'Unknown'} ${weekState !== 'future' ? formatScore(homeScore) : ''} vs ${isBye ? 'BYE' : `${awayTeam?.name ?? 'Unknown'} ${weekState !== 'future' ? formatScore(awayScore) : ''}`}${mine ? ', your matchup' : ''}`}
                 accessibilityHint="View matchup details"
               >
                 {/* Status badge */}
@@ -568,7 +637,7 @@ export default function ScoreboardScreen() {
                           awayWinning && { color: c.accent },
                         ]}
                       >
-                        {matchup.away_team_id ? getScoreDisplay(matchup, matchup.away_team_id) : '0.0'}
+                        {matchup.away_team_id ? getScoreDisplay(matchup, matchup.away_team_id) : '0.00'}
                       </ThemedText>
                     )}
                   </View>

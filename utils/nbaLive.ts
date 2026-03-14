@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { toDateStr } from '@/utils/dates';
+import { addDays, toDateStr } from '@/utils/dates';
 import { useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
@@ -103,21 +103,33 @@ export function useLivePlayerStats(
     }
 
     const today = toDateStr(new Date());
+    const yesterday = addDays(today, -1);
     dateRef.current = today;
 
-    // Initial fetch
-    supabase
-      .from('live_player_stats')
-      .select('*')
-      .in('player_id', playerIds)
-      .eq('game_date', today)
-      .then(({ data }) => {
-        // Verify date hasn't changed since we started the fetch
-        if (toDateStr(new Date()) !== today) return;
-        if (data) {
-          setLiveMap(buildMap(data as LivePlayerStats[]));
-        }
-      });
+    // Fetch today's games (live + final) and yesterday's still-live games
+    // (West Coast games that cross midnight). Exclude yesterday's finals
+    // so they don't show as stale entries the next morning.
+    Promise.all([
+      supabase
+        .from('live_player_stats')
+        .select('*')
+        .in('player_id', playerIds)
+        .eq('game_date', today)
+        .gte('game_status', 2),
+      supabase
+        .from('live_player_stats')
+        .select('*')
+        .in('player_id', playerIds)
+        .eq('game_date', yesterday)
+        .eq('game_status', 2),
+    ]).then(([todayRes, yesterdayRes]) => {
+      if (toDateStr(new Date()) !== today) return;
+      const rows = [
+        ...((todayRes.data ?? []) as LivePlayerStats[]),
+        ...((yesterdayRes.data ?? []) as LivePlayerStats[]),
+      ];
+      setLiveMap(buildMap(rows));
+    });
 
     // Realtime subscription for push updates
     const channel = supabase
@@ -128,8 +140,13 @@ export function useLivePlayerStats(
         (payload) => {
           const row = payload.new as LivePlayerStats;
           if (!playerIds.includes(row.player_id)) return;
-          // Only accept updates for today's date
-          if (row.game_date !== dateRef.current) return;
+          const cur = dateRef.current;
+          const isToday = row.game_date === cur;
+          const isYesterday = row.game_date === addDays(cur, -1);
+          // Ignore games outside today/yesterday window
+          if (!isToday && !isYesterday) return;
+          // For yesterday's games, only accept while still live
+          if (isYesterday && row.game_status === 3) return;
           setLiveMap((prev) => {
             const next = new Map(prev);
             next.set(row.player_id, row);

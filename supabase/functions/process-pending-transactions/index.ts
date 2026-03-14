@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { notifyTeams } from '../_shared/push.ts';
+import { notifyLeague } from '../_shared/push.ts';
+import { snapshotBeforeDrop } from '../_shared/snapshotBeforeDrop.ts';
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -48,6 +49,9 @@ Deno.serve(async (req: Request) => {
       let notifBody = '';
 
       if (txn.action_type === "drop") {
+        // Snapshot roster slot before dropping so mid-week scoring is preserved
+        await snapshotBeforeDrop(supabase, txn.league_id, txn.team_id, txn.player_id);
+
         const { error: delError } = await supabase
           .from("league_players").delete()
           .eq("league_id", txn.league_id).eq("team_id", txn.team_id).eq("player_id", txn.player_id);
@@ -67,7 +71,27 @@ Deno.serve(async (req: Request) => {
           transaction_id: leagueTxn.id, player_id: txn.player_id, team_from_id: txn.team_id,
         });
 
+      } else if (txn.action_type === "trade" && txn.metadata?.proposal_id) {
+        // Re-invoke execute-trade for delayed trades
+        const res = await fetch(
+          `${Deno.env.get('SUPABASE_URL')}/functions/v1/execute-trade`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+            },
+            body: JSON.stringify({ proposal_id: txn.metadata.proposal_id }),
+          },
+        );
+        const result = await res.json();
+        if (!res.ok) throw new Error(result.error ?? 'Trade execution failed');
+        notifBody = result.message ?? 'Delayed trade has been processed.';
+
       } else if (txn.action_type === "add_drop" && txn.target_player_id) {
+        // Snapshot roster slot before dropping so mid-week scoring is preserved
+        await snapshotBeforeDrop(supabase, txn.league_id, txn.team_id, txn.player_id);
+
         const { error: delError } = await supabase
           .from("league_players").delete()
           .eq("league_id", txn.league_id).eq("team_id", txn.team_id).eq("player_id", txn.player_id);
@@ -101,15 +125,19 @@ Deno.serve(async (req: Request) => {
       await supabase.from("pending_transactions").update({ status: "completed" }).eq("id", txn.id);
       processed++;
 
-      // Notify the team owner
+      // Notify the league about the roster move
       if (notifBody) {
         try {
-          const { data: leagueInfo } = await supabase.from('leagues').select('name').eq('id', txn.league_id).single();
+          const [{ data: leagueInfo }, { data: teamInfo }] = await Promise.all([
+            supabase.from('leagues').select('name').eq('id', txn.league_id).single(),
+            supabase.from('teams').select('name').eq('id', txn.team_id).single(),
+          ]);
           const ln = leagueInfo?.name ?? 'Your League';
-          await notifyTeams(supabase, [txn.team_id], 'roster_reminders',
-            `${ln} — Queued Transaction Processed`,
-            notifBody,
-            { screen: 'roster' }
+          const teamName = teamInfo?.name ?? 'A team';
+          await notifyLeague(supabase, txn.league_id, 'roster_moves',
+            `${ln} — Roster Move`,
+            `${teamName}: ${notifBody}`,
+            { screen: 'activity' }
           );
         } catch (notifyErr) {
           console.warn('Push notification failed (non-fatal):', notifyErr);

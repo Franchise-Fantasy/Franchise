@@ -21,6 +21,7 @@ import { addDays, formatDayLabel, toDateStr, useToday } from "@/utils/dates";
 import {
   calculateAvgFantasyPoints,
   calculateGameFantasyPoints,
+  formatScore,
 } from "@/utils/fantasyPoints";
 import { formatPosition } from "@/utils/formatting";
 import { isGameStarted, useTodayGameTimes } from "@/utils/gameStarted";
@@ -128,12 +129,14 @@ function AnimatedFpts({
   dimColor,
   textStyle,
   animate = false,
+  projected = false,
 }: {
   value: number | null;
   accentColor: string;
   dimColor: string;
   textStyle: any;
   animate?: boolean;
+  projected?: boolean;
 }) {
   const translateY = useRef(new Animated.Value(0)).current;
   const prev = useRef<number | null | undefined>(undefined);
@@ -170,7 +173,7 @@ function AnimatedFpts({
           },
         ]}
       >
-        {value !== null ? value.toFixed(1) : "—"}
+        {value !== null ? (projected ? value.toFixed(1) : formatScore(value)) : "—"}
       </Animated.Text>
     </View>
   );
@@ -185,19 +188,68 @@ async function fetchTeamRosterForDate(
 ): Promise<RosterPlayer[]> {
   const { data: leaguePlayers, error: lpError } = await supabase
     .from("league_players")
-    .select("player_id, roster_slot")
+    .select("player_id, roster_slot, acquired_at")
     .eq("team_id", teamId)
-    .eq("league_id", leagueId);
+    .eq("league_id", leagueId)
+    .or(`acquired_at.is.null,acquired_at.lte.${date}T23:59:59.999Z`);
 
   if (lpError) throw lpError;
-  if (!leaguePlayers || leaguePlayers.length === 0) return [];
 
-  const playerIds = leaguePlayers.map((lp) => lp.player_id);
+  const currentPlayerIds = new Set((leaguePlayers ?? []).map((lp) => lp.player_id));
   const slotMap = await fetchLineupForDate(teamId, leagueId, date);
 
+  const today = toDateStr(new Date());
+  const isPast = date < today;
+
+  // Find dropped players: only for past dates so we preserve historical matchup data.
+  // For today/future, dropped players should not appear on the roster.
+  const droppedPlayerIds: string[] = [];
+  if (isPast) {
+    for (const [pid, slot] of slotMap) {
+      if (!currentPlayerIds.has(pid) && slot !== 'DROPPED') {
+        droppedPlayerIds.push(pid);
+      }
+    }
+  }
+
+  // For past dates, also check stored matchup data for players who were dropped
+  // in a later week and have no daily_lineups entries for this week
+  if (isPast) {
+    const { data: matchup } = await supabase
+      .from('league_matchups')
+      .select('home_team_id, home_player_scores, away_player_scores, is_finalized, league_schedule!inner(start_date, end_date)')
+      .eq('league_schedule.league_id', leagueId)
+      .lte('league_schedule.start_date', date)
+      .gte('league_schedule.end_date', date)
+      .or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
+      .maybeSingle();
+
+    if (matchup?.is_finalized) {
+      const stored: any[] | null = matchup.home_team_id === teamId
+        ? matchup.home_player_scores
+        : matchup.away_player_scores;
+
+      if (stored) {
+        for (const p of stored) {
+          if (currentPlayerIds.has(p.player_id) || droppedPlayerIds.includes(p.player_id)) continue;
+          // Resolve slot for this date from stored game data
+          const sorted = [...p.games].sort((a: any, b: any) => b.date.localeCompare(a.date));
+          const closest = sorted.find((g: any) => g.date <= date);
+          const slot = closest?.slot ?? p.roster_slot;
+          if (slot === 'DROPPED') continue;
+          slotMap.set(p.player_id, slot);
+          droppedPlayerIds.push(p.player_id);
+        }
+      }
+    }
+  }
+
+  const allPlayerIds = [...currentPlayerIds, ...droppedPlayerIds];
+  if (allPlayerIds.length === 0) return [];
+
   const [statsResult, tricodeResult] = await Promise.all([
-    supabase.from("player_season_stats").select("*").in("player_id", playerIds),
-    supabase.from("players").select("id, nba_team").in("id", playerIds),
+    supabase.from("player_season_stats").select("*").in("player_id", allPlayerIds),
+    supabase.from("players").select("id, nba_team").in("id", allPlayerIds),
   ]);
 
   if (statsResult.error) throw statsResult.error;
@@ -579,6 +631,14 @@ export default function RosterScreen() {
         if (activeSlot.player) {
           await upsertDailySlot(activeSlot.player.player_id, "BE");
           await supabase
+            .from("daily_lineups")
+            .update({ roster_slot: "BE" })
+            .eq("team_id", teamId)
+            .eq("league_id", leagueId)
+            .eq("player_id", activeSlot.player.player_id)
+            .eq("roster_slot", "IR")
+            .gt("lineup_date", selectedDate);
+          await supabase
             .from("league_players")
             .update({ roster_slot: "BE" })
             .eq("league_id", leagueId)
@@ -586,6 +646,14 @@ export default function RosterScreen() {
             .eq("player_id", activeSlot.player.player_id);
         }
         await upsertDailySlot(player.player_id, "IR");
+        // Update future daily_lineups entries to IR as well
+        await supabase
+          .from("daily_lineups")
+          .update({ roster_slot: "IR" })
+          .eq("team_id", teamId)
+          .eq("league_id", leagueId)
+          .eq("player_id", player.player_id)
+          .gt("lineup_date", selectedDate);
         await supabase
           .from("league_players")
           .update({ roster_slot: "IR" })
@@ -594,6 +662,16 @@ export default function RosterScreen() {
           .eq("player_id", player.player_id);
       } else if (isBenchSlot && selectedIsOnIR) {
         await upsertDailySlot(player.player_id, "BE");
+        // Also update any future daily_lineups entries so the IR→BE
+        // change carries forward (auto-lineup may have written explicit IR rows)
+        await supabase
+          .from("daily_lineups")
+          .update({ roster_slot: "BE" })
+          .eq("team_id", teamId)
+          .eq("league_id", leagueId)
+          .eq("player_id", player.player_id)
+          .eq("roster_slot", "IR")
+          .gt("lineup_date", selectedDate);
         await supabase
           .from("league_players")
           .update({ roster_slot: "BE" })
@@ -626,9 +704,25 @@ export default function RosterScreen() {
         queryClient.invalidateQueries({
           queryKey: ["rosterInfo", leagueId, teamId],
         });
+        // Invalidate + eagerly refetch adjacent days so navigation is seamless
+        queryClient.invalidateQueries({
+          queryKey: ["teamRoster", teamId],
+        });
+        for (const day of [addDays(selectedDate, 1), addDays(selectedDate, 2)]) {
+          queryClient.prefetchQuery({
+            queryKey: ["teamRoster", teamId, day],
+            queryFn: () => fetchTeamRosterForDate(teamId, leagueId, day),
+            staleTime: 0,
+          });
+        }
+      } else {
+        queryClient.invalidateQueries({
+          queryKey: ["teamRoster", teamId, selectedDate],
+        });
       }
+      // Keep matchup view in sync with roster changes
       queryClient.invalidateQueries({
-        queryKey: ["teamRoster", teamId, selectedDate],
+        queryKey: ["weekMatchup", leagueId],
       });
       setActiveSlot(null);
     } catch (err: any) {
@@ -652,6 +746,15 @@ export default function RosterScreen() {
         activeSlot.slotPosition === "IR" ||
         activeSlot.slotPosition === "TAXI"
       ) {
+        // Update future daily_lineups entries so the slot change carries forward
+        await supabase
+          .from("daily_lineups")
+          .update({ roster_slot: "BE" })
+          .eq("team_id", teamId)
+          .eq("league_id", leagueId)
+          .eq("player_id", activeSlot.player.player_id)
+          .eq("roster_slot", activeSlot.slotPosition)
+          .gt("lineup_date", selectedDate);
         await supabase
           .from("league_players")
           .update({ roster_slot: "BE" })
@@ -661,9 +764,24 @@ export default function RosterScreen() {
         queryClient.invalidateQueries({
           queryKey: ["rosterInfo", leagueId, teamId],
         });
+        queryClient.invalidateQueries({
+          queryKey: ["teamRoster", teamId],
+        });
+        for (const day of [addDays(selectedDate, 1), addDays(selectedDate, 2)]) {
+          queryClient.prefetchQuery({
+            queryKey: ["teamRoster", teamId, day],
+            queryFn: () => fetchTeamRosterForDate(teamId, leagueId, day),
+            staleTime: 0,
+          });
+        }
+      } else {
+        queryClient.invalidateQueries({
+          queryKey: ["teamRoster", teamId, selectedDate],
+        });
       }
+      // Keep matchup view in sync with roster changes
       queryClient.invalidateQueries({
-        queryKey: ["teamRoster", teamId, selectedDate],
+        queryKey: ["weekMatchup", leagueId],
       });
       setActiveSlot(null);
     } catch (err: any) {
@@ -802,6 +920,7 @@ export default function RosterScreen() {
         `${totalMoves} move${totalMoves === 1 ? "" : "s"} across ${daysChanged} day${daysChanged === 1 ? "" : "s"}.`,
       );
       queryClient.invalidateQueries({ queryKey: ["teamRoster", teamId] });
+      queryClient.invalidateQueries({ queryKey: ["weekMatchup", leagueId] });
     } catch (err: any) {
       Alert.alert("Error", err.message ?? "Failed to optimize lineup");
     } finally {
@@ -1077,7 +1196,7 @@ export default function RosterScreen() {
             }}
             delayLongPress={400}
             accessibilityRole="button"
-            accessibilityLabel={`${slot.player!.name}, ${formatPosition(slot.player!.position)}, ${slot.player!.nba_team}${!isCategories && fpts !== null ? `, ${fpts.toFixed(1)} fantasy points` : ""}${isLive ? ", live" : ""}${locked ? ", locked" : ""}`}
+            accessibilityLabel={`${slot.player!.name}, ${formatPosition(slot.player!.position)}, ${slot.player!.nba_team}${!isCategories && fpts !== null ? `, ${formatScore(fpts)} fantasy points` : ""}${isLive ? ", live" : ""}${locked ? ", locked" : ""}`}
             accessibilityHint="Tap for player details, long press to change slot"
           >
             {/* Headshot with team pill + on-court dot */}
@@ -1180,7 +1299,7 @@ export default function RosterScreen() {
                   {fptsMode === "live" &&
                   !isCategories &&
                   (projFpts ?? (isFutureDate ? fpts : null)) !== null
-                    ? ` · proj: ${(projFpts ?? fpts)!.toFixed(1)}`
+                    ? ` · proj: ${((projFpts ?? fpts)!).toFixed(1)}`
                     : ""}
                 </ThemedText>
               ) : gameInfo || statLine ? (
@@ -1206,6 +1325,7 @@ export default function RosterScreen() {
                 dimColor={c.secondaryText}
                 textStyle={styles.slotFpts}
                 animate={isToday}
+                projected={fptsMode === "proj" || isFutureDate}
               />
             )}
           </TouchableOpacity>
@@ -1342,7 +1462,7 @@ export default function RosterScreen() {
                 accessibilityLabel={
                   !isPastDate
                     ? `Fantasy points: ${fptsMode === "live" ? "live" : "projected"}. Tap to switch.`
-                    : `Fantasy points: ${starterTotal.toFixed(1)}`
+                    : `Fantasy points: ${formatScore(starterTotal)}`
                 }
               >
                 {!isPastDate ? (
@@ -1394,7 +1514,7 @@ export default function RosterScreen() {
                 <ThemedText
                   style={[styles.totalValue, { color: c.activeText }]}
                 >
-                  {starterTotal.toFixed(1)}
+                  {fptsMode === "proj" || isFutureDate ? starterTotal.toFixed(1) : formatScore(starterTotal)}
                 </ThemedText>
               </TouchableOpacity>
             )}

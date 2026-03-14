@@ -1,7 +1,7 @@
 import { PlayerGameLog, PlayerSeasonStats, ScoringWeight } from '@/types/player';
 
 // Maps league_scoring_settings stat_name to player_season_stats total column
-const STAT_TO_TOTAL: Record<string, keyof PlayerSeasonStats> = {
+export const STAT_TO_TOTAL: Record<string, keyof PlayerSeasonStats> = {
   PTS: 'total_pts',
   REB: 'total_reb',
   AST: 'total_ast',
@@ -53,7 +53,7 @@ export function calculateAvgFantasyPoints(
       totalFantasy += (player[field] as number) * weight.point_value;
     }
   }
-  return Math.round((totalFantasy / player.games_played) * 10) / 10;
+  return Math.round((totalFantasy / player.games_played) * 100) / 100;
 }
 
 // Computes fantasy points for a single game.
@@ -71,4 +71,9 @@ export function calculateGameFantasyPoints(
     }
   }
   return Math.round(total * 100) / 100;
+}
+
+// Format a score: show hundredths only when non-zero (e.g. 42.5 not 42.50, but 42.75 stays)
+export function formatScore(n: number): string {
+  return n % 1 !== 0 && Math.round(n * 100) % 10 !== 0 ? n.toFixed(2) : n.toFixed(1);
 }

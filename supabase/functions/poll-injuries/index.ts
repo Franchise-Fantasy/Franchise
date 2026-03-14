@@ -221,6 +221,48 @@ async function applyInjuries(
   return { matchedPlayers: matchedPlayerIds.size, statusUpdates: updateCount, playersReset, unmatchedNames, changedPlayerIds, teamsReported: reportedTeams.size };
 }
 
+function formatNextGameLabel(gameDate: string, now: Date): string {
+  const todayStr = now.toISOString().slice(0, 10);
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowStr = tomorrow.toISOString().slice(0, 10);
+
+  if (gameDate === todayStr) return 'Tonight';
+  if (gameDate === tomorrowStr) return 'Tomorrow';
+
+  const d = new Date(gameDate + 'T12:00:00Z');
+  const day = d.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
+  const month = d.getUTCMonth() + 1;
+  const date = d.getUTCDate();
+  return `${day} ${month}/${date}`;
+}
+
+async function getNextGameByTeam(nbaTeams: string[]): Promise<Map<string, string>> {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const nextGameMap = new Map<string, string>();
+  if (nbaTeams.length === 0) return nextGameMap;
+
+  // Fetch the next upcoming game for each team (today or later)
+  // We grab a small window and pick the earliest per team
+  const { data: upcoming } = await supabase
+    .from('nba_schedule')
+    .select('game_date, home_team, away_team')
+    .gte('game_date', todayStr)
+    .or(nbaTeams.map(t => `home_team.eq.${t},away_team.eq.${t}`).join(','))
+    .order('game_date', { ascending: true })
+    .limit(100);
+
+  const now = new Date();
+  for (const game of upcoming ?? []) {
+    for (const team of [game.home_team, game.away_team]) {
+      if (!nextGameMap.has(team)) {
+        nextGameMap.set(team, formatNextGameLabel(game.game_date, now));
+      }
+    }
+  }
+  return nextGameMap;
+}
+
 async function sendInjuryNotifications(changedPlayerIds: string[]) {
   if (changedPlayerIds.length === 0) return;
 
@@ -230,6 +272,15 @@ async function sendInjuryNotifications(changedPlayerIds: string[]) {
     .in('player_id', changedPlayerIds);
 
   if (!affectedRosters || affectedRosters.length === 0) return;
+
+  // Fetch player details + nba_team for next-game lookup
+  const { data: allChangedPlayers } = await supabase
+    .from('players').select('id, name, status, nba_team').in('id', changedPlayerIds);
+  const playerMap = new Map((allChangedPlayers ?? []).map((p: any) => [p.id, p]));
+
+  // Look up next game for each affected NBA team
+  const nbaTeams = [...new Set((allChangedPlayers ?? []).map((p: any) => p.nba_team).filter(Boolean))];
+  const nextGameMap = await getNextGameByTeam(nbaTeams);
 
   // Group by team_id + league name (a user could own the same player in multiple leagues)
   const teamLeaguePlayers = new Map<string, { leagueName: string; playerIds: string[] }>();
@@ -248,11 +299,16 @@ async function sendInjuryNotifications(changedPlayerIds: string[]) {
   for (const [key, { leagueName, playerIds }] of teamLeaguePlayers) {
     const teamId = key.split('::')[0];
     try {
-      const { data: players } = await supabase
-        .from('players').select('name, status').in('id', playerIds);
-      const summary = (players ?? [])
-        .map((p: any) => `${p.name}: ${p.status}`)
-        .join(', ');
+      const lines: string[] = [];
+      for (const id of playerIds) {
+        const p = playerMap.get(id);
+        if (!p) continue;
+        const nextGame = nextGameMap.get(p.nba_team);
+        let line = `${p.name}: ${p.status}`;
+        if (nextGame) line += `\nNext Game: ${nextGame}`;
+        lines.push(line);
+      }
+      const summary = lines.join('\n');
       await notifyTeams(supabase, [teamId], 'injuries',
         `Injury Update — ${leagueName}`,
         summary,

@@ -9,6 +9,7 @@ import { usePlayerGameLog } from '@/hooks/usePlayerGameLog';
 import { sendNotification } from '@/lib/notifications';
 import { supabase } from '@/lib/supabase';
 import { isOnline } from '@/utils/network';
+import { toDateStr } from '@/utils/dates';
 import { PlayerSeasonStats } from '@/types/player';
 import { Ionicons } from '@expo/vector-icons';
 import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
@@ -19,6 +20,7 @@ import { useLivePlayerStats, liveToGameLog, formatGameInfo } from '@/utils/nbaLi
 import { getPlayerHeadshotUrl, getTeamLogoUrl } from '@/utils/playerHeadshot';
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { isTaxiEligible } from '@/utils/taxiEligibility';
+import { useWatchlist } from '@/hooks/useWatchlist';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -46,6 +48,8 @@ interface PlayerDetailModalProps {
   onDropForClaim?: (dropPlayer: PlayerSeasonStats) => void;
   /** When provided, the Add/Claim button calls this instead of doing an instant add */
   onClaimPlayer?: () => void;
+  /** Pre-fetched owner team name from parent — avoids flash while ownership query loads */
+  ownerTeamName?: string;
 }
 
 function StatBox({ label, value, color }: { label: string; value: string; color: string }) {
@@ -57,11 +61,12 @@ function StatBox({ label, value, color }: { label: string; value: string; color:
   );
 }
 
-export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterChange, startInDropPicker, onDropForClaim, onClaimPlayer }: PlayerDetailModalProps) {
+export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterChange, startInDropPicker, onDropForClaim, onClaimPlayer, ownerTeamName }: PlayerDetailModalProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const queryClient = useQueryClient();
   const { showToast } = useToast();
+  const { isWatchlisted, toggleWatchlist } = useWatchlist();
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [showDropPicker, setShowDropPicker] = useState(false);
@@ -116,23 +121,39 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
   const playerRosterSlot = ownershipInfo?.rosterSlot ?? null;
   const isOnTradeBlock = ownershipInfo?.onTradeBlock ?? false;
 
-  // Check if player is owned by ANY team in the league (prevents adding rostered players)
-  const { data: isOwnedByOther } = useQuery({
+  // Check if player is owned by another team — use prop from parent if available, otherwise query
+  const { data: queriedOwnerInfo, isLoading: ownershipLoading } = useQuery({
     queryKey: ['playerLeagueOwnership', leagueId, player?.player_id],
     queryFn: async () => {
-      const { count, error } = await supabase
+      const { data, error } = await supabase
         .from('league_players')
-        .select('id', { count: 'exact', head: true })
+        .select('team_id')
         .eq('league_id', leagueId)
-        .eq('player_id', player!.player_id);
+        .eq('player_id', player!.player_id)
+        .limit(1);
 
       if (error) throw error;
-      return (count ?? 0) > 0;
+      if (!data || data.length === 0) return null;
+
+      const ownerTeamId = data[0].team_id as string;
+      const { data: team } = await supabase
+        .from('teams')
+        .select('name')
+        .eq('id', ownerTeamId)
+        .single();
+
+      return { teamName: (team?.name as string) ?? 'Unknown' };
     },
-    enabled: !!player && !isOnMyTeam && !!leagueId,
+    // Skip the query if parent already told us the answer
+    enabled: !!player && !!leagueId && ownerTeamName === undefined,
   });
 
-  const isFreeAgent = !isOnMyTeam && !(isOwnedByOther ?? true);
+  // Use prop if available, otherwise fall back to query result
+  const resolvedOwnerName = ownerTeamName ?? queriedOwnerInfo?.teamName ?? null;
+  const isOwnedByOther = !isOnMyTeam && !!resolvedOwnerName;
+  const isFreeAgent = ownerTeamName !== undefined
+    ? !isOnMyTeam && !resolvedOwnerName
+    : !isOnMyTeam && !ownershipLoading && !queriedOwnerInfo;
 
   // Get roster counts, max size, IR capacity, and waiver settings
   const { data: rosterInfo } = useQuery({
@@ -244,6 +265,39 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
       return (data?.length ?? 0) > 0;
     },
     enabled: !!leagueId && !!teamId,
+  });
+
+  // Check if weekly acquisition limit is reached
+  const { data: addsExhausted } = useQuery({
+    queryKey: ['weeklyAdds', leagueId, teamId],
+    queryFn: async () => {
+      const { data: leagueData } = await supabase
+        .from('leagues')
+        .select('weekly_acquisition_limit')
+        .eq('id', leagueId)
+        .single();
+      const wkLimit = leagueData?.weekly_acquisition_limit as number | null;
+      if (wkLimit == null) return false;
+
+      const now = new Date();
+      const day = now.getDay();
+      const mondayOffset = day === 0 ? -6 : 1 - day;
+      const monday = new Date(now);
+      monday.setDate(now.getDate() + mondayOffset);
+      const weekStart = monday.toISOString().split('T')[0];
+
+      const { count } = await supabase
+        .from('league_transactions')
+        .select('id, league_transaction_items!inner(team_to_id)', { count: 'exact', head: true })
+        .eq('league_id', leagueId)
+        .eq('team_id', teamId!)
+        .eq('type', 'waiver')
+        .not('league_transaction_items.team_to_id', 'is', null)
+        .gte('created_at', weekStart + 'T00:00:00');
+
+      return (count ?? 0) >= wkLimit;
+    },
+    enabled: !!leagueId && !!teamId && !isOnMyTeam,
   });
 
   // How many games has this player's team played so far this season?
@@ -391,11 +445,41 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
     : '0.0';
 
   const invalidateRosterQueries = () => {
-    queryClient.invalidateQueries({ queryKey: ['freeAgents', leagueId] });
+    queryClient.invalidateQueries({ queryKey: ['allPlayers', leagueId] });
+    queryClient.invalidateQueries({ queryKey: ['leagueOwnership', leagueId] });
     queryClient.invalidateQueries({ queryKey: ['teamRoster', teamId] });
     queryClient.invalidateQueries({ queryKey: ['rosterInfo', leagueId, teamId] });
+    queryClient.invalidateQueries({ queryKey: ['freeAgentRosterInfo', leagueId, teamId] });
     queryClient.invalidateQueries({ queryKey: ['playerOwnership', leagueId, teamId] });
+    queryClient.invalidateQueries({ queryKey: ['leagueRosterStats', leagueId] });
+    queryClient.invalidateQueries({ queryKey: ['weeklyAdds', leagueId, teamId] });
     onRosterChange?.();
+  };
+
+  // Submit a waiver claim natively (used when no external callback is provided)
+  const submitWaiverClaim = async (dropPlayerId?: string) => {
+    if (!teamId || !player) return;
+    const { data: wp } = await supabase
+      .from('waiver_priority')
+      .select('priority')
+      .eq('league_id', leagueId)
+      .eq('team_id', teamId)
+      .single();
+
+    const { error } = await supabase.from('waiver_claims').insert({
+      league_id: leagueId,
+      team_id: teamId,
+      player_id: player.player_id,
+      drop_player_id: dropPlayerId ?? null,
+      bid_amount: 0,
+      priority: wp?.priority ?? 99,
+    });
+    if (error) throw error;
+
+    queryClient.invalidateQueries({ queryKey: ['pendingClaims', leagueId, teamId] });
+    queryClient.invalidateQueries({ queryKey: ['faabRemaining', leagueId, teamId] });
+    queryClient.invalidateQueries({ queryKey: ['waiverOrder', leagueId] });
+    Alert.alert('Claim Submitted', `Waiver claim for ${player.name} submitted.`);
   };
 
   const handleAddPlayer = async () => {
@@ -403,6 +487,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
     if (!(await isOnline())) { showToast('error', 'No internet connection'); return; }
 
     // If this player requires a waiver claim, delegate to the claim callback
+    // or handle natively if no callback provided
     if (needsWaiverClaim) {
       if (rosterIsFull) {
         setShowDropPicker(true);
@@ -412,6 +497,17 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
         onClaimPlayer();
         return;
       }
+      // No callback — handle the claim natively
+      setIsProcessing(true);
+      try {
+        await submitWaiverClaim();
+        onClose();
+      } catch (err: any) {
+        Alert.alert('Error', err.message ?? 'Failed to submit claim');
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
     }
 
     if (rosterIsFull) {
@@ -464,6 +560,18 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
         team_to_id: teamId,
       });
 
+      // Fire-and-forget notification to league
+      (async () => {
+        const { data: team } = await supabase.from('teams').select('name').eq('id', teamId).single();
+        sendNotification({
+          league_id: leagueId,
+          category: 'roster_moves',
+          title: 'Roster Move',
+          body: `${team?.name ?? 'A team'} added ${player.name}`,
+          data: { screen: 'activity' },
+        });
+      })();
+
       invalidateRosterQueries();
       onClose();
     } catch (err: any) {
@@ -480,6 +588,77 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
 
     setIsProcessing(true);
     try {
+      // For add-and-drop, check weekly acquisition limit before proceeding
+      if (playerToDrop && player) {
+        const { data: limitData } = await supabase
+          .from('leagues')
+          .select('weekly_acquisition_limit')
+          .eq('id', leagueId)
+          .single();
+        const wkLimit = limitData?.weekly_acquisition_limit as number | null;
+        if (wkLimit != null) {
+          const now = new Date();
+          const day = now.getDay();
+          const mondayOffset = day === 0 ? -6 : 1 - day;
+          const monday = new Date(now);
+          monday.setDate(now.getDate() + mondayOffset);
+          const weekStart = monday.toISOString().split('T')[0];
+
+          const { count: addsThisWeek } = await supabase
+            .from('league_transactions')
+            .select('id, league_transaction_items!inner(team_to_id)', { count: 'exact', head: true })
+            .eq('league_id', leagueId)
+            .eq('team_id', teamId)
+            .eq('type', 'waiver')
+            .not('league_transaction_items.team_to_id', 'is', null)
+            .gte('created_at', weekStart + 'T00:00:00');
+
+          if ((addsThisWeek ?? 0) >= wkLimit) {
+            invalidateRosterQueries();
+            Alert.alert('Add Limit Reached', `You've used all ${wkLimit} adds for this week.`);
+            setIsProcessing(false);
+            return;
+          }
+        }
+      }
+      // Snapshot the player's current slot before deleting so they still
+      // appear on prior days of the week. A 'DROPPED' sentinel on today
+      // ensures they disappear from today onward.
+      const today = toDateStr(new Date());
+      const { data: lpRow } = await supabase
+        .from('league_players')
+        .select('roster_slot')
+        .eq('league_id', leagueId)
+        .eq('team_id', teamId)
+        .eq('player_id', dropping.player_id)
+        .single();
+      const slot = lpRow?.roster_slot ?? 'BE';
+
+      const { data: week } = await supabase
+        .from('league_schedule')
+        .select('start_date')
+        .eq('league_id', leagueId)
+        .lte('start_date', today)
+        .gte('end_date', today)
+        .single();
+
+      if (week) {
+        await supabase.from('daily_lineups').upsert(
+          { league_id: leagueId, team_id: teamId, player_id: dropping.player_id, lineup_date: week.start_date, roster_slot: slot },
+          { onConflict: 'team_id,player_id,lineup_date', ignoreDuplicates: true },
+        );
+        await supabase.from('daily_lineups').upsert(
+          { league_id: leagueId, team_id: teamId, player_id: dropping.player_id, lineup_date: today, roster_slot: 'DROPPED' },
+          { onConflict: 'team_id,player_id,lineup_date' },
+        );
+        // Remove any future lineup entries so the dropped player doesn't appear on future dates
+        await supabase.from('daily_lineups').delete()
+          .eq('league_id', leagueId)
+          .eq('team_id', teamId)
+          .eq('player_id', dropping.player_id)
+          .gt('lineup_date', today);
+      }
+
       const { error: delError } = await supabase
         .from('league_players')
         .delete()
@@ -533,13 +712,13 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
 
         // Fire-and-forget notification to league
         (async () => {
-          const { data: team } = await supabase.from('teams').select('team_name').eq('id', teamId).single();
+          const { data: team } = await supabase.from('teams').select('name').eq('id', teamId).single();
           sendNotification({
             league_id: leagueId,
             category: 'roster_moves',
             title: 'Roster Move',
-            body: `${team?.team_name ?? 'A team'} added ${player.name} (dropped ${dropping.name})`,
-            data: { screen: 'roster' },
+            body: `${team?.name ?? 'A team'} added ${player.name} (dropped ${dropping.name})`,
+            data: { screen: 'activity' },
           });
         })();
 
@@ -569,13 +748,13 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
 
         // Fire-and-forget notification to league
         (async () => {
-          const { data: team } = await supabase.from('teams').select('team_name').eq('id', teamId).single();
+          const { data: team } = await supabase.from('teams').select('name').eq('id', teamId).single();
           sendNotification({
             league_id: leagueId,
             category: 'roster_moves',
             title: 'Roster Move',
-            body: `${team?.team_name ?? 'A team'} dropped ${dropping.name}`,
-            data: { screen: 'roster' },
+            body: `${team?.name ?? 'A team'} dropped ${dropping.name}`,
+            data: { screen: 'activity' },
           });
         })();
 
@@ -770,7 +949,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
 
   const isOffseason = rosterInfo?.offseasonStep != null;
   const canTransact = !!teamId && !hasActiveDraft && !isProcessing && !isOffseason;
-  const canAdd = canTransact;
+  const canAdd = canTransact && !(addsExhausted ?? false);
 
   const renderDropPickerItem = ({ item }: { item: PlayerSeasonStats }) => {
     const fpts = scoringWeights
@@ -790,6 +969,26 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
               [
                 { text: 'Cancel', style: 'cancel' },
                 { text: 'Confirm', onPress: () => { onDropForClaim(item); handleClose(); } },
+              ]
+            );
+          } else if (needsWaiverClaim) {
+            // No external callback but player needs a claim — submit natively
+            Alert.alert(
+              'Select Drop for Claim',
+              `Drop ${item.name} when your claim for ${player.name} processes?`,
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Submit Claim', onPress: async () => {
+                  setIsProcessing(true);
+                  try {
+                    await submitWaiverClaim(item.player_id);
+                    handleClose();
+                  } catch (err: any) {
+                    Alert.alert('Error', err.message ?? 'Failed to submit claim');
+                  } finally {
+                    setIsProcessing(false);
+                  }
+                }},
               ]
             );
           } else {
@@ -848,6 +1047,8 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                 renderItem={renderDropPickerItem}
                 keyExtractor={(item) => item.player_id}
                 contentContainerStyle={styles.dropPickerList}
+                maxToRenderPerBatch={10}
+                windowSize={5}
                 ListEmptyComponent={
                   <View style={{ padding: 20, alignItems: 'center' }}>
                     <ThemedText style={{ color: c.secondaryText, textAlign: 'center' }}>
@@ -1008,7 +1209,13 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                     ) : null;
                   })()}
                   <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>
-                    {formatPosition(player.position)} · {player.nba_team} · {player.games_played}{teamGamesPlayed ? `/${teamGamesPlayed}` : ''} GP
+                    {formatPosition(player.position)} · {isOnMyTeam ? (
+                      <ThemedText style={[styles.subtitle, { color: c.accent }]}>Your team</ThemedText>
+                    ) : isOwnedByOther ? (
+                      <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>{resolvedOwnerName}</ThemedText>
+                    ) : (
+                      <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>{player.nba_team}</ThemedText>
+                    )} · {player.games_played}{teamGamesPlayed ? `/${teamGamesPlayed}` : ''} GP
                     {(() => {
                       const badge = getInjuryBadge(player.status);
                       return badge ? (
@@ -1022,6 +1229,19 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                   {isOffseason && !hasActiveDraft && (
                     <ThemedText style={[styles.headerWarning, { color: c.secondaryText }]}> · Offseason locked</ThemedText>
                   )}
+                  <TouchableOpacity
+                    onPress={() => toggleWatchlist(player.player_id)}
+                    hitSlop={8}
+                    style={{ marginLeft: 4 }}
+                    accessibilityRole="button"
+                    accessibilityLabel={isWatchlisted(player.player_id) ? `Remove ${player.name} from watchlist` : `Add ${player.name} to watchlist`}
+                  >
+                    <Ionicons
+                      name={isWatchlisted(player.player_id) ? 'eye' : 'eye-outline'}
+                      size={18}
+                      color={isWatchlisted(player.player_id) ? '#007AFF' : c.secondaryText}
+                    />
+                  </TouchableOpacity>
                 </View>
               </View>
               <TouchableOpacity onPress={handleClose} style={styles.closeButton} accessibilityRole="button" accessibilityLabel="Close player details">
@@ -1230,7 +1450,7 @@ const styles = StyleSheet.create({
     gap: 4,
     marginTop: 2,
   },
-  modalTeamLogo: {
+modalTeamLogo: {
     width: 14,
     height: 14,
     opacity: 0.6,

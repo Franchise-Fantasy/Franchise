@@ -3,7 +3,7 @@ import { Colors } from '@/constants/Colors';
 import { usePoll, usePollResults, useVotePoll } from '@/hooks/chat';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -29,7 +29,7 @@ function formatCountdown(closesAt: string): string {
   return `Closes in ${days}d ${hrs % 24}h`;
 }
 
-export function PollBubble({ pollId, teamId, isCommissioner }: Props) {
+export const PollBubble = React.memo(function PollBubble({ pollId, teamId, isCommissioner }: Props) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const { data: poll } = usePoll(pollId);
@@ -296,7 +296,7 @@ export function PollBubble({ pollId, teamId, isCommissioner }: Props) {
       )}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {

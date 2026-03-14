@@ -33,7 +33,7 @@ export function SeedPickModal({ visible, onClose, pick, teamMap, season }: Props
   const [selectedOpponent, setSelectedOpponent] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
-  const { data: allPicks } = useSeedPicks(season, pick.round);
+  const { data: allPicks } = useSeedPicks(season, pick.round, true);
 
   // Determine available opponents: those not already picked by others
   const takenOpponentIds = new Set(

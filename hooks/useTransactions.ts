@@ -11,6 +11,7 @@ export interface TransactionItem {
   team_from_id: string | null;
   team_to_id: string | null;
   player: { name: string; position: string; nba_team: string } | null;
+  draft_pick: { season: string; round: number } | null;
   team_from: { name: string } | null;
   team_to: { name: string } | null;
 }
@@ -43,6 +44,7 @@ export function useTransactions() {
           league_transaction_items (
             id, player_id, draft_pick_id, team_from_id, team_to_id,
             player:players ( name, position, nba_team ),
+            draft_pick:draft_picks ( season, round ),
             team_from:teams!league_transaction_items_team_from_id_fkey ( name ),
             team_to:teams!league_transaction_items_team_to_id_fkey ( name )
           )
@@ -58,6 +60,7 @@ export function useTransactions() {
         league_transaction_items: (row.league_transaction_items ?? []).map((item: any) => ({
           ...item,
           player: Array.isArray(item.player) ? item.player[0] ?? null : item.player,
+          draft_pick: Array.isArray(item.draft_pick) ? item.draft_pick[0] ?? null : item.draft_pick,
           team_from: Array.isArray(item.team_from) ? item.team_from[0] ?? null : item.team_from,
           team_to: Array.isArray(item.team_to) ? item.team_to[0] ?? null : item.team_to,
         })),

@@ -28,16 +28,22 @@ const POSITION_GROUP: Record<string, string[]> = {
 export function usePlayerFilter(
   players: PlayerSeasonStats[] | undefined,
   scoringWeights?: ScoringWeight[],
-  /** Optional map of player_id → avg minutes over last 5 games */
-  recentMinutesMap?: Map<string, number>,
+  /** Optional set of player IDs whose recent minutes are up vs season avg */
+  minutesUpPlayerIds?: Set<string>,
   /** Optional map of tricode → game info for today's schedule */
   todaySchedule?: Map<string, string>,
+  /** Optional set of watchlisted player IDs */
+  watchlistedIds?: Set<string>,
+  /** Optional set of rostered player IDs in this league */
+  rosteredPlayerIds?: Set<string>,
 ) {
   const [searchText, setSearchText] = useState('');
   const [selectedPosition, setSelectedPosition] = useState<string>('All');
   const [sortBy, setSortBy] = useState<SortKey>('FPTS');
   const [showMinutesUp, setShowMinutesUp] = useState(false);
   const [showAvailableToday, setShowAvailableToday] = useState(false);
+  const [showWatchlistOnly, setShowWatchlistOnly] = useState(false);
+  const [showFreeAgentsOnly, setShowFreeAgentsOnly] = useState(true);
 
   const filteredPlayers = useMemo(() => {
     if (!players) return [];
@@ -66,17 +72,24 @@ export function usePlayerFilter(
     }
 
     // Minutes up: players whose recent 5-game avg minutes > 110% of season avg
-    if (showMinutesUp && recentMinutesMap) {
-      result = result.filter(p => {
-        const recentMin = recentMinutesMap.get(p.player_id);
-        if (recentMin == null) return false;
-        return p.avg_min > 0 && recentMin > p.avg_min * 1.1;
-      });
+    if (showMinutesUp && minutesUpPlayerIds) {
+      result = result.filter(p => minutesUpPlayerIds.has(p.player_id));
     }
 
     // Available today: only players whose team has a game today
     if (showAvailableToday && todaySchedule) {
       result = result.filter(p => p.nba_team && todaySchedule.has(p.nba_team));
+    }
+
+    // Free agents only: exclude rostered players (default ON)
+    if (showFreeAgentsOnly) {
+      if (!rosteredPlayerIds) return []; // don't show unfiltered results while loading
+      result = result.filter(p => !rosteredPlayerIds.has(p.player_id));
+    }
+
+    // Watchlist only
+    if (showWatchlistOnly && watchlistedIds) {
+      result = result.filter(p => watchlistedIds.has(p.player_id));
     }
 
     // Sort
@@ -90,7 +103,7 @@ export function usePlayerFilter(
     });
 
     return result;
-  }, [players, searchText, selectedPosition, sortBy, scoringWeights, showMinutesUp, recentMinutesMap, showAvailableToday, todaySchedule]);
+  }, [players, searchText, selectedPosition, sortBy, scoringWeights, showMinutesUp, minutesUpPlayerIds, showAvailableToday, todaySchedule, showWatchlistOnly, watchlistedIds, showFreeAgentsOnly, rosteredPlayerIds]);
 
   const filterBarProps = {
     searchText,
@@ -101,10 +114,16 @@ export function usePlayerFilter(
     onSortChange: setSortBy as (sort: string) => void,
     showMinutesUp,
     onMinutesUpChange: setShowMinutesUp,
-    hasMinutesData: !!recentMinutesMap,
+    hasMinutesData: !!minutesUpPlayerIds,
     showAvailableToday,
     onAvailableTodayChange: setShowAvailableToday,
     hasScheduleData: !!todaySchedule,
+    showWatchlistOnly,
+    onWatchlistOnlyChange: setShowWatchlistOnly,
+    hasWatchlistData: !!watchlistedIds && watchlistedIds.size > 0,
+    showFreeAgentsOnly,
+    onFreeAgentsOnlyChange: setShowFreeAgentsOnly,
+    hasRosteredData: rosteredPlayerIds !== undefined,
   };
 
   return { filteredPlayers, filterBarProps };

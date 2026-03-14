@@ -32,6 +32,25 @@ interface ScoringWeight {
   inverse: boolean;
 }
 
+interface PlayerGameEntry {
+  date: string;
+  slot: string;
+  fpts: number;
+  stats: Record<string, any>;
+  matchup: string | null;
+}
+
+interface PlayerScoreEntry {
+  player_id: string;
+  name: string;
+  position: string;
+  nba_team: string;
+  external_id_nba: number | null;
+  roster_slot: string;
+  week_points: number;
+  games: PlayerGameEntry[];
+}
+
 // ── Category scoring helpers ───────────────────────────────────────────────
 
 const PERCENTAGE_STATS: Record<string, { numerator: string; denominator: string }> = {
@@ -133,24 +152,21 @@ function resolveSlot(
   return entry?.roster_slot ?? defaultSlot;
 }
 
-async function computeTeamScore(
+async function fetchTeamRosterAndGames(
   teamId: string,
   leagueId: string,
   startDate: string,
   endDate: string,
-  weights: ScoringWeight[],
-): Promise<number> {
-  const { data: leaguePlayers, error: lpErr } = await supabase
+) {
+  const { data: leaguePlayers } = await supabase
     .from("league_players")
     .select("player_id, roster_slot")
     .eq("team_id", teamId)
     .eq("league_id", leagueId);
 
-  if (lpErr || !leaguePlayers || leaguePlayers.length === 0) return 0;
-
-  const playerIds = leaguePlayers.map((lp: any) => lp.player_id);
+  const currentPlayerIds = new Set((leaguePlayers ?? []).map((lp: any) => lp.player_id));
   const defaultSlotMap = new Map<string, string>(
-    leaguePlayers.map((lp: any) => [lp.player_id, lp.roster_slot ?? "BE"]),
+    (leaguePlayers ?? []).map((lp: any) => [lp.player_id, lp.roster_slot ?? "BE"]),
   );
 
   const { data: dailyEntries } = await supabase
@@ -165,34 +181,109 @@ async function computeTeamScore(
     string,
     Array<{ lineup_date: string; roster_slot: string }>
   >();
+  const droppedPlayerIds: string[] = [];
   for (const entry of dailyEntries ?? []) {
     if (!dailyByPlayer.has(entry.player_id)) {
       dailyByPlayer.set(entry.player_id, []);
     }
     dailyByPlayer.get(entry.player_id)!.push(entry);
+
+    if (
+      !currentPlayerIds.has(entry.player_id) &&
+      entry.lineup_date >= startDate &&
+      !droppedPlayerIds.includes(entry.player_id)
+    ) {
+      droppedPlayerIds.push(entry.player_id);
+    }
   }
 
-  const { data: gameLogs } = await supabase
-    .from("player_games")
-    .select(
-      'player_id, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double, game_date',
-    )
-    .in("player_id", playerIds)
-    .gte("game_date", startDate)
-    .lte("game_date", endDate);
+  const allPlayerIds = [...currentPlayerIds, ...droppedPlayerIds];
+
+  const [{ data: gameLogs }, { data: playerInfoRows }] = await Promise.all([
+    supabase
+      .from("player_games")
+      .select(
+        'player_id, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double, game_date, matchup',
+      )
+      .in("player_id", allPlayerIds.length > 0 ? allPlayerIds : ["__none__"])
+      .gte("game_date", startDate)
+      .lte("game_date", endDate),
+    supabase
+      .from("players")
+      .select("id, name, position, nba_team, external_id_nba")
+      .in("id", allPlayerIds.length > 0 ? allPlayerIds : ["__none__"]),
+  ]);
+
+  const playerInfo = new Map<string, { name: string; position: string; nba_team: string; external_id_nba: number | null }>();
+  for (const p of playerInfoRows ?? []) {
+    playerInfo.set(p.id, { name: p.name, position: p.position, nba_team: p.nba_team, external_id_nba: p.external_id_nba });
+  }
+
+  return { allPlayerIds, defaultSlotMap, dailyByPlayer, gameLogs: gameLogs ?? [], playerInfo };
+}
+
+async function computeTeamScore(
+  teamId: string,
+  leagueId: string,
+  startDate: string,
+  endDate: string,
+  weights: ScoringWeight[],
+): Promise<{ total: number; playerScores: PlayerScoreEntry[] }> {
+  const { allPlayerIds, defaultSlotMap, dailyByPlayer, gameLogs, playerInfo } =
+    await fetchTeamRosterAndGames(teamId, leagueId, startDate, endDate);
+
+  if (allPlayerIds.length === 0) return { total: 0, playerScores: [] };
 
   let teamTotal = 0;
-  for (const game of gameLogs ?? []) {
+  // Group games by player for building playerScores
+  const playerGamesMap = new Map<string, PlayerGameEntry[]>();
+  const playerWeekPoints = new Map<string, number>();
+
+  for (const game of gameLogs) {
     const slot = resolveSlot(
       dailyByPlayer.get(game.player_id) ?? [],
       game.game_date,
       defaultSlotMap.get(game.player_id) ?? "BE",
     );
-    if (slot === "BE" || slot === "IR" || slot === "TAXI") continue;
-    teamTotal += calculateGameFpts(game as any, weights);
+
+    const fpts = calculateGameFpts(game as any, weights);
+    const isActive = slot !== "BE" && slot !== "IR" && slot !== "TAXI" && slot !== "DROPPED";
+
+    if (isActive) {
+      teamTotal += fpts;
+      playerWeekPoints.set(game.player_id, (playerWeekPoints.get(game.player_id) ?? 0) + fpts);
+    }
+
+    if (!playerGamesMap.has(game.player_id)) playerGamesMap.set(game.player_id, []);
+    playerGamesMap.get(game.player_id)!.push({
+      date: game.game_date,
+      slot,
+      fpts: Math.round(fpts * 100) / 100,
+      stats: {
+        pts: game.pts, reb: game.reb, ast: game.ast, stl: game.stl, blk: game.blk,
+        tov: game.tov, fgm: game.fgm, fga: game.fga, "3pm": game["3pm"],
+        ftm: game.ftm, fta: game.fta, pf: game.pf,
+        double_double: game.double_double, triple_double: game.triple_double,
+      },
+      matchup: game.matchup ?? null,
+    });
   }
 
-  return Math.round(teamTotal * 100) / 100;
+  const playerScores: PlayerScoreEntry[] = allPlayerIds.map((pid) => {
+    const info = playerInfo.get(pid);
+    return {
+      player_id: pid,
+      name: info?.name ?? "Unknown",
+      position: info?.position ?? "—",
+      nba_team: info?.nba_team ?? "—",
+      external_id_nba: info?.external_id_nba ?? null,
+      roster_slot: defaultSlotMap.get(pid) ?? "BE",
+      week_points: Math.round((playerWeekPoints.get(pid) ?? 0) * 100) / 100,
+      games: playerGamesMap.get(pid) ?? [],
+    };
+  });
+
+  return { total: Math.round(teamTotal * 100) / 100, playerScores };
 }
 
 async function computeTeamCategoryStats(
@@ -200,61 +291,55 @@ async function computeTeamCategoryStats(
   leagueId: string,
   startDate: string,
   endDate: string,
-): Promise<Record<string, number>> {
-  const { data: leaguePlayers } = await supabase
-    .from("league_players")
-    .select("player_id, roster_slot")
-    .eq("team_id", teamId)
-    .eq("league_id", leagueId);
+): Promise<{ teamStats: Record<string, number>; playerScores: PlayerScoreEntry[] }> {
+  const { allPlayerIds, defaultSlotMap, dailyByPlayer, gameLogs, playerInfo } =
+    await fetchTeamRosterAndGames(teamId, leagueId, startDate, endDate);
 
-  if (!leaguePlayers || leaguePlayers.length === 0) return {};
+  if (allPlayerIds.length === 0) return { teamStats: {}, playerScores: [] };
 
-  const playerIds = leaguePlayers.map((lp: any) => lp.player_id);
-  const defaultSlotMap = new Map<string, string>(
-    leaguePlayers.map((lp: any) => [lp.player_id, lp.roster_slot ?? "BE"]),
-  );
-
-  const { data: dailyEntries } = await supabase
-    .from("daily_lineups")
-    .select("player_id, roster_slot, lineup_date")
-    .eq("team_id", teamId)
-    .eq("league_id", leagueId)
-    .lte("lineup_date", endDate)
-    .order("lineup_date", { ascending: false });
-
-  const dailyByPlayer = new Map<
-    string,
-    Array<{ lineup_date: string; roster_slot: string }>
-  >();
-  for (const entry of dailyEntries ?? []) {
-    if (!dailyByPlayer.has(entry.player_id)) {
-      dailyByPlayer.set(entry.player_id, []);
-    }
-    dailyByPlayer.get(entry.player_id)!.push(entry);
-  }
-
-  const { data: gameLogs } = await supabase
-    .from("player_games")
-    .select(
-      'player_id, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double, game_date',
-    )
-    .in("player_id", playerIds)
-    .gte("game_date", startDate)
-    .lte("game_date", endDate);
-
-  // Filter to active-slot games then aggregate raw stats
   const activeGames: Record<string, any>[] = [];
-  for (const game of gameLogs ?? []) {
+  const playerGamesMap = new Map<string, PlayerGameEntry[]>();
+
+  for (const game of gameLogs) {
     const slot = resolveSlot(
       dailyByPlayer.get(game.player_id) ?? [],
       game.game_date,
       defaultSlotMap.get(game.player_id) ?? "BE",
     );
-    if (slot === "BE" || slot === "IR" || slot === "TAXI") continue;
-    activeGames.push(game);
+    const isActive = slot !== "BE" && slot !== "IR" && slot !== "TAXI" && slot !== "DROPPED";
+
+    if (isActive) activeGames.push(game);
+
+    if (!playerGamesMap.has(game.player_id)) playerGamesMap.set(game.player_id, []);
+    playerGamesMap.get(game.player_id)!.push({
+      date: game.game_date,
+      slot,
+      fpts: 0,
+      stats: {
+        pts: game.pts, reb: game.reb, ast: game.ast, stl: game.stl, blk: game.blk,
+        tov: game.tov, fgm: game.fgm, fga: game.fga, "3pm": game["3pm"],
+        ftm: game.ftm, fta: game.fta, pf: game.pf,
+        double_double: game.double_double, triple_double: game.triple_double,
+      },
+      matchup: game.matchup ?? null,
+    });
   }
 
-  return aggregateGameStats(activeGames);
+  const playerScores: PlayerScoreEntry[] = allPlayerIds.map((pid) => {
+    const info = playerInfo.get(pid);
+    return {
+      player_id: pid,
+      name: info?.name ?? "Unknown",
+      position: info?.position ?? "—",
+      nba_team: info?.nba_team ?? "—",
+      external_id_nba: info?.external_id_nba ?? null,
+      roster_slot: defaultSlotMap.get(pid) ?? "BE",
+      week_points: 0,
+      games: playerGamesMap.get(pid) ?? [],
+    };
+  });
+
+  return { teamStats: aggregateGameStats(activeGames), playerScores };
 }
 
 async function computeStreak(
@@ -422,13 +507,18 @@ Deno.serve(async (req: Request) => {
       let catTies: number | null = null;
       let catResults: CategoryResult[] | null = null;
 
+      let homePlayerScores: PlayerScoreEntry[] = [];
+      let awayPlayerScores: PlayerScoreEntry[] = [];
+
       if (scoringType === 'h2h_categories') {
         // Category scoring — compare raw stats per category
-        const [homeStats, awayStats] = await Promise.all([
+        const [homeResult, awayResult] = await Promise.all([
           computeTeamCategoryStats(matchup.home_team_id, matchup.league_id, week.start_date, week.end_date),
           computeTeamCategoryStats(matchup.away_team_id, matchup.league_id, week.start_date, week.end_date),
         ]);
-        const comparison = compareCategoryStats(homeStats, awayStats, weights);
+        homePlayerScores = homeResult.playerScores;
+        awayPlayerScores = awayResult.playerScores;
+        const comparison = compareCategoryStats(homeResult.teamStats, awayResult.teamStats, weights);
         homeCatWins = comparison.homeWins;
         awayCatWins = comparison.awayWins;
         catTies = comparison.ties;
@@ -438,10 +528,14 @@ Deno.serve(async (req: Request) => {
         else if (comparison.awayWins > comparison.homeWins) winnerId = matchup.away_team_id;
       } else {
         // Points scoring — existing logic
-        [homeScore, awayScore] = await Promise.all([
+        const [homeResult, awayResult] = await Promise.all([
           computeTeamScore(matchup.home_team_id, matchup.league_id, week.start_date, week.end_date, weights),
           computeTeamScore(matchup.away_team_id, matchup.league_id, week.start_date, week.end_date, weights),
         ]);
+        homeScore = homeResult.total;
+        awayScore = awayResult.total;
+        homePlayerScores = homeResult.playerScores;
+        awayPlayerScores = awayResult.playerScores;
         if (homeScore > awayScore) winnerId = matchup.home_team_id;
         else if (awayScore > homeScore) winnerId = matchup.away_team_id;
       }
@@ -455,6 +549,8 @@ Deno.serve(async (req: Request) => {
           away_category_wins: awayCatWins,
           category_ties: catTies,
           category_results: catResults,
+          home_player_scores: homePlayerScores,
+          away_player_scores: awayPlayerScores,
           winner_team_id: winnerId,
           is_finalized: true,
         })

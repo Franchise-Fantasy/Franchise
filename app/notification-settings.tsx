@@ -20,6 +20,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function NotificationSettingsScreen() {
   const session = useSession();
@@ -50,10 +51,10 @@ export default function NotificationSettingsScreen() {
     };
   }
 
-  if (!loaded) return <ThemedView style={styles.container} />;
+  if (!loaded) return <SafeAreaView style={[styles.container, { backgroundColor: c.background }]} edges={['top']} />;
 
   return (
-    <ThemedView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: c.background }]} edges={['top']}>
       <PageHeader title="Notifications" />
       <ScrollView
         contentContainerStyle={styles.scrollContent}
@@ -187,7 +188,7 @@ export default function NotificationSettingsScreen() {
           />
         </View>
       </ScrollView>
-    </ThemedView>
+    </SafeAreaView>
   );
 }
 
@@ -197,7 +198,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingTop: 60,
+    paddingTop: 12,
     paddingBottom: 40,
   },
   header: {

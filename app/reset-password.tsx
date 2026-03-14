@@ -4,7 +4,6 @@ import { Colors } from "@/constants/Colors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
-import * as Linking from "expo-linking";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
@@ -27,51 +26,18 @@ export default function ResetPasswordScreen() {
   const [loading, setLoading] = useState(false);
   const [sessionReady, setSessionReady] = useState(false);
 
-  // Extract tokens from the deep link and establish a session.
+  // Session is established by _layout.tsx before navigating here.
+  // Just verify we have an active session.
   useEffect(() => {
-    (async () => {
-      const url = await Linking.getInitialURL();
-      if (!url) {
-        Alert.alert("Invalid link", "No reset token found.", [
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        setSessionReady(true);
+      } else {
+        Alert.alert("Invalid link", "No reset session found.", [
           { text: "OK", onPress: () => router.replace("/auth") },
         ]);
-        return;
       }
-
-      // Supabase appends tokens after the # fragment
-      const fragment = url.split("#")[1];
-      if (!fragment) {
-        Alert.alert("Invalid link", "No reset token found.", [
-          { text: "OK", onPress: () => router.replace("/auth") },
-        ]);
-        return;
-      }
-
-      const params = new URLSearchParams(fragment);
-      const accessToken = params.get("access_token");
-      const refreshToken = params.get("refresh_token");
-
-      if (!accessToken || !refreshToken) {
-        Alert.alert("Invalid link", "Missing token in reset link.", [
-          { text: "OK", onPress: () => router.replace("/auth") },
-        ]);
-        return;
-      }
-
-      const { error } = await supabase.auth.setSession({
-        access_token: accessToken,
-        refresh_token: refreshToken,
-      });
-
-      if (error) {
-        Alert.alert("Session error", error.message, [
-          { text: "OK", onPress: () => router.replace("/auth") },
-        ]);
-        return;
-      }
-
-      setSessionReady(true);
-    })();
+    });
   }, []);
 
   async function handleUpdatePassword() {

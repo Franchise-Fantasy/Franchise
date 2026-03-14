@@ -4,6 +4,19 @@ import { notifyTeams } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 
+const ORDINALS = ['1st', '2nd', '3rd', '4th', '5th'];
+function formatPickLabel(season: string, round: number): string {
+  const year = season.split('-')[0].slice(-2);
+  return `'${year} ${ORDINALS[round - 1] ?? `${round}th`}`;
+}
+
+function toDateStr(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return corsResponse();
 
@@ -36,7 +49,7 @@ Deno.serve(async (req) => {
       .single();
     if (proposalError || !proposal) throw new Error('Trade proposal not found.');
 
-    if (proposal.status !== 'accepted' && proposal.status !== 'in_review') {
+    if (proposal.status !== 'accepted' && proposal.status !== 'in_review' && proposal.status !== 'delayed') {
       throw new Error(`Cannot execute trade with status: ${proposal.status}`);
     }
 
@@ -51,6 +64,77 @@ Deno.serve(async (req) => {
       const deadline = new Date(league.trade_deadline + 'T23:59:59Z');
       if (new Date() > deadline) {
         throw new Error('The trade deadline has passed. No trades can be executed.');
+      }
+    }
+
+    // Fetch items early so we can check for live games and locked assets
+    const { data: items, error: itemsError } = await supabaseAdmin
+      .from('trade_proposal_items')
+      .select('*')
+      .eq('proposal_id', proposal_id);
+    if (itemsError) throw itemsError;
+    if (!items || items.length === 0) throw new Error('No items in this trade proposal.');
+
+    const playerItems = items.filter((i: any) => i.player_id != null);
+
+    // Auto-delay trade if any involved player has a live game
+    const tradedPlayerIds = playerItems.map((i: any) => i.player_id);
+    if (tradedPlayerIds.length > 0 && proposal.status !== 'delayed') {
+      const { data: liveGames } = await supabaseAdmin
+        .from('live_player_stats')
+        .select('player_id, game_status')
+        .in('player_id', tradedPlayerIds)
+        .eq('game_status', 2);
+
+      if (liveGames && liveGames.length > 0) {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const executeAfter = toDateStr(tomorrow);
+
+        await supabaseAdmin
+          .from('trade_proposals')
+          .update({ status: 'delayed' })
+          .eq('id', proposal_id);
+
+        await supabaseAdmin.from('pending_transactions').insert({
+          league_id: proposal.league_id,
+          team_id: proposal.proposed_by_team_id,
+          action_type: 'trade',
+          status: 'pending',
+          execute_after: executeAfter,
+          metadata: { proposal_id },
+        });
+
+        return new Response(
+          JSON.stringify({ message: 'Trade delayed — involved players have games in progress. It will process automatically tomorrow morning.' }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
+    // Block trade if any involved assets are in another active trade proposal
+    const allPlayerIds = playerItems.map((i: any) => i.player_id);
+    const pickItems = items.filter((i: any) => i.draft_pick_id != null);
+    const allPickIds = pickItems.map((i: any) => i.draft_pick_id);
+
+    if (allPlayerIds.length > 0 || allPickIds.length > 0) {
+      let lockedQuery = supabaseAdmin
+        .from('trade_proposal_items')
+        .select('id, player_id, draft_pick_id, trade_proposals!inner(id, status)')
+        .neq('trade_proposals.id', proposal_id)
+        .in('trade_proposals.status', ['pending', 'accepted', 'in_review', 'delayed']);
+
+      if (allPlayerIds.length > 0 && allPickIds.length > 0) {
+        lockedQuery = lockedQuery.or(`player_id.in.(${allPlayerIds.join(',')}),draft_pick_id.in.(${allPickIds.join(',')})`);
+      } else if (allPlayerIds.length > 0) {
+        lockedQuery = lockedQuery.in('player_id', allPlayerIds);
+      } else {
+        lockedQuery = lockedQuery.in('draft_pick_id', allPickIds);
+      }
+
+      const { data: conflicting } = await lockedQuery;
+      if (conflicting && conflicting.length > 0) {
+        throw new Error('One or more assets in this trade are involved in another active trade proposal. Please resolve those trades first.');
       }
     }
 
@@ -76,17 +160,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    const { data: items, error: itemsError } = await supabaseAdmin
-      .from('trade_proposal_items')
-      .select('*')
-      .eq('proposal_id', proposal_id);
-    if (itemsError) throw itemsError;
-    if (!items || items.length === 0) throw new Error('No items in this trade proposal.');
-
     const timestamp = new Date().toISOString();
     const todayDate = timestamp.slice(0, 10); // YYYY-MM-DD
-    const playerItems = items.filter((i: any) => i.player_id != null);
-    const pickItems = items.filter((i: any) => i.draft_pick_id != null);
     const swapItems = items.filter((i: any) => i.pick_swap_season != null);
 
     // Snapshot pre-trade rosters into daily_lineups so historical views are preserved
@@ -127,7 +202,6 @@ Deno.serve(async (req) => {
     }
 
     // Get current roster slots and draft years for traded players
-    const tradedPlayerIds = playerItems.map((i: any) => i.player_id);
     const [slotRes, draftYearRes] = await Promise.all([
       supabaseAdmin.from('league_players').select('player_id, roster_slot')
         .eq('league_id', proposal.league_id).in('player_id', tradedPlayerIds),
@@ -206,7 +280,7 @@ Deno.serve(async (req) => {
     let pickInfoMap: Record<string, string> = {};
     if (pickIds.length > 0) {
       const { data: picks } = await supabaseAdmin.from('draft_picks').select('id, season, round').in('id', pickIds);
-      if (picks) pickInfoMap = Object.fromEntries(picks.map((p: any) => [p.id, `${p.season} Rd ${p.round}`]));
+      if (picks) pickInfoMap = Object.fromEntries(picks.map((p: any) => [p.id, formatPickLabel(p.season, p.round)]));
     }
 
     const allTeamIds = [...new Set(items.flatMap((i: any) => [i.from_team_id, i.to_team_id]))];
@@ -220,7 +294,7 @@ Deno.serve(async (req) => {
       if (item.pick_swap_season) {
         const from = teamNameMap[item.from_team_id] ?? 'Unknown';
         const to = teamNameMap[item.to_team_id] ?? 'Unknown';
-        return `${item.pick_swap_season} Rd ${item.pick_swap_round} swap (${to} gets better pick vs ${from})`;
+        return `${formatPickLabel(item.pick_swap_season, item.pick_swap_round)} swap (${to} gets better pick vs ${from})`;
       }
       const asset = item.player_id
         ? playerNameMap[item.player_id] ?? 'Unknown Player'

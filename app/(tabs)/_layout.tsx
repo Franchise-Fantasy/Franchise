@@ -54,7 +54,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="free-agents"
         options={{
-          title: 'Free Agents',
+          title: 'Players',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.badge.plus" color={color} />,
         }}
       />

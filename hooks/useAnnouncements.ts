@@ -72,5 +72,6 @@ export function useAnnouncements(leagueId: string | null) {
       })) as Announcement[];
     },
     enabled: !!leagueId,
+    staleTime: 1000 * 60 * 5,
   });
 }

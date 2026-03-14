@@ -1,8 +1,8 @@
 import { ScoringWeight } from '@/types/player';
 import { formatGameInfo, liveToGameLog, LivePlayerStats } from '@/utils/nbaLive';
-import { calculateGameFantasyPoints } from '@/utils/fantasyPoints';
+import { calculateGameFantasyPoints, formatScore } from '@/utils/fantasyPoints';
 import { getInjuryBadge } from '@/utils/injuryBadge';
-import { useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
   Animated,
   StyleSheet,
@@ -34,7 +34,7 @@ export interface RosterPlayer {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 export function round1(n: number) {
-  return Math.round(n * 10) / 10;
+  return Math.round(n * 100) / 100;
 }
 
 // Build a stat line string for a live/historical stat object.
@@ -89,11 +89,13 @@ function AnimatedFpts({
   activeColor,
   dimColor,
   textStyle,
+  projected,
 }: {
   value: number | null;
   activeColor: string;
   dimColor: string;
   textStyle: any;
+  projected?: boolean;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
   const prev = useRef<number | null | undefined>(undefined);
@@ -110,7 +112,7 @@ function AnimatedFpts({
 
   return (
     <Animated.Text style={[textStyle, { transform: [{ scale }], color: value !== null ? activeColor : dimColor }]}>
-      {value !== null ? value.toFixed(1) : '—'}
+      {value !== null ? (projected ? value.toFixed(1) : formatScore(value)) : '—'}
     </Animated.Text>
   );
 }
@@ -118,7 +120,7 @@ function AnimatedFpts({
 // ─── PlayerCell ──────────────────────────────────────────────────────────────
 
 // Renders a single player cell (one side of a matchup row). No slot badge — that's in the center.
-export function PlayerCell({
+export const PlayerCell = React.memo(function PlayerCell({
   player,
   c,
   side,
@@ -187,7 +189,7 @@ export function PlayerCell({
     );
   }
 
-  if (mode === 'today' && liveStats) {
+  if (liveStats && (mode === 'today' || mode === 'past')) {
     const liveFp = round1(calculateGameFantasyPoints(liveToGameLog(liveStats) as any, scoring));
     const isLive = liveStats.game_status === 2;
     const statLine = liveStats.game_status !== 1
@@ -250,7 +252,7 @@ export function PlayerCell({
           {todayMatchup ? `${player.position} · proj` : player.position}
         </Text>
         {!isCategories && (
-          <AnimatedFpts value={projValue} activeColor={c.text} dimColor={c.secondaryText} textStyle={[pStyles.pts, { textAlign }]} />
+          <AnimatedFpts value={projValue} activeColor={c.text} dimColor={c.secondaryText} textStyle={[pStyles.pts, { textAlign }]} projected />
         )}
       </Wrapper>
     );
@@ -284,7 +286,7 @@ export function PlayerCell({
       )}
     </Wrapper>
   );
-}
+});
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 

@@ -46,12 +46,15 @@ export function useConversations() {
         .filter((m) => (m as any).chat_conversations.type === 'dm')
         .map((m) => m.conversation_id);
 
-      // 2. Batch: latest message per conversation (single query)
+      // 2. Batch: latest message per conversation
+      // Fetch only a small multiple of conversation count since we only need 1 per conv.
+      // With DESC ordering, the first N rows will contain the latest for each conv.
       const { data: allLatestMsgs } = await supabase
         .from('chat_messages')
         .select('conversation_id, content, created_at, team_id, teams(name)')
         .in('conversation_id', convIds)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(convIds.length * 3);
 
       // Keep only the newest message per conversation
       const latestByConv = new Map<string, NonNullable<typeof allLatestMsgs>[0]>();

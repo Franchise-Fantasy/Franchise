@@ -64,7 +64,7 @@ export function ReverseTradeModal({ visible, leagueId, onClose }: Props) {
               Alert.alert('Done', msg);
               queryClient.invalidateQueries({ queryKey: ['tradeProposals'] });
               queryClient.invalidateQueries({ queryKey: ['teamRoster'] });
-              queryClient.invalidateQueries({ queryKey: ['freeAgents'] });
+              queryClient.invalidateQueries({ queryKey: ['allPlayers'] });
               queryClient.invalidateQueries({ queryKey: ['transactions'] });
               queryClient.invalidateQueries({ queryKey: ['tradablePicks'] });
               handleClose();

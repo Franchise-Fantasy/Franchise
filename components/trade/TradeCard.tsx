@@ -75,42 +75,52 @@ export function TradeCard({ proposal, onPress }: TradeCardProps) {
       </ThemedText>
 
       {/* Asset summary */}
-      {summary.map((line, i) => (
-        <ThemedText
-          key={i}
-          style={[styles.summaryLine, { color: c.secondaryText }]}
-          numberOfLines={1}
-        >
-          {line}
-        </ThemedText>
+      {summary.map((group, i) => (
+        <View key={i} style={styles.summaryGroup}>
+          <ThemedText style={[styles.summaryTeam, { color: c.text }]} numberOfLines={1}>
+            {group.team} sends:
+          </ThemedText>
+          {group.assets.map((asset, j) => (
+            <ThemedText
+              key={j}
+              style={[styles.summaryAsset, { color: c.secondaryText }]}
+              numberOfLines={1}
+            >
+              {'  •  '}{asset}
+            </ThemedText>
+          ))}
+        </View>
       ))}
     </TouchableOpacity>
   );
 }
 
-function buildTradeSummary(proposal: TradeProposalRow): string[] {
+function buildTradeSummary(proposal: TradeProposalRow): { team: string; assets: string[] }[] {
   const teamNameMap: Record<string, string> = {};
   proposal.teams.forEach((t) => {
     teamNameMap[t.team_id] = t.team_name;
   });
 
+  const isMultiTeam = proposal.teams.length > 2;
+
   const sendsByTeam: Record<string, string[]> = {};
   for (const item of proposal.items) {
     const from = teamNameMap[item.from_team_id] ?? 'Unknown';
     if (!sendsByTeam[from]) sendsByTeam[from] = [];
+    const toSuffix = isMultiTeam ? ` → ${teamNameMap[item.to_team_id] ?? '?'}` : '';
     if (item.player_name) {
-      sendsByTeam[from].push(item.player_name);
+      sendsByTeam[from].push(item.player_name + toSuffix);
     } else if (item.pick_swap_season && item.pick_swap_round) {
       const to = teamNameMap[item.to_team_id] ?? '?';
       sendsByTeam[from].push(`Rd ${item.pick_swap_round} swap → ${to}`);
     } else if (item.pick_season && item.pick_round) {
       const protLabel = item.protection_threshold ? ` (Top-${item.protection_threshold} P)` : '';
-      sendsByTeam[from].push(formatPickLabel(item.pick_season!, item.pick_round!) + protLabel);
+      sendsByTeam[from].push(formatPickLabel(item.pick_season!, item.pick_round!) + protLabel + toSuffix);
     }
   }
 
   return Object.entries(sendsByTeam).map(
-    ([team, assets]) => `${team} sends: ${assets.join(', ')}`
+    ([team, assets]) => ({ team, assets })
   );
 }
 
@@ -148,7 +158,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginBottom: 6,
   },
-  summaryLine: {
+  summaryGroup: {
+    marginTop: 4,
+  },
+  summaryTeam: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  summaryAsset: {
     fontSize: 12,
     lineHeight: 18,
   },

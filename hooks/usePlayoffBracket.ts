@@ -24,7 +24,7 @@ export function usePlayoffBracket(season: string) {
   });
 }
 
-export function useSeedPicks(season: string, round: number | null) {
+export function useSeedPicks(season: string, round: number | null, poll = false) {
   const { leagueId } = useAppState();
 
   return useQuery({
@@ -42,12 +42,12 @@ export function useSeedPicks(season: string, round: number | null) {
     },
     enabled: !!leagueId && !!season && round !== null,
     staleTime: 1000 * 60,
-    refetchInterval: 1000 * 10, // Poll every 10s during pick phase
+    refetchInterval: poll ? 1000 * 10 : false,
   });
 }
 
 /** Returns the current user's pending seed pick for the active round, or null. */
-export function usePendingSeedPick(season: string) {
+export function usePendingSeedPick(season: string, poll = false) {
   const { leagueId, teamId } = useAppState();
 
   return useQuery({
@@ -68,6 +68,6 @@ export function usePendingSeedPick(season: string) {
     },
     enabled: !!leagueId && !!teamId && !!season,
     staleTime: 1000 * 30,
-    refetchInterval: 1000 * 10,
+    refetchInterval: poll ? 1000 * 10 : false,
   });
 }

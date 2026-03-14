@@ -81,15 +81,19 @@ export function PlayerGameLog({
 }: PlayerGameLogProps) {
 
   // Build combined row list: upcoming (furthest first) -> live -> historical
-  const today = new Date().toISOString().slice(0, 10);
-  const hasLiveRow = liveStats && liveStats.game_status >= 2;
+  const liveDate = liveStats?.game_date ?? null;
+  const alreadyInHistory = liveDate
+    ? (gameLog ?? []).some((g) => g.game_date === liveDate)
+    : false;
+  // Show live row if game is in progress, or final but not yet in historical data
+  const showLiveRow = liveStats && liveStats.game_status >= 2 && !(liveStats.game_status === 3 && alreadyInHistory);
 
   const combinedRows: RowType[] = [];
 
   // Upcoming games (reversed so furthest is at top, nearest is closest to live/history)
-  // Skip today's game if it already appears as the live row
+  // Skip the live game's date if it already appears as the live row
   const filteredUpcoming = (upcomingGames ?? [])
-    .filter((g) => !(hasLiveRow && g.game_date === today))
+    .filter((g) => !(showLiveRow && liveDate && g.game_date === liveDate))
     .slice(0, 3);
   for (let i = filteredUpcoming.length - 1; i >= 0; i--) {
     const g = filteredUpcoming[i];
@@ -102,23 +106,23 @@ export function PlayerGameLog({
     });
   }
 
-  // Live/final row for today
-  if (liveStats && liveStats.game_status >= 2) {
+  // Live/final row (uses game_date from live stats, not local "today")
+  if (showLiveRow && liveStats && liveDate) {
     combinedRows.push({
       kind: 'live',
       key: 'live-today',
-      date: formatGameDate(today),
+      date: formatGameDate(liveDate),
       opp: liveStats.matchup?.replace(/^vs\s*/i, '').replace(/^@\s*/, '@') ?? '—',
       stats: liveToGameLogFn(liveStats),
       gameInfo: formatGameInfoFn(liveStats),
       isLive: liveStats.game_status === 2,
-      rawDate: today,
+      rawDate: liveDate,
     });
   }
 
-  // Historical game log (skip today if already shown as live/final row)
+  // Historical game log (skip the live game's date if already shown as live row)
   for (const item of (gameLog ?? [])) {
-    if (hasLiveRow && item.game_date === today) continue;
+    if (showLiveRow && liveDate && item.game_date === liveDate) continue;
     combinedRows.push({ kind: 'history', key: item.id, item });
   }
 

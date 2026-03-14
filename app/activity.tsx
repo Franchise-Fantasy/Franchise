@@ -2,6 +2,7 @@ import { ThemedText } from '@/components/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Transaction, TransactionItem, useTransactions } from '@/hooks/useTransactions';
+import { formatPickLabelShort } from '@/types/trade';
 import { Ionicons } from '@expo/vector-icons';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { useCallback } from 'react';
@@ -36,15 +37,37 @@ function getTransactionLabel(type: string): string {
 
 function formatItemDescription(item: TransactionItem): string | null {
   const playerName = item.player?.name;
-  if (!playerName) return null;
+  if (!playerName && !item.draft_pick) return null;
+
+  const assetName = playerName ?? (item.draft_pick ? formatPickLabelShort(item.draft_pick.season, item.draft_pick.round) : null);
+  if (!assetName) return null;
 
   const toTeam = item.team_to?.name;
   const fromTeam = item.team_from?.name;
 
-  if (fromTeam && toTeam) return `${playerName} → ${toTeam} (from ${fromTeam})`;
-  if (toTeam) return `${playerName} added by ${toTeam}`;
-  if (fromTeam) return `${playerName} dropped by ${fromTeam}`;
-  return `${playerName} dropped`;
+  if (fromTeam && toTeam) return `${assetName} → ${toTeam} (from ${fromTeam})`;
+  if (toTeam) return `${assetName} added by ${toTeam}`;
+  if (fromTeam) return `${assetName} dropped by ${fromTeam}`;
+  return `${assetName} dropped`;
+}
+
+function buildTradeSummary(items: TransactionItem[]): { team: string; assets: string[] }[] {
+  // Count unique sending teams to detect multi-team trades
+  const uniqueFromTeams = new Set(items.map((i) => i.team_from_id).filter(Boolean));
+  const isMultiTeam = uniqueFromTeams.size > 2;
+
+  const sendsByTeam: Record<string, string[]> = {};
+  for (const item of items) {
+    const from = item.team_from?.name ?? 'Unknown';
+    if (!sendsByTeam[from]) sendsByTeam[from] = [];
+    const toSuffix = isMultiTeam && item.team_to?.name ? ` → ${item.team_to.name}` : '';
+    if (item.player?.name) {
+      sendsByTeam[from].push(item.player.name + toSuffix);
+    } else if (item.draft_pick) {
+      sendsByTeam[from].push(formatPickLabelShort(item.draft_pick.season, item.draft_pick.round) + toSuffix);
+    }
+  }
+  return Object.entries(sendsByTeam).map(([team, assets]) => ({ team, assets }));
 }
 
 function formatDate(dateStr: string): string {
@@ -75,13 +98,15 @@ export default function Activity() {
     ({ item }: { item: Transaction }) => {
       const icon = getTransactionIcon(item.type);
       const label = getTransactionLabel(item.type);
-      const items = item.league_transaction_items ?? [];
-      const descriptions = items.map(formatItemDescription).filter(Boolean) as string[];
+      const txnItems = item.league_transaction_items ?? [];
+      const isTrade = item.type === 'trade' && txnItems.length > 0;
+      const tradeSummary = isTrade ? buildTradeSummary(txnItems) : [];
+      const descriptions = isTrade ? [] : txnItems.map(formatItemDescription).filter(Boolean) as string[];
 
       return (
         <View
           style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}
-          accessibilityLabel={`${label}${item.initiator ? ` by ${item.initiator.name}` : ''}, ${formatDate(item.created_at)}${descriptions.length > 0 ? `, ${descriptions.join(', ')}` : ''}`}
+          accessibilityLabel={`${label}${item.initiator ? ` by ${item.initiator.name}` : ''}, ${formatDate(item.created_at)}${isTrade ? `, ${tradeSummary.map(g => `${g.team} sends ${g.assets.join(', ')}`).join('; ')}` : descriptions.length > 0 ? `, ${descriptions.join(', ')}` : ''}`}
         >
           <View style={styles.cardRow}>
             <View style={[styles.iconCircle, { backgroundColor: c.cardAlt }]}>
@@ -96,16 +121,29 @@ export default function Activity() {
                   {formatDate(item.created_at)}
                 </ThemedText>
               </View>
-              {item.notes ? (
-                <ThemedText style={[styles.notes, { color: c.secondaryText }]}>
-                  {item.notes}
-                </ThemedText>
+              {isTrade ? (
+                tradeSummary.map((group, gi) => (
+                  <View key={gi} style={styles.tradeSummaryGroup}>
+                    <ThemedText style={[styles.tradeSummaryTeam, { color: c.text }]} numberOfLines={1}>
+                      {group.team} sends:
+                    </ThemedText>
+                    {group.assets.map((asset, ai) => (
+                      <ThemedText key={ai} style={[styles.notes, { color: c.secondaryText }]} numberOfLines={1}>
+                        {'  •  '}{asset}
+                      </ThemedText>
+                    ))}
+                  </View>
+                ))
               ) : descriptions.length > 0 ? (
                 descriptions.map((desc, i) => (
                   <ThemedText key={i} style={[styles.notes, { color: c.secondaryText }]}>
                     {desc}
                   </ThemedText>
                 ))
+              ) : item.notes ? (
+                <ThemedText style={[styles.notes, { color: c.secondaryText }]}>
+                  {item.notes}
+                </ThemedText>
               ) : null}
             </View>
           </View>
@@ -204,6 +242,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 4,
     lineHeight: 18,
+  },
+  tradeSummaryGroup: {
+    marginTop: 4,
+  },
+  tradeSummaryTeam: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   footerLoader: {
     paddingVertical: 16,

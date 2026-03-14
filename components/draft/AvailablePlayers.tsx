@@ -13,7 +13,7 @@ import { formatPosition } from '@/utils/formatting';
 import { getInjuryBadge } from '@/utils/injuryBadge';
 import { getPlayerHeadshotUrl, getTeamLogoUrl } from '@/utils/playerHeadshot';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface AvailablePlayersProps {
@@ -198,7 +198,7 @@ export function AvailablePlayers({ draftId, leagueId, currentPick, teamId, isRoo
     return () => { supabase.removeChannel(channel); };
   }, [leagueId, queryClient]);
 
-  const renderPlayer = ({ item }: { item: PlayerSeasonStats }) => {
+  const renderPlayer = useCallback(({ item }: { item: PlayerSeasonStats }) => {
     const fpts = scoringWeights
       ? calculateAvgFantasyPoints(item, scoringWeights)
       : undefined;
@@ -268,7 +268,7 @@ export function AvailablePlayers({ draftId, leagueId, currentPick, teamId, isRoo
         </View>
       </TouchableOpacity>
     );
-  };
+  }, [c, scoringWeights, isMyTurn, isDrafting]);
 
   if (isLoading) {
     return (
@@ -286,6 +286,10 @@ export function AvailablePlayers({ draftId, leagueId, currentPick, teamId, isRoo
         renderItem={renderPlayer}
         keyExtractor={(item) => item.player_id}
         contentContainerStyle={styles.listContent}
+        maxToRenderPerBatch={10}
+        windowSize={5}
+        removeClippedSubviews
+        initialNumToRender={15}
       />
       <PlayerDetailModal
         player={selectedPlayer}

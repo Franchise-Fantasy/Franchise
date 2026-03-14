@@ -2,7 +2,7 @@ import Auth from '@/components/Auth';
 import LoadingScreen from '@/components/LoadingScreen';
 import { useAppState } from '@/context/AppStateProvider';
 import { useSession } from '@/context/AuthProvider';
-import { useRouter } from 'expo-router';
+import { usePathname, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 
 const MIN_SPLASH_MS = 2000;
@@ -10,6 +10,7 @@ const MIN_SPLASH_MS = 2000;
 export default function IndexScreen() {
   const session = useSession();
   const router = useRouter();
+  const pathname = usePathname();
   const { leagueId, teamId, loading } = useAppState();
   const [minDone, setMinDone] = useState(false);
 
@@ -21,13 +22,15 @@ export default function IndexScreen() {
 
   useEffect(() => {
     if (!minDone || loading || !session) return;
+    // Don't redirect away from reset-password (recovery deep link sets a session)
+    if (pathname === '/reset-password') return;
 
     if (leagueId) {
       router.replace('/(tabs)');
     } else {
       router.replace('/(setup)');
     }
-  }, [session, leagueId, teamId, loading, minDone]);
+  }, [session, leagueId, teamId, loading, minDone, pathname]);
 
   if (loading || !minDone) {
     return <LoadingScreen />;

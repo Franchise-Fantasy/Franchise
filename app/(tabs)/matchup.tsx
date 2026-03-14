@@ -14,10 +14,11 @@ import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
 import { aggregateTeamStats, computeCategoryResults, TeamStatTotals } from '@/utils/categoryScoring';
+import { fetchTeamData } from '@/utils/fetchTeamData';
 import { liveToGameLog, LivePlayerStats, useLivePlayerStats } from '@/utils/nbaLive';
 import { toDateStr, parseLocalDate, addDays, formatDayLabel, useToday } from '@/utils/dates';
 import { fetchNbaScheduleForDate } from '@/utils/nbaSchedule';
-import { calculateGameFantasyPoints, calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
+import { calculateGameFantasyPoints, formatScore } from '@/utils/fantasyPoints';
 import { useLeagueRosterConfig, RosterConfigSlot } from '@/hooks/useLeagueRosterConfig';
 import { slotLabel } from '@/utils/rosterSlots';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -50,6 +51,26 @@ interface Matchup {
   home_score: number;
   away_score: number;
   playoff_round: number | null;
+  is_finalized: boolean;
+  home_player_scores: StoredPlayerScore[] | null;
+  away_player_scores: StoredPlayerScore[] | null;
+}
+
+interface StoredPlayerScore {
+  player_id: string;
+  name: string;
+  position: string;
+  nba_team: string;
+  external_id_nba: number | null;
+  roster_slot: string;
+  week_points: number;
+  games: Array<{
+    date: string;
+    slot: string;
+    fpts: number;
+    stats: Record<string, any>;
+    matchup: string | null;
+  }>;
 }
 
 interface TeamMatchupData {
@@ -123,7 +144,7 @@ async function fetchWeeks(leagueId: string): Promise<Week[]> {
 async function fetchMatchupForWeek(scheduleId: string, teamId: string): Promise<Matchup | null> {
   const { data, error } = await supabase
     .from('league_matchups')
-    .select('id, home_team_id, away_team_id, home_score, away_score, playoff_round')
+    .select('id, home_team_id, away_team_id, home_score, away_score, playoff_round, is_finalized, home_player_scores, away_player_scores')
     .eq('schedule_id', scheduleId)
     .or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
     .maybeSingle();
@@ -136,121 +157,6 @@ async function fetchTeamName(teamId: string): Promise<string> {
   return data?.name ?? 'Unknown Team';
 }
 
-async function fetchTeamData(
-  teamId: string,
-  leagueId: string,
-  week: Week,
-  selectedDate: string,
-  scoring: ScoringWeight[]
-): Promise<{ players: RosterPlayer[]; teamStats: Record<string, number> }> {
-  const { data: leaguePlayers, error: lpErr } = await supabase
-    .from('league_players')
-    .select('player_id, roster_slot, players(name, position, nba_team, external_id_nba, status)')
-    .eq('team_id', teamId)
-    .eq('league_id', leagueId);
-
-  if (lpErr) throw lpErr;
-  if (!leaguePlayers || leaguePlayers.length === 0) return { players: [], teamStats: {} };
-
-  const playerIds = leaguePlayers.map((lp: any) => lp.player_id);
-
-  const defaultSlotMap = new Map<string, string>(
-    leaguePlayers.map((lp: any) => [lp.player_id, lp.roster_slot ?? 'BE'])
-  );
-
-  const { data: dailyEntries } = await supabase
-    .from('daily_lineups')
-    .select('player_id, roster_slot, lineup_date')
-    .eq('team_id', teamId)
-    .eq('league_id', leagueId)
-    .lte('lineup_date', week.end_date)
-    .order('lineup_date', { ascending: false });
-
-  const dailyByPlayer = new Map<string, Array<{ lineup_date: string; roster_slot: string }>>();
-  for (const entry of dailyEntries ?? []) {
-    if (!dailyByPlayer.has(entry.player_id)) {
-      dailyByPlayer.set(entry.player_id, []);
-    }
-    dailyByPlayer.get(entry.player_id)!.push(entry);
-  }
-
-  const resolveSlot = (playerId: string, day: string): string => {
-    const entries = dailyByPlayer.get(playerId) ?? [];
-    const entry = entries.find((e) => e.lineup_date <= day);
-    return entry?.roster_slot ?? defaultSlotMap.get(playerId) ?? 'BE';
-  };
-
-  // Fetch past game logs for the week (excludes today — live data covers that)
-  const today = toDateStr(new Date());
-  const weekEndForQuery = selectedDate >= today ? addDays(today, -1) : week.end_date;
-
-  const { data: gameLogs } = await supabase
-    .from('player_games')
-    .select('player_id, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double, game_date, matchup')
-    .in('player_id', playerIds)
-    .gte('game_date', week.start_date)
-    .lte('game_date', weekEndForQuery);
-
-  const weekPointsMap = new Map<string, number>();
-  const dayPointsMap = new Map<string, number>();
-  const dayMatchupMap = new Map<string, string>();
-  const dayStatsMap = new Map<string, Record<string, number>>();
-  const activeGames: Record<string, any>[] = [];
-
-  for (const game of gameLogs ?? []) {
-    const slot = resolveSlot(game.player_id, game.game_date);
-    if (slot === 'BE' || slot === 'IR') continue;
-
-    activeGames.push(game);
-    const fp = calculateGameFantasyPoints(game as any, scoring);
-    weekPointsMap.set(game.player_id, (weekPointsMap.get(game.player_id) ?? 0) + fp);
-
-    if (game.game_date === selectedDate) {
-      dayPointsMap.set(game.player_id, (dayPointsMap.get(game.player_id) ?? 0) + fp);
-      if (game.matchup) dayMatchupMap.set(game.player_id, game.matchup);
-      dayStatsMap.set(game.player_id, {
-        pts: game.pts, reb: game.reb, ast: game.ast, stl: game.stl,
-        blk: game.blk, tov: game.tov, fgm: game.fgm, fga: game.fga,
-        '3pm': game['3pm'], ftm: game.ftm, fta: game.fta, pf: game.pf,
-      });
-    }
-  }
-
-  const teamStats = aggregateTeamStats(activeGames);
-
-  // Fetch season stats for projected FPTS (season avg per game)
-  const { data: seasonStats } = await supabase
-    .from('player_season_stats')
-    .select('player_id, games_played, total_pts, total_reb, total_ast, total_stl, total_blk, total_tov, total_fgm, total_fga, total_3pm, total_3pa, total_ftm, total_fta, total_pf, total_dd, total_td')
-    .in('player_id', playerIds);
-
-  const projMap = new Map<string, number>();
-  for (const ps of seasonStats ?? []) {
-    projMap.set(ps.player_id, calculateAvgFantasyPoints(ps as any, scoring));
-  }
-
-  return { players: leaguePlayers.map((lp: any) => ({
-      player_id: lp.player_id,
-      name: lp.players?.name ?? '—',
-      position: lp.players?.position ?? '—',
-      nba_team: lp.players?.nba_team ?? '—',
-      external_id_nba: lp.players?.external_id_nba ?? null,
-      status: lp.players?.status ?? 'active',
-      nbaTricode: (() => {
-        const t = lp.players?.nba_team ?? '';
-        return t && t !== 'Active' && t !== 'Inactive' ? t : null;
-      })(),
-      roster_slot: resolveSlot(lp.player_id, selectedDate),
-      weekPoints: round1(weekPointsMap.get(lp.player_id) ?? 0),
-      dayPoints: round1(dayPointsMap.get(lp.player_id) ?? 0),
-      dayMatchup: dayMatchupMap.get(lp.player_id) ?? null,
-      dayStatLine: (() => {
-        const ds = dayStatsMap.get(lp.player_id);
-        return ds ? buildStatLine(ds, scoring) : null;
-      })(),
-      projectedFpts: projMap.get(lp.player_id) ?? null,
-    })), teamStats };
-}
 
 // Fetch seeds for a specific team in the current playoff round
 async function fetchTeamSeeds(
@@ -273,6 +179,47 @@ async function fetchTeamSeeds(
   return map;
 }
 
+function buildFromStored(
+  stored: StoredPlayerScore[],
+  selectedDate: string,
+  scoring: ScoringWeight[],
+): { players: RosterPlayer[]; teamStats: TeamStatTotals } {
+  const activeGames: Record<string, any>[] = [];
+
+  const players: RosterPlayer[] = stored.map((p) => {
+    const dayGame = p.games.find((g) => g.date === selectedDate);
+    const sorted = [...p.games].sort((a, b) => b.date.localeCompare(a.date));
+    const closestEntry = sorted.find((g) => g.date <= selectedDate);
+    const daySlot = closestEntry?.slot ?? p.roster_slot;
+    const isDayActive = daySlot !== 'BE' && daySlot !== 'IR' && daySlot !== 'DROPPED';
+
+    for (const g of p.games) {
+      if (g.slot !== 'BE' && g.slot !== 'IR' && g.slot !== 'DROPPED') {
+        activeGames.push(g.stats);
+      }
+    }
+
+    const t = p.nba_team ?? '';
+    return {
+      player_id: p.player_id,
+      name: p.name,
+      position: p.position,
+      nba_team: t,
+      nbaTricode: t && t !== 'Active' && t !== 'Inactive' ? t : null,
+      external_id_nba: p.external_id_nba,
+      status: 'active',
+      roster_slot: daySlot,
+      weekPoints: round1(p.week_points),
+      dayPoints: isDayActive && dayGame ? round1(dayGame.fpts) : 0,
+      dayMatchup: isDayActive && dayGame ? dayGame.matchup : null,
+      dayStatLine: isDayActive && dayGame ? buildStatLine(dayGame.stats, scoring) : null,
+      projectedFpts: 0,
+    };
+  });
+
+  return { players, teamStats: aggregateTeamStats(activeGames) };
+}
+
 async function fetchWeekMatchupData(
   week: Week,
   teamId: string,
@@ -283,20 +230,67 @@ async function fetchWeekMatchupData(
   const matchup = await fetchMatchupForWeek(week.id, teamId);
   if (!matchup) return null;
 
-  const opponentId =
-    matchup.home_team_id === teamId ? matchup.away_team_id : matchup.home_team_id;
+  const isHome = matchup.home_team_id === teamId;
+  const opponentId = isHome ? matchup.away_team_id : matchup.home_team_id;
+  const useStored = matchup.is_finalized && matchup.home_player_scores;
 
-  const [myResult, myName] = await Promise.all([
+  if (useStored) {
+    const myStored = isHome ? matchup.home_player_scores! : matchup.away_player_scores!;
+    const oppStored = isHome ? matchup.away_player_scores : matchup.home_player_scores;
+
+    const [myName, oppName] = await Promise.all([
+      fetchTeamName(teamId),
+      opponentId ? fetchTeamName(opponentId) : Promise.resolve(null),
+    ]);
+
+    const myResult = buildFromStored(myStored, selectedDate, scoring);
+    const myTeam: TeamMatchupData = {
+      teamId,
+      teamName: myName,
+      players: myResult.players,
+      weekTotal: round1(myResult.players.reduce((s, p) => s + p.weekPoints, 0)),
+      dayTotal: round1(myResult.players.reduce((s, p) => s + p.dayPoints, 0)),
+      teamStats: myResult.teamStats,
+    };
+
+    let opponentTeam: TeamMatchupData | null = null;
+    if (opponentId && oppStored && oppName) {
+      const oppResult = buildFromStored(oppStored, selectedDate, scoring);
+      opponentTeam = {
+        teamId: opponentId,
+        teamName: oppName,
+        players: oppResult.players,
+        weekTotal: round1(oppResult.players.reduce((s, p) => s + p.weekPoints, 0)),
+        dayTotal: round1(oppResult.players.reduce((s, p) => s + p.dayPoints, 0)),
+        teamStats: oppResult.teamStats,
+      };
+    }
+
+    return { myTeam, opponentTeam, week };
+  }
+
+  // Live reconstruction for current/unfinalized weeks — fetch both teams in parallel
+  const promises: [
+    Promise<{ players: any[]; teamStats: any }>,
+    Promise<string>,
+    Promise<{ players: any[]; teamStats: any }> | null,
+    Promise<string> | null,
+  ] = [
     fetchTeamData(teamId, leagueId, week, selectedDate, scoring),
     fetchTeamName(teamId),
+    opponentId ? fetchTeamData(opponentId, leagueId, week, selectedDate, scoring) : null,
+    opponentId ? fetchTeamName(opponentId) : null,
+  ];
+
+  const [myResult, myName, oppResult, oppName] = await Promise.all([
+    promises[0],
+    promises[1],
+    promises[2] ?? Promise.resolve(null),
+    promises[3] ?? Promise.resolve(null),
   ]);
 
   let opponentTeam: TeamMatchupData | null = null;
-  if (opponentId) {
-    const [oppResult, oppName] = await Promise.all([
-      fetchTeamData(opponentId, leagueId, week, selectedDate, scoring),
-      fetchTeamName(opponentId),
-    ]);
+  if (opponentId && oppResult && oppName) {
     opponentTeam = {
       teamId: opponentId,
       teamName: oppName,
@@ -397,7 +391,7 @@ function MatchupBoard({
   const computeProjectedDay = (players: RosterPlayer[], schedule?: Map<string, string>) => {
     if (!schedule) return 0;
     return round1(players.reduce((sum, p) => {
-      if (p.roster_slot === 'BE' || p.roster_slot === 'IR') return sum;
+      if (p.roster_slot === 'BE' || p.roster_slot === 'IR' || p.roster_slot === 'DROPPED') return sum;
       if (!p.nbaTricode || !schedule.has(p.nbaTricode)) return sum;
       return sum + (p.projectedFpts ?? 0);
     }, 0));
@@ -444,17 +438,17 @@ function MatchupBoard({
         <View
           style={colStyles.scoreHeader}
           accessibilityRole="summary"
-          accessibilityLabel={`${myTeam.teamName} ${myWeek.toFixed(1)} versus ${opponentTeam ? `${opponentTeam.teamName} ${oppWeek.toFixed(1)}` : 'BYE'}`}
+          accessibilityLabel={`${myTeam.teamName} ${formatScore(myWeek)} versus ${opponentTeam ? `${opponentTeam.teamName} ${formatScore(oppWeek)}` : 'BYE'}`}
         >
           <View style={[colStyles.scoreCol, { alignItems: 'flex-start' }]}>
             <Text style={[colStyles.teamName, { color: c.text }]} numberOfLines={1} accessibilityRole="header">
               {seedMap?.has(myTeam.teamId) ? `#${seedMap.get(myTeam.teamId)} ` : ''}{myTeam.teamName}
             </Text>
-            <Text style={[colStyles.total, { color: c.accent }]}>{myWeek.toFixed(1)}</Text>
+            <Text style={[colStyles.total, { color: c.accent }]}>{formatScore(myWeek)}</Text>
             {mode === 'future' ? (
               <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>{myDay.toFixed(1)} proj</Text>
             ) : (
-              <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>{myDay.toFixed(1)} today</Text>
+              <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>{formatScore(myDay)} today</Text>
             )}
           </View>
           <Text style={[colStyles.vsText, { color: c.secondaryText }]} accessible={false}>vs</Text>
@@ -464,11 +458,11 @@ function MatchupBoard({
                 ? `${opponentTeam.teamName}${seedMap?.has(opponentTeam.teamId) ? ` #${seedMap.get(opponentTeam.teamId)}` : ''}`
                 : 'BYE'}
             </Text>
-            <Text style={[colStyles.total, { color: c.accent }]}>{oppWeek.toFixed(1)}</Text>
+            <Text style={[colStyles.total, { color: c.accent }]}>{formatScore(oppWeek)}</Text>
             {mode === 'future' ? (
               <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>{oppDay.toFixed(1)} proj</Text>
             ) : (
-              <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>{oppDay.toFixed(1)} today</Text>
+              <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>{formatScore(oppDay)} today</Text>
             )}
           </View>
         </View>
@@ -629,8 +623,17 @@ export default function MatchupScreen() {
     : [];
 
   const isToday = selectedDate === today;
+  const yesterday = addDays(today, -1);
+  const isYesterday = selectedDate === yesterday;
   const isFutureDate = selectedDate > today;
-  const liveMap = useLivePlayerStats(allPlayerIds, isToday);
+  const rawLiveMap = useLivePlayerStats(allPlayerIds, isToday || isYesterday);
+
+  // Filter live stats to only include games matching the selected date.
+  // Yesterday's late games (still live past midnight) show on yesterday's view,
+  // not today's.
+  const liveMap = new Map(
+    [...rawLiveMap].filter(([, stats]) => stats.game_date === selectedDate)
+  );
 
   // Future schedule: tricode → matchup string for the selected future date
   const { data: futureSchedule } = useQuery<Map<string, string>>({
@@ -699,10 +702,10 @@ export default function MatchupScreen() {
 
   // Compute how much live FPTS to add to each team's week total
   function computeLiveBonus(players: RosterPlayer[]): number {
-    if (!isToday) return 0;
+    if (liveMap.size === 0) return 0;
     return round1(
       players.reduce((sum, p) => {
-        if (p.roster_slot === 'BE' || p.roster_slot === 'IR') return sum;
+        if (p.roster_slot === 'BE' || p.roster_slot === 'IR' || p.roster_slot === 'DROPPED') return sum;
         const live = liveMap.get(p.player_id);
         if (!live) return sum;
         return sum + calculateGameFantasyPoints(liveToGameLog(live) as any, scoring ?? []);
@@ -800,6 +803,22 @@ export default function MatchupScreen() {
             ›
           </Text>
         </TouchableOpacity>
+
+        {selectedDate !== today && (
+          <TouchableOpacity
+            onPress={() => setSelectedDate(today)}
+            style={[
+              styles.todayChip,
+              isFutureDate ? styles.todayChipLeft : styles.todayChipRight,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Go to today"
+          >
+            <ThemedText style={[styles.todayChipText, { color: c.accent }]}>
+              Today
+            </ThemedText>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Matchup body */}
@@ -945,6 +964,16 @@ const styles = StyleSheet.create({
   },
   navArrow: { padding: 12 },
   arrow: { fontSize: 28, lineHeight: 32 },
+  todayChip: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  todayChipLeft: { left: 50 },
+  todayChipRight: { right: 50 },
+  todayChipText: { fontSize: 11, fontWeight: '600' },
   dayInfo: { flex: 1, alignItems: 'center' },
   dayLabel: { fontSize: 16 },
   weekMeta: { fontSize: 11, marginTop: 2 },

@@ -110,10 +110,16 @@ export function estimatePickFpts(round: number): number {
 
 const ORDINALS = ['1st', '2nd', '3rd', '4th', '5th'];
 
-/** Format a draft pick for display: "2026 1st", "2026 2nd", etc. */
+/** Format a draft pick for display: "2026 1st", "2027 2nd", etc. */
 export function formatPickLabel(season: string, round: number): string {
   const year = season.split('-')[0];
   return `${year} ${ORDINALS[round - 1] ?? `${round}th`}`;
+}
+
+/** Short format for logs/notifications: "'26 1st", "'27 2nd", etc. */
+export function formatPickLabelShort(season: string, round: number): string {
+  const year = season.split('-')[0].slice(-2);
+  return `'${year} ${ORDINALS[round - 1] ?? `${round}th`}`;
 }
 
 /** Format a protection for display: "Top-3 protected" */

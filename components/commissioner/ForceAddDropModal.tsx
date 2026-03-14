@@ -139,7 +139,7 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
       if (error) throw new Error(error.message);
 
       Alert.alert('Done', `${player.name} ${action === 'add' ? 'added to' : 'dropped from'} ${selectedTeam!.name}.`);
-      queryClient.invalidateQueries({ queryKey: ['freeAgents'] });
+      queryClient.invalidateQueries({ queryKey: ['allPlayers'] });
       queryClient.invalidateQueries({ queryKey: ['teamRoster'] });
       queryClient.invalidateQueries({ queryKey: ['rosterInfo'] });
       queryClient.invalidateQueries({ queryKey: ['transactions'] });

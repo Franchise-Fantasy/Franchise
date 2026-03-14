@@ -866,7 +866,7 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // Extract user ID from JWT — gateway already verified it (verify_jwt: true)
+    // Extract user ID from JWT
     const authHeader = req.headers.get('Authorization') ?? req.headers.get('authorization');
     let userId: string | null = null;
 

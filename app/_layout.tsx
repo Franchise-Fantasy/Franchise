@@ -125,6 +125,7 @@ focusManager.setEventListener((handleFocus) => {
 });
 
 const NOTIF_ROUTES: Record<string, string> = {
+  home: "/(tabs)/matchup",
   roster: "/(tabs)/roster",
   matchup: "/(tabs)/matchup",
   "free-agents": "/(tabs)/free-agents",
@@ -221,6 +222,11 @@ function NotificationAndLinkHandler() {
 
         if (data.screen === "draft-room" && data.draft_id) {
           router.push(`/draft-room/${data.draft_id}` as any);
+        } else if (data.screen.startsWith("chat/")) {
+          const conversationId = data.screen.split("/")[1];
+          if (conversationId) {
+            router.push(`/chat/${conversationId}` as any);
+          }
         } else if (NOTIF_ROUTES[data.screen]) {
           router.push(NOTIF_ROUTES[data.screen] as any);
         }
@@ -229,11 +235,33 @@ function NotificationAndLinkHandler() {
     return () => sub.remove();
   }, [router, session?.user, switchLeague]);
 
-  // Handle deep link URLs → switch league context if ?league_id= is present
-  // Expo Router handles the actual navigation automatically; we only need to
-  // ensure the app's league/team context matches the link.
+  // Handle deep link URLs:
+  // 1. Password recovery: extract tokens from # fragment before Expo Router strips it
+  // 2. League context: switch league if ?league_id= is present
   useEffect(() => {
     function handleUrl({ url }: { url: string }) {
+      // Password recovery: Supabase redirects with #access_token=...&type=recovery
+      const fragment = url.split("#")[1];
+      if (fragment) {
+        const params = new URLSearchParams(fragment);
+        if (params.get("type") === "recovery") {
+          const accessToken = params.get("access_token");
+          const refreshToken = params.get("refresh_token");
+          if (accessToken && refreshToken) {
+            supabase.auth
+              .setSession({ access_token: accessToken, refresh_token: refreshToken })
+              .then(({ error }) => {
+                if (error) {
+                  Alert.alert("Session error", error.message);
+                } else {
+                  router.replace("/reset-password");
+                }
+              });
+            return;
+          }
+        }
+      }
+
       if (!session?.user) return;
       const parsed = Linking.parse(url);
       const leagueId = parsed.queryParams?.league_id;

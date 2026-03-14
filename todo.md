@@ -9,7 +9,7 @@ Draft room needs:
 Queue
 Filled Positions (1/5 centers, etc)
 
-someone saw a pllayer who had aallreaaday been picked
+someone saw a pllayer who had already been picked
 
 If a player autodrafts twice in a row, their picks should immediately fire until they re-enter the draft room.
 
@@ -29,7 +29,6 @@ If a player autodrafts twice in a row, their picks should immediately fire until
 - [ ] Build Strength of Schedule — needs projection method defined first
 - [ ] Build Contender Score / Dynasty Power Rankings — needs weighting defined first
 - [ ] Build "What If" Trade Simulator — blocked by Contender Score
-- [ ] Build Age Curve Visualization — needs visual design first
 - [ ] Build Draft Pick Value Tracker — needs design.
 - [ ] Manager Report card - end-of-season grades: lineup accuracy, trade wins, waiver pickups, draft hits/misses. Awards ceremony UI.
 

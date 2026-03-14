@@ -322,6 +322,32 @@ export default function ProfileScreen() {
 
           <TouchableOpacity
             style={styles.actionRow}
+            onPress={async () => {
+              const email = session?.user?.email;
+              if (!email) return;
+              const { error } = await supabase.auth.resetPasswordForEmail(email, {
+                redirectTo: 'franchisev2://reset-password',
+              });
+              if (error) {
+                Alert.alert('Error', error.message);
+              } else {
+                Alert.alert('Check Your Email', 'A password reset link has been sent to your email address.');
+              }
+            }}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Change Password"
+            accessibilityHint="Sends a password reset link to your email"
+          >
+            <View style={styles.actionLeft}>
+              <Ionicons name="key-outline" size={20} color={c.text} accessible={false} />
+              <ThemedText style={styles.actionLabel}>Change Password</ThemedText>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={c.secondaryText} accessible={false} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.actionRow}
             onPress={handleSignOut}
             disabled={loading}
             activeOpacity={0.7}

@@ -7,6 +7,7 @@ import { Colors } from '@/constants/Colors';
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
+import { useLockedTradeAssets } from '@/hooks/useTeamRosterForTrade';
 import { sendNotification } from '@/lib/notifications';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats } from '@/types/player';
@@ -252,6 +253,9 @@ export function ProposeTradeModal({
   const [submitting, setSubmitting] = useState(false);
   // Inline picker state: null = show assets, { type, teamId } = show picker inline
   const [pickerFor, setPickerFor] = useState<{ type: 'player' | 'pick' | 'swap'; teamId: string } | null>(null);
+
+  // Fetch locked assets for the team currently in the picker
+  const { data: lockedAssets } = useLockedTradeAssets(pickerFor?.teamId ?? null, leagueId);
 
   // Fetch all teams in the league
   const { data: leagueTeams } = useQuery({
@@ -596,6 +600,7 @@ export function ProposeTradeModal({
                 selectedPlayerIds={
                   pickerTeamBuilder?.sending_players.map((p) => p.player_id) ?? []
                 }
+                lockedPlayerIds={lockedAssets?.lockedPlayerIds}
                 onToggle={handleTogglePlayer(pickerFor.teamId)}
                 onBack={() => setPickerFor(null)}
               />
@@ -614,6 +619,7 @@ export function ProposeTradeModal({
                 }
                 pickConditionsEnabled={pickConditionsEnabled}
                 draftPickTradingEnabled={draftPickTradingEnabled}
+                lockedPickIds={lockedAssets?.lockedPickIds}
                 teamCount={teamCount}
                 onToggle={handleTogglePick(pickerFor.teamId)}
                 onSetProtection={(pickId, threshold) =>

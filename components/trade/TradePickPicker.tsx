@@ -31,6 +31,7 @@ interface TradePickPickerProps {
   pickProtections: Record<string, number | undefined>;
   pickConditionsEnabled: boolean;
   draftPickTradingEnabled?: boolean;
+  lockedPickIds?: Set<string>;
   teamCount: number;
   onToggle: (pick: TradablePickRow) => void;
   onSetProtection: (pickId: string, threshold: number | undefined) => void;
@@ -45,6 +46,7 @@ export function TradePickPicker({
   pickProtections,
   pickConditionsEnabled,
   draftPickTradingEnabled,
+  lockedPickIds,
   teamCount,
   onToggle,
   onSetProtection,
@@ -58,6 +60,7 @@ export function TradePickPicker({
 
   const renderItem = ({ item }: { item: TradablePickRow }) => {
     const isSelected = selectedPickIds.includes(item.id);
+    const isLocked = lockedPickIds?.has(item.id) ?? false;
     const isTraded = item.current_team_id !== item.original_team_id;
     const protection = pickProtections[item.id];
     const showProtectionEditor = pickConditionsEnabled && isSelected && expandedPickId === item.id;
@@ -66,12 +69,14 @@ export function TradePickPicker({
       <View>
         <TouchableOpacity
           accessibilityRole="button"
-          accessibilityLabel={`${formatPickLabel(item.season, item.round)}${isTraded ? `, via ${item.original_team_name}` : ''}${protection != null ? `, Top-${protection} protected` : ''}`}
-          accessibilityState={{ selected: isSelected }}
+          accessibilityLabel={`${formatPickLabel(item.season, item.round)}${isLocked ? ', in active trade' : ''}${isTraded ? `, via ${item.original_team_name}` : ''}${protection != null ? `, Top-${protection} protected` : ''}`}
+          accessibilityState={{ selected: isSelected, disabled: isLocked }}
+          disabled={isLocked}
           style={[
             styles.row,
             { borderBottomColor: c.border },
             isSelected && { backgroundColor: c.activeCard },
+            isLocked && { opacity: 0.45 },
           ]}
           onPress={() => onToggle(item)}
         >

@@ -155,7 +155,7 @@ export default function PlayoffBracketScreen() {
   const season = league?.season ?? CURRENT_NBA_SEASON;
 
   const { data: bracketSlots, isLoading: bracketLoading } = usePlayoffBracket(season);
-  const { data: pendingPick } = usePendingSeedPick(season);
+  const { data: pendingPick } = usePendingSeedPick(season, true);
 
   const [seedPickVisible, setSeedPickVisible] = useState(false);
 

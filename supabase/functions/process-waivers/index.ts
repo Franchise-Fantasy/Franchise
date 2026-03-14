@@ -1,11 +1,37 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { notifyTeams } from '../_shared/push.ts';
+import { notifyTeams, notifyLeague } from '../_shared/push.ts';
+import { snapshotBeforeDrop } from '../_shared/snapshotBeforeDrop.ts';
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
+
+// Shared player name cache to avoid repeated lookups
+const playerNameCache = new Map<string, string>();
+
+async function resolvePlayerNames(playerIds: string[]) {
+  const missing = playerIds.filter(id => !playerNameCache.has(id));
+  if (missing.length === 0) return;
+  const { data } = await supabase.from('players').select('id, name').in('id', [...new Set(missing)]);
+  for (const p of data ?? []) playerNameCache.set(p.id, p.name);
+}
+
+function playerName(id: string): string {
+  return playerNameCache.get(id) ?? 'a player';
+}
+
+// Shared team name cache
+const teamNameCache = new Map<string, string>();
+
+async function resolveTeamName(teamId: string): Promise<string> {
+  if (teamNameCache.has(teamId)) return teamNameCache.get(teamId)!;
+  const { data } = await supabase.from('teams').select('name').eq('id', teamId).single();
+  const name = data?.name ?? 'A team';
+  teamNameCache.set(teamId, name);
+  return name;
+}
 
 Deno.serve(async (req: Request) => {
   const cronSecret = Deno.env.get('CRON_SECRET');
@@ -31,74 +57,90 @@ Deno.serve(async (req: Request) => {
       .lte('on_waivers_until', now.toISOString());
     if (ewErr) throw ewErr;
 
-    for (const waiver of expiredWaivers ?? []) {
-      const { data: league } = await supabase
-        .from('leagues').select('name, waiver_type, waiver_period_days')
-        .eq('id', waiver.league_id).single();
+    if (expiredWaivers && expiredWaivers.length > 0) {
+      // Batch-fetch all leagues for expired waivers
+      const leagueIds = [...new Set(expiredWaivers.map(w => w.league_id))];
+      const { data: leaguesData } = await supabase
+        .from('leagues').select('id, name, waiver_type, waiver_period_days')
+        .in('id', leagueIds);
+      const leagueMap = new Map((leaguesData ?? []).map(l => [l.id, l]));
 
-      if (!league || league.waiver_type !== 'standard') {
-        await supabase.from('league_waivers').delete().eq('id', waiver.id);
-        continue;
-      }
+      for (const waiver of expiredWaivers) {
+        const league = leagueMap.get(waiver.league_id);
 
-      const { data: claims } = await supabase
-        .from('waiver_claims').select('*')
-        .eq('league_id', waiver.league_id).eq('player_id', waiver.player_id)
-        .eq('status', 'pending')
-        .order('priority', { ascending: true })
-        .order('created_at', { ascending: true });
+        if (!league || league.waiver_type !== 'standard') {
+          await supabase.from('league_waivers').delete().eq('id', waiver.id);
+          continue;
+        }
 
-      let awarded = false;
+        const { data: claims } = await supabase
+          .from('waiver_claims')
+          .select('id, league_id, team_id, player_id, status, bid_amount, priority, created_at, drop_player_id')
+          .eq('league_id', waiver.league_id).eq('player_id', waiver.player_id)
+          .eq('status', 'pending')
+          .order('priority', { ascending: true })
+          .order('created_at', { ascending: true });
 
-      for (const claim of claims ?? []) {
-        try {
-          const rosterOk = await checkAndProcessClaim(claim, waiver.league_id, league.waiver_period_days);
-          if (rosterOk) {
-            awarded = true;
-            await bumpWaiverPriority(waiver.league_id, claim.team_id);
+        // Pre-fetch player names for all claims in this batch
+        const claimPlayerIds = (claims ?? []).flatMap(c =>
+          [c.player_id, c.drop_player_id].filter(Boolean) as string[]
+        );
+        await resolvePlayerNames(claimPlayerIds);
 
-            // Notify winner
-            try {
-              const ln = league.name ?? 'Your League';
-              const { data: pd } = await supabase.from('players').select('name').eq('id', claim.player_id).single();
-              await notifyTeams(supabase, [claim.team_id], 'waivers',
-                `${ln} — Waiver Claim Won!`,
-                `You claimed ${pd?.name ?? 'a player'} off waivers.`,
-                { screen: 'roster' }
-              );
-            } catch (_) {}
+        let awarded = false;
 
-            await supabase.from('waiver_claims')
-              .update({ status: 'failed', processed_at: now.toISOString() })
-              .eq('league_id', waiver.league_id).eq('player_id', waiver.player_id)
-              .eq('status', 'pending').neq('id', claim.id);
+        for (const claim of claims ?? []) {
+          try {
+            const rosterOk = await checkAndProcessClaim(claim, waiver.league_id, league.waiver_period_days);
+            if (rosterOk) {
+              awarded = true;
+              await bumpWaiverPriority(waiver.league_id, claim.team_id);
 
-            // Notify losers
-            const failedClaims = (claims ?? []).filter(c => c.id !== claim.id);
-            for (const fc of failedClaims) {
+              // Notify league about the waiver claim
               try {
-                const lnLost = league.name ?? 'Your League';
-                await notifyTeams(supabase, [fc.team_id], 'waivers',
-                  `${lnLost} — Waiver Claim Lost`,
-                  'Your waiver claim was not awarded.',
-                  { screen: 'free-agents' }
+                const ln = league.name ?? 'Your League';
+                const teamName = await resolveTeamName(claim.team_id);
+                let claimBody = `${teamName} claimed ${playerName(claim.player_id)} off waivers`;
+                if (claim.drop_player_id) claimBody += ` (dropped ${playerName(claim.drop_player_id)})`;
+                await notifyLeague(supabase, waiver.league_id, 'roster_moves',
+                  `${ln} — Waiver Claim`,
+                  claimBody,
+                  { screen: 'activity' }
                 );
               } catch (_) {}
+
+              await supabase.from('waiver_claims')
+                .update({ status: 'failed', processed_at: now.toISOString() })
+                .eq('league_id', waiver.league_id).eq('player_id', waiver.player_id)
+                .eq('status', 'pending').neq('id', claim.id);
+
+              // Notify losers
+              const failedClaims = (claims ?? []).filter(c => c.id !== claim.id);
+              for (const fc of failedClaims) {
+                try {
+                  const lnLost = league.name ?? 'Your League';
+                  await notifyTeams(supabase, [fc.team_id], 'waivers',
+                    `${lnLost} — Waiver Claim Lost`,
+                    'Your waiver claim was not awarded.',
+                    { screen: 'free-agents' }
+                  );
+                } catch (_) {}
+              }
+
+              processed++;
+              break;
             }
-
-            processed++;
-            break;
+          } catch (err: any) {
+            errors.push(`claim ${claim.id}: ${err.message}`);
+            await supabase.from('waiver_claims')
+              .update({ status: 'failed', processed_at: now.toISOString() })
+              .eq('id', claim.id);
+            failed++;
           }
-        } catch (err: any) {
-          errors.push(`claim ${claim.id}: ${err.message}`);
-          await supabase.from('waiver_claims')
-            .update({ status: 'failed', processed_at: now.toISOString() })
-            .eq('id', claim.id);
-          failed++;
         }
-      }
 
-      await supabase.from('league_waivers').delete().eq('id', waiver.id);
+        await supabase.from('league_waivers').delete().eq('id', waiver.id);
+      }
     }
   } catch (err: any) {
     errors.push(`Step A error: ${err.message}`);
@@ -115,13 +157,20 @@ Deno.serve(async (req: Request) => {
       if (league.waiver_day_of_week !== todayDow) continue;
 
       const { data: claims } = await supabase
-        .from('waiver_claims').select('*')
+        .from('waiver_claims')
+        .select('id, league_id, team_id, player_id, status, bid_amount, priority, created_at, drop_player_id')
         .eq('league_id', league.id).eq('status', 'pending')
         .order('bid_amount', { ascending: false })
         .order('priority', { ascending: true })
         .order('created_at', { ascending: true });
 
       if (!claims || claims.length === 0) continue;
+
+      // Pre-fetch all player names for this league's claims
+      const allPlayerIds = claims.flatMap(c =>
+        [c.player_id, c.drop_player_id].filter(Boolean) as string[]
+      );
+      await resolvePlayerNames(allPlayerIds);
 
       const byPlayer = new Map<string, typeof claims>();
       for (const claim of claims) {
@@ -169,14 +218,16 @@ Deno.serve(async (req: Request) => {
                   .eq('league_id', league.id).eq('team_id', claim.team_id);
               }
 
-              // Notify winner
+              // Notify league about the FAAB claim
               try {
                 const ln = league.name ?? 'Your League';
-                const { data: pd } = await supabase.from('players').select('name').eq('id', claim.player_id).single();
-                await notifyTeams(supabase, [claim.team_id], 'waivers',
-                  `${ln} — FAAB Bid Won!`,
-                  `You won ${pd?.name ?? 'a player'} for $${claim.bid_amount}.`,
-                  { screen: 'roster' }
+                const teamName = await resolveTeamName(claim.team_id);
+                let faabBody = `${teamName} claimed ${playerName(claim.player_id)} for $${claim.bid_amount}`;
+                if (claim.drop_player_id) faabBody += ` (dropped ${playerName(claim.drop_player_id)})`;
+                await notifyLeague(supabase, league.id, 'roster_moves',
+                  `${ln} — Waiver Claim`,
+                  faabBody,
+                  { screen: 'activity' }
                 );
               } catch (_) {}
 
@@ -202,14 +253,10 @@ Deno.serve(async (req: Request) => {
     errors.push(`Step B error: ${err.message}`);
   }
 
-  // Step C: Cleanup expired league_waivers with no pending claims
+  // Step C: Bulk cleanup expired league_waivers
   try {
-    const { data: staleWaivers } = await supabase
-      .from('league_waivers').select('id')
+    await supabase.from('league_waivers').delete()
       .lte('on_waivers_until', now.toISOString());
-    for (const w of staleWaivers ?? []) {
-      await supabase.from('league_waivers').delete().eq('id', w.id);
-    }
   } catch (err: any) {
     errors.push(`Cleanup error: ${err.message}`);
   }
@@ -243,6 +290,9 @@ async function checkAndProcessClaim(claim: any, leagueId: string, waiverPeriodDa
   if (rosterFull && !claim.drop_player_id) return false;
 
   if (rosterFull && claim.drop_player_id) {
+    // Snapshot roster slot before dropping so mid-week scoring is preserved
+    await snapshotBeforeDrop(supabase, leagueId, claim.team_id, claim.drop_player_id);
+
     const { error: delErr } = await supabase.from('league_players').delete()
       .eq('league_id', leagueId).eq('team_id', claim.team_id).eq('player_id', claim.drop_player_id);
     if (delErr) throw delErr;
@@ -257,8 +307,11 @@ async function checkAndProcessClaim(claim: any, leagueId: string, waiverPeriodDa
     }
   }
 
+  // Use cached player name instead of fetching again
+  const pName = playerName(claim.player_id);
+  // Still need position for the insert - fetch only if not already cached via claims
   const { data: playerData } = await supabase
-    .from('players').select('name, position').eq('id', claim.player_id).single();
+    .from('players').select('position').eq('id', claim.player_id).single();
 
   const { error: addErr } = await supabase.from('league_players').insert({
     league_id: leagueId, player_id: claim.player_id, team_id: claim.team_id,
@@ -267,12 +320,11 @@ async function checkAndProcessClaim(claim: any, leagueId: string, waiverPeriodDa
   });
   if (addErr) throw addErr;
 
-  let notes = `Claimed ${playerData?.name ?? 'Unknown'} off waivers`;
+  let notes = `Claimed ${pName} off waivers`;
   if (claim.bid_amount > 0) notes += ` ($${claim.bid_amount})`;
 
   if (claim.drop_player_id) {
-    const { data: dropData } = await supabase.from('players').select('name').eq('id', claim.drop_player_id).single();
-    notes += ` (dropped ${dropData?.name ?? 'Unknown'})`;
+    notes += ` (dropped ${playerName(claim.drop_player_id)})`;
   }
 
   const { data: txn } = await supabase
@@ -306,15 +358,15 @@ async function bumpWaiverPriority(leagueId: string, winningTeamId: string) {
   const winnerPriority = allPriorities.find(p => p.team_id === winningTeamId)?.priority;
   if (winnerPriority == null) return;
 
-  for (const p of allPriorities) {
-    if (p.team_id === winningTeamId) {
-      await supabase.from('waiver_priority')
-        .update({ priority: allPriorities.length })
+  // Batch all priority updates with Promise.all instead of sequential awaits
+  const updates = allPriorities
+    .filter(p => p.team_id === winningTeamId || p.priority > winnerPriority)
+    .map(p => {
+      const newPriority = p.team_id === winningTeamId ? allPriorities.length : p.priority - 1;
+      return supabase.from('waiver_priority')
+        .update({ priority: newPriority })
         .eq('league_id', leagueId).eq('team_id', p.team_id);
-    } else if (p.priority > winnerPriority) {
-      await supabase.from('waiver_priority')
-        .update({ priority: p.priority - 1 })
-        .eq('league_id', leagueId).eq('team_id', p.team_id);
-    }
-  }
+    });
+
+  await Promise.all(updates);
 }
