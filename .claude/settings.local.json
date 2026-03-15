@@ -170,7 +170,12 @@
       "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2 -name *.sql -o -name *migration*)",
       "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2 -name supabase.json -o -name .env*)",
       "Bash(xargs head:*)",
-      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2 -name README* -o -name CRON* -o -name DEPLOYMENT*)"
+      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2 -name README* -o -name CRON* -o -name DEPLOYMENT*)",
+      "Bash(python -c \"from nba_api.stats.endpoints import commonallplayers; r = commonallplayers.CommonAllPlayers\\(is_only_current_season=1, season=''''2025-26'''', timeout=120\\); print\\(f''''Got {len\\(r.get_data_frames\\(\\)[0]\\)} players''''\\)\")",
+      "Bash(python backend/sync_players.py)",
+      "Bash(python backend/backfill_new_players.py)",
+      "Bash(python -X utf8 backend/backfill_new_players.py)",
+      "Bash(python -X utf8 -c \":*)"
     ]
   }
 }

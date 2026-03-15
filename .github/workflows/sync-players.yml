@@ -17,7 +17,13 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install nba_api supabase
+        run: pip install nba_api supabase pandas
 
-      - name: Run player sync
+      - name: Sync players from NBA API
         run: python backend/sync_players.py
+
+      - name: Sync positions from Sleeper
+        run: |
+          curl -s -X POST "https://iuqbossmnsezzgocpcbo.supabase.co/functions/v1/sync-positions" \
+            -H "Content-Type: application/json" \
+            -d "{}"

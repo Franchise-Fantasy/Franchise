@@ -333,7 +333,6 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       const { data, error } = await supabase
         .from("player_season_stats")
         .select("*")
-        .gt("games_played", 0)
         .order("avg_pts", { ascending: false });
       if (error) throw error;
       return data as PlayerSeasonStats[];
