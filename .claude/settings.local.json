@@ -160,7 +160,17 @@
       "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2/supabase/migrations -type f -name *.sql)",
       "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2 -type f \\\\\\(-name *.sql -o -name *.ts \\\\\\))",
       "Bash(find c:/Users/jjspo/OneDrive/Desktop/franchise.v2/supabase/migrations -name *.sql -exec cat {})",
-      "Bash(2)"
+      "Bash(2)",
+      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2 -type f -name *trade* -o -name *Trade*)",
+      "Bash(sed 's/\"\"\"\"name\"\"\"\":\"\"\"\"//')",
+      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2 -maxdepth 1 -type f \\\\\\(-name *.md -o -name *.env* -o -name .env* \\\\\\))",
+      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2 -type f -name *.ts -path */types/*)",
+      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2 -type f -name *.ts -exec grep -l supabase.*select {})",
+      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2/supabase/functions -name *playoff* -o -name *seed*)",
+      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2 -name *.sql -o -name *migration*)",
+      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2 -name supabase.json -o -name .env*)",
+      "Bash(xargs head:*)",
+      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2 -name README* -o -name CRON* -o -name DEPLOYMENT*)"
     ]
   }
 }

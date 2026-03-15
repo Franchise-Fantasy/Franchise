@@ -8,6 +8,7 @@ import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { useLockedTradeAssets } from '@/hooks/useTeamRosterForTrade';
+import { TradeProposalRow } from '@/hooks/useTrades';
 import { sendNotification } from '@/lib/notifications';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats } from '@/types/player';
@@ -44,6 +45,12 @@ interface PreselectedPlayer {
   avg_fpts?: number;
 }
 
+interface CounterofferData {
+  originalProposalId: string;
+  teams: TradeProposalRow['teams'];
+  items: TradeProposalRow['items'];
+}
+
 interface ProposeTradeModalProps {
   leagueId: string;
   teamId: string;
@@ -51,6 +58,8 @@ interface ProposeTradeModalProps {
   preselectedPlayer?: PreselectedPlayer;
   /** When true, trade executes immediately (both teams auto-accepted, no veto). Used in draft room. */
   instantExecute?: boolean;
+  /** Pre-populate with an existing proposal's data for counteroffer */
+  counterofferData?: CounterofferData;
   onClose: () => void;
 }
 
@@ -65,6 +74,7 @@ interface TradeState {
 
 type TradeAction =
   | { type: 'SEED_MY_TEAM'; teamId: string; teamName: string; partnerTeamId?: string; partnerTeamName?: string; preselectedPlayer?: PreselectedPlayer }
+  | { type: 'SEED_COUNTEROFFER'; myTeamId: string; teams: TradeProposalRow['teams']; items: TradeProposalRow['items'] }
   | { type: 'TOGGLE_TEAM'; teamId: string; teamName: string; myTeamId: string }
   | { type: 'NEXT_STEP' }
   | { type: 'PREV_STEP' }
@@ -109,6 +119,59 @@ function reducer(state: TradeState, action: TradeAction): TradeState {
         selectedTeamIds.push(action.partnerTeamId);
       }
       return { ...state, builderTeams, selectedTeamIds };
+    }
+    case 'SEED_COUNTEROFFER': {
+      // Build team map from proposal teams
+      const teamMap = new Map(action.teams.map((t) => [t.team_id, t.team_name]));
+      const selectedTeamIds = action.teams
+        .filter((t) => t.team_id !== action.myTeamId)
+        .map((t) => t.team_id);
+
+      // Initialize builder teams
+      const builderTeams: TradeBuilderTeam[] = action.teams.map((t) => ({
+        team_id: t.team_id,
+        team_name: t.team_name,
+        sending_players: [],
+        sending_picks: [],
+        sending_swaps: [],
+      }));
+
+      // Populate assets from proposal items
+      for (const item of action.items) {
+        const bt = builderTeams.find((t) => t.team_id === item.from_team_id);
+        if (!bt) continue;
+
+        if (item.pick_swap_season) {
+          // Pick swap item
+          bt.sending_swaps.push({
+            season: item.pick_swap_season,
+            round: item.pick_swap_round!,
+            beneficiary_team_id: item.to_team_id,
+            counterparty_team_id: item.from_team_id,
+          });
+        } else if (item.player_id) {
+          bt.sending_players.push({
+            player_id: item.player_id,
+            name: item.player_name ?? '',
+            position: item.player_position ?? '',
+            nba_team: item.player_nba_team ?? '',
+            avg_fpts: 0, // Will be recalculated by fairness bar
+            to_team_id: item.to_team_id,
+          });
+        } else if (item.draft_pick_id) {
+          bt.sending_picks.push({
+            draft_pick_id: item.draft_pick_id,
+            season: item.pick_season ?? '',
+            round: item.pick_round ?? 1,
+            original_team_name: item.pick_original_team_name ?? '',
+            estimated_fpts: estimatePickFpts(item.pick_round ?? 1),
+            to_team_id: item.to_team_id,
+            protection_threshold: item.protection_threshold ?? undefined,
+          });
+        }
+      }
+
+      return { ...state, step: 1, selectedTeamIds, builderTeams, notes: 'Counteroffer: ' };
     }
     case 'TOGGLE_TEAM': {
       const exists = state.selectedTeamIds.includes(action.teamId);
@@ -244,6 +307,7 @@ export function ProposeTradeModal({
   preselectedTeamId,
   preselectedPlayer,
   instantExecute = false,
+  counterofferData,
   onClose,
 }: ProposeTradeModalProps) {
   const scheme = useColorScheme() ?? 'light';
@@ -310,17 +374,32 @@ export function ProposeTradeModal({
   // Find my team name
   const myTeam = leagueTeams?.find((t) => t.id === teamId);
 
+  const isCounteroffer = !!counterofferData;
+
   const [state, dispatch] = useReducer(reducer, {
-    step: preselectedTeamId ? 1 : 0,
+    step: preselectedTeamId || counterofferData ? 1 : 0,
     selectedTeamIds: preselectedTeamId ? [preselectedTeamId] : [],
     builderTeams: [],
-    notes: '',
+    notes: counterofferData ? 'Counteroffer: ' : '',
   });
 
   // Seed builder teams once league teams load (runs once)
   const [seeded, setSeeded] = useState(false);
   useEffect(() => {
     if (seeded || !leagueTeams?.length || !myTeam) return;
+
+    // Counteroffer: seed from existing proposal data
+    if (counterofferData) {
+      dispatch({
+        type: 'SEED_COUNTEROFFER',
+        myTeamId: teamId,
+        teams: counterofferData.teams,
+        items: counterofferData.items,
+      });
+      setSeeded(true);
+      return;
+    }
+
     const preselectedTeam = preselectedTeamId
       ? leagueTeams.find((t) => t.id === preselectedTeamId)
       : null;
@@ -359,7 +438,7 @@ export function ProposeTradeModal({
       });
       setSeeded(true);
     }
-  }, [leagueTeams, myTeam, seeded, teamId, preselectedTeamId, preselectedPlayer, scoringWeights]);
+  }, [leagueTeams, myTeam, seeded, teamId, preselectedTeamId, preselectedPlayer, scoringWeights, counterofferData]);
 
   // allBuilderTeams: just use reducer state (seeding ensures my team is present)
   const allBuilderTeams = state.builderTeams;
@@ -514,8 +593,10 @@ export function ProposeTradeModal({
         league_id: leagueId,
         team_ids: state.selectedTeamIds,
         category: 'trades',
-        title: 'Trade Proposed',
-        body: `${myTeam?.name ?? 'A team'} has proposed a trade. Review it now.`,
+        title: isCounteroffer ? 'Counteroffer Received' : 'Trade Proposed',
+        body: isCounteroffer
+          ? `${myTeam?.name ?? 'A team'} has countered your trade proposal.`
+          : `${myTeam?.name ?? 'A team'} has proposed a trade. Review it now.`,
         data: { screen: 'trades' },
       });
 
@@ -665,9 +746,16 @@ export function ProposeTradeModal({
             <>
               {/* Header */}
               <View style={[styles.header, { borderBottomColor: c.border }]}>
-                <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.headerTitle}>
-                  {state.step === 0 ? 'Select Teams' : state.step === 1 ? 'Select Assets' : (instantExecute ? 'Confirm & Execute' : 'Review Trade')}
-                </ThemedText>
+                <View>
+                  <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.headerTitle}>
+                    {state.step === 0 ? 'Select Teams' : state.step === 1 ? 'Select Assets' : (instantExecute ? 'Confirm & Execute' : 'Review Trade')}
+                  </ThemedText>
+                  {isCounteroffer && (
+                    <ThemedText style={[styles.counterofferBanner, { color: '#f0ad4e' }]} accessibilityLabel="Counteroffer mode">
+                      Counteroffer
+                    </ThemedText>
+                  )}
+                </View>
                 <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                   <ThemedText style={styles.closeText}>✕</ThemedText>
                 </TouchableOpacity>
@@ -1018,7 +1106,7 @@ export function ProposeTradeModal({
                     {submitting ? (
                       <ActivityIndicator size="small" color="#fff" />
                     ) : (
-                      <ThemedText style={[styles.navBtnText, { color: '#fff' }]}>{instantExecute ? 'Execute Trade' : 'Propose Trade'}</ThemedText>
+                      <ThemedText style={[styles.navBtnText, { color: '#fff' }]}>{instantExecute ? 'Execute Trade' : isCounteroffer ? 'Send Counteroffer' : 'Propose Trade'}</ThemedText>
                     )}
                   </TouchableOpacity>
                 )}
@@ -1096,6 +1184,11 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 16,
+  },
+  counterofferBanner: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
   },
   closeText: {
     fontSize: 18,

@@ -2,7 +2,7 @@
   "expo": {
     "name": "franchise.v2",
     "slug": "franchise-v2",
-    "version": "1.0.0",
+    "version": "0.1.17",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "franchisev2",
@@ -52,7 +52,9 @@
       ],
       [
         "@react-native-google-signin/google-signin",
-        { "iosUrlScheme": "com.googleusercontent.apps.352302197811-pt3tu6ohuktd738g1gtk81jsrqmk7p14" }
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.352302197811-pt3tu6ohuktd738g1gtk81jsrqmk7p14"
+        }
       ],
       ["@sentry/react-native/expo", { "uploadSourceMaps": false }]
     ],

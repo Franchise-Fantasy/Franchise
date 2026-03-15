@@ -314,7 +314,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("waiver_claims")
-        .select("id, player_id, bid_amount, created_at, player:players!waiver_claims_player_id_fkey(name, position, nba_team)")
+        .select("id, player_id, drop_player_id, bid_amount, created_at, player:players!waiver_claims_player_id_fkey(name, position, nba_team)")
         .eq("league_id", leagueId)
         .eq("team_id", teamId)
         .eq("status", "pending")
@@ -527,9 +527,11 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     if (waiverType === 'standard') {
       const until = waiverPlayerMap?.get(playerId);
       if (until) {
+        // on_waivers_until is already aligned to 6 AM UTC cron boundary
         const d = new Date(until);
         const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-        return `${d.getMonth() + 1}/${d.getDate()} at ${timeStr}`;
+        const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        return `${dayNames[d.getDay()]} ${d.getMonth() + 1}/${d.getDate()} at ${timeStr}`;
       }
       return '—';
     }
@@ -664,6 +666,22 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       queryClient.invalidateQueries({ queryKey: ["rosterInfo", leagueId, teamId] });
       queryClient.invalidateQueries({ queryKey: ["leagueRosterStats", leagueId] });
       queryClient.invalidateQueries({ queryKey: ["weeklyAdds", leagueId, teamId] });
+
+      // Warn if roster is now full and there are pending claims without a drop player
+      if (activeCount + 1 >= maxSize && waiverType !== 'none') {
+        const vulnerableClaims = (pendingClaims ?? []).filter((cl: any) => !cl.drop_player_id);
+        if (vulnerableClaims.length > 0) {
+          const names = vulnerableClaims.map((cl: any) => cl.player?.name ?? 'Unknown').join(', ');
+          Alert.alert(
+            "Roster Full — Update Your Claims",
+            `Your roster is now full. You have ${vulnerableClaims.length} pending waiver claim${vulnerableClaims.length > 1 ? 's' : ''} with no drop player (${names}). These claims will fail unless you add a drop player.`,
+            [
+              { text: "View Claims", onPress: () => setExpandedRibbon('claims') },
+              { text: "Dismiss" },
+            ]
+          );
+        }
+      }
     } catch (err: any) {
       Alert.alert("Error", err.message ?? "Failed to add player");
     } finally {
@@ -673,6 +691,27 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
   // Submit a waiver claim (standard mode)
   const handleSubmitClaim = async (player: PlayerSeasonStats, dropPlayerId?: string) => {
+    // Warn if roster is full and no drop player selected
+    if (rosterIsFull && !dropPlayerId) {
+      Alert.alert(
+        "Roster Full",
+        "Your roster is full and this claim has no drop player. It will fail when processed. Add a drop player?",
+        [
+          { text: "Add Drop Player", onPress: () => {
+            setClaimWithDropPlayer(player);
+            setOpenAsDropPicker(true);
+            setSelectedPlayer(player);
+          }},
+          { text: "Submit Anyway", style: "destructive", onPress: () => submitClaim(player, undefined) },
+          { text: "Cancel", style: "cancel" },
+        ]
+      );
+      return;
+    }
+    submitClaim(player, dropPlayerId);
+  };
+
+  const submitClaim = async (player: PlayerSeasonStats, dropPlayerId?: string) => {
     setAddingPlayerId(player.player_id);
     try {
       // Get current waiver priority
@@ -706,6 +745,13 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
   // Submit a FAAB bid
   const handleSubmitFaabBid = async (player: PlayerSeasonStats, bid: number, dropPlayerId?: string) => {
+    if (rosterIsFull && !dropPlayerId) {
+      Alert.alert(
+        "Roster Full",
+        "Your roster is full and this bid has no drop player. It will fail when processed. Select a drop player first.",
+      );
+      return;
+    }
     setAddingPlayerId(player.player_id);
     try {
       const { data: wp } = await supabase
@@ -753,6 +799,24 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
   // State to track if the drop picker is in "claim with drop" mode
   const [claimWithDropPlayer, setClaimWithDropPlayer] = useState<PlayerSeasonStats | null>(null);
+
+  // State for editing an existing claim's drop player
+  const [editingClaimId, setEditingClaimId] = useState<string | null>(null);
+
+  // Update the drop player on an existing claim
+  const handleUpdateClaimDrop = async (claimId: string, dropPlayerId: string | null) => {
+    const { error } = await supabase
+      .from("waiver_claims")
+      .update({ drop_player_id: dropPlayerId })
+      .eq("id", claimId);
+    if (error) {
+      Alert.alert("Error", error.message);
+      return;
+    }
+    setEditingClaimId(null);
+    queryClient.invalidateQueries({ queryKey: ["pendingClaims", leagueId, teamId] });
+    Alert.alert("Updated", dropPlayerId ? "Drop player updated on your claim." : "Drop player removed from your claim.");
+  };
 
   // Trigger the claim flow (standard or FAAB) for a player, optionally with a drop
   const triggerClaimFlow = (player: PlayerSeasonStats, dropPlayerId?: string) => {
@@ -1005,33 +1069,56 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
           {/* Expanded: Pending Claims */}
           {expandedRibbon === 'claims' && claimCount > 0 && (
             <View style={[styles.claimsList, { backgroundColor: c.card, borderColor: c.border }]}>
-              {pendingClaims!.map((claim: any) => (
-                <View key={claim.id} style={[styles.claimRow, { borderBottomColor: c.border }]}>
-                  <View style={{ flex: 1 }}>
-                    <ThemedText style={{ fontSize: 13, fontWeight: '600' }}>
-                      {claim.player?.name ?? 'Unknown'}
-                    </ThemedText>
-                    <ThemedText style={{ fontSize: 11, color: c.secondaryText }}>
-                      {claim.player?.position} - {claim.player?.nba_team}
-                      {waiverType === 'faab' ? ` | $${claim.bid_amount} bid` : ''}
-                      {' · Processes ' + getProcessDate(claim.player_id)}
-                    </ThemedText>
+              {pendingClaims!.map((claim: any) => {
+                const dropName = claim.drop_player_id
+                  ? seasonStatsMap.get(claim.drop_player_id)?.name ?? null
+                  : null;
+                const hasNoDrop = !claim.drop_player_id;
+                return (
+                  <View key={claim.id} style={[styles.claimRow, { borderBottomColor: c.border }]}>
+                    <View style={{ flex: 1 }}>
+                      <ThemedText style={{ fontSize: 13, fontWeight: '600' }}>
+                        {claim.player?.name ?? 'Unknown'}
+                      </ThemedText>
+                      <ThemedText style={{ fontSize: 11, color: c.secondaryText }}>
+                        {claim.player?.position} - {claim.player?.nba_team}
+                        {waiverType === 'faab' ? ` | $${claim.bid_amount} bid` : ''}
+                        {' · Processes ' + getProcessDate(claim.player_id)}
+                      </ThemedText>
+                      <ThemedText style={{ fontSize: 11, color: hasNoDrop && rosterIsFull ? '#dc3545' : c.secondaryText }}>
+                        {dropName ? `Drop: ${dropName}` : 'No drop player'}
+                        {hasNoDrop && rosterIsFull ? ' ⚠ Roster full — claim will fail' : ''}
+                      </ThemedText>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setEditingClaimId(claim.id);
+                        setOpenAsDropPicker(true);
+                        setSelectedPlayer(seasonStatsMap.get(claim.player_id) ?? null);
+                      }}
+                      hitSlop={8}
+                      style={{ marginRight: 8 }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Edit drop player for ${claim.player?.name ?? 'player'} claim`}
+                    >
+                      <Ionicons name="pencil" size={18} color={c.accent} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() =>
+                        Alert.alert("Cancel Claim", "Remove this waiver claim?", [
+                          { text: "Keep", style: "cancel" },
+                          { text: "Cancel Claim", style: "destructive", onPress: () => handleCancelClaim(claim.id) },
+                        ])
+                      }
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Cancel claim for ${claim.player?.name ?? 'player'}`}
+                    >
+                      <Ionicons name="close-circle" size={20} color={c.secondaryText} />
+                    </TouchableOpacity>
                   </View>
-                  <TouchableOpacity
-                    onPress={() =>
-                      Alert.alert("Cancel Claim", "Remove this waiver claim?", [
-                        { text: "Keep", style: "cancel" },
-                        { text: "Cancel Claim", style: "destructive", onPress: () => handleCancelClaim(claim.id) },
-                      ])
-                    }
-                    hitSlop={8}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Cancel claim for ${claim.player?.name ?? 'player'}`}
-                  >
-                    <Ionicons name="close-circle" size={20} color={c.secondaryText} />
-                  </TouchableOpacity>
-                </View>
-              ))}
+                );
+              })}
             </View>
           )}
 
@@ -1077,11 +1164,18 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
           setSelectedPlayer(null);
           setOpenAsDropPicker(false);
           setClaimWithDropPlayer(null);
+          setEditingClaimId(null);
         }}
         startInDropPicker={openAsDropPicker}
-        onDropForClaim={claimWithDropPlayer ? (dropPlayer) => {
-          triggerClaimFlow(claimWithDropPlayer, dropPlayer.player_id);
-          setClaimWithDropPlayer(null);
+        onDropForClaim={(claimWithDropPlayer || editingClaimId) ? (dropPlayer) => {
+          if (editingClaimId) {
+            handleUpdateClaimDrop(editingClaimId, dropPlayer.player_id);
+            setSelectedPlayer(null);
+            setOpenAsDropPicker(false);
+          } else if (claimWithDropPlayer) {
+            triggerClaimFlow(claimWithDropPlayer, dropPlayer.player_id);
+            setClaimWithDropPlayer(null);
+          }
         } : undefined}
         onClaimPlayer={selectedPlayer && isOnWaivers(selectedPlayer.player_id) ? () => {
           triggerClaimFlow(selectedPlayer);

@@ -27,6 +27,7 @@ interface TradeDetailModalProps {
   leagueId: string;
   teamId: string;
   onClose: () => void;
+  onCounteroffer?: (proposal: TradeProposalRow) => void;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -40,7 +41,7 @@ const STATUS_COLORS: Record<string, string> = {
   reversed: '#6c757d',
 };
 
-export function TradeDetailModal({ proposal, leagueId, teamId, onClose }: TradeDetailModalProps) {
+export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounteroffer }: TradeDetailModalProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const queryClient = useQueryClient();
@@ -368,6 +369,7 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose }: TradeD
   const vetoCount = (votes ?? []).filter((v: any) => v.vote === 'veto').length;
   const hasVoted = (votes ?? []).some((v: any) => v.team_id === teamId);
   const statusColor = STATUS_COLORS[proposal.status] ?? c.secondaryText;
+  const isCounteroffer = proposal.notes?.startsWith('Counteroffer: ') ?? false;
 
   return (
     <Modal visible animationType="slide" transparent>
@@ -377,8 +379,15 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose }: TradeD
           <View style={[styles.header, { borderBottomColor: c.border }]}>
             <View>
               <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.headerTitle}>Trade Details</ThemedText>
-              <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-                <ThemedText style={styles.statusText}>{proposal.status.replace('_', ' ')}</ThemedText>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
+                  <ThemedText style={styles.statusText}>{proposal.status.replace('_', ' ')}</ThemedText>
+                </View>
+                {isCounteroffer && (
+                  <View style={[styles.statusBadge, { backgroundColor: '#f0ad4e' }]}>
+                    <ThemedText style={styles.statusText}>counteroffer</ThemedText>
+                  </View>
+                )}
               </View>
             </View>
             <TouchableOpacity onPress={onClose} accessibilityRole="button" accessibilityLabel="Close trade details">
@@ -475,6 +484,16 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose }: TradeD
                     >
                       <ThemedText style={styles.actionBtnText}>Accept</ThemedText>
                     </TouchableOpacity>
+                    {onCounteroffer && (
+                      <TouchableOpacity
+                        accessibilityRole="button"
+                        accessibilityLabel="Counteroffer trade"
+                        style={[styles.actionBtn, { backgroundColor: '#f0ad4e' }]}
+                        onPress={() => onCounteroffer(proposal)}
+                      >
+                        <ThemedText style={styles.actionBtnText}>Counter</ThemedText>
+                      </TouchableOpacity>
+                    )}
                     <TouchableOpacity
                       accessibilityRole="button"
                       accessibilityLabel="Decline trade"

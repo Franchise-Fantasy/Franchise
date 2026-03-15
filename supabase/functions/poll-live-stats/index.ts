@@ -231,6 +231,11 @@ Deno.serve(async (req: Request) => {
       (playerRows ?? []).map((p: any) => [Number(p.external_id_nba), p.id]),
     );
 
+    const missingNbaIds = [...allNbaIds].filter(id => !nbaIdToPlayerId.has(id));
+    if (missingNbaIds.length > 0) {
+      console.warn(`Players not in DB (NBA IDs): ${missingNbaIds.join(', ')}`);
+    }
+
     let totalLiveRows = 0;
     let totalGameRows = 0;
     const allTeamUpdates: any[] = [];
@@ -288,6 +293,22 @@ Deno.serve(async (req: Request) => {
         .upsert(allTeamUpdates, { onConflict: "id" });
       if (error) {
         console.error("players nba_team update error:", error.message);
+      }
+    }
+
+    // Trigger week score recomputation now that stats are written
+    if (totalLiveRows > 0 || totalGameRows > 0) {
+      try {
+        await fetch(
+          `${Deno.env.get("SUPABASE_URL")}/functions/v1/get-week-scores`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: "{}",
+          },
+        );
+      } catch (e: any) {
+        console.error("Failed to trigger week score update:", e?.message);
       }
     }
 

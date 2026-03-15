@@ -48,6 +48,7 @@ export function TradeCard({ proposal, onPress }: TradeCardProps) {
   const teamNames = proposal.teams.map((t) => t.team_name);
   const statusColor = STATUS_COLORS[proposal.status] ?? c.secondaryText;
   const summary = buildTradeSummary(proposal);
+  const isCounteroffer = proposal.notes?.startsWith('Counteroffer: ') ?? false;
 
   return (
     <TouchableOpacity
@@ -55,14 +56,21 @@ export function TradeCard({ proposal, onPress }: TradeCardProps) {
       onPress={onPress}
       activeOpacity={0.7}
       accessibilityRole="button"
-      accessibilityLabel={`Trade: ${teamNames.join(' and ')}, ${STATUS_LABELS[proposal.status] ?? proposal.status}`}
+      accessibilityLabel={`${isCounteroffer ? 'Counteroffer: ' : ''}Trade: ${teamNames.join(' and ')}, ${STATUS_LABELS[proposal.status] ?? proposal.status}`}
     >
       {/* Status row */}
       <View style={styles.statusRow}>
-        <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-          <Text style={styles.statusText}>
-            {STATUS_LABELS[proposal.status] ?? proposal.status}
-          </Text>
+        <View style={{ flexDirection: 'row', gap: 6 }}>
+          <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
+            <Text style={styles.statusText}>
+              {STATUS_LABELS[proposal.status] ?? proposal.status}
+            </Text>
+          </View>
+          {isCounteroffer && (
+            <View style={[styles.statusBadge, { backgroundColor: '#f0ad4e' }]}>
+              <Text style={styles.statusText}>Counteroffer</Text>
+            </View>
+          )}
         </View>
         <ThemedText style={[styles.time, { color: c.secondaryText }]}>
           {formatRelativeTime(proposal.proposed_at)}

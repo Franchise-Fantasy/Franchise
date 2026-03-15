@@ -1,0 +1,23 @@
+name: Sync NBA Players
+
+on:
+  schedule:
+    # Daily at 3 PM ET (7 PM UTC)
+    - cron: '0 19 * * *'
+  workflow_dispatch: # Allow manual trigger from GitHub UI
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install nba_api supabase
+
+      - name: Run player sync
+        run: python backend/sync_players.py

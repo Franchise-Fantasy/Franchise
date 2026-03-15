@@ -91,8 +91,8 @@ Deno.serve(async (req: Request) => {
 
         for (const claim of claims ?? []) {
           try {
-            const rosterOk = await checkAndProcessClaim(claim, waiver.league_id, league.waiver_period_days);
-            if (rosterOk) {
+            const result = await checkAndProcessClaim(claim, waiver.league_id, league.waiver_period_days);
+            if (result.ok) {
               awarded = true;
               await bumpWaiverPriority(waiver.league_id, claim.team_id);
 
@@ -129,6 +129,23 @@ Deno.serve(async (req: Request) => {
 
               processed++;
               break;
+            } else {
+              // Notify team why their claim failed
+              const ln = league.name ?? 'Your League';
+              if (result.reason === 'roster_full') {
+                await supabase.from('waiver_claims')
+                  .update({ status: 'failed', processed_at: now.toISOString() })
+                  .eq('id', claim.id);
+                try {
+                  await notifyTeams(supabase, [claim.team_id], 'waivers',
+                    `${ln} — Waiver Claim Failed`,
+                    `Your claim for ${playerName(claim.player_id)} failed: roster is full. Select a player to drop when placing claims.`,
+                    { screen: 'free-agents' }
+                  );
+                } catch (_) {}
+                failed++;
+              }
+              // 'already_owned' — skip silently, next claim may still succeed
             }
           } catch (err: any) {
             errors.push(`claim ${claim.id}: ${err.message}`);
@@ -203,8 +220,8 @@ Deno.serve(async (req: Request) => {
           }
 
           try {
-            const rosterOk = await checkAndProcessClaim(claim, league.id, league.waiver_period_days);
-            if (rosterOk) {
+            const result = await checkAndProcessClaim(claim, league.id, league.waiver_period_days);
+            if (result.ok) {
               awarded = true;
               awardedPlayers.add(playerId);
 
@@ -232,6 +249,19 @@ Deno.serve(async (req: Request) => {
               } catch (_) {}
 
               processed++;
+            } else if (result.reason === 'roster_full') {
+              await supabase.from('waiver_claims')
+                .update({ status: 'failed', processed_at: now.toISOString() })
+                .eq('id', claim.id);
+              try {
+                const ln = league.name ?? 'Your League';
+                await notifyTeams(supabase, [claim.team_id], 'waivers',
+                  `${ln} — FAAB Bid Failed`,
+                  `Your bid for ${playerName(claim.player_id)} failed: roster is full. Select a player to drop when placing bids.`,
+                  { screen: 'free-agents' }
+                );
+              } catch (_) {}
+              failed++;
             }
           } catch (err: any) {
             errors.push(`FAAB claim ${claim.id}: ${err.message}`);
@@ -267,13 +297,15 @@ Deno.serve(async (req: Request) => {
   );
 });
 
-async function checkAndProcessClaim(claim: any, leagueId: string, waiverPeriodDays: number): Promise<boolean> {
+type ClaimResult = { ok: true } | { ok: false; reason: 'already_owned' | 'roster_full' };
+
+async function checkAndProcessClaim(claim: any, leagueId: string, waiverPeriodDays: number): Promise<ClaimResult> {
   const now = new Date();
 
   const { data: existing } = await supabase
     .from('league_players').select('id')
     .eq('league_id', leagueId).eq('player_id', claim.player_id).limit(1);
-  if (existing && existing.length > 0) return false;
+  if (existing && existing.length > 0) return { ok: false, reason: 'already_owned' };
 
   const [allRes, irRes, leagueRes] = await Promise.all([
     supabase.from('league_players').select('id', { count: 'exact', head: true })
@@ -287,7 +319,7 @@ async function checkAndProcessClaim(claim: any, leagueId: string, waiverPeriodDa
   const maxSize = leagueRes.data?.roster_size ?? 13;
   const rosterFull = activeCount >= maxSize;
 
-  if (rosterFull && !claim.drop_player_id) return false;
+  if (rosterFull && !claim.drop_player_id) return { ok: false, reason: 'roster_full' };
 
   if (rosterFull && claim.drop_player_id) {
     // Snapshot roster slot before dropping so mid-week scoring is preserved
@@ -298,8 +330,14 @@ async function checkAndProcessClaim(claim: any, leagueId: string, waiverPeriodDa
     if (delErr) throw delErr;
 
     if (waiverPeriodDays > 0) {
-      const until = new Date();
-      until.setDate(until.getDate() + waiverPeriodDays);
+      const raw = new Date();
+      raw.setDate(raw.getDate() + waiverPeriodDays);
+      const until = new Date(Date.UTC(
+        raw.getUTCFullYear(), raw.getUTCMonth(), raw.getUTCDate(), 6, 0, 0, 0
+      ));
+      if (raw.getTime() > until.getTime()) {
+        until.setUTCDate(until.getUTCDate() + 1);
+      }
       await supabase.from('league_waivers').insert({
         league_id: leagueId, player_id: claim.drop_player_id,
         on_waivers_until: until.toISOString(), dropped_by_team_id: claim.team_id,
@@ -345,7 +383,7 @@ async function checkAndProcessClaim(claim: any, leagueId: string, waiverPeriodDa
     .update({ status: 'successful', processed_at: now.toISOString() })
     .eq('id', claim.id);
 
-  return true;
+  return { ok: true };
 }
 
 async function bumpWaiverPriority(leagueId: string, winningTeamId: string) {

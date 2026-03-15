@@ -240,6 +240,28 @@ Deno.serve(async (req) => {
         .eq('player_id', item.player_id)
         .eq('team_id', item.from_team_id);
       if (error) throw new Error(`Failed to transfer player ${item.player_id}: ${error.message}`);
+
+      // Mark outgoing player as DROPPED on their old team's daily_lineups
+      await supabaseAdmin
+        .from('daily_lineups')
+        .upsert(
+          {
+            league_id: proposal.league_id,
+            team_id: item.from_team_id,
+            player_id: item.player_id,
+            lineup_date: todayDate,
+            roster_slot: 'DROPPED',
+          },
+          { onConflict: 'team_id,player_id,lineup_date' },
+        );
+      // Remove any future lineup entries for the outgoing player on the old team
+      await supabaseAdmin
+        .from('daily_lineups')
+        .delete()
+        .eq('league_id', proposal.league_id)
+        .eq('team_id', item.from_team_id)
+        .eq('player_id', item.player_id)
+        .gt('lineup_date', todayDate);
     }
 
     for (const item of pickItems) {

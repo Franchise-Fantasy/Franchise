@@ -29,6 +29,7 @@ export interface RosterPlayer {
   dayMatchup: string | null;
   dayStatLine: string | null;
   projectedFpts: number | null;
+  dayGameStats?: Record<string, number | boolean> | null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -130,6 +131,7 @@ export const PlayerCell = React.memo(function PlayerCell({
   futureSchedule,
   onPress,
   isCategories,
+  onFptsPress,
 }: {
   player: RosterPlayer | null;
   c: any;
@@ -140,6 +142,7 @@ export const PlayerCell = React.memo(function PlayerCell({
   futureSchedule?: Map<string, string>;
   onPress?: (playerId: string) => void;
   isCategories?: boolean;
+  onFptsPress?: (stats: Record<string, number | boolean>, playerName: string, gameLabel: string) => void;
 }) {
   const align = side === 'right' ? 'flex-end' : 'flex-start';
   const textAlign = side === 'right' ? ('right' as const) : ('left' as const);
@@ -225,7 +228,17 @@ export const PlayerCell = React.memo(function PlayerCell({
           {statLine ?? player.position}
         </Text>
         {!isCategories && (
-          <AnimatedFpts value={liveFp} activeColor={c.text} dimColor={c.secondaryText} textStyle={[pStyles.pts, { textAlign }]} />
+          onFptsPress ? (
+            <TouchableOpacity
+              onPress={() => onFptsPress(liveToGameLog(liveStats) as Record<string, number | boolean>, player.name, liveStats.matchup ?? '')}
+              accessibilityRole="button"
+              accessibilityLabel={`View breakdown: ${liveFp} fantasy points`}
+            >
+              <AnimatedFpts value={liveFp} activeColor={c.text} dimColor={c.secondaryText} textStyle={[pStyles.pts, { textAlign }]} />
+            </TouchableOpacity>
+          ) : (
+            <AnimatedFpts value={liveFp} activeColor={c.text} dimColor={c.secondaryText} textStyle={[pStyles.pts, { textAlign }]} />
+          )
         )}
       </Wrapper>
     );
@@ -260,6 +273,7 @@ export const PlayerCell = React.memo(function PlayerCell({
 
   // past
   const hasDayGame = player.dayPoints > 0;
+  const canShowBreakdown = hasDayGame && onFptsPress && player.dayGameStats;
   return (
     <Wrapper style={[pStyles.cell, { alignItems: align }]} {...wrapperProps}>
       <View style={[pStyles.nameRow, { justifyContent: align }]}>
@@ -277,12 +291,27 @@ export const PlayerCell = React.memo(function PlayerCell({
         {hasDayGame && player.dayStatLine ? player.dayStatLine : player.position}
       </Text>
       {!isCategories && (
-        <AnimatedFpts
-          value={hasDayGame ? player.dayPoints : null}
-          activeColor={c.text}
-          dimColor={c.secondaryText}
-          textStyle={[pStyles.pts, { textAlign }]}
-        />
+        canShowBreakdown ? (
+          <TouchableOpacity
+            onPress={() => onFptsPress!(player.dayGameStats!, player.name, player.dayMatchup ?? '')}
+            accessibilityRole="button"
+            accessibilityLabel={`View breakdown: ${player.dayPoints} fantasy points`}
+          >
+            <AnimatedFpts
+              value={player.dayPoints}
+              activeColor={c.text}
+              dimColor={c.secondaryText}
+              textStyle={[pStyles.pts, { textAlign }]}
+            />
+          </TouchableOpacity>
+        ) : (
+          <AnimatedFpts
+            value={hasDayGame ? player.dayPoints : null}
+            activeColor={c.text}
+            dimColor={c.secondaryText}
+            textStyle={[pStyles.pts, { textAlign }]}
+          />
+        )
       )}
     </Wrapper>
   );

@@ -5,12 +5,16 @@ import {
 } from "@react-navigation/native";
 import { useFonts } from "expo-font";
 import * as Notifications from "expo-notifications";
+import * as SplashScreen from "expo-splash-screen";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as Updates from "expo-updates";
 import "react-native-reanimated";
 
 import { isExpoGo } from "@/utils/buildConfig";
+
+// Keep the native splash screen visible until we explicitly hide it.
+SplashScreen.preventAutoHideAsync();
 
 // Sentry requires native modules — only initialize in TestFlight / production builds.
 if (!isExpoGo) {
@@ -317,8 +321,11 @@ export default function RootLayout() {
     })();
   }, []);
 
+  useEffect(() => {
+    if (loaded) SplashScreen.hideAsync();
+  }, [loaded]);
+
   if (!loaded) {
-    // Async font loading only occurs in development.
     return null;
   }
 

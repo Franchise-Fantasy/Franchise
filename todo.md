@@ -13,9 +13,6 @@ someone saw a pllayer who had already been picked
 
 If a player autodrafts twice in a row, their picks should immediately fire until they re-enter the draft room.
 
-- [ ] Implement Email Verification — Supabase toggle
-  - needs SMTP + Supabase Pro
-
 ## Tier 1 — Now
 
 - [ ] Build Onboarding Walkthrough — tooltip tour, scaffold now, polish closer to launch

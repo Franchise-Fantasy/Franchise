@@ -50,6 +50,8 @@ export default function Trades() {
   >();
   const [selectedProposal, setSelectedProposal] =
     useState<TradeProposalRow | null>(null);
+  const [counterofferProposal, setCounterofferProposal] =
+    useState<TradeProposalRow | null>(null);
   const [showTradeBlock, setShowTradeBlock] = useState(false);
 
   const { data: proposals, isLoading } = useTradeProposals(leagueId);
@@ -110,6 +112,13 @@ export default function Trades() {
     setShowPropose(false);
     setPreselectedTradeTeamId(undefined);
     setPreselectedPlayer(undefined);
+    setCounterofferProposal(null);
+  };
+
+  const handleCounteroffer = (proposal: TradeProposalRow) => {
+    setCounterofferProposal(proposal);
+    setSelectedProposal(null);
+    setShowPropose(true);
   };
 
   const hasTradeBlock = (tradeBlock ?? []).length > 0;
@@ -238,6 +247,11 @@ export default function Trades() {
           teamId={teamId}
           preselectedTeamId={preselectedTradeTeamId}
           preselectedPlayer={preselectedPlayer}
+          counterofferData={counterofferProposal ? {
+            originalProposalId: counterofferProposal.id,
+            teams: counterofferProposal.teams,
+            items: counterofferProposal.items,
+          } : undefined}
           onClose={handleProposeClose}
         />
       )}
@@ -248,6 +262,7 @@ export default function Trades() {
           leagueId={leagueId}
           teamId={teamId}
           onClose={() => setSelectedProposal(null)}
+          onCounteroffer={handleCounteroffer}
         />
       )}
     </SafeAreaView>

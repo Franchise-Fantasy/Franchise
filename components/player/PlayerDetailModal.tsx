@@ -268,17 +268,11 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
   });
 
   // Check if weekly acquisition limit is reached
-  const { data: addsExhausted } = useQuery({
+  // Returns the count of adds this week (same shape as FreeAgentList's query
+  // which shares the cache key ['weeklyAdds', leagueId, teamId])
+  const { data: weeklyAddsCount } = useQuery({
     queryKey: ['weeklyAdds', leagueId, teamId],
     queryFn: async () => {
-      const { data: leagueData } = await supabase
-        .from('leagues')
-        .select('weekly_acquisition_limit')
-        .eq('id', leagueId)
-        .single();
-      const wkLimit = leagueData?.weekly_acquisition_limit as number | null;
-      if (wkLimit == null) return false;
-
       const now = new Date();
       const day = now.getDay();
       const mondayOffset = day === 0 ? -6 : 1 - day;
@@ -286,7 +280,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
       monday.setDate(now.getDate() + mondayOffset);
       const weekStart = monday.toISOString().split('T')[0];
 
-      const { count } = await supabase
+      const { count, error } = await supabase
         .from('league_transactions')
         .select('id, league_transaction_items!inner(team_to_id)', { count: 'exact', head: true })
         .eq('league_id', leagueId)
@@ -294,11 +288,27 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
         .eq('type', 'waiver')
         .not('league_transaction_items.team_to_id', 'is', null)
         .gte('created_at', weekStart + 'T00:00:00');
-
-      return (count ?? 0) >= wkLimit;
+      if (error) throw error;
+      return count ?? 0;
     },
     enabled: !!leagueId && !!teamId && !isOnMyTeam,
   });
+
+  const { data: weeklyAcqLimit } = useQuery({
+    queryKey: ['weeklyAcqLimit', leagueId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('leagues')
+        .select('weekly_acquisition_limit')
+        .eq('id', leagueId)
+        .single();
+      if (error) throw error;
+      return data?.weekly_acquisition_limit as number | null;
+    },
+    enabled: !!leagueId && !isOnMyTeam,
+  });
+
+  const addsExhausted = weeklyAcqLimit != null && (weeklyAddsCount ?? 0) >= weeklyAcqLimit;
 
   // How many games has this player's team played so far this season?
   const { data: teamGamesPlayed } = useQuery({
@@ -671,8 +681,17 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
       const wt = rosterInfo?.waiverType ?? 'none';
       const wpDays = rosterInfo?.waiverPeriodDays ?? 2;
       if (wt !== 'none' && wpDays > 0) {
-        const until = new Date();
-        until.setDate(until.getDate() + wpDays);
+        // Round up to the next 6 AM UTC boundary after the waiver period expires
+        // so the displayed time matches the actual cron processing time
+        const raw = new Date();
+        raw.setDate(raw.getDate() + wpDays);
+        const until = new Date(Date.UTC(
+          raw.getUTCFullYear(), raw.getUTCMonth(), raw.getUTCDate(), 6, 0, 0, 0
+        ));
+        // If the raw time is already past 6 AM UTC on that day, push to next day
+        if (raw.getTime() > until.getTime()) {
+          until.setUTCDate(until.getUTCDate() + 1);
+        }
         await supabase.from('league_waivers').insert({
           league_id: leagueId,
           player_id: dropping.player_id,
@@ -949,7 +968,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
 
   const isOffseason = rosterInfo?.offseasonStep != null;
   const canTransact = !!teamId && !hasActiveDraft && !isProcessing && !isOffseason;
-  const canAdd = canTransact && !(addsExhausted ?? false);
+  const canAdd = canTransact && !addsExhausted;
 
   const renderDropPickerItem = ({ item }: { item: PlayerSeasonStats }) => {
     const fpts = scoringWeights
@@ -1401,6 +1420,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                   liveStats={liveStats}
                   liveToGameLog={liveToGameLog}
                   formatGameInfo={formatGameInfo}
+                  playerName={player?.name ?? ''}
                   colors={{ border: c.border, secondaryText: c.secondaryText, accent: c.accent }}
                 />
           </ScrollView>

@@ -1,4 +1,5 @@
 import { ErrorState } from "@/components/ErrorState";
+import { FptsBreakdownModal } from "@/components/player/FptsBreakdownModal";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import {
   RosterPlayer,
@@ -293,6 +294,7 @@ export default function RosterScreen() {
 
   const [selectedPlayer, setSelectedPlayer] =
     useState<PlayerSeasonStats | null>(null);
+  const [fptsBreakdown, setFptsBreakdown] = useState<{ stats: Record<string, number | boolean>; playerName: string; gameLabel: string } | null>(null);
   const [activeSlot, setActiveSlot] = useState<SlotEntry | null>(null);
   const [isAssigning, setIsAssigning] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
@@ -301,6 +303,8 @@ export default function RosterScreen() {
   const isPastDate = selectedDate < today;
   const isFutureDate = selectedDate > today;
   const isToday = selectedDate === today;
+  const yesterday = addDays(today, -1);
+  const isYesterday = selectedDate === yesterday;
 
   const { data: scoringWeights } = useLeagueScoring(leagueId ?? "");
   const { data: league } = useLeague();
@@ -370,9 +374,16 @@ export default function RosterScreen() {
     staleTime: 1000 * 60 * 60,
   });
 
-  // Live stats for today via Realtime
+  // Live stats for today (and yesterday's still-live games that crossed midnight)
   const playerIds = rosterPlayers?.map((p) => p.player_id) ?? [];
-  const liveMap = useLivePlayerStats(playerIds, isToday);
+  const rawLiveMap = useLivePlayerStats(playerIds, isToday || isYesterday);
+
+  // Filter live stats to only include games matching the selected date.
+  // Yesterday's late games (still live past midnight) show on yesterday's view,
+  // not today's.
+  const liveMap = new Map(
+    [...rawLiveMap].filter(([, stats]) => stats.game_date === selectedDate),
+  );
 
   // Game start times for locking slots
   const gameTimeMap = useTodayGameTimes(isToday);
@@ -1011,6 +1022,23 @@ export default function RosterScreen() {
     }
 
     if (isPastDate) {
+      // Check for still-live games from yesterday that crossed midnight
+      const live = liveMap.get(player.player_id);
+      if (live && live.game_status === 2) {
+        const stats = liveToGameLog(live);
+        const fpts = isCategories
+          ? null
+          : Math.round(
+              calculateGameFantasyPoints(stats as any, scoringWeights) * 10,
+            ) / 10;
+        return {
+          fpts,
+          projFpts: null,
+          statLine: buildStatLine(stats as Record<string, number>),
+          isLive: true,
+          matchup: live.matchup || null,
+        };
+      }
       const dayGame = dayGameStats?.get(player.player_id);
       if (dayGame) {
         const stats = dayToStatRecord(dayGame);
@@ -1318,16 +1346,49 @@ export default function RosterScreen() {
                 </ThemedText>
               )}
             </View>
-            {!isCategories && (
-              <AnimatedFpts
-                value={fpts}
-                accentColor={c.accent}
-                dimColor={c.secondaryText}
-                textStyle={styles.slotFpts}
-                animate={isToday}
-                projected={fptsMode === "proj" || isFutureDate}
-              />
-            )}
+            {!isCategories && (() => {
+              const isProjected = fptsMode === "proj" || isFutureDate;
+              // Determine if we can show a breakdown (actual game stats, not projected)
+              const canBreakdown = fpts !== null && !isProjected && scoringWeights;
+              const handleFptsPress = canBreakdown ? () => {
+                let gameStats: Record<string, number | boolean> | null = null;
+                if (liveData) {
+                  gameStats = liveToGameLog(liveData) as Record<string, number | boolean>;
+                } else if (isPastDate) {
+                  const dayGame = dayGameStats?.get(slot.player!.player_id);
+                  if (dayGame) gameStats = dayToStatRecord(dayGame);
+                }
+                if (gameStats) {
+                  setFptsBreakdown({ stats: gameStats, playerName: slot.player!.name, gameLabel: matchup ?? '' });
+                }
+              } : undefined;
+
+              return handleFptsPress ? (
+                <TouchableOpacity
+                  onPress={handleFptsPress}
+                  accessibilityRole="button"
+                  accessibilityLabel={`View breakdown: ${fpts} fantasy points`}
+                >
+                  <AnimatedFpts
+                    value={fpts}
+                    accentColor={c.accent}
+                    dimColor={c.secondaryText}
+                    textStyle={styles.slotFpts}
+                    animate={isToday}
+                    projected={false}
+                  />
+                </TouchableOpacity>
+              ) : (
+                <AnimatedFpts
+                  value={fpts}
+                  accentColor={c.accent}
+                  dimColor={c.secondaryText}
+                  textStyle={styles.slotFpts}
+                  animate={isToday}
+                  projected={isProjected}
+                />
+              );
+            })()}
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
@@ -1613,7 +1674,30 @@ export default function RosterScreen() {
         leagueId={leagueId ?? ""}
         teamId={teamId ?? undefined}
         onClose={() => setSelectedPlayer(null)}
+        onRosterChange={() => {
+          // Eagerly prefetch adjacent days so dropped/added players
+          // don't flash briefly when navigating (same pattern as IR moves)
+          if (!teamId || !leagueId) return;
+          for (const day of [addDays(selectedDate, 1), addDays(selectedDate, 2)]) {
+            queryClient.prefetchQuery({
+              queryKey: ["teamRoster", teamId, day],
+              queryFn: () => fetchTeamRosterForDate(teamId, leagueId, day),
+              staleTime: 0,
+            });
+          }
+        }}
       />
+
+      {scoringWeights && fptsBreakdown && (
+        <FptsBreakdownModal
+          visible
+          onClose={() => setFptsBreakdown(null)}
+          playerName={fptsBreakdown.playerName}
+          gameLabel={fptsBreakdown.gameLabel}
+          gameStats={fptsBreakdown.stats}
+          scoringWeights={scoringWeights}
+        />
+      )}
     </SafeAreaView>
   );
 }

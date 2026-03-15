@@ -20,7 +20,7 @@ export const STAT_TO_TOTAL: Record<string, keyof PlayerSeasonStats> = {
 };
 
 // Maps league_scoring_settings stat_name to player_games column
-const STAT_TO_GAME: Record<string, keyof PlayerGameLog> = {
+export const STAT_TO_GAME: Record<string, keyof PlayerGameLog> = {
   PTS: 'pts',
   REB: 'reb',
   AST: 'ast',
@@ -71,6 +71,33 @@ export function calculateGameFantasyPoints(
     }
   }
   return Math.round(total * 100) / 100;
+}
+
+// Returns per-stat breakdown of fantasy points for a single game.
+export interface FptsBreakdownRow {
+  stat_name: string;
+  stat_value: number;
+  point_value: number;
+  points: number;
+}
+
+export function getFantasyPointsBreakdown(
+  game: PlayerGameLog | Record<string, number | boolean>,
+  scoringWeights: ScoringWeight[]
+): { rows: FptsBreakdownRow[]; total: number } {
+  const rows: FptsBreakdownRow[] = [];
+  let total = 0;
+  for (const weight of scoringWeights) {
+    const field = STAT_TO_GAME[weight.stat_name];
+    if (!field) continue;
+    const raw = (game as any)[field];
+    if (raw == null) continue;
+    const stat_value = typeof raw === 'boolean' ? (raw ? 1 : 0) : (raw as number);
+    const points = Math.round(stat_value * weight.point_value * 100) / 100;
+    total += points;
+    rows.push({ stat_name: weight.stat_name, stat_value, point_value: weight.point_value, points });
+  }
+  return { rows, total: Math.round(total * 100) / 100 };
 }
 
 // Format a score: show hundredths only when non-zero (e.g. 42.5 not 42.50, but 42.75 stays)

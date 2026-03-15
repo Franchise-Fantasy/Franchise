@@ -44,6 +44,14 @@ export async function fetchTeamData(
     (leaguePlayers ?? []).map((lp: any) => [lp.player_id, lp.roster_slot ?? 'BE']),
   );
 
+  // Track when each player was acquired so we don't count games from before they joined
+  const acquiredDateMap = new Map<string, string>();
+  for (const lp of leaguePlayers ?? []) {
+    if ((lp as any).acquired_at) {
+      acquiredDateMap.set((lp as any).player_id, toDateStr(new Date((lp as any).acquired_at)));
+    }
+  }
+
   const dailyByPlayer = new Map<string, Array<{ lineup_date: string; roster_slot: string }>>();
   for (const entry of dailyEntries ?? []) {
     if (!dailyByPlayer.has(entry.player_id)) {
@@ -68,14 +76,38 @@ export async function fetchTeamData(
   const allPlayerIds = [...currentPlayerIds, ...droppedPlayerIds];
   if (allPlayerIds.length === 0) return { players: [], teamStats: {} };
 
+  const today = toDateStr(new Date());
+
+  // Build a map of drop dates for players no longer on the team
+  const dropDateMap = new Map<string, string>();
+  for (const pid of droppedPlayerIds) {
+    const entries = dailyByPlayer.get(pid) ?? [];
+    const droppedEntry = entries.find((e) => e.roster_slot === 'DROPPED');
+    if (droppedEntry) {
+      dropDateMap.set(pid, droppedEntry.lineup_date);
+    }
+  }
+
   const resolveSlot = (playerId: string, day: string): string => {
+    // For players no longer on this team, enforce DROPPED after their drop date
+    if (!currentPlayerIds.has(playerId)) {
+      const dropDate = dropDateMap.get(playerId);
+      if (dropDate && day >= dropDate) return 'DROPPED';
+      // No DROPPED marker but player isn't on team — treat today onward as DROPPED
+      if (!dropDate && day >= today) return 'DROPPED';
+    }
+
     const entries = dailyByPlayer.get(playerId) ?? [];
     const entry = entries.find((e) => e.lineup_date <= day);
-    return entry?.roster_slot ?? defaultSlotMap.get(playerId) ?? 'BE';
+    if (entry) return entry.roster_slot;
+    // No daily_lineup entry — fall back to current slot, but only if the player
+    // was on this team by the game date (prevents counting pre-acquisition games)
+    const acquired = acquiredDateMap.get(playerId);
+    if (acquired && day < acquired) return 'BE';
+    return defaultSlotMap.get(playerId) ?? 'BE';
   };
 
   // Fetch past game logs, season stats, and dropped player info in parallel
-  const today = toDateStr(new Date());
   const weekEndForQuery = selectedDate >= today ? addDays(today, -1) : week.end_date;
 
   const [{ data: gameLogs }, { data: seasonStats }, droppedPlayerInfo] = await Promise.all([

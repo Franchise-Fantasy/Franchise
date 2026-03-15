@@ -1,6 +1,7 @@
 import { CategoryScoreboard } from '@/components/matchup/CategoryScoreboard';
 import { PlayerCell, pStyles, RosterPlayer, DisplayMode, round1, buildStatLine } from '@/components/matchup/PlayerCell';
 import { MatchupSkeleton } from '@/components/matchup/MatchupSkeleton';
+import { FptsBreakdownModal } from '@/components/player/FptsBreakdownModal';
 import { PlayerDetailModal } from '@/components/player/PlayerDetailModal';
 import { ThemedText } from '@/components/ThemedText';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,6 +11,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeague } from '@/hooks/useLeague';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { useLeagueRosterConfig, RosterConfigSlot } from '@/hooks/useLeagueRosterConfig';
+import { useWeekScores } from '@/hooks/useWeekScores';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
 import { aggregateTeamStats, computeCategoryResults, TeamStatTotals } from '@/utils/categoryScoring';
@@ -135,6 +137,7 @@ function buildFromStored(
       dayPoints: isDayActive && dayGame ? round1(dayGame.fpts) : 0,
       dayMatchup: isDayActive && dayGame ? dayGame.matchup : null,
       dayStatLine: isDayActive && dayGame ? buildStatLine(dayGame.stats, scoring) : null,
+      dayGameStats: isDayActive && dayGame ? dayGame.stats : null,
       projectedFpts: 0,
     };
   });
@@ -158,6 +161,7 @@ export default function MatchupDetailScreen() {
   const today = useToday();
   const [selectedDate, setSelectedDate] = useState<string>(today);
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerSeasonStats | null>(null);
+  const [fptsBreakdown, setFptsBreakdown] = useState<{ stats: Record<string, number | boolean>; playerName: string; gameLabel: string } | null>(null);
 
   // Fetch matchup + week info
   const { data: matchupInfo, isLoading: infoLoading } = useQuery({
@@ -285,12 +289,20 @@ export default function MatchupDetailScreen() {
   const isToday = effectiveDate === today;
   const yesterday = addDays(today, -1);
   const isYesterday = effectiveDate === yesterday;
+  const weekIsLive = !!week && week.start_date <= today && today <= week.end_date;
   const rawLiveMap = useLivePlayerStats(allPlayerIds, isToday || isYesterday);
 
   // Filter live stats to only include games matching the selected date
   const liveMap = new Map(
     [...rawLiveMap].filter(([, stats]) => stats.game_date === effectiveDate)
   );
+
+  // Server-authoritative week scores
+  const { data: weekScores } = useWeekScores({
+    leagueId,
+    scheduleId: week?.id ?? null,
+    weekIsLive,
+  });
 
   // Future schedule
   const isFutureDate = effectiveDate > today;
@@ -313,7 +325,8 @@ export default function MatchupDetailScreen() {
     }, 0));
   };
 
-  function computeLiveBonus(players: RosterPlayer[]): number {
+  // Day live bonus uses date-filtered liveMap
+  function computeDayLiveBonus(players: RosterPlayer[]): number {
     if (liveMap.size === 0) return 0;
     return round1(
       players.reduce((sum, p) => {
@@ -353,8 +366,8 @@ export default function MatchupDetailScreen() {
     ? buildMatchupSlots(teamData.awayTeam.players, rosterConfig)
     : [];
 
-  const homeLiveBonus = teamData?.homeTeam ? computeLiveBonus(teamData.homeTeam.players) : 0;
-  const awayLiveBonus = teamData?.awayTeam ? computeLiveBonus(teamData.awayTeam.players) : 0;
+  const homeDayLiveBonus = teamData?.homeTeam ? computeDayLiveBonus(teamData.homeTeam.players) : 0;
+  const awayDayLiveBonus = teamData?.awayTeam ? computeDayLiveBonus(teamData.awayTeam.players) : 0;
 
   const router = useRouter();
 
@@ -431,14 +444,16 @@ export default function MatchupDetailScreen() {
           <View>
             {/* Score header */}
             {(() => {
-              const homeWeek = round1(teamData.homeTeam.weekTotal + homeLiveBonus);
-              const awayWeek = teamData.awayTeam ? round1(teamData.awayTeam.weekTotal + awayLiveBonus) : 0;
+              const homeWeek = weekScores?.[teamData.homeTeam.teamId] ?? teamData.homeTeam.weekTotal;
+              const awayWeek = teamData.awayTeam
+                ? (weekScores?.[teamData.awayTeam.teamId] ?? teamData.awayTeam.weekTotal)
+                : 0;
               const homeDay = mode === 'future'
                 ? computeProjectedDay(teamData.homeTeam.players, futureSchedule)
-                : round1(teamData.homeTeam.dayTotal + homeLiveBonus);
+                : round1(teamData.homeTeam.dayTotal + homeDayLiveBonus);
               const awayDay = mode === 'future' && teamData.awayTeam
                 ? computeProjectedDay(teamData.awayTeam.players, futureSchedule)
-                : (teamData.awayTeam ? round1(teamData.awayTeam.dayTotal + awayLiveBonus) : 0);
+                : (teamData.awayTeam ? round1(teamData.awayTeam.dayTotal + awayDayLiveBonus) : 0);
 
               if (isCategories && teamData.awayTeam) {
                 const catComparison = computeCategoryResults(
@@ -515,6 +530,7 @@ export default function MatchupDetailScreen() {
                     futureSchedule={futureSchedule}
                     onPress={handlePlayerPress}
                     isCategories={isCategories}
+                    onFptsPress={(stats, name, label) => setFptsBreakdown({ stats, playerName: name, gameLabel: label })}
                   />
                   <View style={pStyles.slotCenter}>
                     <Text style={[pStyles.slotText, { color: c.secondaryText }]}>
@@ -531,6 +547,7 @@ export default function MatchupDetailScreen() {
                     futureSchedule={futureSchedule}
                     onPress={handlePlayerPress}
                     isCategories={isCategories}
+                    onFptsPress={(stats, name, label) => setFptsBreakdown({ stats, playerName: name, gameLabel: label })}
                   />
                 </View>
               );
@@ -592,6 +609,17 @@ export default function MatchupDetailScreen() {
           player={selectedPlayer}
           leagueId={leagueId}
           onClose={() => setSelectedPlayer(null)}
+        />
+      )}
+
+      {scoring && fptsBreakdown && (
+        <FptsBreakdownModal
+          visible
+          onClose={() => setFptsBreakdown(null)}
+          playerName={fptsBreakdown.playerName}
+          gameLabel={fptsBreakdown.gameLabel}
+          gameStats={fptsBreakdown.stats}
+          scoringWeights={scoring}
         />
       )}
     </SafeAreaView>

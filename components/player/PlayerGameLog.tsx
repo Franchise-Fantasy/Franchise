@@ -1,7 +1,9 @@
 import { ThemedText } from '@/components/ThemedText';
+import { FptsBreakdownModal } from '@/components/player/FptsBreakdownModal';
 import { PlayerGameLog as PlayerGameLogType, ScoringWeight } from '@/types/player';
 import { calculateGameFantasyPoints } from '@/utils/fantasyPoints';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { useState } from 'react';
+import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 // Returns the Monday (start of week) for a given YYYY-MM-DD date string
 function getWeekMonday(dateStr: string): string {
@@ -62,6 +64,7 @@ interface PlayerGameLogProps {
   liveStats: { game_status: number; matchup?: string; [key: string]: any } | null;
   liveToGameLog: (stats: any) => Record<string, number | boolean>;
   formatGameInfo: (stats: any) => string;
+  playerName: string;
   colors: {
     border: string;
     secondaryText: string;
@@ -77,8 +80,10 @@ export function PlayerGameLog({
   liveStats,
   liveToGameLog: liveToGameLogFn,
   formatGameInfo: formatGameInfoFn,
+  playerName,
   colors: c,
 }: PlayerGameLogProps) {
+  const [breakdownData, setBreakdownData] = useState<{ stats: Record<string, number | boolean>; label: string } | null>(null);
 
   // Build combined row list: upcoming (furthest first) -> live -> historical
   const liveDate = liveStats?.game_date ?? null;
@@ -287,9 +292,15 @@ export function PlayerGameLog({
               const fpts = calculateGameFantasyPoints(row.stats as any, scoringWeights);
               return (
                 <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, styles.gameRowLive, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd]}>
-                  <ThemedText style={[styles.gameCell, styles.gameCellFpts, { color: c.accent, fontWeight: '600' }]}>
-                    {fpts}
-                  </ThemedText>
+                  <TouchableOpacity
+                    onPress={() => setBreakdownData({ stats: row.stats as Record<string, number | boolean>, label: `${row.date} ${row.opp}` })}
+                    accessibilityRole="button"
+                    accessibilityLabel={`View breakdown: ${fpts} fantasy points`}
+                  >
+                    <ThemedText style={[styles.gameCell, styles.gameCellFpts, { color: c.accent, fontWeight: '600' }]}>
+                      {fpts}
+                    </ThemedText>
+                  </TouchableOpacity>
                 </View>
               );
             }
@@ -297,13 +308,30 @@ export function PlayerGameLog({
             const fpts = calculateGameFantasyPoints(row.item, scoringWeights);
             return (
               <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd]}>
-                <ThemedText style={[styles.gameCell, styles.gameCellFpts, isDNP ? styles.gameCellDNP : { color: c.accent, fontWeight: '600' }]}>
-                  {fpts}
-                </ThemedText>
+                <TouchableOpacity
+                  onPress={() => setBreakdownData({ stats: row.item as any, label: `${formatGameDate(row.item.game_date)} ${row.item.matchup?.replace(/^vs\s*/i, '') ?? ''}` })}
+                  accessibilityRole="button"
+                  accessibilityLabel={`View breakdown: ${fpts} fantasy points`}
+                >
+                  <ThemedText style={[styles.gameCell, styles.gameCellFpts, isDNP ? styles.gameCellDNP : { color: c.accent, fontWeight: '600' }]}>
+                    {fpts}
+                  </ThemedText>
+                </TouchableOpacity>
               </View>
             );
           })}
         </View>
+      )}
+
+      {scoringWeights && breakdownData && (
+        <FptsBreakdownModal
+          visible
+          onClose={() => setBreakdownData(null)}
+          playerName={playerName}
+          gameLabel={breakdownData.label}
+          gameStats={breakdownData.stats}
+          scoringWeights={scoringWeights}
+        />
       )}
     </View>
   );

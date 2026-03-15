@@ -1,6 +1,6 @@
 import { PlayoffBracket } from '@/components/playoff/PlayoffBracket';
 import { SeedPickModal } from '@/components/playoff/SeedPickModal';
-import { ThemedText } from '@/components/ThemedText';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Colors } from '@/constants/Colors';
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { useAppState } from '@/context/AppStateProvider';
@@ -18,7 +18,6 @@ import {
   seedTeams,
 } from '@/utils/playoff';
 import { useQuery } from '@tanstack/react-query';
-import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -146,7 +145,6 @@ function fillFutureRounds(
 }
 
 export default function PlayoffBracketScreen() {
-  const router = useRouter();
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const { leagueId } = useAppState();
@@ -222,16 +220,7 @@ export default function PlayoffBracketScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
-      {/* Header */}
-      <View style={[styles.header, { borderBottomColor: c.border }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
-          <Text style={[styles.backText, { color: c.accent }]}>{'‹ Back'}</Text>
-        </TouchableOpacity>
-        <ThemedText type="defaultSemiBold" style={styles.headerTitle} accessibilityRole="header">
-          Playoff Bracket
-        </ThemedText>
-        <View style={styles.backBtn} />
-      </View>
+      <PageHeader title="Playoff Bracket" />
 
       {/* Projected banner */}
       {!hasRealBracket && displaySlots.length > 0 && (
@@ -285,26 +274,6 @@ export default function PlayoffBracketScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    height: 50,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  backBtn: {
-    width: 60,
-    paddingVertical: 8,
-  },
-  backText: {
-    fontSize: 17,
-    fontWeight: '400',
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: 17,
   },
   projectedBanner: {
     paddingVertical: 8,

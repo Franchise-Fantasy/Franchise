@@ -111,10 +111,7 @@ export default function Auth() {
       setLoading(false);
       return;
     }
-    // TODO: Re-enable OTP verification once custom SMTP is set up.
-    // Only trigger in production builds (magic link emails won't work in Expo Go).
-    // if (!isExpoGo) setPendingVerification(true);
-    router.replace("/(setup)");
+    setPendingVerification(true);
     setLoading(false);
   }
 
