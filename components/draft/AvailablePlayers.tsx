@@ -165,9 +165,16 @@ export function AvailablePlayers({ draftId, leagueId, currentPick, teamId, isRoo
       });
   }, [players, recentGameLogs, timeRange]);
 
+  // Pass an empty rosteredPlayerIds so the "free agents only" filter (default ON)
+  // doesn't short-circuit to []. The query already excludes drafted players.
+  const emptySet = useMemo(() => new Set<string>(), []);
   const { filteredPlayers, filterBarProps } = usePlayerFilter(
     adjustedPlayers,
     scoringWeights,
+    undefined,
+    undefined,
+    undefined,
+    emptySet,
   );
 
   const handleDraft = (player: PlayerSeasonStats) => {
@@ -186,11 +193,14 @@ export function AvailablePlayers({ draftId, leagueId, currentPick, teamId, isRoo
       .channel(`league_players_${leagueId}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'league_players' },
-        (payload) => {
-          if ((payload.new as { league_id?: string })?.league_id === leagueId) {
-            queryClient.invalidateQueries({ queryKey: ['availablePlayers', leagueId] });
-          }
+        {
+          event: '*',
+          schema: 'public',
+          table: 'league_players',
+          filter: `league_id=eq.${leagueId}`,
+        },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ['availablePlayers', leagueId] });
         }
       )
       .subscribe();

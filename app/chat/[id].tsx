@@ -16,7 +16,7 @@ import {
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import type { ChatMessage, ReactionGroup } from '@/types/chat';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import {
@@ -30,6 +30,31 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, {
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
+
+// "Today 12:30 PM", "Yesterday 3:45 PM", "Monday 2:15 PM", "Mar 10, 1:00 PM"
+function formatTimeHeader(dateStr: string): string {
+  const d = new Date(dateStr);
+  const now = new Date();
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const dayDiff = Math.floor((startOfToday.getTime() - startOfDay.getTime()) / 86400000);
+
+  if (dayDiff === 0) return `Today ${time}`;
+  if (dayDiff === 1) return `Yesterday ${time}`;
+  if (dayDiff < 7) {
+    const dayName = d.toLocaleDateString('en-US', { weekday: 'long' });
+    return `${dayName} ${time}`;
+  }
+  const dateLabel = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return `${dateLabel}, ${time}`;
+}
 
 export default function ConversationScreen() {
   const { id: conversationId } = useLocalSearchParams<{ id: string }>();
@@ -96,6 +121,7 @@ export default function ConversationScreen() {
     staleTime: Infinity,
   });
 
+  const queryClient = useQueryClient();
   const [showCreatePoll, setShowCreatePoll] = useState(false);
 
   const {
@@ -119,6 +145,7 @@ export default function ConversationScreen() {
   const { data: reactionsMap } = useReactions(
     conversationId ?? null,
     visibleMessageIds,
+    teamId ?? null,
   );
 
   const sendMessage = useSendMessage(
@@ -178,15 +205,35 @@ export default function ConversationScreen() {
     return a.slice(0, 16) === b.slice(0, 16);
   }, []);
 
+  // Shared swipe-to-reveal: drag the whole list left to show per-message times
+  const swipeReveal = useSharedValue(0);
+  const listPanGesture = Gesture.Pan()
+    .activeOffsetX([-10, 10])
+    .failOffsetY([-5, 5])
+    .onUpdate((e) => {
+      swipeReveal.value = Math.max(-60, Math.min(0, e.translationX));
+    })
+    .onEnd(() => {
+      swipeReveal.value = withSpring(0, { damping: 50, stiffness: 400, overshootClamping: true });
+    });
+
   const renderItem = useCallback(
     ({ item, index }: { item: ChatMessage; index: number }) => {
+      // Pre-seed poll cache so PollBubble renders instantly without a loading state
+      if (item.type === 'poll' && item.poll_question) {
+        queryClient.setQueryData(['poll', item.content], {
+          id: item.content,
+          question: item.poll_question,
+          options: item.poll_options,
+          poll_type: item.poll_type,
+          closes_at: item.poll_closes_at,
+          is_anonymous: item.poll_is_anonymous,
+          show_live_results: item.poll_show_live_results,
+        });
+      }
+
       const isOwn = item.team_id === teamId;
-      const reactions: ReactionGroup[] = (reactionsMap?.[item.id] ?? []).map(
-        (r) => ({
-          ...r,
-          reacted_by_me: r.team_names.includes(myTeamName ?? ''),
-        }),
-      );
+      const reactions: ReactionGroup[] = reactionsMap?.[item.id] ?? [];
 
       // Inverted list: index 0 = newest. "prev" = next index (older), "next" = prev index (newer).
       const newerMsg = index > 0 ? messages[index - 1] : null;
@@ -207,26 +254,43 @@ export default function ConversationScreen() {
       const isFirstInGroup = !sameSenderAsOlder;
       const isLastInGroup = !sameSenderAsNewer;
 
-      // Show time only on the last message in a group (bottom, visually)
-      const showTime = isLastInGroup;
+      // Time header: show when there's a 1+ hour gap between this message
+      // and the older one (visually above in inverted list).
+      const GAP_MS = 60 * 60 * 1000; // 1 hour
+      const itemTime = new Date(item.created_at).getTime();
+      const olderTime = olderMsg ? new Date(olderMsg.created_at).getTime() : 0;
+      const showTimeHeader = !olderMsg || (itemTime - olderTime) >= GAP_MS;
+
+      // Show swipe-reveal time only on last message in group (avoids clutter)
+      const showSwipeTime = isLastInGroup;
 
       return (
-        <MessageBubble
-          message={item}
-          isOwnMessage={isOwn}
-          showSender={isLeagueChat}
-          showTime={showTime}
-          isFirstInGroup={isFirstInGroup}
-          isLastInGroup={isLastInGroup}
-          reactions={reactions}
-          onLongPress={() => handleLongPress(item.id)}
-          onReactionPress={(emoji) => handleReactionPress(item.id, emoji)}
-          teamId={teamId ?? undefined}
-          isCommissioner={isCommissioner ?? false}
-        />
+        <>
+          <MessageBubble
+            message={item}
+            isOwnMessage={isOwn}
+            showSender={isLeagueChat}
+            isFirstInGroup={isFirstInGroup}
+            isLastInGroup={isLastInGroup}
+            reactions={reactions}
+            onLongPress={() => handleLongPress(item.id)}
+            onReactionPress={(emoji) => handleReactionPress(item.id, emoji)}
+            teamId={teamId ?? undefined}
+            isCommissioner={isCommissioner ?? false}
+            swipeReveal={swipeReveal}
+            showSwipeTime={showSwipeTime}
+          />
+          {showTimeHeader && (
+            <View style={styles.dateHeader}>
+              <ThemedText style={[styles.dateHeaderText, { color: c.secondaryText }]}>
+                {formatTimeHeader(item.created_at)}
+              </ThemedText>
+            </View>
+          )}
+        </>
       );
     },
-    [teamId, reactionsMap, myTeamName, messages, isLeagueChat, isCommissioner, sameMinute, handleLongPress, handleReactionPress],
+    [teamId, reactionsMap, myTeamName, messages, isLeagueChat, isCommissioner, sameMinute, handleLongPress, handleReactionPress, queryClient, c, swipeReveal],
   );
 
   return (
@@ -247,20 +311,27 @@ export default function ConversationScreen() {
             </ThemedText>
           </View>
         ) : (
-          <FlatList
-            data={messages}
-            keyExtractor={(item) => item.id}
-            renderItem={renderItem}
-            inverted
-            contentContainerStyle={styles.list}
-            onEndReached={onEndReached}
-            onEndReachedThreshold={0.5}
-            ListFooterComponent={
-              isFetchingNextPage ? (
-                <ActivityIndicator style={styles.footerLoader} />
-              ) : null
-            }
-          />
+          <GestureDetector gesture={listPanGesture}>
+            <Animated.View style={styles.flex}>
+              <FlatList
+                data={messages}
+                keyExtractor={(item) => item.id}
+                renderItem={renderItem}
+                inverted
+                contentContainerStyle={styles.list}
+                onEndReached={onEndReached}
+                onEndReachedThreshold={0.5}
+                removeClippedSubviews
+                maxToRenderPerBatch={15}
+                windowSize={11}
+                ListFooterComponent={
+                  isFetchingNextPage ? (
+                    <ActivityIndicator style={styles.footerLoader} />
+                  ) : null
+                }
+              />
+            </Animated.View>
+          </GestureDetector>
         )}
 
         <ChatInput
@@ -335,5 +406,13 @@ const styles = StyleSheet.create({
   },
   footerLoader: {
     paddingVertical: 16,
+  },
+  dateHeader: {
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  dateHeaderText: {
+    fontSize: 12,
+    fontWeight: '500',
   },
 });

@@ -1,8 +1,14 @@
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
-import { StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { StyleSheet, TextInput, View } from 'react-native';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
+import { TouchableOpacity } from 'react-native';
 
 interface Props {
   onSend: (text: string) => void;
@@ -18,6 +24,17 @@ export function ChatInput({ onSend, sending, isCommissioner, isLeagueChat, onCre
   const [text, setText] = useState('');
 
   const canSend = text.trim().length > 0 && !sending;
+
+  // Animate send button scale
+  const sendScale = useSharedValue(0.6);
+  useEffect(() => {
+    sendScale.value = withSpring(canSend ? 1 : 0.6, { damping: 12, stiffness: 200 });
+  }, [canSend]);
+
+  const sendAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: sendScale.value }],
+    opacity: sendScale.value,
+  }));
 
   const handleSend = () => {
     if (!canSend) return;
@@ -55,19 +72,21 @@ export function ChatInput({ onSend, sending, isCommissioner, isLeagueChat, onCre
         returnKeyType="default"
         accessibilityLabel="Type a message"
       />
-      <TouchableOpacity
-        onPress={handleSend}
-        disabled={!canSend}
-        style={[
-          styles.sendBtn,
-          { backgroundColor: canSend ? c.accent : c.buttonDisabled },
-        ]}
-        accessibilityRole="button"
-        accessibilityLabel="Send message"
-        accessibilityState={{ disabled: !canSend }}
-      >
-        <Ionicons name="arrow-up" size={20} color="#FFFFFF" />
-      </TouchableOpacity>
+      <Animated.View style={sendAnimStyle}>
+        <TouchableOpacity
+          onPress={handleSend}
+          disabled={!canSend}
+          style={[
+            styles.sendBtn,
+            { backgroundColor: canSend ? c.accent : c.buttonDisabled },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Send message"
+          accessibilityState={{ disabled: !canSend }}
+        >
+          <Ionicons name="arrow-up" size={20} color="#FFFFFF" />
+        </TouchableOpacity>
+      </Animated.View>
     </View>
   );
 }

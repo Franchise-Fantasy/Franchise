@@ -13,6 +13,7 @@ import { useEffect } from 'react';
 export function useReactions(
   conversationId: string | null,
   messageIds: string[],
+  myTeamId: string | null,
 ) {
   const queryClient = useQueryClient();
 
@@ -22,7 +23,12 @@ export function useReactions(
       .channel(`chat_reactions_${conversationId}_${Date.now()}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'chat_reactions' },
+        {
+          event: '*',
+          schema: 'public',
+          table: 'chat_reactions',
+          filter: `conversation_id=eq.${conversationId}`,
+        },
         () => {
           queryClient.invalidateQueries({
             queryKey: ['reactions', conversationId],
@@ -51,14 +57,16 @@ export function useReactions(
         const groups = grouped[r.message_id];
         const existing = groups.find((g) => g.emoji === r.emoji);
         const tName = (r as any).teams?.name ?? 'Unknown';
+        const isMine = r.team_id === myTeamId;
         if (existing) {
           existing.count++;
           existing.team_names.push(tName);
+          if (isMine) existing.reacted_by_me = true;
         } else {
           groups.push({
             emoji: r.emoji,
             count: 1,
-            reacted_by_me: false,
+            reacted_by_me: isMine,
             team_names: [tName],
           });
         }
@@ -96,7 +104,7 @@ export function useToggleReaction(conversationId: string) {
       } else {
         await supabase
           .from('chat_reactions')
-          .insert({ message_id: messageId, team_id: teamId, emoji });
+          .insert({ message_id: messageId, team_id: teamId, emoji, conversation_id: conversationId });
       }
     },
     onMutate: async ({ messageId, teamId, emoji }) => {

@@ -146,7 +146,7 @@ function useScoreboardData(
     queryFn: () => fetchMatchups(week!.id),
     enabled: !!week,
     staleTime: 1000 * 60 * 5,
-    refetchInterval: weekState === 'live' ? 90_000 : false,
+    refetchInterval: weekState === 'live' ? 150_000 : false,
   });
 
   // All teams in the league

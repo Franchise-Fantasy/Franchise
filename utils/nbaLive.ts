@@ -136,7 +136,12 @@ export function useLivePlayerStats(
       .channel(`live-stats-${playerIds.slice(0, 4).join('-')}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'live_player_stats' },
+        {
+          event: '*',
+          schema: 'public',
+          table: 'live_player_stats',
+          filter: `player_id=in.(${playerIds.join(',')})`,
+        },
         (payload) => {
           const row = payload.new as LivePlayerStats;
           if (!playerIds.includes(row.player_id)) return;

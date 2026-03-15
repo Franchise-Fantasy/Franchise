@@ -126,6 +126,7 @@ Deno.serve(async (req) => {
         team_id: commTeam.id,
         content: poll.id,
         type: 'poll',
+        league_id,
       })
       .select('id')
       .single();

@@ -10,6 +10,7 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as Updates from "expo-updates";
 import "react-native-reanimated";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { isExpoGo } from "@/utils/buildConfig";
 
@@ -108,7 +109,7 @@ const queryClient = new QueryClient({
   }),
   defaultOptions: {
     queries: {
-      staleTime: 2 * 60 * 1000, // 2 min
+      staleTime: 5 * 60 * 1000, // 5 min
       gcTime: 10 * 60 * 1000, // 10 min
       retry: 2,
       retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
@@ -330,6 +331,7 @@ export default function RootLayout() {
   }
 
   return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
     <PostHogProvider
       client={posthog}
       autocapture={{ captureScreens: false, captureTouches: false }}
@@ -462,5 +464,6 @@ export default function RootLayout() {
         </QueryClientProvider>
       </PostHogSurveyProvider>
     </PostHogProvider>
+    </GestureHandlerRootView>
   );
 }

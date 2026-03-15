@@ -24,6 +24,7 @@ import {
 export interface RosterPlayer extends PlayerSeasonStats {
   roster_slot: string | null;
   nbaTricode: string | null; // real team tricode from players.nba_team (e.g. "OKC")
+  acquired_at?: string | null; // ISO timestamp of when the player was added to the team
 }
 
 export interface SlotEntry {

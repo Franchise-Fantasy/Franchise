@@ -3,7 +3,12 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { ConversationPreview } from '@/types/chat';
 import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
 
 function formatTime(dateStr: string): string {
   const d = new Date(dateStr);
@@ -39,56 +44,65 @@ export function ConversationRow({ conversation, onPress }: Props) {
       : conversation.last_message
     : 'No messages yet';
 
-  return (
-    <TouchableOpacity
-      style={[styles.row, { backgroundColor: c.card, borderColor: c.border }]}
-      onPress={onPress}
-      activeOpacity={0.7}
-      accessibilityRole="button"
-      accessibilityLabel={`${name}${hasUnread ? `, ${conversation.unread_count} unread` : ''}`}
-    >
-      <View style={[styles.iconCircle, { backgroundColor: c.cardAlt }]}>
-        <Ionicons
-          name={isLeague ? 'chatbubbles' : 'person'}
-          size={20}
-          color={c.accent}
-        />
-      </View>
+  // Subtle press animation
+  const scale = useSharedValue(1);
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
 
-      <View style={styles.content}>
-        <View style={styles.topRow}>
-          <ThemedText style={styles.name} numberOfLines={1}>
-            {name}
-          </ThemedText>
-          {conversation.last_message_at && (
-            <ThemedText style={[styles.time, { color: c.secondaryText }]}>
-              {formatTime(conversation.last_message_at)}
+  return (
+    <Animated.View style={animStyle}>
+      <Pressable
+        style={[styles.row, { backgroundColor: c.card }]}
+        onPress={onPress}
+        onPressIn={() => { scale.value = withSpring(0.97, { damping: 15, stiffness: 300 }); }}
+        onPressOut={() => { scale.value = withSpring(1, { damping: 15, stiffness: 300 }); }}
+        accessibilityRole="button"
+        accessibilityLabel={`${name}${hasUnread ? `, ${conversation.unread_count} unread` : ''}`}
+      >
+        <View style={[styles.iconCircle, { backgroundColor: c.cardAlt }]}>
+          <Ionicons
+            name={isLeague ? 'chatbubbles' : 'person'}
+            size={20}
+            color={c.accent}
+          />
+        </View>
+
+        <View style={styles.content}>
+          <View style={styles.topRow}>
+            <ThemedText style={styles.name} numberOfLines={1}>
+              {name}
             </ThemedText>
-          )}
-        </View>
-        <View style={styles.bottomRow}>
-          <ThemedText
-            style={[
-              styles.preview,
-              { color: hasUnread ? c.text : c.secondaryText },
-              hasUnread && styles.previewBold,
-            ]}
-            numberOfLines={1}
-          >
-            {preview}
-          </ThemedText>
-          {hasUnread && (
-            <View style={[styles.badge, { backgroundColor: c.accent }]}>
-              <ThemedText style={styles.badgeText}>
-                {conversation.unread_count > 99
-                  ? '99+'
-                  : conversation.unread_count}
+            {conversation.last_message_at && (
+              <ThemedText style={[styles.time, { color: hasUnread ? c.accent : c.secondaryText }]}>
+                {formatTime(conversation.last_message_at)}
               </ThemedText>
-            </View>
-          )}
+            )}
+          </View>
+          <View style={styles.bottomRow}>
+            <ThemedText
+              style={[
+                styles.preview,
+                { color: hasUnread ? c.text : c.secondaryText },
+                hasUnread && styles.previewBold,
+              ]}
+              numberOfLines={1}
+            >
+              {preview}
+            </ThemedText>
+            {hasUnread && (
+              <View style={[styles.badge, { backgroundColor: c.accent }]}>
+                <ThemedText style={styles.badgeText}>
+                  {conversation.unread_count > 99
+                    ? '99+'
+                    : conversation.unread_count}
+                </ThemedText>
+              </View>
+            )}
+          </View>
         </View>
-      </View>
-    </TouchableOpacity>
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -96,9 +110,8 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 14,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     gap: 12,
   },
   iconCircle: {

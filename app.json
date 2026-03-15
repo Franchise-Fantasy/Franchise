@@ -2,7 +2,7 @@
   "expo": {
     "name": "franchise.v2",
     "slug": "franchise-v2",
-    "version": "0.1.17",
+    "version": "1.0.18",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "franchisev2",
@@ -68,7 +68,7 @@
       }
     },
     "runtimeVersion": {
-      "policy": "appVersion"
+      "policy": "fingerprint"
     },
     "updates": {
       "url": "https://u.expo.dev/bc023770-8f00-49df-9fa0-0afdd24f6a44"

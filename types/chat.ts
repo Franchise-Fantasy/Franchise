@@ -21,6 +21,13 @@ export interface ChatMessage {
   type: 'text' | 'poll';
   created_at: string;
   team_name?: string;
+  // Embedded poll data (present for type='poll', from get_messages_page RPC)
+  poll_question?: string;
+  poll_options?: string[];
+  poll_type?: 'single' | 'multi';
+  poll_closes_at?: string;
+  poll_is_anonymous?: boolean;
+  poll_show_live_results?: boolean;
 }
 
 export interface ChatReaction {

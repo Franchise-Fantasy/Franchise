@@ -40,6 +40,7 @@ If a player autodrafts twice in a row, their picks should immediately fire until
 ## Tier 4 — Future
 
 - [ ] Venmo API integration (upgrade from simple ledger)
+- [ ] Web app for drafting/simple views (still want to push towards the app)
 - [ ] iPad/Tablet-specific layouts
 - [ ] Player News Feed — aggregated updates for rostered players
 - [ ] In-season tournament option

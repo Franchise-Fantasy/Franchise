@@ -1,5 +1,5 @@
 import { AvailablePlayers } from '@/components/draft/AvailablePlayers';
-import { DraftOrder } from '@/components/draft/DraftOrder';
+import { DraftOrder, PresenceTeam } from '@/components/draft/DraftOrder';
 import { TeamRoster } from '@/components/draft/TeamRoster';
 import { ProposeTradeModal } from '@/components/trade/ProposeTradeModal';
 import { ThemedText } from '@/components/ThemedText';
@@ -9,8 +9,8 @@ import { CurrentPick, DraftState } from '@/types/draft';
 import { setDraftRoomOpen } from '@/lib/activeScreen';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Modal, FlatList, Pressable, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -28,6 +28,9 @@ export default function DraftRoomScreen() {
   const [viewMode, setViewMode] = useState<ViewMode>('players');
   const [currentPick, setCurrentPick] = useState<CurrentPick | null>(null);
   const [showTradeModal, setShowTradeModal] = useState(false);
+  const [presentTeams, setPresentTeams] = useState<PresenceTeam[]>([]);
+  const [showPresenceList, setShowPresenceList] = useState(false);
+  const handlePresenceChange = useCallback((teams: PresenceTeam[]) => setPresentTeams(teams), []);
 
   // First, get the league ID and draft type from the draft
   const { data: draftData } = useQuery({
@@ -85,7 +88,7 @@ export default function DraftRoomScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
       const [teamRes, leagueRes] = await Promise.all([
-        supabase.from('teams').select('id').eq('league_id', draftData.league_id).eq('user_id', user.id).single(),
+        supabase.from('teams').select('id, name').eq('league_id', draftData.league_id).eq('user_id', user.id).single(),
         supabase.from('leagues').select('created_by').eq('id', draftData.league_id).single(),
       ]);
       if (teamRes.error) throw teamRes.error;
@@ -130,18 +133,30 @@ export default function DraftRoomScreen() {
             : (isRookieDraft ? 'Rookie Draft' : 'Draft Room')}
         </ThemedText>
 
-        {showTradeButton ? (
-          <TouchableOpacity
-            style={[styles.headerButton, { paddingVertical: 0 }]}
-            onPress={() => setShowTradeModal(true)}
-            accessibilityRole="button"
-            accessibilityLabel="Trade draft picks"
-          >
-            <Ionicons name="swap-horizontal" size={22} color={colors.accent} accessible={false} />
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.headerButton} />
-        )}
+        <View style={styles.headerRight}>
+          {presentTeams.length > 0 && !isDraftComplete && (
+            <TouchableOpacity
+              onPress={() => setShowPresenceList(true)}
+              style={[styles.presencePill, { backgroundColor: colors.activeCard }]}
+              accessibilityRole="button"
+              accessibilityLabel={`${presentTeams.length} of ${draftState?.picks_per_round ?? '?'} teams online in draft room`}
+            >
+              <View style={styles.presenceDot} />
+              <ThemedText style={[styles.presenceText, { color: colors.activeText }]}>
+                {presentTeams.length}/{draftState?.picks_per_round ?? '?'}
+              </ThemedText>
+            </TouchableOpacity>
+          )}
+          {showTradeButton && (
+            <TouchableOpacity
+              onPress={() => setShowTradeModal(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Trade draft picks"
+            >
+              <Ionicons name="swap-horizontal" size={22} color={colors.accent} accessible={false} />
+            </TouchableOpacity>
+          )}
+        </View>
       </ThemedView>
 
       <View style={styles.content}>
@@ -161,7 +176,9 @@ export default function DraftRoomScreen() {
             draftId={draftId}
             onCurrentPickChange={setCurrentPick}
             teamId={teamData?.id || ''}
+            teamName={teamData?.name || ''}
             isCommissioner={teamData?.isCommissioner ?? false}
+            onPresenceChange={handlePresenceChange}
           />
         )}
 
@@ -221,6 +238,33 @@ export default function DraftRoomScreen() {
           </TouchableOpacity>
         </View>
       </View>
+
+      <Modal
+        visible={showPresenceList}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowPresenceList(false)}
+      >
+        <Pressable style={styles.presenceOverlay} onPress={() => setShowPresenceList(false)}>
+          <View style={[styles.presenceModal, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <ThemedText type="defaultSemiBold" style={{ marginBottom: 8 }}>
+              Online ({presentTeams.length}/{draftState?.picks_per_round ?? '?'})
+            </ThemedText>
+            <FlatList
+              data={presentTeams}
+              keyExtractor={(item) => item.teamId}
+              renderItem={({ item }) => (
+                <View style={[styles.presenceRow, { borderBottomColor: colors.border }]}>
+                  <View style={styles.presenceDot} />
+                  <ThemedText accessibilityLabel={`${item.teamName} is online`}>
+                    {item.teamName}
+                  </ThemedText>
+                </View>
+              )}
+            />
+          </View>
+        </Pressable>
+      </Modal>
 
       {showTradeModal && draftData?.league_id && teamData?.id && (
         <ProposeTradeModal
@@ -285,5 +329,47 @@ const styles = StyleSheet.create({
     padding: 12,
     borderBottomWidth: 1,
     alignItems: 'center',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  presencePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  presenceDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#22c55e',
+    marginRight: 4,
+  },
+  presenceText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  presenceOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  presenceModal: {
+    width: 250,
+    maxHeight: 300,
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+  },
+  presenceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
 });

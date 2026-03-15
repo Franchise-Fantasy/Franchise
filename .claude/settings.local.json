@@ -175,7 +175,15 @@
       "Bash(python backend/sync_players.py)",
       "Bash(python backend/backfill_new_players.py)",
       "Bash(python -X utf8 backend/backfill_new_players.py)",
-      "Bash(python -X utf8 -c \":*)"
+      "Bash(python -X utf8 -c \":*)",
+      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2 -type f \\\\\\(-name schema* -o -name *.sql \\\\\\))",
+      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2/supabase/functions -type d -name *poll* -o -name *chat*)",
+      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2 -type f -name *waiver* -o -name *claim*)",
+      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2/supabase -type f -name *.ts)",
+      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2/supabase/migrations -name \"*.sql\" -exec wc -l {} +)",
+      "Bash(xargs cat:*)",
+      "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2 -name supabase.json -o -name cron*.json -o -name *cron*)",
+      "Bash(npx supabase:*)"
     ]
   }
 }

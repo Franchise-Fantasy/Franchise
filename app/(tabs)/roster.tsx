@@ -43,7 +43,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -197,6 +197,9 @@ async function fetchTeamRosterForDate(
   if (lpError) throw lpError;
 
   const currentPlayerIds = new Set((leaguePlayers ?? []).map((lp) => lp.player_id));
+  const acquiredAtMap = new Map<string, string | null>(
+    (leaguePlayers ?? []).map((lp) => [lp.player_id, lp.acquired_at ?? null]),
+  );
   const slotMap = await fetchLineupForDate(teamId, leagueId, date);
 
   const today = toDateStr(new Date());
@@ -268,6 +271,7 @@ async function fetchTeamRosterForDate(
     ...p,
     roster_slot: slotMap.get(p.player_id) ?? null,
     nbaTricode: nbaTricodeMap.get(p.player_id) ?? null,
+    acquired_at: acquiredAtMap.get(p.player_id) ?? null,
   }));
 }
 
@@ -421,6 +425,19 @@ export default function RosterScreen() {
 
   const isLoading = isLoadingConfig || isLoadingRoster;
 
+  // Players acquired today whose game has already started shouldn't appear until tomorrow
+  const filteredRosterPlayers = useMemo(() => {
+    if (!rosterPlayers || !isToday) return rosterPlayers;
+    return rosterPlayers.filter((p) => {
+      if (!p.acquired_at) return true;
+      const acquiredDate = toDateStr(new Date(p.acquired_at));
+      if (acquiredDate !== today) return true;
+      // Acquired today — exclude if their game has already started
+      const liveStatus = liveMap.get(p.player_id)?.game_status;
+      return !isGameStarted(p.nbaTricode, gameTimeMap, liveStatus);
+    });
+  }, [rosterPlayers, isToday, today, gameTimeMap, liveMap]);
+
   // ─── Build slot entries ───────────────────────────────────────────────────
 
   const slots: SlotEntry[] = [];
@@ -428,7 +445,7 @@ export default function RosterScreen() {
   const irSlots: SlotEntry[] = [];
   const taxiSlots: SlotEntry[] = [];
 
-  if (rosterConfig && rosterPlayers) {
+  if (rosterConfig && filteredRosterPlayers) {
     const benchConfig = rosterConfig.find((c) => c.position === "BE");
     const irConfig = rosterConfig.find((c) => c.position === "IR");
     const taxiConfig = rosterConfig.find((c) => c.position === "TAXI");
@@ -454,11 +471,11 @@ export default function RosterScreen() {
         for (let i = 0; i < config.slot_count; i++) {
           const numberedSlot = `UTIL${i + 1}`;
           const player =
-            rosterPlayers.find((p) => p.roster_slot === numberedSlot) ?? null;
+            filteredRosterPlayers.find((p) => p.roster_slot === numberedSlot) ?? null;
           slots.push({ slotPosition: numberedSlot, slotIndex: i, player });
         }
       } else {
-        const playersInSlot = rosterPlayers.filter(
+        const playersInSlot = filteredRosterPlayers.filter(
           (p) => p.roster_slot === config.position,
         );
         for (let i = 0; i < config.slot_count; i++) {
@@ -471,7 +488,7 @@ export default function RosterScreen() {
       }
     }
 
-    for (const player of rosterPlayers) {
+    for (const player of filteredRosterPlayers) {
       if (player.roster_slot === "IR" || player.roster_slot === "TAXI")
         continue;
       if (
@@ -496,7 +513,7 @@ export default function RosterScreen() {
     }
 
     if (irConfig && irConfig.slot_count > 0) {
-      const irPlayers = rosterPlayers.filter((p) => p.roster_slot === "IR");
+      const irPlayers = filteredRosterPlayers.filter((p) => p.roster_slot === "IR");
       const irSlotCount = Math.max(irConfig.slot_count, irPlayers.length);
       for (let i = 0; i < irSlotCount; i++) {
         irSlots.push({
@@ -508,7 +525,7 @@ export default function RosterScreen() {
     }
 
     if (taxiConfig && taxiConfig.slot_count > 0) {
-      const taxiPlayers = rosterPlayers.filter((p) => p.roster_slot === "TAXI");
+      const taxiPlayers = filteredRosterPlayers.filter((p) => p.roster_slot === "TAXI");
       const taxiSlotCount = Math.max(taxiConfig.slot_count, taxiPlayers.length);
       for (let i = 0; i < taxiSlotCount; i++) {
         taxiSlots.push({
@@ -536,13 +553,13 @@ export default function RosterScreen() {
   // ─── Slot assignment logic ────────────────────────────────────────────────
 
   const getEligiblePlayersForSlot = (slotPosition: string): RosterPlayer[] => {
-    if (!rosterPlayers) return [];
+    if (!filteredRosterPlayers) return [];
     const isIRSlot = slotPosition === "IR";
     const isBenchSlot = slotPosition === "BE";
     const isTaxiSlot = slotPosition === "TAXI";
     const seatPlayer = activeSlot?.player;
 
-    return rosterPlayers.filter((p) => {
+    return filteredRosterPlayers.filter((p) => {
       if (seatPlayer?.player_id === p.player_id) return false;
       if (isIRSlot)
         return (
@@ -806,7 +823,7 @@ export default function RosterScreen() {
 
   const handleAutoLineup = async () => {
     if (
-      !rosterPlayers ||
+      !filteredRosterPlayers ||
       !rosterConfig ||
       !scoringWeights ||
       !teamId ||
@@ -867,7 +884,7 @@ export default function RosterScreen() {
 
       // Start from the current effective lineup (feeds into each day's optimizer)
       const prevSlots = new Map(
-        rosterPlayers.map((p) => [p.player_id, p.roster_slot ?? "BE"]),
+        filteredRosterPlayers.map((p) => [p.player_id, p.roster_slot ?? "BE"]),
       );
       let totalMoves = 0;
       let daysChanged = 0;
@@ -876,7 +893,7 @@ export default function RosterScreen() {
         const teamsPlaying = teamsPlayingByDate.get(date);
         const isDateToday = date === today;
 
-        const lineupPlayers: LineupPlayer[] = rosterPlayers.map((p) => ({
+        const lineupPlayers: LineupPlayer[] = filteredRosterPlayers.map((p) => ({
           player_id: p.player_id,
           position: p.position,
           status: p.status,

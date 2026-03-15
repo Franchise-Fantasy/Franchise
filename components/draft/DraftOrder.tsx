@@ -21,20 +21,29 @@ import Animated, {
 import { ThemedText } from "../ThemedText";
 import { ThemedView } from "../ThemedView";
 
+export interface PresenceTeam {
+  teamId: string;
+  teamName: string;
+}
+
 interface DraftOrderProps {
   draftId: string;
   teamId: string;
+  teamName: string;
   isCommissioner: boolean;
   onCurrentPickChange: (
     pick: { id: string; current_team_id: string } | null,
   ) => void;
+  onPresenceChange?: (teams: PresenceTeam[]) => void;
 }
 
 export function DraftOrder({
   draftId,
   teamId,
+  teamName,
   isCommissioner,
   onCurrentPickChange,
+  onPresenceChange,
 }: DraftOrderProps) {
   const colorScheme = useColorScheme() ?? "light";
   const colors = Colors[colorScheme];
@@ -186,7 +195,7 @@ export function DraftOrder({
 
   // Update subscription to trigger flash
   useEffect(() => {
-    // NEW: Subscription for the main draft state (for timer)
+    // Subscription for the main draft state (for timer) + presence tracking
     const draftChannel = supabase
       .channel(`draft_room_${draftId}`)
       .on(
@@ -201,7 +210,26 @@ export function DraftOrder({
           queryClient.setQueryData(["draftState", draftId], payload.new);
         },
       )
-      .subscribe();
+      .on("presence", { event: "sync" }, () => {
+        const state = draftChannel.presenceState();
+        const teams: PresenceTeam[] = [];
+        const seen = new Set<string>();
+        for (const key of Object.keys(state)) {
+          for (const p of state[key]) {
+            const tid = (p as any).teamId as string;
+            if (tid && !seen.has(tid)) {
+              seen.add(tid);
+              teams.push({ teamId: tid, teamName: (p as any).teamName });
+            }
+          }
+        }
+        onPresenceChange?.(teams);
+      })
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED" && teamId) {
+          await draftChannel.track({ teamId, teamName });
+        }
+      });
     // Subscription for the pick list (for flashing)
     const picksChannel = supabase
       .channel(`draft_picks_${draftId}`)
@@ -240,7 +268,7 @@ export function DraftOrder({
       supabase.removeChannel(picksChannel);
       supabase.removeChannel(draftChannel);
     };
-  }, [draftId, queryClient]);
+  }, [draftId, queryClient, teamId, teamName, onPresenceChange]);
 
   // Find the index of the first unmade pick
   const currentPickIndex = picks.findIndex((pick) => !pick.player_id);

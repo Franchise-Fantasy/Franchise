@@ -9,7 +9,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import type { ConversationPreview } from '@/types/chat';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -94,6 +94,9 @@ export default function ChatList() {
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
           contentContainerStyle={styles.list}
+          ItemSeparatorComponent={() => (
+            <View style={[styles.separator, { backgroundColor: c.border }]} />
+          )}
         />
       )}
 
@@ -146,7 +149,10 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   list: {
-    padding: 16,
-    gap: 10,
+    paddingVertical: 8,
+  },
+  separator: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 72, // inset past icon
   },
 });

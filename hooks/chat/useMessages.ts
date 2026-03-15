@@ -11,7 +11,12 @@ import { useEffect } from 'react';
 
 const PAGE_SIZE = 30;
 
-// ─── Messages (infinite scroll) ─────────────────────────────
+interface Cursor {
+  cursor: string | null;
+  cursorId: string | null;
+}
+
+// ─── Messages (infinite scroll, cursor-based) ───────────────
 
 export function useMessages(conversationId: string | null) {
   const queryClient = useQueryClient();
@@ -42,29 +47,24 @@ export function useMessages(conversationId: string | null) {
 
   return useInfiniteQuery({
     queryKey: ['messages', conversationId],
-    queryFn: async ({ pageParam = 0 }) => {
-      const from = pageParam * PAGE_SIZE;
-      const to = from + PAGE_SIZE - 1;
-      const { data, error } = await supabase
-        .from('chat_messages')
-        .select('id, conversation_id, team_id, content, type, created_at, teams(name)')
-        .eq('conversation_id', conversationId!)
-        .order('created_at', { ascending: false })
-        .range(from, to);
+    queryFn: async ({ pageParam }: { pageParam: Cursor }) => {
+      const { data, error } = await supabase.rpc('get_messages_page', {
+        p_conversation_id: conversationId!,
+        p_cursor: pageParam.cursor,
+        p_cursor_id: pageParam.cursorId,
+        p_limit: PAGE_SIZE,
+      });
       if (error) throw error;
-      return (data ?? []).map((m: any) => ({
-        id: m.id,
-        conversation_id: m.conversation_id,
-        team_id: m.team_id,
-        content: m.content,
-        type: m.type ?? 'text',
-        created_at: m.created_at,
-        team_name: m.teams?.name ?? 'Unknown',
-      })) as ChatMessage[];
+      return (data ?? []) as ChatMessage[];
     },
-    initialPageParam: 0,
-    getNextPageParam: (lastPage, allPages) =>
-      lastPage.length === PAGE_SIZE ? allPages.length : undefined,
+    initialPageParam: { cursor: null, cursorId: null } as Cursor,
+    getNextPageParam: (lastPage) => {
+      if (lastPage.length < PAGE_SIZE) return undefined;
+      // Find the last real message (skip optimistic temp- messages)
+      const last = [...lastPage].reverse().find((m) => !m.id.startsWith('temp-'));
+      if (!last) return undefined;
+      return { cursor: last.created_at, cursorId: last.id } as Cursor;
+    },
     enabled: !!conversationId,
   });
 }
@@ -75,7 +75,7 @@ export function useSendMessage(
   conversationId: string,
   teamId: string,
   teamName: string,
-  leagueId?: string | null,
+  leagueId: string,
 ) {
   const queryClient = useQueryClient();
 
@@ -87,33 +87,32 @@ export function useSendMessage(
           conversation_id: conversationId,
           team_id: teamId,
           content,
+          league_id: leagueId,
         })
         .select()
         .single();
       if (error) throw error;
 
       // Fire-and-forget push notification to other members
-      if (leagueId) {
-        supabase
-          .from('chat_members')
-          .select('team_id')
-          .eq('conversation_id', conversationId)
-          .neq('team_id', teamId)
-          .then(({ data: members }) => {
-            if (!members || members.length === 0) return;
-            const otherTeamIds = members.map((m) => m.team_id);
-            const preview =
-              content.length > 100 ? content.slice(0, 100) + '\u2026' : content;
-            sendNotification({
-              league_id: leagueId,
-              team_ids: otherTeamIds,
-              category: 'chat',
-              title: teamName,
-              body: preview,
-              data: { screen: `chat/${conversationId}` },
-            });
+      supabase
+        .from('chat_members')
+        .select('team_id')
+        .eq('conversation_id', conversationId)
+        .neq('team_id', teamId)
+        .then(({ data: members }) => {
+          if (!members || members.length === 0) return;
+          const otherTeamIds = members.map((m) => m.team_id);
+          const preview =
+            content.length > 100 ? content.slice(0, 100) + '\u2026' : content;
+          sendNotification({
+            league_id: leagueId,
+            team_ids: otherTeamIds,
+            category: 'chat',
+            title: teamName,
+            body: preview,
+            data: { screen: `chat/${conversationId}` },
           });
-      }
+        });
 
       return data;
     },
@@ -136,7 +135,7 @@ export function useSendMessage(
       queryClient.setQueryData(
         ['messages', conversationId],
         (old: any) => {
-          if (!old) return { pages: [[optimistic]], pageParams: [0] };
+          if (!old) return { pages: [[optimistic]], pageParams: [{ cursor: null, cursorId: null }] };
           const pages = [...old.pages];
           pages[0] = [optimistic, ...pages[0]];
           return { ...old, pages };
@@ -157,10 +156,8 @@ export function useSendMessage(
       queryClient.invalidateQueries({
         queryKey: ['messages', conversationId],
       });
-      if (leagueId) {
-        queryClient.invalidateQueries({ queryKey: ['conversations', leagueId] });
-        queryClient.invalidateQueries({ queryKey: ['chatUnread', leagueId] });
-      }
+      queryClient.invalidateQueries({ queryKey: ['conversations', leagueId] });
+      queryClient.invalidateQueries({ queryKey: ['chatUnread', leagueId] });
     },
   });
 }
