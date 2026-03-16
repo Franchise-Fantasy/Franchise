@@ -4,8 +4,8 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { useQuery } from '@tanstack/react-query';
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -29,10 +29,12 @@ interface League {
 
 export default function JoinLeagueScreen() {
   const router = useRouter();
+  const { code: paramCode } = useLocalSearchParams<{ code?: string }>();
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
-  const [code, setCode] = useState('');
+  const [code, setCode] = useState(paramCode?.toUpperCase() ?? '');
   const [joining, setJoining] = useState(false);
+  const autoJoinTriggered = useRef(false);
 
   const { data: leagues, isLoading } = useQuery({
     queryKey: ['public-leagues'],
@@ -131,6 +133,14 @@ export default function JoinLeagueScreen() {
       setJoining(false);
     }
   };
+
+  // Auto-trigger join when opened via deep link with a code param
+  useEffect(() => {
+    if (paramCode && !autoJoinTriggered.current) {
+      autoJoinTriggered.current = true;
+      handleJoinByCode();
+    }
+  }, [paramCode]);
 
   const handleJoinLeague = async (league: League) => {
     try {

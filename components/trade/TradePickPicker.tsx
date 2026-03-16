@@ -58,7 +58,7 @@ export function TradePickPicker({
 
   const { data: picks, isLoading } = useTeamTradablePicks(teamId, leagueId, draftPickTradingEnabled);
 
-  const renderItem = ({ item }: { item: TradablePickRow }) => {
+  const renderItem = ({ item, index }: { item: TradablePickRow; index: number }) => {
     const isSelected = selectedPickIds.includes(item.id);
     const isLocked = lockedPickIds?.has(item.id) ?? false;
     const isTraded = item.current_team_id !== item.original_team_id;
@@ -77,6 +77,7 @@ export function TradePickPicker({
             { borderBottomColor: c.border },
             isSelected && { backgroundColor: c.activeCard },
             isLocked && { opacity: 0.45 },
+            index === (picks as TradablePickRow[]).length - 1 && { borderBottomWidth: 0 },
           ]}
           onPress={() => onToggle(item)}
         >

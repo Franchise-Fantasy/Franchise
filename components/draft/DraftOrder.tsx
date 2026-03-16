@@ -164,7 +164,8 @@ export function DraftOrder({
           player_id,
           slot_number,
           current_team:current_team_id (
-            name
+            name,
+            tricode
           ),
           player:player_id (
             name,
@@ -251,8 +252,13 @@ export function DraftOrder({
                 queryKey: ["draftOrder", draftId],
               });
               queryClient.invalidateQueries({
-                queryKey: ["teamRoster"],
+                queryKey: ["draftQueue"],
               });
+              if (payload.new.current_team_id === teamId) {
+                queryClient.invalidateQueries({
+                  queryKey: ["teamRoster"],
+                });
+              }
             } else if (payload.old?.current_team_id !== payload.new.current_team_id) {
               // A pick changed ownership (traded during draft)
               queryClient.invalidateQueries({
@@ -365,7 +371,7 @@ export function DraftOrder({
               <ThemedText
                 style={[styles.teamName, { color: colors.secondaryText }]}
               >
-                {pick.current_team?.name || "TBD"}
+                {pick.current_team?.tricode || "TBD"}
               </ThemedText>
             </View>
             <View style={styles.pickContent}>

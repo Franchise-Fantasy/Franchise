@@ -2,6 +2,23 @@ import { supabase } from '@/lib/supabase';
 import { useQuery } from '@tanstack/react-query';
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 
+export interface TradeItemRow {
+  id: string;
+  player_id: string | null;
+  draft_pick_id: string | null;
+  from_team_id: string;
+  to_team_id: string;
+  player_name: string | null;
+  player_position: string | null;
+  player_nba_team: string | null;
+  pick_season: string | null;
+  pick_round: number | null;
+  pick_original_team_name: string | null;
+  protection_threshold: number | null;
+  pick_swap_season: string | null;
+  pick_swap_round: number | null;
+}
+
 export interface TradeProposalRow {
   id: string;
   league_id: string;
@@ -13,28 +30,16 @@ export interface TradeProposalRow {
   completed_at: string | null;
   transaction_id: string | null;
   notes: string | null;
+  counteroffer_of: string | null;
   teams: Array<{
     id: string;
     team_id: string;
     status: string;
     team_name: string;
   }>;
-  items: Array<{
-    id: string;
-    player_id: string | null;
-    draft_pick_id: string | null;
-    from_team_id: string;
-    to_team_id: string;
-    player_name: string | null;
-    player_position: string | null;
-    player_nba_team: string | null;
-    pick_season: string | null;
-    pick_round: number | null;
-    pick_original_team_name: string | null;
-    protection_threshold: number | null;
-    pick_swap_season: string | null;
-    pick_swap_round: number | null;
-  }>;
+  items: TradeItemRow[];
+  /** Items from the original proposal this counters — used for "NEW" badges */
+  original_items?: TradeItemRow[];
 }
 
 export function useTradeProposals(leagueId: string | null) {
@@ -81,19 +86,20 @@ export function useTradeProposals(leagueId: string | null) {
         }
       }
 
-      return proposals.map((p) => ({
-        ...p,
-        teams: (proposalTeams ?? [])
-          .filter((t: any) => t.proposal_id === p.id)
-          .map((t: any) => ({
-            id: t.id,
-            team_id: t.team_id,
-            status: t.status,
-            team_name: t.teams?.name ?? 'Unknown',
-          })),
-        items: (proposalItems ?? [])
-          .filter((i: any) => i.proposal_id === p.id)
-          .map((i: any) => ({
+      // Collect counteroffer_of IDs to fetch original items
+      const counterofferOfIds = proposals
+        .filter((p) => p.counteroffer_of)
+        .map((p) => p.counteroffer_of!);
+      let originalItemsMap: Record<string, TradeItemRow[]> = {};
+      if (counterofferOfIds.length > 0) {
+        const { data: origItems } = await supabase
+          .from('trade_proposal_items')
+          .select('id, proposal_id, player_id, draft_pick_id, from_team_id, to_team_id, protection_threshold, pick_swap_season, pick_swap_round, players(name, position, nba_team), draft_picks(season, round, original_team_id)')
+          .in('proposal_id', counterofferOfIds);
+        for (const i of (origItems ?? []) as any[]) {
+          const pid = i.proposal_id;
+          if (!originalItemsMap[pid]) originalItemsMap[pid] = [];
+          originalItemsMap[pid].push({
             id: i.id,
             player_id: i.player_id,
             draft_pick_id: i.draft_pick_id,
@@ -110,8 +116,51 @@ export function useTradeProposals(leagueId: string | null) {
             protection_threshold: i.protection_threshold ?? null,
             pick_swap_season: i.pick_swap_season ?? null,
             pick_swap_round: i.pick_swap_round ?? null,
-          })),
-      }));
+          });
+        }
+      }
+
+      const mapItem = (i: any): TradeItemRow => ({
+        id: i.id,
+        player_id: i.player_id,
+        draft_pick_id: i.draft_pick_id,
+        from_team_id: i.from_team_id,
+        to_team_id: i.to_team_id,
+        player_name: i.players?.name ?? null,
+        player_position: i.players?.position ?? null,
+        player_nba_team: i.players?.nba_team ?? null,
+        pick_season: i.draft_picks?.season ?? null,
+        pick_round: i.draft_picks?.round ?? null,
+        pick_original_team_name: i.draft_picks?.original_team_id
+          ? origTeamNameMap[i.draft_picks.original_team_id] ?? null
+          : null,
+        protection_threshold: i.protection_threshold ?? null,
+        pick_swap_season: i.pick_swap_season ?? null,
+        pick_swap_round: i.pick_swap_round ?? null,
+      });
+
+      // Build a set of proposal IDs that have been superseded by a counteroffer
+      const supersededIds = new Set(counterofferOfIds);
+
+      return proposals
+        .filter((p) => !supersededIds.has(p.id) || p.status !== 'cancelled')
+        .map((p) => ({
+          ...p,
+          teams: (proposalTeams ?? [])
+            .filter((t: any) => t.proposal_id === p.id)
+            .map((t: any) => ({
+              id: t.id,
+              team_id: t.team_id,
+              status: t.status,
+              team_name: t.teams?.name ?? 'Unknown',
+            })),
+          items: (proposalItems ?? [])
+            .filter((i: any) => i.proposal_id === p.id)
+            .map(mapItem),
+          original_items: p.counteroffer_of
+            ? originalItemsMap[p.counteroffer_of]
+            : undefined,
+        }));
     },
     enabled: !!leagueId,
     staleTime: 30_000,
@@ -205,9 +254,11 @@ export function useMyPendingTrades(teamId: string | null, leagueId: string | nul
     queryFn: async () => {
       const { count, error } = await supabase
         .from('trade_proposal_teams')
-        .select('id', { count: 'exact', head: true })
+        .select('id, trade_proposals!inner(id)', { count: 'exact', head: true })
         .eq('team_id', teamId!)
-        .eq('status', 'pending');
+        .eq('status', 'pending')
+        .eq('trade_proposals.league_id', leagueId!)
+        .eq('trade_proposals.status', 'pending');
       if (error) throw error;
       return count ?? 0;
     },
@@ -223,6 +274,7 @@ export interface TradeBlockPlayer {
   nba_team: string;
   team_id: string;
   team_name: string;
+  trade_block_note: string | null;
 }
 
 export interface TradeBlockTeamGroup {
@@ -237,7 +289,7 @@ export function useTradeBlock(leagueId: string | null) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('league_players')
-        .select('player_id, team_id, players(name, position, nba_team), teams(name)')
+        .select('player_id, team_id, trade_block_note, players(name, position, nba_team), teams(name)')
         .eq('league_id', leagueId!)
         .eq('on_trade_block', true);
       if (error) throw error;
@@ -261,6 +313,7 @@ export function useTradeBlock(leagueId: string | null) {
           nba_team: row.players?.nba_team ?? '',
           team_id: tid,
           team_name: row.teams?.name ?? 'Unknown',
+          trade_block_note: row.trade_block_note ?? null,
         });
       }
       return Object.values(grouped);

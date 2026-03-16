@@ -44,6 +44,7 @@ export const useDraftPlayer = (leagueId: string, draftId: string ) => {
       queryClient.invalidateQueries({ queryKey: ['draftOrder', draftId] });
       queryClient.invalidateQueries({ queryKey: ['draftState', draftId] });
       queryClient.invalidateQueries({ queryKey: ['teamRoster'] });
+      queryClient.invalidateQueries({ queryKey: ['draftQueue'] });
     },
   });
 };

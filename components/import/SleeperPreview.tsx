@@ -70,8 +70,8 @@ export function SleeperPreview({ data }: SleeperPreviewProps) {
         <ThemedText type="defaultSemiBold" style={styles.cardTitle} accessibilityRole="header">
           Teams ({teams.length})
         </ThemedText>
-        {teams.map((t) => (
-          <View key={t.roster_id} style={[styles.teamRow, { borderBottomColor: c.border }]}>
+        {teams.map((t, idx) => (
+          <View key={t.roster_id} style={[styles.teamRow, { borderBottomColor: c.border }, idx === teams.length - 1 && { borderBottomWidth: 0 }]}>
             <ThemedText style={styles.teamName} numberOfLines={1}>{t.team_name}</ThemedText>
             <ThemedText style={[styles.teamMeta, { color: c.secondaryText }]}>
               {t.players} players

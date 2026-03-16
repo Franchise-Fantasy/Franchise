@@ -1,18 +1,3 @@
-## Your Manual Steps (Tier 1 MVP)
-
-long names look weird in drsft cards
-in-draft roster sometimes doesn't auto-sort
-
-- As soon as someone else, picked, all your players go to the bench
-
-Draft room needs:
-Queue
-Filled Positions (1/5 centers, etc)
-
-someone saw a pllayer who had already been picked
-
-If a player autodrafts twice in a row, their picks should immediately fire until they re-enter the draft room.
-
 ## Tier 1 — Now
 
 - [ ] Build Onboarding Walkthrough — tooltip tour, scaffold now, polish closer to launch

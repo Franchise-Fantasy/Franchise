@@ -10,6 +10,7 @@ export interface ChatMember {
   conversation_id: string;
   team_id: string;
   last_read_at: string;
+  last_read_message_id: string | null;
   created_at: string;
 }
 

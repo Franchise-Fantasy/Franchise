@@ -231,6 +231,7 @@ export default function Trades() {
         <TradeBlockSheet
           visible={showTradeBlock}
           tradeBlock={tradeBlock ?? []}
+          leagueId={leagueId}
           teamId={teamId}
           onClose={() => setShowTradeBlock(false)}
           onPlayerPress={(player) => {

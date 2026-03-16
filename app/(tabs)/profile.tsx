@@ -175,6 +175,7 @@ export default function ProfileScreen() {
               label="Visibility"
               value={league.private ? "Private" : "Public"}
               c={c}
+              isLast
             />
           </View>
         )}
@@ -404,15 +405,17 @@ function SettingRow({
   label,
   value,
   c,
+  isLast,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   value: string;
   c: any;
+  isLast?: boolean;
 }) {
   return (
     <View
-      style={[styles.settingRow, { borderBottomColor: c.border }]}
+      style={[styles.settingRow, { borderBottomColor: c.border }, isLast && { borderBottomWidth: 0 }]}
       accessibilityLabel={`${label}: ${value}`}
     >
       <View style={styles.actionLeft}>

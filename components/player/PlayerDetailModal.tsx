@@ -29,10 +29,13 @@ import {
   Animated,
   FlatList,
   Image,
+  KeyboardAvoidingView,
   Modal,
   PanResponder,
+  Platform,
   ScrollView,
   StyleSheet,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -72,6 +75,8 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
   const [showDropPicker, setShowDropPicker] = useState(false);
   const [insightsWindow, setInsightsWindow] = useState(10);
   const [showWindowPicker, setShowWindowPicker] = useState(false);
+  const [tradeBlockPromptVisible, setTradeBlockPromptVisible] = useState(false);
+  const [tradeBlockNoteInput, setTradeBlockNoteInput] = useState('');
 
   useEffect(() => {
     if (player && startInDropPicker) setShowDropPicker(true);
@@ -104,7 +109,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
     queryFn: async () => {
       const { data, error } = await supabase
         .from('league_players')
-        .select('id, roster_slot, on_trade_block')
+        .select('id, roster_slot, on_trade_block, trade_block_note')
         .eq('league_id', leagueId)
         .eq('team_id', teamId!)
         .eq('player_id', player!.player_id)
@@ -112,7 +117,7 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
 
       if (error) throw error;
       if (!data || data.length === 0) return { isOnMyTeam: false, rosterSlot: null, onTradeBlock: false };
-      return { isOnMyTeam: true, rosterSlot: data[0].roster_slot as string | null, onTradeBlock: data[0].on_trade_block as boolean };
+      return { isOnMyTeam: true, rosterSlot: data[0].roster_slot as string | null, onTradeBlock: data[0].on_trade_block as boolean, tradeBlockNote: (data[0].trade_block_note as string | null) ?? '' };
     },
     enabled: !!player && !!teamId && !!leagueId,
   });
@@ -889,41 +894,44 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
 
   const handleToggleTradeBlock = () => {
     if (!teamId || !player) return;
-    const newValue = !isOnTradeBlock;
-    const message = newValue
-      ? `Add ${player.name} to the trade block? Other managers will see this player is available.`
-      : `Remove ${player.name} from the trade block?`;
-    Alert.alert(
-      newValue ? 'Add to Trade Block' : 'Remove from Trade Block',
-      message,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: newValue ? 'Add' : 'Remove',
-          onPress: async () => {
-            setIsProcessing(true);
-            try {
-              const { error } = await supabase
-                .from('league_players')
-                .update({ on_trade_block: newValue })
-                .eq('league_id', leagueId)
-                .eq('team_id', teamId)
-                .eq('player_id', player.player_id);
-              if (error) throw error;
-              queryClient.setQueryData(
-                ['playerOwnership', leagueId, teamId, player.player_id],
-                (old: any) => old ? { ...old, onTradeBlock: newValue } : old,
-              );
-              queryClient.invalidateQueries({ queryKey: ['tradeBlock', leagueId] });
-            } catch (err: any) {
-              Alert.alert('Error', err.message ?? 'Failed to update trade block');
-            } finally {
-              setIsProcessing(false);
-            }
-          },
-        },
-      ]
-    );
+    if (!isOnTradeBlock) {
+      // Adding — show prompt for asking price / note
+      setTradeBlockNoteInput(ownershipInfo?.tradeBlockNote ?? '');
+      setTradeBlockPromptVisible(true);
+    } else {
+      // Removing
+      Alert.alert(
+        'Remove from Trade Block',
+        `Remove ${player.name} from the trade block?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Remove', onPress: () => submitTradeBlockUpdate(false, null) },
+        ]
+      );
+    }
+  };
+
+  const submitTradeBlockUpdate = async (newValue: boolean, note: string | null) => {
+    if (!teamId || !player) return;
+    setIsProcessing(true);
+    try {
+      const { error } = await supabase
+        .from('league_players')
+        .update({ on_trade_block: newValue, trade_block_note: note })
+        .eq('league_id', leagueId)
+        .eq('team_id', teamId)
+        .eq('player_id', player.player_id);
+      if (error) throw error;
+      queryClient.setQueryData(
+        ['playerOwnership', leagueId, teamId, player.player_id],
+        (old: any) => old ? { ...old, onTradeBlock: newValue, tradeBlockNote: note ?? '' } : old,
+      );
+      queryClient.invalidateQueries({ queryKey: ['tradeBlock', leagueId] });
+    } catch (err: any) {
+      Alert.alert('Error', err.message ?? 'Failed to update trade block');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleQueueDrop = async () => {
@@ -970,14 +978,15 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
   const canTransact = !!teamId && !hasActiveDraft && !isProcessing && !isOffseason;
   const canAdd = canTransact && !addsExhausted;
 
-  const renderDropPickerItem = ({ item }: { item: PlayerSeasonStats }) => {
+  const renderDropPickerItem = ({ item, index }: { item: PlayerSeasonStats; index: number }) => {
     const fpts = scoringWeights
       ? calculateAvgFantasyPoints(item, scoringWeights)
       : null;
+    const dropPickerData = (rosterPlayers ?? []).filter(p => !isGameStarted(p.nba_team, gameTimeMap));
 
     return (
       <TouchableOpacity
-        style={[styles.dropPickerRow, { borderBottomColor: c.border }]}
+        style={[styles.dropPickerRow, { borderBottomColor: c.border }, index === dropPickerData.length - 1 && { borderBottomWidth: 0 }]}
         accessibilityRole="button"
         accessibilityLabel={`Drop ${item.name}, ${formatPosition(item.position)}, ${item.nba_team}${fpts !== null ? `, ${fpts} fantasy points` : ''}`}
         onPress={() => {
@@ -1424,6 +1433,54 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
                   colors={{ border: c.border, secondaryText: c.secondaryText, accent: c.accent }}
                 />
           </ScrollView>
+
+          {/* Trade block note prompt — rendered inside the main modal */}
+          {tradeBlockPromptVisible && (
+            <KeyboardAvoidingView
+              style={styles.tradeBlockPromptOverlay}
+              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            >
+              <View style={[styles.tradeBlockPromptCard, { backgroundColor: c.card }]}>
+                <ThemedText type="defaultSemiBold" style={styles.tradeBlockPromptTitle} accessibilityRole="header">
+                  Add to Trade Block
+                </ThemedText>
+                <ThemedText style={[styles.tradeBlockPromptDesc, { color: c.secondaryText }]}>
+                  What are you looking for? (optional)
+                </ThemedText>
+                <TextInput
+                  style={[styles.tradeBlockPromptInput, { color: c.text, borderColor: c.border, backgroundColor: c.background }]}
+                  value={tradeBlockNoteInput}
+                  onChangeText={setTradeBlockNoteInput}
+                  placeholder='e.g. "2nd Rounder", "Wing player"'
+                  placeholderTextColor={c.secondaryText}
+                  maxLength={100}
+                  autoFocus
+                  accessibilityLabel="Asking price or trade note"
+                />
+                <View style={styles.tradeBlockPromptButtons}>
+                  <TouchableOpacity
+                    style={[styles.tradeBlockPromptBtn, { borderColor: c.border }]}
+                    onPress={() => setTradeBlockPromptVisible(false)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Cancel"
+                  >
+                    <ThemedText>Cancel</ThemedText>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.tradeBlockPromptBtn, styles.tradeBlockPromptBtnConfirm]}
+                    onPress={() => {
+                      setTradeBlockPromptVisible(false);
+                      submitTradeBlockUpdate(true, tradeBlockNoteInput.trim() || null);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Add to trade block"
+                  >
+                    <ThemedText style={{ color: '#fff', fontWeight: '600' }}>Add</ThemedText>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </KeyboardAvoidingView>
+          )}
         </Animated.View>
       </View>
     </Modal>
@@ -1650,5 +1707,50 @@ modalTeamLogo: {
   windowDropdownText: {
     fontSize: 13,
     fontWeight: '600',
+  },
+  tradeBlockPromptOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    zIndex: 100,
+  },
+  tradeBlockPromptCard: {
+    borderRadius: 14,
+    padding: 20,
+    width: '100%',
+    maxWidth: 340,
+  },
+  tradeBlockPromptTitle: {
+    fontSize: 17,
+    marginBottom: 4,
+  },
+  tradeBlockPromptDesc: {
+    fontSize: 13,
+    marginBottom: 12,
+  },
+  tradeBlockPromptInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    marginBottom: 16,
+  },
+  tradeBlockPromptButtons: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 8,
+  },
+  tradeBlockPromptBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  tradeBlockPromptBtnConfirm: {
+    backgroundColor: '#e67e22',
   },
 });

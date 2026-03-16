@@ -10,22 +10,26 @@ import {
   useMarkRead,
   useMessages,
   useReactions,
+  useReadReceipts,
   useSendMessage,
   useToggleReaction,
 } from '@/hooks/chat';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
+import { ReadReceiptIndicator } from '@/components/chat/ReadReceiptIndicator';
 import type { ChatMessage, ReactionGroup } from '@/types/chat';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
+  Modal,
   Platform,
+  Pressable,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -74,7 +78,13 @@ export default function ConversationScreen() {
         .single();
       if (convErr) throw convErr;
 
-      if (conv.type === 'league') return { name: 'League Chat', type: conv.type };
+      // Get member count for presence indicator
+      const { count: memberCount } = await supabase
+        .from('chat_members')
+        .select('id', { count: 'exact', head: true })
+        .eq('conversation_id', conversationId!);
+
+      if (conv.type === 'league') return { name: 'League Chat', type: conv.type, memberCount: memberCount ?? 0 };
 
       // DM: get the other team's name
       const { data: members } = await supabase
@@ -84,25 +94,27 @@ export default function ConversationScreen() {
         .neq('team_id', teamId!);
 
       const otherName = (members?.[0] as any)?.teams?.name ?? 'DM';
-      return { name: otherName, type: conv.type };
+      return { name: otherName, type: conv.type, memberCount: memberCount ?? 0 };
     },
     enabled: !!conversationId && !!teamId,
   });
 
-  // Get my team name for optimistic updates
-  const { data: myTeamName } = useQuery({
-    queryKey: ['myTeamName', teamId],
+  // Get my team name + tricode for optimistic updates & presence
+  const { data: myTeamInfo } = useQuery({
+    queryKey: ['myTeamInfo', teamId],
     queryFn: async () => {
       const { data } = await supabase
         .from('teams')
-        .select('name')
+        .select('name, tricode')
         .eq('id', teamId!)
         .single();
-      return data?.name ?? 'Me';
+      return { name: data?.name ?? 'Me', tricode: data?.tricode ?? null };
     },
     enabled: !!teamId,
     staleTime: Infinity,
   });
+  const myTeamName = myTeamInfo?.name ?? null;
+  const myTricode = myTeamInfo?.tricode ?? null;
 
   // Check if current user is commissioner
   const { data: isCommissioner } = useQuery({
@@ -123,6 +135,16 @@ export default function ConversationScreen() {
 
   const queryClient = useQueryClient();
   const [showCreatePoll, setShowCreatePoll] = useState(false);
+  const [showPresenceList, setShowPresenceList] = useState(false);
+
+  // Refresh messages when screen gains focus (catches messages missed by realtime)
+  useFocusEffect(
+    useCallback(() => {
+      if (conversationId) {
+        queryClient.invalidateQueries({ queryKey: ['messages', conversationId] });
+      }
+    }, [conversationId, queryClient]),
+  );
 
   const {
     data: msgData,
@@ -152,12 +174,52 @@ export default function ConversationScreen() {
     conversationId!,
     teamId!,
     myTeamName ?? 'Me',
-    leagueId,
+    leagueId!,
   );
 
   const toggleReaction = useToggleReaction(conversationId!);
 
-  useMarkRead(conversationId ?? null, teamId ?? null);
+  const newestMessageId = messages.length > 0 ? messages[0].id : null;
+  const { receipts: readReceipts, updateReadPosition } = useReadReceipts(
+    conversationId ?? null,
+    teamId ?? null,
+    myTeamName,
+    myTricode,
+  );
+  useMarkRead(conversationId ?? null, teamId ?? null, newestMessageId, updateReadPosition);
+
+  // Build a map of messageId → readers.
+  // Attach each reader to the current user's most recent sent message
+  // that the reader has read (at or before their last_read_message_id).
+  // This keeps "Seen" on your last message even after others send new ones.
+  const readReceiptsByMessageId = useMemo(() => {
+    if (!teamId || messages.length === 0 || readReceipts.length === 0) return {};
+
+    // messages[0] = newest. Build index lookup.
+    const idxById = new Map<string, number>();
+    for (let i = 0; i < messages.length; i++) {
+      idxById.set(messages[i].id, i);
+    }
+
+    const map: Record<string, typeof readReceipts> = {};
+    for (const r of readReceipts) {
+      if (!r.last_read_message_id) continue;
+      const readIdx = idxById.get(r.last_read_message_id);
+      if (readIdx === undefined) continue;
+
+      // Scan from the read position toward older messages to find
+      // the current user's most recent sent message they've seen.
+      for (let i = readIdx; i < messages.length; i++) {
+        if (messages[i].team_id === teamId) {
+          const msgId = messages[i].id;
+          if (!map[msgId]) map[msgId] = [];
+          map[msgId].push(r);
+          break;
+        }
+      }
+    }
+    return map;
+  }, [readReceipts, messages, teamId]);
 
   // Reaction picker state
   const [reactionTargetId, setReactionTargetId] = useState<string | null>(null);
@@ -208,7 +270,7 @@ export default function ConversationScreen() {
   // Shared swipe-to-reveal: drag the whole list left to show per-message times
   const swipeReveal = useSharedValue(0);
   const listPanGesture = Gesture.Pan()
-    .activeOffsetX([-10, 10])
+    .activeOffsetX(-10)
     .failOffsetY([-5, 5])
     .onUpdate((e) => {
       swipeReveal.value = Math.max(-60, Math.min(0, e.translationX));
@@ -254,6 +316,11 @@ export default function ConversationScreen() {
       const isFirstInGroup = !sameSenderAsOlder;
       const isLastInGroup = !sameSenderAsNewer;
 
+      // Show sender name only when the sender changes from the previous
+      // message (older = visually above). Don't re-show for time-based splits
+      // within a contiguous block from the same person.
+      const senderChanged = !olderMsg || olderMsg.team_id !== item.team_id;
+
       // Time header: show when there's a 1+ hour gap between this message
       // and the older one (visually above in inverted list).
       const GAP_MS = 60 * 60 * 1000; // 1 hour
@@ -264,12 +331,19 @@ export default function ConversationScreen() {
       // Show swipe-reveal time only on last message in group (avoids clutter)
       const showSwipeTime = isLastInGroup;
 
+      const isDM = convMeta?.type === 'dm';
+      const readers = readReceiptsByMessageId[item.id] ?? [];
+
       return (
         <>
+          {/* Read receipts appear below the message (above in inverted list) */}
+          {isOwn && item.type !== 'poll' && readers.length > 0 && (
+            <ReadReceiptIndicator isDM={isDM} readers={readers} />
+          )}
           <MessageBubble
             message={item}
             isOwnMessage={isOwn}
-            showSender={isLeagueChat}
+            showSender={isLeagueChat && senderChanged}
             isFirstInGroup={isFirstInGroup}
             isLastInGroup={isLastInGroup}
             reactions={reactions}
@@ -279,6 +353,7 @@ export default function ConversationScreen() {
             isCommissioner={isCommissioner ?? false}
             swipeReveal={swipeReveal}
             showSwipeTime={showSwipeTime}
+            isSelected={reactionTargetId === item.id}
           />
           {showTimeHeader && (
             <View style={styles.dateHeader}>
@@ -290,12 +365,39 @@ export default function ConversationScreen() {
         </>
       );
     },
-    [teamId, reactionsMap, myTeamName, messages, isLeagueChat, isCommissioner, sameMinute, handleLongPress, handleReactionPress, queryClient, c, swipeReveal],
+    [teamId, reactionsMap, myTeamName, messages, isLeagueChat, isCommissioner, sameMinute, handleLongPress, handleReactionPress, queryClient, c, swipeReveal, readReceiptsByMessageId, convMeta?.type, reactionTargetId],
   );
+
+  // +1 for ourselves (we're always online when viewing)
+  const onlineCount = readReceipts.filter((r) => r.online).length + 1;
+  const onlineTeams = readReceipts.filter((r) => r.online);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
-      <PageHeader title={convMeta?.name ?? 'Chat'} />
+      <PageHeader
+        title={convMeta?.name ?? 'Chat'}
+        rightAction={
+          convMeta?.type === 'dm' ? (
+            // DM: simple online dot next to header
+            readReceipts.some((r) => r.online) ? (
+              <View style={styles.onlineDot} accessibilityLabel="Online" />
+            ) : null
+          ) : convMeta?.type === 'league' ? (
+            // Group: tappable presence pill
+            <TouchableOpacity
+              onPress={() => setShowPresenceList(true)}
+              style={[styles.presencePill, { backgroundColor: c.cardAlt }]}
+              accessibilityRole="button"
+              accessibilityLabel={`${onlineCount} of ${convMeta.memberCount} teams online`}
+            >
+              <View style={styles.onlineDot} />
+              <ThemedText style={[styles.presenceText, { color: c.text }]}>
+                {onlineCount}/{convMeta.memberCount}
+              </ThemedText>
+            </TouchableOpacity>
+          ) : null
+        }
+      />
 
       <KeyboardAvoidingView
         style={styles.flex}
@@ -348,6 +450,7 @@ export default function ConversationScreen() {
           visible
           onSelect={handleReactionSelect}
           onClose={() => setReactionTargetId(null)}
+          existingReactions={reactionsMap?.[reactionTargetId]}
         />
       )}
 
@@ -360,6 +463,36 @@ export default function ConversationScreen() {
           onClose={() => setShowCreatePoll(false)}
         />
       )}
+      {/* Group chat presence list modal */}
+      <Modal
+        visible={showPresenceList}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowPresenceList(false)}
+      >
+        <Pressable style={styles.presenceOverlay} onPress={() => setShowPresenceList(false)}>
+          <View style={[styles.presenceModal, { backgroundColor: c.card, borderColor: c.border }]}>
+            <ThemedText type="defaultSemiBold" style={{ marginBottom: 8 }}>
+              Online ({onlineCount}/{convMeta?.memberCount ?? '?'})
+            </ThemedText>
+            <FlatList
+              data={[
+                { team_id: teamId!, team_name: myTeamName ?? 'Me', tricode: myTricode ?? '', online: true },
+                ...onlineTeams,
+              ]}
+              keyExtractor={(item) => item.team_id}
+              renderItem={({ item, index }) => (
+                <View style={[styles.presenceRow, { borderBottomColor: c.border }, index === onlineTeams.length && { borderBottomWidth: 0 }]}>
+                  <View style={styles.onlineDot} />
+                  <ThemedText accessibilityLabel={`${item.team_name} is online`}>
+                    {item.team_name}
+                  </ThemedText>
+                </View>
+              )}
+            />
+          </View>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -414,5 +547,43 @@ const styles = StyleSheet.create({
   dateHeaderText: {
     fontSize: 12,
     fontWeight: '500',
+  },
+  onlineDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#22c55e',
+  },
+  presencePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  presenceText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  presenceOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  presenceModal: {
+    width: 250,
+    maxHeight: 300,
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+  },
+  presenceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
 });

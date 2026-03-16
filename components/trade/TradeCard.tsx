@@ -1,9 +1,28 @@
 import { ThemedText } from '@/components/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { TradeProposalRow } from '@/hooks/useTrades';
+import { TradeItemRow, TradeProposalRow } from '@/hooks/useTrades';
 import { formatPickLabel } from '@/types/trade';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
+/** Returns a set of item keys that are new in the counteroffer vs the original */
+function getNewItemKeys(items: TradeItemRow[], originalItems?: TradeItemRow[]): Set<string> {
+  if (!originalItems) return new Set();
+  const origKeys = new Set(originalItems.map(itemKey));
+  const newKeys = new Set<string>();
+  for (const item of items) {
+    const key = itemKey(item);
+    if (!origKeys.has(key)) newKeys.add(key);
+  }
+  return newKeys;
+}
+
+function itemKey(item: TradeItemRow): string {
+  if (item.player_id) return `p:${item.player_id}:${item.from_team_id}:${item.to_team_id}`;
+  if (item.pick_swap_season) return `sw:${item.pick_swap_season}:${item.pick_swap_round}:${item.from_team_id}`;
+  if (item.draft_pick_id) return `pk:${item.draft_pick_id}:${item.from_team_id}:${item.to_team_id}`;
+  return item.id;
+}
 
 interface TradeCardProps {
   proposal: TradeProposalRow;
@@ -47,8 +66,9 @@ export function TradeCard({ proposal, onPress }: TradeCardProps) {
 
   const teamNames = proposal.teams.map((t) => t.team_name);
   const statusColor = STATUS_COLORS[proposal.status] ?? c.secondaryText;
-  const summary = buildTradeSummary(proposal);
-  const isCounteroffer = proposal.notes?.startsWith('Counteroffer: ') ?? false;
+  const isCounteroffer = !!proposal.counteroffer_of;
+  const newItemKeys = getNewItemKeys(proposal.items, proposal.original_items);
+  const summary = buildTradeSummary(proposal, newItemKeys);
 
   return (
     <TouchableOpacity
@@ -89,13 +109,19 @@ export function TradeCard({ proposal, onPress }: TradeCardProps) {
             {group.team} sends:
           </ThemedText>
           {group.assets.map((asset, j) => (
-            <ThemedText
-              key={j}
-              style={[styles.summaryAsset, { color: c.secondaryText }]}
-              numberOfLines={1}
-            >
-              {'  •  '}{asset}
-            </ThemedText>
+            <View key={j} style={styles.assetRow}>
+              <ThemedText
+                style={[styles.summaryAsset, { color: c.secondaryText }]}
+                numberOfLines={1}
+              >
+                {'  •  '}{asset.label}
+              </ThemedText>
+              {asset.isNew && (
+                <View style={styles.newBadge} accessibilityLabel="Newly added in counteroffer">
+                  <Text style={styles.newBadgeText}>NEW</Text>
+                </View>
+              )}
+            </View>
           ))}
         </View>
       ))}
@@ -103,7 +129,12 @@ export function TradeCard({ proposal, onPress }: TradeCardProps) {
   );
 }
 
-function buildTradeSummary(proposal: TradeProposalRow): { team: string; assets: string[] }[] {
+interface AssetEntry { label: string; isNew: boolean }
+
+function buildTradeSummary(
+  proposal: TradeProposalRow,
+  newItemKeys: Set<string>,
+): { team: string; assets: AssetEntry[] }[] {
   const teamNameMap: Record<string, string> = {};
   proposal.teams.forEach((t) => {
     teamNameMap[t.team_id] = t.team_name;
@@ -111,19 +142,20 @@ function buildTradeSummary(proposal: TradeProposalRow): { team: string; assets: 
 
   const isMultiTeam = proposal.teams.length > 2;
 
-  const sendsByTeam: Record<string, string[]> = {};
+  const sendsByTeam: Record<string, AssetEntry[]> = {};
   for (const item of proposal.items) {
     const from = teamNameMap[item.from_team_id] ?? 'Unknown';
     if (!sendsByTeam[from]) sendsByTeam[from] = [];
+    const isNew = newItemKeys.has(itemKey(item));
     const toSuffix = isMultiTeam ? ` → ${teamNameMap[item.to_team_id] ?? '?'}` : '';
     if (item.player_name) {
-      sendsByTeam[from].push(item.player_name + toSuffix);
+      sendsByTeam[from].push({ label: item.player_name + toSuffix, isNew });
     } else if (item.pick_swap_season && item.pick_swap_round) {
       const to = teamNameMap[item.to_team_id] ?? '?';
-      sendsByTeam[from].push(`Rd ${item.pick_swap_round} swap → ${to}`);
+      sendsByTeam[from].push({ label: `Rd ${item.pick_swap_round} swap → ${to}`, isNew });
     } else if (item.pick_season && item.pick_round) {
       const protLabel = item.protection_threshold ? ` (Top-${item.protection_threshold} P)` : '';
-      sendsByTeam[from].push(formatPickLabel(item.pick_season!, item.pick_round!) + protLabel + toSuffix);
+      sendsByTeam[from].push({ label: formatPickLabel(item.pick_season!, item.pick_round!) + protLabel + toSuffix, isNew });
     }
   }
 
@@ -176,5 +208,22 @@ const styles = StyleSheet.create({
   summaryAsset: {
     fontSize: 12,
     lineHeight: 18,
+    flex: 1,
+  },
+  assetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  newBadge: {
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 3,
+    marginLeft: 6,
+  },
+  newBadgeText: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: '700',
   },
 });

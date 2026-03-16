@@ -159,13 +159,13 @@ export function ReverseTradeModal({ visible, leagueId, onClose }: Props) {
                 <FlatList
                   data={completedTrades}
                   keyExtractor={(item) => item.id}
-                  renderItem={({ item }) => {
+                  renderItem={({ item, index }) => {
                     const teamList = item.teams.map((t) => t.team_name).join(' & ');
                     return (
                       <TouchableOpacity
                         accessibilityRole="button"
                         accessibilityLabel={`Trade: ${teamList}, ${formatTradeDate(item.completed_at)}, ${item.items.length} item${item.items.length !== 1 ? 's' : ''}`}
-                        style={[styles.tradeRow, { borderBottomColor: c.border }]}
+                        style={[styles.tradeRow, { borderBottomColor: c.border }, index === completedTrades.length - 1 && { borderBottomWidth: 0 }]}
                         onPress={() => setSelected(item)}
                       >
                         <View style={{ flex: 1 }}>

@@ -177,11 +177,11 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
             <FlatList
               data={teams}
               keyExtractor={(t) => t.id}
-              renderItem={({ item }) => (
+              renderItem={({ item, index }) => (
                 <TouchableOpacity
                   accessibilityRole="button"
                   accessibilityLabel={item.name}
-                  style={[styles.row, { borderBottomColor: c.border }]}
+                  style={[styles.row, { borderBottomColor: c.border }, index === teams.length - 1 && { borderBottomWidth: 0 }]}
                   onPress={() => { setSelectedTeam(item); setStep('action'); }}
                 >
                   <ThemedText>{item.name}</ThemedText>
@@ -232,13 +232,13 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
                 <FlatList
                   data={filtered}
                   keyExtractor={(p) => p.player_id}
-                  renderItem={({ item }) => {
+                  renderItem={({ item, index }) => {
                     const badge = getInjuryBadge(item.status);
                     return (
                       <TouchableOpacity
                         accessibilityRole="button"
                         accessibilityLabel={`${item.name}, ${item.position}, ${item.nba_team}`}
-                        style={[styles.row, { borderBottomColor: c.border }]}
+                        style={[styles.row, { borderBottomColor: c.border }, index === filtered.length - 1 && { borderBottomWidth: 0 }]}
                         onPress={() => handleSelectPlayer(item)}
                         disabled={processing}
                       >

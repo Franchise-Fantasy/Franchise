@@ -31,7 +31,7 @@ export function PageHeader({ title, rightAction, onBack }: PageHeaderProps) {
       <ThemedText type="defaultSemiBold" style={styles.title} numberOfLines={1} accessibilityRole="header">
         {title}
       </ThemedText>
-      <View style={styles.side}>
+      <View style={[styles.side, styles.sideRight]}>
         {rightAction ?? null}
       </View>
     </View>
@@ -50,6 +50,9 @@ const styles = StyleSheet.create({
     width: 70,
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  sideRight: {
+    justifyContent: 'flex-end',
   },
   backText: {
     fontSize: 16,

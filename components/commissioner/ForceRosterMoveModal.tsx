@@ -160,11 +160,11 @@ export function ForceRosterMoveModal({ visible, leagueId, teams, onClose }: Prop
             <FlatList
               data={teams}
               keyExtractor={(t) => t.id}
-              renderItem={({ item }) => (
+              renderItem={({ item, index }) => (
                 <TouchableOpacity
                   accessibilityRole="button"
                   accessibilityLabel={item.name}
-                  style={[styles.row, { borderBottomColor: c.border }]}
+                  style={[styles.row, { borderBottomColor: c.border }, index === teams.length - 1 && { borderBottomWidth: 0 }]}
                   onPress={() => { setSelectedTeam(item); setStep('player'); }}
                 >
                   <ThemedText>{item.name}</ThemedText>
@@ -184,13 +184,13 @@ export function ForceRosterMoveModal({ visible, leagueId, teams, onClose }: Prop
                 <FlatList
                   data={roster}
                   keyExtractor={(p) => p.player_id}
-                  renderItem={({ item }) => {
+                  renderItem={({ item, index }) => {
                     const badge = getInjuryBadge(item.status);
                     return (
                       <TouchableOpacity
                         accessibilityRole="button"
                         accessibilityLabel={`${item.name}, ${item.position}, current slot ${slotLabel(item.roster_slot)}`}
-                        style={[styles.row, { borderBottomColor: c.border }]}
+                        style={[styles.row, { borderBottomColor: c.border }, index === (roster ?? []).length - 1 && { borderBottomWidth: 0 }]}
                         onPress={() => { setSelectedPlayer(item); setStep('slot'); }}
                       >
                         <View style={{ flex: 1 }}>
@@ -233,11 +233,11 @@ export function ForceRosterMoveModal({ visible, leagueId, teams, onClose }: Prop
                 <FlatList
                   data={availableSlots}
                   keyExtractor={(s) => s}
-                  renderItem={({ item: slot }) => (
+                  renderItem={({ item: slot, index }) => (
                     <TouchableOpacity
                       accessibilityRole="button"
                       accessibilityLabel={`Move to ${slotLabel(slot)}`}
-                      style={[styles.row, { borderBottomColor: c.border }]}
+                      style={[styles.row, { borderBottomColor: c.border }, index === availableSlots.length - 1 && { borderBottomWidth: 0 }]}
                       onPress={() => handleMoveToSlot(slot)}
                       disabled={processing}
                     >

@@ -110,7 +110,7 @@ export function EditScoringModal({ visible, onClose, leagueId, scoring, scoringT
           <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
             {isCategories ? (
               editCategories.map((cat, idx) => (
-                <View key={cat.stat_name} style={[styles.catRow, { borderBottomColor: c.border }]}>
+                <View key={cat.stat_name} style={[styles.catRow, { borderBottomColor: c.border }, idx === editCategories.length - 1 && { borderBottomWidth: 0 }]}>
                   <View style={styles.catLeft}>
                     <ThemedText style={styles.catLabel}>{cat.stat_name}</ThemedText>
                     <ThemedText style={[styles.catSublabel, { color: c.secondaryText }]}>

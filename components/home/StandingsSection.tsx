@@ -72,7 +72,7 @@ export function StandingsSection({ leagueId, playoffTeams, scoringType }: { leag
               <ThemedText style={[styles.pa, styles.headerText, { color: c.secondaryText }]}>{scoringType === 'h2h_categories' ? 'CL' : 'PA'}</ThemedText>
               <ThemedText style={[styles.streakCol, styles.headerText, { color: c.secondaryText }]}>STK</ThemedText>
             </View>
-            {standings.map((team) => (
+            {standings.map((team, idx) => (
               <View key={team.id}>
                 {playoffTeams && team.rank === playoffTeams + 1 && (
                   <View style={styles.playoffCutoff}>
@@ -84,7 +84,7 @@ export function StandingsSection({ leagueId, playoffTeams, scoringType }: { leag
                   </View>
                 )}
                 <TouchableOpacity
-                  style={[styles.standingRow, { borderBottomColor: c.border }]}
+                  style={[styles.standingRow, { borderBottomColor: c.border }, idx === standings.length - 1 && { borderBottomWidth: 0 }]}
                   onPress={() => team.id === teamId ? router.push('/(tabs)/roster') : router.push(`/team-roster/${team.id}` as any)}
                   activeOpacity={0.6}
                 >

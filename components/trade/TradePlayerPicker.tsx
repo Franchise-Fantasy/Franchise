@@ -50,7 +50,7 @@ export function TradePlayerPicker({
     p.name.toLowerCase().includes(search.toLowerCase())
   );
 
-  const renderItem = ({ item }: { item: PlayerSeasonStats }) => {
+  const renderItem = ({ item, index }: { item: PlayerSeasonStats; index: number }) => {
     const isSelected = selectedPlayerIds.includes(item.player_id);
     const isLocked = lockedPlayerIds?.has(item.player_id) ?? false;
     const fpts = scoringWeights ? calculateAvgFantasyPoints(item, scoringWeights) : null;
@@ -69,6 +69,7 @@ export function TradePlayerPicker({
           { borderBottomColor: c.border },
           isSelected && { backgroundColor: c.activeCard },
           isLocked && { opacity: 0.45 },
+          index === filtered.length - 1 && { borderBottomWidth: 0 },
         ]}
         onPress={() => onToggle(item, fpts ?? 0)}
       >

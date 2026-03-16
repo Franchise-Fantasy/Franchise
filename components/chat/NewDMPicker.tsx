@@ -51,11 +51,11 @@ export function NewDMPicker({ visible, currentTeamId, onSelect, onClose }: Props
             <FlatList
               data={teams}
               keyExtractor={(item: any) => item.id}
-              renderItem={({ item }: { item: any }) => (
+              renderItem={({ item, index }: { item: any; index: number }) => (
                 <TouchableOpacity
                   accessibilityRole="button"
                   accessibilityLabel={`Message ${item.name}`}
-                  style={[styles.row, { borderBottomColor: c.border }]}
+                  style={[styles.row, { borderBottomColor: c.border }, index === teams.length - 1 && { borderBottomWidth: 0 }]}
                   onPress={() => onSelect(item.id)}
                 >
                   <ThemedText style={styles.teamName}>{item.name}</ThemedText>

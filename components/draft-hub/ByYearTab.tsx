@@ -194,13 +194,13 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
             <TouchableOpacity
               key={season}
               accessibilityRole="button"
-              accessibilityLabel={`Season ${season}`}
+              accessibilityLabel={`Season ${parseInt(season.split('-')[0], 10) + 1}`}
               accessibilityState={{ selected: active }}
               style={[styles.pill, { backgroundColor: active ? c.accent : c.cardAlt, borderColor: active ? c.accent : c.border }]}
               onPress={() => { setSelectedSeason(season); setSimResult(null); }}
             >
               <ThemedText style={[styles.pillText, { color: active ? c.accentText : c.text }]}>
-                {season.split('-')[0]}
+                {parseInt(season.split('-')[0], 10) + 1}
               </ThemedText>
             </TouchableOpacity>
           );

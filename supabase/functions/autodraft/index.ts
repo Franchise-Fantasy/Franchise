@@ -137,31 +137,63 @@ Deno.serve(async (req) => {
 
     const isRookieDraft = draft.type === 'rookie';
 
-    let query = supabaseAdmin
-      .from('player_season_stats')
-      .select('player_id, position')
-      .gt('games_played', 0)
-      .order('avg_pts', { ascending: false })
-      .limit(1);
+    // Check if the team has a draft queue — pick from it first
+    let topPlayer: { player_id: string; position: string } | null = null;
+    let usedQueueEntryId: string | null = null;
 
-    if (isRookieDraft) {
-      query = query.eq('rookie', true);
+    const { data: queueEntries } = await supabaseAdmin
+      .from('draft_queue')
+      .select('id, player_id')
+      .eq('draft_id', draft_id)
+      .eq('team_id', currentPick.current_team_id)
+      .order('priority');
+
+    if (queueEntries && queueEntries.length > 0) {
+      // Find first queued player that is still available
+      for (const entry of queueEntries) {
+        if (draftedIds.includes(String(entry.player_id))) continue;
+        const { data: playerStats } = await supabaseAdmin
+          .from('player_season_stats')
+          .select('player_id, position')
+          .eq('player_id', entry.player_id)
+          .single();
+        if (playerStats) {
+          topPlayer = playerStats;
+          usedQueueEntryId = entry.id;
+          break;
+        }
+      }
     }
 
-    if (draftedIds.length > 0) {
-      query = query.filter('player_id', 'not.in', `(${draftedIds.join(',')})`);
-    }
+    // Fall back to best available by avg_pts
+    if (!topPlayer) {
+      let query = supabaseAdmin
+        .from('player_season_stats')
+        .select('player_id, position')
+        .gt('games_played', 0)
+        .order('avg_pts', { ascending: false })
+        .limit(1);
 
-    const { data: topPlayer, error: playerError } = await query.single();
-    if (playerError || !topPlayer) {
-      return new Response(JSON.stringify({ message: 'No players available' }), { status: 200 });
+      if (isRookieDraft) {
+        query = query.eq('rookie', true);
+      }
+
+      if (draftedIds.length > 0) {
+        query = query.filter('player_id', 'not.in', `(${draftedIds.join(',')})`);
+      }
+
+      const { data: bestPlayer, error: playerError } = await query.single();
+      if (playerError || !bestPlayer) {
+        return new Response(JSON.stringify({ message: 'No players available' }), { status: 200 });
+      }
+      topPlayer = bestPlayer;
     }
 
     const timestamp = new Date().toISOString();
 
     const { error: updatePickError } = await supabaseAdmin
       .from('draft_picks')
-      .update({ player_id: topPlayer.player_id, selected_at: timestamp })
+      .update({ player_id: topPlayer.player_id, selected_at: timestamp, auto_drafted: true })
       .eq('draft_id', draft_id)
       .eq('pick_number', pick_number);
     if (updatePickError) throw updatePickError;
@@ -181,6 +213,15 @@ Deno.serve(async (req) => {
         roster_slot: rosterSlot,
       });
     if (insertPlayerError) throw insertPlayerError;
+
+    // Clean up draft queues: remove used entry and this player from all teams' queues
+    if (usedQueueEntryId) {
+      await supabaseAdmin.from('draft_queue').delete().eq('id', usedQueueEntryId);
+    }
+    await supabaseAdmin.from('draft_queue')
+      .delete()
+      .eq('draft_id', draft_id)
+      .eq('player_id', topPlayer.player_id);
 
     const nextPickNumber = pick_number + 1;
     const totalPicks = draft.rounds * draft.picks_per_round;
@@ -208,7 +249,32 @@ Deno.serve(async (req) => {
 
     if (!isDraftComplete) {
       try {
-        await scheduleAutodraft(draft_id, nextPickNumber, draft.time_limit);
+        // Check if the next team's last pick was also autodrafted — if so, fire immediately
+        const { data: nextPick } = await supabaseAdmin
+          .from('draft_picks')
+          .select('current_team_id')
+          .eq('draft_id', draft_id)
+          .eq('pick_number', nextPickNumber)
+          .single();
+
+        let delay = draft.time_limit;
+        if (nextPick) {
+          const { data: lastPickByTeam } = await supabaseAdmin
+            .from('draft_picks')
+            .select('auto_drafted')
+            .eq('draft_id', draft_id)
+            .eq('current_team_id', nextPick.current_team_id)
+            .not('player_id', 'is', null)
+            .order('pick_number', { ascending: false })
+            .limit(1)
+            .single();
+
+          if (lastPickByTeam?.auto_drafted) {
+            delay = 1;
+          }
+        }
+
+        await scheduleAutodraft(draft_id, nextPickNumber, delay);
       } catch (schedErr) {
         console.warn('Failed to schedule next autodraft (non-fatal):', schedErr);
       }

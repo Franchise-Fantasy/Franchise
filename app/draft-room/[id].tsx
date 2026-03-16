@@ -1,5 +1,6 @@
 import { AvailablePlayers } from '@/components/draft/AvailablePlayers';
 import { DraftOrder, PresenceTeam } from '@/components/draft/DraftOrder';
+import { DraftQueue } from '@/components/draft/DraftQueue';
 import { TeamRoster } from '@/components/draft/TeamRoster';
 import { ProposeTradeModal } from '@/components/trade/ProposeTradeModal';
 import { ThemedText } from '@/components/ThemedText';
@@ -7,6 +8,7 @@ import { ThemedView } from '@/components/ThemedView';
 import { supabase } from '@/lib/supabase';
 import { CurrentPick, DraftState } from '@/types/draft';
 import { setDraftRoomOpen } from '@/lib/activeScreen';
+import { useDraftQueue } from '@/hooks/useDraftQueue';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
@@ -16,7 +18,7 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Ionicons } from '@expo/vector-icons';
 
-type ViewMode = 'players' | 'roster';
+type ViewMode = 'players' | 'roster' | 'queue';
 
 
 
@@ -112,6 +114,12 @@ export default function DraftRoomScreen() {
     enabled: !!draftData?.league_id,
   });
 
+  const { addToQueue, queuedPlayerIds } = useDraftQueue(
+    draftId,
+    teamData?.id || '',
+    draftData?.league_id || '',
+  );
+
   const draftPickTradingEnabled = leagueSettings?.draft_pick_trading_enabled ?? false;
   const showTradeButton = draftPickTradingEnabled && draftState?.status === 'in_progress' && !isDraftComplete;
 
@@ -191,6 +199,15 @@ export default function DraftRoomScreen() {
               teamId={teamData?.id || ''}
               leagueId={draftData?.league_id || ''}
               isRookieDraft={isRookieDraft}
+              addToQueue={addToQueue}
+              queuedPlayerIds={queuedPlayerIds}
+            />
+          ) : viewMode === 'queue' ? (
+            <DraftQueue
+              draftId={draftId}
+              leagueId={draftData?.league_id || ''}
+              teamId={teamData?.id || ''}
+              currentPick={currentPick}
             />
           ) : (
             <TeamRoster
@@ -216,7 +233,24 @@ export default function DraftRoomScreen() {
               { color: colors.secondaryText },
               viewMode === 'players' && { color: colors.activeText, fontWeight: 'bold' }
             ]}>
-              Available Players
+              Players
+            </ThemedText>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.toggleButton,
+              viewMode === 'queue' && { backgroundColor: colors.activeCard }
+            ]}
+            onPress={() => setViewMode('queue')}
+            accessibilityRole="button"
+            accessibilityLabel="Draft Queue"
+            accessibilityState={{ selected: viewMode === 'queue' }}
+          >
+            <ThemedText style={[
+              { color: colors.secondaryText },
+              viewMode === 'queue' && { color: colors.activeText, fontWeight: 'bold' }
+            ]}>
+              Queue
             </ThemedText>
           </TouchableOpacity>
           <TouchableOpacity
@@ -253,8 +287,8 @@ export default function DraftRoomScreen() {
             <FlatList
               data={presentTeams}
               keyExtractor={(item) => item.teamId}
-              renderItem={({ item }) => (
-                <View style={[styles.presenceRow, { borderBottomColor: colors.border }]}>
+              renderItem={({ item, index }) => (
+                <View style={[styles.presenceRow, { borderBottomColor: colors.border }, index === presentTeams.length - 1 && { borderBottomWidth: 0 }]}>
                   <View style={styles.presenceDot} />
                   <ThemedText accessibilityLabel={`${item.teamName} is online`}>
                     {item.teamName}

@@ -4,7 +4,7 @@ import { Colors } from '@/constants/Colors';
 import { useToast } from '@/context/ToastProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
-import { TradeProposalRow, useTradeVotes } from '@/hooks/useTrades';
+import { TradeItemRow, TradeProposalRow, useTradeVotes } from '@/hooks/useTrades';
 import { sendNotification } from '@/lib/notifications';
 import { supabase } from '@/lib/supabase';
 import { estimatePickFpts, formatPickLabel } from '@/types/trade';
@@ -18,9 +18,28 @@ import {
   Modal,
   ScrollView,
   StyleSheet,
+  Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+
+function itemKey(item: TradeItemRow): string {
+  if (item.player_id) return `p:${item.player_id}:${item.from_team_id}:${item.to_team_id}`;
+  if (item.pick_swap_season) return `sw:${item.pick_swap_season}:${item.pick_swap_round}:${item.from_team_id}`;
+  if (item.draft_pick_id) return `pk:${item.draft_pick_id}:${item.from_team_id}:${item.to_team_id}`;
+  return item.id;
+}
+
+function getNewItemKeys(items: TradeItemRow[], originalItems?: TradeItemRow[]): Set<string> {
+  if (!originalItems) return new Set();
+  const origKeys = new Set(originalItems.map(itemKey));
+  const newKeys = new Set<string>();
+  for (const item of items) {
+    const key = itemKey(item);
+    if (!origKeys.has(key)) newKeys.add(key);
+  }
+  return newKeys;
+}
 
 interface TradeDetailModalProps {
   proposal: TradeProposalRow;
@@ -369,7 +388,8 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
   const vetoCount = (votes ?? []).filter((v: any) => v.vote === 'veto').length;
   const hasVoted = (votes ?? []).some((v: any) => v.team_id === teamId);
   const statusColor = STATUS_COLORS[proposal.status] ?? c.secondaryText;
-  const isCounteroffer = proposal.notes?.startsWith('Counteroffer: ') ?? false;
+  const isCounteroffer = !!proposal.counteroffer_of;
+  const newItemKeys = getNewItemKeys(proposal.items, proposal.original_items);
 
   return (
     <Modal visible animationType="slide" transparent>
@@ -402,18 +422,28 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
                 <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>
                   {teamNameMap[fromTeamId] ?? 'Unknown'} sends:
                 </ThemedText>
-                {items.map((item) => (
-                  <ThemedText key={item.id} style={styles.itemText}>
-                    {item.player_name
-                      ? `${item.player_name} (${item.player_position})`
-                      : item.pick_swap_season
-                        ? `${item.pick_swap_season} Rd ${item.pick_swap_round} swap — ${teamNameMap[item.to_team_id] ?? '?'} gets better pick`
-                        : item.pick_season
-                          ? `${formatPickLabel(item.pick_season!, item.pick_round!)}${item.protection_threshold ? ` [Top-${item.protection_threshold} protected]` : ''}${item.pick_original_team_name ? ` (via ${item.pick_original_team_name})` : ''}`
-                          : 'Unknown'}
-                    {!item.pick_swap_season && ` → ${teamNameMap[item.to_team_id] ?? 'Unknown'}`}
-                  </ThemedText>
-                ))}
+                {items.map((item) => {
+                  const isNew = newItemKeys.has(itemKey(item));
+                  return (
+                    <View key={item.id} style={styles.itemRow}>
+                      <ThemedText style={[styles.itemText, { flex: 1 }]}>
+                        {item.player_name
+                          ? `${item.player_name} (${item.player_position})`
+                          : item.pick_swap_season
+                            ? `${formatPickLabel(item.pick_swap_season!, item.pick_swap_round!)} swap — ${teamNameMap[item.to_team_id] ?? '?'} gets better pick`
+                            : item.pick_season
+                              ? `${formatPickLabel(item.pick_season!, item.pick_round!)}${item.protection_threshold ? ` [Top-${item.protection_threshold} protected]` : ''}${item.pick_original_team_name ? ` (via ${item.pick_original_team_name})` : ''}`
+                              : 'Unknown'}
+                        {!item.pick_swap_season && ` → ${teamNameMap[item.to_team_id] ?? 'Unknown'}`}
+                      </ThemedText>
+                      {isNew && (
+                        <View style={styles.newBadge} accessibilityLabel="Newly added in counteroffer">
+                          <Text style={styles.newBadgeText}>NEW</Text>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
               </View>
             ))}
 
@@ -465,14 +495,14 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
           </ScrollView>
 
           {/* Action Buttons */}
-          <View style={[styles.actionRow, { borderTopColor: c.border }]}>
+          <View style={[styles.actionArea, { borderTopColor: c.border }]}>
             {processing ? (
               <ActivityIndicator />
             ) : (
               <>
                 {/* Pending: counterparty can accept/reject */}
                 {proposal.status === 'pending' && isInvolved && !isProposer && myTeamStatus === 'pending' && (
-                  <>
+                  <View style={styles.actionRow}>
                     <TouchableOpacity
                       accessibilityRole="button"
                       accessibilityLabel="Accept trade"
@@ -505,12 +535,12 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
                     >
                       <ThemedText style={styles.actionBtnText}>Decline</ThemedText>
                     </TouchableOpacity>
-                  </>
+                  </View>
                 )}
 
                 {/* Pending: commissioner can push through or veto */}
                 {proposal.status === 'pending' && isCommissioner && (
-                  <>
+                  <View style={styles.actionRow}>
                     <TouchableOpacity
                       accessibilityRole="button"
                       accessibilityLabel="Push trade through"
@@ -537,35 +567,37 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
                     >
                       <ThemedText style={styles.actionBtnText}>Veto</ThemedText>
                     </TouchableOpacity>
-                  </>
+                  </View>
                 )}
 
                 {/* Pending: any involved team can back out */}
                 {proposal.status === 'pending' && isInvolved && (
-                  <TouchableOpacity
-                    accessibilityRole="button"
-                    accessibilityLabel={isProposer ? 'Cancel trade' : 'Back out of trade'}
-                    style={[styles.actionBtn, { backgroundColor: '#6c757d' }]}
-                    onPress={() => Alert.alert(
-                      isProposer ? 'Cancel Trade' : 'Back Out',
-                      isProposer
-                        ? 'Withdraw this trade proposal?'
-                        : 'Back out and cancel this trade for all parties?',
-                      [
-                        { text: 'No', style: 'cancel' },
-                        { text: isProposer ? 'Withdraw' : 'Back Out', style: 'destructive', onPress: handleCancel },
-                      ]
-                    )}
-                  >
-                    <ThemedText style={styles.actionBtnText}>
-                      {isProposer ? 'Cancel Trade' : 'Back Out'}
-                    </ThemedText>
-                  </TouchableOpacity>
+                  <View style={styles.actionRow}>
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      accessibilityLabel={isProposer ? 'Cancel trade' : 'Back out of trade'}
+                      style={[styles.actionBtn, { backgroundColor: '#6c757d' }]}
+                      onPress={() => Alert.alert(
+                        isProposer ? 'Cancel Trade' : 'Back Out',
+                        isProposer
+                          ? 'Withdraw this trade proposal?'
+                          : 'Back out and cancel this trade for all parties?',
+                        [
+                          { text: 'No', style: 'cancel' },
+                          { text: isProposer ? 'Withdraw' : 'Back Out', style: 'destructive', onPress: handleCancel },
+                        ]
+                      )}
+                    >
+                      <ThemedText style={styles.actionBtnText}>
+                        {isProposer ? 'Cancel Trade' : 'Back Out'}
+                      </ThemedText>
+                    </TouchableOpacity>
+                  </View>
                 )}
 
                 {/* In review: commissioner can always approve/veto regardless of veto type */}
                 {proposal.status === 'in_review' && isCommissioner && (
-                  <>
+                  <View style={styles.actionRow}>
                     <TouchableOpacity
                       accessibilityRole="button"
                       accessibilityLabel="Approve trade"
@@ -588,28 +620,32 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
                     >
                       <ThemedText style={styles.actionBtnText}>Veto</ThemedText>
                     </TouchableOpacity>
-                  </>
+                  </View>
                 )}
 
                 {/* In review: league vote (non-commissioner members) */}
                 {proposal.status === 'in_review' && leagueSettings?.trade_veto_type === 'league_vote' && !isCommissioner && !isInvolved && !hasVoted && (
-                  <TouchableOpacity
-                    accessibilityRole="button"
-                    accessibilityLabel="Vote to veto trade"
-                    style={[styles.actionBtn, { backgroundColor: '#dc3545' }]}
-                    onPress={() => Alert.alert('Vote to Veto', 'Cast a veto vote on this trade?', [
-                      { text: 'Cancel', style: 'cancel' },
-                      { text: 'Veto', style: 'destructive', onPress: handleVoteToVeto },
-                    ])}
-                  >
-                    <ThemedText style={styles.actionBtnText}>Vote to Veto</ThemedText>
-                  </TouchableOpacity>
+                  <View style={styles.actionRow}>
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      accessibilityLabel="Vote to veto trade"
+                      style={[styles.actionBtn, { backgroundColor: '#dc3545' }]}
+                      onPress={() => Alert.alert('Vote to Veto', 'Cast a veto vote on this trade?', [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Veto', style: 'destructive', onPress: handleVoteToVeto },
+                      ])}
+                    >
+                      <ThemedText style={styles.actionBtnText}>Vote to Veto</ThemedText>
+                    </TouchableOpacity>
+                  </View>
                 )}
 
                 {/* Already voted indicator */}
                 {proposal.status === 'in_review' && leagueSettings?.trade_veto_type === 'league_vote' && !isCommissioner && hasVoted && (
-                  <View style={[styles.actionBtn, { backgroundColor: c.cardAlt }]} accessibilityLabel="You voted to veto this trade">
-                    <ThemedText style={[styles.votedText, { color: c.secondaryText }]}>You voted to veto</ThemedText>
+                  <View style={styles.actionRow}>
+                    <View style={[styles.actionBtn, { backgroundColor: c.cardAlt }]} accessibilityLabel="You voted to veto this trade">
+                      <ThemedText style={[styles.votedText, { color: c.secondaryText }]}>You voted to veto</ThemedText>
+                    </View>
                   </View>
                 )}
               </>
@@ -714,9 +750,25 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginBottom: 6,
   },
+  itemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 3,
+  },
   itemText: {
     fontSize: 14,
-    paddingVertical: 3,
+  },
+  newBadge: {
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 3,
+    marginLeft: 8,
+  },
+  newBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '700',
   },
   fairnessWrap: {
     marginBottom: 12,
@@ -736,12 +788,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 4,
   },
-  actionRow: {
-    flexDirection: 'row',
+  actionArea: {
     gap: 8,
     paddingHorizontal: 16,
     paddingTop: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    gap: 8,
     justifyContent: 'center',
   },
   actionBtn: {

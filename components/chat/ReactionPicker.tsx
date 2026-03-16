@@ -1,5 +1,7 @@
+import { ThemedText } from '@/components/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import type { ReactionGroup } from '@/types/chat';
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import {
@@ -39,9 +41,10 @@ interface Props {
   visible: boolean;
   onSelect: (emoji: string) => void;
   onClose: () => void;
+  existingReactions?: ReactionGroup[];
 }
 
-export function ReactionPicker({ visible, onSelect, onClose }: Props) {
+export function ReactionPicker({ visible, onSelect, onClose, existingReactions }: Props) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const [expanded, setExpanded] = useState(false);
@@ -112,6 +115,23 @@ export function ReactionPicker({ visible, onSelect, onClose }: Props) {
           />
         </TouchableOpacity>
       </View>
+
+      {/* Existing reaction attribution */}
+      {existingReactions && existingReactions.length > 0 && (
+        <View
+          style={[styles.attributionCard, { backgroundColor: c.card, borderColor: c.border }]}
+          onStartShouldSetResponder={() => true}
+        >
+          {existingReactions.map((rr) => (
+            <View key={rr.emoji} style={styles.attributionRow} accessibilityLabel={`${rr.emoji} by ${rr.team_names.join(', ')}`}>
+              <Text style={styles.attributionEmoji}>{rr.emoji}</Text>
+              <ThemedText style={[styles.attributionNames, { color: c.secondaryText }]}>
+                {rr.team_names.join(', ')}
+              </ThemedText>
+            </View>
+          ))}
+        </View>
+      )}
     </Pressable>
   );
 }
@@ -182,5 +202,32 @@ const styles = StyleSheet.create({
   },
   gridEmojiText: {
     fontSize: 22,
+  },
+  attributionCard: {
+    marginTop: 8,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 6,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    minWidth: 160,
+  },
+  attributionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  attributionEmoji: {
+    fontSize: 18,
+  },
+  attributionNames: {
+    fontSize: 13,
+    fontWeight: '500',
+    flexShrink: 1,
   },
 });

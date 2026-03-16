@@ -4,7 +4,7 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { ChatMessage, ReactionGroup } from '@/types/chat';
 import * as Haptics from 'expo-haptics';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import Animated, {
   FadeInUp,
@@ -12,6 +12,8 @@ import Animated, {
   interpolate,
   type SharedValue,
   useAnimatedStyle,
+  useSharedValue,
+  withSpring,
 } from 'react-native-reanimated';
 
 function formatTime(dateStr: string): string {
@@ -91,6 +93,7 @@ interface Props {
   isCommissioner?: boolean;
   swipeReveal: SharedValue<number>;
   showSwipeTime: boolean;
+  isSelected?: boolean;
 }
 
 export function MessageBubble({
@@ -106,6 +109,7 @@ export function MessageBubble({
   isCommissioner = false,
   swipeReveal,
   showSwipeTime,
+  isSelected = false,
 }: Props) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
@@ -113,6 +117,20 @@ export function MessageBubble({
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onLongPress();
   };
+
+  // iMessage-style scale-up when selected
+  const selectedScale = useSharedValue(1);
+  useEffect(() => {
+    selectedScale.value = withSpring(isSelected ? 1.05 : 1, {
+      damping: 20,
+      stiffness: 300,
+    });
+  }, [isSelected, selectedScale]);
+
+  const selectedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: selectedScale.value }],
+    zIndex: isSelected ? 10 : 0,
+  }));
 
   const isSolo = isFirstInGroup && isLastInGroup;
 
@@ -185,7 +203,7 @@ export function MessageBubble({
       )}
 
       <View style={[styles.swipeRow, isOwnMessage ? styles.swipeRowRight : styles.swipeRowLeft]}>
-        <Animated.View style={[styles.wrapper, slideStyle]}>
+        <Animated.View style={[styles.wrapper, slideStyle, selectedStyle]}>
           <ReactionBadges reactions={reactions} isOwnMessage={isOwnMessage} onReactionPress={onReactionPress} />
 
           <TouchableOpacity
@@ -266,25 +284,31 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
   },
-  // Reaction badges sitting above the bubble, top-left
+  // Reaction badges sitting above the bubble
   reactionRow: {
     flexDirection: 'row',
     gap: 2,
-    marginBottom: -14,
-    marginLeft: -12,
+    marginBottom: -12,
     zIndex: 1,
   },
-  reactionRowRight: {},
-  reactionRowLeft: {},
+  reactionRowLeft: {
+    alignSelf: 'flex-start',
+    marginLeft: -12,
+  },
+  reactionRowRight: {
+    alignSelf: 'flex-end',
+    marginRight: -12,
+  },
   reactionBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    width: 30,
+    minWidth: 30,
     height: 30,
     borderRadius: 15,
+    paddingHorizontal: 6,
     borderWidth: 1.5,
-    gap: 1,
+    gap: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.08,

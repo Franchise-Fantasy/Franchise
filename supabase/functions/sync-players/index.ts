@@ -63,7 +63,7 @@ Deno.serve(async (req: Request) => {
       const name = sp.full_name ?? `${sp.first_name ?? ''} ${sp.last_name ?? ''}`.trim();
       if (!name) continue;
 
-      const position = sp.fantasy_positions?.[0] ?? sp.position;
+      const position = sp.fantasy_positions?.join('-') ?? sp.position;
       if (!position || position === 'DEF') continue;
 
       activePlayers.push({

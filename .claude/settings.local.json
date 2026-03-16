@@ -183,7 +183,17 @@
       "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2/supabase/migrations -name \"*.sql\" -exec wc -l {} +)",
       "Bash(xargs cat:*)",
       "Bash(find /c/Users/jjspo/OneDrive/Desktop/franchise.v2 -name supabase.json -o -name cron*.json -o -name *cron*)",
-      "Bash(npx supabase:*)"
+      "Bash(npx supabase:*)",
+      "Bash(find c:UsersjjspoOneDriveDesktopfranchise.v2 -path */supabase/functions/* -name *chat* -o -path */supabase/functions/* -name *message*)",
+      "Bash(npm *)",
+      "Bash(npx *)",
+      "Bash(git *)",
+      "Bash(ls *)",
+      "Bash(find *)",
+      "mcp__claude_ai_Supabase__generate_typescript_types",
+      "Bash(python3 -c \"import json,sys; data=json.load\\(sys.stdin\\); print\\(data[0][''''text'''']\\)\")",
+      "Bash(python3:*)",
+      "Bash(find \"c:\\\\Users\\\\jjspo\\\\OneDrive\\\\Desktop\\\\franchise.v2\\\\app\\\\\\(tabs\\)\" -type f)"
     ]
   }
 }

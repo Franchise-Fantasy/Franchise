@@ -21,9 +21,3 @@ jobs:
 
       - name: Sync players from NBA API
         run: python backend/sync_players.py
-
-      - name: Sync positions from Sleeper
-        run: |
-          curl -s -X POST "https://iuqbossmnsezzgocpcbo.supabase.co/functions/v1/sync-positions" \
-            -H "Content-Type: application/json" \
-            -d "{}"

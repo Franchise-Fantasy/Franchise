@@ -65,7 +65,7 @@ Notifications.setNotificationHandler({
 import { AnnouncementBanner } from "@/components/AnnouncementBanner";
 import { OfflineBanner } from "@/components/OfflineBanner";
 import { AppStateProvider, useAppState } from "@/context/AppStateProvider";
-import { AuthProvider, useSession } from "@/context/AuthProvider";
+import { AuthProvider, useAuthInitialized, useSession } from "@/context/AuthProvider";
 import { globalToastRef, ToastProvider } from "@/context/ToastProvider";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { posthog } from "@/lib/posthog";
@@ -166,6 +166,20 @@ async function switchLeagueContext(
   }
 }
 
+/** Keep the native splash visible until auth + app state are resolved. */
+function SplashGate() {
+  const authReady = useAuthInitialized();
+  const { loading } = useAppState();
+
+  useEffect(() => {
+    if (authReady && !loading) {
+      SplashScreen.hideAsync();
+    }
+  }, [authReady, loading]);
+
+  return null;
+}
+
 /** Identify users and set league/team context as super properties. */
 function PostHogIdentifier() {
   const ph = usePostHog();
@@ -226,14 +240,14 @@ function NotificationAndLinkHandler() {
         }
 
         if (data.screen === "draft-room" && data.draft_id) {
-          router.push(`/draft-room/${data.draft_id}` as any);
+          router.navigate(`/draft-room/${data.draft_id}` as any);
         } else if (data.screen.startsWith("chat/")) {
           const conversationId = data.screen.split("/")[1];
           if (conversationId) {
-            router.push(`/chat/${conversationId}` as any);
+            router.navigate(`/chat/${conversationId}` as any);
           }
         } else if (NOTIF_ROUTES[data.screen]) {
-          router.push(NOTIF_ROUTES[data.screen] as any);
+          router.navigate(NOTIF_ROUTES[data.screen] as any);
         }
       },
     );
@@ -269,6 +283,14 @@ function NotificationAndLinkHandler() {
 
       if (!session?.user) return;
       const parsed = Linking.parse(url);
+
+      // Invite deep link: franchisev2://join?code=ABCD1234
+      const inviteCode = parsed.queryParams?.code;
+      if (parsed.hostname === "join" && typeof inviteCode === "string") {
+        router.replace({ pathname: "/join-league", params: { code: inviteCode } });
+        return;
+      }
+
       const leagueId = parsed.queryParams?.league_id;
       if (typeof leagueId === "string") {
         switchLeagueContext(leagueId, session.user.id, switchLeague);
@@ -322,10 +344,6 @@ export default function RootLayout() {
     })();
   }, []);
 
-  useEffect(() => {
-    if (loaded) SplashScreen.hideAsync();
-  }, [loaded]);
-
   if (!loaded) {
     return null;
   }
@@ -344,6 +362,7 @@ export default function RootLayout() {
             <ToastProvider>
               <AuthProvider>
                 <AppStateProvider>
+                  <SplashGate />
                   <PostHogIdentifier />
                   <ScreenTracker />
                   <NotificationAndLinkHandler />

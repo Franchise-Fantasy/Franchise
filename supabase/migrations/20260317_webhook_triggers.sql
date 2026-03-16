@@ -11,7 +11,7 @@ SELECT vault.create_secret('7d3aef8c-2e43-4073-bc45-262b85ab1411', 'webhook_secr
 
 -- Helper to retrieve secrets from Vault (avoids repeating the query)
 CREATE OR REPLACE FUNCTION get_vault_secret(secret_name text)
-RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path = 'public', 'vault', 'extensions' AS $$
 DECLARE
   secret_value text;
 BEGIN
@@ -22,7 +22,7 @@ END $$;
 
 -- 1. Trade proposal webhook: notify other teams when a trade is proposed
 CREATE OR REPLACE FUNCTION notify_trade_proposed()
-RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = 'public', 'vault', 'net', 'extensions' AS $$
 BEGIN
   PERFORM net.http_post(
     url := get_vault_secret('project_url') || '/functions/v1/webhook-notify',
@@ -52,7 +52,7 @@ CREATE TRIGGER webhook_trade_proposed
 
 -- 2. Chat message webhook: push notify offline conversation members
 CREATE OR REPLACE FUNCTION notify_chat_message()
-RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = 'public', 'vault', 'net', 'extensions' AS $$
 BEGIN
   PERFORM net.http_post(
     url := get_vault_secret('project_url') || '/functions/v1/webhook-notify',

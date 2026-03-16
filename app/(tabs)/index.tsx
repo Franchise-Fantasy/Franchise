@@ -111,7 +111,6 @@ export default function HomeScreen() {
                 )}
                 <InviteSection
                   isCommissioner={isCommissioner}
-                  isPrivate={league.private}
                   inviteCode={league.invite_code}
                   leagueId={league.id}
                   isFull={(league.current_teams ?? 0) >= league.teams}

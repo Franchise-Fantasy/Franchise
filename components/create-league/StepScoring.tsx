@@ -55,7 +55,7 @@ export function StepScoring({
           {state.categories.map((cat, index) => (
             <View
               key={cat.stat_name}
-              style={[styles.categoryRow, { borderBottomColor: c.border }]}
+              style={[styles.categoryRow, { borderBottomColor: c.border }, index === state.categories.length - 1 && { borderBottomWidth: 0 }]}
             >
               <View style={styles.categoryLeft}>
                 <ThemedText style={styles.categoryLabel}>

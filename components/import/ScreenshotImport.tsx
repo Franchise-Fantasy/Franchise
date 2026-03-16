@@ -1066,8 +1066,8 @@ export function ScreenshotImport() {
                                 ? `(${state.historySeasons[state.currentHistoryIndex].extracted!.season})`
                                 : ''}
                             </ThemedText>
-                            {state.historySeasons[state.currentHistoryIndex].extracted!.teams.map((t, i) => (
-                              <View key={i} style={[styles.historyRow, { borderBottomColor: c.border }]}>
+                            {state.historySeasons[state.currentHistoryIndex].extracted!.teams.map((t, i, arr) => (
+                              <View key={i} style={[styles.historyRow, { borderBottomColor: c.border }, i === arr.length - 1 && { borderBottomWidth: 0 }]}>
                                 <ThemedText style={styles.historyRank}>
                                   {t.standing ?? i + 1}.
                                 </ThemedText>

@@ -11,27 +11,28 @@ import { ThemedView } from '../ThemedView';
 
 interface InviteSectionProps {
   isCommissioner: boolean;
-  isPrivate: boolean;
   inviteCode: string | null;
   leagueId: string;
   isFull: boolean;
 }
 
-export function InviteSection({ isCommissioner, isPrivate, inviteCode, leagueId, isFull }: InviteSectionProps) {
-  if (!isCommissioner || !isPrivate || isFull || !inviteCode) return null;
+export function InviteSection({ isCommissioner, inviteCode, leagueId, isFull }: InviteSectionProps) {
+  if (!isCommissioner || isFull || !inviteCode) return null;
 
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const queryClient = useQueryClient();
 
+  const inviteLink = `franchisev2://join?code=${inviteCode}`;
+
   const handleCopy = async () => {
-    await Clipboard.setStringAsync(inviteCode);
-    Alert.alert('Copied', 'Invite code copied to clipboard.');
+    await Clipboard.setStringAsync(inviteLink);
+    Alert.alert('Copied', 'Invite link copied to clipboard.');
   };
 
   const handleShare = async () => {
     await Share.share({
-      message: `Join my league on Franchise! Use invite code: ${inviteCode}`,
+      message: `Join my league on Franchise! Use invite code: ${inviteCode}\n\nOr tap to join: ${inviteLink}`,
     });
   };
 

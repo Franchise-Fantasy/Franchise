@@ -71,7 +71,7 @@ export function LotteryOddsEditor({ odds, onChange, lotteryTeams }: LotteryOddsE
       </View>
 
       {odds.map((pct, i) => (
-        <View key={i} style={[styles.row, { borderBottomColor: c.border }]}>
+        <View key={i} style={[styles.row, { borderBottomColor: c.border }, i === odds.length - 1 && { borderBottomWidth: 0 }]}>
           <Text style={[styles.posLabel, { color: c.secondaryText }]}>
             {POSITION_LABELS[i] ?? `${i + 1}th`}
           </Text>

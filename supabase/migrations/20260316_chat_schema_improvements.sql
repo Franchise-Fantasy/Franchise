@@ -59,7 +59,7 @@ RETURNS TABLE (
   latest_msgs AS (
     SELECT DISTINCT ON (msg.conversation_id)
       msg.conversation_id,
-      msg.content,
+      CASE WHEN msg.type = 'poll' THEN '📊 Poll' ELSE msg.content END AS content,
       msg.created_at,
       t.name AS team_name
     FROM chat_messages msg

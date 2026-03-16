@@ -93,10 +93,10 @@ export function ByTeamTab({ picks, swaps, teams, validSeasons, pickConditionsEna
               item.bySeason.map(({ season, picks: seasonPicks, swaps: seasonSwaps }) => (
                 <View key={season} style={styles.seasonBlock}>
                   <ThemedText style={[styles.seasonLabel, { color: c.accent }]}>
-                    {season.split('-')[0]}
+                    {parseInt(season.split('-')[0], 10) + 1}
                   </ThemedText>
-                  {seasonPicks.map((pick) => (
-                    <View key={pick.id} style={[styles.pickRow, { borderBottomColor: c.border }]}>
+                  {seasonPicks.map((pick, idx) => (
+                    <View key={pick.id} style={[styles.pickRow, { borderBottomColor: c.border }, idx === seasonPicks.length - 1 && { borderBottomWidth: 0 }]}>
                       <View style={styles.pickInfo}>
                         <ThemedText style={{ fontSize: 13 }}>
                           Round {pick.round}
@@ -117,8 +117,8 @@ export function ByTeamTab({ picks, swaps, teams, validSeasons, pickConditionsEna
                       )}
                     </View>
                   ))}
-                  {pickConditionsEnabled && seasonSwaps.map((sw) => (
-                    <View key={sw.id} style={[styles.pickRow, { borderBottomColor: c.border }]}>
+                  {pickConditionsEnabled && seasonSwaps.map((sw, idx) => (
+                    <View key={sw.id} style={[styles.pickRow, { borderBottomColor: c.border }, idx === seasonSwaps.length - 1 && { borderBottomWidth: 0 }]}>
                       <View style={styles.pickInfo}>
                         <Ionicons name="swap-horizontal" size={12} color={c.accent} />
                         <ThemedText style={{ fontSize: 12, color: c.accent }}>

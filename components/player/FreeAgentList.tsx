@@ -861,7 +861,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     }
   };
 
-  const renderPlayer = ({ item }: { item: PlayerSeasonStats }) => {
+  const renderPlayer = ({ item, index }: { item: PlayerSeasonStats; index: number }) => {
     const fpts = scoringWeights
       ? calculateAvgFantasyPoints(item, scoringWeights)
       : undefined;
@@ -872,14 +872,15 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     const needsClaim = isOnWaivers(item.player_id);
     const gameToday = todaySchedule?.get(item.nba_team) ?? null;
     const isRostered = rosteredPlayerIds?.has(item.player_id) ?? false;
+    const ownerTeamName = ownershipMap?.get(item.player_id)?.teamName ?? null;
 
     return (
       <TouchableOpacity
-        style={[styles.row, { borderBottomColor: c.border }]}
+        style={[styles.row, { borderBottomColor: c.border }, index === (filteredPlayers ?? []).length - 1 && { borderBottomWidth: 0 }]}
         onPress={() => selectPlayer(item)}
         activeOpacity={0.7}
         accessibilityRole="button"
-        accessibilityLabel={`${item.name}, ${formatPosition(item.position)}, ${item.nba_team}${fpts !== undefined ? `, ${fpts} fantasy points` : ''}`}
+        accessibilityLabel={`${item.name}, ${formatPosition(item.position)}, ${item.nba_team}${ownerTeamName ? `, rostered by ${ownerTeamName}` : ''}${fpts !== undefined ? `, ${fpts} fantasy points` : ''}`}
       >
         <View style={styles.portraitWrap}>
           {headshotUrl ? (
@@ -922,6 +923,11 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
             <ThemedText style={[styles.posText, { color: c.secondaryText }]}>
               {formatPosition(item.position)}
             </ThemedText>
+            {ownerTeamName && (
+              <ThemedText style={[styles.posText, { color: c.secondaryText, marginLeft: 4 }]}>
+                · {ownerTeamName}
+              </ThemedText>
+            )}
             {gameToday && (
               <View style={styles.gameTodayBadge}>
                 <Text style={styles.gameTodayText}>{gameToday}</Text>
@@ -1068,13 +1074,13 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
           {/* Expanded: Pending Claims */}
           {expandedRibbon === 'claims' && claimCount > 0 && (
             <View style={[styles.claimsList, { backgroundColor: c.card, borderColor: c.border }]}>
-              {pendingClaims!.map((claim: any) => {
+              {pendingClaims!.map((claim: any, idx: number) => {
                 const dropName = claim.drop_player_id
                   ? seasonStatsMap.get(claim.drop_player_id)?.name ?? null
                   : null;
                 const hasNoDrop = !claim.drop_player_id;
                 return (
-                  <View key={claim.id} style={[styles.claimRow, { borderBottomColor: c.border }]}>
+                  <View key={claim.id} style={[styles.claimRow, { borderBottomColor: c.border }, idx === pendingClaims!.length - 1 && { borderBottomWidth: 0 }]}>
                     <View style={{ flex: 1 }}>
                       <ThemedText style={{ fontSize: 13, fontWeight: '600' }}>
                         {claim.player?.name ?? 'Unknown'}
@@ -1124,8 +1130,8 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
           {/* Expanded: Waiver Order */}
           {expandedRibbon === 'waivers' && waiverOrder && waiverOrder.length > 0 && (
             <View style={[styles.claimsList, { backgroundColor: c.card, borderColor: c.border }]}>
-              {waiverOrder.map((wp: any) => (
-                <View key={wp.team_id} style={[styles.claimRow, { borderBottomColor: c.border }]}>
+              {waiverOrder.map((wp: any, idx: number) => (
+                <View key={wp.team_id} style={[styles.claimRow, { borderBottomColor: c.border }, idx === waiverOrder.length - 1 && { borderBottomWidth: 0 }]}>
                   <ThemedText style={{ fontSize: 14, fontWeight: '700', width: 24, color: c.secondaryText }}>
                     {wp.priority}
                   </ThemedText>

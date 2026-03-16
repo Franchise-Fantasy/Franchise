@@ -75,11 +75,11 @@ export function PaymentLedgerModal({ visible, leagueId, season, buyInAmount, tea
             <FlatList
               data={teams}
               keyExtractor={(item) => item.id}
-              renderItem={({ item }) => {
+              renderItem={({ item, index }) => {
                 const payment = paymentMap.get(item.id);
                 const paid = payment?.paid ?? false;
                 return (
-                  <View style={[styles.row, { borderBottomColor: c.border }]}>
+                  <View style={[styles.row, { borderBottomColor: c.border }, index === teams.length - 1 && { borderBottomWidth: 0 }]}>
                     <View style={{ flex: 1 }}>
                       <ThemedText style={{ fontWeight: '500' }}>{item.name}</ThemedText>
                       {paid && payment?.paid_at && (

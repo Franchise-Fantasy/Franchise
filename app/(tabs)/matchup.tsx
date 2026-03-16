@@ -214,6 +214,32 @@ async function fetchAllWeekMatchups(
   return data ?? [];
 }
 
+async function fetchWeeklyAdds(
+  leagueId: string,
+  teamId: string,
+): Promise<number> {
+  const now = new Date();
+  const day = now.getDay(); // 0=Sun
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() + mondayOffset);
+  const weekStart = monday.toISOString().split("T")[0];
+
+  const { count, error } = await supabase
+    .from("league_transactions")
+    .select("id, league_transaction_items!inner(team_to_id)", {
+      count: "exact",
+      head: true,
+    })
+    .eq("league_id", leagueId)
+    .eq("team_id", teamId)
+    .eq("type", "waiver")
+    .not("league_transaction_items.team_to_id", "is", null)
+    .gte("created_at", weekStart + "T00:00:00");
+  if (error) throw error;
+  return count ?? 0;
+}
+
 async function fetchLeagueTeamNames(
   leagueId: string,
 ): Promise<Record<string, string>> {
@@ -820,6 +846,7 @@ function MatchupBoard({
                 style={[
                   pStyles.slotRow,
                   { borderBottomColor: c.border, opacity: 0.7 },
+                  i === maxBench - 1 && { borderBottomWidth: 0 },
                 ]}
               >
                 <PlayerCell
@@ -1137,6 +1164,25 @@ export default function MatchupScreen() {
     },
     enabled: !!leagueId && !!currentWeek?.is_playoff,
     staleTime: 1000 * 60 * 5,
+  });
+
+  // Weekly acquisition limit display for both teams
+  const weeklyLimit = (league?.weekly_acquisition_limit as number | null) ?? null;
+  const leftTeamId = displayData?.leftTeam.teamId ?? null;
+  const rightTeamId = displayData?.rightTeam?.teamId ?? null;
+
+  const { data: leftAdds } = useQuery({
+    queryKey: ["weeklyAdds", leagueId, leftTeamId],
+    queryFn: () => fetchWeeklyAdds(leagueId!, leftTeamId!),
+    enabled: !!leagueId && !!leftTeamId && weeklyLimit != null,
+    staleTime: 1000 * 60 * 2,
+  });
+
+  const { data: rightAdds } = useQuery({
+    queryKey: ["weeklyAdds", leagueId, rightTeamId],
+    queryFn: () => fetchWeeklyAdds(leagueId!, rightTeamId!),
+    enabled: !!leagueId && !!rightTeamId && weeklyLimit != null,
+    staleTime: 1000 * 60 * 2,
   });
 
   const mode: DisplayMode =
@@ -1469,6 +1515,50 @@ export default function MatchupScreen() {
               }
               scoringType={league?.scoring_type}
             />
+
+            {/* Weekly acquisition limits */}
+            {weeklyLimit != null && (
+              <View
+                style={[
+                  colStyles.acqRow,
+                  { borderTopColor: c.border },
+                ]}
+                accessibilityLabel={`Weekly acquisition limits: ${displayData.leftTeam.teamName} ${leftAdds ?? 0} of ${weeklyLimit}, ${displayData.rightTeam?.teamName ?? "BYE"} ${rightAdds ?? 0} of ${weeklyLimit}`}
+              >
+                <View style={colStyles.acqPill}>
+                  <Text
+                    style={[
+                      colStyles.acqText,
+                      {
+                        color:
+                          (leftAdds ?? 0) >= weeklyLimit
+                            ? "#dc3545"
+                            : c.secondaryText,
+                      },
+                    ]}
+                  >
+                    Adds: {leftAdds ?? 0}/{weeklyLimit}
+                  </Text>
+                </View>
+                {displayData.rightTeam && (
+                  <View style={colStyles.acqPill}>
+                    <Text
+                      style={[
+                        colStyles.acqText,
+                        {
+                          color:
+                            (rightAdds ?? 0) >= weeklyLimit
+                              ? "#dc3545"
+                              : c.secondaryText,
+                        },
+                      ]}
+                    >
+                      Adds: {rightAdds ?? 0}/{weeklyLimit}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
           </>
         )}
       </ScrollView>
@@ -1521,7 +1611,7 @@ export default function MatchupScreen() {
             <FlatList
               data={weeks}
               keyExtractor={(w) => w.id}
-              renderItem={({ item: w }) => {
+              renderItem={({ item: w, index }) => {
                 const isActive = currentWeek?.id === w.id;
                 return (
                   <TouchableOpacity
@@ -1529,6 +1619,7 @@ export default function MatchupScreen() {
                       styles.scheduleRow,
                       { borderBottomColor: c.border },
                       isActive && { backgroundColor: c.card },
+                      index === weeks.length - 1 && { borderBottomWidth: 0 },
                     ]}
                     onPress={() => {
                       const jumpDate =
@@ -1660,4 +1751,19 @@ const colStyles = StyleSheet.create({
   teamName: { fontWeight: "600", fontSize: 14, marginBottom: 2 },
   total: { fontSize: 20, fontWeight: "700" },
   dayTotal: { fontSize: 11, fontWeight: "500", marginTop: 2 },
+  acqRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 14,
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  acqPill: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  acqText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
 });

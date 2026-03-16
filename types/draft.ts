@@ -34,6 +34,7 @@ interface Pick {
   pick_in_round: number;
   current_team?: {
     name: string;
+    tricode: string | null;
   };
   player?: {
     name: string;

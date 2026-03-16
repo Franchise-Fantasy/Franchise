@@ -133,10 +133,10 @@ export function TeamAssigner({ leagueId }: TeamAssignerProps) {
         Have members join the league first, then assign them here.
       </ThemedText>
 
-      {unclaimedTeams.map((team) => (
+      {unclaimedTeams.map((team, idx) => (
         <TouchableOpacity
           key={team.id}
-          style={[styles.teamRow, { borderBottomColor: c.border }]}
+          style={[styles.teamRow, { borderBottomColor: c.border }, idx === unclaimedTeams.length - 1 && { borderBottomWidth: 0 }]}
           onPress={() => setSelectedTeam(team)}
           disabled={availableMembers.length === 0}
           accessibilityRole="button"
@@ -185,10 +185,10 @@ export function TeamAssigner({ leagueId }: TeamAssignerProps) {
               </ThemedText>
             ) : (
               <ScrollView style={styles.memberList} bounces={false}>
-                {availableMembers.map((member) => (
+                {availableMembers.map((member, idx) => (
                   <TouchableOpacity
                     key={member.id}
-                    style={[styles.memberRow, { borderBottomColor: c.border }]}
+                    style={[styles.memberRow, { borderBottomColor: c.border }, idx === availableMembers.length - 1 && { borderBottomWidth: 0 }]}
                     onPress={() => selectedTeam && handleAssign(selectedTeam, member)}
                     disabled={assigning}
                     accessibilityRole="button"

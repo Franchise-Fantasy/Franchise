@@ -56,16 +56,18 @@ export function ImportedLeagueSection({
 
   const allClaimed = teamStatus && teamStatus.claimed === teamStatus.total;
 
+  const inviteLink = inviteCode ? `franchisev2://join?code=${inviteCode}` : null;
+
   const handleCopy = async () => {
-    if (!inviteCode) return;
-    await Clipboard.setStringAsync(inviteCode);
-    showToast('success', 'Invite code copied');
+    if (!inviteLink) return;
+    await Clipboard.setStringAsync(inviteLink);
+    showToast('success', 'Invite link copied');
   };
 
   const handleShare = async () => {
-    if (!inviteCode) return;
+    if (!inviteCode || !inviteLink) return;
     await Share.share({
-      message: `Join my league on Franchise! Use invite code: ${inviteCode}`,
+      message: `Join my league on Franchise! Use invite code: ${inviteCode}\n\nOr tap to join: ${inviteLink}`,
     });
   };
 

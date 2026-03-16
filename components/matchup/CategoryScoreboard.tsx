@@ -59,7 +59,7 @@ export function CategoryScoreboard({
       </View>
 
       {/* Category rows */}
-      {results.map((cat) => {
+      {results.map((cat, idx) => {
         const rowColor = cat.winner === 'home'
           ? WIN_COLOR
           : cat.winner === 'away'
@@ -71,7 +71,7 @@ export function CategoryScoreboard({
         return (
           <View
             key={cat.stat}
-            style={[styles.row, { borderBottomColor: c.border }]}
+            style={[styles.row, { borderBottomColor: c.border }, idx === results.length - 1 && { borderBottomWidth: 0 }]}
             accessibilityLabel={`${cat.stat}: ${homeTeamName} ${cat.home}, ${awayTeamName} ${cat.away}, ${resultLabel === 'W' ? 'win' : resultLabel === 'L' ? 'loss' : 'tie'}`}
           >
             <ThemedText style={[styles.statCol, styles.statLabel]}>{cat.stat}</ThemedText>

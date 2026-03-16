@@ -156,6 +156,12 @@ Deno.serve(async (req)=>{
     });
     if (insertPlayerError) throw insertPlayerError;
 
+    // Remove drafted player from all teams' queues in this draft
+    await supabaseAdmin.from('draft_queue')
+      .delete()
+      .eq('draft_id', draft_id)
+      .eq('player_id', player_id);
+
     const nextPickNumber = draft.current_pick_number + 1;
     const totalPicks = draft.rounds * draft.picks_per_round;
     const isDraftComplete = nextPickNumber > totalPicks;

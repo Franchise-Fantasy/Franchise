@@ -6,7 +6,7 @@ import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 const ORDINALS = ['1st', '2nd', '3rd', '4th', '5th'];
 function formatPickLabel(season: string, round: number): string {
-  const year = season.split('-')[0].slice(-2);
+  const year = String(parseInt(season.split('-')[0], 10) + 1).slice(-2);
   return `'${year} ${ORDINALS[round - 1] ?? `${round}th`}`;
 }
 

@@ -13,7 +13,18 @@ import time
 import unicodedata
 
 from nba_api.stats.endpoints import commonallplayers, commonplayerinfo
+from nba_api.stats.library.http import NBAStatsHTTP
 from supabase import create_client
+
+# NBA API requires browser-like headers or it will timeout/block
+CUSTOM_HEADERS = {
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Origin': 'https://www.nba.com',
+    'Referer': 'https://www.nba.com/',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+}
+NBAStatsHTTP.nba_response = None  # reset any cached state
 
 # Must match CURRENT_NBA_SEASON in constants/LeagueDefaults.ts
 CURRENT_SEASON = '2025-26'
@@ -39,16 +50,16 @@ def normalize_position(raw: str) -> str:
     }
     return mapping.get(pos, 'G')
 
-def fetch_with_retry(endpoint_fn, retries=3, delay=5, **kwargs):
+def fetch_with_retry(endpoint_fn, retries=4, delay=5, **kwargs):
     """Call an nba_api endpoint with retries on timeout."""
     for attempt in range(retries):
         try:
-            return endpoint_fn(**kwargs, timeout=120)
+            return endpoint_fn(**kwargs, headers=CUSTOM_HEADERS, timeout=180)
         except Exception as e:
             if attempt < retries - 1:
-                print(f"  Attempt {attempt + 1} failed: {e}. Retrying in {delay}s...")
-                time.sleep(delay)
-                delay *= 2
+                wait = delay * (2 ** attempt)
+                print(f"  Attempt {attempt + 1} failed: {e}. Retrying in {wait}s...")
+                time.sleep(wait)
             else:
                 raise
 
@@ -78,7 +89,10 @@ try:
     print(f"  {len(new_players_df)} new players to process")
 
     if len(new_players_df) == 0:
-        print("No new players to sync. Done!")
+        print("No new players to sync.")
+        print("Refreshing player_season_stats materialized view...")
+        supabase.rpc('refresh_player_season_stats').execute()
+        print("Materialized view refreshed. Done!")
         exit(0)
 
     # 4. Fetch position info for each new player via CommonPlayerInfo
@@ -118,11 +132,11 @@ try:
             players_to_upsert.append({
                 'external_id_nba': person_id,
                 'name': display_name,
-                'position': 'G',  # Default, sync-positions will fix later
+                'position': 'G',  # Default — positions are managed manually
                 'nba_team': team_abbr if team_abbr else None,
                 'status': 'active',
             })
-            print(f"  Inserted with default position (sync-positions will refine)")
+            print(f"  Inserted with default position")
 
     # 5. Upsert into Supabase
     if players_to_upsert:

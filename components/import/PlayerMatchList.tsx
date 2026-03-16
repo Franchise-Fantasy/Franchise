@@ -65,8 +65,8 @@ export function PlayerMatchList({
           data={matched}
           scrollEnabled={false}
           keyExtractor={(item) => item.sleeper_id}
-          renderItem={({ item }) => (
-            <MatchedRow match={item} />
+          renderItem={({ item, index }) => (
+            <MatchedRow match={item} isLast={index === matched.length - 1} />
           )}
         />
       </View>
@@ -76,7 +76,7 @@ export function PlayerMatchList({
 
 // --- Matched player row ---
 
-function MatchedRow({ match }: { match: SleeperPlayerMatch }) {
+function MatchedRow({ match, isLast }: { match: SleeperPlayerMatch; isLast: boolean }) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
 
@@ -85,7 +85,7 @@ function MatchedRow({ match }: { match: SleeperPlayerMatch }) {
 
   return (
     <View
-      style={[styles.row, { borderBottomColor: c.border }]}
+      style={[styles.row, { borderBottomColor: c.border }, isLast && { borderBottomWidth: 0 }]}
       accessibilityLabel={`${match.sleeper_name} matched to ${match.matched_name}, ${match.confidence} confidence`}
     >
       <Ionicons name={confIcon as any} size={18} color={confColor} accessible={false} />
@@ -189,10 +189,10 @@ function UnmatchedRow({
             accessibilityLabel="Search for player"
           />
           {loading && <ActivityIndicator size="small" style={styles.searchLoading} />}
-          {results.map((r) => (
+          {results.map((r, idx) => (
             <TouchableOpacity
               key={r.id}
-              style={[styles.searchResult, { borderBottomColor: c.border }]}
+              style={[styles.searchResult, { borderBottomColor: c.border }, idx === results.length - 1 && { borderBottomWidth: 0 }]}
               onPress={() => {
                 onResolve(player.sleeper_id, r.id, r.name, r.position);
                 setResolved(true);

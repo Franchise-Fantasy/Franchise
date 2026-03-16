@@ -25,6 +25,26 @@ import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator } from 'react-native';
+
+async function fetchWeeklyAdds(leagueId: string, teamId: string): Promise<number> {
+  const now = new Date();
+  const day = now.getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() + mondayOffset);
+  const weekStart = monday.toISOString().split('T')[0];
+
+  const { count, error } = await supabase
+    .from('league_transactions')
+    .select('id, league_transaction_items!inner(team_to_id)', { count: 'exact', head: true })
+    .eq('league_id', leagueId)
+    .eq('team_id', teamId)
+    .eq('type', 'waiver')
+    .not('league_transaction_items.team_to_id', 'is', null)
+    .gte('created_at', weekStart + 'T00:00:00');
+  if (error) throw error;
+  return count ?? 0;
+}
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -313,6 +333,25 @@ export default function MatchupDetailScreen() {
     staleTime: 1000 * 60 * 60,
   });
 
+  // Weekly acquisition limit
+  const weeklyLimit = (league?.weekly_acquisition_limit as number | null) ?? null;
+  const homeTeamId = teamData?.homeTeam.teamId ?? null;
+  const awayTeamId = teamData?.awayTeam?.teamId ?? null;
+
+  const { data: homeAdds } = useQuery({
+    queryKey: ['weeklyAdds', leagueId, homeTeamId],
+    queryFn: () => fetchWeeklyAdds(leagueId!, homeTeamId!),
+    enabled: !!leagueId && !!homeTeamId && weeklyLimit != null,
+    staleTime: 1000 * 60 * 2,
+  });
+
+  const { data: awayAdds } = useQuery({
+    queryKey: ['weeklyAdds', leagueId, awayTeamId],
+    queryFn: () => fetchWeeklyAdds(leagueId!, awayTeamId!),
+    enabled: !!leagueId && !!awayTeamId && weeklyLimit != null,
+    staleTime: 1000 * 60 * 2,
+  });
+
   const mode: DisplayMode = effectiveDate < today ? 'past' : effectiveDate === today ? 'today' : 'future';
 
   // For future mode, compute projected day total from active players' season averages
@@ -513,13 +552,13 @@ export default function MatchupDetailScreen() {
             })()}
 
             {/* Slot rows */}
-            {Array.from({ length: Math.max(homeSlots.length, awaySlots.length) }).map((_, i) => {
+            {Array.from({ length: Math.max(homeSlots.length, awaySlots.length) }).map((_, i, arr) => {
               const homeSlot = homeSlots[i] ?? null;
               const awaySlot = awaySlots[i] ?? null;
               const slotPos = homeSlot?.slotPosition ?? awaySlot?.slotPosition ?? '';
 
               return (
-                <View key={`slot-${i}`} style={[pStyles.slotRow, { borderBottomColor: c.border }]}>
+                <View key={`slot-${i}`} style={[pStyles.slotRow, { borderBottomColor: c.border }, i === arr.length - 1 && { borderBottomWidth: 0 }]}>
                   <PlayerCell
                     player={homeSlot?.player ?? null}
                     c={c}
@@ -565,7 +604,7 @@ export default function MatchupDetailScreen() {
                     <Text style={{ color: c.secondaryText, fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>BENCH</Text>
                   </View>
                   {Array.from({ length: maxBench }).map((_, i) => (
-                    <View key={`bench-${i}`} style={[pStyles.slotRow, { borderBottomColor: c.border, opacity: 0.7 }]}>
+                    <View key={`bench-${i}`} style={[pStyles.slotRow, { borderBottomColor: c.border, opacity: 0.7 }, i === maxBench - 1 && { borderBottomWidth: 0 }]}>
                       <PlayerCell
                         player={homeBench[i] ?? null}
                         c={c}
@@ -596,6 +635,35 @@ export default function MatchupDetailScreen() {
                 </View>
               );
             })()}
+
+            {/* Weekly acquisition limits */}
+            {weeklyLimit != null && (
+              <View
+                style={[colStyles.acqRow, { borderTopColor: c.border }]}
+                accessibilityLabel={`Weekly acquisition limits: ${teamData.homeTeam.teamName} ${homeAdds ?? 0} of ${weeklyLimit}, ${teamData.awayTeam?.teamName ?? 'BYE'} ${awayAdds ?? 0} of ${weeklyLimit}`}
+              >
+                <View style={colStyles.acqPill}>
+                  <Text
+                    style={[colStyles.acqText, {
+                      color: (homeAdds ?? 0) >= weeklyLimit ? '#dc3545' : c.secondaryText,
+                    }]}
+                  >
+                    Adds: {homeAdds ?? 0}/{weeklyLimit}
+                  </Text>
+                </View>
+                {teamData.awayTeam && (
+                  <View style={colStyles.acqPill}>
+                    <Text
+                      style={[colStyles.acqText, {
+                        color: (awayAdds ?? 0) >= weeklyLimit ? '#dc3545' : c.secondaryText,
+                      }]}
+                    >
+                      Adds: {awayAdds ?? 0}/{weeklyLimit}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
           </View>
         ) : (
           <View style={styles.empty}>
@@ -657,6 +725,21 @@ const colStyles = StyleSheet.create({
   teamName: { fontWeight: '600', fontSize: 14, marginBottom: 2 },
   total: { fontSize: 20, fontWeight: '700' },
   dayTotal: { fontSize: 11, fontWeight: '500', marginTop: 2 },
+  acqRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 14,
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  acqPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  acqText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
 });
 
 export const options = { headerShown: false };

@@ -536,10 +536,19 @@ export function ProposeTradeModal({
           proposed_by_team_id: teamId,
           status: 'pending',
           notes: state.notes || null,
+          counteroffer_of: counterofferData?.originalProposalId ?? null,
         })
         .select('id')
         .single();
       if (propError) throw propError;
+
+      // Cancel the original proposal if this is a counteroffer
+      if (counterofferData?.originalProposalId) {
+        await supabase
+          .from('trade_proposals')
+          .update({ status: 'cancelled' })
+          .eq('id', counterofferData.originalProposalId);
+      }
 
       // 2. Create proposal teams (proposer = accepted, others = pending)
       const allTeamIds = [teamId, ...state.selectedTeamIds];

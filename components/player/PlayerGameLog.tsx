@@ -199,11 +199,11 @@ export function PlayerGameLog({
             OPP
           </ThemedText>
         </View>
-        {combinedRows.map((row) => {
+        {combinedRows.map((row, idx) => {
           const isUpcoming = row.kind === 'upcoming';
           const isLiveRow = row.kind === 'live';
           return (
-            <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, isLiveRow && styles.gameRowLive, isUpcoming && styles.gameCellDNP, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd]}>
+            <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, isLiveRow && styles.gameRowLive, isUpcoming && styles.gameCellDNP, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
               <ThemedText style={[styles.gameCell, styles.gameCellDate, { color: c.secondaryText }]} numberOfLines={1}>
                 {row.kind === 'history' ? formatGameDate(row.item.game_date) : row.date}
               </ThemedText>
@@ -230,10 +230,10 @@ export function PlayerGameLog({
               </ThemedText>
             ))}
           </View>
-          {combinedRows.map((row) => {
+          {combinedRows.map((row, idx) => {
             if (row.kind === 'upcoming') {
               return (
-                <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, styles.gameCellDNP, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd]}>
+                <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, styles.gameCellDNP, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
                   {statColumns.map((col) => (
                     <ThemedText key={col} style={[styles.gameCell, styles.gameCellDNP]}>—</ThemedText>
                   ))}
@@ -242,7 +242,7 @@ export function PlayerGameLog({
             }
             if (row.kind === 'live') {
               return (
-                <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, styles.gameRowLive, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd]}>
+                <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, styles.gameRowLive, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
                   {statColumns.map((col) => {
                     const statKey = col === 'TO' ? 'tov' : col === '3PM' ? '3pm' : col === '3PA' ? '3pa' : col.toLowerCase();
                     const val = (row.stats as any)[statKey];
@@ -257,7 +257,7 @@ export function PlayerGameLog({
             }
             const isDNP = row.item.min === 0;
             return (
-              <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd]}>
+              <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
                 {statColumns.map((col) => (
                   <ThemedText
                     key={col}
@@ -280,10 +280,10 @@ export function PlayerGameLog({
               FPTS
             </ThemedText>
           </View>
-          {combinedRows.map((row) => {
+          {combinedRows.map((row, idx) => {
             if (row.kind === 'upcoming') {
               return (
-                <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, styles.gameCellDNP, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd]}>
+                <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, styles.gameCellDNP, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
                   <ThemedText style={[styles.gameCell, styles.gameCellFpts, styles.gameCellDNP]}>—</ThemedText>
                 </View>
               );
@@ -291,7 +291,7 @@ export function PlayerGameLog({
             if (row.kind === 'live') {
               const fpts = calculateGameFantasyPoints(row.stats as any, scoringWeights);
               return (
-                <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, styles.gameRowLive, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd]}>
+                <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, styles.gameRowLive, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
                   <TouchableOpacity
                     onPress={() => setBreakdownData({ stats: row.stats as Record<string, number | boolean>, label: `${row.date} ${row.opp}` })}
                     accessibilityRole="button"
@@ -307,7 +307,7 @@ export function PlayerGameLog({
             const isDNP = row.item.min === 0;
             const fpts = calculateGameFantasyPoints(row.item, scoringWeights);
             return (
-              <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd]}>
+              <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
                 <TouchableOpacity
                   onPress={() => setBreakdownData({ stats: row.item as any, label: `${formatGameDate(row.item.game_date)} ${row.item.matchup?.replace(/^vs\s*/i, '') ?? ''}` })}
                   accessibilityRole="button"

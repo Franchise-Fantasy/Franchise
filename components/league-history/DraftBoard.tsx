@@ -93,10 +93,10 @@ export function DraftBoard({ leagueId }: DraftBoardProps) {
           <ThemedText accessibilityRole="header" type="defaultSemiBold" style={[styles.roundLabel, { color: c.secondaryText }]}>
             Round {round}
           </ThemedText>
-          {picks.map((pick) => (
+          {picks.map((pick, idx) => (
             <View
               key={pick.id}
-              style={[styles.pickRow, { borderBottomColor: c.border }]}
+              style={[styles.pickRow, { borderBottomColor: c.border }, idx === picks.length - 1 && { borderBottomWidth: 0 }]}
             >
               <ThemedText style={[styles.pickNum, { color: c.secondaryText }]}>
                 {pick.pick_number}

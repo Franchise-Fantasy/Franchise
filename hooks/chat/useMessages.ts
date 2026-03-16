@@ -143,14 +143,15 @@ export function useSendMessage(
       );
       return { previous };
     },
-    onError: (_err, _content, context) => {
+    onError: (err, _content, context) => {
       if (context?.previous) {
         queryClient.setQueryData(
           ['messages', conversationId],
           context.previous,
         );
       }
-      globalToastRef.current?.('error', 'Message failed to send');
+      console.error('Send message error:', err);
+      globalToastRef.current?.('error', `Message failed to send: ${(err as any)?.message ?? err}`);
     },
     onSettled: () => {
       queryClient.invalidateQueries({

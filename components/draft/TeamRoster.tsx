@@ -146,6 +146,21 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
     );
   }
 
+  // Build position fill summary
+  const positionCounts: { label: string; filled: number; total: number }[] = [];
+  if (rosterConfig && rosterPlayers) {
+    const activeConfigs = rosterConfig.filter(cfg => cfg.position !== 'BE' && cfg.position !== 'IR');
+    for (const config of activeConfigs) {
+      if (config.position === 'UTIL') {
+        const filled = starterSlots.filter(s => s.slotPosition.startsWith('UTIL') && s.player !== null).length;
+        positionCounts.push({ label: 'UTIL', filled, total: config.slot_count });
+      } else {
+        const filled = starterSlots.filter(s => s.slotPosition === config.position && s.player !== null).length;
+        positionCounts.push({ label: config.position, filled, total: config.slot_count });
+      }
+    }
+  }
+
   if (!rosterPlayers || rosterPlayers.length === 0) {
     return (
       <View style={[styles.container, { backgroundColor: c.cardAlt }]}>
@@ -254,6 +269,20 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
   return (
     <View style={[styles.container, { backgroundColor: c.cardAlt }]}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
+        {/* Position Fill Summary */}
+        {positionCounts.length > 0 && (
+          <View
+            style={styles.positionSummary}
+            accessibilityLabel={`Roster positions filled: ${positionCounts.map(p => `${p.label} ${p.filled} of ${p.total}`).join(', ')}`}
+          >
+            {positionCounts.map((p, i) => (
+              <ThemedText key={p.label} style={[styles.positionSummaryText, { color: c.secondaryText }]}>
+                {i > 0 ? '  |  ' : ''}{p.label} {p.filled}/{p.total}
+              </ThemedText>
+            ))}
+          </View>
+        )}
+
         {/* Starters */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
@@ -313,6 +342,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
+  },
+  positionSummary: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  positionSummaryText: {
+    fontSize: 11,
+    fontWeight: '600',
   },
   section: { padding: 16, paddingBottom: 0 },
   sectionHeader: {
