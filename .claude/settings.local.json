@@ -193,7 +193,12 @@
       "mcp__claude_ai_Supabase__generate_typescript_types",
       "Bash(python3 -c \"import json,sys; data=json.load\\(sys.stdin\\); print\\(data[0][''''text'''']\\)\")",
       "Bash(python3:*)",
-      "Bash(find \"c:\\\\Users\\\\jjspo\\\\OneDrive\\\\Desktop\\\\franchise.v2\\\\app\\\\\\(tabs\\)\" -type f)"
+      "Bash(find \"c:\\\\Users\\\\jjspo\\\\OneDrive\\\\Desktop\\\\franchise.v2\\\\app\\\\\\(tabs\\)\" -type f)",
+      "Bash(sed 's/\"\"\"\"//g')",
+      "Bash(sed 's/:.*//g')",
+      "Bash(sed 's/Enums:.*//')",
+      "Bash(sed 's/:.*//')",
+      "Bash(xargs wc:*)"
     ]
   }
 }
