@@ -613,10 +613,9 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
         const wkLimit = limitData?.weekly_acquisition_limit as number | null;
         if (wkLimit != null) {
           const now = new Date();
-          const day = now.getDay();
+          const day = now.getUTCDay();
           const mondayOffset = day === 0 ? -6 : 1 - day;
-          const monday = new Date(now);
-          monday.setDate(now.getDate() + mondayOffset);
+          const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + mondayOffset));
           const weekStart = monday.toISOString().split('T')[0];
 
           const { count: addsThisWeek } = await supabase
@@ -915,9 +914,11 @@ export function PlayerDetailModal({ player, leagueId, teamId, onClose, onRosterC
     if (!teamId || !player) return;
     setIsProcessing(true);
     try {
+      const updatePayload: Record<string, any> = { on_trade_block: newValue, trade_block_note: note };
+      if (!newValue) updatePayload.trade_block_interest = [];
       const { error } = await supabase
         .from('league_players')
-        .update({ on_trade_block: newValue, trade_block_note: note })
+        .update(updatePayload)
         .eq('league_id', leagueId)
         .eq('team_id', teamId)
         .eq('player_id', player.player_id);

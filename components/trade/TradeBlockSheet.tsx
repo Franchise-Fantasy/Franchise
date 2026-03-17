@@ -1,7 +1,8 @@
 import { ThemedText } from '@/components/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { TradeBlockPlayer, TradeBlockTeamGroup } from '@/hooks/useTrades';
+import { TradeBlockPlayer, TradeBlockTeamGroup, useToggleTradeBlockInterest } from '@/hooks/useTrades';
+import { sendNotification } from '@/lib/notifications';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useState } from 'react';
@@ -26,6 +27,7 @@ export function TradeBlockSheet({ visible, tradeBlock, leagueId, teamId, onClose
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const [hiddenPlayers, setHiddenPlayers] = useState<Set<string>>(new Set());
+  const { mutate: toggleInterest } = useToggleTradeBlockInterest(leagueId);
 
   const storageKey = `hiddenTradeBlock:${leagueId}`;
 
@@ -126,17 +128,60 @@ export function TradeBlockSheet({ visible, tradeBlock, leagueId, teamId, onClose
                         <Ionicons name="swap-horizontal-outline" size={16} color={c.accent} accessible={false} />
                       )}
                     </TouchableOpacity>
-                    {/* Hide button for other teams' players */}
-                    {p.team_id !== teamId && (
-                      <TouchableOpacity
-                        style={styles.hideBtn}
-                        onPress={() => toggleHidden(p.player_id)}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Not interested in ${p.name}`}
+                    {/* Interest badge for own players */}
+                    {p.team_id === teamId && p.trade_block_interest.length > 0 && (
+                      <View
+                        style={styles.interestBadge}
+                        accessibilityLabel={`${p.trade_block_interest.length} ${p.trade_block_interest.length === 1 ? 'team' : 'teams'} interested in ${p.name}`}
                       >
-                        <Ionicons name="eye-off-outline" size={14} color={c.secondaryText} />
-                      </TouchableOpacity>
+                        <Ionicons name="eye" size={13} color={c.secondaryText} />
+                        <ThemedText style={[styles.interestCount, { color: c.secondaryText }]}>
+                          {p.trade_block_interest.length}
+                        </ThemedText>
+                      </View>
+                    )}
+                    {/* Interest toggle + hide button for other teams' players */}
+                    {p.team_id !== teamId && (
+                      <View style={styles.actionButtons}>
+                        <TouchableOpacity
+                          style={styles.actionBtn}
+                          onPress={() => {
+                            const isAdding = !p.trade_block_interest.includes(teamId);
+                            toggleInterest(
+                              { playerId: p.player_id, teamId, currentInterest: p.trade_block_interest },
+                              {
+                                onSuccess: () => {
+                                  if (isAdding) {
+                                    sendNotification({
+                                      league_id: leagueId,
+                                      team_ids: [p.team_id],
+                                      category: 'trade_block',
+                                      title: 'Trade Block Interest',
+                                      body: `A team is interested in ${p.name}`,
+                                    });
+                                  }
+                                },
+                              },
+                            );
+                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel={p.trade_block_interest.includes(teamId) ? `Withdraw interest in ${p.name}` : `Express interest in ${p.name}`}
+                        >
+                          <Ionicons
+                            name={p.trade_block_interest.includes(teamId) ? 'hand-left' : 'hand-left-outline'}
+                            size={18}
+                            color={p.trade_block_interest.includes(teamId) ? c.accent : c.secondaryText}
+                          />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.actionBtn}
+                          onPress={() => toggleHidden(p.player_id)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Not interested in ${p.name}`}
+                        >
+                          <Ionicons name="eye-off-outline" size={18} color={c.secondaryText} />
+                        </TouchableOpacity>
+                      </View>
                     )}
                   </View>
                 ))}
@@ -238,7 +283,23 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     marginTop: 2,
   },
-  hideBtn: {
-    paddingLeft: 10,
+  interestBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingLeft: 8,
+  },
+  interestCount: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    paddingLeft: 12,
+  },
+  actionBtn: {
+    padding: 6,
   },
 });

@@ -234,10 +234,9 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     queryKey: ["weeklyAdds", leagueId, teamId],
     queryFn: async () => {
       const now = new Date();
-      const day = now.getDay(); // 0=Sun
+      const day = now.getUTCDay(); // 0=Sun, use UTC to match DB timestamps
       const mondayOffset = day === 0 ? -6 : 1 - day;
-      const monday = new Date(now);
-      monday.setDate(now.getDate() + mondayOffset);
+      const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + mondayOffset));
       const weekStart = monday.toISOString().split("T")[0];
 
       const { count, error } = await supabase
@@ -333,11 +332,13 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       const { data, error } = await supabase
         .from("player_season_stats")
         .select("*")
+        .gt("games_played", 0)
         .order("avg_pts", { ascending: false });
       if (error) throw error;
       return data as PlayerSeasonStats[];
     },
     enabled: !!leagueId,
+    staleTime: 1000 * 60 * 5,
   });
 
   // Fetch rostered player IDs + team names for this league
@@ -374,8 +375,13 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     return map;
   }, [ownershipRows]);
 
-  // Fetch last 30 days of game logs for free agents (time-range stats + "Minutes Up" filter)
-  const allPlayerIds = useMemo(() => allPlayers?.map(p => p.player_id) ?? [], [allPlayers]);
+  // Fetch last 30 days of game logs for FREE AGENTS only (time-range stats + "Minutes Up" filter)
+  const freeAgentIds = useMemo(() => {
+    if (!allPlayers || !rosteredPlayerIds) return [];
+    return allPlayers
+      .filter(p => !rosteredPlayerIds.has(p.player_id))
+      .map(p => p.player_id);
+  }, [allPlayers, rosteredPlayerIds]);
   const { data: recentGameLogs } = useQuery({
     queryKey: ["recentGameLogs", leagueId],
     queryFn: async () => {
@@ -386,8 +392,8 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       // Batch into chunks of 200 IDs to stay within URL length limits
       const CHUNK = 200;
       const allRows: any[] = [];
-      for (let i = 0; i < allPlayerIds.length; i += CHUNK) {
-        const chunk = allPlayerIds.slice(i, i + CHUNK);
+      for (let i = 0; i < freeAgentIds.length; i += CHUNK) {
+        const chunk = freeAgentIds.slice(i, i + CHUNK);
         const { data, error } = await supabase
           .from("player_games")
           .select('player_id, game_date, min, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double')
@@ -400,7 +406,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       }
       return allRows;
     },
-    enabled: !!leagueId && allPlayerIds.length > 0,
+    enabled: !!leagueId && freeAgentIds.length > 0,
     staleTime: 1000 * 60 * 15,
   });
 
@@ -548,6 +554,26 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     return '—';
   }
 
+  // Short label for the waiver badge shown in each player row
+  function getWaiverBadgeLabel(playerId: string): string | null {
+    if (waiverType === 'none') return null;
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    if (waiverType === 'standard') {
+      const until = waiverPlayerMap?.get(playerId);
+      if (!until) return null;
+      const d = new Date(until);
+      return `W · ${dayNames[d.getDay()]} ${d.getMonth() + 1}/${d.getDate()}`;
+    }
+    // FAAB: show next processing day
+    const targetDay = rosterInfo?.waiverDayOfWeek ?? 3;
+    const now = new Date();
+    let daysUntil = targetDay - now.getDay();
+    if (daysUntil <= 0) daysUntil += 7;
+    const next = new Date(now);
+    next.setDate(now.getDate() + daysUntil);
+    return `W · ${dayNames[targetDay]} ${next.getMonth() + 1}/${next.getDate()}`;
+  }
+
   // Determine if a player requires a waiver claim
   function isOnWaivers(playerId: string): boolean {
     if (waiverType === 'none') return false;
@@ -593,10 +619,9 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       const serverWeeklyLimit = leagueRes.data?.weekly_acquisition_limit as number | null;
       if (serverWeeklyLimit != null) {
         const now = new Date();
-        const day = now.getDay();
+        const day = now.getUTCDay();
         const mondayOffset = day === 0 ? -6 : 1 - day;
-        const monday = new Date(now);
-        monday.setDate(now.getDate() + mondayOffset);
+        const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + mondayOffset));
         const weekStart = monday.toISOString().split("T")[0];
 
         const { count: addsThisWeek } = await supabase
@@ -610,7 +635,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
         if ((addsThisWeek ?? 0) >= serverWeeklyLimit) {
           queryClient.invalidateQueries({ queryKey: ["weeklyAdds", leagueId, teamId] });
-          Alert.alert("Add Limit Reached", `You've used all ${serverWeeklyLimit} adds for this week.`);
+          Alert.alert("Acquisition Limit Reached", `You've used all ${serverWeeklyLimit} acquisitions for this week.`);
           setAddingPlayerId(null);
           return;
         }
@@ -870,6 +895,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     const logoUrl = getTeamLogoUrl(item.nba_team);
     const badge = getInjuryBadge(item.status);
     const needsClaim = isOnWaivers(item.player_id);
+    const waiverLabel = needsClaim ? getWaiverBadgeLabel(item.player_id) : null;
     const gameToday = todaySchedule?.get(item.nba_team) ?? null;
     const isRostered = rosteredPlayerIds?.has(item.player_id) ?? false;
     const ownerTeamName = ownershipMap?.get(item.player_id)?.teamName ?? null;
@@ -927,6 +953,11 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
               <ThemedText style={[styles.posText, { color: c.secondaryText, marginLeft: 4 }]}>
                 · {ownerTeamName}
               </ThemedText>
+            )}
+            {!isRostered && waiverLabel && (
+              <View style={styles.waiverBadge} accessibilityLabel={`On waivers until ${waiverLabel.replace('W · ', '')}`}>
+                <Text style={styles.waiverBadgeText}>{waiverLabel}</Text>
+              </View>
             )}
             {gameToday && (
               <View style={styles.gameTodayBadge}>
@@ -1006,14 +1037,16 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
             style={styles.ribbonScroll}
             contentContainerStyle={styles.ribbonContent}
           >
-            {/* Adds pill */}
+            {/* Acquisitions pill */}
             {weeklyLimit != null && (
-              <View
+              <TouchableOpacity
                 style={[styles.ribbonPill, {
                   backgroundColor: weeklyLimitReached ? '#dc354518' : '#007AFF12',
                   borderColor: weeklyLimitReached ? '#dc3545' : '#007AFF',
                 }]}
-                accessibilityLabel={`Weekly adds: ${weeklyAddsUsed ?? 0} of ${weeklyLimit} used${weeklyLimitReached ? ', limit reached' : ''}`}
+                onPress={() => Alert.alert('Weekly Acquisitions', 'Player pickups used this matchup week. Once the limit is reached, no more free agent adds are allowed until next week.')}
+                accessibilityLabel={`Weekly acquisitions: ${weeklyAddsUsed ?? 0} of ${weeklyLimit} used${weeklyLimitReached ? ', limit reached' : ''}`}
+                accessibilityRole="button"
               >
                 <Ionicons
                   name={weeklyLimitReached ? "lock-closed" : "swap-horizontal"}
@@ -1022,9 +1055,10 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
                   accessible={false}
                 />
                 <Text style={{ fontSize: 12, fontWeight: '600', color: weeklyLimitReached ? '#dc3545' : '#007AFF' }}>
-                  Adds: {weeklyAddsUsed ?? 0}/{weeklyLimit}
+                  Acq: {weeklyAddsUsed ?? 0}/{weeklyLimit}
                 </Text>
-              </View>
+                <Ionicons name="information-circle-outline" size={13} color={weeklyLimitReached ? '#dc3545' : '#007AFF'} accessible={false} />
+              </TouchableOpacity>
             )}
 
             {/* Claims pill */}
@@ -1327,6 +1361,18 @@ const styles = StyleSheet.create({
   posText: {
     fontSize: 11,
     marginTop: 0,
+  },
+  waiverBadge: {
+    backgroundColor: "#D4A01720",
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 3,
+    marginLeft: 4,
+  },
+  waiverBadgeText: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#D4A017",
   },
   gameTodayBadge: {
     backgroundColor: "#007AFF22",

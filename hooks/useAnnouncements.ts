@@ -26,8 +26,13 @@ export function useLatestAnnouncement(leagueId: string | null) {
           table: 'commissioner_announcements',
           filter: `league_id=eq.${leagueId}`,
         },
-        () => {
-          queryClient.invalidateQueries({ queryKey: ['latestAnnouncement', leagueId] });
+        (payload) => {
+          // Update latestAnnouncement directly from payload (avoids an extra fetch)
+          const row = payload.new as Announcement;
+          if (row) {
+            queryClient.setQueryData(['latestAnnouncement', leagueId], row);
+          }
+          // The full list needs a refetch for the team name join
           queryClient.invalidateQueries({ queryKey: ['announcements', leagueId] });
         },
       )

@@ -42,7 +42,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const validCategories = ['draft', 'trades', 'matchups', 'matchup_daily', 'waivers', 'injuries', 'playoffs', 'commissioner', 'league_activity', 'roster_reminders', 'lottery', 'roster_moves'];
+    const validCategories = ['draft', 'trades', 'trade_block', 'matchups', 'matchup_daily', 'waivers', 'injuries', 'playoffs', 'commissioner', 'league_activity', 'roster_reminders', 'lottery', 'roster_moves'];
     if (!validCategories.includes(category)) {
       return new Response(JSON.stringify({ error: `Invalid category. Must be one of: ${validCategories.join(', ')}` }), {
         status: 400,
@@ -69,11 +69,12 @@ Deno.serve(async (req: Request) => {
     const { data: leagueInfo } = await supabaseAdmin.from('leagues').select('name').eq('id', league_id).single();
     const prefixedTitle = `${leagueInfo?.name ?? 'Your League'} — ${title}`;
 
-    // Send to specific teams or entire league
+    // Send to specific teams or entire league, excluding the caller
+    const excludeUserIds = [user.id];
     if (team_ids && Array.isArray(team_ids) && team_ids.length > 0) {
-      await notifyTeams(supabaseAdmin, team_ids, category, prefixedTitle, body, data);
+      await notifyTeams(supabaseAdmin, team_ids, category, prefixedTitle, body, data, excludeUserIds);
     } else {
-      await notifyLeague(supabaseAdmin, league_id, category, prefixedTitle, body, data);
+      await notifyLeague(supabaseAdmin, league_id, category, prefixedTitle, body, data, excludeUserIds);
     }
 
     return new Response(JSON.stringify({ ok: true }), {

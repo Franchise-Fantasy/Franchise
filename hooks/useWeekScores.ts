@@ -89,8 +89,19 @@ export function useWeekScores({ leagueId, scheduleId, weekIsLive }: UseWeekScore
           table: 'week_scores',
           filter: `schedule_id=eq.${scheduleId}`,
         },
-        () => {
-          queryClient.invalidateQueries({ queryKey: ['weekScores', leagueId, scheduleId] });
+        (payload) => {
+          // Update the cache directly from the realtime payload instead of refetching.
+          // Each payload contains one team's updated score row.
+          const row = payload.new as { team_id: string; score: number } | undefined;
+          if (row?.team_id != null && row?.score != null) {
+            queryClient.setQueryData(
+              ['weekScores', leagueId, scheduleId],
+              (old: Record<string, number> | undefined) => ({
+                ...old,
+                [row.team_id]: Number(row.score),
+              }),
+            );
+          }
         },
       )
       .subscribe();

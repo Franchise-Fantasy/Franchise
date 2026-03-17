@@ -2,7 +2,8 @@ import { ThemedText } from '@/components/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { ReadReceipt } from '@/hooks/chat/useReadReceipts';
-import { StyleSheet, View } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { Animated, StyleSheet, View } from 'react-native';
 
 interface Props {
   /** DM = single "Seen", group = tricode badges */
@@ -14,25 +15,34 @@ interface Props {
 export function ReadReceiptIndicator({ isDM, readers }: Props) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const opacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(opacity, {
+      toValue: 1,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+  }, [opacity]);
 
   if (readers.length === 0) return null;
 
   if (isDM) {
     return (
-      <View style={[styles.container, styles.dmContainer]}>
+      <Animated.View style={[styles.container, styles.dmContainer, { opacity }]}>
         <ThemedText
           style={[styles.seenText, { color: c.secondaryText }]}
           accessibilityLabel="Message seen"
         >
           Seen
         </ThemedText>
-      </View>
+      </Animated.View>
     );
   }
 
   // Group chat: show tricode badges
   return (
-    <View style={[styles.container, styles.groupContainer]}>
+    <Animated.View style={[styles.container, styles.groupContainer, { opacity }]}>
       {readers.map((r) => (
         <View
           key={r.team_id}
@@ -44,7 +54,7 @@ export function ReadReceiptIndicator({ isDM, readers }: Props) {
           </ThemedText>
         </View>
       ))}
-    </View>
+    </Animated.View>
   );
 }
 

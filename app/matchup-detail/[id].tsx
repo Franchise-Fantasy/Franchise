@@ -24,7 +24,7 @@ import { slotLabel } from '@/utils/rosterSlots';
 import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator } from 'react-native';
 
 async function fetchWeeklyAdds(leagueId: string, teamId: string): Promise<number> {
   const now = new Date();
@@ -326,7 +326,7 @@ export default function MatchupDetailScreen() {
 
   // Future schedule
   const isFutureDate = effectiveDate > today;
-  const { data: futureSchedule } = useQuery<Map<string, string>>({
+  const { data: futureSchedule } = useQuery<Map<string, any>>({
     queryKey: ['futureSchedule', effectiveDate],
     queryFn: () => fetchNbaScheduleForDate(effectiveDate),
     enabled: isToday || isFutureDate,
@@ -355,7 +355,7 @@ export default function MatchupDetailScreen() {
   const mode: DisplayMode = effectiveDate < today ? 'past' : effectiveDate === today ? 'today' : 'future';
 
   // For future mode, compute projected day total from active players' season averages
-  const computeProjectedDay = (players: RosterPlayer[], schedule?: Map<string, string>) => {
+  const computeProjectedDay = (players: RosterPlayer[], schedule?: Map<string, any>) => {
     if (!schedule) return 0;
     return round1(players.reduce((sum, p) => {
       if (p.roster_slot === 'BE' || p.roster_slot === 'IR' || p.roster_slot === 'DROPPED') return sum;
@@ -476,7 +476,7 @@ export default function MatchupDetailScreen() {
         <View style={styles.backBtn} />
       </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={{ padding: 12, paddingBottom: 56 }} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.scroll} contentContainerStyle={{ padding: 6, paddingBottom: 56 }} showsVerticalScrollIndicator={false}>
         {teamLoading ? (
           <MatchupSkeleton c={c} />
         ) : teamData ? (
@@ -527,9 +527,7 @@ export default function MatchupDetailScreen() {
                     <Text style={[colStyles.total, { color: c.accent }]}>
                       {formatScore(homeWeek)}
                     </Text>
-                    {mode === 'future' ? (
-                      <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>{homeDay.toFixed(1)} proj</Text>
-                    ) : (
+                    {mode !== 'future' && (
                       <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>{formatScore(homeDay)} today</Text>
                     )}
                   </View>
@@ -541,9 +539,7 @@ export default function MatchupDetailScreen() {
                     <Text style={[colStyles.total, { color: c.accent }]}>
                       {teamData.awayTeam ? formatScore(awayWeek) : '0.0'}
                     </Text>
-                    {mode === 'future' ? (
-                      teamData.awayTeam && <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>{awayDay.toFixed(1)} proj</Text>
-                    ) : (
+                    {mode !== 'future' && (
                       teamData.awayTeam && <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>{formatScore(awayDay)} today</Text>
                     )}
                   </View>
@@ -640,17 +636,22 @@ export default function MatchupDetailScreen() {
             {weeklyLimit != null && (
               <View
                 style={[colStyles.acqRow, { borderTopColor: c.border }]}
-                accessibilityLabel={`Weekly acquisition limits: ${teamData.homeTeam.teamName} ${homeAdds ?? 0} of ${weeklyLimit}, ${teamData.awayTeam?.teamName ?? 'BYE'} ${awayAdds ?? 0} of ${weeklyLimit}`}
+                accessibilityLabel={`Weekly acquisitions: ${teamData.homeTeam.teamName} ${homeAdds ?? 0} of ${weeklyLimit}, ${teamData.awayTeam?.teamName ?? 'BYE'} ${awayAdds ?? 0} of ${weeklyLimit}`}
               >
-                <View style={colStyles.acqPill}>
+                <TouchableOpacity
+                  style={colStyles.acqPill}
+                  onPress={() => Alert.alert('Weekly Acquisitions', 'Player pickups used this matchup week. Once the limit is reached, no more free agent adds are allowed until next week.')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Acquisition info"
+                >
                   <Text
                     style={[colStyles.acqText, {
                       color: (homeAdds ?? 0) >= weeklyLimit ? '#dc3545' : c.secondaryText,
                     }]}
                   >
-                    Adds: {homeAdds ?? 0}/{weeklyLimit}
+                    Acq: {homeAdds ?? 0}/{weeklyLimit}
                   </Text>
-                </View>
+                </TouchableOpacity>
                 {teamData.awayTeam && (
                   <View style={colStyles.acqPill}>
                     <Text
@@ -658,7 +659,7 @@ export default function MatchupDetailScreen() {
                         color: (awayAdds ?? 0) >= weeklyLimit ? '#dc3545' : c.secondaryText,
                       }]}
                     >
-                      Adds: {awayAdds ?? 0}/{weeklyLimit}
+                      Acq: {awayAdds ?? 0}/{weeklyLimit}
                     </Text>
                   </View>
                 )}

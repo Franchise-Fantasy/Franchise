@@ -72,30 +72,21 @@ async function computeWeekScores(
   leagueId: string,
   scheduleId: string,
 ): Promise<Record<string, number>> {
-  // 1. Fetch week, scoring, matchups in parallel
-  const [weekRes, scoringRes, matchupRes] = await Promise.all([
-    supabase
-      .from("league_schedule")
-      .select("id, week_number, start_date, end_date, is_playoff")
-      .eq("id", scheduleId)
-      .single(),
-    supabase
-      .from("league_scoring_settings")
-      .select("stat_name, point_value")
-      .eq("league_id", leagueId),
-    supabase
-      .from("league_matchups")
-      .select("id, home_team_id, away_team_id")
-      .eq("schedule_id", scheduleId),
-  ]);
+  // Single RPC call fetches ALL data (week, scoring, matchups, rosters, lineups, games, live)
+  // in one DB round trip instead of 3 sequential rounds.
+  const { data: bundle, error: rpcError } = await supabase.rpc("get_week_score_data", {
+    p_league_id: leagueId,
+    p_schedule_id: scheduleId,
+  });
 
-  if (weekRes.error) throw weekRes.error;
-  if (scoringRes.error) throw scoringRes.error;
-  if (matchupRes.error) throw matchupRes.error;
+  if (rpcError) throw rpcError;
+  if (bundle?.error) throw new Error(bundle.error);
 
-  const week = weekRes.data;
-  const weights: ScoringWeight[] = scoringRes.data ?? [];
-  const matchups = matchupRes.data ?? [];
+  const today = toDateStr(new Date());
+
+  const week = bundle.week;
+  const weights: ScoringWeight[] = bundle.scoring ?? [];
+  const matchups = bundle.matchups ?? [];
 
   // Collect all unique team IDs
   const teamIds = new Set<string>();
@@ -107,67 +98,12 @@ async function computeWeekScores(
 
   if (teamIdList.length === 0) return {};
 
-  // 2. Fetch rosters, daily lineups, game logs, live stats
-  const today = toDateStr(new Date());
-  const weekIsLive = week.start_date <= today && today <= week.end_date;
-  const gameEndDate = weekIsLive ? addDays(today, -1) : week.end_date;
-  const hasCompletedDays = gameEndDate >= week.start_date;
+  const leaguePlayers = bundle.rosters ?? [];
+  const dailyEntries = bundle.lineups ?? [];
+  const gameLogs = bundle.games ?? [];
+  const liveStats = bundle.live ?? [];
 
-  const [playersRes, dailyRes] = await Promise.all([
-    supabase
-      .from("league_players")
-      .select("player_id, team_id, roster_slot, acquired_at")
-      .eq("league_id", leagueId)
-      .in("team_id", teamIdList),
-    supabase
-      .from("daily_lineups")
-      .select("player_id, team_id, roster_slot, lineup_date")
-      .eq("league_id", leagueId)
-      .in("team_id", teamIdList)
-      .lte("lineup_date", week.end_date)
-      .order("lineup_date", { ascending: false }),
-  ]);
-
-  if (playersRes.error) throw playersRes.error;
-  if (dailyRes.error) throw dailyRes.error;
-
-  const allPlayerIdSet = new Set<string>();
-  for (const lp of playersRes.data ?? []) allPlayerIdSet.add(lp.player_id);
-  for (const dl of dailyRes.data ?? []) allPlayerIdSet.add(dl.player_id);
-  const allPlayerIdList = [...allPlayerIdSet];
-
-  const [gamesRes, liveRes] = await Promise.all([
-    hasCompletedDays && allPlayerIdList.length > 0
-      ? supabase
-          .from("player_games")
-          .select(
-            'player_id, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double, game_date',
-          )
-          .in("player_id", allPlayerIdList)
-          .gte("game_date", week.start_date)
-          .lte("game_date", gameEndDate)
-      : Promise.resolve({ data: [], error: null }),
-    weekIsLive && allPlayerIdList.length > 0
-      ? supabase
-          .from("live_player_stats")
-          .select(
-            'player_id, game_date, game_status, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf',
-          )
-          .in("player_id", allPlayerIdList)
-          .gte("game_status", 2)
-          .or(`game_date.eq.${today},and(game_date.eq.${addDays(today, -1)},game_status.eq.2)`)
-      : Promise.resolve({ data: [], error: null }),
-  ]);
-
-  if (gamesRes.error) throw gamesRes.error;
-  if (liveRes.error) throw liveRes.error;
-
-  const leaguePlayers = playersRes.data ?? [];
-  const dailyEntries = dailyRes.data ?? [];
-  const gameLogs = gamesRes.data ?? [];
-  const liveStats = liveRes.data ?? [];
-
-  // 3. Build lookup structures
+  // Build lookup structures
   const teamPlayerMap = new Map<string, Set<string>>();
   const defaultSlotMap = new Map<string, string>();
   const acquiredDateMap = new Map<string, string>();
@@ -295,6 +231,26 @@ async function upsertScores(
   if (error) throw error;
 }
 
+// ── NBA scoreboard check ────────────────────────────────────────────────────
+
+const NBA_SCOREBOARD_URL =
+  "https://cdn.nba.com/static/json/liveData/scoreboard/todaysScoreboard_00.json";
+
+/** Returns true if any NBA game is currently live (status 2) or recently finished (status 3). */
+async function hasActiveOrFinishedGames(): Promise<boolean> {
+  try {
+    const res = await fetch(NBA_SCOREBOARD_URL, {
+      headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" },
+    });
+    if (!res.ok) return true; // On failure, assume games are happening to be safe
+    const data = await res.json();
+    const games: any[] = data?.scoreboard?.games ?? [];
+    return games.some((g) => g.gameStatus === 2 || g.gameStatus === 3);
+  } catch {
+    return true; // On error, assume games are happening
+  }
+}
+
 // ── Main handler ────────────────────────────────────────────────────────────
 // Two modes:
 // 1. Cron mode (no league_id in body): compute scores for ALL leagues with live weeks
@@ -325,7 +281,26 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // ── Cron mode: compute scores for all live weeks ──
+    // ── Cron mode: skip during 3–10am ET when no NBA games are running ──
+    const nowET = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const hour = nowET.getHours();
+    if (hour >= 3 && hour < 10) {
+      return new Response(
+        JSON.stringify({ ok: true, skipped: true, reason: "off-hours (3-10am ET)" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    // ── Skip if no NBA games are active or recently finished ──
+    const gamesActive = await hasActiveOrFinishedGames();
+    if (!gamesActive) {
+      return new Response(
+        JSON.stringify({ ok: true, skipped: true, reason: "no active/finished games" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    // ── Compute scores for all live weeks ──
     const today = toDateStr(new Date());
 
     const { data: liveWeeks, error: weekErr } = await supabase
@@ -336,20 +311,24 @@ Deno.serve(async (req: Request) => {
 
     if (weekErr) throw weekErr;
 
-    const results: Array<{ league_id: string; schedule_id: string; teams: number }> = [];
-
-    for (const week of liveWeeks ?? []) {
-      try {
+    const settled = await Promise.allSettled(
+      (liveWeeks ?? []).map(async (week) => {
         const scores = await computeWeekScores(week.league_id, week.id);
         await upsertScores(week.league_id, week.id, scores);
-        results.push({
+        return {
           league_id: week.league_id,
           schedule_id: week.id,
           teams: Object.keys(scores).length,
-        });
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error(`Failed to compute scores for league ${week.league_id}, week ${week.id}:`, msg);
+        };
+      }),
+    );
+
+    const results: Array<{ league_id: string; schedule_id: string; teams: number }> = [];
+    for (const r of settled) {
+      if (r.status === 'fulfilled') {
+        results.push(r.value);
+      } else {
+        console.error('Failed to compute scores for a league/week:', r.reason);
       }
     }
 

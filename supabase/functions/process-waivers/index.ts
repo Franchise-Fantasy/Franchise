@@ -25,12 +25,15 @@ function playerName(id: string): string {
 // Shared team name cache
 const teamNameCache = new Map<string, string>();
 
-async function resolveTeamName(teamId: string): Promise<string> {
-  if (teamNameCache.has(teamId)) return teamNameCache.get(teamId)!;
-  const { data } = await supabase.from('teams').select('name').eq('id', teamId).single();
-  const name = data?.name ?? 'A team';
-  teamNameCache.set(teamId, name);
-  return name;
+async function resolveTeamNames(teamIds: string[]) {
+  const missing = teamIds.filter(id => !teamNameCache.has(id));
+  if (missing.length === 0) return;
+  const { data } = await supabase.from('teams').select('id, name').in('id', [...new Set(missing)]);
+  for (const t of data ?? []) teamNameCache.set(t.id, t.name);
+}
+
+function teamName(id: string): string {
+  return teamNameCache.get(id) ?? 'A team';
 }
 
 Deno.serve(async (req: Request) => {
@@ -81,11 +84,15 @@ Deno.serve(async (req: Request) => {
           .order('priority', { ascending: true })
           .order('created_at', { ascending: true });
 
-        // Pre-fetch player names for all claims in this batch
+        // Pre-fetch player + team names for all claims in this batch
         const claimPlayerIds = (claims ?? []).flatMap(c =>
           [c.player_id, c.drop_player_id].filter(Boolean) as string[]
         );
-        await resolvePlayerNames(claimPlayerIds);
+        const claimTeamIds = (claims ?? []).map(c => c.team_id);
+        await Promise.all([
+          resolvePlayerNames(claimPlayerIds),
+          resolveTeamNames(claimTeamIds),
+        ]);
 
         let awarded = false;
 
@@ -99,8 +106,8 @@ Deno.serve(async (req: Request) => {
               // Notify league about the waiver claim
               try {
                 const ln = league.name ?? 'Your League';
-                const teamName = await resolveTeamName(claim.team_id);
-                let claimBody = `${teamName} claimed ${playerName(claim.player_id)} off waivers`;
+                const tn = teamName(claim.team_id);
+                let claimBody = `${tn} claimed ${playerName(claim.player_id)} off waivers`;
                 if (claim.drop_player_id) claimBody += ` (dropped ${playerName(claim.drop_player_id)})`;
                 await notifyLeague(supabase, waiver.league_id, 'roster_moves',
                   `${ln} — Waiver Claim`,
@@ -183,11 +190,15 @@ Deno.serve(async (req: Request) => {
 
       if (!claims || claims.length === 0) continue;
 
-      // Pre-fetch all player names for this league's claims
+      // Pre-fetch all player + team names for this league's claims
       const allPlayerIds = claims.flatMap(c =>
         [c.player_id, c.drop_player_id].filter(Boolean) as string[]
       );
-      await resolvePlayerNames(allPlayerIds);
+      const allClaimTeamIds = claims.map(c => c.team_id);
+      await Promise.all([
+        resolvePlayerNames(allPlayerIds),
+        resolveTeamNames(allClaimTeamIds),
+      ]);
 
       const byPlayer = new Map<string, typeof claims>();
       for (const claim of claims) {
@@ -238,8 +249,8 @@ Deno.serve(async (req: Request) => {
               // Notify league about the FAAB claim
               try {
                 const ln = league.name ?? 'Your League';
-                const teamName = await resolveTeamName(claim.team_id);
-                let faabBody = `${teamName} claimed ${playerName(claim.player_id)} for $${claim.bid_amount}`;
+                const tn = teamName(claim.team_id);
+                let faabBody = `${tn} claimed ${playerName(claim.player_id)} for $${claim.bid_amount}`;
                 if (claim.drop_player_id) faabBody += ` (dropped ${playerName(claim.drop_player_id)})`;
                 await notifyLeague(supabase, league.id, 'roster_moves',
                   `${ln} — Waiver Claim`,

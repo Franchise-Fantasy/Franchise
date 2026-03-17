@@ -166,7 +166,7 @@ Deno.serve(async (req) => {
 
     // Snapshot pre-trade rosters into daily_lineups so historical views are preserved
     const affectedTeamIds = [...new Set(playerItems.flatMap((i: any) => [i.from_team_id, i.to_team_id]))];
-    for (const tid of affectedTeamIds) {
+    await Promise.all(affectedTeamIds.map(async (tid) => {
       const { data: roster } = await supabaseAdmin
         .from('league_players')
         .select('player_id, roster_slot')
@@ -184,7 +184,7 @@ Deno.serve(async (req) => {
           .from('daily_lineups')
           .upsert(rows, { onConflict: 'team_id,player_id,lineup_date' });
       }
-    }
+    }));
 
     // Pre-compute taxi counts per receiving team for taxi-to-taxi trades
     const taxiCountByTeam = new Map<string, number>();
@@ -292,25 +292,31 @@ Deno.serve(async (req) => {
     }
 
     const playerIds = playerItems.map((i: any) => i.player_id);
-    let playerNameMap: Record<string, string> = {};
-    if (playerIds.length > 0) {
-      const { data: players } = await supabaseAdmin.from('players').select('id, name').in('id', playerIds);
-      if (players) playerNameMap = Object.fromEntries(players.map((p: any) => [p.id, p.name]));
-    }
-
     const pickIds = pickItems.map((i: any) => i.draft_pick_id);
-    let pickInfoMap: Record<string, string> = {};
-    if (pickIds.length > 0) {
-      const { data: picks } = await supabaseAdmin.from('draft_picks').select('id, season, round').in('id', pickIds);
-      if (picks) pickInfoMap = Object.fromEntries(picks.map((p: any) => [p.id, formatPickLabel(p.season, p.round)]));
-    }
-
     const allTeamIds = [...new Set(items.flatMap((i: any) => [i.from_team_id, i.to_team_id]))];
-    let teamNameMap: Record<string, string> = {};
-    if (allTeamIds.length > 0) {
-      const { data: teams } = await supabaseAdmin.from('teams').select('id, name').in('id', allTeamIds);
-      if (teams) teamNameMap = Object.fromEntries(teams.map((t: any) => [t.id, t.name]));
-    }
+
+    // Fetch all name lookups in parallel
+    const [playerNameRes, pickInfoRes, teamNameRes] = await Promise.all([
+      playerIds.length > 0
+        ? supabaseAdmin.from('players').select('id, name').in('id', playerIds)
+        : Promise.resolve({ data: [] }),
+      pickIds.length > 0
+        ? supabaseAdmin.from('draft_picks').select('id, season, round').in('id', pickIds)
+        : Promise.resolve({ data: [] }),
+      allTeamIds.length > 0
+        ? supabaseAdmin.from('teams').select('id, name').in('id', allTeamIds)
+        : Promise.resolve({ data: [] }),
+    ]);
+
+    const playerNameMap: Record<string, string> = Object.fromEntries(
+      (playerNameRes.data ?? []).map((p: any) => [p.id, p.name]),
+    );
+    const pickInfoMap: Record<string, string> = Object.fromEntries(
+      (pickInfoRes.data ?? []).map((p: any) => [p.id, formatPickLabel(p.season, p.round)]),
+    );
+    const teamNameMap: Record<string, string> = Object.fromEntries(
+      (teamNameRes.data ?? []).map((t: any) => [t.id, t.name]),
+    );
 
     const notesParts = items.map((item: any) => {
       if (item.pick_swap_season) {

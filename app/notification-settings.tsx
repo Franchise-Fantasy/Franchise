@@ -44,8 +44,9 @@ export default function NotificationSettingsScreen() {
     return (value: boolean) => {
       if (!userId) return;
       const patch: Partial<PushPreferences> = { [key]: value };
-      // Turn off sub-toggle when parent is disabled
+      // Turn off sub-toggles when parent is disabled
       if (key === 'matchups' && !value) patch.matchup_daily = false;
+      if (key === 'trades' && !value) patch.trade_block = false;
       setPrefs((prev) => ({ ...prev, ...patch }));
       updatePreferences(userId, patch);
     };
@@ -81,6 +82,16 @@ export default function NotificationSettingsScreen() {
             value={prefs.trades}
             onToggle={toggle('trades')}
             c={c}
+          />
+          <ToggleRow
+            icon="hand-left-outline"
+            label="Trade Block Interest"
+            description="When someone expresses interest in your player"
+            value={prefs.trade_block}
+            onToggle={toggle('trade_block')}
+            disabled={!prefs.trades}
+            c={c}
+            indented
           />
           <ToggleRow
             icon="stats-chart-outline"

@@ -63,6 +63,7 @@ Notifications.setNotificationHandler({
 });
 
 import { AnnouncementBanner } from "@/components/AnnouncementBanner";
+import { MatchupResultModal } from "@/components/MatchupResultModal";
 import { OfflineBanner } from "@/components/OfflineBanner";
 import { AppStateProvider, useAppState } from "@/context/AppStateProvider";
 import { AuthProvider, useAuthInitialized, useSession } from "@/context/AuthProvider";
@@ -368,6 +369,7 @@ export default function RootLayout() {
                   <NotificationAndLinkHandler />
                   <OfflineBanner />
                   <AnnouncementBanner />
+                  <MatchupResultModal />
                   <Stack>
                     <Stack.Screen
                       name="index"

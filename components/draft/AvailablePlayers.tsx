@@ -94,6 +94,7 @@ export function AvailablePlayers({
       return data as PlayerSeasonStats[];
     },
     enabled: !!leagueId,
+    staleTime: 1000 * 60 * 5,
   });
 
   // Fetch last 30 days of game logs for time-range stats
@@ -126,7 +127,8 @@ export function AvailablePlayers({
       }
       return allRows;
     },
-    enabled: !!leagueId && playerIds.length > 0,
+    // Only fetch game logs when user switches away from season-long view
+    enabled: !!leagueId && playerIds.length > 0 && timeRange !== "season",
     staleTime: 1000 * 60 * 15,
   });
 

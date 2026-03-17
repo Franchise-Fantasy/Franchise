@@ -32,7 +32,7 @@ import {
   liveToGameLog,
   useLivePlayerStats,
 } from "@/utils/nbaLive";
-import { fetchNbaScheduleForDate } from "@/utils/nbaSchedule";
+import { fetchNbaScheduleForDate, formatGameTime, ScheduleEntry } from "@/utils/nbaSchedule";
 import { isOnline } from "@/utils/network";
 import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
 import { isEligibleForSlot, slotLabel } from "@/utils/rosterSlots";
@@ -83,17 +83,12 @@ interface DayGameStats {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-// Compact stat line shown below player name: "20 PTS · 8 REB · 5 AST · 2 BLK · 1 PF"
+// Compact stat line shown below player name: "20 PTS · 8 REB · 5 AST"
 function buildStatLine(stats: Record<string, number>): string {
   const fields: [string, string][] = [
     ["pts", "PTS"],
     ["reb", "REB"],
     ["ast", "AST"],
-    ["stl", "STL"],
-    ["blk", "BLK"],
-    ["tov", "TO"],
-    ["3pm", "3PM"],
-    ["pf", "PF"],
   ];
   return fields
     .filter(([key]) => (stats[key] ?? 0) > 0)
@@ -371,7 +366,7 @@ export default function RosterScreen() {
   });
 
   // Schedule for today and future dates: tricode → matchup string
-  const { data: daySchedule } = useQuery<Map<string, string>>({
+  const { data: daySchedule } = useQuery<Map<string, ScheduleEntry>>({
     queryKey: ["daySchedule", selectedDate],
     queryFn: () => fetchNbaScheduleForDate(selectedDate),
     enabled: isToday || isFutureDate,
@@ -967,6 +962,7 @@ export default function RosterScreen() {
     statLine: string | null;
     isLive: boolean;
     matchup: string | null;
+    gameTimeUtc: string | null;
   } {
     if (!player || !scoringWeights)
       return {
@@ -975,13 +971,16 @@ export default function RosterScreen() {
         statLine: null,
         isLive: false,
         matchup: null,
+        gameTimeUtc: null,
       };
 
     if (isToday) {
       const live = liveMap.get(player.player_id);
-      const todayMatchup = player.nbaTricode
+      const scheduleEntry = player.nbaTricode
         ? (daySchedule?.get(player.nbaTricode) ?? null)
         : null;
+      const todayMatchup = scheduleEntry?.matchup ?? null;
+      const todayGameTime = scheduleEntry?.gameTimeUtc ?? null;
       const hasGame = !!live || !!todayMatchup;
       if (!hasGame)
         return {
@@ -990,6 +989,7 @@ export default function RosterScreen() {
           statLine: null,
           isLive: false,
           matchup: null,
+          gameTimeUtc: null,
         };
 
       const projVal = isCategories
@@ -1008,6 +1008,7 @@ export default function RosterScreen() {
           statLine,
           isLive: live?.game_status === 2 || false,
           matchup,
+          gameTimeUtc: live ? null : todayGameTime,
         };
       }
       // Live mode (default)
@@ -1027,6 +1028,7 @@ export default function RosterScreen() {
               : buildStatLine(stats as Record<string, number>),
           isLive: live.game_status === 2,
           matchup: live.matchup || null,
+          gameTimeUtc: null,
         };
       }
       return {
@@ -1035,6 +1037,7 @@ export default function RosterScreen() {
         statLine: null,
         isLive: false,
         matchup: todayMatchup,
+        gameTimeUtc: todayGameTime,
       };
     }
 
@@ -1054,6 +1057,7 @@ export default function RosterScreen() {
           statLine: buildStatLine(stats as Record<string, number>),
           isLive: true,
           matchup: live.matchup || null,
+          gameTimeUtc: null,
         };
       }
       const dayGame = dayGameStats?.get(player.player_id);
@@ -1070,6 +1074,7 @@ export default function RosterScreen() {
           statLine: buildStatLine(stats as Record<string, number>),
           isLive: false,
           matchup: dayGame.matchup ?? null,
+          gameTimeUtc: null,
         };
       }
       return {
@@ -1078,13 +1083,16 @@ export default function RosterScreen() {
         statLine: null,
         isLive: false,
         matchup: null,
+        gameTimeUtc: null,
       };
     }
 
     // Future — player must have a game that day
-    const futureMatchup = player.nbaTricode
+    const futureEntry = player.nbaTricode
       ? (daySchedule?.get(player.nbaTricode) ?? null)
       : null;
+    const futureMatchup = futureEntry?.matchup ?? null;
+    const futureGameTime = futureEntry?.gameTimeUtc ?? null;
     if (!futureMatchup) {
       return {
         fpts: null,
@@ -1092,6 +1100,7 @@ export default function RosterScreen() {
         statLine: null,
         isLive: false,
         matchup: null,
+        gameTimeUtc: null,
       };
     }
     if (fptsMode === "live") {
@@ -1101,6 +1110,7 @@ export default function RosterScreen() {
         statLine: null,
         isLive: false,
         matchup: futureMatchup,
+        gameTimeUtc: futureGameTime,
       };
     }
     return {
@@ -1111,6 +1121,7 @@ export default function RosterScreen() {
       statLine: null,
       isLive: false,
       matchup: futureMatchup,
+      gameTimeUtc: futureGameTime,
     };
   }
 
@@ -1164,9 +1175,12 @@ export default function RosterScreen() {
     : null;
 
   const renderSlotRow = (slot: SlotEntry, idx: number, list: SlotEntry[]) => {
-    const { fpts, projFpts, statLine, isLive, matchup } = resolveSlotStats(
+    const { fpts, projFpts, statLine, isLive, matchup, gameTimeUtc } = resolveSlotStats(
       slot.player,
     );
+    const matchupDisplay = matchup
+      ? (gameTimeUtc && !isLive ? `${matchup} · ${formatGameTime(gameTimeUtc)}` : matchup)
+      : null;
     const liveData = slot.player ? liveMap.get(slot.player.player_id) : null;
     const gameInfo = liveData ? formatGameInfo(liveData) : "";
     const locked = isPlayerLocked(slot.player);
@@ -1241,7 +1255,7 @@ export default function RosterScreen() {
             }}
             delayLongPress={400}
             accessibilityRole="button"
-            accessibilityLabel={`${slot.player!.name}, ${formatPosition(slot.player!.position)}, ${slot.player!.nba_team}${!isCategories && fpts !== null ? `, ${formatScore(fpts)} fantasy points` : ""}${isLive ? ", live" : ""}${locked ? ", locked" : ""}`}
+            accessibilityLabel={`${slot.player!.name}, ${formatPosition(slot.player!.position)}, ${slot.player!.nba_team}${matchupDisplay ? `, ${matchupDisplay}` : ""}${!isCategories && fpts !== null ? `, ${formatScore(fpts)} fantasy points` : ""}${isLive ? ", live" : ""}${locked ? ", locked" : ""}`}
             accessibilityHint="Tap for player details, long press to change slot"
           >
             {/* Headshot with team pill + on-court dot */}
@@ -1302,8 +1316,9 @@ export default function RosterScreen() {
                 >
                   {slot.player.name}
                 </ThemedText>
-                {matchup && (
+                {matchupDisplay && (
                   <View
+                    accessible={false}
                     style={[
                       styles.matchupChip,
                       { backgroundColor: c.cardAlt },
@@ -1316,7 +1331,7 @@ export default function RosterScreen() {
                         { color: isLive ? "#2dc653" : c.secondaryText },
                       ]}
                     >
-                      {matchup}
+                      {matchupDisplay}
                     </Text>
                   </View>
                 )}

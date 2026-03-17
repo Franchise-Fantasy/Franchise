@@ -163,6 +163,16 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    // Skip during 3–10am ET when no NBA games are running
+    const nowET = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const hour = nowET.getHours();
+    if (hour >= 3 && hour < 10) {
+      return new Response(
+        JSON.stringify({ ok: true, skipped: true, reason: "off-hours (3-10am ET)" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
     const sbRes = await fetch(NBA_SCOREBOARD_URL, { headers: NBA_HEADERS });
     if (!sbRes.ok) {
       const text = await sbRes.text();
@@ -192,13 +202,13 @@ Deno.serve(async (req: Request) => {
     const allNbaIds = new Set<number>();
     const gameBoxscores = new Map<string, any>();
 
-    for (const game of activeGames) {
+    await Promise.allSettled(activeGames.map(async (game) => {
       const res = await fetch(NBA_BOXSCORE_URL(game.gameId), {
         headers: NBA_HEADERS,
       });
       if (!res.ok) {
         console.error(`Boxscore fetch failed for ${game.gameId}: ${res.status}`);
-        continue;
+        return;
       }
       const box = await res.json();
       gameBoxscores.set(game.gameId, box);
@@ -206,7 +216,7 @@ Deno.serve(async (req: Request) => {
       const homePlayers: NbaPlayer[] = box?.game?.homeTeam?.players ?? [];
       const awayPlayers: NbaPlayer[] = box?.game?.awayTeam?.players ?? [];
       for (const p of [...homePlayers, ...awayPlayers]) allNbaIds.add(p.personId);
-    }
+    }));
 
     if (allNbaIds.size === 0) {
       return new Response(
@@ -236,8 +246,8 @@ Deno.serve(async (req: Request) => {
       console.warn(`Players not in DB (NBA IDs): ${missingNbaIds.join(', ')}`);
     }
 
-    let totalLiveRows = 0;
-    let totalGameRows = 0;
+    const allLiveRows: any[] = [];
+    const allGameRows: any[] = [];
     const allTeamUpdates: any[] = [];
 
     for (const game of activeGames) {
@@ -260,32 +270,42 @@ Deno.serve(async (req: Request) => {
         awayTricode, homeTricode, false, homeScore, awayScore
       );
 
-      const liveRows = [...homeLive, ...awayLive];
-      const gameRows = [...homeGames, ...awayGames];
+      allLiveRows.push(...homeLive, ...awayLive);
+      allGameRows.push(...homeGames, ...awayGames);
       allTeamUpdates.push(...homeTeams, ...awayTeams);
-
-      if (liveRows.length > 0) {
-        const { error } = await supabase
-          .from("live_player_stats")
-          .upsert(liveRows, { onConflict: "player_id,game_date" });
-        if (error) {
-          console.error(`live_player_stats upsert error (${game.gameId}):`, error.message);
-        } else {
-          totalLiveRows += liveRows.length;
-        }
-      }
-
-      if (gameRows.length > 0) {
-        const { error } = await supabase
-          .from("player_games")
-          .upsert(gameRows, { onConflict: "player_id,game_id", ignoreDuplicates: false });
-        if (error) {
-          console.error(`player_games upsert error (${game.gameId}):`, error.message);
-        } else {
-          totalGameRows += gameRows.length;
-        }
-      }
     }
+
+    let totalLiveRows = 0;
+    let totalGameRows = 0;
+
+    // Batch upsert all rows at once instead of per-game
+    const upsertPromises: Promise<void>[] = [];
+
+    if (allLiveRows.length > 0) {
+      upsertPromises.push(
+        supabase
+          .from("live_player_stats")
+          .upsert(allLiveRows, { onConflict: "player_id,game_date" })
+          .then(({ error }) => {
+            if (error) console.error("live_player_stats batch upsert error:", error.message);
+            else totalLiveRows = allLiveRows.length;
+          }),
+      );
+    }
+
+    if (allGameRows.length > 0) {
+      upsertPromises.push(
+        supabase
+          .from("player_games")
+          .upsert(allGameRows, { onConflict: "player_id,game_id", ignoreDuplicates: false })
+          .then(({ error }) => {
+            if (error) console.error("player_games batch upsert error:", error.message);
+            else totalGameRows = allGameRows.length;
+          }),
+      );
+    }
+
+    await Promise.all(upsertPromises);
 
     if (allTeamUpdates.length > 0) {
       const { error } = await supabase
@@ -296,21 +316,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Trigger week score recomputation now that stats are written
-    if (totalLiveRows > 0 || totalGameRows > 0) {
-      try {
-        await fetch(
-          `${Deno.env.get("SUPABASE_URL")}/functions/v1/get-week-scores`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: "{}",
-          },
-        );
-      } catch (e: any) {
-        console.error("Failed to trigger week score update:", e?.message);
-      }
-    }
+    // get-week-scores runs on its own cron schedule — no need to cascade here.
 
     return new Response(
       JSON.stringify({

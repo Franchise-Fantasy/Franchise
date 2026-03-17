@@ -57,6 +57,7 @@ import {
   Modal,
   ScrollView,
   StyleSheet,
+  Alert,
   Text,
   TouchableOpacity,
   View,
@@ -615,7 +616,7 @@ function MatchupBoard({
   rightWeekScore: number;
   leftDayLiveBonus: number;
   rightDayLiveBonus: number;
-  futureSchedule?: Map<string, string>;
+  futureSchedule?: Map<string, any>;
   seedMap?: Map<string, number>;
   onPlayerPress?: (playerId: string) => void;
   onFptsPress?: (
@@ -630,7 +631,7 @@ function MatchupBoard({
   // For future mode, compute projected day total from active players' season averages
   const computeProjectedDay = (
     players: RosterPlayer[],
-    schedule?: Map<string, string>,
+    schedule?: Map<string, any>,
   ) => {
     if (!schedule) return 0;
     return round1(
@@ -713,11 +714,7 @@ function MatchupBoard({
             <Text style={[colStyles.total, { color: c.accent }]}>
               {formatScore(leftWeek)}
             </Text>
-            {mode === "future" ? (
-              <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>
-                {leftDay.toFixed(1)} proj
-              </Text>
-            ) : (
+            {mode !== "future" && (
               <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>
                 {formatScore(leftDay)} today
               </Text>
@@ -745,11 +742,7 @@ function MatchupBoard({
             <Text style={[colStyles.total, { color: c.accent }]}>
               {formatScore(rightWeek)}
             </Text>
-            {mode === "future" ? (
-              <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>
-                {rightDay.toFixed(1)} proj
-              </Text>
-            ) : (
+            {mode !== "future" && (
               <Text style={[colStyles.dayTotal, { color: c.secondaryText }]}>
                 {formatScore(rightDay)} today
               </Text>
@@ -1100,7 +1093,7 @@ export default function MatchupScreen() {
   }, [pillTransitioning, weekIsLive]);
 
   // Future schedule: tricode → matchup string for the selected future date
-  const { data: futureSchedule } = useQuery<Map<string, string>>({
+  const { data: futureSchedule } = useQuery<Map<string, any>>({
     queryKey: ["futureSchedule", selectedDate],
     queryFn: () => fetchNbaScheduleForDate(selectedDate),
     enabled: isToday || isFutureDate,
@@ -1523,9 +1516,14 @@ export default function MatchupScreen() {
                   colStyles.acqRow,
                   { borderTopColor: c.border },
                 ]}
-                accessibilityLabel={`Weekly acquisition limits: ${displayData.leftTeam.teamName} ${leftAdds ?? 0} of ${weeklyLimit}, ${displayData.rightTeam?.teamName ?? "BYE"} ${rightAdds ?? 0} of ${weeklyLimit}`}
+                accessibilityLabel={`Weekly acquisitions: ${displayData.leftTeam.teamName} ${leftAdds ?? 0} of ${weeklyLimit}, ${displayData.rightTeam?.teamName ?? "BYE"} ${rightAdds ?? 0} of ${weeklyLimit}`}
               >
-                <View style={colStyles.acqPill}>
+                <TouchableOpacity
+                  style={colStyles.acqPill}
+                  onPress={() => Alert.alert('Weekly Acquisitions', 'Player pickups used this matchup week. Once the limit is reached, no more free agent adds are allowed until next week.')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Acquisition info"
+                >
                   <Text
                     style={[
                       colStyles.acqText,
@@ -1537,9 +1535,9 @@ export default function MatchupScreen() {
                       },
                     ]}
                   >
-                    Adds: {leftAdds ?? 0}/{weeklyLimit}
+                    Acq: {leftAdds ?? 0}/{weeklyLimit}
                   </Text>
-                </View>
+                </TouchableOpacity>
                 {displayData.rightTeam && (
                   <View style={colStyles.acqPill}>
                     <Text
@@ -1553,7 +1551,7 @@ export default function MatchupScreen() {
                         },
                       ]}
                     >
-                      Adds: {rightAdds ?? 0}/{weeklyLimit}
+                      Acq: {rightAdds ?? 0}/{weeklyLimit}
                     </Text>
                   </View>
                 )}
@@ -1692,7 +1690,7 @@ const styles = StyleSheet.create({
   dayInfo: { flex: 1, alignItems: "center" },
   dayLabel: { fontSize: 16 },
   weekMeta: { fontSize: 11, marginTop: 2 },
-  body: { padding: 12, paddingBottom: 56, flexGrow: 1 },
+  body: { padding: 6, paddingBottom: 56, flexGrow: 1 },
   pillBar: {
     paddingHorizontal: 12,
     paddingTop: 10,

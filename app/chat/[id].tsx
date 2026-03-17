@@ -18,10 +18,11 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { ReadReceiptIndicator } from '@/components/chat/ReadReceiptIndicator';
 import type { ChatMessage, ReactionGroup } from '@/types/chat';
+import type { ReadReceipt } from '@/hooks/chat/useReadReceipts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -36,11 +37,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
+  type SharedValue,
   useSharedValue,
   withSpring,
 } from 'react-native-reanimated';
 
-// "Today 12:30 PM", "Yesterday 3:45 PM", "Monday 2:15 PM", "Mar 10, 1:00 PM"
+// ─── Helpers ──────────────────────────────────────────────────
+
 function formatTimeHeader(dateStr: string): string {
   const d = new Date(dateStr);
   const now = new Date();
@@ -60,6 +63,136 @@ function formatTimeHeader(dateStr: string): string {
   return `${dateLabel}, ${time}`;
 }
 
+// ─── Pre-computed display metadata per message ────────────────
+
+interface MessageMeta {
+  isFirstInGroup: boolean;
+  isLastInGroup: boolean;
+  showSender: boolean;
+  showTimeHeader: boolean;
+  showSwipeTime: boolean;
+  timeHeader: string;
+}
+
+function computeMessageMeta(messages: ChatMessage[]): Map<string, MessageMeta> {
+  const GAP_MS = 60 * 60 * 1000;
+  const map = new Map<string, MessageMeta>();
+
+  for (let index = 0; index < messages.length; index++) {
+    const item = messages[index];
+    const newerMsg = index > 0 ? messages[index - 1] : null;
+    const olderMsg = index < messages.length - 1 ? messages[index + 1] : null;
+
+    const sameMinuteAsNewer =
+      newerMsg !== null &&
+      newerMsg.team_id === item.team_id &&
+      newerMsg.created_at.slice(0, 16) === item.created_at.slice(0, 16);
+
+    const sameMinuteAsOlder =
+      olderMsg !== null &&
+      olderMsg.team_id === item.team_id &&
+      olderMsg.created_at.slice(0, 16) === item.created_at.slice(0, 16);
+
+    const isFirstInGroup = !sameMinuteAsOlder;
+    const isLastInGroup = !sameMinuteAsNewer;
+
+    const senderChanged = !olderMsg || olderMsg.team_id !== item.team_id;
+
+    const itemTime = new Date(item.created_at).getTime();
+    const olderTime = olderMsg ? new Date(olderMsg.created_at).getTime() : 0;
+    const showTimeHeader = !olderMsg || (itemTime - olderTime) >= GAP_MS;
+
+    map.set(item.id, {
+      isFirstInGroup,
+      isLastInGroup,
+      showSender: senderChanged,
+      showTimeHeader,
+      showSwipeTime: isLastInGroup,
+      timeHeader: showTimeHeader ? formatTimeHeader(item.created_at) : '',
+    });
+  }
+  return map;
+}
+
+// ─── Memoized message item ────────────────────────────────────
+
+interface ChatItemProps {
+  item: ChatMessage;
+  meta: MessageMeta;
+  isOwn: boolean;
+  isDM: boolean;
+  isLeagueChat: boolean;
+  isCommissioner: boolean;
+  reactions: ReactionGroup[];
+  readers: ReadReceipt[];
+  isSelected: boolean;
+  teamId: string | undefined;
+  swipeReveal: SharedValue<number>;
+  secondaryTextColor: string;
+  onLongPress: (messageId: string) => void;
+  onReactionPress: (messageId: string, emoji: string) => void;
+}
+
+const ChatItem = React.memo(function ChatItem({
+  item,
+  meta,
+  isOwn,
+  isDM,
+  isLeagueChat,
+  isCommissioner,
+  reactions,
+  readers,
+  isSelected,
+  teamId,
+  swipeReveal,
+  secondaryTextColor,
+  onLongPress,
+  onReactionPress,
+}: ChatItemProps) {
+  const handleLongPress = useCallback(() => {
+    onLongPress(item.id);
+  }, [onLongPress, item.id]);
+
+  const handleReactionPress = useCallback(
+    (emoji: string) => {
+      onReactionPress(item.id, emoji);
+    },
+    [onReactionPress, item.id],
+  );
+
+  return (
+    <View>
+      {meta.showTimeHeader && (
+        <View style={styles.dateHeader}>
+          <ThemedText style={[styles.dateHeaderText, { color: secondaryTextColor }]}>
+            {meta.timeHeader}
+          </ThemedText>
+        </View>
+      )}
+      <MessageBubble
+        message={item}
+        isOwnMessage={isOwn}
+        showSender={isLeagueChat && meta.showSender}
+        isFirstInGroup={meta.isFirstInGroup}
+        isLastInGroup={meta.isLastInGroup}
+        reactions={reactions}
+        onLongPress={handleLongPress}
+        onReactionPress={handleReactionPress}
+        teamId={teamId}
+        isCommissioner={isCommissioner}
+        swipeReveal={swipeReveal}
+        showSwipeTime={meta.showSwipeTime}
+        isSelected={isSelected}
+      />
+      {isOwn && item.type !== 'poll' && readers.length > 0 && (
+        <ReadReceiptIndicator isDM={isDM} readers={readers} />
+      )}
+    </View>
+  );
+});
+
+// ─── Main screen ──────────────────────────────────────────────
+
 export default function ConversationScreen() {
   const { id: conversationId } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -78,7 +211,6 @@ export default function ConversationScreen() {
         .single();
       if (convErr) throw convErr;
 
-      // Get member count for presence indicator
       const { count: memberCount } = await supabase
         .from('chat_members')
         .select('id', { count: 'exact', head: true })
@@ -86,7 +218,6 @@ export default function ConversationScreen() {
 
       if (conv.type === 'league') return { name: 'League Chat', type: conv.type, memberCount: memberCount ?? 0 };
 
-      // DM: get the other team's name
       const { data: members } = await supabase
         .from('chat_members')
         .select('team_id, teams(name)')
@@ -99,7 +230,6 @@ export default function ConversationScreen() {
     enabled: !!conversationId && !!teamId,
   });
 
-  // Get my team name + tricode for optimistic updates & presence
   const { data: myTeamInfo } = useQuery({
     queryKey: ['myTeamInfo', teamId],
     queryFn: async () => {
@@ -116,7 +246,6 @@ export default function ConversationScreen() {
   const myTeamName = myTeamInfo?.name ?? null;
   const myTricode = myTeamInfo?.tricode ?? null;
 
-  // Check if current user is commissioner
   const { data: isCommissioner } = useQuery({
     queryKey: ['isCommissioner', leagueId],
     queryFn: async () => {
@@ -159,6 +288,29 @@ export default function ConversationScreen() {
     [msgData],
   );
 
+  // Pre-seed poll cache outside of render
+  useEffect(() => {
+    for (const msg of messages) {
+      if (msg.type === 'poll' && msg.poll_question) {
+        queryClient.setQueryData(['poll', msg.content], (prev: any) => {
+          if (prev) return prev; // Don't overwrite if already cached
+          return {
+            id: msg.content,
+            question: msg.poll_question,
+            options: msg.poll_options,
+            poll_type: msg.poll_type,
+            closes_at: msg.poll_closes_at,
+            is_anonymous: msg.poll_is_anonymous,
+            show_live_results: msg.poll_show_live_results,
+          };
+        });
+      }
+    }
+  }, [messages, queryClient]);
+
+  // Pre-compute grouping/display metadata for all messages
+  const messageMeta = useMemo(() => computeMessageMeta(messages), [messages]);
+
   const visibleMessageIds = useMemo(
     () => messages.filter((m) => !m.id.startsWith('temp-')).map((m) => m.id),
     [messages],
@@ -188,14 +340,9 @@ export default function ConversationScreen() {
   );
   useMarkRead(conversationId ?? null, teamId ?? null, newestMessageId, updateReadPosition);
 
-  // Build a map of messageId → readers.
-  // Attach each reader to the current user's most recent sent message
-  // that the reader has read (at or before their last_read_message_id).
-  // This keeps "Seen" on your last message even after others send new ones.
   const readReceiptsByMessageId = useMemo(() => {
     if (!teamId || messages.length === 0 || readReceipts.length === 0) return {};
 
-    // messages[0] = newest. Build index lookup.
     const idxById = new Map<string, number>();
     for (let i = 0; i < messages.length; i++) {
       idxById.set(messages[i].id, i);
@@ -207,8 +354,6 @@ export default function ConversationScreen() {
       const readIdx = idxById.get(r.last_read_message_id);
       if (readIdx === undefined) continue;
 
-      // Scan from the read position toward older messages to find
-      // the current user's most recent sent message they've seen.
       for (let i = readIdx; i < messages.length; i++) {
         if (messages[i].team_id === teamId) {
           const msgId = messages[i].id;
@@ -221,7 +366,6 @@ export default function ConversationScreen() {
     return map;
   }, [readReceipts, messages, teamId]);
 
-  // Reaction picker state
   const [reactionTargetId, setReactionTargetId] = useState<string | null>(null);
 
   const handleSend = useCallback(
@@ -231,6 +375,7 @@ export default function ConversationScreen() {
     [sendMessage],
   );
 
+  // Stable callbacks — item component passes its own ID
   const handleLongPress = useCallback((messageId: string) => {
     setReactionTargetId(messageId);
   }, []);
@@ -248,7 +393,7 @@ export default function ConversationScreen() {
     [reactionTargetId, teamId, toggleReaction],
   );
 
-  const handleReactionPress = useCallback(
+  const handleItemReactionPress = useCallback(
     (messageId: string, emoji: string) => {
       if (!teamId) return;
       toggleReaction.mutate({ messageId, teamId, emoji });
@@ -261,13 +406,9 @@ export default function ConversationScreen() {
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const isLeagueChat = convMeta?.type === 'league';
+  const isDM = convMeta?.type === 'dm';
 
-  // Check if two timestamps are within the same minute
-  const sameMinute = useCallback((a: string, b: string) => {
-    return a.slice(0, 16) === b.slice(0, 16);
-  }, []);
-
-  // Shared swipe-to-reveal: drag the whole list left to show per-message times
+  // Shared swipe-to-reveal
   const swipeReveal = useSharedValue(0);
   const listPanGesture = Gesture.Pan()
     .activeOffsetX(-10)
@@ -279,94 +420,37 @@ export default function ConversationScreen() {
       swipeReveal.value = withSpring(0, { damping: 50, stiffness: 400, overshootClamping: true });
     });
 
+  // Stable color ref so renderItem doesn't depend on `c` object identity
+  const secondaryTextColor = c.secondaryText;
+
   const renderItem = useCallback(
-    ({ item, index }: { item: ChatMessage; index: number }) => {
-      // Pre-seed poll cache so PollBubble renders instantly without a loading state
-      if (item.type === 'poll' && item.poll_question) {
-        queryClient.setQueryData(['poll', item.content], {
-          id: item.content,
-          question: item.poll_question,
-          options: item.poll_options,
-          poll_type: item.poll_type,
-          closes_at: item.poll_closes_at,
-          is_anonymous: item.poll_is_anonymous,
-          show_live_results: item.poll_show_live_results,
-        });
-      }
-
-      const isOwn = item.team_id === teamId;
-      const reactions: ReactionGroup[] = reactionsMap?.[item.id] ?? [];
-
-      // Inverted list: index 0 = newest. "prev" = next index (older), "next" = prev index (newer).
-      const newerMsg = index > 0 ? messages[index - 1] : null;
-      const olderMsg = index < messages.length - 1 ? messages[index + 1] : null;
-
-      const sameSenderAsNewer =
-        newerMsg !== null &&
-        newerMsg.team_id === item.team_id &&
-        sameMinute(newerMsg.created_at, item.created_at);
-
-      const sameSenderAsOlder =
-        olderMsg !== null &&
-        olderMsg.team_id === item.team_id &&
-        sameMinute(olderMsg.created_at, item.created_at);
-
-      // First in group = no older message from same sender (top of visual group)
-      // Last in group = no newer message from same sender (bottom of visual group)
-      const isFirstInGroup = !sameSenderAsOlder;
-      const isLastInGroup = !sameSenderAsNewer;
-
-      // Show sender name only when the sender changes from the previous
-      // message (older = visually above). Don't re-show for time-based splits
-      // within a contiguous block from the same person.
-      const senderChanged = !olderMsg || olderMsg.team_id !== item.team_id;
-
-      // Time header: show when there's a 1+ hour gap between this message
-      // and the older one (visually above in inverted list).
-      const GAP_MS = 60 * 60 * 1000; // 1 hour
-      const itemTime = new Date(item.created_at).getTime();
-      const olderTime = olderMsg ? new Date(olderMsg.created_at).getTime() : 0;
-      const showTimeHeader = !olderMsg || (itemTime - olderTime) >= GAP_MS;
-
-      // Show swipe-reveal time only on last message in group (avoids clutter)
-      const showSwipeTime = isLastInGroup;
-
-      const isDM = convMeta?.type === 'dm';
-      const readers = readReceiptsByMessageId[item.id] ?? [];
+    ({ item }: { item: ChatMessage }) => {
+      const meta = messageMeta.get(item.id);
+      if (!meta) return null;
 
       return (
-        <>
-          {/* Read receipts appear below the message (above in inverted list) */}
-          {isOwn && item.type !== 'poll' && readers.length > 0 && (
-            <ReadReceiptIndicator isDM={isDM} readers={readers} />
-          )}
-          <MessageBubble
-            message={item}
-            isOwnMessage={isOwn}
-            showSender={isLeagueChat && senderChanged}
-            isFirstInGroup={isFirstInGroup}
-            isLastInGroup={isLastInGroup}
-            reactions={reactions}
-            onLongPress={() => handleLongPress(item.id)}
-            onReactionPress={(emoji) => handleReactionPress(item.id, emoji)}
-            teamId={teamId ?? undefined}
-            isCommissioner={isCommissioner ?? false}
-            swipeReveal={swipeReveal}
-            showSwipeTime={showSwipeTime}
-            isSelected={reactionTargetId === item.id}
-          />
-          {showTimeHeader && (
-            <View style={styles.dateHeader}>
-              <ThemedText style={[styles.dateHeaderText, { color: c.secondaryText }]}>
-                {formatTimeHeader(item.created_at)}
-              </ThemedText>
-            </View>
-          )}
-        </>
+        <ChatItem
+          item={item}
+          meta={meta}
+          isOwn={item.team_id === teamId}
+          isDM={isDM ?? false}
+          isLeagueChat={isLeagueChat ?? false}
+          isCommissioner={isCommissioner ?? false}
+          reactions={reactionsMap?.[item.id] ?? emptyReactions}
+          readers={readReceiptsByMessageId[item.id] ?? emptyReaders}
+          isSelected={reactionTargetId === item.id}
+          teamId={teamId ?? undefined}
+          swipeReveal={swipeReveal}
+          secondaryTextColor={secondaryTextColor}
+          onLongPress={handleLongPress}
+          onReactionPress={handleItemReactionPress}
+        />
       );
     },
-    [teamId, reactionsMap, myTeamName, messages, isLeagueChat, isCommissioner, sameMinute, handleLongPress, handleReactionPress, queryClient, c, swipeReveal, readReceiptsByMessageId, convMeta?.type, reactionTargetId],
+    [teamId, messageMeta, isDM, isLeagueChat, isCommissioner, reactionsMap, readReceiptsByMessageId, reactionTargetId, swipeReveal, secondaryTextColor, handleLongPress, handleItemReactionPress],
   );
+
+  const keyExtractor = useCallback((item: ChatMessage) => item.id, []);
 
   // +1 for ourselves (we're always online when viewing)
   const onlineCount = readReceipts.filter((r) => r.online).length + 1;
@@ -378,12 +462,10 @@ export default function ConversationScreen() {
         title={convMeta?.name ?? 'Chat'}
         rightAction={
           convMeta?.type === 'dm' ? (
-            // DM: simple online dot next to header
             readReceipts.some((r) => r.online) ? (
               <View style={styles.onlineDot} accessibilityLabel="Online" />
             ) : null
           ) : convMeta?.type === 'league' ? (
-            // Group: tappable presence pill
             <TouchableOpacity
               onPress={() => setShowPresenceList(true)}
               style={[styles.presencePill, { backgroundColor: c.cardAlt }]}
@@ -405,7 +487,9 @@ export default function ConversationScreen() {
         keyboardVerticalOffset={0}
       >
         {isLoading ? (
-          <ActivityIndicator style={styles.loader} />
+          <View style={styles.empty}>
+            <ActivityIndicator />
+          </View>
         ) : messages.length === 0 ? (
           <View style={styles.empty}>
             <ThemedText style={{ color: c.secondaryText }}>
@@ -417,15 +501,16 @@ export default function ConversationScreen() {
             <Animated.View style={styles.flex}>
               <FlatList
                 data={messages}
-                keyExtractor={(item) => item.id}
+                keyExtractor={keyExtractor}
                 renderItem={renderItem}
                 inverted
                 contentContainerStyle={styles.list}
                 onEndReached={onEndReached}
                 onEndReachedThreshold={0.5}
                 removeClippedSubviews
-                maxToRenderPerBatch={15}
-                windowSize={11}
+                initialNumToRender={15}
+                maxToRenderPerBatch={10}
+                windowSize={7}
                 ListFooterComponent={
                   isFetchingNextPage ? (
                     <ActivityIndicator style={styles.footerLoader} />
@@ -463,7 +548,7 @@ export default function ConversationScreen() {
           onClose={() => setShowCreatePoll(false)}
         />
       )}
-      {/* Group chat presence list modal */}
+
       <Modal
         visible={showPresenceList}
         transparent
@@ -497,36 +582,16 @@ export default function ConversationScreen() {
   );
 }
 
+// Stable empty array references to avoid re-renders
+const emptyReactions: ReactionGroup[] = [];
+const emptyReaders: ReadReceipt[] = [];
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
   flex: {
     flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 8,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  headerBtn: {
-    width: 70,
-    paddingHorizontal: 8,
-  },
-  backText: {
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  title: {
-    fontSize: 16,
-    textAlign: 'center',
-    flex: 1,
-  },
-  loader: {
-    marginTop: 40,
   },
   empty: {
     flex: 1,

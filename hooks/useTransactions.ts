@@ -70,6 +70,6 @@ export function useTransactions() {
     getNextPageParam: (lastPage, allPages) =>
       lastPage.length === PAGE_SIZE ? allPages.length : undefined,
     enabled: !!leagueId,
-    staleTime: 1000 * 60,
+    staleTime: 1000 * 60 * 10,
   });
 }

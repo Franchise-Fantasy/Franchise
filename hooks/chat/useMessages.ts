@@ -66,6 +66,7 @@ export function useMessages(conversationId: string | null) {
       return { cursor: last.created_at, cursorId: last.id } as Cursor;
     },
     enabled: !!conversationId,
+    maxPages: 10, // Cap at ~300 messages in memory; older pages re-fetch on scroll
   });
 }
 

@@ -3,7 +3,7 @@ import { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
 type NotifCategory =
-  | 'draft' | 'trades' | 'matchups' | 'matchup_daily' | 'waivers'
+  | 'draft' | 'trades' | 'trade_block' | 'matchups' | 'matchup_daily' | 'waivers'
   | 'injuries' | 'playoffs' | 'commissioner' | 'league_activity'
   | 'roster_reminders' | 'lottery' | 'chat' | 'roster_moves';
 
@@ -27,12 +27,16 @@ export async function getTokensForUsers(
   supabase: SupabaseClient,
   userIds: string[],
   category: NotifCategory,
+  excludeUserIds?: string[],
 ): Promise<string[]> {
-  if (userIds.length === 0) return [];
+  const filtered = excludeUserIds?.length
+    ? userIds.filter(id => !excludeUserIds.includes(id))
+    : userIds;
+  if (filtered.length === 0) return [];
   const { data, error } = await supabase
     .from('push_tokens')
     .select('token, preferences')
-    .in('user_id', userIds);
+    .in('user_id', filtered);
   if (error || !data) return [];
   return data
     .filter((row: any) => row.preferences?.[category] === true)
@@ -43,21 +47,23 @@ export async function getTokensForTeams(
   supabase: SupabaseClient,
   teamIds: string[],
   category: NotifCategory,
+  excludeUserIds?: string[],
 ): Promise<string[]> {
   if (teamIds.length === 0) return [];
   const { data: teams } = await supabase.from('teams').select('user_id').in('id', teamIds);
   if (!teams || teams.length === 0) return [];
-  return getTokensForUsers(supabase, teams.map((t: any) => t.user_id), category);
+  return getTokensForUsers(supabase, teams.map((t: any) => t.user_id), category, excludeUserIds);
 }
 
 export async function getTokensForLeague(
   supabase: SupabaseClient,
   leagueId: string,
   category: NotifCategory,
+  excludeUserIds?: string[],
 ): Promise<string[]> {
   const { data: teams } = await supabase.from('teams').select('user_id').eq('league_id', leagueId);
   if (!teams || teams.length === 0) return [];
-  return getTokensForUsers(supabase, teams.map((t: any) => t.user_id), category);
+  return getTokensForUsers(supabase, teams.map((t: any) => t.user_id), category, excludeUserIds);
 }
 
 export async function sendPush(messages: PushMessage | PushMessage[]): Promise<string[]> {
@@ -99,8 +105,9 @@ export async function notifyTeams(
   title: string,
   body: string,
   data?: Record<string, unknown>,
+  excludeUserIds?: string[],
 ): Promise<void> {
-  const tokens = await getTokensForTeams(supabase, teamIds, category);
+  const tokens = await getTokensForTeams(supabase, teamIds, category, excludeUserIds);
   if (tokens.length === 0) return;
   let leagueId = data?.league_id;
   if (!leagueId && teamIds.length > 0) {
@@ -119,8 +126,9 @@ export async function notifyLeague(
   title: string,
   body: string,
   data?: Record<string, unknown>,
+  excludeUserIds?: string[],
 ): Promise<void> {
-  const tokens = await getTokensForLeague(supabase, leagueId, category);
+  const tokens = await getTokensForLeague(supabase, leagueId, category, excludeUserIds);
   if (tokens.length === 0) return;
   const channelId = CHANNEL_MAP[category] ?? category;
   const dead = await sendPush(tokens.map(to => ({ to, title, body, data: { ...data, league_id: leagueId, channelId }, channelId })));

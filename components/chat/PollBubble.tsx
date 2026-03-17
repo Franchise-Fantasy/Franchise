@@ -86,9 +86,24 @@ export const PollBubble = React.memo(function PollBubble({ pollId, teamId, isCom
   }, [selected, voteMutation]);
 
   if (!poll || !results) {
+    // Skeleton that approximates a typical poll's height to prevent layout jump
     return (
-      <View style={[styles.container, { backgroundColor: c.cardAlt, borderColor: c.border }]}>
-        <ActivityIndicator size="small" />
+      <View
+        style={[styles.container, { backgroundColor: c.cardAlt, borderColor: c.border }]}
+        accessibilityLabel="Loading poll"
+      >
+        {/* Header skeleton */}
+        <View style={[styles.skeletonBar, styles.skeletonHeader, { backgroundColor: c.border }]} />
+        {/* Question skeleton */}
+        <View style={[styles.skeletonBar, styles.skeletonQuestion, { backgroundColor: c.border }]} />
+        {/* Option skeletons (3 typical options) */}
+        <View style={styles.skeletonOptions}>
+          <View style={[styles.skeletonBar, styles.skeletonOption, { backgroundColor: c.border }]} />
+          <View style={[styles.skeletonBar, styles.skeletonOption, { backgroundColor: c.border }]} />
+          <View style={[styles.skeletonBar, styles.skeletonOption, { backgroundColor: c.border }]} />
+        </View>
+        {/* Footer skeleton */}
+        <View style={[styles.skeletonBar, styles.skeletonFooter, { backgroundColor: c.border }]} />
       </View>
     );
   }
@@ -436,5 +451,33 @@ const styles = StyleSheet.create({
   },
   visibilityText: {
     fontSize: 11,
+  },
+  // Skeleton styles
+  skeletonBar: {
+    borderRadius: 6,
+    opacity: 0.4,
+  },
+  skeletonHeader: {
+    width: 120,
+    height: 14,
+    marginBottom: 10,
+  },
+  skeletonQuestion: {
+    width: '75%',
+    height: 18,
+    marginBottom: 12,
+  },
+  skeletonOptions: {
+    gap: 6,
+  },
+  skeletonOption: {
+    height: 42,
+    borderRadius: 10,
+    width: '100%',
+  },
+  skeletonFooter: {
+    width: 100,
+    height: 12,
+    marginTop: 12,
   },
 });

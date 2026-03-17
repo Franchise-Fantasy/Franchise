@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { addDays, toDateStr } from '@/utils/dates';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
 export interface LivePlayerStats {
@@ -69,8 +69,7 @@ export function formatGameInfo(live: LivePlayerStats): string {
 }
 
 // Returns a map of player_id → LivePlayerStats for today's games.
-// Performs an initial fetch then subscribes to Realtime for push updates.
-// Cleans up the channel when disabled or unmounted.
+// Performs an initial fetch then polls every 30s (matching the cron cadence).
 // Tracks the current date so stale data from a previous day is cleared
 // when the app resumes from background after midnight.
 export function useLivePlayerStats(
@@ -78,7 +77,6 @@ export function useLivePlayerStats(
   enabled: boolean
 ): Map<string, LivePlayerStats> {
   const [liveMap, setLiveMap] = useState<Map<string, LivePlayerStats>>(new Map());
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const dateRef = useRef<string>(toDateStr(new Date()));
 
   // Track date changes from AppState (background → foreground after midnight)
@@ -96,79 +94,49 @@ export function useLivePlayerStats(
     return () => sub.remove();
   }, []);
 
+  const fetchStats = useCallback(async (ids: string[]) => {
+    const today = toDateStr(new Date());
+    const yesterday = addDays(today, -1);
+    dateRef.current = today;
+
+    const [todayRes, yesterdayRes] = await Promise.all([
+      supabase
+        .from('live_player_stats')
+        .select('*')
+        .in('player_id', ids)
+        .eq('game_date', today)
+        .gte('game_status', 2),
+      supabase
+        .from('live_player_stats')
+        .select('*')
+        .in('player_id', ids)
+        .eq('game_date', yesterday)
+        .eq('game_status', 2),
+    ]);
+
+    if (toDateStr(new Date()) !== today) return;
+    const rows = [
+      ...((todayRes.data ?? []) as LivePlayerStats[]),
+      ...((yesterdayRes.data ?? []) as LivePlayerStats[]),
+    ];
+    setLiveMap(buildMap(rows));
+  }, []);
+
   useEffect(() => {
     if (!enabled || playerIds.length === 0) {
       setLiveMap(new Map());
       return;
     }
 
-    const today = toDateStr(new Date());
-    const yesterday = addDays(today, -1);
-    dateRef.current = today;
+    // Initial fetch
+    fetchStats(playerIds);
 
-    // Fetch today's games (live + final) and yesterday's still-live games
-    // (West Coast games that cross midnight). Exclude yesterday's finals
-    // so they don't show as stale entries the next morning.
-    Promise.all([
-      supabase
-        .from('live_player_stats')
-        .select('*')
-        .in('player_id', playerIds)
-        .eq('game_date', today)
-        .gte('game_status', 2),
-      supabase
-        .from('live_player_stats')
-        .select('*')
-        .in('player_id', playerIds)
-        .eq('game_date', yesterday)
-        .eq('game_status', 2),
-    ]).then(([todayRes, yesterdayRes]) => {
-      if (toDateStr(new Date()) !== today) return;
-      const rows = [
-        ...((todayRes.data ?? []) as LivePlayerStats[]),
-        ...((yesterdayRes.data ?? []) as LivePlayerStats[]),
-      ];
-      setLiveMap(buildMap(rows));
-    });
+    // Poll every 30s to match the cron update cadence
+    const interval = setInterval(() => fetchStats(playerIds), 30_000);
 
-    // Realtime subscription for push updates
-    const channel = supabase
-      .channel(`live-stats-${playerIds.slice(0, 4).join('-')}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'live_player_stats',
-          filter: `player_id=in.(${playerIds.join(',')})`,
-        },
-        (payload) => {
-          const row = payload.new as LivePlayerStats;
-          if (!playerIds.includes(row.player_id)) return;
-          const cur = dateRef.current;
-          const isToday = row.game_date === cur;
-          const isYesterday = row.game_date === addDays(cur, -1);
-          // Ignore games outside today/yesterday window
-          if (!isToday && !isYesterday) return;
-          // For yesterday's games, only accept while still live
-          if (isYesterday && row.game_status === 3) return;
-          setLiveMap((prev) => {
-            const next = new Map(prev);
-            next.set(row.player_id, row);
-            return next;
-          });
-        }
-      )
-      .subscribe();
-
-    channelRef.current = channel;
-
-    return () => {
-      supabase.removeChannel(channel);
-      channelRef.current = null;
-    };
+    return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, playerIds.join(',')]);
+  }, [enabled, playerIds.join(','), fetchStats]);
 
   return liveMap;
 }

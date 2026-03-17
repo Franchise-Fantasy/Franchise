@@ -421,11 +421,15 @@ Deno.serve(async (req: Request) => {
     const scheduleIds = pendingWeeks.map((w: any) => w.id);
     const scheduleMap = new Map(pendingWeeks.map((w: any) => [w.id, w]));
 
+    // Atomically claim unfinalized matchups by setting is_finalized=true upfront.
+    // If two invocations run concurrently, only one will get rows back (the other
+    // will match 0 rows since is_finalized is already true), preventing double stat counts.
     const { data: unfinalizedMatchups, error: matchErr } = await supabase
       .from("league_matchups")
-      .select("id, league_id, schedule_id, week_number, home_team_id, away_team_id, playoff_round")
+      .update({ is_finalized: true })
       .in("schedule_id", scheduleIds)
-      .eq("is_finalized", false);
+      .eq("is_finalized", false)
+      .select("id, league_id, schedule_id, week_number, home_team_id, away_team_id, playoff_round");
 
     if (matchErr) {
       return new Response(
@@ -445,7 +449,7 @@ Deno.serve(async (req: Request) => {
     const scoringByLeague = new Map<string, ScoringWeight[]>();
     const scoringTypeByLeague = new Map<string, string>();
 
-    for (const lid of leagueIds) {
+    await Promise.all(leagueIds.map(async (lid) => {
       const [{ data: scoring }, { data: leagueRow }] = await Promise.all([
         supabase
           .from("league_scoring_settings")
@@ -459,12 +463,22 @@ Deno.serve(async (req: Request) => {
       ]);
       scoringByLeague.set(lid, scoring ?? []);
       scoringTypeByLeague.set(lid, leagueRow?.scoring_type ?? 'points');
-    }
+    }));
 
     let finalizedCount = 0;
     const affectedTeams = new Set<string>();
     const teamLeagueMap = new Map<string, string>();
     const playoffMatchupsFinalized = new Map<string, Array<{ matchup_id: string; playoff_round: number; winner_id: string | null }>>();
+
+    // Collect stat updates to batch after the matchup loop
+    const pendingStatUpdates: Array<{
+      p_team_id: string; p_wins: number; p_losses: number; p_ties: number; p_pf: number; p_pa: number;
+    }> = [];
+
+    // Collect week_scores upserts so the scoreboard always shows the true final score
+    const pendingWeekScores: Array<{
+      league_id: string; schedule_id: string; team_id: string; score: number; updated_at: string;
+    }> = [];
 
     // Collect matchup results for notifications
     const matchupResults: Array<{
@@ -552,9 +566,15 @@ Deno.serve(async (req: Request) => {
           home_player_scores: homePlayerScores,
           away_player_scores: awayPlayerScores,
           winner_team_id: winnerId,
-          is_finalized: true,
         })
         .eq("id", matchup.id);
+
+      // Keep week_scores in sync with the true final scores
+      const now = new Date().toISOString();
+      pendingWeekScores.push({ league_id: matchup.league_id, schedule_id: matchup.schedule_id, team_id: matchup.home_team_id, score: homeScore, updated_at: now });
+      if (matchup.away_team_id) {
+        pendingWeekScores.push({ league_id: matchup.league_id, schedule_id: matchup.schedule_id, team_id: matchup.away_team_id, score: awayScore, updated_at: now });
+      }
 
       matchupResults.push({
         leagueId: matchup.league_id,
@@ -579,38 +599,20 @@ Deno.serve(async (req: Request) => {
         const awayPa = scoringType === 'h2h_categories' ? (homeCatWins ?? 0) : homeScore;
 
         if (winnerId === matchup.home_team_id) {
-          await supabase.rpc("increment_team_stats", {
-            p_team_id: matchup.home_team_id,
-            p_wins: 1, p_losses: 0, p_ties: 0,
-            p_pf: homePF, p_pa: homePa,
-          });
-          await supabase.rpc("increment_team_stats", {
-            p_team_id: matchup.away_team_id,
-            p_wins: 0, p_losses: 1, p_ties: 0,
-            p_pf: awayPF, p_pa: awayPa,
-          });
+          pendingStatUpdates.push(
+            { p_team_id: matchup.home_team_id, p_wins: 1, p_losses: 0, p_ties: 0, p_pf: homePF, p_pa: homePa },
+            { p_team_id: matchup.away_team_id, p_wins: 0, p_losses: 1, p_ties: 0, p_pf: awayPF, p_pa: awayPa },
+          );
         } else if (winnerId === matchup.away_team_id) {
-          await supabase.rpc("increment_team_stats", {
-            p_team_id: matchup.away_team_id,
-            p_wins: 1, p_losses: 0, p_ties: 0,
-            p_pf: awayPF, p_pa: awayPa,
-          });
-          await supabase.rpc("increment_team_stats", {
-            p_team_id: matchup.home_team_id,
-            p_wins: 0, p_losses: 1, p_ties: 0,
-            p_pf: homePF, p_pa: homePa,
-          });
+          pendingStatUpdates.push(
+            { p_team_id: matchup.away_team_id, p_wins: 1, p_losses: 0, p_ties: 0, p_pf: awayPF, p_pa: awayPa },
+            { p_team_id: matchup.home_team_id, p_wins: 0, p_losses: 1, p_ties: 0, p_pf: homePF, p_pa: homePa },
+          );
         } else {
-          await supabase.rpc("increment_team_stats", {
-            p_team_id: matchup.home_team_id,
-            p_wins: 0, p_losses: 0, p_ties: 1,
-            p_pf: homePF, p_pa: homePa,
-          });
-          await supabase.rpc("increment_team_stats", {
-            p_team_id: matchup.away_team_id,
-            p_wins: 0, p_losses: 0, p_ties: 1,
-            p_pf: awayPF, p_pa: awayPa,
-          });
+          pendingStatUpdates.push(
+            { p_team_id: matchup.home_team_id, p_wins: 0, p_losses: 0, p_ties: 1, p_pf: homePF, p_pa: homePa },
+            { p_team_id: matchup.away_team_id, p_wins: 0, p_losses: 0, p_ties: 1, p_pf: awayPF, p_pa: awayPa },
+          );
         }
 
         affectedTeams.add(matchup.home_team_id);
@@ -638,11 +640,21 @@ Deno.serve(async (req: Request) => {
       finalizedCount++;
     }
 
-    // Update streaks for regular season teams
-    for (const teamId of affectedTeams) {
-      const lid = teamLeagueMap.get(teamId)!;
-      const streak = await computeStreak(teamId, lid);
-      await supabase.from("teams").update({ streak }).eq("id", teamId);
+    // Flush all stat updates and week_scores upserts in parallel
+    await Promise.all([
+      ...pendingStatUpdates.map((params) => supabase.rpc("increment_team_stats", params)),
+      pendingWeekScores.length > 0
+        ? supabase.from("week_scores").upsert(pendingWeekScores, { onConflict: "league_id,schedule_id,team_id" })
+        : Promise.resolve(),
+    ]);
+
+    // Update streaks for regular season teams in parallel
+    if (affectedTeams.size > 0) {
+      await Promise.all([...affectedTeams].map(async (teamId) => {
+        const lid = teamLeagueMap.get(teamId)!;
+        const streak = await computeStreak(teamId, lid);
+        await supabase.from("teams").update({ streak }).eq("id", teamId);
+      }));
     }
 
     // ── Send matchup result notifications ──
@@ -664,7 +676,7 @@ Deno.serve(async (req: Request) => {
         (leagueRows ?? []).map((l: any) => [l.id, l.name]),
       );
 
-      for (const r of matchupResults) {
+      await Promise.all(matchupResults.map(async (r) => {
         const homeName = teamName.get(r.homeTeamId) ?? 'Home';
         const awayName = teamName.get(r.awayTeamId) ?? 'Away';
         const scoreLine = r.scoringType === 'h2h_categories'
@@ -673,23 +685,24 @@ Deno.serve(async (req: Request) => {
         const category = r.isPlayoff ? 'playoffs' : 'matchups';
         const ln = leagueName.get(r.leagueId) ?? 'Your League';
 
-        // Notify both teams with their result
         const homeResult = r.winnerId === r.homeTeamId ? 'You won!' : r.winnerId === r.awayTeamId ? 'You lost.' : 'It\'s a tie.';
         const awayResult = r.winnerId === r.awayTeamId ? 'You won!' : r.winnerId === r.homeTeamId ? 'You lost.' : 'It\'s a tie.';
 
         const title = r.isPlayoff ? `${ln} — Playoff Matchup Final` : `${ln} — Matchup Final`;
 
-        await notifyTeams(supabase, [r.homeTeamId], category,
-          title,
-          `${scoreLine} — ${homeResult}`,
-          { screen: r.isPlayoff ? 'playoff-bracket' : 'matchup' }
-        );
-        await notifyTeams(supabase, [r.awayTeamId], category,
-          title,
-          `${scoreLine} — ${awayResult}`,
-          { screen: r.isPlayoff ? 'playoff-bracket' : 'matchup' }
-        );
-      }
+        await Promise.all([
+          notifyTeams(supabase, [r.homeTeamId], category,
+            title,
+            `${scoreLine} — ${homeResult}`,
+            { screen: r.isPlayoff ? 'playoff-bracket' : 'matchup' }
+          ),
+          notifyTeams(supabase, [r.awayTeamId], category,
+            title,
+            `${scoreLine} — ${awayResult}`,
+            { screen: r.isPlayoff ? 'playoff-bracket' : 'matchup' }
+          ),
+        ]);
+      }));
     } catch (notifyErr) {
       console.warn('Matchup notification failed (non-fatal):', notifyErr);
     }

@@ -2,9 +2,12 @@ import { ScoringWeight } from '@/types/player';
 import { formatGameInfo, liveToGameLog, LivePlayerStats } from '@/utils/nbaLive';
 import { calculateGameFantasyPoints, formatScore } from '@/utils/fantasyPoints';
 import { getInjuryBadge } from '@/utils/injuryBadge';
+import { formatGameTime, ScheduleEntry } from '@/utils/nbaSchedule';
+import { getPlayerHeadshotUrl } from '@/utils/playerHeadshot';
 import React, { useEffect, useRef } from 'react';
 import {
   Animated,
+  Image,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -42,38 +45,12 @@ export function round1(n: number) {
 // Only includes stats that the league actually scores.
 export function buildStatLine(
   stats: Record<string, number>,
-  scoring: ScoringWeight[]
+  _scoring: ScoringWeight[]
 ): string {
-  const DISPLAY: Record<string, string> = {
-    PTS: 'PTS',
-    REB: 'REB',
-    AST: 'AST',
-    STL: 'STL',
-    BLK: 'BLK',
-    TO: 'TO',
-    '3PM': '3PM',
-    FGM: 'FGM',
-    FGA: 'FGA',
-    FTM: 'FTM',
-    FTA: 'FTA',
-    PF: 'PF',
-  };
-  const LIVE_KEY: Record<string, string> = {
-    PTS: 'pts', REB: 'reb', AST: 'ast', STL: 'stl', BLK: 'blk',
-    TO: 'tov', '3PM': '3pm', FGM: 'fgm', FGA: 'fga', FTM: 'ftm',
-    FTA: 'fta', PF: 'pf',
-  };
+  const LIVE_KEY: Record<string, string> = { PTS: 'pts', REB: 'reb', AST: 'ast' };
 
-  const scoredStatNames = new Set(scoring.map((w) => w.stat_name));
-  const toShow = ['PTS', 'REB', 'AST', 'STL', 'BLK', 'TO', '3PM', 'PF'].filter(
-    (key) => scoredStatNames.has(key) || key === 'PF'
-  );
-
-  return toShow
-    .map((key) => {
-      const val = stats[LIVE_KEY[key]] ?? 0;
-      return `${val} ${DISPLAY[key]}`;
-    })
+  return ['PTS', 'REB', 'AST']
+    .map((key) => `${stats[LIVE_KEY[key]] ?? 0} ${key}`)
     .join(' · ');
 }
 
@@ -118,9 +95,34 @@ function AnimatedFpts({
   );
 }
 
+// ─── Sub-components: Matchup Chip ────────────────────────────────────────────
+
+function MatchupChip({ matchup, isLive, cardAlt, secondaryText }: {
+  matchup: string;
+  isLive: boolean;
+  cardAlt: string;
+  secondaryText: string;
+}) {
+  return (
+    <View
+      style={[
+        pStyles.matchupChip,
+        { backgroundColor: cardAlt },
+        isLive && pStyles.matchupChipLive,
+      ]}
+      accessibilityLabel={`Matchup: ${matchup}${isLive ? ', live' : ''}`}
+    >
+      <Text style={[pStyles.matchupChipText, { color: isLive ? '#2dc653' : secondaryText }]}>
+        {matchup}
+      </Text>
+    </View>
+  );
+}
+
 // ─── PlayerCell ──────────────────────────────────────────────────────────────
 
-// Renders a single player cell (one side of a matchup row). No slot badge — that's in the center.
+// Renders a single player cell (one side of a matchup row).
+// 3-line layout: (1) Name + injury  (2) time/score + matchup chip  (3) stats + fpts
 export const PlayerCell = React.memo(function PlayerCell({
   player,
   c,
@@ -139,13 +141,15 @@ export const PlayerCell = React.memo(function PlayerCell({
   mode: DisplayMode;
   liveStats: LivePlayerStats | null;
   scoring: ScoringWeight[];
-  futureSchedule?: Map<string, string>;
+  futureSchedule?: Map<string, ScheduleEntry>;
   onPress?: (playerId: string) => void;
   isCategories?: boolean;
   onFptsPress?: (stats: Record<string, number | boolean>, playerName: string, gameLabel: string) => void;
 }) {
   const align = side === 'right' ? 'flex-end' : 'flex-start';
   const textAlign = side === 'right' ? ('right' as const) : ('left' as const);
+  // Line 2/3 row direction: push fpts & chip toward center (near headshots)
+  const rowDir = side === 'left' ? ('row-reverse' as const) : ('row' as const);
 
   const injuryBadge = player ? getInjuryBadge(player.status) : null;
 
@@ -164,34 +168,77 @@ export const PlayerCell = React.memo(function PlayerCell({
     ? { activeOpacity: 0.6, onPress: () => onPress(player.player_id), accessibilityRole: 'button' as const, accessibilityLabel: `${player.name}, ${player.position}` }
     : { accessibilityLabel: `${player.name}, ${player.position}` };
 
-  if (mode === 'future') {
-    const futureMatchup = player.nbaTricode ? (futureSchedule?.get(player.nbaTricode) ?? null) : null;
-    const projValue = futureMatchup && player.projectedFpts != null ? player.projectedFpts : null;
+  const headshotUrl = getPlayerHeadshotUrl(player.external_id_nba);
+  const headshotEl = headshotUrl ? (
+    <Image source={{ uri: headshotUrl }} style={pStyles.headshot} accessibilityLabel={`${player.name} headshot`} />
+  ) : (
+    <View style={pStyles.headshotPlaceholder} />
+  );
+
+  // ── Render helper for the fpts value (inline or touchable for breakdown) ──
+  const renderFpts = (value: number | null, stats?: Record<string, number | boolean> | null, gameLabel?: string, projected?: boolean) => {
+    if (isCategories) return null;
+    const canBreakdown = onFptsPress && stats && value !== null;
+    const fptsEl = (
+      <AnimatedFpts value={value} activeColor={c.text} dimColor={c.secondaryText} textStyle={pStyles.pts} projected={projected} />
+    );
+    if (canBreakdown) {
+      return (
+        <TouchableOpacity
+          onPress={() => onFptsPress!(stats!, player.name, gameLabel ?? '')}
+          accessibilityRole="button"
+          accessibilityLabel={`View breakdown: ${value} fantasy points`}
+        >
+          {fptsEl}
+        </TouchableOpacity>
+      );
+    }
+    return fptsEl;
+  };
+
+  // ── Future / Today-no-live ────────────────────────────────────────────────
+  if (mode === 'future' || (mode === 'today' && !liveStats)) {
+    const schedEntry = player.nbaTricode ? (futureSchedule?.get(player.nbaTricode) ?? null) : null;
+    const timeLabel = schedEntry?.gameTimeUtc ? formatGameTime(schedEntry.gameTimeUtc) : null;
     return (
-      <Wrapper style={[pStyles.cell, { alignItems: align }]} {...wrapperProps}>
-        <View style={[pStyles.nameRow, { justifyContent: align }]}>
-          <Text style={[pStyles.name, { color: c.text, textAlign }]} numberOfLines={1}>{player.name}</Text>
-          {futureMatchup ? (
-            <Text style={[pStyles.matchup, { color: c.secondaryText }]}>{futureMatchup}</Text>
-          ) : null}
-          {injuryBadge && (
-            <View style={[pStyles.liveBadge, { backgroundColor: injuryBadge.color }]}>
-              <Text style={pStyles.liveText}>{injuryBadge.label}</Text>
+      <Wrapper style={[pStyles.cell, { flexDirection: 'row', alignItems: 'center', gap: 4 }]} {...wrapperProps}>
+        {side === 'left' && headshotEl}
+        <View style={{ flex: 1, alignItems: align }}>
+          {/* Line 1: Name + injury */}
+          <View style={[pStyles.nameRow, { justifyContent: align }]}>
+            <Text style={[pStyles.name, { color: c.text, flexShrink: 1, textAlign }]} numberOfLines={1}>{player.name}</Text>
+            {injuryBadge && (
+              <View style={[pStyles.injuryBadge, { backgroundColor: injuryBadge.color }]}>
+                <Text style={pStyles.injuryText}>{injuryBadge.label}</Text>
+              </View>
+            )}
+          </View>
+          {/* Line 2: time + matchup chip */}
+          <View style={[pStyles.gameInfoRow, { justifyContent: align, flexDirection: rowDir }]}>
+            {schedEntry ? (
+              <>
+                {timeLabel && <Text style={[pStyles.meta, { color: c.secondaryText }]}>{timeLabel}</Text>}
+                <MatchupChip matchup={schedEntry.matchup} isLive={false} cardAlt={c.cardAlt} secondaryText={c.secondaryText} />
+              </>
+            ) : (
+              <Text style={[pStyles.meta, { color: c.secondaryText }]}>{player.position}</Text>
+            )}
+          </View>
+          {/* Line 3: 0.0 if has game, — if not */}
+          {!isCategories && (
+            <View style={[pStyles.statsRow, { flexDirection: rowDir }]}>
+              <Text style={[pStyles.pts, { color: schedEntry ? c.text : c.secondaryText, textAlign }]}>
+                {schedEntry ? '0.0' : '—'}
+              </Text>
             </View>
           )}
         </View>
-        <Text style={[pStyles.meta, { color: c.secondaryText, textAlign }]}>
-          {futureMatchup ? `${player.position} · proj` : player.position}
-        </Text>
-        {!isCategories && (
-          <Text style={[pStyles.pts, { color: projValue != null ? c.text : c.secondaryText, textAlign }]}>
-            {projValue != null ? projValue.toFixed(1) : '—'}
-          </Text>
-        )}
+        {side === 'right' && headshotEl}
       </Wrapper>
     );
   }
 
+  // ── Today/Past with live stats ────────────────────────────────────────────
   if (liveStats && (mode === 'today' || mode === 'past')) {
     const liveFp = round1(calculateGameFantasyPoints(liveToGameLog(liveStats) as any, scoring));
     const isLive = liveStats.game_status === 2;
@@ -201,118 +248,78 @@ export const PlayerCell = React.memo(function PlayerCell({
     const gameInfo = formatGameInfo(liveStats);
 
     return (
-      <Wrapper style={[pStyles.cell, { alignItems: align }]} {...wrapperProps}>
-        <View style={[pStyles.nameRow, { justifyContent: align }]}>
-          {liveStats.oncourt && isLive && <OnCourtDot />}
-          <Text style={[pStyles.name, { color: c.text, flexShrink: 1, textAlign }]} numberOfLines={1}>{player.name}</Text>
-          {liveStats.matchup ? (
-            <Text style={[pStyles.matchup, { color: c.secondaryText }]}>{liveStats.matchup}</Text>
-          ) : null}
-          {injuryBadge && (
-            <View style={[pStyles.liveBadge, { backgroundColor: injuryBadge.color }]}>
-              <Text style={pStyles.liveText}>{injuryBadge.label}</Text>
-            </View>
-          )}
-          {isLive && (
-            <View style={[pStyles.liveBadge, { backgroundColor: '#e03131' }]}>
-              <Text style={pStyles.liveText}>LIVE</Text>
-            </View>
-          )}
-        </View>
-        {gameInfo ? (
-          <Text style={[pStyles.meta, { color: c.secondaryText, fontSize: 10, lineHeight: 13, textAlign }]} numberOfLines={1}>
-            {gameInfo}
-          </Text>
-        ) : null}
-        <Text style={[pStyles.meta, { color: c.secondaryText, textAlign }]} numberOfLines={1}>
-          {statLine ?? player.position}
-        </Text>
-        {!isCategories && (
-          onFptsPress ? (
-            <TouchableOpacity
-              onPress={() => onFptsPress(liveToGameLog(liveStats) as Record<string, number | boolean>, player.name, liveStats.matchup ?? '')}
-              accessibilityRole="button"
-              accessibilityLabel={`View breakdown: ${liveFp} fantasy points`}
-            >
-              <AnimatedFpts value={liveFp} activeColor={c.text} dimColor={c.secondaryText} textStyle={[pStyles.pts, { textAlign }]} />
-            </TouchableOpacity>
-          ) : (
-            <AnimatedFpts value={liveFp} activeColor={c.text} dimColor={c.secondaryText} textStyle={[pStyles.pts, { textAlign }]} />
-          )
-        )}
-      </Wrapper>
-    );
-  }
-
-  // today with no live entry yet
-  if (mode === 'today') {
-    const todayMatchup = player.nbaTricode ? (futureSchedule?.get(player.nbaTricode) ?? null) : null;
-    const projValue = todayMatchup && player.projectedFpts != null ? player.projectedFpts : null;
-    return (
-      <Wrapper style={[pStyles.cell, { alignItems: align }]} {...wrapperProps}>
-        <View style={[pStyles.nameRow, { justifyContent: align }]}>
-          <Text style={[pStyles.name, { color: c.text, flexShrink: 1, textAlign }]} numberOfLines={1}>{player.name}</Text>
-          {todayMatchup ? (
-            <Text style={[pStyles.matchup, { color: c.secondaryText }]}>{todayMatchup}</Text>
-          ) : null}
-          {injuryBadge && (
-            <View style={[pStyles.liveBadge, { backgroundColor: injuryBadge.color }]}>
-              <Text style={pStyles.liveText}>{injuryBadge.label}</Text>
-            </View>
-          )}
-        </View>
-        <Text style={[pStyles.meta, { color: c.secondaryText, textAlign }]}>
-          {todayMatchup ? `${player.position} · proj` : player.position}
-        </Text>
-        {!isCategories && (
-          <AnimatedFpts value={projValue} activeColor={c.text} dimColor={c.secondaryText} textStyle={[pStyles.pts, { textAlign }]} projected />
-        )}
-      </Wrapper>
-    );
-  }
-
-  // past
-  const hasDayGame = player.dayPoints > 0;
-  const canShowBreakdown = hasDayGame && onFptsPress && player.dayGameStats;
-  return (
-    <Wrapper style={[pStyles.cell, { alignItems: align }]} {...wrapperProps}>
-      <View style={[pStyles.nameRow, { justifyContent: align }]}>
-        <Text style={[pStyles.name, { color: c.text, flexShrink: 1, textAlign }]} numberOfLines={1}>{player.name}</Text>
-        {hasDayGame && player.dayMatchup ? (
-          <Text style={[pStyles.matchup, { color: c.secondaryText }]}>{player.dayMatchup}</Text>
-        ) : null}
-        {injuryBadge && (
-          <View style={[pStyles.liveBadge, { backgroundColor: injuryBadge.color }]}>
-            <Text style={pStyles.liveText}>{injuryBadge.label}</Text>
+      <Wrapper style={[pStyles.cell, { flexDirection: 'row', alignItems: 'center', gap: 4 }]} {...wrapperProps}>
+        {side === 'left' && headshotEl}
+        <View style={{ flex: 1, alignItems: align }}>
+          {/* Line 1: Name + injury + on-court dot */}
+          <View style={[pStyles.nameRow, { justifyContent: align }]}>
+            {side === 'right' && liveStats.oncourt && isLive && <OnCourtDot />}
+            <Text style={[pStyles.name, { color: c.text, flexShrink: 1, textAlign }]} numberOfLines={1}>{player.name}</Text>
+            {side === 'left' && liveStats.oncourt && isLive && <OnCourtDot />}
+            {injuryBadge && (
+              <View style={[pStyles.injuryBadge, { backgroundColor: injuryBadge.color }]}>
+                <Text style={pStyles.injuryText}>{injuryBadge.label}</Text>
+              </View>
+            )}
           </View>
-        )}
+          {/* Line 2: time/score + matchup chip */}
+          <View style={[pStyles.gameInfoRow, { justifyContent: align, flexDirection: rowDir }]}>
+            {gameInfo ? (
+              <Text style={[pStyles.meta, { color: c.secondaryText }]} numberOfLines={1}>{gameInfo}</Text>
+            ) : null}
+            {liveStats.matchup ? (
+              <MatchupChip matchup={liveStats.matchup} isLive={isLive} cardAlt={c.cardAlt} secondaryText={c.secondaryText} />
+            ) : null}
+          </View>
+          {/* Line 3: stats + fpts */}
+          <View style={[pStyles.statsRow, { flexDirection: rowDir }]}>
+            {statLine ? (
+              <Text style={[pStyles.meta, { color: c.secondaryText, flexShrink: 1 }]} numberOfLines={1}>{statLine}</Text>
+            ) : null}
+            {renderFpts(liveFp, liveToGameLog(liveStats) as Record<string, number | boolean>, liveStats.matchup ?? '')}
+          </View>
+        </View>
+        {side === 'right' && headshotEl}
+      </Wrapper>
+    );
+  }
+
+  // ── Past (no live stats) ──────────────────────────────────────────────────
+  const hasDayGame = player.dayPoints > 0;
+  return (
+    <Wrapper style={[pStyles.cell, { flexDirection: 'row', alignItems: 'center', gap: 4 }]} {...wrapperProps}>
+      {side === 'left' && headshotEl}
+      <View style={{ flex: 1, alignItems: align }}>
+        {/* Line 1: Name + injury */}
+        <View style={[pStyles.nameRow, { justifyContent: align }]}>
+          <Text style={[pStyles.name, { color: c.text, flexShrink: 1, textAlign }]} numberOfLines={1}>{player.name}</Text>
+          {injuryBadge && (
+            <View style={[pStyles.injuryBadge, { backgroundColor: injuryBadge.color }]}>
+              <Text style={pStyles.injuryText}>{injuryBadge.label}</Text>
+            </View>
+          )}
+        </View>
+        {/* Line 2: matchup chip */}
+        <View style={[pStyles.gameInfoRow, { justifyContent: align, flexDirection: rowDir }]}>
+          {hasDayGame && player.dayMatchup ? (
+            <MatchupChip matchup={player.dayMatchup} isLive={false} cardAlt={c.cardAlt} secondaryText={c.secondaryText} />
+          ) : (
+            <Text style={[pStyles.meta, { color: c.secondaryText }]}>{player.position}</Text>
+          )}
+        </View>
+        {/* Line 3: stats + fpts */}
+        <View style={[pStyles.statsRow, { flexDirection: rowDir }]}>
+          {hasDayGame && player.dayStatLine ? (
+            <Text style={[pStyles.meta, { color: c.secondaryText, flexShrink: 1 }]} numberOfLines={1}>{player.dayStatLine}</Text>
+          ) : null}
+          {renderFpts(
+            hasDayGame ? player.dayPoints : null,
+            hasDayGame ? player.dayGameStats : null,
+            player.dayMatchup ?? '',
+          )}
+        </View>
       </View>
-      <Text style={[pStyles.meta, { color: c.secondaryText, textAlign }]} numberOfLines={1}>
-        {hasDayGame && player.dayStatLine ? player.dayStatLine : player.position}
-      </Text>
-      {!isCategories && (
-        canShowBreakdown ? (
-          <TouchableOpacity
-            onPress={() => onFptsPress!(player.dayGameStats!, player.name, player.dayMatchup ?? '')}
-            accessibilityRole="button"
-            accessibilityLabel={`View breakdown: ${player.dayPoints} fantasy points`}
-          >
-            <AnimatedFpts
-              value={player.dayPoints}
-              activeColor={c.text}
-              dimColor={c.secondaryText}
-              textStyle={[pStyles.pts, { textAlign }]}
-            />
-          </TouchableOpacity>
-        ) : (
-          <AnimatedFpts
-            value={hasDayGame ? player.dayPoints : null}
-            activeColor={c.text}
-            dimColor={c.secondaryText}
-            textStyle={[pStyles.pts, { textAlign }]}
-          />
-        )
-      )}
+      {side === 'right' && headshotEl}
     </Wrapper>
   );
 });
@@ -325,10 +332,16 @@ export const pStyles = StyleSheet.create({
   slotCenter: { width: 34, alignItems: 'center', justifyContent: 'center' },
   slotText: { fontSize: 10, fontWeight: '600' },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 3, flexShrink: 1 },
+  gameInfoRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 },
+  statsRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 1 },
   name: { fontSize: 12, fontWeight: '500' },
-  matchup: { fontSize: 9, fontWeight: '600' },
   meta: { fontSize: 10 },
   pts: { fontSize: 13, fontWeight: '700' },
-  liveBadge: { paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3 },
-  liveText: { color: '#fff', fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
+  matchupChip: { paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3 },
+  matchupChipLive: { borderWidth: 1, borderColor: '#2dc653' },
+  matchupChipText: { fontSize: 9, fontWeight: '600' },
+  injuryBadge: { paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3 },
+  injuryText: { color: '#fff', fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
+  headshot: { width: 36, height: 26, borderRadius: 4 },
+  headshotPlaceholder: { width: 36 },
 });

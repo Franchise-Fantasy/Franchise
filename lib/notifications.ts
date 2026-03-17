@@ -10,6 +10,7 @@ const ASKED_KEY = '@notifications_asked';
 export interface PushPreferences {
   draft: boolean;
   trades: boolean;
+  trade_block: boolean;
   matchups: boolean;
   matchup_daily: boolean;
   waivers: boolean;
@@ -26,6 +27,7 @@ export interface PushPreferences {
 export const DEFAULT_PREFERENCES: PushPreferences = {
   draft: true,
   trades: true,
+  trade_block: true,
   matchups: true,
   matchup_daily: false,
   waivers: true,
@@ -67,6 +69,7 @@ export async function registerPushToken(userId: string): Promise<boolean> {
       const channels = [
         { id: 'draft',        name: 'Draft',                importance: Notifications.AndroidImportance.HIGH },
         { id: 'trades',       name: 'Trades',               importance: Notifications.AndroidImportance.HIGH },
+        { id: 'trade_block', name: 'Trade Block Interest',  importance: Notifications.AndroidImportance.DEFAULT },
         { id: 'matchups',     name: 'Matchup Results',      importance: Notifications.AndroidImportance.DEFAULT },
         { id: 'waivers',      name: 'Waiver Results',       importance: Notifications.AndroidImportance.DEFAULT },
         { id: 'injuries',     name: 'Injury Updates',       importance: Notifications.AndroidImportance.DEFAULT },

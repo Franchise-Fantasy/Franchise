@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 
 export interface TradeItemRow {
@@ -263,7 +263,7 @@ export function useMyPendingTrades(teamId: string | null, leagueId: string | nul
       return count ?? 0;
     },
     enabled: !!teamId && !!leagueId,
-    staleTime: 1000 * 60,
+    staleTime: 1000 * 60 * 5,
   });
 }
 
@@ -275,6 +275,7 @@ export interface TradeBlockPlayer {
   team_id: string;
   team_name: string;
   trade_block_note: string | null;
+  trade_block_interest: string[];
 }
 
 export interface TradeBlockTeamGroup {
@@ -289,7 +290,7 @@ export function useTradeBlock(leagueId: string | null) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('league_players')
-        .select('player_id, team_id, trade_block_note, players(name, position, nba_team), teams(name)')
+        .select('player_id, team_id, trade_block_note, trade_block_interest, players(name, position, nba_team), teams(name)')
         .eq('league_id', leagueId!)
         .eq('on_trade_block', true);
       if (error) throw error;
@@ -314,11 +315,58 @@ export function useTradeBlock(leagueId: string | null) {
           team_id: tid,
           team_name: row.teams?.name ?? 'Unknown',
           trade_block_note: row.trade_block_note ?? null,
+          trade_block_interest: row.trade_block_interest ?? [],
         });
       }
       return Object.values(grouped);
     },
     enabled: !!leagueId,
-    staleTime: 1000 * 60 * 2,
+    staleTime: 1000 * 60 * 5,
+  });
+}
+
+export function useToggleTradeBlockInterest(leagueId: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ playerId, teamId }: { playerId: string; teamId: string; currentInterest: string[] }) => {
+      const { error } = await supabase.rpc('toggle_trade_block_interest', {
+        p_league_id: leagueId!,
+        p_player_id: playerId,
+        p_team_id: teamId,
+      });
+      if (error) throw error;
+    },
+    onMutate: async ({ playerId, teamId, currentInterest }) => {
+      await queryClient.cancelQueries({ queryKey: ['tradeBlock', leagueId] });
+      const previous = queryClient.getQueryData<TradeBlockTeamGroup[]>(['tradeBlock', leagueId]);
+
+      queryClient.setQueryData<TradeBlockTeamGroup[]>(['tradeBlock', leagueId], (old) => {
+        if (!old) return old;
+        return old.map((group) => ({
+          ...group,
+          players: group.players.map((p) => {
+            if (p.player_id !== playerId) return p;
+            const isInterested = currentInterest.includes(teamId);
+            return {
+              ...p,
+              trade_block_interest: isInterested
+                ? p.trade_block_interest.filter((id) => id !== teamId)
+                : [...p.trade_block_interest, teamId],
+            };
+          }),
+        }));
+      });
+
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['tradeBlock', leagueId], context.previous);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['tradeBlock', leagueId] });
+    },
   });
 }

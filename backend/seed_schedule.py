@@ -57,7 +57,7 @@ for gd in game_dates:
         home_score = home.get('score') if game_status == 3 else None
         away_score = away.get('score') if game_status == 3 else None
 
-        game_time_utc = game.get('gameDateTimeUTC')  # e.g. "2025-10-22T00:00:00Z"
+        game_time_utc = game.get('gameDateTimeUTC')  # e.g. "2025-10-22T23:30:00Z"
 
         rows.append({
             'game_id': game_id,
