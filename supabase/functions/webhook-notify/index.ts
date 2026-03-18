@@ -87,8 +87,11 @@ async function handleTradeProposed(
 
 async function handleChatMessage(
   supabase: any,
-  record: { id: string; conversation_id: string; team_id: string; league_id: string },
+  record: { id: string; conversation_id: string; team_id: string; league_id: string; type?: string },
 ) {
+  // Poll messages are notified by the create-poll edge function — skip to avoid duplicates
+  if (record.type === 'poll') return;
+
   const { conversation_id, team_id, league_id } = record;
 
   // Get conversation members who haven't read recently (offline threshold: 2 minutes)
