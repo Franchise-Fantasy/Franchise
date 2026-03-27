@@ -13,10 +13,10 @@ export async function snapshotBeforeDrop(
   teamId: string,
   playerId: string,
 ): Promise<void> {
-  // Get the player's current roster_slot
+  // Get the player's current roster_slot and acquisition date
   const { data: lp } = await supabase
     .from("league_players")
-    .select("roster_slot")
+    .select("roster_slot, acquired_at")
     .eq("league_id", leagueId)
     .eq("team_id", teamId)
     .eq("player_id", playerId)
@@ -40,24 +40,46 @@ export async function snapshotBeforeDrop(
 
   if (!week) return; // Not in an active week, no scoring to preserve
 
-  // Insert at week start_date so it covers all games in the week.
-  // ON CONFLICT DO NOTHING preserves any existing entry for that date.
-  await supabase
-    .from("daily_lineups")
-    .upsert(
-      {
-        league_id: leagueId,
-        team_id: teamId,
-        player_id: playerId,
-        lineup_date: week.start_date,
-        roster_slot: slot,
-      },
-      { onConflict: "team_id,player_id,lineup_date", ignoreDuplicates: true },
-    );
+  // Snapshot the player's slot so historical matchup views show the correct position.
+  // The snapshot date is the later of week start and the player's acquisition date,
+  // so we never backfill entries for days before the player was on this team
+  // (prevents ghost roster entries when a player is re-added and immediately dropped).
+  const acquiredAt = (lp as any).acquired_at;
+  const acquiredDate = acquiredAt
+    ? (() => {
+        const d = new Date(acquiredAt);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      })()
+    : null;
+
+  let snapshotDate = week.start_date;
+  if (acquiredDate && acquiredDate > snapshotDate) {
+    snapshotDate = acquiredDate;
+  }
+
+  // If the player was acquired today and dropped today, skip the snapshot —
+  // the DROPPED marker below is all we need (no prior days to preserve).
+  // This prevents ghost roster entries when a player is re-added and immediately dropped.
+  if (snapshotDate < todayStr) {
+    // ON CONFLICT DO NOTHING preserves any existing entry for that date.
+    const { error: snapErr } = await supabase
+      .from("daily_lineups")
+      .upsert(
+        {
+          league_id: leagueId,
+          team_id: teamId,
+          player_id: playerId,
+          lineup_date: snapshotDate,
+          roster_slot: slot,
+        },
+        { onConflict: "team_id,player_id,lineup_date", ignoreDuplicates: true },
+      );
+    if (snapErr) console.warn("snapshotBeforeDrop: slot snapshot failed:", snapErr);
+  }
 
   // Mark the player as DROPPED starting today so they don't appear
   // on the roster from today onward, but are still visible on prior days.
-  await supabase
+  const { error: dropErr } = await supabase
     .from("daily_lineups")
     .upsert(
       {
@@ -69,13 +91,15 @@ export async function snapshotBeforeDrop(
       },
       { onConflict: "team_id,player_id,lineup_date" },
     );
+  if (dropErr) console.error("snapshotBeforeDrop: DROPPED marker failed — player may keep scoring:", dropErr);
 
   // Remove any future lineup entries so the dropped player doesn't appear on future dates
-  await supabase
+  const { error: delErr } = await supabase
     .from("daily_lineups")
     .delete()
     .eq("league_id", leagueId)
     .eq("team_id", teamId)
     .eq("player_id", playerId)
     .gt("lineup_date", todayStr);
+  if (delErr) console.warn("snapshotBeforeDrop: future entry cleanup failed:", delErr);
 }

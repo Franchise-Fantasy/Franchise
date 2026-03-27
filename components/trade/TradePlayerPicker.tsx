@@ -2,8 +2,7 @@ import { ThemedText } from '@/components/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
-import { useTeamRosterForTrade } from '@/hooks/useTeamRosterForTrade';
-import { PlayerSeasonStats } from '@/types/player';
+import { TradeRosterPlayer, useTeamRosterForTrade } from '@/hooks/useTeamRosterForTrade';
 import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
 import { formatPosition } from '@/utils/formatting';
 import { getInjuryBadge } from '@/utils/injuryBadge';
@@ -26,7 +25,8 @@ interface TradePlayerPickerProps {
   leagueId: string;
   selectedPlayerIds: string[];
   lockedPlayerIds?: Set<string>;
-  onToggle: (player: PlayerSeasonStats, avgFpts: number) => void;
+  pendingDropPlayerIds?: Set<string>;
+  onToggle: (player: TradeRosterPlayer, avgFpts: number) => void;
   onBack: () => void;
 }
 
@@ -36,6 +36,7 @@ export function TradePlayerPicker({
   leagueId,
   selectedPlayerIds,
   lockedPlayerIds,
+  pendingDropPlayerIds,
   onToggle,
   onBack,
 }: TradePlayerPickerProps) {
@@ -50,9 +51,12 @@ export function TradePlayerPicker({
     p.name.toLowerCase().includes(search.toLowerCase())
   );
 
-  const renderItem = ({ item, index }: { item: PlayerSeasonStats; index: number }) => {
+  const renderItem = ({ item, index }: { item: TradeRosterPlayer; index: number }) => {
     const isSelected = selectedPlayerIds.includes(item.player_id);
     const isLocked = lockedPlayerIds?.has(item.player_id) ?? false;
+    const isPendingDrop = pendingDropPlayerIds?.has(item.player_id) ?? false;
+    const isOnIR = item.roster_slot === 'IR';
+    const isDisabled = isLocked || isOnIR || isPendingDrop;
     const fpts = scoringWeights ? calculateAvgFantasyPoints(item, scoringWeights) : null;
     const headshotUrl = getPlayerHeadshotUrl(item.external_id_nba);
     const logoUrl = getTeamLogoUrl(item.nba_team);
@@ -61,30 +65,30 @@ export function TradePlayerPicker({
     return (
       <TouchableOpacity
         accessibilityRole="button"
-        accessibilityLabel={`${item.name}, ${formatPosition(item.position)}${isLocked ? ', in active trade' : ''}${fpts !== null ? `, ${fpts} fantasy points` : ''}`}
-        accessibilityState={{ selected: isSelected, disabled: isLocked }}
-        disabled={isLocked}
+        accessibilityLabel={`${item.name}, ${formatPosition(item.position)}${isOnIR ? ', on injured reserve' : ''}${isLocked ? ', in active trade' : ''}${isPendingDrop ? ', queued for drop' : ''}${fpts !== null ? `, ${fpts} fantasy points` : ''}`}
+        accessibilityState={{ selected: isSelected, disabled: isDisabled }}
+        disabled={isDisabled}
         style={[
           styles.row,
           { borderBottomColor: c.border },
           isSelected && { backgroundColor: c.activeCard },
-          isLocked && { opacity: 0.45 },
+          isDisabled && { opacity: 0.45 },
           index === filtered.length - 1 && { borderBottomWidth: 0 },
         ]}
         onPress={() => onToggle(item, fpts ?? 0)}
       >
         {/* Headshot + team pill */}
         <View style={styles.portraitWrap}>
-          {headshotUrl ? (
-            <Image source={{ uri: headshotUrl }} style={styles.headshot} resizeMode="cover" />
-          ) : (
-            <View style={[styles.headshot, { backgroundColor: c.border }]} />
-          )}
+          <View style={[styles.headshotCircle, { borderColor: c.gold, backgroundColor: c.cardAlt }]}>
+            {headshotUrl ? (
+              <Image source={{ uri: headshotUrl }} style={styles.headshotImg} resizeMode="cover" />
+            ) : null}
+          </View>
           <View style={styles.teamPill}>
             {logoUrl && (
               <Image source={{ uri: logoUrl }} style={styles.teamPillLogo} resizeMode="contain" />
             )}
-            <Text style={styles.teamPillText}>{item.nba_team}</Text>
+            <Text style={[styles.teamPillText, { color: c.statusText }]}>{item.nba_team}</Text>
           </View>
         </View>
 
@@ -98,9 +102,19 @@ export function TradePlayerPicker({
                 <Text style={styles.injuryBadgeText}>{badge.label}</Text>
               </View>
             )}
+            {isOnIR && (
+              <View style={[styles.injuryBadge, { backgroundColor: c.danger }]}>
+                <Text style={[styles.injuryBadgeText, { color: c.statusText }]}>IR</Text>
+              </View>
+            )}
             {isLocked && (
-              <View style={[styles.injuryBadge, { backgroundColor: '#f59e0b' }]}>
-                <Text style={styles.injuryBadgeText}>IN TRADE</Text>
+              <View style={[styles.injuryBadge, { backgroundColor: c.warning }]}>
+                <Text style={[styles.injuryBadgeText, { color: c.statusText }]}>IN TRADE</Text>
+              </View>
+            )}
+            {isPendingDrop && (
+              <View style={[styles.injuryBadge, { backgroundColor: c.danger }]}>
+                <Text style={[styles.injuryBadgeText, { color: c.statusText }]}>QUEUED DROP</Text>
               </View>
             )}
           </View>
@@ -113,7 +127,7 @@ export function TradePlayerPicker({
             {fpts}
           </ThemedText>
         )}
-        <ThemedText style={styles.check}>{isSelected ? '✓' : ''}</ThemedText>
+        <ThemedText style={[styles.check, { color: c.success }]}>{isSelected ? '✓' : ''}</ThemedText>
       </TouchableOpacity>
     );
   };
@@ -209,14 +223,23 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   portraitWrap: {
-    width: 44,
-    height: 40,
+    width: 50,
+    height: 50,
     marginRight: 8,
   },
-  headshot: {
-    width: 44,
-    height: 32,
-    borderRadius: 4,
+  headshotCircle: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    borderWidth: 1.5,
+    overflow: 'hidden' as const,
+  },
+  headshotImg: {
+    position: 'absolute' as const,
+    bottom: -2,
+    left: 0,
+    right: 0,
+    height: 42,
   },
   teamPill: {
     position: 'absolute',
@@ -235,7 +258,6 @@ const styles = StyleSheet.create({
     height: 9,
   },
   teamPillText: {
-    color: '#fff',
     fontSize: 7,
     fontWeight: '700',
     letterSpacing: 0.3,
@@ -252,7 +274,6 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   injuryBadgeText: {
-    color: '#fff',
     fontSize: 8,
     fontWeight: '800',
     letterSpacing: 0.5,
@@ -270,7 +291,6 @@ const styles = StyleSheet.create({
     width: 22,
     fontSize: 16,
     fontWeight: '700',
-    color: '#28a745',
     textAlign: 'center',
   },
 });

@@ -1,3 +1,5 @@
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
 import { Ionicons } from '@expo/vector-icons';
 import { useNetInfo } from '@react-native-community/netinfo';
 import { StyleSheet, Text, View } from 'react-native';
@@ -5,6 +7,8 @@ import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
 export function OfflineBanner() {
   const { isConnected } = useNetInfo();
+  const scheme = useColorScheme() ?? 'light';
+  const c = Colors[scheme];
 
   // null means unknown (still loading), don't show banner
   if (isConnected !== false) return null;
@@ -14,12 +18,12 @@ export function OfflineBanner() {
       <Animated.View
         entering={FadeIn.duration(250)}
         exiting={FadeOut.duration(200)}
-        style={styles.pill}
+        style={[styles.pill, { backgroundColor: c.danger }]}
         accessibilityRole="alert"
         accessibilityLiveRegion="polite"
       >
-        <Ionicons name="cloud-offline-outline" size={14} color="#fff" style={styles.icon} />
-        <Text style={styles.text}>No internet connection</Text>
+        <Ionicons name="cloud-offline-outline" size={14} color={c.statusText} style={styles.icon} />
+        <Text style={[styles.text, { color: c.statusText }]}>No internet connection</Text>
       </Animated.View>
     </View>
   );
@@ -37,7 +41,6 @@ const styles = StyleSheet.create({
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FF3B30',
     paddingHorizontal: 14,
     paddingVertical: 10,
     marginHorizontal: 16,
@@ -50,7 +53,6 @@ const styles = StyleSheet.create({
   },
   icon: { marginRight: 8 },
   text: {
-    color: '#fff',
     fontSize: 13,
     fontWeight: '600',
   },

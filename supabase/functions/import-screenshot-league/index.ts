@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { normalizeName } from '../_shared/normalize.ts';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -15,19 +16,6 @@ function jsonResponse(data: unknown, status = 200) {
   });
 }
 
-// --- Name normalization (same as Sleeper import) ---
-
-function normalizeName(name: string): string {
-  return name
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/\b(jr|sr|ii|iii|iv|v)\b\.?/g, '')
-    .replace(/\./g, '')
-    .replace(/['-]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
 
 // --- Claude Vision helpers ---
 
@@ -866,24 +854,19 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // Extract user ID from JWT
+    // Verify caller JWT
     const authHeader = req.headers.get('Authorization') ?? req.headers.get('authorization');
-    let userId: string | null = null;
-
-    if (authHeader) {
-      try {
-        const jwt = authHeader.replace('Bearer ', '');
-        const payload = JSON.parse(atob(jwt.split('.')[1]));
-        userId = payload.sub ?? null;
-      } catch {
-        console.error('Failed to decode JWT from Authorization header');
-      }
-    }
-
-    if (!userId) {
-      console.error('No user ID found. Headers:', [...req.headers.keys()].join(', '));
+    const token = authHeader?.startsWith('Bearer ') ? authHeader : `Bearer ${authHeader}`;
+    const userClient = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      { global: { headers: { Authorization: token ?? '' } } },
+    );
+    const { data: { user } } = await userClient.auth.getUser();
+    if (!user) {
       return jsonResponse({ error: 'Unauthorized' }, 401);
     }
+    const userId = user.id;
 
     const rateLimited = await checkRateLimit(supabaseAdmin, userId, 'import-screenshot-league');
     if (rateLimited) return rateLimited;

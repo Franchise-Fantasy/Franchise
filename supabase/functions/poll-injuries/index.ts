@@ -2,19 +2,26 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { notifyTeams } from '../_shared/push.ts';
 import { CORS_HEADERS } from '../_shared/cors.ts';
+import { bdlFetchAll } from '../_shared/bdl.ts';
+import { normalizeName } from '../_shared/normalize.ts';
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
-const VALID_STATUSES = new Set(['OUT', 'SUSP', 'DOUBT', 'DTD', 'GTD', 'QUES', 'active']);
+const VALID_STATUSES = new Set(['OUT', 'SUSP', 'DOUBT', 'QUES', 'PROB', 'active']);
 
 const STATUS_MAP: Record<string, string> = {
   'out': 'OUT', 'suspended': 'SUSP', 'doubtful': 'DOUBT',
-  'day-to-day': 'DTD', 'day to day': 'DTD',
-  'game time decision': 'GTD', 'gtd': 'GTD', 'questionable': 'QUES',
+  'day-to-day': 'QUES', 'day to day': 'QUES',
+  'game time decision': 'QUES', 'gtd': 'QUES', 'questionable': 'QUES',
+  'available': 'active', 'probable': 'PROB',
 };
+
+// Statuses that are game-day designations and safe to auto-reset when absent from report.
+// OUT and SUSP are long-term and should only change when the player explicitly reappears.
+const GAME_DAY_STATUSES = new Set(['QUES', 'DOUBT', 'PROB']);
 
 // Maps full NBA team names to tricodes for PDF parsing
 const TEAM_NAME_TO_TRICODE: Record<string, string> = {
@@ -44,6 +51,7 @@ function extractTeamsFromText(text: string): string[] {
 }
 
 const jsonHeaders = { ...CORS_HEADERS, 'Content-Type': 'application/json' };
+
 
 function buildPdfUrls(): string[] {
   const now = new Date();
@@ -113,46 +121,82 @@ function parseInjuriesFromText(text: string): Array<{ player_name: string; statu
   return injuries;
 }
 
-async function fetchInjuriesFromNba(): Promise<{ injuries: Array<{ player_name: string; status: string }>; teamsOnReport: string[] } | null> {
-  const urls = buildPdfUrls();
-  for (const url of urls) {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
-      const res = await fetch(url, {
-        signal: controller.signal,
-        headers: { Referer: 'https://www.nba.com/', Origin: 'https://www.nba.com' },
-      });
-      clearTimeout(timeout);
-      if (!res.ok) continue;
-      const bytes = new Uint8Array(await res.arrayBuffer());
-      console.log(`Fetched PDF: ${url} (${bytes.length} bytes)`);
-      const text = extractPdfText(bytes);
-      console.log(`Extracted text: ${text.length} chars`);
-      if (text.length < 100) continue;
-      const injuries = parseInjuriesFromText(text);
-      const teamsOnReport = extractTeamsFromText(text);
-      console.log(`Parsed ${injuries.length} injuries from ${teamsOnReport.length} teams: ${teamsOnReport.join(', ')}`);
-      if (injuries.length > 0) return { injuries, teamsOnReport };
-    } catch (err: any) {
-      console.warn(`PDF fetch failed for ${url}: ${err?.message ?? err}`);
-      continue;
+/** Map BDL injury status strings to app status codes. */
+const BDL_STATUS_MAP: Record<string, string> = {
+  'out': 'OUT', 'suspended': 'SUSP', 'doubtful': 'DOUBT',
+  'day-to-day': 'QUES', 'questionable': 'QUES', 'probable': 'PROB',
+};
+
+function mapBdlStatus(bdlStatus: string, description?: string): string {
+  const mapped = BDL_STATUS_MAP[bdlStatus.toLowerCase()];
+  if (mapped) return mapped;
+  // Fall back to parsing the description field for finer-grained statuses
+  if (description) {
+    const lower = description.toLowerCase();
+    for (const [key, val] of Object.entries(BDL_STATUS_MAP)) {
+      if (lower.includes(key)) return val;
     }
   }
-  return null;
+  // Default: if BDL says something we don't recognize, treat as questionable
+  return 'QUES';
+}
+
+async function fetchInjuriesFromBdl(): Promise<{
+  injuries: Array<{ bdl_id: number; player_name: string; status: string }>;
+  teamsOnReport: string[];
+} | null> {
+  try {
+    const bdlInjuries = await bdlFetchAll('/player_injuries');
+    if (!bdlInjuries || bdlInjuries.length === 0) return null;
+
+    const injuries: Array<{ bdl_id: number; player_name: string; status: string }> = [];
+    const teamsOnReport = new Set<string>();
+
+    for (const inj of bdlInjuries) {
+      const player = inj.player;
+      if (!player?.id) continue;
+
+      const status = mapBdlStatus(inj.status ?? '', inj.description);
+      const team = player.team?.abbreviation;
+      if (team) teamsOnReport.add(team);
+
+      injuries.push({
+        bdl_id: player.id,
+        player_name: `${player.first_name} ${player.last_name}`,
+        status,
+      });
+    }
+
+    console.log(`BDL: ${injuries.length} injuries from ${teamsOnReport.size} teams: ${[...teamsOnReport].sort().join(', ')}`);
+    return { injuries, teamsOnReport: [...teamsOnReport].sort() };
+  } catch (err: any) {
+    console.error('BDL injury fetch failed:', err?.message ?? err);
+    return null;
+  }
 }
 
 async function applyInjuries(
-  injuries: Array<{ player_name: string; status: string }>,
+  injuries: Array<{ bdl_id?: number; player_name: string; status: string }>,
   teamsOnReport: string[],
 ): Promise<{ matchedPlayers: number; statusUpdates: number; playersReset: number; unmatchedNames: string[]; changedPlayerIds: string[]; teamsReported: number }> {
   const { data: allPlayers, error: playerErr } = await supabase
-    .from('players').select('id, name, status, nba_team');
+    .from('players').select('id, name, status, nba_team, external_id_bdl');
   if (playerErr) throw new Error(playerErr.message);
 
-  const nameToPlayer = new Map<string, { id: string; status: string; nba_team: string }>(
-    (allPlayers ?? []).map((p: any) => [p.name.toLowerCase(), { id: p.id, status: p.status, nba_team: p.nba_team }]),
-  );
+  // Primary: match by BDL ID. Fallback: name match (for manual JSON payloads without bdl_id)
+  const bdlIdMap = new Map<number, { id: string; status: string; nba_team: string }>();
+  const exactMap = new Map<string, { id: string; status: string; nba_team: string }>();
+  const normMap = new Map<string, { id: string; status: string; nba_team: string }>();
+  for (const p of allPlayers ?? []) {
+    const entry = { id: p.id, status: p.status, nba_team: p.nba_team };
+    if (p.external_id_bdl) bdlIdMap.set(Number(p.external_id_bdl), entry);
+    exactMap.set(p.name.toLowerCase(), entry);
+    normMap.set(normalizeName(p.name), entry);
+  }
+  const findPlayer = (bdlId: number | undefined, name: string) =>
+    (bdlId ? bdlIdMap.get(bdlId) : undefined) ??
+    exactMap.get(name.toLowerCase()) ??
+    normMap.get(normalizeName(name));
 
   // Cross-reference reported teams with today's schedule to avoid false positives
   // (spaceless PDF matching can pick up team names that aren't actually playing today)
@@ -177,7 +221,7 @@ async function applyInjuries(
   let updateCount = 0;
 
   for (const inj of injuries) {
-    const player = nameToPlayer.get(inj.player_name.toLowerCase());
+    const player = findPlayer(inj.bdl_id, inj.player_name);
     if (player) {
       matchedPlayerIds.add(player.id);
       if (player.status !== inj.status) {
@@ -190,15 +234,15 @@ async function applyInjuries(
     }
   }
 
-  // Only reset players whose team is on the report and who aren't listed as injured.
-  // This prevents resetting players from teams that haven't submitted yet or don't
-  // play today (e.g. a season-ending injury whose team has no game).
+  // Only reset game-day designations (QUES, DOUBT, GTD, DTD) when a player's team
+  // submitted a report but didn't list them. Long-term statuses (OUT, SUSP) stay
+  // until the player explicitly reappears on a report (e.g. as "Available").
   let playersReset = 0;
 
   if (reportedTeams.size > 0) {
     const idsToReset = (allPlayers ?? [])
       .filter((p: any) =>
-        p.status !== 'active' &&
+        GAME_DAY_STATUSES.has(p.status) &&
         !matchedPlayerIds.has(p.id) &&
         reportedTeams.has(p.nba_team)
       )
@@ -324,11 +368,9 @@ Deno.serve(async (req: Request) => {
   }
 
   const cronSecret = Deno.env.get('CRON_SECRET');
-  if (cronSecret) {
-    const authHeader = req.headers.get('Authorization');
-    if (authHeader !== `Bearer ${cronSecret}`) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: jsonHeaders });
-    }
+  const authHeader = req.headers.get('Authorization');
+  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: jsonHeaders });
   }
 
   try {
@@ -357,12 +399,12 @@ Deno.serve(async (req: Request) => {
     }
 
     if (!injuries) {
-      console.log('No manual data — auto-fetching from NBA injury report PDF...');
-      const fetched = await fetchInjuriesFromNba();
-      source = 'nba-pdf';
+      console.log('No manual data — auto-fetching from balldontlie...');
+      const fetched = await fetchInjuriesFromBdl();
+      source = 'balldontlie';
       if (!fetched) {
         return new Response(
-          JSON.stringify({ ok: true, source, note: 'could not fetch or parse NBA injury PDF' }),
+          JSON.stringify({ ok: true, source, note: 'could not fetch injuries from balldontlie' }),
           { status: 200, headers: jsonHeaders },
         );
       }

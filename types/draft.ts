@@ -29,10 +29,15 @@ interface Pick {
   pick_number: number;
   round: number;
   current_team_id: string;
+  original_team_id: string;
   player_id?: string;
   slot_number: number;
   pick_in_round: number;
   current_team?: {
+    name: string;
+    tricode: string | null;
+  };
+  original_team?: {
     name: string;
     tricode: string | null;
   };

@@ -2,14 +2,15 @@ import { ThemedText } from '@/components/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { TradeBlockPlayer, TradeBlockTeamGroup, useToggleTradeBlockInterest } from '@/hooks/useTrades';
-import { sendNotification } from '@/lib/notifications';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Modal,
+  NativeSyntheticEvent,
   ScrollView,
   StyleSheet,
+  TextLayoutEventData,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -27,7 +28,10 @@ export function TradeBlockSheet({ visible, tradeBlock, leagueId, teamId, onClose
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const [hiddenPlayers, setHiddenPlayers] = useState<Set<string>>(new Set());
+  const [expandedInterest, setExpandedInterest] = useState<string | null>(null);
+  const [expandedNote, setExpandedNote] = useState<string | null>(null);
   const { mutate: toggleInterest } = useToggleTradeBlockInterest(leagueId);
+  const [truncatedNotes, setTruncatedNotes] = useState<Set<string>>(new Set());
 
   const storageKey = `hiddenTradeBlock:${leagueId}`;
 
@@ -104,7 +108,8 @@ export function TradeBlockSheet({ visible, tradeBlock, leagueId, teamId, onClose
                   {group.team_id === teamId ? 'Your Team' : group.team_name}
                 </ThemedText>
                 {group.players.map((p) => (
-                  <View key={p.player_id} style={[styles.playerRow, { backgroundColor: c.card }]}>
+                  <View key={p.player_id}>
+                  <View style={[styles.playerRow, { backgroundColor: c.card }]}>
                     <TouchableOpacity
                       style={styles.playerTouchable}
                       onPress={() => onPlayerPress(p)}
@@ -119,9 +124,51 @@ export function TradeBlockSheet({ visible, tradeBlock, leagueId, teamId, onClose
                           {p.position} · {p.nba_team}
                         </ThemedText>
                         {p.trade_block_note ? (
-                          <ThemedText style={[styles.askingPrice, { color: c.accent }]} numberOfLines={1}>
-                            Looking for: {p.trade_block_note}
-                          </ThemedText>
+                          <TouchableOpacity
+                            onPress={() => truncatedNotes.has(p.player_id) ? setExpandedNote(expandedNote === p.player_id ? null : p.player_id) : undefined}
+                            activeOpacity={truncatedNotes.has(p.player_id) ? 0.7 : 1}
+                            style={styles.noteTouchable}
+                            accessibilityRole={truncatedNotes.has(p.player_id) ? 'button' : undefined}
+                            accessibilityLabel={truncatedNotes.has(p.player_id)
+                              ? `Looking for: ${p.trade_block_note}. Tap to ${expandedNote === p.player_id ? 'collapse' : 'expand'}`
+                              : `Looking for: ${p.trade_block_note}`}
+                          >
+                            <ThemedText
+                              style={[styles.askingPrice, { color: c.accent }]}
+                              numberOfLines={expandedNote === p.player_id ? undefined : 1}
+                              onTextLayout={(e: NativeSyntheticEvent<TextLayoutEventData>) => {
+                                // Only measure when collapsed (numberOfLines=1), otherwise expanding removes the chevron
+                                if (expandedNote === p.player_id) return;
+                                const lines = e.nativeEvent.lines;
+                                const isTruncated = lines.length > 1 ||
+                                  (lines.length === 1 && lines[0]?.text !== `Looking for: ${p.trade_block_note}`);
+                                setTruncatedNotes((prev) => {
+                                  if (isTruncated && !prev.has(p.player_id)) {
+                                    const next = new Set(prev);
+                                    next.add(p.player_id);
+                                    return next;
+                                  }
+                                  if (!isTruncated && prev.has(p.player_id)) {
+                                    const next = new Set(prev);
+                                    next.delete(p.player_id);
+                                    return next;
+                                  }
+                                  return prev;
+                                });
+                              }}
+                            >
+                              Looking for: {p.trade_block_note}
+                            </ThemedText>
+                            {truncatedNotes.has(p.player_id) && (
+                              <Ionicons
+                                name={expandedNote === p.player_id ? 'chevron-up' : 'chevron-down'}
+                                size={11}
+                                color={c.accent}
+                                style={styles.noteChevron}
+                                accessible={false}
+                              />
+                            )}
+                          </TouchableOpacity>
                         ) : null}
                       </View>
                       {p.team_id !== teamId && (
@@ -130,15 +177,25 @@ export function TradeBlockSheet({ visible, tradeBlock, leagueId, teamId, onClose
                     </TouchableOpacity>
                     {/* Interest badge for own players */}
                     {p.team_id === teamId && p.trade_block_interest.length > 0 && (
-                      <View
+                      <TouchableOpacity
                         style={styles.interestBadge}
-                        accessibilityLabel={`${p.trade_block_interest.length} ${p.trade_block_interest.length === 1 ? 'team' : 'teams'} interested in ${p.name}`}
+                        onPress={() =>
+                          setExpandedInterest(expandedInterest === p.player_id ? null : p.player_id)
+                        }
+                        accessibilityRole="button"
+                        accessibilityLabel={`${p.trade_block_interest.length} ${p.trade_block_interest.length === 1 ? 'team' : 'teams'} interested in ${p.name}. Tap to ${expandedInterest === p.player_id ? 'hide' : 'show'} team names`}
                       >
-                        <Ionicons name="eye" size={13} color={c.secondaryText} />
-                        <ThemedText style={[styles.interestCount, { color: c.secondaryText }]}>
+                        <Ionicons name="eye" size={13} color={c.accent} />
+                        <ThemedText style={[styles.interestCount, { color: c.accent }]}>
                           {p.trade_block_interest.length}
                         </ThemedText>
-                      </View>
+                        <Ionicons
+                          name={expandedInterest === p.player_id ? 'chevron-up' : 'chevron-down'}
+                          size={12}
+                          color={c.accent}
+                          accessible={false}
+                        />
+                      </TouchableOpacity>
                     )}
                     {/* Interest toggle + hide button for other teams' players */}
                     {p.team_id !== teamId && (
@@ -146,23 +203,13 @@ export function TradeBlockSheet({ visible, tradeBlock, leagueId, teamId, onClose
                         <TouchableOpacity
                           style={styles.actionBtn}
                           onPress={() => {
-                            const isAdding = !p.trade_block_interest.includes(teamId);
-                            toggleInterest(
-                              { playerId: p.player_id, teamId, currentInterest: p.trade_block_interest },
-                              {
-                                onSuccess: () => {
-                                  if (isAdding) {
-                                    sendNotification({
-                                      league_id: leagueId,
-                                      team_ids: [p.team_id],
-                                      category: 'trade_block',
-                                      title: 'Trade Block Interest',
-                                      body: `A team is interested in ${p.name}`,
-                                    });
-                                  }
-                                },
-                              },
-                            );
+                            toggleInterest({
+                              playerId: p.player_id,
+                              teamId,
+                              currentInterest: p.trade_block_interest,
+                              ownerTeamId: p.team_id,
+                              playerName: p.name,
+                            });
                           }}
                           accessibilityRole="button"
                           accessibilityLabel={p.trade_block_interest.includes(teamId) ? `Withdraw interest in ${p.name}` : `Express interest in ${p.name}`}
@@ -183,6 +230,23 @@ export function TradeBlockSheet({ visible, tradeBlock, leagueId, teamId, onClose
                         </TouchableOpacity>
                       </View>
                     )}
+                  </View>
+                  {/* Expanded interest list */}
+                  {p.team_id === teamId && expandedInterest === p.player_id && p.trade_block_interest.length > 0 && (
+                    <View style={[styles.interestList, { backgroundColor: c.card, borderColor: c.border }]}>
+                      <ThemedText style={[styles.interestListHeader, { color: c.secondaryText }]}>
+                        Interested Teams
+                      </ThemedText>
+                      {p.trade_block_interest.map((tid) => (
+                        <View key={tid} style={styles.interestTeamRow}>
+                          <Ionicons name="people-outline" size={14} color={c.secondaryText} accessible={false} />
+                          <ThemedText style={styles.interestTeamName} numberOfLines={1}>
+                            {p.interest_team_names[tid] ?? 'Unknown'}
+                          </ThemedText>
+                        </View>
+                      ))}
+                    </View>
+                  )}
                   </View>
                 ))}
               </View>
@@ -278,10 +342,19 @@ const styles = StyleSheet.create({
   playerMeta: {
     fontSize: 12,
   },
+  noteTouchable: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+  },
   askingPrice: {
     fontSize: 11,
     fontStyle: 'italic',
-    marginTop: 2,
+    flexShrink: 1,
+  },
+  noteChevron: {
+    marginLeft: 3,
+    marginTop: 1,
   },
   interestBadge: {
     flexDirection: 'row',
@@ -301,5 +374,31 @@ const styles = StyleSheet.create({
   },
   actionBtn: {
     padding: 6,
+  },
+  interestList: {
+    marginHorizontal: 12,
+    marginBottom: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    gap: 6,
+  },
+  interestListHeader: {
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  interestTeamRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  interestTeamName: {
+    fontSize: 13,
+    fontWeight: '500',
+    flex: 1,
   },
 });

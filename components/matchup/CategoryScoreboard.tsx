@@ -13,8 +13,6 @@ interface CategoryScoreboardProps {
   awayTeamName: string;
 }
 
-const WIN_COLOR = '#34C759';
-const LOSS_COLOR = '#FF3B30';
 const TIE_COLOR = '#8E8E93';
 
 function formatStatValue(stat: string, value: number): string {
@@ -61,9 +59,9 @@ export function CategoryScoreboard({
       {/* Category rows */}
       {results.map((cat, idx) => {
         const rowColor = cat.winner === 'home'
-          ? WIN_COLOR
+          ? c.success
           : cat.winner === 'away'
-            ? LOSS_COLOR
+            ? c.danger
             : TIE_COLOR;
 
         const resultLabel = cat.winner === 'home' ? 'W' : cat.winner === 'away' ? 'L' : 'T';
@@ -75,13 +73,13 @@ export function CategoryScoreboard({
             accessibilityLabel={`${cat.stat}: ${homeTeamName} ${cat.home}, ${awayTeamName} ${cat.away}, ${resultLabel === 'W' ? 'win' : resultLabel === 'L' ? 'loss' : 'tie'}`}
           >
             <ThemedText style={[styles.statCol, styles.statLabel]}>{cat.stat}</ThemedText>
-            <ThemedText style={[styles.valueCol, styles.valueText, cat.winner === 'home' && { color: WIN_COLOR, fontWeight: '700' }]}>
+            <ThemedText style={[styles.valueCol, styles.valueText, cat.winner === 'home' && { color: c.success, fontWeight: '700' }]}>
               {formatStatValue(cat.stat, cat.home)}
             </ThemedText>
             <ThemedText style={[styles.vsCol, { color: c.secondaryText }]}>
               {cat.winner === 'home' ? '>' : cat.winner === 'away' ? '<' : '='}
             </ThemedText>
-            <ThemedText style={[styles.valueCol, styles.valueText, cat.winner === 'away' && { color: LOSS_COLOR, fontWeight: '700' }]}>
+            <ThemedText style={[styles.valueCol, styles.valueText, cat.winner === 'away' && { color: c.danger, fontWeight: '700' }]}>
               {formatStatValue(cat.stat, cat.away)}
             </ThemedText>
             <ThemedText style={[styles.resultCol, { color: rowColor, fontWeight: '700' }]}>

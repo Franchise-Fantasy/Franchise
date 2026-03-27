@@ -14,9 +14,9 @@ function formatRecord(r: H2HRecord): string {
   return `${r.wins}-${r.losses}`;
 }
 
-function cellColor(r: H2HRecord): string | undefined {
-  if (r.wins > r.losses) return '#22c55e18';
-  if (r.losses > r.wins) return '#ef444418';
+function cellColor(r: H2HRecord, c: typeof Colors.light): string | undefined {
+  if (r.wins > r.losses) return c.success + '18';
+  if (r.losses > r.wins) return c.danger + '18';
   return undefined;
 }
 
@@ -127,7 +127,7 @@ export function HeadToHeadMatrix({ leagueId }: HeadToHeadMatrixProps) {
                         {
                           width: CELL_SIZE,
                           height: CELL_SIZE,
-                          backgroundColor: record ? cellColor(record) : undefined,
+                          backgroundColor: record ? cellColor(record, c) : undefined,
                         },
                         isSelected && { borderColor: c.accent, borderWidth: 2 },
                       ]}

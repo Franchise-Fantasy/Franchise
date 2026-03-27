@@ -1,20 +1,27 @@
+import { capture } from '@/lib/posthog';
 import { TradeFairnessBar } from '@/components/trade/TradeFairnessBar';
+import { RumorBubble } from '@/components/chat/RumorBubble';
 import { ThemedText } from '@/components/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useToast } from '@/context/ToastProvider';
+import { RUMOR_TEMPLATES, useCanLeak, useLeakRumor } from '@/hooks/chat/useLeakRumor';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { TradeItemRow, TradeProposalRow, useTradeVotes } from '@/hooks/useTrades';
 import { sendNotification } from '@/lib/notifications';
 import { supabase } from '@/lib/supabase';
+import { PlayerSeasonStats } from '@/types/player';
 import { estimatePickFpts, formatPickLabel } from '@/types/trade';
 import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
+import { getPlayerHeadshotUrl } from '@/utils/playerHeadshot';
 import { isOnline } from '@/utils/network';
+import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Modal,
   ScrollView,
   StyleSheet,
@@ -47,37 +54,53 @@ interface TradeDetailModalProps {
   teamId: string;
   onClose: () => void;
   onCounteroffer?: (proposal: TradeProposalRow) => void;
+  onEdit?: (proposal: TradeProposalRow) => void;
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  pending: '#f0ad4e',
-  accepted: '#007AFF',
-  in_review: '#007AFF',
-  completed: '#28a745',
-  rejected: '#dc3545',
-  cancelled: '#6c757d',
-  vetoed: '#dc3545',
-  reversed: '#6c757d',
-};
+function getStatusColors(c: typeof Colors['light']): Record<string, string> {
+  return {
+    pending: c.warning,
+    accepted: c.link,
+    in_review: c.link,
+    pending_drops: c.warning,
+    completed: c.success,
+    rejected: c.danger,
+    cancelled: c.secondaryText,
+    vetoed: c.danger,
+    reversed: c.secondaryText,
+  };
+}
 
-export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounteroffer }: TradeDetailModalProps) {
+export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounteroffer, onEdit }: TradeDetailModalProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const [processing, setProcessing] = useState(false);
+  const [showLeakSheet, setShowLeakSheet] = useState(false);
+  const [showDropPicker, setShowDropPicker] = useState(false);
+  const [selectedDropPlayerId, setSelectedDropPlayerId] = useState<string | null>(null);
+
+  // Check if this proposal is part of a counteroffer chain (eligible for leak)
+  const isTerminal = proposal.status === 'completed' || proposal.status === 'rejected' || proposal.status === 'cancelled' || proposal.status === 'vetoed' || proposal.status === 'reversed';
+  const isInCounterofferChain = !isTerminal && (!!proposal.counteroffer_of ||
+    proposal.status === 'pending' || proposal.status === 'accepted');
+  const { data: canLeak } = useCanLeak(
+    isInCounterofferChain && proposal.counteroffer_of ? proposal.id : null,
+    leagueId,
+  );
 
   const { data: votes } = useTradeVotes(
     proposal.status === 'in_review' ? proposal.id : null
   );
 
-  // Get league settings for veto info
+  // Get league settings for veto info + roster_size
   const { data: leagueSettings } = useQuery({
     queryKey: ['leagueTradeSettings', leagueId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('leagues')
-        .select('trade_veto_type, trade_review_period_hours, trade_votes_to_veto, teams')
+        .select('trade_veto_type, trade_review_period_hours, trade_votes_to_veto, teams, roster_size')
         .eq('id', leagueId)
         .single();
       if (error) throw error;
@@ -126,10 +149,93 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
   const isInvolved = !!myProposalTeam;
   const myTeamStatus = myProposalTeam?.status;
 
+  // Trade is editable if proposer and no other team has responded yet
+  const isEditable = proposal.status === 'pending' && isProposer && onEdit &&
+    proposal.teams.filter((t) => t.team_id !== teamId).every((t) => t.status === 'pending');
+
+  // Compute net player gain for my team
+  const myNetGain = proposal.items.reduce((acc, item) => {
+    if (!item.player_id) return acc;
+    if (item.to_team_id === teamId) return acc + 1;
+    if (item.from_team_id === teamId) return acc - 1;
+    return acc;
+  }, 0);
+
+  // Check if my team needs to select a drop (for pending_drops status)
+  const needsMyDrop = proposal.status === 'pending_drops' && isInvolved && myNetGain > 0;
+
+  // Proactively check if accepting would exceed roster limit (shown as warning before user taps Accept)
+  const { data: wouldExceedRoster } = useQuery<boolean>({
+    queryKey: ['tradeRosterCheck', teamId, leagueId, proposal.id],
+    queryFn: async () => {
+      const rosterSize = leagueSettings?.roster_size ?? 13;
+      const [allRes, irRes] = await Promise.all([
+        supabase.from('league_players').select('id', { count: 'exact', head: true })
+          .eq('league_id', leagueId).eq('team_id', teamId),
+        supabase.from('league_players').select('id', { count: 'exact', head: true })
+          .eq('league_id', leagueId).eq('team_id', teamId).eq('roster_slot', 'IR'),
+      ]);
+      const activeCount = (allRes.count ?? 0) - (irRes.count ?? 0);
+      return activeCount + myNetGain > rosterSize;
+    },
+    enabled: proposal.status === 'pending' && isInvolved && !isProposer && myNetGain > 0 && !!leagueSettings,
+    staleTime: 1000 * 30,
+  });
+
+  // Fetch my team's roster for the drop picker
+  const { data: myRoster } = useQuery<(PlayerSeasonStats & { roster_slot: string | null })[]>({
+    queryKey: ['dropPickerRoster', teamId, leagueId],
+    queryFn: async () => {
+      const { data: lps, error: lpErr } = await supabase
+        .from('league_players')
+        .select('player_id, roster_slot')
+        .eq('team_id', teamId)
+        .eq('league_id', leagueId);
+      if (lpErr) throw lpErr;
+      if (!lps || lps.length === 0) return [];
+      const ids = lps.map((lp) => lp.player_id);
+      const slotMap = new Map(lps.map((lp) => [lp.player_id, lp.roster_slot]));
+      const { data, error } = await supabase
+        .from('player_season_stats')
+        .select('*')
+        .in('player_id', ids);
+      if (error) throw error;
+      // Exclude players being traded away and IR players
+      const tradedAwayIds = new Set(
+        proposal.items.filter((i) => i.player_id && i.from_team_id === teamId).map((i) => i.player_id!),
+      );
+      return (data ?? [])
+        .map((p) => ({ ...p, roster_slot: slotMap.get(p.player_id) ?? null }))
+        .filter((p) => !tradedAwayIds.has(p.player_id) && p.roster_slot !== 'IR')
+        .sort((a, b) => {
+          // Bench first, then others
+          const aIsBench = a.roster_slot === 'BE' || a.roster_slot === 'TAXI' ? 0 : 1;
+          const bIsBench = b.roster_slot === 'BE' || b.roster_slot === 'TAXI' ? 0 : 1;
+          return aIsBench - bIsBench;
+        });
+    },
+    enabled: showDropPicker || needsMyDrop,
+  });
+
+  // Fetch drop status for all teams in pending_drops
+  const { data: proposalTeamDrops } = useQuery({
+    queryKey: ['proposalTeamDrops', proposal.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('trade_proposal_teams')
+        .select('team_id, drop_player_id')
+        .eq('proposal_id', proposal.id);
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: proposal.status === 'pending_drops',
+  });
+
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['tradeProposals', leagueId] });
     queryClient.invalidateQueries({ queryKey: ['pendingTradeCount'] });
     queryClient.invalidateQueries({ queryKey: ['tradeVotes', proposal.id] });
+    queryClient.invalidateQueries({ queryKey: ['tradeBlock', leagueId] });
   };
 
   // Compute fairness
@@ -138,8 +244,34 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
   // --- Actions ---
   const handleAccept = async () => {
     if (!(await isOnline())) { showToast('error', 'No internet connection'); return; }
+
+    // If my team gains players, check if we'd go over the roster limit
+    if (myNetGain > 0 && !selectedDropPlayerId) {
+      const rosterSize = leagueSettings?.roster_size ?? 13;
+      const [allRes, irRes] = await Promise.all([
+        supabase.from('league_players').select('id', { count: 'exact', head: true })
+          .eq('league_id', leagueId).eq('team_id', teamId),
+        supabase.from('league_players').select('id', { count: 'exact', head: true })
+          .eq('league_id', leagueId).eq('team_id', teamId).eq('roster_slot', 'IR'),
+      ]);
+      const activeCount = (allRes.count ?? 0) - (irRes.count ?? 0);
+      if (activeCount + myNetGain > rosterSize) {
+        setShowDropPicker(true);
+        return;
+      }
+    }
+
     setProcessing(true);
     try {
+      // Store drop selection if one was made
+      if (selectedDropPlayerId) {
+        await supabase
+          .from('trade_proposal_teams')
+          .update({ drop_player_id: selectedDropPlayerId })
+          .eq('proposal_id', proposal.id)
+          .eq('team_id', teamId);
+      }
+
       // Update my team's status
       await supabase
         .from('trade_proposal_teams')
@@ -163,7 +295,11 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
       if (allAccepted) {
         const vetoType = leagueSettings?.trade_veto_type ?? 'commissioner';
         if (vetoType === 'none') {
-          // Execute immediately — execute-trade edge function sends its own notifications
+          // Mark proposal as accepted, then execute immediately
+          await supabase
+            .from('trade_proposals')
+            .update({ status: 'accepted', accepted_at: new Date().toISOString() })
+            .eq('id', proposal.id);
           await supabase.functions.invoke('execute-trade', { body: { proposal_id: proposal.id } });
         } else {
           // Move to review
@@ -198,6 +334,8 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
           data: { screen: 'trades' },
         });
       }
+
+      capture('trade_accepted');
 
       invalidate();
       onClose();
@@ -236,6 +374,8 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
         body: `${myTeamName} has declined the trade proposal.`,
         data: { screen: 'trades' },
       });
+
+      capture('trade_rejected');
 
       invalidate();
       onClose();
@@ -360,6 +500,50 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
     }
   };
 
+  // Submit a drop selection for pending_drops status
+  const handleSubmitDrop = async () => {
+    if (!selectedDropPlayerId) return;
+    if (!(await isOnline())) { showToast('error', 'No internet connection'); return; }
+    setProcessing(true);
+    try {
+      await supabase
+        .from('trade_proposal_teams')
+        .update({ drop_player_id: selectedDropPlayerId })
+        .eq('proposal_id', proposal.id)
+        .eq('team_id', teamId);
+
+      // Check if all teams that need drops have now selected one
+      const { data: updatedTeams } = await supabase
+        .from('trade_proposal_teams')
+        .select('team_id, drop_player_id')
+        .eq('proposal_id', proposal.id);
+
+      // Recompute which teams need drops
+      const netByTeam = new Map<string, number>();
+      for (const item of proposal.items) {
+        if (!item.player_id) continue;
+        netByTeam.set(item.from_team_id, (netByTeam.get(item.from_team_id) ?? 0) - 1);
+        netByTeam.set(item.to_team_id, (netByTeam.get(item.to_team_id) ?? 0) + 1);
+      }
+      const teamsNeedingDrops = [...netByTeam.entries()].filter(([, gain]) => gain > 0).map(([tid]) => tid);
+      const allDropsSet = teamsNeedingDrops.every((tid) =>
+        (updatedTeams ?? []).find((t) => t.team_id === tid)?.drop_player_id,
+      );
+
+      if (allDropsSet) {
+        // All drops selected — execute the trade
+        await supabase.functions.invoke('execute-trade', { body: { proposal_id: proposal.id } });
+      }
+
+      invalidate();
+      onClose();
+    } catch (err: any) {
+      Alert.alert('Error', err.message ?? 'Failed to submit roster drop');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
   // Build team name map
   const teamNameMap: Record<string, string> = {};
   proposal.teams.forEach((t) => { teamNameMap[t.team_id] = t.team_name; });
@@ -387,34 +571,57 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
 
   const vetoCount = (votes ?? []).filter((v: any) => v.vote === 'veto').length;
   const hasVoted = (votes ?? []).some((v: any) => v.team_id === teamId);
+  const STATUS_COLORS = getStatusColors(c);
   const statusColor = STATUS_COLORS[proposal.status] ?? c.secondaryText;
   const isCounteroffer = !!proposal.counteroffer_of;
   const newItemKeys = getNewItemKeys(proposal.items, proposal.original_items);
 
+  // Players available for leak (only actual players, not picks)
+  const leakPlayers = proposal.items
+    .filter((i) => i.player_id && i.player_name)
+    .map((i) => ({ id: i.player_id!, name: i.player_name!, position: i.player_position ?? '' }));
+
   return (
     <Modal visible animationType="slide" transparent>
       <View style={styles.overlay}>
-        <View style={[styles.sheet, { backgroundColor: c.background }]} accessibilityViewIsModal={true}>
+        <View style={[styles.sheet, { backgroundColor: c.background }, showLeakSheet && styles.sheetExpanded]} accessibilityViewIsModal={true}>
           {/* Header */}
           <View style={[styles.header, { borderBottomColor: c.border }]}>
             <View>
-              <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.headerTitle}>Trade Details</ThemedText>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-                  <ThemedText style={styles.statusText}>{proposal.status.replace('_', ' ')}</ThemedText>
-                </View>
-                {isCounteroffer && (
-                  <View style={[styles.statusBadge, { backgroundColor: '#f0ad4e' }]}>
-                    <ThemedText style={styles.statusText}>counteroffer</ThemedText>
+              <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.headerTitle}>
+                {showLeakSheet ? 'Leak to League Chat' : 'Trade Details'}
+              </ThemedText>
+              {!showLeakSheet && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
+                    <ThemedText style={[styles.statusText, { color: c.statusText }]}>{proposal.status.replace('_', ' ')}</ThemedText>
                   </View>
-                )}
-              </View>
+                  {isCounteroffer && (
+                    <View style={[styles.statusBadge, { backgroundColor: c.warning }]}>
+                      <ThemedText style={[styles.statusText, { color: c.statusText }]}>counteroffer</ThemedText>
+                    </View>
+                  )}
+                </View>
+              )}
             </View>
-            <TouchableOpacity onPress={onClose} accessibilityRole="button" accessibilityLabel="Close trade details">
-              <ThemedText style={styles.closeText}>✕</ThemedText>
+            <TouchableOpacity
+              onPress={() => showLeakSheet ? setShowLeakSheet(false) : onClose()}
+              accessibilityRole="button"
+              accessibilityLabel={showLeakSheet ? 'Back to trade details' : 'Close trade details'}
+            >
+              <ThemedText style={styles.closeText}>{showLeakSheet ? '←' : '✕'}</ThemedText>
             </TouchableOpacity>
           </View>
 
+          {showLeakSheet ? (
+            <LeakRumorInline
+              proposalId={proposal.id}
+              leagueId={leagueId}
+              teamId={teamId}
+              players={leakPlayers}
+              onDone={() => { setShowLeakSheet(false); }}
+            />
+          ) : (
           <ScrollView contentContainerStyle={styles.content}>
             {/* Trade details by team */}
             {Object.entries(groupedByFrom).map(([fromTeamId, items]) => (
@@ -437,8 +644,8 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
                         {!item.pick_swap_season && ` → ${teamNameMap[item.to_team_id] ?? 'Unknown'}`}
                       </ThemedText>
                       {isNew && (
-                        <View style={styles.newBadge} accessibilityLabel="Newly added in counteroffer">
-                          <Text style={styles.newBadgeText}>NEW</Text>
+                        <View style={[styles.newBadge, { backgroundColor: c.link }]} accessibilityLabel="Newly added in counteroffer">
+                          <Text style={[styles.newBadgeText, { color: c.statusText }]}>NEW</Text>
                         </View>
                       )}
                     </View>
@@ -468,6 +675,18 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
               </View>
             )}
 
+            {/* Roster capacity warning — shown before user taps Accept */}
+            {wouldExceedRoster && !showDropPicker && (
+              <View
+                accessibilityRole="alert"
+                style={[styles.rosterWarning, { backgroundColor: c.warningMuted, borderColor: c.warning }]}
+              >
+                <ThemedText style={{ fontSize: 13, color: c.warning, fontWeight: '600' }}>
+                  Accepting this trade would exceed your roster limit. You'll need to select a player to drop.
+                </ThemedText>
+              </View>
+            )}
+
             {/* Team acceptance statuses */}
             {proposal.status === 'pending' && (
               <View style={[styles.section, { borderColor: c.border }]}>
@@ -476,7 +695,7 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
                   <View key={t.team_id} style={styles.responseRow}>
                     <ThemedText>{t.team_name}</ThemedText>
                     <ThemedText style={{
-                      color: t.status === 'accepted' ? '#28a745' : t.status === 'rejected' ? '#dc3545' : '#f0ad4e',
+                      color: t.status === 'accepted' ? c.success : t.status === 'rejected' ? c.danger : c.warning,
                       fontWeight: '600',
                     }}>
                       {t.status}
@@ -492,91 +711,167 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
                 <ThemedText style={{ color: c.secondaryText }}>{proposal.notes}</ThemedText>
               </View>
             )}
+
+            {/* Pending drops — waiting on other teams */}
+            {proposal.status === 'pending_drops' && !needsMyDrop && (
+              <View style={[styles.reviewInfo, { backgroundColor: c.cardAlt }]}>
+                <ThemedText style={[styles.reviewText, { color: c.secondaryText }]}>
+                  Waiting for roster drops before this trade can complete.
+                </ThemedText>
+              </View>
+            )}
+
+            {/* Drop picker — inline for accept flow or pending_drops */}
+            {(showDropPicker || needsMyDrop) && (
+              <View style={[styles.section, { borderColor: c.border }]}>
+                <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>
+                  Select a player to drop
+                </ThemedText>
+                <ThemedText style={[{ color: c.secondaryText, fontSize: 12, marginBottom: 8 }]}>
+                  This trade would put you over the roster limit. Choose a player to release.
+                </ThemedText>
+                {(myRoster ?? []).map((p) => {
+                  const isDropSelected = selectedDropPlayerId === p.player_id;
+                  const headshotUrl = getPlayerHeadshotUrl(p.external_id_nba);
+                  return (
+                    <TouchableOpacity
+                      key={p.player_id}
+                      accessibilityRole="radio"
+                      accessibilityLabel={`${p.name}, ${p.position}${p.roster_slot ? `, ${p.roster_slot}` : ''}`}
+                      accessibilityState={{ selected: isDropSelected }}
+                      style={[
+                        styles.dropRow,
+                        { borderBottomColor: c.border },
+                        isDropSelected && { backgroundColor: c.activeCard },
+                      ]}
+                      onPress={() => setSelectedDropPlayerId(isDropSelected ? null : p.player_id)}
+                    >
+                      <View style={[styles.dropHeadshot, { borderColor: c.border, backgroundColor: c.cardAlt }]}>
+                        {headshotUrl ? (
+                          <Image source={{ uri: headshotUrl }} style={styles.dropHeadshotImg} resizeMode="cover" />
+                        ) : null}
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <ThemedText type="defaultSemiBold" style={{ fontSize: 14 }} numberOfLines={1}>
+                          {p.name}
+                        </ThemedText>
+                        <ThemedText style={[styles.sub, { color: c.secondaryText }]}>
+                          {p.position} · {p.roster_slot ?? 'BE'}
+                        </ThemedText>
+                      </View>
+                      <ThemedText style={[styles.check, { color: c.success }]}>{isDropSelected ? '✓' : ''}</ThemedText>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
           </ScrollView>
 
+          )}
+
           {/* Action Buttons */}
+          {!showLeakSheet && (
           <View style={[styles.actionArea, { borderTopColor: c.border }]}>
             {processing ? (
               <ActivityIndicator />
             ) : (
               <>
-                {/* Pending: counterparty can accept/reject */}
+                {/* Pending: counterparty can accept/reject (or accept & drop if roster is full) */}
                 {proposal.status === 'pending' && isInvolved && !isProposer && myTeamStatus === 'pending' && (
                   <View style={styles.actionRow}>
-                    <TouchableOpacity
-                      accessibilityRole="button"
-                      accessibilityLabel="Accept trade"
-                      style={[styles.actionBtn, { backgroundColor: '#28a745' }]}
-                      onPress={() => Alert.alert('Accept Trade', 'Accept this trade?', [
-                        { text: 'Cancel', style: 'cancel' },
-                        { text: 'Accept', onPress: handleAccept },
-                      ])}
-                    >
-                      <ThemedText style={styles.actionBtnText}>Accept</ThemedText>
-                    </TouchableOpacity>
+                    {showDropPicker ? (
+                      <TouchableOpacity
+                        accessibilityRole="button"
+                        accessibilityLabel="Accept trade and drop selected player"
+                        style={[styles.actionBtn, { backgroundColor: selectedDropPlayerId ? c.success : c.secondaryText }]}
+                        disabled={!selectedDropPlayerId}
+                        onPress={() => Alert.alert(
+                          'Accept Trade',
+                          'Accept this trade and drop the selected player?',
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            { text: 'Accept', onPress: handleAccept },
+                          ],
+                        )}
+                      >
+                        <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Accept & Drop</ThemedText>
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity
+                        accessibilityRole="button"
+                        accessibilityLabel="Accept trade"
+                        style={[styles.actionBtn, { backgroundColor: c.success }]}
+                        onPress={() => Alert.alert('Accept Trade', 'Accept this trade?', [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Accept', onPress: handleAccept },
+                        ])}
+                      >
+                        <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Accept</ThemedText>
+                      </TouchableOpacity>
+                    )}
                     {onCounteroffer && (
                       <TouchableOpacity
                         accessibilityRole="button"
                         accessibilityLabel="Counteroffer trade"
-                        style={[styles.actionBtn, { backgroundColor: '#f0ad4e' }]}
+                        style={[styles.actionBtn, { backgroundColor: c.warning }]}
                         onPress={() => onCounteroffer(proposal)}
                       >
-                        <ThemedText style={styles.actionBtnText}>Counter</ThemedText>
+                        <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Counter</ThemedText>
                       </TouchableOpacity>
                     )}
                     <TouchableOpacity
                       accessibilityRole="button"
                       accessibilityLabel="Decline trade"
-                      style={[styles.actionBtn, { backgroundColor: '#dc3545' }]}
+                      style={[styles.actionBtn, { backgroundColor: c.danger }]}
                       onPress={() => Alert.alert('Decline Trade', 'Decline this trade?', [
                         { text: 'Cancel', style: 'cancel' },
                         { text: 'Decline', style: 'destructive', onPress: handleReject },
                       ])}
                     >
-                      <ThemedText style={styles.actionBtnText}>Decline</ThemedText>
+                      <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Decline</ThemedText>
                     </TouchableOpacity>
                   </View>
                 )}
 
-                {/* Pending: commissioner can push through or veto */}
-                {proposal.status === 'pending' && isCommissioner && (
+                {/* Pending drops: my team needs to select a drop */}
+                {needsMyDrop && (
                   <View style={styles.actionRow}>
                     <TouchableOpacity
                       accessibilityRole="button"
-                      accessibilityLabel="Push trade through"
-                      style={[styles.actionBtn, { backgroundColor: '#28a745' }]}
+                      accessibilityLabel="Confirm player drop to complete trade"
+                      style={[styles.actionBtn, { backgroundColor: selectedDropPlayerId ? c.success : c.secondaryText }]}
+                      disabled={!selectedDropPlayerId}
                       onPress={() => Alert.alert(
-                        'Push Trade Through',
-                        'Force-execute this trade immediately, even if not all parties have accepted?',
+                        'Confirm Drop',
+                        'Drop the selected player and complete the trade?',
                         [
                           { text: 'Cancel', style: 'cancel' },
-                          { text: 'Push Through', onPress: handleCommissionerApprove },
-                        ]
+                          { text: 'Confirm', onPress: handleSubmitDrop },
+                        ],
                       )}
                     >
-                      <ThemedText style={styles.actionBtnText}>Push Through</ThemedText>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      accessibilityRole="button"
-                      accessibilityLabel="Veto trade"
-                      style={[styles.actionBtn, { backgroundColor: '#dc3545' }]}
-                      onPress={() => Alert.alert('Veto Trade', 'Veto this trade?', [
-                        { text: 'Cancel', style: 'cancel' },
-                        { text: 'Veto', style: 'destructive', onPress: handleCommissionerVeto },
-                      ])}
-                    >
-                      <ThemedText style={styles.actionBtnText}>Veto</ThemedText>
+                      <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Confirm Drop</ThemedText>
                     </TouchableOpacity>
                   </View>
                 )}
 
-                {/* Pending: any involved team can back out */}
-                {proposal.status === 'pending' && isInvolved && (
+                {/* Pending: proposer can edit (if untouched) and cancel, or teams that already accepted can back out */}
+                {proposal.status === 'pending' && isInvolved && (isProposer || myTeamStatus === 'accepted') && (
                   <View style={styles.actionRow}>
+                    {isEditable && (
+                      <TouchableOpacity
+                        accessibilityRole="button"
+                        accessibilityLabel="Edit trade"
+                        style={[styles.actionBtn, { backgroundColor: c.link }]}
+                        onPress={() => onEdit!(proposal)}
+                      >
+                        <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Edit</ThemedText>
+                      </TouchableOpacity>
+                    )}
                     <TouchableOpacity
                       accessibilityRole="button"
                       accessibilityLabel={isProposer ? 'Cancel trade' : 'Back out of trade'}
-                      style={[styles.actionBtn, { backgroundColor: '#6c757d' }]}
+                      style={[styles.actionBtn, { backgroundColor: c.secondaryText }]}
                       onPress={() => Alert.alert(
                         isProposer ? 'Cancel Trade' : 'Back Out',
                         isProposer
@@ -588,7 +883,7 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
                         ]
                       )}
                     >
-                      <ThemedText style={styles.actionBtnText}>
+                      <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>
                         {isProposer ? 'Cancel Trade' : 'Back Out'}
                       </ThemedText>
                     </TouchableOpacity>
@@ -601,24 +896,24 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
                     <TouchableOpacity
                       accessibilityRole="button"
                       accessibilityLabel="Approve trade"
-                      style={[styles.actionBtn, { backgroundColor: '#28a745' }]}
+                      style={[styles.actionBtn, { backgroundColor: c.success }]}
                       onPress={() => Alert.alert('Approve Trade', 'Approve and execute this trade now?', [
                         { text: 'Cancel', style: 'cancel' },
                         { text: 'Approve', onPress: handleCommissionerApprove },
                       ])}
                     >
-                      <ThemedText style={styles.actionBtnText}>Approve</ThemedText>
+                      <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Approve</ThemedText>
                     </TouchableOpacity>
                     <TouchableOpacity
                       accessibilityRole="button"
                       accessibilityLabel="Veto trade"
-                      style={[styles.actionBtn, { backgroundColor: '#dc3545' }]}
+                      style={[styles.actionBtn, { backgroundColor: c.danger }]}
                       onPress={() => Alert.alert('Veto Trade', 'Veto this trade?', [
                         { text: 'Cancel', style: 'cancel' },
                         { text: 'Veto', style: 'destructive', onPress: handleCommissionerVeto },
                       ])}
                     >
-                      <ThemedText style={styles.actionBtnText}>Veto</ThemedText>
+                      <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Veto</ThemedText>
                     </TouchableOpacity>
                   </View>
                 )}
@@ -629,13 +924,13 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
                     <TouchableOpacity
                       accessibilityRole="button"
                       accessibilityLabel="Vote to veto trade"
-                      style={[styles.actionBtn, { backgroundColor: '#dc3545' }]}
+                      style={[styles.actionBtn, { backgroundColor: c.danger }]}
                       onPress={() => Alert.alert('Vote to Veto', 'Cast a veto vote on this trade?', [
                         { text: 'Cancel', style: 'cancel' },
                         { text: 'Veto', style: 'destructive', onPress: handleVoteToVeto },
                       ])}
                     >
-                      <ThemedText style={styles.actionBtnText}>Vote to Veto</ThemedText>
+                      <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Vote to Veto</ThemedText>
                     </TouchableOpacity>
                   </View>
                 )}
@@ -648,12 +943,162 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
                     </View>
                   </View>
                 )}
+
+                {/* Leak button — visible for counteroffer chains */}
+                {canLeak && !isTerminal && isInvolved && proposal.counteroffer_of && leakPlayers.length > 0 && (
+                  <View style={styles.actionRow}>
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      accessibilityLabel="Leak trade negotiations to league chat"
+                      style={[styles.actionBtn, { backgroundColor: c.warning }]}
+                      onPress={() => setShowLeakSheet(true)}
+                    >
+                      <Text style={[styles.actionBtnText, { color: c.statusText }]}>Leak to Chat</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
               </>
             )}
           </View>
+          )}
         </View>
       </View>
     </Modal>
+  );
+}
+
+function LeakRumorInline({
+  proposalId, leagueId, teamId, players, onDone,
+}: {
+  proposalId: string;
+  leagueId: string;
+  teamId: string;
+  players: Array<{ id: string; name: string; position: string }>;
+  onDone: () => void;
+}) {
+  const scheme = useColorScheme() ?? 'light';
+  const c = Colors[scheme];
+  const { showToast } = useToast();
+  const leak = useLeakRumor();
+  const [selectedPlayer, setSelectedPlayer] = useState<string | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<number>(0);
+
+  const selectedPlayerObj = players.find((p) => p.id === selectedPlayer);
+  const previewText = selectedPlayerObj
+    ? RUMOR_TEMPLATES[selectedTemplate].replace('{player}', selectedPlayerObj.name)
+    : RUMOR_TEMPLATES[selectedTemplate].replace('{player}', '______');
+
+  const handleLeak = async () => {
+    if (!selectedPlayer || !selectedPlayerObj) return;
+    try {
+      await leak.mutateAsync({
+        proposalId,
+        leagueId,
+        teamId,
+        playerId: selectedPlayer,
+        playerName: selectedPlayerObj.name,
+        template: RUMOR_TEMPLATES[selectedTemplate],
+      });
+      showToast('success', 'Rumor leaked to league chat');
+      onDone();
+    } catch (err: any) {
+      const msg = err.message ?? '';
+      if (msg.includes('idx_trade_rumors_manual') || msg.includes('duplicate key') || msg.includes('unique constraint')) {
+        showToast('error', 'This trade negotiation has already been leaked');
+        onDone();
+        return;
+      }
+      showToast('error', msg || 'Failed to leak rumor');
+    }
+  };
+
+  return (
+    <View style={{ flex: 1 }}>
+      <ScrollView contentContainerStyle={styles.leakContent} style={{ flex: 1 }}>
+        <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Select player</ThemedText>
+        <View style={styles.chipRow}>
+          {players.map((p) => (
+            <TouchableOpacity
+              key={p.id}
+              style={[
+                styles.chip,
+                {
+                  backgroundColor: selectedPlayer === p.id ? c.accent : c.cardAlt,
+                  borderColor: selectedPlayer === p.id ? c.accent : c.border,
+                },
+              ]}
+              onPress={() => setSelectedPlayer(p.id)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: selectedPlayer === p.id }}
+              accessibilityLabel={`${p.name}, ${p.position}`}
+            >
+              <ThemedText
+                style={{ fontSize: 14, fontWeight: '500', color: selectedPlayer === p.id ? c.statusText : c.text }}
+              >
+                {p.name} ({p.position})
+              </ThemedText>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <ThemedText type="defaultSemiBold" style={[styles.sectionTitle, { marginTop: 16 }]}>
+          Choose message
+        </ThemedText>
+        {RUMOR_TEMPLATES.map((tmpl, i) => {
+          const display = selectedPlayerObj
+            ? tmpl.replace('{player}', selectedPlayerObj.name)
+            : tmpl.replace('{player}', '______');
+          return (
+            <TouchableOpacity
+              key={i}
+              style={[
+                styles.templateRow,
+                {
+                  backgroundColor: selectedTemplate === i ? c.activeCard : c.cardAlt,
+                  borderColor: selectedTemplate === i ? c.activeBorder : c.border,
+                },
+              ]}
+              onPress={() => setSelectedTemplate(i)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: selectedTemplate === i }}
+              accessibilityLabel={display}
+            >
+              <ThemedText style={{ fontSize: 14, lineHeight: 20, fontStyle: 'italic' }}>
+                &ldquo;{display}&rdquo;
+              </ThemedText>
+            </TouchableOpacity>
+          );
+        })}
+
+        {/* Always show preview to prevent layout jump */}
+        <View style={{ marginTop: 16 }}>
+          <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Preview</ThemedText>
+          <RumorBubble rumorText={previewText} />
+        </View>
+      </ScrollView>
+
+      <View style={[styles.actionArea, styles.leakActionArea, { borderTopColor: c.border }]}>
+        {leak.isPending ? (
+          <ActivityIndicator />
+        ) : (
+          <View style={styles.actionRow}>
+            <TouchableOpacity
+              style={[
+                styles.actionBtn,
+                { backgroundColor: selectedPlayer ? c.warning : c.buttonDisabled },
+              ]}
+              onPress={handleLeak}
+              disabled={!selectedPlayer || leak.isPending}
+              accessibilityRole="button"
+              accessibilityLabel="Leak rumor to league chat"
+              accessibilityState={{ disabled: !selectedPlayer }}
+            >
+              <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Leak to Chat</ThemedText>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+    </View>
   );
 }
 
@@ -709,6 +1154,9 @@ const styles = StyleSheet.create({
     maxHeight: '85%',
     paddingBottom: 32,
   },
+  sheetExpanded: {
+    flex: 1,
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -727,7 +1175,6 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   statusText: {
-    color: '#fff',
     fontSize: 11,
     fontWeight: '700',
     textTransform: 'capitalize',
@@ -759,14 +1206,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   newBadge: {
-    backgroundColor: '#007AFF',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 3,
     marginLeft: 8,
   },
   newBadgeText: {
-    color: '#fff',
     fontSize: 10,
     fontWeight: '700',
   },
@@ -806,12 +1251,73 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   actionBtnText: {
-    color: '#fff',
     fontSize: 15,
     fontWeight: '600',
   },
   votedText: {
     fontSize: 13,
     fontWeight: '600',
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  templateRow: {
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  leakContent: {
+    padding: 16,
+    paddingBottom: 24,
+  },
+  leakActionArea: {
+    paddingBottom: 32,
+  },
+  rosterWarning: {
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 12,
+  },
+  dropRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  dropHeadshot: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    overflow: 'hidden' as const,
+    marginRight: 8,
+  },
+  dropHeadshotImg: {
+    position: 'absolute' as const,
+    bottom: -2,
+    left: 0,
+    right: 0,
+    height: 30,
+  },
+  sub: {
+    fontSize: 11,
+    marginTop: 1,
+  },
+  check: {
+    width: 22,
+    fontSize: 16,
+    fontWeight: '700',
+    textAlign: 'center',
   },
 });

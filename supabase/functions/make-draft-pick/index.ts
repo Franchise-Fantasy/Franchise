@@ -3,6 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { notifyTeams, notifyLeague } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { checkPositionLimits } from '../_shared/positionLimits.ts';
 
 // Position eligibility (mirrors utils/rosterSlots.ts)
 const POSITION_SPECTRUM = ['PG', 'SG', 'SF', 'PF', 'C'];
@@ -73,7 +74,7 @@ async function findBestSlot(
   return 'BE';
 }
 
-async function scheduleAutodraft(draft_id: string, pick_number: number, time_limit: number) {
+async function scheduleAutodraft(draft_id: string, pick_number: number, time_limit: number, autopick_triggered = false) {
   const autodraftUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/autodraft`;
   const res = await fetch(`https://qstash-us-east-1.upstash.io/v2/publish/${autodraftUrl}`, {
     method: 'POST',
@@ -82,7 +83,7 @@ async function scheduleAutodraft(draft_id: string, pick_number: number, time_lim
       'Content-Type': 'application/json',
       'Upstash-Delay': `${time_limit}s`,
     },
-    body: JSON.stringify({ draft_id, pick_number }),
+    body: JSON.stringify({ draft_id, pick_number, autopick_triggered }),
   });
   if (!res.ok) throw new Error(`QStash error: ${await res.text()}`);
 }
@@ -134,6 +135,24 @@ Deno.serve(async (req)=>{
       throw new Error('This player is already on a roster in this league.');
     }
 
+    // Position limit check
+    const { data: leagueForLimits } = await supabaseAdmin
+      .from('leagues').select('position_limits').eq('id', league_id).single();
+    const posLimits = leagueForLimits?.position_limits as Record<string, number> | null;
+    if (posLimits && Object.keys(posLimits).length > 0) {
+      const { data: teamRoster } = await supabaseAdmin
+        .from('league_players')
+        .select('position, roster_slot')
+        .eq('league_id', league_id)
+        .eq('team_id', currentPick.current_team_id);
+      const violation = checkPositionLimits(posLimits, teamRoster ?? [], player_position);
+      if (violation) {
+        throw new Error(
+          `Cannot draft this player: your roster already has the maximum ${violation.max} players eligible at ${violation.position}.`,
+        );
+      }
+    }
+
     const timestamp = new Date().toISOString();
     const isRookieDraft = draft.type === 'rookie';
 
@@ -154,7 +173,13 @@ Deno.serve(async (req)=>{
       position: player_position,
       roster_slot: rosterSlot,
     });
-    if (insertPlayerError) throw insertPlayerError;
+    if (insertPlayerError) {
+      // Unique constraint means another pick claimed this player first
+      if (insertPlayerError.code === '23505') {
+        throw new Error('This player was just drafted by another team.');
+      }
+      throw insertPlayerError;
+    }
 
     // Remove drafted player from all teams' queues in this draft
     await supabaseAdmin.from('draft_queue')
@@ -185,7 +210,31 @@ Deno.serve(async (req)=>{
 
     if (!isDraftComplete) {
       try {
-        await scheduleAutodraft(draft_id, nextPickNumber, draft.time_limit);
+        // Check if the next team has autopick enabled — if so, fire immediately
+        let delay = draft.time_limit;
+        let nextIsAutopick = false;
+        const { data: nextPick } = await supabaseAdmin
+          .from('draft_picks')
+          .select('current_team_id')
+          .eq('draft_id', draft_id)
+          .eq('pick_number', nextPickNumber)
+          .single();
+
+        if (nextPick) {
+          const { data: teamStatus } = await supabaseAdmin
+            .from('draft_team_status')
+            .select('autopick_on')
+            .eq('draft_id', draft_id)
+            .eq('team_id', nextPick.current_team_id)
+            .maybeSingle();
+
+          if (teamStatus?.autopick_on) {
+            delay = 1;
+            nextIsAutopick = true;
+          }
+        }
+
+        await scheduleAutodraft(draft_id, nextPickNumber, delay, nextIsAutopick);
       } catch (schedErr) {
         console.warn('Failed to schedule autodraft (non-fatal):', schedErr);
       }

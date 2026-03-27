@@ -137,13 +137,13 @@ export function ReverseTradeModal({ visible, leagueId, onClose }: Props) {
                   accessibilityRole="button"
                   accessibilityLabel="Reverse trade"
                   accessibilityState={{ disabled: processing }}
-                  style={[styles.btn, { backgroundColor: processing ? c.buttonDisabled : '#dc3545' }]}
+                  style={[styles.btn, { backgroundColor: processing ? c.buttonDisabled : c.danger }]}
                   onPress={handleReverse}
                   disabled={processing}
                 >
                   {processing
-                    ? <ActivityIndicator color="#fff" size="small" />
-                    : <Text style={{ color: '#fff', fontWeight: '600' }}>Reverse Trade</Text>}
+                    ? <ActivityIndicator color={c.statusText} size="small" />
+                    : <Text style={{ color: c.statusText, fontWeight: '600' }}>Reverse Trade</Text>}
                 </TouchableOpacity>
               </View>
             </View>

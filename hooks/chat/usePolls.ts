@@ -166,6 +166,26 @@ export function useVotePoll(pollId: string | null) {
   });
 }
 
+// ─── Close a poll early (commissioner) ──────────────────────
+
+export function useClosePoll(pollId: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase
+        .from('commissioner_polls')
+        .update({ closes_at: new Date().toISOString() })
+        .eq('id', pollId!);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['poll', pollId] });
+      queryClient.invalidateQueries({ queryKey: ['pollResults', pollId] });
+    },
+  });
+}
+
 // ─── Create a poll (commissioner) ───────────────────────────
 
 export function useCreatePoll() {

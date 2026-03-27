@@ -1,6 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { CORS_HEADERS, corsResponse } from "../_shared/cors.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { bdlFetch } from "../_shared/bdl.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -145,10 +147,35 @@ async function computeWeekScores(
     }
   }
 
+  // Build drop-date map for players no longer on their team
+  const dropDateByTeamPlayer = new Map<string, string>();
+  for (const [key, entries] of dailyByTeamPlayer) {
+    const droppedEntry = entries.find((e) => e.roster_slot === "DROPPED");
+    if (droppedEntry) dropDateByTeamPlayer.set(key, droppedEntry.lineup_date);
+  }
+
   function resolveSlot(teamId: string, playerId: string, day: string): string {
     const key = `${teamId}:${playerId}`;
+    // Drop-date guard: if player is no longer on this team, enforce DROPPED
+    const teamPlayers = teamPlayerMap.get(teamId);
+    if (!teamPlayers || !teamPlayers.has(playerId)) {
+      const dropDate = dropDateByTeamPlayer.get(key);
+      if (dropDate && day >= dropDate) return "DROPPED";
+      if (!dropDate && day >= today) return "DROPPED";
+    }
     const entries = dailyByTeamPlayer.get(key) ?? [];
-    const entry = entries.find((e) => e.lineup_date <= day);
+    // Use most recent DROPPED as ownership boundary, but only for players
+    // currently on the roster (re-acquired after a previous drop). For dropped
+    // players, entries before the DROPPED marker are still valid.
+    const isOnRoster = !!(teamPlayers && teamPlayers.has(playerId));
+    const mostRecentDrop = entries.find((e) => e.roster_slot === "DROPPED");
+    const boundary = isOnRoster ? mostRecentDrop?.lineup_date : undefined;
+    // Exact match for the requested day always wins (handles same-week drop + re-acquire)
+    const exactMatch = entries.find((e) => e.lineup_date === day && e.roster_slot !== "DROPPED");
+    if (exactMatch) return exactMatch.roster_slot;
+    const entry = entries.find((e) =>
+      e.lineup_date <= day && e.roster_slot !== "DROPPED" && (!boundary || e.lineup_date > boundary),
+    );
     if (entry) return entry.roster_slot;
     const acquired = acquiredDateMap.get(playerId);
     if (acquired && day < acquired) return "BE";
@@ -156,7 +183,7 @@ async function computeWeekScores(
   }
 
   function isActiveSlot(slot: string): boolean {
-    return slot !== "BE" && slot !== "IR" && slot !== "DROPPED";
+    return slot !== "BE" && slot !== "IR" && slot !== "TAXI" && slot !== "DROPPED";
   }
 
   // 4. Compute scores from completed games
@@ -231,21 +258,18 @@ async function upsertScores(
   if (error) throw error;
 }
 
-// ── NBA scoreboard check ────────────────────────────────────────────────────
+// ── NBA game check via balldontlie ───────────────────────────────────────────
 
-const NBA_SCOREBOARD_URL =
-  "https://cdn.nba.com/static/json/liveData/scoreboard/todaysScoreboard_00.json";
-
-/** Returns true if any NBA game is currently live (status 2) or recently finished (status 3). */
+/** Returns true if any NBA game is currently live or recently finished today. */
 async function hasActiveOrFinishedGames(): Promise<boolean> {
   try {
-    const res = await fetch(NBA_SCOREBOARD_URL, {
-      headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" },
+    const today = new Date().toISOString().slice(0, 10);
+    const data = await bdlFetch("/games", { "dates[]": today });
+    const games: any[] = data?.data ?? [];
+    return games.some((g: any) => {
+      const s: string = g.status ?? "";
+      return s === "Final" || /Qtr|Half|OT/i.test(s);
     });
-    if (!res.ok) return true; // On failure, assume games are happening to be safe
-    const data = await res.json();
-    const games: any[] = data?.scoreboard?.games ?? [];
-    return games.some((g) => g.gameStatus === 2 || g.gameStatus === 3);
   } catch {
     return true; // On error, assume games are happening
   }
@@ -271,7 +295,24 @@ Deno.serve(async (req: Request) => {
     const { league_id, schedule_id } = body;
 
     if (league_id && schedule_id) {
-      // ── Client mode: compute for a specific league/week ──
+      // ── Client mode: verify auth + rate limit ──
+      const authHeader = req.headers.get('Authorization');
+      const token = authHeader?.startsWith('Bearer ') ? authHeader : `Bearer ${authHeader}`;
+      const userClient = createClient(
+        Deno.env.get('SUPABASE_URL')!,
+        Deno.env.get('SUPABASE_ANON_KEY')!,
+        { global: { headers: { Authorization: token ?? '' } } },
+      );
+      const { data: { user } } = await userClient.auth.getUser();
+      if (!user) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+          status: 401, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const rateLimited = await checkRateLimit(supabase, user.id, 'get-week-scores');
+      if (rateLimited) return rateLimited;
+
       const scores = await computeWeekScores(league_id, schedule_id);
       await upsertScores(league_id, schedule_id, scores);
 
@@ -279,6 +320,15 @@ Deno.serve(async (req: Request) => {
         JSON.stringify({ scores }),
         { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
       );
+    }
+
+    // ── Cron mode: verify CRON_SECRET ──
+    const cronSecret = Deno.env.get('CRON_SECRET');
+    const cronAuth = req.headers.get('Authorization');
+    if (!cronSecret || cronAuth !== `Bearer ${cronSecret}`) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401, headers: { 'Content-Type': 'application/json' },
+      });
     }
 
     // ── Cron mode: skip during 3–10am ET when no NBA games are running ──

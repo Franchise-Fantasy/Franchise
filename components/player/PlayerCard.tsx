@@ -1,12 +1,12 @@
-import { ThemedText } from '@/components/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { PlayerSeasonStats } from '@/types/player';
-import { formatPosition } from '@/utils/formatting';
-import { getInjuryBadge } from '@/utils/injuryBadge';
-import { getPlayerHeadshotUrl, getTeamLogoUrl } from '@/utils/playerHeadshot';
-import { ReactNode } from 'react';
-import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ThemedText } from "@/components/ThemedText";
+import { Colors } from "@/constants/Colors";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import { PlayerSeasonStats } from "@/types/player";
+import { formatPosition } from "@/utils/formatting";
+import { getInjuryBadge } from "@/utils/injuryBadge";
+import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
+import { ReactNode } from "react";
+import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 interface PlayerCardProps {
   player: PlayerSeasonStats;
@@ -15,8 +15,13 @@ interface PlayerCardProps {
   rightElement?: ReactNode;
 }
 
-export function PlayerCard({ player, fantasyPoints, onPress, rightElement }: PlayerCardProps) {
-  const scheme = useColorScheme() ?? 'light';
+export function PlayerCard({
+  player,
+  fantasyPoints,
+  onPress,
+  rightElement,
+}: PlayerCardProps) {
+  const scheme = useColorScheme() ?? "light";
   const c = Colors[scheme];
 
   return (
@@ -32,19 +37,35 @@ export function PlayerCard({ player, fantasyPoints, onPress, rightElement }: Pla
       {(() => {
         const url = getPlayerHeadshotUrl(player.external_id_nba);
         return url ? (
-          <Image source={{ uri: url }} style={styles.headshot} resizeMode="cover" />
+          <View
+            style={[
+              styles.headshotCircle,
+              { borderColor: c.gold, backgroundColor: c.cardAlt },
+            ]}
+            accessibilityLabel={`${player.name} headshot`}
+          >
+            <Image
+              source={{ uri: url }}
+              style={styles.headshotImg}
+              resizeMode="cover"
+            />
+          </View>
         ) : null;
       })()}
       <View style={styles.info}>
         <View style={styles.nameRow}>
-          <ThemedText type="defaultSemiBold" numberOfLines={1} style={{ flexShrink: 1 }}>
+          <ThemedText
+            type="defaultSemiBold"
+            numberOfLines={1}
+            style={{ flexShrink: 1 }}
+          >
             {player.name}
           </ThemedText>
           {(() => {
             const badge = getInjuryBadge(player.status);
             return badge ? (
               <View style={[styles.badge, { backgroundColor: badge.color }]}>
-                <Text style={styles.badgeText}>{badge.label}</Text>
+                <Text style={[styles.badgeText, { color: c.statusText }]}>{badge.label}</Text>
               </View>
             ) : null;
           })()}
@@ -53,7 +74,11 @@ export function PlayerCard({ player, fantasyPoints, onPress, rightElement }: Pla
           {(() => {
             const logoUrl = getTeamLogoUrl(player.nba_team);
             return logoUrl ? (
-              <Image source={{ uri: logoUrl }} style={styles.teamLogo} resizeMode="contain" />
+              <Image
+                source={{ uri: logoUrl }}
+                style={styles.teamLogo}
+                resizeMode="contain"
+              />
             ) : null;
           })()}
           <ThemedText style={[styles.team, { color: c.secondaryText }]}>
@@ -78,8 +103,8 @@ export function PlayerCard({ player, fantasyPoints, onPress, rightElement }: Pla
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -87,21 +112,30 @@ const styles = StyleSheet.create({
   position: {
     width: 32,
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: "600",
   },
-  headshot: {
-    width: 40,
-    height: 30,
-    borderRadius: 4,
+  headshotCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 23,
+    borderWidth: 1.5,
+    overflow: "hidden",
     marginRight: 8,
+  },
+  headshotImg: {
+    position: "absolute" as const,
+    bottom: -2,
+    left: 0,
+    right: 0,
+    height: 40,
   },
   info: {
     flex: 1,
     marginRight: 8,
   },
   nameRow: {
-    flexDirection: 'row' as const,
-    alignItems: 'center' as const,
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
     gap: 4,
   },
   badge: {
@@ -110,14 +144,13 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   badgeText: {
-    color: '#fff',
     fontSize: 8,
-    fontWeight: '800' as const,
+    fontWeight: "800" as const,
     letterSpacing: 0.5,
   },
   teamRow: {
-    flexDirection: 'row' as const,
-    alignItems: 'center' as const,
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
     gap: 3,
     marginTop: 1,
   },
@@ -130,7 +163,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
   stats: {
-    alignItems: 'flex-end',
+    alignItems: "flex-end",
     marginRight: 8,
   },
   statLine: {
@@ -138,7 +171,7 @@ const styles = StyleSheet.create({
   },
   fpts: {
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: "600",
     marginTop: 1,
   },
 });

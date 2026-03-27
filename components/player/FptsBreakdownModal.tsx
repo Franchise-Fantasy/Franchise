@@ -88,7 +88,7 @@ export function FptsBreakdownModal({
                 <Text style={[styles.colStat, { color: c.text }]}>{r.stat_name}</Text>
                 <Text style={[styles.colValue, { color: c.text }]}>{r.stat_value}</Text>
                 <Text style={[styles.colWeight, { color: c.secondaryText }]}>×{r.point_value}</Text>
-                <Text style={[styles.colPoints, { color: r.points >= 0 ? c.accent : '#e03131', fontWeight: '600' }]}>
+                <Text style={[styles.colPoints, { color: r.points >= 0 ? c.accent : c.danger, fontWeight: '600' }]}>
                   {r.points > 0 ? '+' : ''}{formatScore(r.points)}
                 </Text>
               </View>

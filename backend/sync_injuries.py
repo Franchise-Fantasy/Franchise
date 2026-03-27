@@ -31,10 +31,12 @@ STATUS_MAP = {
     'out': 'OUT',
     'suspended': 'SUSP',
     'doubtful': 'DOUBT',
-    'day-to-day': 'DTD',
-    'game time decision': 'GTD',
-    'gtd': 'GTD',
+    'day-to-day': 'QUES',
+    'game time decision': 'QUES',
+    'gtd': 'QUES',
     'questionable': 'QUES',
+    'available': 'active',
+    'probable': 'PROB',
 }
 
 
@@ -142,7 +144,7 @@ def parse_injuries(pdf_bytes):
 
                 mapped = STATUS_MAP.get(raw_status.lower())
                 if not mapped:
-                    continue  # skip Available/Probable
+                    continue
 
                 key = name.lower()
                 if key in seen:

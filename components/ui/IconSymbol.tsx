@@ -29,6 +29,9 @@ const MAPPING = {
   'trophy.fill': 'emoji-events',
   'list.bullet.clipboard': 'assignment',
   'book.fill': 'menu-book',
+  'calendar': 'event',
+  'doc.text': 'description',
+  'newspaper': 'article',
 } as IconMapping;
 
 /**

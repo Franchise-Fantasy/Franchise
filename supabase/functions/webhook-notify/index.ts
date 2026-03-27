@@ -89,8 +89,8 @@ async function handleChatMessage(
   supabase: any,
   record: { id: string; conversation_id: string; team_id: string; league_id: string; type?: string },
 ) {
-  // Poll messages are notified by the create-poll edge function — skip to avoid duplicates
-  if (record.type === 'poll') return;
+  // Poll and trade messages are notified by their own edge functions — skip to avoid duplicates
+  if (record.type === 'poll' || record.type === 'trade') return;
 
   const { conversation_id, team_id, league_id } = record;
 

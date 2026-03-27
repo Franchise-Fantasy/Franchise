@@ -127,15 +127,72 @@ export function AvailablePlayers({
       }
       return allRows;
     },
-    // Only fetch game logs when user switches away from season-long view
-    enabled: !!leagueId && playerIds.length > 0 && timeRange !== "season",
+    enabled:
+      !!leagueId &&
+      playerIds.length > 0 &&
+      timeRange !== "season" &&
+      timeRange !== "lastSeason",
     staleTime: 1000 * 60 * 15,
+  });
+
+  // Fetch last season's historical stats
+  const { data: historicalStats } = useQuery({
+    queryKey: ["draftHistoricalStats", leagueId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("player_historical_stats")
+        .select("*")
+        .eq("season", "2024-25");
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!leagueId && timeRange === "lastSeason",
+    staleTime: 1000 * 60 * 30,
   });
 
   // Build time-range-adjusted player stats when a non-season range is selected
   const adjustedPlayers = useMemo(() => {
     if (!players) return undefined;
-    if (timeRange === "season" || !recentGameLogs) return players;
+    if (timeRange === "season") return players;
+
+    // Last season: merge historical averages onto player identity
+    if (timeRange === "lastSeason") {
+      if (!historicalStats) return players;
+      const histMap = new Map(historicalStats.map((h: any) => [h.player_id, h]));
+      return players
+        .filter((p) => histMap.has(p.player_id))
+        .map((p) => {
+          const h = histMap.get(p.player_id)!;
+          return {
+            ...p,
+            games_played: h.games_played ?? 0,
+            avg_pts: h.avg_pts ?? 0,
+            avg_reb: h.avg_reb ?? 0,
+            avg_ast: h.avg_ast ?? 0,
+            avg_stl: h.avg_stl ?? 0,
+            avg_blk: h.avg_blk ?? 0,
+            avg_tov: h.avg_tov ?? 0,
+            avg_fgm: h.avg_fgm ?? 0,
+            avg_fga: h.avg_fga ?? 0,
+            avg_3pm: h.avg_3pm ?? 0,
+            avg_3pa: h.avg_3pa ?? 0,
+            avg_ftm: h.avg_ftm ?? 0,
+            avg_fta: h.avg_fta ?? 0,
+            avg_pf: h.avg_pf ?? 0,
+            avg_min: h.avg_min ?? 0,
+            total_pts: h.total_pts ?? 0,
+            total_reb: h.total_reb ?? 0,
+            total_ast: h.total_ast ?? 0,
+            total_stl: h.total_stl ?? 0,
+            total_blk: h.total_blk ?? 0,
+            total_tov: h.total_tov ?? 0,
+            total_dd: h.total_dd ?? 0,
+            total_td: h.total_td ?? 0,
+          } as PlayerSeasonStats;
+        });
+    }
+
+    if (!recentGameLogs) return players;
 
     const days = timeRange === "7d" ? 7 : timeRange === "14d" ? 14 : 30;
     const cutoff = new Date();
@@ -228,7 +285,7 @@ export function AvailablePlayers({
           avg_min: round(t.min / gp),
         } as PlayerSeasonStats;
       });
-  }, [players, recentGameLogs, timeRange]);
+  }, [players, recentGameLogs, historicalStats, timeRange]);
 
   // Pass an empty rosteredPlayerIds so the "free agents only" filter (default ON)
   // doesn't short-circuit to []. The query already excludes drafted players.
@@ -289,28 +346,37 @@ export function AvailablePlayers({
       return (
         <TouchableOpacity
           style={[styles.row, { borderBottomColor: c.border }]}
-          onPress={() => setSelectedPlayer(item)}
+          onPress={() => {
+            // Always open modal with current-season stats, not time-range-adjusted
+            const original = players?.find((p) => p.player_id === item.player_id);
+            setSelectedPlayer(original ?? item);
+          }}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={`${item.name}, ${formatPosition(item.position)}, ${item.nba_team}`}
+          accessibilityHint="View player details"
         >
           <View style={styles.portraitWrap}>
-            {headshotUrl ? (
-              <Image
-                source={{ uri: headshotUrl }}
-                style={styles.headshot}
-                resizeMode="cover"
-              />
-            ) : (
-              <View style={[styles.headshot, { backgroundColor: c.border }]} />
-            )}
+            <View style={[styles.headshotCircle, { borderColor: c.gold, backgroundColor: c.cardAlt }]}>
+              {headshotUrl ? (
+                <Image
+                  source={{ uri: headshotUrl }}
+                  style={styles.headshotImg}
+                  resizeMode="cover"
+                  accessible={false}
+                />
+              ) : null}
+            </View>
             <View style={styles.teamPill}>
               {logoUrl && (
                 <Image
                   source={{ uri: logoUrl }}
                   style={styles.teamPillLogo}
                   resizeMode="contain"
+                  accessible={false}
                 />
               )}
-              <Text style={styles.teamPillText}>{item.nba_team}</Text>
+              <Text style={[styles.teamPillText, { color: c.statusText }]}>{item.nba_team}</Text>
             </View>
           </View>
 
@@ -324,8 +390,8 @@ export function AvailablePlayers({
                 {item.name}
               </ThemedText>
               {badge && (
-                <View style={[styles.badge, { backgroundColor: badge.color }]}>
-                  <Text style={styles.badgeText}>{badge.label}</Text>
+                <View style={[styles.badge, { backgroundColor: badge.color }]} accessibilityLabel={badge.label}>
+                  <Text style={[styles.badgeText, { color: c.statusText }]}>{badge.label}</Text>
                 </View>
               )}
             </View>
@@ -348,15 +414,18 @@ export function AvailablePlayers({
             <TouchableOpacity
               style={[
                 styles.draftButton,
-                (!isMyTurn || isDrafting) && styles.draftButtonDisabled,
+                { backgroundColor: (!isMyTurn || isDrafting) ? c.buttonDisabled : c.link },
               ]}
               onPress={() => handleDraft(item)}
               disabled={!isMyTurn || isDrafting}
+              accessibilityRole="button"
+              accessibilityLabel={`Draft ${item.name}`}
+              accessibilityState={{ disabled: !isMyTurn || isDrafting }}
             >
               <ThemedText
                 style={[
                   styles.draftButtonText,
-                  (!isMyTurn || isDrafting) && styles.draftButtonTextDisabled,
+                  { color: (!isMyTurn || isDrafting) ? c.secondaryText : c.statusText },
                 ]}
               >
                 Draft
@@ -405,6 +474,7 @@ export function AvailablePlayers({
     <View style={styles.container}>
       <PlayerFilterBar
         {...filterBarProps}
+        onFreeAgentsOnlyChange={undefined}
         timeRange={timeRange}
         onTimeRangeChange={setTimeRange}
       />
@@ -448,14 +518,23 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   portraitWrap: {
-    width: 52,
-    height: 48,
+    width: 58,
+    height: 58,
     marginRight: 10,
   },
-  headshot: {
-    width: 52,
-    height: 40,
-    borderRadius: 6,
+  headshotCircle: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    borderWidth: 1.5,
+    overflow: "hidden" as const,
+  },
+  headshotImg: {
+    position: "absolute" as const,
+    bottom: -2,
+    left: 0,
+    right: 0,
+    height: 48,
   },
   teamPill: {
     position: "absolute",
@@ -474,7 +553,6 @@ const styles = StyleSheet.create({
     height: 10,
   },
   teamPillText: {
-    color: "#fff",
     fontSize: 8,
     fontWeight: "700",
     letterSpacing: 0.3,
@@ -494,7 +572,6 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   badgeText: {
-    color: "#fff",
     fontSize: 8,
     fontWeight: "800",
     letterSpacing: 0.5,
@@ -520,22 +597,16 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   draftButton: {
-    backgroundColor: "#0066cc",
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 4,
   },
   draftButtonText: {
-    color: "#fff",
     fontSize: 12,
     fontWeight: "bold",
   },
-  draftButtonDisabled: {
-    backgroundColor: "#ccc",
-  },
-  draftButtonTextDisabled: {
-    color: "#666",
-  },
+  draftButtonDisabled: {},
+  draftButtonTextDisabled: {},
   queueButton: {
     width: 22,
     alignItems: "center",

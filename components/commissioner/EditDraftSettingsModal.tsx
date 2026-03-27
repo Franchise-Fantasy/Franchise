@@ -4,7 +4,7 @@ import { LotteryOddsEditor } from '@/components/create-league/LotteryOddsEditor'
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Colors } from '@/constants/Colors';
-import { DRAFT_TYPE_OPTIONS, ROOKIE_DRAFT_ORDER_OPTIONS, TIME_PER_PICK_OPTIONS } from '@/constants/LeagueDefaults';
+import { DRAFT_TYPE_OPTIONS, INITIAL_DRAFT_ORDER_DISPLAY, INITIAL_DRAFT_ORDER_OPTIONS, INITIAL_DRAFT_ORDER_TO_DB, ROOKIE_DRAFT_ORDER_OPTIONS, TIME_PER_PICK_OPTIONS } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/lottery';
@@ -19,6 +19,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 
@@ -54,10 +55,12 @@ export function EditDraftSettingsModal({
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const queryClient = useQueryClient();
+  const { height: screenHeight } = useWindowDimensions();
 
   const isDynasty = (league?.league_type ?? 'dynasty') === 'dynasty';
 
   const [draftType, setDraftType] = useState('Snake');
+  const [initialOrder, setInitialOrder] = useState('Random');
   const [timePick, setTimePick] = useState(90);
   const [maxYears, setMaxYears] = useState(3);
   const [rookieRounds, setRookieRounds] = useState(2);
@@ -75,6 +78,7 @@ export function EditDraftSettingsModal({
         ? draft.draft_type.charAt(0).toUpperCase() + draft.draft_type.slice(1)
         : 'Snake'
     );
+    setInitialOrder(INITIAL_DRAFT_ORDER_DISPLAY[league.initial_draft_order] ?? 'Random');
     setTimePick(draft?.time_limit ?? 90);
     setMaxYears(league.max_future_seasons ?? 3);
     setRookieRounds(league.rookie_draft_rounds ?? 2);
@@ -94,7 +98,9 @@ export function EditDraftSettingsModal({
     if (!draft) return;
     setSaving(true);
 
-    const leagueUpdate: Record<string, any> = {};
+    const leagueUpdate: Record<string, any> = {
+      initial_draft_order: INITIAL_DRAFT_ORDER_TO_DB[initialOrder as keyof typeof INITIAL_DRAFT_ORDER_TO_DB] ?? 'random',
+    };
     if (isDynasty) {
       leagueUpdate.max_future_seasons = maxYears;
       leagueUpdate.rookie_draft_rounds = rookieRounds;
@@ -137,6 +143,9 @@ export function EditDraftSettingsModal({
   const orderIndex = ROOKIE_DRAFT_ORDER_OPTIONS.indexOf(
     rookieOrder as (typeof ROOKIE_DRAFT_ORDER_OPTIONS)[number]
   );
+  const initialOrderIndex = INITIAL_DRAFT_ORDER_OPTIONS.indexOf(
+    initialOrder as (typeof INITIAL_DRAFT_ORDER_OPTIONS)[number]
+  );
 
   return (
     <Modal
@@ -145,10 +154,10 @@ export function EditDraftSettingsModal({
       animationType="slide"
       onRequestClose={onClose}
     >
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable
+      <View style={styles.backdrop}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close" />
+        <View
           style={[styles.sheet, { backgroundColor: c.card }]}
-          onPress={() => {}}
           accessibilityViewIsModal={true}
         >
           {/* Handle */}
@@ -160,7 +169,7 @@ export function EditDraftSettingsModal({
           </View>
 
           <ScrollView
-            style={styles.scroll}
+            style={[styles.scroll, { maxHeight: screenHeight * 0.55 }]}
             showsVerticalScrollIndicator={false}
           >
             {/* Draft Type */}
@@ -186,6 +195,23 @@ export function EditDraftSettingsModal({
                 onSelect={(i) => setTimePick(TIME_PER_PICK_OPTIONS[i])}
               />
             </View>
+
+            {/* Draft Order */}
+            <View style={[styles.editRow, { borderBottomColor: c.border }]}>
+              <ThemedText style={styles.rowLabel}>Draft Order</ThemedText>
+            </View>
+            <View style={{ paddingVertical: 8 }}>
+              <SegmentedControl
+                options={[...INITIAL_DRAFT_ORDER_OPTIONS]}
+                selectedIndex={initialOrderIndex >= 0 ? initialOrderIndex : 0}
+                onSelect={(i) => setInitialOrder(INITIAL_DRAFT_ORDER_OPTIONS[i])}
+              />
+            </View>
+            <ThemedText style={[styles.helperText, { color: c.secondaryText, marginBottom: 8 }]}>
+              {initialOrder === 'Random'
+                ? 'Teams are randomly assigned a draft position when all teams join.'
+                : 'The commissioner will set the draft order before the draft begins.'}
+            </ThemedText>
 
             {isDynasty && (
               <>
@@ -294,8 +320,8 @@ export function EditDraftSettingsModal({
               )}
             </TouchableOpacity>
           </View>
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }

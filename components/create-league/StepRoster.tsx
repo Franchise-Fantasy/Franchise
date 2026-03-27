@@ -1,9 +1,9 @@
 import { ThemedText } from '@/components/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { Colors } from '@/constants/Colors';
-import { LeagueWizardState, TAXI_EXPERIENCE_OPTIONS } from '@/constants/LeagueDefaults';
+import { LeagueWizardState, NBA_POSITIONS, NbaPosition, PositionLimits, TAXI_EXPERIENCE_OPTIONS } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Switch, TouchableOpacity, View } from 'react-native';
 
 interface StepRosterProps {
   state: LeagueWizardState;
@@ -16,6 +16,7 @@ export function StepRoster({ state, onSlotChange, onChange, onResetRoster }: Ste
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
 
+  const posLimitsEnabled = Object.keys(state.positionLimits).length > 0;
   const activeSlots = state.rosterSlots.filter((s) => s.position !== 'IR' && s.position !== 'TAXI');
   const irSlot = state.rosterSlots.find((s) => s.position === 'IR');
   const irIndex = state.rosterSlots.findIndex((s) => s.position === 'IR');
@@ -107,6 +108,50 @@ export function StepRoster({ state, onSlotChange, onChange, onResetRoster }: Ste
         </View>
       )}
 
+      {/* Position Limits */}
+      <View style={styles.extraSection}>
+        <View style={styles.posLimitHeader}>
+          <View style={{ flex: 1 }}>
+            <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.extraHeading}>Position Limits</ThemedText>
+            <ThemedText style={[styles.extraNote, { color: c.secondaryText }]}>
+              Limit the total number of players at each position across your entire roster.
+            </ThemedText>
+          </View>
+          <Switch
+            value={posLimitsEnabled}
+            onValueChange={(on) => {
+              onChange('positionLimits', on ? { PG: 5, SG: 5, SF: 5, PF: 5, C: 5 } : {});
+            }}
+            accessibilityLabel="Enable position limits"
+          />
+        </View>
+        {posLimitsEnabled && (
+          <>
+            <ThemedText style={[styles.extraNote, { color: c.secondaryText, marginBottom: 4 }]}>
+              0 = no limit. Multi-position players count toward each eligible position.
+            </ThemedText>
+            {NBA_POSITIONS.map((pos) => (
+              <NumberStepper
+                key={pos}
+                label={pos}
+                value={state.positionLimits[pos] ?? 0}
+                onValueChange={(v) => {
+                  const next: PositionLimits = { ...state.positionLimits };
+                  if (v === 0) {
+                    delete next[pos as NbaPosition];
+                  } else {
+                    next[pos as NbaPosition] = v;
+                  }
+                  onChange('positionLimits', next);
+                }}
+                min={0}
+                max={15}
+              />
+            ))}
+          </>
+        )}
+      </View>
+
       <TouchableOpacity accessibilityRole="button" accessibilityLabel="Reset roster to defaults" onPress={onResetRoster} style={styles.resetBtn}>
         <ThemedText style={{ color: c.accent }}>Reset to Defaults</ThemedText>
       </TouchableOpacity>
@@ -162,5 +207,11 @@ const styles = StyleSheet.create({
   },
   experienceChipText: {
     fontSize: 13,
+  },
+  posLimitHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 8,
   },
 });

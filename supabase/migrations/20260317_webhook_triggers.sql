@@ -68,7 +68,8 @@ BEGIN
         'id', NEW.id,
         'conversation_id', NEW.conversation_id,
         'team_id', NEW.team_id,
-        'league_id', NEW.league_id
+        'league_id', NEW.league_id,
+        'type', NEW.type
       )
     ),
     timeout_milliseconds := 5000

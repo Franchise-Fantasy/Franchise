@@ -19,6 +19,7 @@ export function useWatchlist() {
       return new Set((data ?? []).map((r) => r.player_id as string));
     },
     enabled: !!userId,
+    staleTime: 1000 * 60 * 30,
   });
 
   const isWatchlisted = useCallback(

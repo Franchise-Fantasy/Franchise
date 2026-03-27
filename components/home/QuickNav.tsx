@@ -10,11 +10,12 @@ import { IconSymbol } from '../ui/IconSymbol';
 const NAV_ITEMS = [
   { icon: 'chart.bar', label: 'Scoreboard', route: '/scoreboard' },
   { icon: 'arrow.triangle.2.circlepath', label: 'Trade Room', route: '/trades' },
+  { icon: 'clock', label: 'Transactions', route: '/activity' },
+  { icon: 'calendar', label: 'Schedule', route: '/schedule' },
   { icon: 'trophy.fill', label: 'Playoffs', route: '/playoff-bracket' },
   { icon: 'list.bullet.clipboard', label: 'Draft Hub', route: '/draft-hub' },
-  { icon: 'clock', label: 'Transactions', route: '/activity' },
+  { icon: 'newspaper', label: 'News', route: '/news' },
   { icon: 'book.fill', label: 'History', route: '/league-history' },
-  { icon: 'info.circle', label: 'League Info', route: '/league-info' },
 ] as const;
 
 export function QuickNav({ leagueType = 'dynasty' }: { leagueType?: string }) {
@@ -32,30 +33,43 @@ export function QuickNav({ leagueType = 'dynasty' }: { leagueType?: string }) {
 
   return (
     <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
-      <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">Quick Navigation</ThemedText>
+      {/* Header row: title + League Info pill */}
+      <View style={styles.headerRow}>
+        <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">
+          Quick Navigation
+        </ThemedText>
+        <TouchableOpacity
+          style={[styles.leagueInfoPill, { backgroundColor: c.cardAlt, borderColor: c.border }]}
+          onPress={() => router.push('/league-info' as any)}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="League Info"
+        >
+          <IconSymbol name="info.circle" size={14} color={c.icon} />
+          <Text style={[styles.leagueInfoLabel, { color: c.text }]}>League Info</Text>
+        </TouchableOpacity>
+      </View>
+
       <View style={styles.grid}>
-        {visibleItems.map(item => {
-          const isLeagueInfo = item.route === '/league-info';
-          return (
-            <TouchableOpacity
-              key={item.route}
-              style={[styles.navItem, isLeagueInfo && styles.navItemCompact, { backgroundColor: c.cardAlt }]}
-              onPress={() => router.push(item.route as any)}
-              accessibilityRole="button"
-              accessibilityLabel={item.route === '/trades' && pendingTradeCount > 0
-                ? `${item.label}, ${pendingTradeCount} pending`
-                : item.label}
-            >
-              <IconSymbol name={item.icon} size={isLeagueInfo ? 20 : 24} color={c.icon} />
-              <ThemedText style={[styles.label, isLeagueInfo && { marginTop: 0 }]}>{item.label}</ThemedText>
-              {item.route === '/trades' && pendingTradeCount > 0 && (
-                <View style={styles.badge} accessibilityElementsHidden>
-                  <Text style={styles.badgeText}>{pendingTradeCount}</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          );
-        })}
+        {visibleItems.map(item => (
+          <TouchableOpacity
+            key={item.route}
+            style={[styles.navItem, { backgroundColor: c.cardAlt }]}
+            onPress={() => router.push(item.route as any)}
+            accessibilityRole="button"
+            accessibilityLabel={item.route === '/trades' && pendingTradeCount > 0
+              ? `${item.label}, ${pendingTradeCount} pending`
+              : item.label}
+          >
+            <IconSymbol name={item.icon} size={24} color={c.icon} />
+            <ThemedText style={styles.label}>{item.label}</ThemedText>
+            {item.route === '/trades' && pendingTradeCount > 0 && (
+              <View style={[styles.badge, { backgroundColor: c.danger }]} accessibilityElementsHidden>
+                <Text style={[styles.badgeText, { color: c.statusText }]}>{pendingTradeCount}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        ))}
       </View>
     </View>
   );
@@ -70,8 +84,27 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     marginBottom: 16,
   },
-  sectionTitle: {
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 12,
+  },
+  sectionTitle: {
+    // no extra margin needed — headerRow handles spacing
+  },
+  leagueInfoPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  leagueInfoLabel: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   grid: {
     flexDirection: 'row',
@@ -85,18 +118,11 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 10,
   },
-  navItemCompact: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    gap: 8,
-  },
   label: { marginTop: 8, fontSize: 12 },
   badge: {
     position: 'absolute',
     top: -8,
     right: -8,
-    backgroundColor: '#e53935',
     borderRadius: 10,
     minWidth: 20,
     height: 20,
@@ -106,7 +132,6 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   badgeText: {
-    color: '#fff',
     fontSize: 11,
     fontWeight: '700',
     textAlign: 'center',

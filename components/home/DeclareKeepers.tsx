@@ -1,3 +1,4 @@
+import { capture } from '@/lib/posthog';
 import { ThemedText } from '@/components/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -102,8 +103,9 @@ export function DeclareKeepers({ leagueId, teamId, season, keeperCount, isCommis
           .insert({ league_id: leagueId, team_id: teamId, season, player_id: playerId });
       }
     },
-    onSuccess: () => {
+    onSuccess: (_data, playerId) => {
       queryClient.invalidateQueries({ queryKey: ['keeperDeclarations', leagueId] });
+      capture('keeper_toggled', { action: declaredSet.has(playerId) ? 'removed' : 'declared' });
     },
     onError: (err: any) => {
       Alert.alert('Error', err.message ?? 'Failed to update keeper');
@@ -156,7 +158,7 @@ export function DeclareKeepers({ leagueId, teamId, season, keeperCount, isCommis
             return (
               <View key={t.name} style={styles.teamStatusRow}>
                 <ThemedText style={{ fontSize: 13 }}>{t.name}</ThemedText>
-                <ThemedText style={[styles.teamStatusCount, { color: isDone ? '#34C759' : c.secondaryText }]}>
+                <ThemedText style={[styles.teamStatusCount, { color: isDone ? c.success : c.secondaryText }]}>
                   {t.count}/{keeperCount} {isDone ? '✓' : ''}
                 </ThemedText>
               </View>

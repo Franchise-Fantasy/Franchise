@@ -37,6 +37,20 @@ const RATE_LIMITS: Record<string, RateLimitConfig> = {
   'import-sleeper-league':    { maxRequests: 3,  windowSeconds: 300 },
   'import-screenshot-league': { maxRequests: 30, windowSeconds: 600 },
 
+  // Bidding wars / autopick: moderate
+  'check-bidding-wars':       { maxRequests: 10, windowSeconds: 60 },
+  'trigger-autopick':         { maxRequests: 10, windowSeconds: 60 },
+
+  // Scoring: moderate (heavy computation)
+  'get-week-scores':          { maxRequests: 5,  windowSeconds: 60 },
+
+  // Commissioner: moderate
+  'mark-payment':             { maxRequests: 10, windowSeconds: 60 },
+
+  // Media: moderate (AI moderation cost)
+  'upload-team-logo':         { maxRequests: 5,  windowSeconds: 300 },
+  'upload-chat-media':        { maxRequests: 10, windowSeconds: 60 },
+
   // Account: very tight
   'delete-account':           { maxRequests: 1,  windowSeconds: 3600 },
 

@@ -171,8 +171,8 @@ export default function SetupProfileScreen() {
             accessibilityHint="Permanently deletes your account and all data"
           >
             <View style={styles.actionLeft}>
-              <Ionicons name="trash-outline" size={20} color="#FF3B30" accessible={false} />
-              <Text style={[styles.actionLabel, { color: "#FF3B30" }]}>
+              <Ionicons name="trash-outline" size={20} color={c.danger} accessible={false} />
+              <Text style={[styles.actionLabel, { color: c.danger }]}>
                 Delete Account
               </Text>
             </View>

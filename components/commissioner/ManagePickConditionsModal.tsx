@@ -68,7 +68,7 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
     queryFn: async () => {
       const { data, error } = await supabase
         .from('leagues')
-        .select('max_future_seasons, teams, rookie_draft_rounds')
+        .select('max_future_seasons, teams, rookie_draft_rounds, season, offseason_step')
         .eq('id', leagueId)
         .single();
       if (error) throw error;
@@ -82,9 +82,14 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
   const rookieDraftRounds = leagueSettings?.rookie_draft_rounds ?? 2;
 
   const validSeasons = (() => {
-    const startYear = parseInt(CURRENT_NBA_SEASON.split('-')[0], 10);
+    const leagueSeason = leagueSettings?.season ?? CURRENT_NBA_SEASON;
+    const leagueStartYear = parseInt(leagueSeason.split('-')[0], 10);
+    const step = leagueSettings?.offseason_step as string | null;
+    const draftDone = !step || step === 'rookie_draft_complete';
+    const startYear = draftDone ? leagueStartYear + 1 : leagueStartYear;
     const seasons: string[] = [];
-    for (let i = 0; i <= maxFuture; i++) {
+    const count = draftDone ? maxFuture : maxFuture + 1;
+    for (let i = 0; i < count; i++) {
       const sy = startYear + i;
       const ey = (sy + 1) % 100;
       seasons.push(`${sy}-${String(ey).padStart(2, '0')}`);
@@ -293,8 +298,8 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
                       </ThemedText>
                     </View>
                     {item.protection_threshold && (
-                      <View style={styles.protBadge}>
-                        <ThemedText style={styles.protBadgeText}>Top-{item.protection_threshold}</ThemedText>
+                      <View style={[styles.protBadge, { backgroundColor: c.goldMuted }]}>
+                        <ThemedText style={[styles.protBadgeText, { color: c.gold }]}>Top-{item.protection_threshold}</ThemedText>
                       </View>
                     )}
                     <Ionicons name="chevron-forward" size={16} color={c.secondaryText} />
@@ -353,8 +358,8 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
                   onPress={handleSetProtection}
                   disabled={processing}
                 >
-                  {processing ? <ActivityIndicator color="#fff" /> : (
-                    <ThemedText style={styles.actionBtnText}>
+                  {processing ? <ActivityIndicator color={c.statusText} /> : (
+                    <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>
                       {selectedPick.protection_threshold ? 'Update Protection' : 'Add Protection'}
                     </ThemedText>
                   )}
@@ -364,14 +369,14 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
                     accessibilityRole="button"
                     accessibilityLabel="Remove protection"
                     accessibilityState={{ disabled: processing }}
-                    style={[styles.actionBtn, { backgroundColor: '#dc3545' }]}
+                    style={[styles.actionBtn, { backgroundColor: c.danger }]}
                     onPress={() => Alert.alert('Remove Protection', 'Remove protection from this pick?', [
                       { text: 'Cancel', style: 'cancel' },
                       { text: 'Remove', style: 'destructive', onPress: handleRemoveProtection },
                     ])}
                     disabled={processing}
                   >
-                    <ThemedText style={styles.actionBtnText}>Remove</ThemedText>
+                    <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Remove</ThemedText>
                   </TouchableOpacity>
                 )}
               </View>
@@ -391,13 +396,13 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
                     <TouchableOpacity
                       key={s}
                       accessibilityRole="button"
-                      accessibilityLabel={`Season ${parseInt(s.split('-')[0], 10) + 1}`}
+                      accessibilityLabel={`Season ${parseInt(s.split('-')[0], 10)}`}
                       accessibilityState={{ selected: swapSeason === s }}
                       style={[styles.pill, { backgroundColor: swapSeason === s ? c.accent : c.cardAlt, borderColor: swapSeason === s ? c.accent : c.border }]}
                       onPress={() => setSwapSeason(s)}
                     >
                       <ThemedText style={{ fontSize: 13, color: swapSeason === s ? c.accentText : c.text }}>
-                        {parseInt(s.split('-')[0], 10) + 1}
+                        {parseInt(s.split('-')[0], 10)}
                       </ThemedText>
                     </TouchableOpacity>
                   ))}
@@ -454,8 +459,8 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
                 onPress={handleCreateSwap}
                 disabled={processing}
               >
-                {processing ? <ActivityIndicator color="#fff" /> : (
-                  <ThemedText style={styles.actionBtnText}>Create Swap</ThemedText>
+                {processing ? <ActivityIndicator color={c.statusText} /> : (
+                  <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Create Swap</ThemedText>
                 )}
               </TouchableOpacity>
 
@@ -483,7 +488,7 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
                           { text: 'Delete', style: 'destructive', onPress: () => handleDeleteSwap(sw.id) },
                         ])}
                       >
-                        <Ionicons name="trash-outline" size={18} color="#dc3545" />
+                        <Ionicons name="trash-outline" size={18} color={c.danger} />
                       </TouchableOpacity>
                     </View>
                   ))}
@@ -536,12 +541,11 @@ const styles = StyleSheet.create({
   },
   pickSub: { fontSize: 12, fontWeight: '500' },
   protBadge: {
-    backgroundColor: '#d4920040',
     borderRadius: 4,
     paddingHorizontal: 5,
     paddingVertical: 1,
   },
-  protBadgeText: { fontSize: 10, fontWeight: '600', color: '#d49200' },
+  protBadgeText: { fontSize: 10, fontWeight: '600' },
   editContainer: { padding: 16, paddingBottom: 40 },
   editButtons: { flexDirection: 'row', gap: 10, marginTop: 20 },
   actionBtn: {
@@ -550,7 +554,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
   },
-  actionBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  actionBtnText: { fontSize: 15, fontWeight: '600' },
   teamOption: {
     flexDirection: 'row',
     justifyContent: 'space-between',

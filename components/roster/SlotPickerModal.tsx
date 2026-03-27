@@ -2,16 +2,15 @@ import { ThemedText } from "@/components/ThemedText";
 import { Colors } from "@/constants/Colors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { PlayerSeasonStats } from "@/types/player";
-import { calculateAvgFantasyPoints } from "@/utils/fantasyPoints";
 import { formatPosition } from "@/utils/formatting";
 import { getInjuryBadge } from "@/utils/injuryBadge";
+import { formatGameTime, ScheduleEntry } from "@/utils/nbaSchedule";
+import { getPlayerHeadshotUrl } from "@/utils/playerHeadshot";
 import { slotLabel } from "@/utils/rosterSlots";
-import { useRef } from "react";
 import {
   ActivityIndicator,
-  Animated,
+  Image,
   Modal,
-  PanResponder,
   ScrollView,
   StyleSheet,
   Text,
@@ -23,8 +22,8 @@ import {
 
 export interface RosterPlayer extends PlayerSeasonStats {
   roster_slot: string | null;
-  nbaTricode: string | null; // real team tricode from players.nba_team (e.g. "OKC")
-  acquired_at?: string | null; // ISO timestamp of when the player was added to the team
+  nbaTricode: string | null;
+  acquired_at?: string | null;
 }
 
 export interface SlotEntry {
@@ -33,19 +32,76 @@ export interface SlotEntry {
   player: RosterPlayer | null;
 }
 
+export type QuickAction = "bench" | "activate" | "ir" | "taxi" | "promote";
+
+export interface DestinationSlot {
+  slot: SlotEntry;
+  section: "starter" | "bench" | "ir" | "taxi";
+}
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+function getActionMeta(c: ReturnType<typeof Colors['light' & 'dark']>): Record<
+  QuickAction,
+  { label: string; deferredLabel?: string; color: string }
+> {
+  return {
+    bench: { label: "Move to Bench", color: c.danger },
+    activate: {
+      label: "Activate",
+      deferredLabel: "Activate (tomorrow)",
+      color: c.success,
+    },
+    promote: {
+      label: "Promote",
+      deferredLabel: "Promote (tomorrow)",
+      color: c.success,
+    },
+    ir: {
+      label: "Move to IR",
+      deferredLabel: "Move to IR (tomorrow)",
+      color: c.warning,
+    },
+    taxi: {
+      label: "Move to Taxi",
+      deferredLabel: "Move to Taxi (tomorrow)",
+      color: c.secondaryText,
+    },
+  };
+}
+
+const SECTION_LABELS: Record<string, string> = {
+  starter: "Swap with Starter",
+  bench: "Replace with Bench Player",
+  ir: "Injured Reserve",
+  taxi: "Taxi Squad",
+};
+
+const FILL_SECTION_LABELS: Record<string, string> = {
+  bench: "From Bench",
+  starter: "From Starters",
+  ir: "From Injured Reserve",
+  taxi: "From Taxi Squad",
+};
+
 // ─── Props ───────────────────────────────────────────────────────────────────
 
 interface SlotPickerModalProps {
   visible: boolean;
-  slot: SlotEntry | null;
+  sourceSlot: SlotEntry | null;
+  /** Destination slots the player can move to (dest mode). */
+  destinations: DestinationSlot[];
+  /** One-tap actions for the selected player (dest mode). */
+  quickActions: QuickAction[];
+  /** Players that can fill the slot (fill mode). */
   eligiblePlayers: RosterPlayer[];
-  benchPlayerIds: Set<string>;
-  scoringWeights: any;
+  daySchedule: Map<string, ScheduleEntry> | undefined;
   isAssigning: boolean;
-  seatLocked?: boolean;
-  daySchedule: Map<string, string> | undefined;
+  /** True when the player is locked and IR/TAXI moves would defer to tomorrow. */
+  deferredToTomorrow: boolean;
+  onSelectDestination: (dest: DestinationSlot) => void;
   onSelectPlayer: (player: RosterPlayer) => void;
-  onClear: () => void;
+  onQuickAction: (action: QuickAction) => void;
   onClose: () => void;
 }
 
@@ -53,73 +109,74 @@ interface SlotPickerModalProps {
 
 export function SlotPickerModal({
   visible,
-  slot,
+  sourceSlot,
+  destinations,
+  quickActions,
   eligiblePlayers,
-  benchPlayerIds,
-  scoringWeights,
-  isAssigning,
-  seatLocked,
   daySchedule,
+  isAssigning,
+  deferredToTomorrow,
+  onSelectDestination,
   onSelectPlayer,
-  onClear,
+  onQuickAction,
   onClose,
 }: SlotPickerModalProps) {
   const scheme = useColorScheme() ?? "light";
   const c = Colors[scheme];
 
-  const translateY = useRef(new Animated.Value(0)).current;
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+  const ACTION_META = getActionMeta(c);
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_, gestureState) => gestureState.dy > 10,
-      onPanResponderMove: (_, gestureState) => {
-        if (gestureState.dy > 0) {
-          translateY.setValue(gestureState.dy);
-        }
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        if (gestureState.dy > 80 || gestureState.vy > 0.5) {
-          Animated.timing(translateY, {
-            toValue: 500,
-            duration: 200,
-            useNativeDriver: true,
-          }).start(() => {
-            onCloseRef.current();
-            translateY.setValue(0);
-          });
-        } else {
-          Animated.spring(translateY, {
-            toValue: 0,
-            useNativeDriver: true,
-            bounciness: 8,
-          }).start();
-        }
-      },
-    }),
-  ).current;
+  if (!sourceSlot) return null;
 
-  if (!slot) return null;
+  const player = sourceSlot.player;
+  const label = slotLabel(sourceSlot.slotPosition);
+  const isIrOrTaxi =
+    sourceSlot.slotPosition === "IR" || sourceSlot.slotPosition === "TAXI";
 
-  const label = slotLabel(slot.slotPosition);
-  const listData = eligiblePlayers.filter(
-    (p) => p.player_id !== slot.player?.player_id,
-  );
-  const isStarterSlot = slot.slotPosition !== "BE" && slot.slotPosition !== "IR";
+  // Dest mode: occupied starter/bench. Fill mode: empty slot or IR/TAXI.
+  const isDestMode = !!player && !isIrOrTaxi;
 
-  const hasGame = (player: RosterPlayer) =>
-    player.nbaTricode ? !!daySchedule?.get(player.nbaTricode) : false;
+  // ─── Helpers ─────────────────────────────────────────────────────────────
 
-  const playerFpts = (player: RosterPlayer): number | null => {
-    if (!scoringWeights) return null;
-    if (!hasGame(player)) return 0;
-    return calculateAvgFantasyPoints(player, scoringWeights);
+  const getScheduleEntry = (p: RosterPlayer) =>
+    p.nbaTricode ? daySchedule?.get(p.nbaTricode) ?? null : null;
+
+  const gameInfo = (p: RosterPlayer): string | null => {
+    const entry = getScheduleEntry(p);
+    if (!entry) return null;
+    const time = entry.gameTimeUtc ? formatGameTime(entry.gameTimeUtc) : null;
+    return time ? `${entry.matchup} · ${time}` : entry.matchup;
   };
 
-  const isBenchSlot = slot.slotPosition === "BE";
-  const currentFpts = slot.player ? playerFpts(slot.player) : null;
+  // Group destinations by section
+  const groupedDests = new Map<string, DestinationSlot[]>();
+  for (const d of destinations) {
+    const list = groupedDests.get(d.section) ?? [];
+    list.push(d);
+    groupedDests.set(d.section, list);
+  }
+
+  // Group eligible players by section (fill mode)
+  const benchFillPlayers = eligiblePlayers.filter(
+    (p) => !p.roster_slot || p.roster_slot === "BE",
+  );
+  const starterFillPlayers = eligiblePlayers.filter(
+    (p) =>
+      p.roster_slot &&
+      p.roster_slot !== "BE" &&
+      p.roster_slot !== "IR" &&
+      p.roster_slot !== "TAXI",
+  );
+  const irFillPlayers = eligiblePlayers.filter(
+    (p) => p.roster_slot === "IR",
+  );
+
+  // Quick actions for fill mode (occupied IR/TAXI)
+  const fillQuickActions: QuickAction[] = [];
+  if (player && sourceSlot.slotPosition === "IR") fillQuickActions.push("activate");
+  if (player && sourceSlot.slotPosition === "TAXI") fillQuickActions.push("promote");
+
+  const activeQuickActions = isDestMode ? quickActions : fillQuickActions;
 
   return (
     <Modal
@@ -129,25 +186,33 @@ export function SlotPickerModal({
       onRequestClose={onClose}
     >
       <TouchableOpacity
-        style={styles.pickerOverlay}
+        style={styles.overlay}
         activeOpacity={1}
         onPress={onClose}
       >
-        <Animated.View
-          accessibilityViewIsModal={true}
-          style={[
-            styles.pickerSheet,
-            { backgroundColor: c.background, transform: [{ translateY }] },
-          ]}
-          {...panResponder.panHandlers}
+        <View
+          accessibilityViewIsModal
+          style={[styles.sheet, { backgroundColor: c.background }]}
+          // Prevent taps inside the sheet from closing the modal
+          onStartShouldSetResponder={() => true}
         >
-          <View style={[styles.pickerHeader, { borderBottomColor: c.border }]}>
+          {/* ─── Header ─── */}
+          <View style={[styles.header, { borderBottomColor: c.border }]}>
             <View style={{ flex: 1 }}>
-              <ThemedText accessibilityRole="header" type="defaultSemiBold" style={{ fontSize: 17 }}>
+              <ThemedText
+                accessibilityRole="header"
+                type="defaultSemiBold"
+                style={{ fontSize: 17 }}
+              >
                 {label} Slot
               </ThemedText>
             </View>
-            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} style={styles.closeButton}>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Close"
+              onPress={onClose}
+              style={styles.closeBtn}
+            >
               <ThemedText style={{ fontSize: 16 }}>✕</ThemedText>
             </TouchableOpacity>
           </View>
@@ -155,209 +220,593 @@ export function SlotPickerModal({
           {isAssigning ? (
             <ActivityIndicator style={{ padding: 20 }} />
           ) : (
-            <ScrollView style={styles.pickerScroll} bounces={false}>
-              {slot.player && (
+            <ScrollView style={styles.scroll} bounces={false}>
+              {/* ─── Player card (occupied) ─── */}
+              {player ? (
                 <View
                   style={[
-                    styles.currentPlayerRow,
-                    {
-                      borderBottomColor: c.border,
-                      borderBottomWidth: StyleSheet.hairlineWidth,
-                    },
+                    styles.playerCard,
+                    { borderBottomColor: c.border, borderBottomWidth: StyleSheet.hairlineWidth },
                   ]}
                 >
-                  <View style={{ flex: 1 }}>
-                    <ThemedText type="defaultSemiBold">
-                      {slot.player.name}
-                    </ThemedText>
-                    <ThemedText
-                      style={{ color: c.secondaryText, fontSize: 12 }}
-                    >
-                      {formatPosition(slot.player.position)} ·{" "}
-                      {slot.player.nba_team}
-                    </ThemedText>
-                  </View>
-                  {(isStarterSlot || slot.slotPosition === "IR") && !seatLocked && (
-                    <TouchableOpacity
-                      accessibilityRole="button"
-                      accessibilityLabel={slot.slotPosition === "IR" ? "Activate player" : "Bench player"}
-                      style={[styles.clearButton, { borderColor: c.border }]}
-                      onPress={onClear}
-                    >
-                      <ThemedText
-                        style={{
-                          color: "#dc3545",
-                          fontSize: 13,
-                          fontWeight: "600",
-                        }}
+                  {(() => {
+                    const url = getPlayerHeadshotUrl(player.external_id_nba);
+                    return (
+                      <View
+                        style={[
+                          styles.headshotCircle,
+                          { borderColor: c.gold, backgroundColor: c.cardAlt },
+                        ]}
                       >
-                        {slot.slotPosition === "IR" ? "Activate" : "Bench"}
-                      </ThemedText>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              )}
-
-              {listData.length === 0 && !slot.player && (
-                <View style={{ padding: 20, alignItems: "center" }}>
-                  <ThemedText style={{ color: c.secondaryText }}>
-                    {slot.slotPosition === "IR"
-                      ? "No players with OUT designation on your roster"
-                      : "No eligible players available"}
-                  </ThemedText>
-                </View>
-              )}
-              {listData.map((item, idx) => {
-                const fpts = playerFpts(item);
-                const itemOnBench = benchPlayerIds.has(item.player_id);
-                // Show diff when promoting bench->starter or when bench slot views starters
-                const showDiff =
-                  fpts !== null &&
-                  currentFpts !== null &&
-                  ((isStarterSlot && itemOnBench) || (isBenchSlot && !itemOnBench));
-                const diff = showDiff
-                  ? isBenchSlot
-                    ? currentFpts! - fpts!   // bench perspective: positive = bench player is better
-                    : fpts! - currentFpts!   // starter perspective: positive = candidate is better
-                  : null;
-
-                return (
-                  <TouchableOpacity
-                    key={item.player_id}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${item.name}, ${formatPosition(item.position)}, ${item.nba_team}${fpts !== null ? `, ${fpts} fantasy points` : ''}`}
-                    style={[
-                      styles.pickerRow,
-                      idx < listData.length - 1 && {
-                        borderBottomColor: c.border,
-                        borderBottomWidth: StyleSheet.hairlineWidth,
-                      },
-                    ]}
-                    onPress={() => onSelectPlayer(item)}
-                  >
-                    <View style={[styles.pickerSlotChip, { backgroundColor: c.cardAlt }]}>
-                      <Text style={[styles.pickerSlotChipText, { color: c.secondaryText }]}>
-                        {itemOnBench ? 'BE' : slotLabel(item.roster_slot!)}
-                      </Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                        <ThemedText type="defaultSemiBold" numberOfLines={1} style={{ flexShrink: 1 }}>
-                          {item.name}
-                        </ThemedText>
-                        {(() => {
-                          const badge = getInjuryBadge(item.status);
-                          return badge ? (
-                            <View style={[styles.liveBadge, { backgroundColor: badge.color }]}>
-                              <Text style={styles.liveText}>{badge.label}</Text>
-                            </View>
-                          ) : null;
-                        })()}
+                        {url && (
+                          <Image
+                            source={{ uri: url }}
+                            style={styles.headshotImg}
+                            resizeMode="cover"
+                            accessible={false}
+                          />
+                        )}
                       </View>
+                    );
+                  })()}
+                  <View style={{ flex: 1 }}>
+                    <ThemedText
+                      type="defaultSemiBold"
+                      style={{ fontSize: 16 }}
+                    >
+                      {player.name}
+                    </ThemedText>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 4,
+                        marginTop: 2,
+                      }}
+                    >
                       <ThemedText
                         style={{ color: c.secondaryText, fontSize: 12 }}
                       >
-                        {formatPosition(item.position)} · {item.nba_team}
+                        {formatPosition(player.position)} · {player.nba_team}
                       </ThemedText>
-                    </View>
-                    {fpts !== null && (
-                      <View style={{ alignItems: "flex-end" }}>
-                        <ThemedText
-                          style={{
-                            color: c.accent,
-                            fontWeight: "600",
-                            fontSize: 14,
-                          }}
-                        >
-                          {fpts} FPTS
-                        </ThemedText>
-                        {diff !== null && (
-                          <ThemedText
-                            style={{
-                              fontSize: 11,
-                              fontWeight: "600",
-                              marginTop: 1,
-                              color:
-                                diff > 0
-                                  ? "#28a745"
-                                  : diff < 0
-                                    ? "#dc3545"
-                                    : c.secondaryText,
-                            }}
+                      {(() => {
+                        const badge = getInjuryBadge(player.status);
+                        return badge ? (
+                          <View
+                            style={[
+                              styles.injuryBadge,
+                              { backgroundColor: badge.color },
+                            ]}
                           >
-                            ({diff > 0 ? "+" : ""}
-                            {diff.toFixed(1)})
-                          </ThemedText>
-                        )}
+                            <Text style={[styles.injuryText, { color: c.statusText }]}>
+                              {badge.label}
+                            </Text>
+                          </View>
+                        ) : null;
+                      })()}
+                    </View>
+                  </View>
+                  {gameInfo(player) && (
+                    <View
+                      style={[
+                        styles.gameChip,
+                        { backgroundColor: c.cardAlt },
+                      ]}
+                    >
+                      <Text
+                        style={[styles.gameChipText, { color: c.secondaryText }]}
+                      >
+                        {gameInfo(player)}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              ) : (
+                /* ─── Empty slot header ─── */
+                <View
+                  style={[
+                    styles.playerCard,
+                    { borderBottomColor: c.border, borderBottomWidth: StyleSheet.hairlineWidth },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.emptyCircle,
+                      { borderColor: c.border, backgroundColor: c.cardAlt },
+                    ]}
+                  >
+                    <ThemedText
+                      style={{ color: c.secondaryText, fontSize: 18 }}
+                    >
+                      +
+                    </ThemedText>
+                  </View>
+                  <ThemedText
+                    style={{ color: c.secondaryText, fontSize: 14 }}
+                  >
+                    Select a player to start at {label}
+                  </ThemedText>
+                </View>
+              )}
+
+              {/* ─── Quick actions ─── */}
+              {activeQuickActions.length > 0 && (
+                <View
+                  style={[
+                    styles.quickActions,
+                    { borderBottomColor: c.border, borderBottomWidth: StyleSheet.hairlineWidth },
+                  ]}
+                >
+                  {activeQuickActions.map((action) => {
+                    const meta = ACTION_META[action];
+                    const actionLabel =
+                      deferredToTomorrow && meta.deferredLabel
+                        ? meta.deferredLabel
+                        : meta.label;
+                    return (
+                      <TouchableOpacity
+                        key={action}
+                        accessibilityRole="button"
+                        accessibilityLabel={actionLabel}
+                        style={[
+                          styles.quickActionBtn,
+                          { borderColor: meta.color },
+                        ]}
+                        onPress={() => onQuickAction(action)}
+                      >
+                        <Text
+                          style={[
+                            styles.quickActionText,
+                            { color: meta.color },
+                          ]}
+                        >
+                          {actionLabel}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+
+              {/* ─── Destinations (dest mode) ─── */}
+              {isDestMode && (
+                <>
+                  {destinations.length === 0 &&
+                    activeQuickActions.length === 0 && (
+                      <View style={{ padding: 20, alignItems: "center" }}>
+                        <ThemedText style={{ color: c.secondaryText }}>
+                          No eligible moves
+                        </ThemedText>
                       </View>
                     )}
-                  </TouchableOpacity>
-                );
-              })}
+                  {(["starter", "bench", "ir", "taxi"] as const).map(
+                    (section) => {
+                      const dests = groupedDests.get(section);
+                      if (!dests || dests.length === 0) return null;
+                      return (
+                        <View key={section}>
+                          <View
+                            style={[
+                              styles.sectionHeader,
+                              { backgroundColor: c.cardAlt },
+                            ]}
+                          >
+                            <ThemedText
+                              accessibilityRole="header"
+                              style={[
+                                styles.sectionHeaderText,
+                                { color: c.secondaryText },
+                              ]}
+                            >
+                              {SECTION_LABELS[section]}
+                            </ThemedText>
+                          </View>
+                          {dests.map((dest, idx) =>
+                            renderDestRow(dest, idx, dests.length, c),
+                          )}
+                        </View>
+                      );
+                    },
+                  )}
+                </>
+              )}
+
+              {/* ─── Eligible players (fill mode) ─── */}
+              {!isDestMode && (
+                <>
+                  {eligiblePlayers.length === 0 && (
+                    <View style={{ padding: 20, alignItems: "center" }}>
+                      <ThemedText style={{ color: c.secondaryText }}>
+                        {sourceSlot.slotPosition === "IR"
+                          ? "No players with OUT designation on your roster"
+                          : "No eligible players available"}
+                      </ThemedText>
+                    </View>
+                  )}
+                  {renderFillSection("bench", benchFillPlayers, c)}
+                  {renderFillSection("starter", starterFillPlayers, c)}
+                  {renderFillSection("ir", irFillPlayers, c)}
+                </>
+              )}
             </ScrollView>
           )}
-        </Animated.View>
+        </View>
       </TouchableOpacity>
     </Modal>
   );
+
+  // ─── Dest row (move mode) ────────────────────────────────────────────────
+
+  function renderDestRow(
+    dest: DestinationSlot,
+    idx: number,
+    total: number,
+    c: any,
+  ) {
+    const occ = dest.slot.player;
+    const occGame = occ ? gameInfo(occ) : null;
+
+    return (
+      <TouchableOpacity
+        key={`${dest.slot.slotPosition}-${dest.slot.slotIndex}`}
+        accessibilityRole="button"
+        accessibilityLabel={
+          occ
+            ? `${dest.section === "bench" ? "Replace with" : "Swap with"} ${occ.name} at ${slotLabel(dest.slot.slotPosition)}${occGame ? `, ${occGame}` : ""}`
+            : `Start at ${slotLabel(dest.slot.slotPosition)}, empty`
+        }
+        style={[
+          styles.destRow,
+          idx < total - 1 && {
+            borderBottomColor: c.border,
+            borderBottomWidth: StyleSheet.hairlineWidth,
+          },
+        ]}
+        onPress={() => onSelectDestination(dest)}
+      >
+        <View style={[styles.slotChip, { backgroundColor: c.cardAlt }]}>
+          <Text
+            style={[
+              styles.slotChipText,
+              { color: occ ? c.accent : c.secondaryText },
+            ]}
+          >
+            {slotLabel(dest.slot.slotPosition)}
+          </Text>
+        </View>
+        {occ ? (
+          <>
+            {(() => {
+              const url = getPlayerHeadshotUrl(occ.external_id_nba);
+              return (
+                <View
+                  style={[
+                    styles.rowHeadshot,
+                    { borderColor: c.gold, backgroundColor: c.cardAlt },
+                  ]}
+                >
+                  {url && (
+                    <Image
+                      source={{ uri: url }}
+                      style={styles.rowHeadshotImg}
+                      resizeMode="cover"
+                      accessible={false}
+                    />
+                  )}
+                </View>
+              );
+            })()}
+            <View style={{ flex: 1 }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                <ThemedText
+                  type="defaultSemiBold"
+                  numberOfLines={1}
+                  style={{ flexShrink: 1 }}
+                >
+                  {occ.name}
+                </ThemedText>
+                {(() => {
+                  const badge = getInjuryBadge(occ.status);
+                  return badge ? (
+                    <View
+                      style={[
+                        styles.injuryBadge,
+                        { backgroundColor: badge.color },
+                      ]}
+                    >
+                      <Text style={[styles.injuryText, { color: c.statusText }]}>{badge.label}</Text>
+                    </View>
+                  ) : null;
+                })()}
+              </View>
+              <ThemedText
+                style={{ color: c.secondaryText, fontSize: 12 }}
+              >
+                {formatPosition(occ.position)} · {occ.nba_team}
+              </ThemedText>
+            </View>
+            {occGame && (
+              <View
+                style={[
+                  styles.gameChip,
+                  { backgroundColor: c.cardAlt },
+                ]}
+              >
+                <Text
+                  style={[styles.gameChipText, { color: c.secondaryText }]}
+                >
+                  {occGame}
+                </Text>
+              </View>
+            )}
+          </>
+        ) : (
+          <ThemedText
+            style={{ flex: 1, color: c.accent, fontWeight: "500" }}
+          >
+            Empty — tap to start here
+          </ThemedText>
+        )}
+      </TouchableOpacity>
+    );
+  }
+
+  // ─── Fill section (fill mode) ─────────────────────────────────────────────
+
+  function renderFillSection(
+    section: string,
+    players: RosterPlayer[],
+    c: any,
+  ) {
+    if (players.length === 0) return null;
+    return (
+      <View key={section}>
+        <View style={[styles.sectionHeader, { backgroundColor: c.cardAlt }]}>
+          <ThemedText
+            accessibilityRole="header"
+            style={[styles.sectionHeaderText, { color: c.secondaryText }]}
+          >
+            {FILL_SECTION_LABELS[section] ?? section}
+          </ThemedText>
+        </View>
+        {players.map((item, idx) => {
+          const itemGame = gameInfo(item);
+          return (
+            <TouchableOpacity
+              key={item.player_id}
+              accessibilityRole="button"
+              accessibilityLabel={`${item.name}, ${formatPosition(item.position)}, ${item.nba_team}${itemGame ? `, ${itemGame}` : ""}`}
+              style={[
+                styles.destRow,
+                idx < players.length - 1 && {
+                  borderBottomColor: c.border,
+                  borderBottomWidth: StyleSheet.hairlineWidth,
+                },
+              ]}
+              onPress={() => onSelectPlayer(item)}
+            >
+              <View
+                style={[styles.slotChip, { backgroundColor: c.cardAlt }]}
+              >
+                <Text
+                  style={[
+                    styles.slotChipText,
+                    { color: c.secondaryText },
+                  ]}
+                >
+                  {slotLabel(item.roster_slot ?? "BE")}
+                </Text>
+              </View>
+              {(() => {
+                const url = getPlayerHeadshotUrl(item.external_id_nba);
+                return (
+                  <View
+                    style={[
+                      styles.rowHeadshot,
+                      { borderColor: c.gold, backgroundColor: c.cardAlt },
+                    ]}
+                  >
+                    {url && (
+                      <Image
+                        source={{ uri: url }}
+                        style={styles.rowHeadshotImg}
+                        resizeMode="cover"
+                        accessible={false}
+                      />
+                    )}
+                  </View>
+                );
+              })()}
+              <View style={{ flex: 1 }}>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 4,
+                  }}
+                >
+                  <ThemedText
+                    type="defaultSemiBold"
+                    numberOfLines={1}
+                    style={{ flexShrink: 1 }}
+                  >
+                    {item.name}
+                  </ThemedText>
+                  {(() => {
+                    const badge = getInjuryBadge(item.status);
+                    return badge ? (
+                      <View
+                        style={[
+                          styles.injuryBadge,
+                          { backgroundColor: badge.color },
+                        ]}
+                      >
+                        <Text style={[styles.injuryText, { color: c.statusText }]}>
+                          {badge.label}
+                        </Text>
+                      </View>
+                    ) : null;
+                  })()}
+                </View>
+                <ThemedText
+                  style={{ color: c.secondaryText, fontSize: 12 }}
+                >
+                  {formatPosition(item.position)} · {item.nba_team}
+                </ThemedText>
+              </View>
+              {itemGame && (
+                <View
+                  style={[
+                    styles.gameChip,
+                    { backgroundColor: c.cardAlt },
+                  ]}
+                >
+                  <Text
+                    style={[styles.gameChipText, { color: c.secondaryText }]}
+                  >
+                    {itemGame}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    );
+  }
 }
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  pickerOverlay: { flex: 1, justifyContent: "flex-end" },
-  pickerSheet: {
+  overlay: { flex: 1, justifyContent: "flex-end" },
+  sheet: {
     borderTopLeftRadius: 14,
     borderTopRightRadius: 14,
     maxHeight: "70%",
     overflow: "hidden",
     paddingBottom: 32,
   },
-  pickerHeader: {
+  header: {
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  closeButton: { padding: 8, marginTop: -4, marginRight: -4 },
-  currentPlayerRow: {
+  closeBtn: { padding: 8, marginTop: -4, marginRight: -4 },
+  scroll: { flexGrow: 0 },
+  playerCard: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 8,
+    gap: 10,
   },
-  clearButton: {
-    paddingHorizontal: 12,
+  headshotCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    overflow: "hidden" as const,
+  },
+  headshotImg: {
+    position: "absolute" as const,
+    bottom: -2,
+    left: 0,
+    right: 0,
+    height: 38,
+  },
+  emptyCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  quickActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    paddingHorizontal: 16,
     paddingVertical: 6,
-    borderRadius: 6,
+    gap: 8,
+  },
+  quickActionBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 8,
     borderWidth: 1,
   },
-  pickerScroll: { flexGrow: 0 },
-  pickerRow: {
+  quickActionText: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  sectionHeader: {
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+  },
+  sectionHeaderText: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  destRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 14,
+    paddingVertical: 7,
     paddingHorizontal: 16,
+    gap: 8,
   },
-  pickerSlotChip: {
+  rowHeadshot: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    overflow: "hidden" as const,
+  },
+  rowHeadshotImg: {
+    position: "absolute" as const,
+    bottom: -1,
+    left: 0,
+    right: 0,
+    height: 28,
+  },
+  slotChip: {
     width: 36,
     paddingVertical: 4,
     borderRadius: 6,
     alignItems: "center",
-    marginRight: 10,
   },
-  pickerSlotChipText: {
+  slotChipText: {
     fontSize: 10,
     fontWeight: "700",
   },
-  liveBadge: {
+  gameChip: {
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 4,
+  },
+  gameChipText: {
+    fontSize: 10,
+    fontWeight: "600",
+  },
+  injuryBadge: {
     paddingHorizontal: 4,
     paddingVertical: 1,
     borderRadius: 3,
   },
-  liveText: {
-    color: "#fff",
+  injuryText: {
     fontSize: 8,
     fontWeight: "800",
     letterSpacing: 0.5,

@@ -111,7 +111,7 @@ export function useLivePlayerStats(
         .select('*')
         .in('player_id', ids)
         .eq('game_date', yesterday)
-        .eq('game_status', 2),
+        .gte('game_status', 2),
     ]);
 
     if (toDateStr(new Date()) !== today) return;
@@ -143,7 +143,12 @@ export function useLivePlayerStats(
 
 function buildMap(rows: LivePlayerStats[]): Map<string, LivePlayerStats> {
   const map = new Map<string, LivePlayerStats>();
-  for (const row of rows) map.set(row.player_id, row);
+  for (const row of rows) {
+    // Don't let yesterday's final row overwrite today's live row
+    const existing = map.get(row.player_id);
+    if (existing && existing.game_date > row.game_date) continue;
+    map.set(row.player_id, row);
+  }
   return map;
 }
 

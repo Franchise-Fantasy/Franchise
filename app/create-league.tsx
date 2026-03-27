@@ -3,7 +3,7 @@ import { StepDraft } from "@/components/create-league/StepDraft";
 import { StepReview } from "@/components/create-league/StepReview";
 import { StepRoster } from "@/components/create-league/StepRoster";
 import { StepScoring } from "@/components/create-league/StepScoring";
-import { StepSeason, computeMaxWeeks } from "@/components/create-league/StepSeason";
+import { StepSeason, computeMaxWeeks, computeSeasonStart } from "@/components/create-league/StepSeason";
 import { StepTrade } from "@/components/create-league/StepTrade";
 import { StepWaivers } from "@/components/create-league/StepWaivers";
 import { ThemedView } from "@/components/ThemedView";
@@ -15,17 +15,22 @@ import {
   DEFAULT_ROSTER_SLOTS,
   DEFAULT_SCORING,
   CategoryConfig,
+  INITIAL_DRAFT_ORDER_TO_DB,
   LEAGUE_TYPE_TO_DB,
   LeagueWizardState,
   SCORING_TYPE_TO_DB,
   ScoringTypeOption,
+  PLAYER_LOCK_TO_DB,
   SEEDING_TO_DB,
   STEP_LABELS,
+  TIEBREAKER_TO_DB,
 } from "@/constants/LeagueDefaults";
 import { calcLotteryPoolSize, defaultPlayoffTeams, getPlayoffTeamOptions } from "@/utils/lottery";
+import { sanitizeHandle } from "@/utils/paymentLinks";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { generateDraftPicks, generateFutureDraftPicks } from "@/lib/draft";
 import { supabase } from "@/lib/supabase";
+import { capture } from "@/lib/posthog";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
@@ -65,6 +70,7 @@ const initialState: LeagueWizardState = {
   scoring: DEFAULT_SCORING.map((s) => ({ ...s })),
   categories: DEFAULT_CATEGORIES.map((c) => ({ ...c })),
   draftType: "Snake",
+  initialDraftOrder: "Random",
   timePerPick: 90,
   maxDraftYears: 3,
   tradeVetoType: "Commissioner",
@@ -79,6 +85,7 @@ const initialState: LeagueWizardState = {
   faabBudget: 100,
   waiverDayOfWeek: 3,
   season: CURRENT_NBA_SEASON,
+  seasonStartDate: null,
   regularSeasonWeeks: maxWeeks - DEFAULT_PLAYOFF_WEEKS,
   playoffWeeks: DEFAULT_PLAYOFF_WEEKS,
   playoffTeams: defaultPlayoffTeams(DEFAULT_PLAYOFF_WEEKS, 10),
@@ -88,8 +95,18 @@ const initialState: LeagueWizardState = {
   draftPickTradingEnabled: false,
   tradeDeadlineWeek: 0,
   buyIn: 0,
+  venmoUsername: '',
+  cashappTag: '',
+  paypalUsername: '',
   taxiMaxExperience: null,
   weeklyAcquisitionLimit: null,
+  playerLockType: 'Daily',
+  autoRumorsEnabled: false,
+  tiebreakerPrimary: 'Head-to-Head',
+  divisionCount: 1,
+  division1Name: 'Division 1',
+  division2Name: 'Division 2',
+  positionLimits: {},
 };
 
 function clampLotteryState(s: LeagueWizardState): LeagueWizardState {
@@ -117,6 +134,16 @@ function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
       // Re-clamp lottery settings when dependent fields change
       if (action.field === 'teams' || action.field === 'playoffWeeks' || action.field === 'playoffTeams') {
         return clampLotteryState(next);
+      }
+      // Re-clamp week counts when start date changes
+      if (action.field === 'seasonStartDate') {
+        const start = action.value
+          ? (() => { const [sy, sm, sd] = (action.value as string).split('-').map(Number); return new Date(sy, sm - 1, sd); })()
+          : computeSeasonStart();
+        const newMax = computeMaxWeeks(next.season, start);
+        const playoffWeeks = Math.min(next.playoffWeeks, Math.max(1, newMax - 1));
+        const regularSeasonWeeks = Math.min(next.regularSeasonWeeks, Math.max(1, newMax - playoffWeeks));
+        return clampLotteryState({ ...next, regularSeasonWeeks, playoffWeeks });
       }
       // When switching away from dynasty, disable pick-related features
       if (action.field === 'leagueType' && action.value !== 'Dynasty') {
@@ -146,6 +173,7 @@ function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
       return {
         ...state,
         rosterSlots: DEFAULT_ROSTER_SLOTS.map((s) => ({ ...s })),
+        positionLimits: {},
       };
     case "SET_SCORING_TYPE":
       return { ...state, scoringType: action.value };
@@ -216,6 +244,13 @@ export default function CreateLeague() {
     persistWizard(state, step);
   }, [state, step, persistWizard]);
 
+  // Track wizard step progression
+  useEffect(() => {
+    if (step > 0) {
+      capture('league_wizard_step', { step, step_label: STEP_LABELS[step] });
+    }
+  }, [step]);
+
   // Steps: 0=Basics, 1=Roster, 2=Scoring, 3=Trade, 4=Waivers, 5=Season, 6=Draft, 7=Review
   const TOTAL_STEPS = STEP_LABELS.length;
   const isOddTeamByeInvalid =
@@ -242,17 +277,22 @@ export default function CreateLeague() {
     const rosterSize = state.rosterSlots.reduce((sum, s) => (s.position === 'IR' || s.position === 'TAXI') ? sum : sum + s.count, 0);
     const taxiSlotCount = state.rosterSlots.find((s) => s.position === 'TAXI')?.count ?? 0;
 
-    // Compute season start (mirrors computeSeasonStart in StepSeason.tsx)
-    // Mon/Tue/Wed: start today. Thu–Sun: start next Monday.
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const dow = today.getDay(); // 0=Sun
-    const daysSinceMon = dow === 0 ? 6 : dow - 1;
-    const daysLeft = 7 - daysSinceMon;
-    let seasonStart = today;
-    if (daysLeft < 5) {
-      seasonStart = new Date(today);
-      seasonStart.setDate(today.getDate() + (7 - daysSinceMon));
+    // Use custom start date if set, otherwise compute automatically
+    let seasonStart: Date;
+    if (state.seasonStartDate) {
+      const [sy, sm, sd] = state.seasonStartDate.split('-').map(Number);
+      seasonStart = new Date(sy, sm - 1, sd);
+    } else {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const dow = today.getDay(); // 0=Sun
+      const daysSinceMon = dow === 0 ? 6 : dow - 1;
+      const daysLeft = 7 - daysSinceMon;
+      seasonStart = today;
+      if (daysLeft < 5) {
+        seasonStart = new Date(today);
+        seasonStart.setDate(today.getDate() + (7 - daysSinceMon));
+      }
     }
     const seasonStartDate = `${seasonStart.getFullYear()}-${String(seasonStart.getMonth() + 1).padStart(2, "0")}-${String(seasonStart.getDate()).padStart(2, "0")}`;
 
@@ -300,11 +340,22 @@ export default function CreateLeague() {
         reseed_each_round: state.reseedEachRound,
         scoring_type: SCORING_TYPE_TO_DB[state.scoringType] ?? 'points',
         buy_in_amount: state.buyIn || null,
+        venmo_username: sanitizeHandle(state.venmoUsername) || null,
+        cashapp_tag: sanitizeHandle(state.cashappTag) || null,
+        paypal_username: sanitizeHandle(state.paypalUsername) || null,
         taxi_slots: taxiSlotCount,
         taxi_max_experience: taxiSlotCount > 0 ? state.taxiMaxExperience : null,
         weekly_acquisition_limit: state.weeklyAcquisitionLimit,
+        player_lock_type: PLAYER_LOCK_TO_DB[state.playerLockType],
         pick_conditions_enabled: isDynasty ? state.pickConditionsEnabled : false,
         draft_pick_trading_enabled: isDynasty ? state.draftPickTradingEnabled : false,
+        initial_draft_order: INITIAL_DRAFT_ORDER_TO_DB[state.initialDraftOrder],
+        auto_rumors_enabled: state.autoRumorsEnabled,
+        tiebreaker_order: TIEBREAKER_TO_DB[state.tiebreakerPrimary],
+        division_count: state.divisionCount,
+        division_1_name: state.divisionCount === 2 ? state.division1Name.trim() || 'Division 1' : 'Division 1',
+        division_2_name: state.divisionCount === 2 ? state.division2Name.trim() || 'Division 2' : 'Division 2',
+        position_limits: Object.keys(state.positionLimits).length > 0 ? state.positionLimits : null,
         trade_deadline: state.tradeDeadlineWeek > 0
           ? (() => {
               // Week 1 ends on the first Sunday after (or on) seasonStart.
@@ -424,6 +475,13 @@ export default function CreateLeague() {
     Promise.all(pickPromises).catch((error) => console.error("Error generating draft picks:", error));
 
     AsyncStorage.removeItem(WIZARD_STORAGE_KEY).catch(() => {});
+
+    capture('league_created', {
+      league_type: state.leagueType,
+      teams: state.teams,
+      scoring_type: state.scoringType,
+    });
+
     setLoading(false);
     router.replace({
       pathname: "/create-team",
@@ -434,8 +492,34 @@ export default function CreateLeague() {
     });
   };
 
+  const handleCancel = () => {
+    Alert.alert(
+      'Exit League Creation?',
+      'Your progress has been saved and you can resume later.',
+      [
+        { text: 'Keep Editing', style: 'cancel' },
+        {
+          text: 'Exit',
+          style: 'destructive',
+          onPress: () => router.back(),
+        },
+      ],
+    );
+  };
+
   return (
     <ThemedView style={styles.container}>
+      <View style={styles.headerRow}>
+        <TouchableOpacity
+          onPress={handleCancel}
+          style={styles.cancelBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Cancel league creation"
+        >
+          <Text style={[styles.cancelText, { color: c.accent }]}>Cancel</Text>
+        </TouchableOpacity>
+      </View>
+
       <StepIndicator currentStep={step} steps={STEP_LABELS} />
 
       <ScrollView
@@ -522,8 +606,21 @@ export default function CreateLeague() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 60,
+    paddingTop: 54,
     paddingHorizontal: 20,
+  },
+  headerRow: {
+    flexDirection: "row",
+    justifyContent: "flex-start",
+    marginBottom: 4,
+  },
+  cancelBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+  },
+  cancelText: {
+    fontSize: 16,
+    fontWeight: "500",
   },
   content: {
     flex: 1,

@@ -92,7 +92,7 @@ export function ConversationRow({ conversation, onPress }: Props) {
             </ThemedText>
             {hasUnread && (
               <View style={[styles.badge, { backgroundColor: c.accent }]}>
-                <ThemedText style={styles.badgeText}>
+                <ThemedText style={[styles.badgeText, { color: c.statusText }]}>
                   {conversation.unread_count > 99
                     ? '99+'
                     : conversation.unread_count}
@@ -160,7 +160,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
   },
   badgeText: {
-    color: '#FFFFFF',
     fontSize: 11,
     fontWeight: '700',
     lineHeight: 20,

@@ -1,5 +1,7 @@
 import { ChatInput } from '@/components/chat/ChatInput';
 import { CreatePollModal } from '@/components/chat/CreatePollModal';
+import { CreateSurveyModal } from '@/components/chat/CreateSurveyModal';
+import { GifPicker } from '@/components/chat/GifPicker';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { ReactionPicker } from '@/components/chat/ReactionPicker';
 import { ThemedText } from '@/components/ThemedText';
@@ -9,20 +11,27 @@ import { useAppState } from '@/context/AppStateProvider';
 import {
   useMarkRead,
   useMessages,
+  usePinnedMessages,
   useReactions,
   useReadReceipts,
+  useSendGif,
+  useSendImage,
   useSendMessage,
+  useTogglePin,
   useToggleReaction,
 } from '@/hooks/chat';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
+import { Ionicons } from '@expo/vector-icons';
+import { PresenceAvatars } from '@/components/chat/PresenceAvatars';
 import { ReadReceiptIndicator } from '@/components/chat/ReadReceiptIndicator';
 import type { ChatMessage, ReactionGroup } from '@/types/chat';
+import { TeamLogo } from '@/components/team/TeamLogo';
 import type { ReadReceipt } from '@/hooks/chat/useReadReceipts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -123,10 +132,12 @@ interface ChatItemProps {
   isDM: boolean;
   isLeagueChat: boolean;
   isCommissioner: boolean;
+  isPinned: boolean;
   reactions: ReactionGroup[];
   readers: ReadReceipt[];
   isSelected: boolean;
   teamId: string | undefined;
+  teamLogoKey: string | null;
   swipeReveal: SharedValue<number>;
   secondaryTextColor: string;
   onLongPress: (messageId: string) => void;
@@ -140,10 +151,12 @@ const ChatItem = React.memo(function ChatItem({
   isDM,
   isLeagueChat,
   isCommissioner,
+  isPinned,
   reactions,
   readers,
   isSelected,
   teamId,
+  teamLogoKey,
   swipeReveal,
   secondaryTextColor,
   onLongPress,
@@ -179,10 +192,12 @@ const ChatItem = React.memo(function ChatItem({
         onLongPress={handleLongPress}
         onReactionPress={handleReactionPress}
         teamId={teamId}
+        teamLogoKey={teamLogoKey}
         isCommissioner={isCommissioner}
         swipeReveal={swipeReveal}
         showSwipeTime={meta.showSwipeTime}
         isSelected={isSelected}
+        isPinned={isPinned}
       />
       {isOwn && item.type !== 'poll' && readers.length > 0 && (
         <ReadReceiptIndicator isDM={isDM} readers={readers} />
@@ -201,7 +216,7 @@ export default function ConversationScreen() {
   const { teamId, leagueId } = useAppState();
 
   // Fetch conversation metadata to show the right title
-  const { data: convMeta } = useQuery({
+  const { data: convMeta, isError: isConvError } = useQuery({
     queryKey: ['conversationMeta', conversationId],
     queryFn: async () => {
       const { data: conv, error: convErr } = await supabase
@@ -262,9 +277,28 @@ export default function ConversationScreen() {
     staleTime: Infinity,
   });
 
+  // Map team_id → logo_key for chat avatars
+  const { data: teamLogoMap } = useQuery<Record<string, string | null>>({
+    queryKey: ['teamLogos', leagueId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('teams')
+        .select('id, logo_key')
+        .eq('league_id', leagueId!);
+      const map: Record<string, string | null> = {};
+      for (const t of data ?? []) map[t.id] = t.logo_key;
+      return map;
+    },
+    enabled: !!leagueId,
+    staleTime: 1000 * 60 * 10,
+  });
+
   const queryClient = useQueryClient();
+  const flatListRef = useRef<FlatList<ChatMessage>>(null);
   const [showCreatePoll, setShowCreatePoll] = useState(false);
+  const [showCreateSurvey, setShowCreateSurvey] = useState(false);
   const [showPresenceList, setShowPresenceList] = useState(false);
+  const [showGifPicker, setShowGifPicker] = useState(false);
 
   // Refresh messages when screen gains focus (catches messages missed by realtime)
   useFocusEffect(
@@ -329,7 +363,33 @@ export default function ConversationScreen() {
     leagueId!,
   );
 
+  const { pickAndSend: pickImage, isUploading } = useSendImage(
+    conversationId!,
+    teamId!,
+    myTeamName ?? 'Me',
+    leagueId!,
+  );
+
+  const { sendGif } = useSendGif(
+    conversationId!,
+    teamId!,
+    myTeamName ?? 'Me',
+    leagueId!,
+  );
+
+  const handleGifSelect = useCallback(
+    (gifUrl: string) => {
+      sendGif(gifUrl);
+      setShowGifPicker(false);
+    },
+    [sendGif],
+  );
+
   const toggleReaction = useToggleReaction(conversationId!);
+  const togglePin = useTogglePin(conversationId ?? null);
+  const { data: pinnedMessages } = usePinnedMessages(conversationId ?? null);
+  const pinnedIds = useMemo(() => new Set(pinnedMessages?.map((m) => m.id) ?? []), [pinnedMessages]);
+  const [showPinnedSheet, setShowPinnedSheet] = useState(false);
 
   const newestMessageId = messages.length > 0 ? messages[0].id : null;
   const { receipts: readReceipts, updateReadPosition } = useReadReceipts(
@@ -370,7 +430,7 @@ export default function ConversationScreen() {
 
   const handleSend = useCallback(
     (text: string) => {
-      sendMessage.mutate(text);
+      sendMessage.mutate({ content: text });
     },
     [sendMessage],
   );
@@ -392,6 +452,31 @@ export default function ConversationScreen() {
     },
     [reactionTargetId, teamId, toggleReaction],
   );
+
+  const scrollToMessage = useCallback((messageId: string) => {
+    const index = messages.findIndex((m) => m.id === messageId);
+    if (index >= 0 && flatListRef.current) {
+      flatListRef.current.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
+    }
+  }, [messages]);
+
+  const handleScrollToIndexFailed = useCallback((info: { index: number }) => {
+    // If the item isn't rendered yet, scroll to the end and retry
+    flatListRef.current?.scrollToOffset({ offset: info.index * 80, animated: false });
+    setTimeout(() => {
+      flatListRef.current?.scrollToIndex({ index: info.index, animated: true, viewPosition: 0.5 });
+    }, 200);
+  }, []);
+
+  const handleTogglePin = useCallback(() => {
+    if (!reactionTargetId || !teamId) return;
+    togglePin.mutate({
+      messageId: reactionTargetId,
+      teamId,
+      isPinned: pinnedIds.has(reactionTargetId),
+    });
+    setReactionTargetId(null);
+  }, [reactionTargetId, teamId, togglePin, pinnedIds]);
 
   const handleItemReactionPress = useCallback(
     (messageId: string, emoji: string) => {
@@ -436,10 +521,12 @@ export default function ConversationScreen() {
           isDM={isDM ?? false}
           isLeagueChat={isLeagueChat ?? false}
           isCommissioner={isCommissioner ?? false}
+          isPinned={pinnedIds.has(item.id)}
           reactions={reactionsMap?.[item.id] ?? emptyReactions}
           readers={readReceiptsByMessageId[item.id] ?? emptyReaders}
           isSelected={reactionTargetId === item.id}
           teamId={teamId ?? undefined}
+          teamLogoKey={teamLogoMap?.[item.team_id] ?? null}
           swipeReveal={swipeReveal}
           secondaryTextColor={secondaryTextColor}
           onLongPress={handleLongPress}
@@ -447,7 +534,7 @@ export default function ConversationScreen() {
         />
       );
     },
-    [teamId, messageMeta, isDM, isLeagueChat, isCommissioner, reactionsMap, readReceiptsByMessageId, reactionTargetId, swipeReveal, secondaryTextColor, handleLongPress, handleItemReactionPress],
+    [teamId, teamLogoMap, messageMeta, isDM, isLeagueChat, isCommissioner, pinnedIds, reactionsMap, readReceiptsByMessageId, reactionTargetId, swipeReveal, secondaryTextColor, handleLongPress, handleItemReactionPress],
   );
 
   const keyExtractor = useCallback((item: ChatMessage) => item.id, []);
@@ -456,6 +543,17 @@ export default function ConversationScreen() {
   const onlineCount = readReceipts.filter((r) => r.online).length + 1;
   const onlineTeams = readReceipts.filter((r) => r.online);
 
+  if (!isLoading && (isConvError || !convMeta) && conversationId && teamId) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
+        <PageHeader title="Chat" />
+        <ThemedText style={{ textAlign: 'center', marginTop: 40, fontSize: 15, color: c.secondaryText }}>
+          Conversation not found
+        </ThemedText>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
       <PageHeader
@@ -463,27 +561,42 @@ export default function ConversationScreen() {
         rightAction={
           convMeta?.type === 'dm' ? (
             readReceipts.some((r) => r.online) ? (
-              <View style={styles.onlineDot} accessibilityLabel="Online" />
+              <View style={[styles.onlineDot, { backgroundColor: c.success }]} accessibilityLabel="Online" />
             ) : null
           ) : convMeta?.type === 'league' ? (
-            <TouchableOpacity
+            <PresenceAvatars
+              onlineTeams={onlineTeams}
+              teamLogoMap={teamLogoMap}
+              myTeamId={teamId!}
+              myTeamName={myTeamName ?? 'Me'}
+              myLogoKey={teamLogoMap?.[teamId!]}
+              myTricode={myTricode}
               onPress={() => setShowPresenceList(true)}
-              style={[styles.presencePill, { backgroundColor: c.cardAlt }]}
-              accessibilityRole="button"
-              accessibilityLabel={`${onlineCount} of ${convMeta.memberCount} teams online`}
-            >
-              <View style={styles.onlineDot} />
-              <ThemedText style={[styles.presenceText, { color: c.text }]}>
-                {onlineCount}/{convMeta.memberCount}
-              </ThemedText>
-            </TouchableOpacity>
+            />
           ) : null
         }
       />
 
+      {/* Pinned messages bar — tap to open pinned sheet */}
+      {isLeagueChat && pinnedMessages && pinnedMessages.length > 0 && (
+        <TouchableOpacity
+          style={[styles.pinnedBar, { backgroundColor: c.cardAlt, borderBottomColor: c.border }]}
+          onPress={() => setShowPinnedSheet(true)}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={`${pinnedMessages.length} pinned message${pinnedMessages.length !== 1 ? 's' : ''}, tap to view`}
+        >
+          <Ionicons name="pin" size={14} color={c.accent} accessible={false} />
+          <ThemedText style={[styles.pinnedLabel, { color: c.accent, flex: 1 }]}>
+            {pinnedMessages.length} Pinned
+          </ThemedText>
+          <Ionicons name="chevron-forward" size={14} color={c.secondaryText} accessible={false} />
+        </TouchableOpacity>
+      )}
+
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={0}
       >
         {isLoading ? (
@@ -500,12 +613,14 @@ export default function ConversationScreen() {
           <GestureDetector gesture={listPanGesture}>
             <Animated.View style={styles.flex}>
               <FlatList
+                ref={flatListRef}
                 data={messages}
                 keyExtractor={keyExtractor}
                 renderItem={renderItem}
                 inverted
                 contentContainerStyle={styles.list}
                 onEndReached={onEndReached}
+                onScrollToIndexFailed={handleScrollToIndexFailed}
                 onEndReachedThreshold={0.5}
                 removeClippedSubviews
                 initialNumToRender={15}
@@ -522,11 +637,16 @@ export default function ConversationScreen() {
         )}
 
         <ChatInput
+          conversationId={conversationId!}
           onSend={handleSend}
           sending={sendMessage.isPending}
           isCommissioner={isCommissioner ?? false}
           isLeagueChat={isLeagueChat}
           onCreatePoll={() => setShowCreatePoll(true)}
+          onCreateSurvey={() => setShowCreateSurvey(true)}
+          onPickImage={pickImage}
+          onOpenGifPicker={() => setShowGifPicker(true)}
+          isUploading={isUploading}
         />
       </KeyboardAvoidingView>
 
@@ -536,6 +656,26 @@ export default function ConversationScreen() {
           onSelect={handleReactionSelect}
           onClose={() => setReactionTargetId(null)}
           existingReactions={reactionsMap?.[reactionTargetId]}
+          extraActions={
+            isCommissioner && isLeagueChat ? (
+              <TouchableOpacity
+                style={[styles.pinAction, { backgroundColor: c.card, borderColor: c.border }]}
+                onPress={handleTogglePin}
+                accessibilityRole="button"
+                accessibilityLabel={pinnedIds.has(reactionTargetId) ? 'Unpin message' : 'Pin message'}
+              >
+                <Ionicons
+                  name={pinnedIds.has(reactionTargetId) ? 'pin-outline' : 'pin'}
+                  size={18}
+                  color={pinnedIds.has(reactionTargetId) ? c.secondaryText : c.accent}
+                  accessible={false}
+                />
+                <ThemedText style={{ fontSize: 15, fontWeight: '600', color: pinnedIds.has(reactionTargetId) ? c.secondaryText : c.accent }}>
+                  {pinnedIds.has(reactionTargetId) ? 'Unpin' : 'Pin'}
+                </ThemedText>
+              </TouchableOpacity>
+            ) : undefined
+          }
         />
       )}
 
@@ -548,6 +688,22 @@ export default function ConversationScreen() {
           onClose={() => setShowCreatePoll(false)}
         />
       )}
+
+      {showCreateSurvey && leagueId && conversationId && teamId && (
+        <CreateSurveyModal
+          visible={showCreateSurvey}
+          leagueId={leagueId}
+          conversationId={conversationId}
+          teamId={teamId}
+          onClose={() => setShowCreateSurvey(false)}
+        />
+      )}
+
+      <GifPicker
+        visible={showGifPicker}
+        onSelect={handleGifSelect}
+        onClose={() => setShowGifPicker(false)}
+      />
 
       <Modal
         visible={showPresenceList}
@@ -562,20 +718,133 @@ export default function ConversationScreen() {
             </ThemedText>
             <FlatList
               data={[
-                { team_id: teamId!, team_name: myTeamName ?? 'Me', tricode: myTricode ?? '', online: true },
-                ...onlineTeams,
+                { team_id: teamId!, team_name: myTeamName ?? 'Me', tricode: myTricode ?? '', online: true, last_read_message_id: null },
+                ...readReceipts,
               ]}
               keyExtractor={(item) => item.team_id}
               renderItem={({ item, index }) => (
-                <View style={[styles.presenceRow, { borderBottomColor: c.border }, index === onlineTeams.length && { borderBottomWidth: 0 }]}>
-                  <View style={styles.onlineDot} />
-                  <ThemedText accessibilityLabel={`${item.team_name} is online`}>
+                <View style={[styles.presenceRow, { borderBottomColor: c.border }, index === readReceipts.length && { borderBottomWidth: 0 }]}>
+                  <TeamLogo
+                    logoKey={teamLogoMap?.[item.team_id] ?? null}
+                    teamName={item.team_name}
+                    tricode={item.tricode}
+                    size="small"
+                  />
+                  <ThemedText
+                    style={[!item.online && { opacity: 0.5 }]}
+                    accessibilityLabel={`${item.team_name} is ${item.online ? 'online' : 'offline'}`}
+                  >
                     {item.team_name}
                   </ThemedText>
+                  {item.online && <View style={[styles.onlineDot, { backgroundColor: c.success }]} />}
                 </View>
               )}
             />
           </View>
+        </Pressable>
+      </Modal>
+
+      {/* Pinned messages sheet */}
+      <Modal
+        visible={showPinnedSheet}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowPinnedSheet(false)}
+      >
+        <Pressable style={styles.pinnedSheetBackdrop} onPress={() => setShowPinnedSheet(false)}>
+          <Pressable
+            style={[styles.pinnedSheet, { backgroundColor: c.card }]}
+            onPress={() => {}}
+            accessibilityViewIsModal
+          >
+            <View style={[styles.pinnedSheetHandle, { backgroundColor: c.border }]} />
+            <ThemedText type="defaultSemiBold" style={styles.pinnedSheetTitle} accessibilityRole="header">
+              Pinned Messages
+            </ThemedText>
+            <FlatList
+              data={pinnedMessages ?? []}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={{ paddingBottom: 20 }}
+              renderItem={({ item, index }) => {
+                const isText = item.type === 'text';
+                const label = isText
+                  ? item.team_name ?? 'Message'
+                  : item.type === 'poll'
+                    ? 'Poll'
+                    : item.type === 'survey'
+                      ? 'Survey'
+                      : item.type === 'trade'
+                        ? 'Trade'
+                        : item.type === 'rumor'
+                          ? 'Rumor'
+                          : item.type === 'image'
+                            ? 'Photo'
+                            : item.type === 'gif'
+                              ? 'GIF'
+                              : 'Message';
+
+                const preview = isText
+                  ? item.content
+                  : item.type === 'poll'
+                    ? (item as any).poll_question ?? 'Commissioner Poll'
+                    : item.type === 'survey'
+                      ? (item as any).survey_title ?? 'Commissioner Survey'
+                      : item.type === 'trade'
+                        ? 'Trade Announcement'
+                        : item.type === 'rumor'
+                          ? 'Trade Rumor'
+                          : '';
+
+                return (
+                  <TouchableOpacity
+                    style={[
+                      styles.pinnedItem,
+                      { borderBottomColor: c.border },
+                      index === (pinnedMessages?.length ?? 1) - 1 && { borderBottomWidth: 0 },
+                    ]}
+                    onPress={() => {
+                      setShowPinnedSheet(false);
+                      scrollToMessage(item.id);
+                    }}
+                    activeOpacity={0.6}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Go to pinned ${label}`}
+                  >
+                    <View style={styles.pinnedItemContent}>
+                      <ThemedText style={[styles.pinnedItemLabel, { color: isText ? c.accent : c.warning }]}>
+                        {label}
+                      </ThemedText>
+                      {!!preview && (
+                        <ThemedText style={styles.pinnedItemText} numberOfLines={2}>
+                          {preview}
+                        </ThemedText>
+                      )}
+                      <ThemedText style={[styles.pinnedItemDate, { color: c.secondaryText }]}>
+                        {new Date(item.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </ThemedText>
+                    </View>
+                    {isCommissioner && (
+                      <TouchableOpacity
+                        onPress={() => {
+                          togglePin.mutate({ messageId: item.id, teamId: teamId!, isPinned: true });
+                        }}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Unpin ${label}`}
+                      >
+                        <Ionicons name="close-circle" size={20} color={c.secondaryText} />
+                      </TouchableOpacity>
+                    )}
+                  </TouchableOpacity>
+                );
+              }}
+              ListEmptyComponent={
+                <ThemedText style={{ textAlign: 'center', color: c.secondaryText, marginTop: 20 }}>
+                  No pinned messages
+                </ThemedText>
+              }
+            />
+          </Pressable>
         </Pressable>
       </Modal>
     </SafeAreaView>
@@ -617,19 +886,6 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#22c55e',
-  },
-  presencePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  presenceText: {
-    fontSize: 12,
-    fontWeight: '600',
   },
   presenceOverlay: {
     flex: 1,
@@ -638,8 +894,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
   presenceModal: {
-    width: 250,
-    maxHeight: 300,
+    width: 300,
+    maxHeight: '70%',
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
@@ -650,5 +906,78 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  pinnedBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  pinnedLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  pinnedSheetBackdrop: {
+    flex: 1,
+    backgroundColor: 'transparent',
+    justifyContent: 'flex-end',
+  },
+  pinnedSheet: {
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingTop: 12,
+    paddingBottom: 40,
+    paddingHorizontal: 16,
+    maxHeight: '60%',
+  },
+  pinnedSheetHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 12,
+  },
+  pinnedSheetTitle: {
+    fontSize: 17,
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  pinnedItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: 12,
+  },
+  pinnedItemContent: {
+    flex: 1,
+    gap: 2,
+  },
+  pinnedItemLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  pinnedItemText: {
+    fontSize: 14,
+  },
+  pinnedItemDate: {
+    fontSize: 11,
+  },
+  pinAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginTop: 8,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
   },
 });

@@ -1,3 +1,4 @@
+import { capture } from '@/lib/posthog';
 import { TradeFairnessBar } from '@/components/trade/TradeFairnessBar';
 import { TradePickPicker } from '@/components/trade/TradePickPicker';
 import { TradePlayerPicker } from '@/components/trade/TradePlayerPicker';
@@ -7,7 +8,7 @@ import { Colors } from '@/constants/Colors';
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
-import { useLockedTradeAssets } from '@/hooks/useTeamRosterForTrade';
+import { useLockedTradeAssets, usePendingDropPlayerIds } from '@/hooks/useTeamRosterForTrade';
 import { TradeProposalRow } from '@/hooks/useTrades';
 import { sendNotification } from '@/lib/notifications';
 import { supabase } from '@/lib/supabase';
@@ -51,6 +52,13 @@ interface CounterofferData {
   items: TradeProposalRow['items'];
 }
 
+interface EditData {
+  originalProposalId: string;
+  teams: TradeProposalRow['teams'];
+  items: TradeProposalRow['items'];
+  notes: string | null;
+}
+
 interface ProposeTradeModalProps {
   leagueId: string;
   teamId: string;
@@ -60,6 +68,8 @@ interface ProposeTradeModalProps {
   instantExecute?: boolean;
   /** Pre-populate with an existing proposal's data for counteroffer */
   counterofferData?: CounterofferData;
+  /** Pre-populate with an existing proposal's data for editing */
+  editData?: EditData;
   onClose: () => void;
 }
 
@@ -87,14 +97,27 @@ type TradeAction =
   | { type: 'SET_PICK_PROTECTION'; teamId: string; pickId: string; threshold: number | undefined }
   | { type: 'ADD_SWAP'; teamId: string; swap: TradeBuilderSwap }
   | { type: 'REMOVE_SWAP'; teamId: string; season: string; round: number }
-  | { type: 'SET_NOTES'; notes: string };
+  | { type: 'SET_NOTES'; notes: string }
+  | { type: 'UPDATE_PLAYER_FPTS'; fptsMap: Record<string, number> };
 
 function reducer(state: TradeState, action: TradeAction): TradeState {
   switch (action.type) {
     case 'SEED_MY_TEAM': {
       // One-time initialization: add my team (and optional preselected partner) to builder
+      const mySendingPlayers: TradeBuilderPlayer[] = [];
+      // If preselected player is on my team (no partner), add to my sending side
+      if (action.preselectedPlayer && !action.partnerTeamId) {
+        mySendingPlayers.push({
+          player_id: action.preselectedPlayer.player_id,
+          name: action.preselectedPlayer.name,
+          position: action.preselectedPlayer.position,
+          nba_team: action.preselectedPlayer.nba_team,
+          avg_fpts: action.preselectedPlayer.avg_fpts ?? 0,
+          to_team_id: '', // destination TBD until partner is selected
+        });
+      }
       const builderTeams: TradeBuilderTeam[] = [
-        { team_id: action.teamId, team_name: action.teamName, sending_players: [], sending_picks: [], sending_swaps: [] },
+        { team_id: action.teamId, team_name: action.teamName, sending_players: mySendingPlayers, sending_picks: [], sending_swaps: [] },
       ];
       const selectedTeamIds: string[] = [];
       if (action.partnerTeamId && action.partnerTeamName) {
@@ -171,7 +194,7 @@ function reducer(state: TradeState, action: TradeAction): TradeState {
         }
       }
 
-      return { ...state, step: 1, selectedTeamIds, builderTeams, notes: 'Counteroffer: ' };
+      return { ...state, step: 1, selectedTeamIds, builderTeams };
     }
     case 'TOGGLE_TEAM': {
       const exists = state.selectedTeamIds.includes(action.teamId);
@@ -294,6 +317,16 @@ function reducer(state: TradeState, action: TradeAction): TradeState {
     }
     case 'SET_NOTES':
       return { ...state, notes: action.notes };
+    case 'UPDATE_PLAYER_FPTS': {
+      const builderTeams = state.builderTeams.map((t) => ({
+        ...t,
+        sending_players: t.sending_players.map((p) => ({
+          ...p,
+          avg_fpts: action.fptsMap[p.player_id] ?? p.avg_fpts,
+        })),
+      }));
+      return { ...state, builderTeams };
+    }
     default:
       return state;
   }
@@ -308,6 +341,7 @@ export function ProposeTradeModal({
   preselectedPlayer,
   instantExecute = false,
   counterofferData,
+  editData,
   onClose,
 }: ProposeTradeModalProps) {
   const scheme = useColorScheme() ?? 'light';
@@ -320,6 +354,7 @@ export function ProposeTradeModal({
 
   // Fetch locked assets for the team currently in the picker
   const { data: lockedAssets } = useLockedTradeAssets(pickerFor?.teamId ?? null, leagueId);
+  const { data: pendingDropIds } = usePendingDropPlayerIds(pickerFor?.teamId ?? null, leagueId);
 
   // Fetch all teams in the league
   const { data: leagueTeams } = useQuery({
@@ -342,7 +377,7 @@ export function ProposeTradeModal({
     queryFn: async () => {
       const { data, error } = await supabase
         .from('leagues')
-        .select('pick_conditions_enabled, draft_pick_trading_enabled, teams, max_future_seasons, rookie_draft_rounds, league_type')
+        .select('pick_conditions_enabled, draft_pick_trading_enabled, teams, max_future_seasons, rookie_draft_rounds, league_type, season, offseason_step')
         .eq('id', leagueId)
         .single();
       if (error) throw error;
@@ -359,12 +394,18 @@ export function ProposeTradeModal({
   const maxFutureSeasons = leagueSettings?.max_future_seasons ?? 3;
   const rookieDraftRounds = leagueSettings?.rookie_draft_rounds ?? 2;
 
-  // Build valid seasons for swap picker
+  // Build valid seasons for swap picker — skip the current season if its draft already happened
   const validSeasons = (() => {
-    const currentStartYear = parseInt(CURRENT_NBA_SEASON.split('-')[0], 10);
+    const leagueSeason = leagueSettings?.season ?? CURRENT_NBA_SEASON;
+    const leagueStartYear = parseInt(leagueSeason.split('-')[0], 10);
+    const step = leagueSettings?.offseason_step as string | null;
+    // Draft is done when mid-season (null) or offseason after the draft completed
+    const draftDone = !step || step === 'rookie_draft_complete';
+    const startYear = draftDone ? leagueStartYear + 1 : leagueStartYear;
     const seasons: string[] = [];
-    for (let i = 0; i <= maxFutureSeasons; i++) {
-      const sy = currentStartYear + i;
+    const count = draftDone ? maxFutureSeasons : maxFutureSeasons + 1;
+    for (let i = 0; i < count; i++) {
+      const sy = startYear + i;
       const ey = (sy + 1) % 100;
       seasons.push(`${sy}-${String(ey).padStart(2, '0')}`);
     }
@@ -375,12 +416,14 @@ export function ProposeTradeModal({
   const myTeam = leagueTeams?.find((t) => t.id === teamId);
 
   const isCounteroffer = !!counterofferData;
+  const isEdit = !!editData;
+  const seedData = counterofferData ?? editData;
 
   const [state, dispatch] = useReducer(reducer, {
-    step: preselectedTeamId || counterofferData ? 1 : 0,
+    step: seedData ? 1 : 0,
     selectedTeamIds: preselectedTeamId ? [preselectedTeamId] : [],
     builderTeams: [],
-    notes: counterofferData ? 'Counteroffer: ' : '',
+    notes: isCounteroffer ? 'Counteroffer: ' : isEdit ? (editData.notes ?? '') : '',
   });
 
   // Seed builder teams once league teams load (runs once)
@@ -388,15 +431,34 @@ export function ProposeTradeModal({
   useEffect(() => {
     if (seeded || !leagueTeams?.length || !myTeam) return;
 
-    // Counteroffer: seed from existing proposal data
-    if (counterofferData) {
+    // Counteroffer or edit: seed from existing proposal data, then fetch real avg_fpts
+    if (seedData) {
       dispatch({
         type: 'SEED_COUNTEROFFER',
         myTeamId: teamId,
-        teams: counterofferData.teams,
-        items: counterofferData.items,
+        teams: seedData.teams,
+        items: seedData.items,
       });
       setSeeded(true);
+
+      // Fetch actual stats for all players
+      const playerIds = seedData.items
+        .filter((i) => i.player_id)
+        .map((i) => i.player_id!);
+      if (playerIds.length > 0 && scoringWeights) {
+        supabase
+          .from('player_season_stats')
+          .select('*')
+          .in('player_id', playerIds)
+          .then(({ data }) => {
+            if (!data) return;
+            const fptsMap: Record<string, number> = {};
+            for (const row of data) {
+              fptsMap[row.player_id] = calculateAvgFantasyPoints(row as PlayerSeasonStats, scoringWeights);
+            }
+            dispatch({ type: 'UPDATE_PLAYER_FPTS', fptsMap });
+          });
+      }
       return;
     }
 
@@ -438,7 +500,7 @@ export function ProposeTradeModal({
       });
       setSeeded(true);
     }
-  }, [leagueTeams, myTeam, seeded, teamId, preselectedTeamId, preselectedPlayer, scoringWeights, counterofferData]);
+  }, [leagueTeams, myTeam, seeded, teamId, preselectedTeamId, preselectedPlayer, scoringWeights, seedData]);
 
   // allBuilderTeams: just use reducer state (seeding ensures my team is present)
   const allBuilderTeams = state.builderTeams;
@@ -462,6 +524,49 @@ export function ProposeTradeModal({
 
   // All team IDs in the trade (for destination picker options)
   const allTradeTeamIds = [teamId, ...state.selectedTeamIds];
+
+  // Roster capacity warning — check if any team would go over the limit
+  const { data: rosterWarnings } = useQuery<string[]>({
+    queryKey: ['tradeRosterWarnings', leagueId, ...allTradeTeamIds, JSON.stringify(allBuilderTeams.map((t) => t.sending_players.map((p) => `${p.player_id}:${p.to_team_id}`)))],
+    queryFn: async () => {
+      // Compute net player gain per team
+      const netByTeam = new Map<string, number>();
+      for (const bt of allBuilderTeams) {
+        for (const p of bt.sending_players) {
+          netByTeam.set(bt.team_id, (netByTeam.get(bt.team_id) ?? 0) - 1);
+          const dest = p.to_team_id || allTradeTeamIds.find((id) => id !== bt.team_id) || '';
+          if (dest) netByTeam.set(dest, (netByTeam.get(dest) ?? 0) + 1);
+        }
+      }
+      const teamsGaining = [...netByTeam.entries()].filter(([, gain]) => gain > 0);
+      if (teamsGaining.length === 0) return [];
+
+      const { data: leagueData } = await supabase
+        .from('leagues')
+        .select('roster_size')
+        .eq('id', leagueId)
+        .single();
+      const rosterSize = leagueData?.roster_size ?? 13;
+
+      const warnings: string[] = [];
+      for (const [tid, netGain] of teamsGaining) {
+        const [allRes, irRes] = await Promise.all([
+          supabase.from('league_players').select('id', { count: 'exact', head: true })
+            .eq('league_id', leagueId).eq('team_id', tid),
+          supabase.from('league_players').select('id', { count: 'exact', head: true })
+            .eq('league_id', leagueId).eq('team_id', tid).eq('roster_slot', 'IR'),
+        ]);
+        const activeCount = (allRes.count ?? 0) - (irRes.count ?? 0);
+        if (activeCount + netGain > rosterSize) {
+          const teamName = allBuilderTeams.find((t) => t.team_id === tid)?.team_name ?? 'A team';
+          warnings.push(teamName);
+        }
+      }
+      return warnings;
+    },
+    enabled: state.step === 2 && allBuilderTeams.some((bt) => bt.sending_players.length > 0),
+    staleTime: 1000 * 30,
+  });
 
   // --- Submit ---
   const handleSubmit = async () => {
@@ -536,18 +641,18 @@ export function ProposeTradeModal({
           proposed_by_team_id: teamId,
           status: 'pending',
           notes: state.notes || null,
-          counteroffer_of: counterofferData?.originalProposalId ?? null,
+          counteroffer_of: counterofferData?.originalProposalId ?? null,  // edits don't link as counteroffer
         })
         .select('id')
         .single();
       if (propError) throw propError;
 
-      // Cancel the original proposal if this is a counteroffer
-      if (counterofferData?.originalProposalId) {
+      // Cancel the original proposal if this is a counteroffer or edit
+      if (counterofferData?.originalProposalId || editData?.originalProposalId) {
         await supabase
           .from('trade_proposals')
           .update({ status: 'cancelled' })
-          .eq('id', counterofferData.originalProposalId);
+          .eq('id', (counterofferData?.originalProposalId ?? editData?.originalProposalId)!);
       }
 
       // 2. Create proposal teams (proposer = accepted, others = pending)
@@ -568,6 +673,12 @@ export function ProposeTradeModal({
       }));
       const { error: itemsError } = await supabase.from('trade_proposal_items').insert(itemRows);
       if (itemsError) throw itemsError;
+
+      // Fire-and-forget: check for bidding wars (auto-rumors)
+      supabase.rpc('check_bidding_wars', {
+        p_proposal_id: proposal.id,
+        p_league_id: leagueId,
+      }).then(() => {}).catch(() => {}); // non-fatal
 
       if (instantExecute) {
         // Draft room trades: set all teams accepted and execute immediately
@@ -598,19 +709,29 @@ export function ProposeTradeModal({
       }
 
       // Normal flow: notify the other teams about the proposal
+      const notifTitle = isCounteroffer ? 'Counteroffer Received' : isEdit ? 'Trade Updated' : 'Trade Proposed';
+      const notifBody = isCounteroffer
+        ? `${myTeam?.name ?? 'A team'} has countered your trade proposal.`
+        : isEdit
+          ? `${myTeam?.name ?? 'A team'} has updated their trade proposal.`
+          : `${myTeam?.name ?? 'A team'} has proposed a trade. Review it now.`;
       sendNotification({
         league_id: leagueId,
         team_ids: state.selectedTeamIds,
         category: 'trades',
-        title: isCounteroffer ? 'Counteroffer Received' : 'Trade Proposed',
-        body: isCounteroffer
-          ? `${myTeam?.name ?? 'A team'} has countered your trade proposal.`
-          : `${myTeam?.name ?? 'A team'} has proposed a trade. Review it now.`,
+        title: notifTitle,
+        body: notifBody,
         data: { screen: 'trades' },
       });
 
       queryClient.invalidateQueries({ queryKey: ['tradeProposals', leagueId] });
       queryClient.invalidateQueries({ queryKey: ['pendingTradeCount'] });
+
+      const eventName = isCounteroffer ? 'trade_countered' : isEdit ? 'trade_edited' : 'trade_proposed';
+      capture(eventName, {
+        trade_teams: state.selectedTeamIds.length,
+      });
+
       onClose();
     } catch (err: any) {
       Alert.alert('Error', err.message ?? 'Failed to propose trade');
@@ -624,7 +745,7 @@ export function ProposeTradeModal({
   const getDefaultDest = (senderTeamId: string) =>
     allTradeTeamIds.find((id) => id !== senderTeamId) ?? '';
 
-  const handleTogglePlayer = (forTeamId: string) => (player: PlayerSeasonStats, avgFpts: number) => {
+  const handleTogglePlayer = (forTeamId: string) => (player: PlayerSeasonStats & { roster_slot?: string | null }, avgFpts: number) => {
     const builder = allBuilderTeams.find((t) => t.team_id === forTeamId);
     const exists = builder?.sending_players.some((p) => p.player_id === player.player_id);
     if (exists) {
@@ -691,6 +812,7 @@ export function ProposeTradeModal({
                   pickerTeamBuilder?.sending_players.map((p) => p.player_id) ?? []
                 }
                 lockedPlayerIds={lockedAssets?.lockedPlayerIds}
+                pendingDropPlayerIds={pendingDropIds}
                 onToggle={handleTogglePlayer(pickerFor.teamId)}
                 onBack={() => setPickerFor(null)}
               />
@@ -760,8 +882,13 @@ export function ProposeTradeModal({
                     {state.step === 0 ? 'Select Teams' : state.step === 1 ? 'Select Assets' : (instantExecute ? 'Confirm & Execute' : 'Review Trade')}
                   </ThemedText>
                   {isCounteroffer && (
-                    <ThemedText style={[styles.counterofferBanner, { color: '#f0ad4e' }]} accessibilityLabel="Counteroffer mode">
+                    <ThemedText style={[styles.counterofferBanner, { color: c.warning }]} accessibilityLabel="Counteroffer mode">
                       Counteroffer
+                    </ThemedText>
+                  )}
+                  {isEdit && (
+                    <ThemedText style={[styles.counterofferBanner, { color: c.link }]} accessibilityLabel="Editing trade">
+                      Editing Trade
                     </ThemedText>
                   )}
                 </View>
@@ -791,7 +918,7 @@ export function ProposeTradeModal({
                         onPress={() => dispatch({ type: 'TOGGLE_TEAM', teamId: item.id, teamName: item.name, myTeamId: teamId })}
                       >
                         <ThemedText type="defaultSemiBold">{item.name}</ThemedText>
-                        <ThemedText style={styles.check}>{selected ? '✓' : ''}</ThemedText>
+                        <ThemedText style={[styles.check, { color: c.success }]}>{selected ? '✓' : ''}</ThemedText>
                       </TouchableOpacity>
                     );
                   }}
@@ -866,7 +993,7 @@ export function ProposeTradeModal({
                                     dispatch({ type: 'SET_PLAYER_DEST', teamId: bt.team_id, playerId: p.player_id, toTeamId: next });
                                   }}
                                 >
-                                  <ThemedText style={styles.assetDestChipText} numberOfLines={1}>
+                                  <ThemedText style={[styles.assetDestChipText, { color: c.statusText }]} numberOfLines={1}>
                                     → {teamNameMap[p.to_team_id] ?? '?'}
                                   </ThemedText>
                                 </TouchableOpacity>
@@ -883,7 +1010,7 @@ export function ProposeTradeModal({
                                 onPress={() => dispatch({ type: 'REMOVE_PLAYER', teamId: bt.team_id, playerId: p.player_id })}
                                 hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                               >
-                                <ThemedText style={styles.removeBtn}>✕</ThemedText>
+                                <ThemedText style={[styles.removeBtn, { color: c.danger }]}>✕</ThemedText>
                               </TouchableOpacity>
                             </View>
                           ))}
@@ -895,8 +1022,8 @@ export function ProposeTradeModal({
                                 {formatPickLabel(pk.season, pk.round)}
                               </ThemedText>
                               {pk.protection_threshold && (
-                                <View style={styles.protectionBadge}>
-                                  <ThemedText style={styles.protectionBadgeText}>
+                                <View style={[styles.protectionBadge, { backgroundColor: c.goldMuted }]}>
+                                  <ThemedText style={[styles.protectionBadgeText, { color: c.gold }]}>
                                     Top-{pk.protection_threshold}
                                   </ThemedText>
                                 </View>
@@ -912,7 +1039,7 @@ export function ProposeTradeModal({
                                     dispatch({ type: 'SET_PICK_DEST', teamId: bt.team_id, pickId: pk.draft_pick_id, toTeamId: next });
                                   }}
                                 >
-                                  <ThemedText style={styles.assetDestChipText} numberOfLines={1}>
+                                  <ThemedText style={[styles.assetDestChipText, { color: c.statusText }]} numberOfLines={1}>
                                     → {teamNameMap[pk.to_team_id] ?? '?'}
                                   </ThemedText>
                                 </TouchableOpacity>
@@ -929,7 +1056,7 @@ export function ProposeTradeModal({
                                 onPress={() => dispatch({ type: 'REMOVE_PICK', teamId: bt.team_id, pickId: pk.draft_pick_id })}
                                 hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                               >
-                                <ThemedText style={styles.removeBtn}>✕</ThemedText>
+                                <ThemedText style={[styles.removeBtn, { color: c.danger }]}>✕</ThemedText>
                               </TouchableOpacity>
                             </View>
                           ))}
@@ -950,7 +1077,7 @@ export function ProposeTradeModal({
                                 onPress={() => dispatch({ type: 'REMOVE_SWAP', teamId: bt.team_id, season: sw.season, round: sw.round })}
                                 hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                               >
-                                <ThemedText style={styles.removeBtn}>✕</ThemedText>
+                                <ThemedText style={[styles.removeBtn, { color: c.danger }]}>✕</ThemedText>
                               </TouchableOpacity>
                             </View>
                           ))}
@@ -1014,8 +1141,8 @@ export function ProposeTradeModal({
                                   {formatPickLabel(pk.season, pk.round)} (~{pk.estimated_fpts} FPTS)
                                 </ThemedText>
                                 {pk.protection_threshold && (
-                                  <View style={styles.protectionBadge}>
-                                    <ThemedText style={styles.protectionBadgeText}>
+                                  <View style={[styles.protectionBadge, { backgroundColor: c.goldMuted }]}>
+                                    <ThemedText style={[styles.protectionBadgeText, { color: c.gold }]}>
                                       Top-{pk.protection_threshold}
                                     </ThemedText>
                                   </View>
@@ -1044,6 +1171,20 @@ export function ProposeTradeModal({
                         </View>
                       );
                     })}
+
+                    {/* Roster capacity warning */}
+                    {rosterWarnings && rosterWarnings.length > 0 && (
+                      <View
+                        accessibilityRole="alert"
+                        style={[styles.rosterWarning, { backgroundColor: c.warningMuted, borderColor: c.warning }]}
+                      >
+                        <ThemedText style={{ fontSize: 13, color: c.warning }}>
+                          {rosterWarnings.length === 1
+                            ? `${rosterWarnings[0]} would exceed the roster limit. They'll need to drop a player to complete this trade.`
+                            : `${rosterWarnings.join(' and ')} would exceed the roster limit. They'll need to drop players to complete this trade.`}
+                        </ThemedText>
+                      </View>
+                    )}
 
                     <TextInput
                       accessibilityLabel="Trade note"
@@ -1101,21 +1242,21 @@ export function ProposeTradeModal({
                     }
                     onPress={() => dispatch({ type: 'NEXT_STEP' })}
                   >
-                    <ThemedText style={[styles.navBtnText, { color: '#fff' }]}>Next</ThemedText>
+                    <ThemedText style={[styles.navBtnText, { color: c.statusText }]}>Next</ThemedText>
                   </TouchableOpacity>
                 ) : (
                   <TouchableOpacity
                     accessibilityRole="button"
                     accessibilityLabel={instantExecute ? 'Execute trade' : 'Propose trade'}
                     accessibilityState={{ disabled: submitting }}
-                    style={[styles.navBtn, { backgroundColor: '#28a745' }]}
+                    style={[styles.navBtn, { backgroundColor: c.success }]}
                     onPress={handleSubmit}
                     disabled={submitting}
                   >
                     {submitting ? (
-                      <ActivityIndicator size="small" color="#fff" />
+                      <ActivityIndicator size="small" color={c.statusText} />
                     ) : (
-                      <ThemedText style={[styles.navBtnText, { color: '#fff' }]}>{instantExecute ? 'Execute Trade' : isCounteroffer ? 'Send Counteroffer' : 'Propose Trade'}</ThemedText>
+                      <ThemedText style={[styles.navBtnText, { color: c.statusText }]}>{instantExecute ? 'Execute Trade' : isCounteroffer ? 'Send Counteroffer' : isEdit ? 'Update Trade' : 'Propose Trade'}</ThemedText>
                     )}
                   </TouchableOpacity>
                 )}
@@ -1218,7 +1359,6 @@ const styles = StyleSheet.create({
   check: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#28a745',
   },
 
   // Step 1 — asset layout with pinned fairness
@@ -1266,7 +1406,6 @@ const styles = StyleSheet.create({
   assetDestChipText: {
     fontSize: 10,
     fontWeight: '600',
-    color: '#fff',
   },
 
   // Compact asset rows (single line)
@@ -1293,10 +1432,8 @@ const styles = StyleSheet.create({
   removeBtn: {
     fontSize: 13,
     padding: 4,
-    color: '#dc3545',
   },
   protectionBadge: {
-    backgroundColor: '#d4920040',
     borderRadius: 4,
     paddingHorizontal: 5,
     paddingVertical: 1,
@@ -1305,7 +1442,6 @@ const styles = StyleSheet.create({
   protectionBadgeText: {
     fontSize: 10,
     fontWeight: '600',
-    color: '#d49200',
   },
 
   emptyHint: {
@@ -1358,6 +1494,12 @@ const styles = StyleSheet.create({
     minHeight: 50,
     marginTop: 4,
     textAlignVertical: 'top',
+  },
+  rosterWarning: {
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 8,
   },
 
   // Navigation

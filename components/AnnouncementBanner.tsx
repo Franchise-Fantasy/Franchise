@@ -7,6 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const DISMISSED_KEY = '@dismissed_announcements';
 
@@ -65,22 +66,20 @@ export function AnnouncementBanner() {
   // Don't render if no announcement, already dismissed, or still checking
   if (!latest || dismissed === latest.id || checkedId !== latest.id) return null;
 
-  const bgColor = scheme === 'dark' ? '#3D3520' : '#FFF3CD';
-  const textColor = scheme === 'dark' ? '#FFD866' : '#856404';
+  const c = Colors[scheme];
+  const insets = useSafeAreaInsets();
 
   return (
-    <View style={styles.container} pointerEvents="box-none">
-      <View style={[styles.toast, { backgroundColor: bgColor }]} accessibilityRole="alert" accessibilityLiveRegion="polite">
-        <Ionicons name="megaphone" size={16} color={textColor} style={styles.icon} accessible={false} />
-        <TouchableOpacity style={styles.textWrap} onPress={() => router.push('/league-info')} accessibilityRole="link" accessibilityLabel={`Announcement: ${latest.content}. Tap for details`}>
-          <Text style={[styles.text, { color: textColor }]} numberOfLines={2}>
-            {latest.content}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={handleDismiss} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="button" accessibilityLabel="Dismiss announcement">
-          <Ionicons name="close" size={18} color={textColor} />
-        </TouchableOpacity>
-      </View>
+    <View style={[styles.container, { top: insets.top, backgroundColor: c.card, borderBottomColor: c.warning }]} accessibilityRole="alert" accessibilityLiveRegion="polite">
+      <Ionicons name="megaphone" size={16} color={c.warning} style={styles.icon} accessible={false} />
+      <TouchableOpacity style={styles.textWrap} onPress={() => router.push('/league-info')} accessibilityRole="link" accessibilityLabel={`Announcement: ${latest.content}. Tap for details`}>
+        <Text style={[styles.text, { color: c.text }]} numberOfLines={2}>
+          {latest.content}
+        </Text>
+      </TouchableOpacity>
+      <TouchableOpacity onPress={handleDismiss} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="button" accessibilityLabel="Dismiss announcement">
+        <Ionicons name="close" size={18} color={c.secondaryText} />
+      </TouchableOpacity>
     </View>
   );
 }
@@ -88,27 +87,14 @@ export function AnnouncementBanner() {
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    bottom: 90, // above tab bar
     left: 0,
     right: 0,
     zIndex: 999,
-    alignItems: 'center',
-    pointerEvents: 'box-none',
-  },
-  toast: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginHorizontal: 16,
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 6,
-    maxWidth: 500,
-    width: '92%',
+    paddingVertical: 12,
+    borderBottomWidth: 2,
   },
   icon: { marginRight: 8 },
   textWrap: { flex: 1 },

@@ -1,3 +1,5 @@
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -19,14 +21,16 @@ const ICON: Record<ToastType, keyof typeof Ionicons.glyphMap> = {
   info: 'information-circle',
 };
 
-const BG: Record<ToastType, string> = {
-  success: '#28a745',
-  error: '#dc3545',
-  info: '#007AFF',
-};
-
 export function Toast({ type, message, duration, onDismiss }: ToastProps) {
   const insets = useSafeAreaInsets();
+  const scheme = useColorScheme() ?? 'light';
+  const c = Colors[scheme];
+
+  const BG: Record<ToastType, string> = {
+    success: c.success,
+    error: c.danger,
+    info: c.link,
+  };
 
   useEffect(() => {
     const timer = setTimeout(onDismiss, duration);
@@ -44,15 +48,15 @@ export function Toast({ type, message, duration, onDismiss }: ToastProps) {
       accessibilityLabel={`${type}: ${message}`}
     >
       <View style={[styles.pill, { backgroundColor: BG[type] }]}>
-        <Ionicons name={ICON[type]} size={18} color="#fff" style={styles.icon} />
-        <Text style={styles.text} numberOfLines={2}>{message}</Text>
+        <Ionicons name={ICON[type]} size={18} color={c.statusText} style={styles.icon} />
+        <Text style={[styles.text, { color: c.statusText }]} numberOfLines={2}>{message}</Text>
         <TouchableOpacity
           onPress={onDismiss}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           accessibilityRole="button"
           accessibilityLabel="Dismiss notification"
         >
-          <Ionicons name="close" size={16} color="rgba(255,255,255,0.8)" />
+          <Ionicons name="close" size={16} color={c.statusText} style={{ opacity: 0.8 }} />
         </TouchableOpacity>
       </View>
     </Animated.View>
@@ -86,7 +90,6 @@ const styles = StyleSheet.create({
   icon: { marginRight: 8 },
   text: {
     flex: 1,
-    color: '#fff',
     fontSize: 14,
     fontWeight: '600',
   },

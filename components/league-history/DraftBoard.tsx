@@ -12,9 +12,9 @@ interface DraftBoardProps {
 /** e.g. "2025-26" → "'26 Rookie Draft", "2025-26" initial → "2025-26 Draft" */
 function draftLabel(draft: DraftSummary): string {
   if (draft.type === 'rookie') {
-    // Rookie draft class year = the end year of the season (e.g. "2025-26" → "'26")
-    const endYear = draft.season.split('-')[1];
-    return `'${endYear} Rookie Draft`;
+    // Rookie draft for "2026-27" season happens in 2026 → "'26 Rookie Draft"
+    const startYear = draft.season.split('-')[0];
+    return `'${startYear.slice(-2)} Rookie Draft`;
   }
   return `${draft.season} Draft`;
 }

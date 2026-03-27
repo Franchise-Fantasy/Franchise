@@ -12,3 +12,5 @@ Code quality:
 - Accessibility labelling needs to be added to an changes or new files by default.
 
 Iterations:
+
+- When adding/removing/renaming pages, hooks, edge functions, database tables, RPCs, or real-time subscriptions, update the relevant notes in the Obsidian wiki at `c:/Users/jjspo/OneDrive/Desktop/Franchise Wiki/Franchise Wiki/`. Don't stress about perfection — just keep the affected notes roughly in sync.

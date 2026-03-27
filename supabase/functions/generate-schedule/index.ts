@@ -65,7 +65,7 @@ Deno.serve(async (req: Request) => {
     // Verify commissioner
     const { data: league, error: leagueErr } = await supabase
       .from("leagues")
-      .select("regular_season_weeks, playoff_weeks, season, season_start_date, schedule_generated, created_by")
+      .select("regular_season_weeks, playoff_weeks, season, season_start_date, schedule_generated, created_by, offseason_step")
       .eq("id", league_id)
       .single();
 
@@ -83,6 +83,13 @@ Deno.serve(async (req: Request) => {
 
     if (league.schedule_generated) {
       return new Response(JSON.stringify({ error: "Schedule already generated" }), {
+        status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const validOffseasonSteps = ['ready_for_new_season', 'rookie_draft_complete'];
+    if (league.offseason_step && !validOffseasonSteps.includes(league.offseason_step)) {
+      return new Response(JSON.stringify({ error: `Cannot generate schedule during offseason step: ${league.offseason_step}` }), {
         status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -200,7 +207,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    await supabase.from("leagues").update({ schedule_generated: true }).eq("id", league_id);
+    await supabase.from("leagues").update({ schedule_generated: true, offseason_step: null }).eq("id", league_id);
 
     return new Response(
       JSON.stringify({ success: true, total_weeks: totalWeeks, regular_season_matchups: matchupRows.length }),

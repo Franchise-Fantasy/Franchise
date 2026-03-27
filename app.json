@@ -2,7 +2,7 @@
   "expo": {
     "name": "franchise.v2",
     "slug": "franchise-v2",
-    "version": "1.1.3",
+    "version": "1.1.5",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "franchisev2",
@@ -12,7 +12,10 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.chewers.franchisev2",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "LSApplicationQueriesSchemes": ["venmo", "cashapp", "paypal"],
+        "NSCameraUsageDescription": "Franchise uses the camera to take photos for chat messages and team logos.",
+        "NSPhotoLibraryUsageDescription": "Franchise uses your photo library to share images in chat and set team logos."
       }
     },
     "android": {
@@ -33,14 +36,21 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
+          "image": "./assets/images/icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#1a1a1a"
+          "backgroundColor": "#1B3D2F"
         }
       ],
       "@react-native-community/datetimepicker",
       "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Franchise uses the camera to take photos for chat messages and team logos.",
+          "photosPermission": "Franchise uses your photo library to share images in chat and set team logos."
+        }
+      ],
       "expo-web-browser",
       [
         "expo-notifications",

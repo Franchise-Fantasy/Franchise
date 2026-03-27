@@ -7,17 +7,23 @@ import { EditDraftSettingsModal } from '@/components/commissioner/EditDraftSetti
 import { EditTradeSettingsModal } from '@/components/commissioner/EditTradeSettingsModal';
 import { EditWaiverSettingsModal } from '@/components/commissioner/EditWaiverSettingsModal';
 import { EditSeasonSettingsModal } from '@/components/commissioner/EditSeasonSettingsModal';
+import { AssignDivisionsModal } from '@/components/commissioner/AssignDivisionsModal';
 import { ReverseTradeModal } from '@/components/commissioner/ReverseTradeModal';
 import { ForceAddDropModal } from '@/components/commissioner/ForceAddDropModal';
 import { ForceRosterMoveModal } from '@/components/commissioner/ForceRosterMoveModal';
 import { ManagePickConditionsModal } from '@/components/commissioner/ManagePickConditionsModal';
 import { PaymentLedgerModal } from '@/components/commissioner/PaymentLedgerModal';
+import { PaymentNudge } from '@/components/home/PaymentNudge';
+import { openPaymentConfirmed } from '@/utils/paymentLinks';
 import { SendAnnouncementModal } from '@/components/commissioner/SendAnnouncementModal';
+import { TransferOwnershipModal } from '@/components/commissioner/TransferOwnershipModal';
 import { TeamAssigner } from '@/components/import/TeamAssigner';
 import { SeasonHistory } from '@/components/home/SeasonHistory';
+import { LeagueNotificationModal } from '@/components/LeagueNotificationModal';
+import { TeamLogo } from '@/components/team/TeamLogo';
 import { useAnnouncements } from '@/hooks/useAnnouncements';
 import { Colors } from '@/constants/Colors';
-import { LEAGUE_TYPE_DISPLAY, SEEDING_DISPLAY, WAIVER_DAY_LABELS } from '@/constants/LeagueDefaults';
+import { LEAGUE_TYPE_DISPLAY, PLAYER_LOCK_DISPLAY, SEEDING_DISPLAY, TIEBREAKER_DISPLAY, WAIVER_DAY_LABELS } from '@/constants/LeagueDefaults';
 import { useAppState } from '@/context/AppStateProvider';
 import { useSession } from '@/context/AuthProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -42,9 +48,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 // ── Lifecycle helpers ──────────────────────────────────────────────
 
-type Lifecycle = 'pre_draft' | 'mid_draft' | 'post_draft' | 'mid_season';
+type Lifecycle = 'pre_draft' | 'mid_draft' | 'post_draft' | 'mid_season' | 'offseason';
 
-function getLifecycle(draftStatus: string | undefined, scheduleGenerated: boolean): Lifecycle {
+function getLifecycle(draftStatus: string | undefined, scheduleGenerated: boolean, offseasonStep: string | null): Lifecycle {
+  if (offseasonStep) return 'offseason';
   if (!draftStatus || draftStatus === 'unscheduled' || draftStatus === 'pending' || draftStatus === 'scheduled')
     return 'pre_draft';
   if (draftStatus === 'in_progress') return 'mid_draft';
@@ -58,7 +65,7 @@ function sectionEditable(group: SettingGroup, lifecycle: Lifecycle, isCommission
   if (!isCommissioner || lifecycle === 'mid_draft') return false;
   if (group === 'basics' || group === 'trade' || group === 'waivers') return true;
   if (group === 'roster' || group === 'scoring') return lifecycle !== 'mid_season';
-  if (group === 'draft') return lifecycle === 'pre_draft';
+  if (group === 'draft') return lifecycle === 'pre_draft' || lifecycle === 'offseason';
   if (group === 'season') return lifecycle !== 'mid_season';
   return false;
 }
@@ -101,7 +108,7 @@ export default function LeagueInfoScreen() {
   });
 
   const isCommissioner = !!(session?.user?.id && league?.created_by === session.user.id);
-  const lifecycle = getLifecycle(draft?.status, league?.schedule_generated ?? false);
+  const lifecycle = getLifecycle(draft?.status, league?.schedule_generated ?? false, league?.offseason_step ?? null);
   const { data: announcements } = useAnnouncements(leagueId ?? null);
   const { data: bracket } = usePlayoffBracket(league?.season ?? '');
 
@@ -128,6 +135,9 @@ export default function LeagueInfoScreen() {
   const [showPickConditions, setShowPickConditions] = useState(false);
   const [showPaymentLedger, setShowPaymentLedger] = useState(false);
   const [showSendAnnouncement, setShowSendAnnouncement] = useState(false);
+  const [showLeagueNotifs, setShowLeagueNotifs] = useState(false);
+  const [showDivisionsModal, setShowDivisionsModal] = useState(false);
+  const [showTransferOwnership, setShowTransferOwnership] = useState(false);
   const [advancingseason, setAdvancingSeason] = useState(false);
 
   const handleAdvanceSeason = () => {
@@ -181,7 +191,7 @@ export default function LeagueInfoScreen() {
 
         {/* ── Commissioner Dashboard ── */}
         {isCommissioner && (
-          <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border, borderLeftWidth: 3, borderLeftColor: '#FF9500' }]}>
+          <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border, borderLeftWidth: 3, borderLeftColor: c.warning }]}>
             <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">Commissioner Dashboard</ThemedText>
 
             {/* ── League Management ── */}
@@ -192,18 +202,28 @@ export default function LeagueInfoScreen() {
               accessibilityRole="button"
               accessibilityLabel="Send Announcement"
             >
-              <Ionicons name="megaphone" size={18} color="#FF9500" accessible={false} />
-              <ThemedText style={[styles.commActionText, { color: '#FF9500' }]}>Send Announcement</ThemedText>
+              <Ionicons name="megaphone" size={18} color={c.warning} accessible={false} />
+              <ThemedText style={[styles.commActionText, { color: c.warning }]}>Send Announcement</ThemedText>
               <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.commAction, { borderBottomWidth: 0 }]}
+              style={[styles.commAction, { borderBottomColor: c.border }]}
               onPress={() => setShowPaymentLedger(true)}
               accessibilityRole="button"
               accessibilityLabel="Payment Ledger"
             >
-              <Ionicons name="cash" size={18} color="#34C759" accessible={false} />
-              <ThemedText style={[styles.commActionText, { color: '#34C759' }]}>Payment Ledger</ThemedText>
+              <Ionicons name="cash" size={18} color={c.success} accessible={false} />
+              <ThemedText style={[styles.commActionText, { color: c.success }]}>Payment Ledger</ThemedText>
+              <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.commAction, { borderBottomWidth: 0 }]}
+              onPress={() => setShowTransferOwnership(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Transfer Team Ownership"
+            >
+              <Ionicons name="people" size={18} color={c.text} accessible={false} />
+              <ThemedText style={styles.commActionText}>Transfer Team Ownership</ThemedText>
               <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
             </TouchableOpacity>
 
@@ -219,9 +239,9 @@ export default function LeagueInfoScreen() {
                   accessibilityLabel={playoffsComplete ? 'Advance to Offseason' : 'Advance to Offseason, disabled until playoffs complete'}
                   accessibilityState={{ disabled: advancingseason || !playoffsComplete }}
                 >
-                  <Ionicons name="calendar" size={18} color="#FF9500" accessible={false} />
+                  <Ionicons name="calendar" size={18} color={c.warning} accessible={false} />
                   <View style={{ flex: 1 }}>
-                    <ThemedText style={[styles.commActionText, { color: '#FF9500' }]}>Advance to Offseason</ThemedText>
+                    <ThemedText style={[styles.commActionText, { color: c.warning }]}>Advance to Offseason</ThemedText>
                     {!playoffsComplete && (
                       <ThemedText style={{ fontSize: 11, color: c.secondaryText, marginTop: 2 }}>
                         Playoffs must finish first
@@ -229,7 +249,7 @@ export default function LeagueInfoScreen() {
                     )}
                   </View>
                   {advancingseason ? (
-                    <ActivityIndicator size="small" color="#FF9500" />
+                    <ActivityIndicator size="small" color={c.warning} />
                   ) : (
                     <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
                   )}
@@ -301,10 +321,66 @@ export default function LeagueInfoScreen() {
             <Row label="Invite Code" value={league.invite_code} c={c} />
           )}
           <Row label="Buy-In" value={league.buy_in_amount ? `$${league.buy_in_amount}` : 'Free'} c={c} />
+          {league.venmo_username && (
+            isCommissioner ? (
+              <TouchableOpacity onPress={() => openPaymentConfirmed('venmo', league.venmo_username, { amount: league.buy_in_amount ?? undefined, note: `${league.name} buy-in` })} accessibilityRole="button" accessibilityLabel="Test Venmo link">
+                <Row label="Venmo" value={`@${league.venmo_username}  ↗`} c={c} />
+              </TouchableOpacity>
+            ) : (
+              <Row label="Venmo" value={`@${league.venmo_username}`} c={c} />
+            )
+          )}
+          {league.cashapp_tag && (
+            isCommissioner ? (
+              <TouchableOpacity onPress={() => openPaymentConfirmed('cashapp', league.cashapp_tag)} accessibilityRole="button" accessibilityLabel="Test Cash App link">
+                <Row label="Cash App" value={`$${league.cashapp_tag}  ↗`} c={c} />
+              </TouchableOpacity>
+            ) : (
+              <Row label="Cash App" value={`$${league.cashapp_tag}`} c={c} />
+            )
+          )}
+          {league.paypal_username && (
+            isCommissioner ? (
+              <TouchableOpacity onPress={() => openPaymentConfirmed('paypal', league.paypal_username, { amount: league.buy_in_amount ?? undefined })} accessibilityRole="button" accessibilityLabel="Test PayPal link">
+                <Row label="PayPal" value={`${league.paypal_username}  ↗`} c={c} />
+              </TouchableOpacity>
+            ) : (
+              <Row label="PayPal" value={league.paypal_username} c={c} />
+            )
+          )}
+          {!!league.buy_in_amount && !league.venmo_username && !league.cashapp_tag && !league.paypal_username && isCommissioner && (
+            <Row label="Payment Methods" value="Not set — tap Edit to add" c={c} />
+          )}
           <Row label="Teams" value={`${teamCount}`} c={c} />
           <Row label="Season" value={league.season} c={c} />
           {commissionerTeam && <Row label="Commissioner" value={commissionerTeam.name} c={c} last />}
         </SectionCard>
+
+        {/* Non-commissioner: payment nudge + ledger link */}
+        {!isCommissioner && !!league.buy_in_amount && teamId && (
+          <View style={{ marginHorizontal: 16 }}>
+            <PaymentNudge
+              leagueId={leagueId!}
+              leagueName={league.name}
+              season={league.season}
+              teamId={teamId}
+              buyInAmount={league.buy_in_amount}
+              venmoUsername={league.venmo_username ?? null}
+              cashappTag={league.cashapp_tag ?? null}
+              paypalUsername={league.paypal_username ?? null}
+            />
+            <TouchableOpacity
+              style={[styles.paymentLedgerBtn, { backgroundColor: c.card, borderColor: c.border }]}
+              onPress={() => setShowPaymentLedger(true)}
+              accessibilityRole="button"
+              accessibilityLabel="View Payment Ledger"
+            >
+              <Ionicons name="cash-outline" size={18} color={c.success} accessible={false} />
+              <ThemedText style={{ color: c.success, fontWeight: '600', flex: 1, marginLeft: 8 }}>View Payment Ledger</ThemedText>
+              <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* ── Roster Configuration ── */}
         <SectionCard title={`Roster (${league.roster_size ?? '?'} slots)`} c={c} editable={sectionEditable('roster', lifecycle, isCommissioner)} onEdit={() => setShowRosterModal(true)}>
@@ -381,7 +457,8 @@ export default function LeagueInfoScreen() {
               <Row label="FAAB Budget" value={`$${league.faab_budget ?? 100}`} c={c} />
             </>
           )}
-          <Row label="Weekly Add Limit" value={league.weekly_acquisition_limit != null ? String(league.weekly_acquisition_limit) : 'Unlimited'} c={c} last />
+          <Row label="Weekly Add Limit" value={league.weekly_acquisition_limit != null ? String(league.weekly_acquisition_limit) : 'Unlimited'} c={c} />
+          <Row label="Player Lock" value={PLAYER_LOCK_DISPLAY[league.player_lock_type] ?? 'Daily'} c={c} last />
         </SectionCard>
 
         {/* ── Season Settings ── */}
@@ -394,8 +471,36 @@ export default function LeagueInfoScreen() {
           {league.playoff_seeding_format === 'standard' && (
             <Row label="Reseed Each Round" value={league.reseed_each_round ? 'Yes' : 'No'} c={c} />
           )}
+          <Row
+            label="Tiebreaker"
+            value={
+              (league.tiebreaker_order ?? ['head_to_head', 'points_for'])
+                .map((k: string) => TIEBREAKER_DISPLAY[k] ?? k)
+                .join(', then ')
+            }
+            c={c}
+          />
+          <Row
+            label="Divisions"
+            value={league.division_count === 2 ? `${league.division_1_name} & ${league.division_2_name}` : 'None'}
+            c={c}
+          />
           <Row label="Schedule" value={league.schedule_generated ? 'Generated' : 'Not yet generated'} c={c} last />
         </SectionCard>
+
+        {/* ── Assign Divisions (commissioner, pre-season, 2 divisions) ── */}
+        {isCommissioner && league.division_count === 2 && lifecycle !== 'mid_season' && (
+          <TouchableOpacity
+            style={[styles.section, { backgroundColor: c.card, borderColor: c.border, flexDirection: 'row', alignItems: 'center', gap: 10 }]}
+            onPress={() => setShowDivisionsModal(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Assign teams to divisions"
+          >
+            <Ionicons name="git-branch-outline" size={20} color={c.accent} accessible={false} />
+            <ThemedText style={{ flex: 1, fontSize: 14 }}>Assign Divisions</ThemedText>
+            <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
+          </TouchableOpacity>
+        )}
 
         {/* ── Members ── */}
         <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
@@ -408,7 +513,35 @@ export default function LeagueInfoScreen() {
                 style={[styles.memberRow, idx === (league.league_teams?.length ?? 0) - 1 && { borderBottomWidth: 0 }, { borderBottomColor: c.border }]}
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-                  <ThemedText>{team.name}</ThemedText>
+                  <TeamLogo logoKey={team.logo_key} teamName={team.name} tricode={team.tricode} size="medium" />
+                  <TouchableOpacity
+                    disabled={!isMine}
+                    activeOpacity={isMine ? 0.6 : 1}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Team name: ${team.name}${isMine ? ', tap to edit' : ''}`}
+                    onPress={() => {
+                      if (!isMine) return;
+                      Alert.prompt(
+                        'Edit Team Name',
+                        'Enter your new team name',
+                        async (value) => {
+                          const name = (value ?? '').trim();
+                          if (!name) return;
+                          if (name.length > 30) { Alert.alert('Too long', 'Team name must be 30 characters or fewer.'); return; }
+                          const { error } = await supabase.from('teams').update({ name }).eq('id', team.id);
+                          if (error) { Alert.alert('Error', error.message); return; }
+                          queryClient.invalidateQueries({ queryKey: ['league'] });
+                        },
+                        'plain-text',
+                        team.name ?? '',
+                      );
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <ThemedText>{team.name}</ThemedText>
+                      {isMine && <Ionicons name="pencil" size={10} color={c.secondaryText} />}
+                    </View>
+                  </TouchableOpacity>
                   <TouchableOpacity
                     accessibilityRole="button"
                     accessibilityLabel={`Tricode: ${team.tricode ?? 'not set'}${isMine ? ', tap to edit' : ''}`}
@@ -452,6 +585,18 @@ export default function LeagueInfoScreen() {
           })}
         </View>
 
+        {/* ── League Notification Preferences ── */}
+        <TouchableOpacity
+          style={[styles.section, { backgroundColor: c.card, borderColor: c.border, flexDirection: 'row', alignItems: 'center', gap: 10 }]}
+          onPress={() => setShowLeagueNotifs(true)}
+          accessibilityRole="button"
+          accessibilityLabel="League notification preferences"
+        >
+          <Ionicons name="notifications-outline" size={20} color={c.accent} accessible={false} />
+          <ThemedText style={{ flex: 1, fontSize: 14 }}>Notification Preferences</ThemedText>
+          <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
+        </TouchableOpacity>
+
         {/* ── Announcements ── */}
         {(announcements ?? []).length > 0 && (
           <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
@@ -485,6 +630,17 @@ export default function LeagueInfoScreen() {
 
       </ScrollView>
 
+      {/* ── League Notification Preferences Modal ── */}
+      {leagueId && session?.user?.id && (
+        <LeagueNotificationModal
+          visible={showLeagueNotifs}
+          onClose={() => setShowLeagueNotifs(false)}
+          userId={session.user.id}
+          leagueId={leagueId}
+          leagueName={league?.name ?? 'League'}
+        />
+      )}
+
       {/* ── Settings Modals ── */}
       {leagueId && (
         <>
@@ -493,12 +649,15 @@ export default function LeagueInfoScreen() {
             onClose={() => setShowBasicsModal(false)}
             league={league}
             leagueId={leagueId}
+            canChangeSize={isCommissioner && lifecycle === 'pre_draft'}
+            currentTeamCount={teamCount}
           />
           <EditRosterModal
             visible={showRosterModal}
             onClose={() => setShowRosterModal(false)}
             leagueId={leagueId}
             rosterConfig={rosterConfig}
+            positionLimits={league?.position_limits as Record<string, number> | null}
           />
           <EditScoringModal
             visible={showScoringModal}
@@ -547,14 +706,7 @@ export default function LeagueInfoScreen() {
             teamId={teamId ?? ''}
             onClose={() => setShowSendAnnouncement(false)}
           />
-          <PaymentLedgerModal
-            visible={showPaymentLedger}
-            leagueId={leagueId}
-            season={league?.season ?? ''}
-            buyInAmount={league?.buy_in_amount ?? null}
-            teams={(league?.league_teams ?? []).map((t: any) => ({ id: t.id, name: t.name }))}
-            onClose={() => setShowPaymentLedger(false)}
-          />
+          {/* PaymentLedgerModal moved outside commissioner block */}
           <ReverseTradeModal
             visible={showReverseTrade}
             leagueId={leagueId}
@@ -578,7 +730,47 @@ export default function LeagueInfoScreen() {
             teams={(league?.league_teams ?? []).map((t: any) => ({ id: t.id, name: t.name }))}
             onClose={() => setShowPickConditions(false)}
           />
+          <TransferOwnershipModal
+            visible={showTransferOwnership}
+            onClose={() => setShowTransferOwnership(false)}
+            leagueId={leagueId}
+            teams={(league?.league_teams ?? []).map((t: any) => ({ id: t.id, name: t.name, user_id: t.user_id }))}
+          />
+          {league?.division_count === 2 && (
+            <AssignDivisionsModal
+              visible={showDivisionsModal}
+              onClose={() => setShowDivisionsModal(false)}
+              leagueId={leagueId}
+              division1Name={league.division_1_name ?? 'Division 1'}
+              division2Name={league.division_2_name ?? 'Division 2'}
+              teams={(league?.league_teams ?? []).map((t: any) => ({
+                id: t.id,
+                name: t.name,
+                tricode: t.tricode,
+                logo_key: t.logo_key,
+                division: t.division ?? null,
+              }))}
+            />
+          )}
         </>
+      )}
+
+      {/* Payment Ledger — available to all members */}
+      {leagueId && (
+        <PaymentLedgerModal
+          visible={showPaymentLedger}
+          leagueId={leagueId}
+          leagueName={league?.name ?? ''}
+          season={league?.season ?? ''}
+          buyInAmount={league?.buy_in_amount ?? null}
+          venmoUsername={league?.venmo_username ?? null}
+          cashappTag={league?.cashapp_tag ?? null}
+          paypalUsername={league?.paypal_username ?? null}
+          teams={(league?.league_teams ?? []).map((t: any) => ({ id: t.id, name: t.name }))}
+          myTeamId={teamId ?? undefined}
+          isCommissioner={isCommissioner}
+          onClose={() => setShowPaymentLedger(false)}
+        />
       )}
     </SafeAreaView>
   );
@@ -623,6 +815,14 @@ function SectionCard({
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  paymentLedgerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    marginBottom: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

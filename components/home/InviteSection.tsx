@@ -68,14 +68,14 @@ export function InviteSection({ isCommissioner, inviteCode, leagueId, isFull }: 
       <View style={[styles.codeCard, { backgroundColor: c.cardAlt }]}>
         <ThemedText style={styles.code}>{inviteCode}</ThemedText>
         <View style={styles.actions}>
-          <TouchableOpacity onPress={handleCopy} style={styles.actionBtn} hitSlop={8}>
-            <Ionicons name="copy-outline" size={20} color={c.accent} />
+          <TouchableOpacity onPress={handleCopy} style={styles.actionBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Copy invite link">
+            <Ionicons name="copy-outline" size={20} color={c.accent} accessible={false} />
           </TouchableOpacity>
-          <TouchableOpacity onPress={handleShare} style={styles.actionBtn} hitSlop={8}>
-            <Ionicons name="share-outline" size={20} color={c.accent} />
+          <TouchableOpacity onPress={handleShare} style={styles.actionBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Share invite link">
+            <Ionicons name="share-outline" size={20} color={c.accent} accessible={false} />
           </TouchableOpacity>
-          <TouchableOpacity onPress={handleRegenerate} style={styles.actionBtn} hitSlop={8}>
-            <Ionicons name="refresh-outline" size={20} color={c.secondaryText} />
+          <TouchableOpacity onPress={handleRegenerate} style={styles.actionBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Regenerate invite code">
+            <Ionicons name="refresh-outline" size={20} color={c.secondaryText} accessible={false} />
           </TouchableOpacity>
         </View>
       </View>

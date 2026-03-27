@@ -10,15 +10,18 @@ import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
 import { toDateStr } from '@/utils/dates';
-import { fetchLineupForDate } from '@/utils/dailyLineup';
+import { fetchTeamSlots } from '@/utils/fetchTeamSlots';
 import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
 import { formatPosition } from '@/utils/formatting';
+import { getInjuryBadge } from '@/utils/injuryBadge';
 import { slotLabel } from '@/utils/rosterSlots';
 import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
+import { getPlayerHeadshotUrl, getTeamLogoUrl } from '@/utils/playerHeadshot';
 import {
   ActivityIndicator,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -69,7 +72,7 @@ export default function TeamRosterScreen() {
   const { data: rosterConfig, isLoading: isLoadingConfig } = useLeagueRosterConfig(leagueId ?? '');
 
   // Fetch team name
-  const { data: teamName } = useQuery({
+  const { data: teamName, isError: isTeamError } = useQuery({
     queryKey: ['teamName', viewTeamId],
     queryFn: async () => {
       const { data } = await supabase
@@ -97,7 +100,7 @@ export default function TeamRosterScreen() {
 
       const playerIds = leaguePlayers.map((lp) => lp.player_id);
 
-      const slotMap = await fetchLineupForDate(viewTeamId!, leagueId!, today);
+      const slots = await fetchTeamSlots(viewTeamId!, leagueId!, today);
 
       const { data: stats, error: statsError } = await supabase
         .from('player_season_stats')
@@ -108,7 +111,7 @@ export default function TeamRosterScreen() {
 
       return (stats as PlayerSeasonStats[]).map((p) => ({
         ...p,
-        roster_slot: slotMap.get(p.player_id) ?? null,
+        roster_slot: slots.slotMap.get(p.player_id) ?? null,
       }));
     },
     enabled: !!viewTeamId && !!leagueId,
@@ -139,22 +142,28 @@ export default function TeamRosterScreen() {
       }
     }
 
+    // Track which players are placed in starter slots to catch duplicates
+    const placedPlayerIds = new Set<string>();
+
     for (const config of activeConfigs) {
       if (config.position === 'UTIL') {
         for (let i = 0; i < config.slot_count; i++) {
           const numberedSlot = `UTIL${i + 1}`;
-          const player = rosterPlayers.find((p) => p.roster_slot === numberedSlot) ?? null;
+          const player = rosterPlayers.find((p) => p.roster_slot === numberedSlot && !placedPlayerIds.has(p.player_id)) ?? null;
+          if (player) placedPlayerIds.add(player.player_id);
           slots.push({ slotPosition: numberedSlot, slotIndex: i, player });
         }
       } else {
         const playersInSlot = rosterPlayers.filter(
-          (p) => p.roster_slot === config.position,
+          (p) => p.roster_slot === config.position && !placedPlayerIds.has(p.player_id),
         );
         for (let i = 0; i < config.slot_count; i++) {
+          const player = playersInSlot[i] ?? null;
+          if (player) placedPlayerIds.add(player.player_id);
           slots.push({
             slotPosition: config.position,
             slotIndex: i,
-            player: playersInSlot[i] ?? null,
+            player,
           });
         }
       }
@@ -165,7 +174,8 @@ export default function TeamRosterScreen() {
       if (
         !player.roster_slot ||
         player.roster_slot === 'BE' ||
-        !validSlotNames.has(player.roster_slot)
+        !validSlotNames.has(player.roster_slot) ||
+        !placedPlayerIds.has(player.player_id)
       ) {
         benchPlayers.push(player);
       }
@@ -199,6 +209,17 @@ export default function TeamRosterScreen() {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
         <ActivityIndicator style={styles.centered} />
+      </SafeAreaView>
+    );
+  }
+
+  if (isTeamError) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
+        <PageHeader title="Team" />
+        <ThemedText style={{ textAlign: 'center', marginTop: 40, fontSize: 15, color: c.secondaryText }}>
+          Team not found
+        </ThemedText>
       </SafeAreaView>
     );
   }
@@ -248,10 +269,64 @@ export default function TeamRosterScreen() {
             accessibilityRole="button"
             accessibilityLabel={`${slot.player.name}, ${formatPosition(slot.player.position)}, ${slot.player.nba_team}${avgFpts !== null ? `, ${avgFpts.toFixed(1)} average fantasy points` : ''}`}
           >
+            {/* Headshot with team pill */}
+            <View style={styles.rosterPortraitWrap} accessible={false}>
+              {(() => {
+                const url = getPlayerHeadshotUrl(slot.player.external_id_nba);
+                return (
+                  <View
+                    style={[
+                      styles.rosterHeadshotCircle,
+                      { borderColor: c.gold, backgroundColor: c.cardAlt },
+                    ]}
+                    accessible={false}
+                  >
+                    {url ? (
+                      <Image
+                        source={{ uri: url }}
+                        style={styles.rosterHeadshotImg}
+                        resizeMode="cover"
+                        accessible={false}
+                      />
+                    ) : null}
+                  </View>
+                );
+              })()}
+              {(() => {
+                const logoUrl = getTeamLogoUrl(slot.player.nba_team);
+                return (
+                  <View style={styles.rosterTeamPill}>
+                    {logoUrl && (
+                      <Image
+                        source={{ uri: logoUrl }}
+                        style={styles.rosterTeamPillLogo}
+                        resizeMode="contain"
+                      />
+                    )}
+                    <Text style={[styles.rosterTeamPillText, { color: c.statusText }]}>
+                      {slot.player.nba_team}
+                    </Text>
+                  </View>
+                );
+              })()}
+            </View>
             <View style={styles.slotPlayerInfo}>
-              <ThemedText type="defaultSemiBold" numberOfLines={1} style={styles.slotPlayerName}>
-                {slot.player.name}
-              </ThemedText>
+              <View style={styles.nameRow}>
+                <ThemedText type="defaultSemiBold" numberOfLines={1} style={styles.slotPlayerName}>
+                  {slot.player.name}
+                </ThemedText>
+                {(() => {
+                  const badge = getInjuryBadge(slot.player.status);
+                  return badge ? (
+                    <View
+                      style={[styles.injuryBadge, { backgroundColor: badge.color }]}
+                      accessibilityLabel={`${badge.label} injury status`}
+                    >
+                      <Text style={[styles.injuryText, { color: c.statusText }]}>{badge.label}</Text>
+                    </View>
+                  ) : null;
+                })()}
+              </View>
               <ThemedText style={[styles.slotPlayerSub, { color: c.secondaryText }]} numberOfLines={1}>
                 {formatPosition(slot.player.position)} · {slot.player.nba_team}
               </ThemedText>
@@ -275,7 +350,21 @@ export default function TeamRosterScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
-      <PageHeader title={teamName ?? 'Team Roster'} />
+      <PageHeader
+        title={teamName ?? 'Team Roster'}
+        rightAction={
+          !isOwnTeam && !isPastDeadline && myTeamId && leagueId ? (
+            <TouchableOpacity
+              onPress={() => setShowTradeModal(true)}
+              style={[styles.headerTradeBtn, { backgroundColor: c.accent }]}
+              accessibilityRole="button"
+              accessibilityLabel={`Propose Trade with ${teamName}`}
+            >
+              <Text style={[styles.headerTradeBtnText, { color: c.accentText }]}>Trade</Text>
+            </TouchableOpacity>
+          ) : undefined
+        }
+      />
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Starters */}
@@ -326,21 +415,6 @@ export default function TeamRosterScreen() {
           </View>
         )}
 
-        {/* Propose Trade button — only shown when viewing another team and before deadline */}
-        {!isOwnTeam && !isPastDeadline && myTeamId && leagueId && (
-          <View style={styles.section}>
-            <TouchableOpacity
-              style={[styles.tradeBtn, { backgroundColor: c.accent }]}
-              onPress={() => setShowTradeModal(true)}
-              accessibilityRole="button"
-              accessibilityLabel={`Propose Trade with ${teamName}`}
-            >
-              <Text style={[styles.tradeBtnText, { color: c.accentText }]}>
-                Propose Trade with {teamName}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
       </ScrollView>
 
       <PlayerDetailModal
@@ -410,7 +484,7 @@ const styles = StyleSheet.create({
   slotRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 52,
+    minHeight: 56,
   },
   slotLabel: {
     width: 44,
@@ -423,23 +497,74 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 6,
     paddingHorizontal: 12,
   },
+  rosterPortraitWrap: {
+    width: 50,
+    height: 50,
+    marginRight: 8,
+    alignItems: 'center',
+  },
+  rosterHeadshotCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 25,
+    borderWidth: 1.5,
+    overflow: 'hidden' as const,
+  },
+  rosterHeadshotImg: {
+    position: 'absolute' as const,
+    bottom: -2,
+    left: 0,
+    right: 0,
+    height: 42,
+  },
+  rosterTeamPill: {
+    position: 'absolute',
+    bottom: -1,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    borderRadius: 8,
+    paddingHorizontal: 3,
+    paddingVertical: 1,
+    gap: 2,
+  },
+  rosterTeamPillLogo: {
+    width: 9,
+    height: 9,
+  },
+  rosterTeamPillText: {
+    fontSize: 7,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
   slotPlayerInfo: { flex: 1, marginRight: 8 },
-  slotPlayerName: { fontSize: 14 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  slotPlayerName: { fontSize: 14, flexShrink: 1 },
+  injuryBadge: {
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 3,
+  },
+  injuryText: {
+    fontSize: 8,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
   slotPlayerSub: { fontSize: 11, marginTop: 2 },
   slotFpts: { fontSize: 13, fontWeight: '600' },
   emptySlotText: { fontSize: 13, fontStyle: 'italic' },
   emptyBench: { padding: 16, alignItems: 'center' },
-  tradeBtn: {
-    borderRadius: 10,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginBottom: 16,
+  headerTradeBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
   },
-  tradeBtnText: {
-    fontSize: 15,
+  headerTradeBtnText: {
+    fontSize: 12,
     fontWeight: '700',
   },
 });

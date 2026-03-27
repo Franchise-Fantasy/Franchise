@@ -88,7 +88,7 @@ export function ScreenshotSettingsReview({
             {Object.entries(extracted.scoring_values!).map(([stat, value]) => (
               <View key={stat} style={styles.scoringItem}>
                 <ThemedText style={styles.statName}>{stat}</ThemedText>
-                <ThemedText style={[styles.statValue, { color: value < 0 ? '#FF3B30' : '#34C759' }]}>
+                <ThemedText style={[styles.statValue, { color: value < 0 ? c.danger : c.success }]}>
                   {value > 0 ? '+' : ''}{value}
                 </ThemedText>
               </View>

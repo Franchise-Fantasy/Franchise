@@ -179,7 +179,7 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
   }, [displayPicks, resolvedPicks, simResult, reversedStandings]);
 
   const handleSimulate = () => {
-    if (lotteryPoolSize === 0) return;
+    if (lotteryPoolSize === 0 || !leagueSettings.leagueFull) return;
     const result = simulateLottery(lotteryPool, odds, Math.min(leagueSettings.lotteryDraws, lotteryPoolSize));
     setSimResult(result);
   };
@@ -194,13 +194,13 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
             <TouchableOpacity
               key={season}
               accessibilityRole="button"
-              accessibilityLabel={`Season ${parseInt(season.split('-')[0], 10) + 1}`}
+              accessibilityLabel={`Season ${parseInt(season.split('-')[0], 10)}`}
               accessibilityState={{ selected: active }}
               style={[styles.pill, { backgroundColor: active ? c.accent : c.cardAlt, borderColor: active ? c.accent : c.border }]}
               onPress={() => { setSelectedSeason(season); setSimResult(null); }}
             >
               <ThemedText style={[styles.pillText, { color: active ? c.accentText : c.text }]}>
-                {parseInt(season.split('-')[0], 10) + 1}
+                {parseInt(season.split('-')[0], 10)}
               </ThemedText>
             </TouchableOpacity>
           );
@@ -320,18 +320,18 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
                           <ThemedText style={styles.oddsTeam} numberOfLines={1}>{row.team.name}</ThemedText>
                         )}
                         {ownership?.protectionThreshold && leagueSettings.pickConditionsEnabled && (
-                          <View style={styles.protBadge}>
-                            <Ionicons name="lock-closed" size={9} color="#d49200" style={{ marginRight: 2 }} />
-                            <ThemedText style={styles.protBadgeText}>{ownership.protectionThreshold === 1 ? '1' : `1-${ownership.protectionThreshold}`}</ThemedText>
+                          <View style={[styles.protBadge, { backgroundColor: c.goldMuted }]}>
+                            <Ionicons name="lock-closed" size={9} color={c.gold} style={{ marginRight: 2 }} />
+                            <ThemedText style={[styles.protBadgeText, { color: c.gold }]}>{ownership.protectionThreshold === 1 ? '1' : `1-${ownership.protectionThreshold}`}</ThemedText>
                           </View>
                         )}
                         {ownership?.wasSwapped && leagueSettings.pickConditionsEnabled && (
-                          <View style={styles.swapBadge}>
+                          <View style={[styles.swapBadge, { backgroundColor: c.link + '20' }]}>
                             <Ionicons name="swap-horizontal" size={9} color={c.accent} />
                           </View>
                         )}
                         {simResult && row.moved !== 0 && (
-                          <ThemedText style={[styles.movedBadge, { color: row.moved > 0 ? '#22c55e' : '#ef4444' }]}>
+                          <ThemedText style={[styles.movedBadge, { color: row.moved > 0 ? c.success : c.danger }]}>
                             {row.moved > 0 ? `▲${row.moved}` : `▼${Math.abs(row.moved)}`}
                           </ThemedText>
                         )}
@@ -354,7 +354,15 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
 
           {/* Simulate / Clear buttons */}
           <View style={styles.simButtonRow}>
-            <TouchableOpacity accessibilityRole="button" accessibilityLabel={simResult ? 'Simulate again' : 'Simulate lottery'} style={[styles.simButton, { backgroundColor: c.accent }]} onPress={handleSimulate}>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel={simResult ? 'Simulate again' : 'Simulate lottery'}
+              accessibilityState={{ disabled: !leagueSettings.leagueFull }}
+              accessibilityHint={!leagueSettings.leagueFull ? 'All teams must join before simulating' : undefined}
+              disabled={!leagueSettings.leagueFull}
+              style={[styles.simButton, { backgroundColor: c.accent, opacity: leagueSettings.leagueFull ? 1 : 0.4 }]}
+              onPress={handleSimulate}
+            >
               <Ionicons name="shuffle" size={18} color={c.accentText} accessible={false} />
               <ThemedText style={[styles.simButtonText, { color: c.accentText }]}>
                 {simResult ? 'Simulate Again' : 'Simulate Lottery'}
@@ -396,23 +404,23 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
                   {pick.current_team_name}
                 </ThemedText>
                 {pick.protection_threshold && leagueSettings.pickConditionsEnabled && !simResult && (
-                  <View style={styles.protBadge}>
-                    <Ionicons name="lock-closed" size={9} color="#d49200" style={{ marginRight: 2 }} />
-                    <ThemedText style={styles.protBadgeText}>{pick.protection_threshold === 1 ? '1' : `1-${pick.protection_threshold}`}</ThemedText>
+                  <View style={[styles.protBadge, { backgroundColor: c.goldMuted }]}>
+                    <Ionicons name="lock-closed" size={9} color={c.gold} style={{ marginRight: 2 }} />
+                    <ThemedText style={[styles.protBadgeText, { color: c.gold }]}>{pick.protection_threshold === 1 ? '1' : `1-${pick.protection_threshold}`}</ThemedText>
                   </View>
                 )}
                 {simResult && pick.wasProtected && (
-                  <View style={[styles.protBadge, { backgroundColor: '#22c55e30' }]}>
-                    <ThemedText style={[styles.protBadgeText, { color: '#22c55e' }]}>Protected</ThemedText>
+                  <View style={[styles.protBadge, { backgroundColor: c.successMuted }]}>
+                    <ThemedText style={[styles.protBadgeText, { color: c.success }]}>Protected</ThemedText>
                   </View>
                 )}
                 {simResult && pick.wasConveyed && (
-                  <View style={[styles.protBadge, { backgroundColor: '#ef444430' }]}>
-                    <ThemedText style={[styles.protBadgeText, { color: '#ef4444' }]}>Conveyed</ThemedText>
+                  <View style={[styles.protBadge, { backgroundColor: c.dangerMuted }]}>
+                    <ThemedText style={[styles.protBadgeText, { color: c.danger }]}>Conveyed</ThemedText>
                   </View>
                 )}
                 {pick.wasSwapped && (
-                  <View style={styles.swapBadge}>
+                  <View style={[styles.swapBadge, { backgroundColor: c.link + '20' }]}>
                     <Ionicons name="swap-horizontal" size={9} color={c.accent} />
                   </View>
                 )}
@@ -540,14 +548,12 @@ const styles = StyleSheet.create({
   protBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#d4920040',
     borderRadius: 4,
     paddingHorizontal: 5,
     paddingVertical: 1,
     marginRight: 4,
   },
   swapBadge: {
-    backgroundColor: '#3b82f620',
     borderRadius: 4,
     padding: 2,
     marginRight: 4,
@@ -555,7 +561,6 @@ const styles = StyleSheet.create({
   protBadgeText: {
     fontSize: 10,
     fontWeight: '600',
-    color: '#d49200',
   },
   emptyState: { padding: 20, alignItems: 'center' },
 });

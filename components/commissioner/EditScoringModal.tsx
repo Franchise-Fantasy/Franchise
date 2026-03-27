@@ -16,6 +16,7 @@ import {
   Switch,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 
@@ -37,6 +38,7 @@ export function EditScoringModal({ visible, onClose, leagueId, scoring, scoringT
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const queryClient = useQueryClient();
+  const { height: screenHeight } = useWindowDimensions();
   const isCategories = scoringType === 'h2h_categories';
 
   const [editScoring, setEditScoring] = useState<{ stat_name: string; point_value: number }[]>([]);
@@ -97,8 +99,9 @@ export function EditScoringModal({ visible, onClose, leagueId, scoring, scoringT
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={[styles.sheet, { backgroundColor: c.card }]} onPress={() => {}} accessibilityViewIsModal={true}>
+      <View style={styles.backdrop}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close" />
+        <View style={[styles.sheet, { backgroundColor: c.card }]} accessibilityViewIsModal={true}>
           <View style={[styles.handle, { backgroundColor: c.border }]} />
 
           <View style={styles.titleRow}>
@@ -107,7 +110,7 @@ export function EditScoringModal({ visible, onClose, leagueId, scoring, scoringT
             </ThemedText>
           </View>
 
-          <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+          <ScrollView style={[styles.scroll, { maxHeight: screenHeight * 0.55 }]} showsVerticalScrollIndicator={false}>
             {isCategories ? (
               editCategories.map((cat, idx) => (
                 <View key={cat.stat_name} style={[styles.catRow, { borderBottomColor: c.border }, idx === editCategories.length - 1 && { borderBottomWidth: 0 }]}>
@@ -169,8 +172,8 @@ export function EditScoringModal({ visible, onClose, leagueId, scoring, scoringT
               )}
             </TouchableOpacity>
           </View>
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }

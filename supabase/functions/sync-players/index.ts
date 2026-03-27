@@ -1,6 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { CORS_HEADERS } from '../_shared/cors.ts';
+import { bdlFetchAll } from '../_shared/bdl.ts';
+import { normalizeName } from '../_shared/normalize.ts';
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -9,19 +11,6 @@ const supabase = createClient(
 
 const jsonHeaders = { ...CORS_HEADERS, 'Content-Type': 'application/json' };
 
-const SLEEPER_PLAYERS_URL = 'https://api.sleeper.app/v1/players/nba';
-
-function normalizeName(name: string): string {
-  return name
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/\b(jr|sr|ii|iii|iv|v)\b\.?/g, '')
-    .replace(/\./g, '')
-    .replace(/['-]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -30,43 +19,35 @@ Deno.serve(async (req: Request) => {
 
   // Cron-only: check CRON_SECRET
   const cronSecret = Deno.env.get('CRON_SECRET');
-  if (cronSecret) {
-    const authHeader = req.headers.get('Authorization');
-    if (authHeader !== `Bearer ${cronSecret}`) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: jsonHeaders });
-    }
+  const authHeader = req.headers.get('Authorization');
+  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: jsonHeaders });
   }
 
   try {
-    // 1. Fetch all players from Sleeper API (proven to work in edge functions)
-    const sleeperRes = await fetch(SLEEPER_PLAYERS_URL);
-    if (!sleeperRes.ok) {
-      throw new Error(`Sleeper API returned ${sleeperRes.status}`);
-    }
-    const sleeperPlayers: Record<string, any> = await sleeperRes.json();
+    // 1. Fetch all players from balldontlie
+    const bdlPlayers = await bdlFetchAll('/players');
 
-    // 2. Build list of active NBA players from Sleeper
+    // 2. Build list of active NBA players (those with a team)
     const activePlayers: Array<{
+      bdl_id: number;
       name: string;
       normName: string;
       position: string;
-      nba_team: string | null;
+      nba_team: string;
     }> = [];
 
-    for (const sp of Object.values(sleeperPlayers)) {
-      if (!sp.active || sp.sport !== 'nba') continue;
-
-      // Must be on an NBA team to be insertable
-      const team = (sp.team ?? '') as string;
+    for (const bp of bdlPlayers) {
+      const team = bp.team?.abbreviation;
       if (!team) continue;
 
-      const name = sp.full_name ?? `${sp.first_name ?? ''} ${sp.last_name ?? ''}`.trim();
+      const name = `${bp.first_name ?? ''} ${bp.last_name ?? ''}`.trim();
       if (!name) continue;
 
-      const position = sp.fantasy_positions?.join('-') ?? sp.position;
-      if (!position || position === 'DEF') continue;
+      const position = bp.position || 'F';
 
       activePlayers.push({
+        bdl_id: bp.id,
         name,
         normName: normalizeName(name),
         position,
@@ -74,46 +55,42 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // 3. Fetch our existing players (name + nba_team for matching)
+    // 3. Fetch our existing players (bdl_id + name for matching)
     const { data: existing, error: fetchErr } = await supabase
       .from('players')
-      .select('name, nba_team');
+      .select('name, nba_team, external_id_bdl');
     if (fetchErr) throw new Error(`Failed to fetch players: ${fetchErr.message}`);
 
-    // Build lookup sets: normalized name+team and normalized name only
-    const existingByNameTeam = new Set<string>();
+    // Build lookup sets
+    const existingByBdlId = new Set<number>();
     const existingByName = new Set<string>();
 
     for (const p of existing ?? []) {
-      const norm = normalizeName(p.name);
-      existingByName.add(norm);
-      if (p.nba_team) {
-        existingByNameTeam.add(`${norm}|${(p.nba_team as string).toUpperCase()}`);
-      }
+      if (p.external_id_bdl) existingByBdlId.add(Number(p.external_id_bdl));
+      existingByName.add(normalizeName(p.name));
     }
 
     // 4. Find players not in our DB
     const newPlayers = activePlayers.filter((p) => {
-      const team = (p.nba_team ?? '').toUpperCase();
-      // Check both name+team and name-only to avoid false positives
-      if (team && existingByNameTeam.has(`${p.normName}|${team}`)) return false;
+      if (existingByBdlId.has(p.bdl_id)) return false;
       if (existingByName.has(p.normName)) return false;
       return true;
     });
 
     if (newPlayers.length === 0) {
       return new Response(
-        JSON.stringify({ ok: true, sleeper_active: activePlayers.length, already_in_db: (existing ?? []).length, newly_inserted: 0 }),
+        JSON.stringify({ ok: true, bdl_active: activePlayers.length, already_in_db: (existing ?? []).length, newly_inserted: 0 }),
         { status: 200, headers: jsonHeaders },
       );
     }
 
-    // 5. Insert new players (without external_id_nba — poll-live-stats will backfill when they play)
+    // 5. Insert new players with external_id_bdl set
     const toInsert = newPlayers.map((p) => ({
       name: p.name,
       position: p.position,
       nba_team: p.nba_team,
       status: 'active',
+      external_id_bdl: p.bdl_id,
     }));
 
     const { error: insertErr } = await supabase
@@ -129,7 +106,7 @@ Deno.serve(async (req: Request) => {
     return new Response(
       JSON.stringify({
         ok: true,
-        sleeper_active: activePlayers.length,
+        bdl_active: activePlayers.length,
         already_in_db: (existing ?? []).length,
         newly_inserted: newPlayers.length,
         sample_new: sampleNames,

@@ -312,10 +312,6 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
                 body: { league_id: leagueId },
               });
               if (error) throw error;
-              await supabase
-                .from('leagues')
-                .update({ offseason_step: null, schedule_generated: true })
-                .eq('id', leagueId);
               queryClient.invalidateQueries({ queryKey: ['league', leagueId] });
             } catch (err: any) {
               Alert.alert('Error', err.message ?? 'Failed to start season');
@@ -336,8 +332,8 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
     <View style={[styles.container, { backgroundColor: c.card, borderColor: c.border }]}>
       {/* Champion banner */}
       {champion && (
-        <View style={[styles.championBanner, { backgroundColor: '#FFD700' + '22', borderColor: '#FFD700' }]}>
-          <Ionicons name="trophy" size={20} color="#FFD700" />
+        <View style={[styles.championBanner, { backgroundColor: c.goldMuted, borderColor: c.gold }]}>
+          <Ionicons name="trophy" size={20} color={c.gold} />
           <ThemedText type="defaultSemiBold" style={{ marginLeft: 8, fontSize: 14 }}>
             {champion.name} — League Champions
           </ThemedText>
@@ -360,7 +356,7 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
                 !isComplete && !isActive && { backgroundColor: c.cardAlt, borderColor: c.border, borderWidth: 1 },
               ]}>
                 {isComplete ? (
-                  <Ionicons name="checkmark" size={14} color="#fff" />
+                  <Ionicons name="checkmark" size={14} color={c.statusText} />
                 ) : (
                   <Ionicons name={step.icon} size={14} color={isActive ? c.activeText : c.secondaryText} />
                 )}
@@ -402,8 +398,8 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
               style={[styles.actionBtn, { backgroundColor: c.accent }]}
               onPress={() => router.push('/lottery-room' as any)}
             >
-              <Ionicons name="ticket" size={18} color="#fff" />
-              <ThemedText style={styles.actionBtnText}>Enter Lottery Room</ThemedText>
+              <Ionicons name="ticket" size={18} color={c.statusText} />
+              <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Enter Lottery Room</ThemedText>
             </TouchableOpacity>
           )}
 
@@ -418,11 +414,11 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator color="#fff" size="small" />
+                <ActivityIndicator color={c.statusText} size="small" />
               ) : (
                 <>
-                  <Ionicons name="people" size={18} color="#fff" />
-                  <ThemedText style={styles.actionBtnText}>Create Rookie Draft</ThemedText>
+                  <Ionicons name="people" size={18} color={c.statusText} />
+                  <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Create Rookie Draft</ThemedText>
                 </>
               )}
             </TouchableOpacity>
@@ -445,11 +441,11 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator color="#fff" size="small" />
+                <ActivityIndicator color={c.statusText} size="small" />
               ) : (
                 <>
-                  <Ionicons name="bookmark" size={18} color="#fff" />
-                  <ThemedText style={styles.actionBtnText}>Finalize Keepers</ThemedText>
+                  <Ionicons name="bookmark" size={18} color={c.statusText} />
+                  <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Finalize Keepers</ThemedText>
                 </>
               )}
             </TouchableOpacity>
@@ -466,11 +462,11 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator color="#fff" size="small" />
+                <ActivityIndicator color={c.statusText} size="small" />
               ) : (
                 <>
-                  <Ionicons name="people" size={18} color="#fff" />
-                  <ThemedText style={styles.actionBtnText}>Create Draft</ThemedText>
+                  <Ionicons name="people" size={18} color={c.statusText} />
+                  <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Create Draft</ThemedText>
                 </>
               )}
             </TouchableOpacity>
@@ -487,11 +483,11 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator color="#fff" size="small" />
+                <ActivityIndicator color={c.statusText} size="small" />
               ) : (
                 <>
-                  <Ionicons name="play" size={18} color="#fff" />
-                  <ThemedText style={styles.actionBtnText}>Start New Season</ThemedText>
+                  <Ionicons name="play" size={18} color={c.statusText} />
+                  <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Start New Season</ThemedText>
                 </>
               )}
             </TouchableOpacity>
@@ -532,8 +528,8 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
       {showCompliance && compliance && (
         <View style={styles.complianceSection}>
           {compliance.myCount > rosterSize ? (
-            <View style={[styles.complianceBanner, { backgroundColor: '#FF950022', borderColor: '#FF9500' }]}>
-              <Ionicons name="warning" size={18} color="#FF9500" />
+            <View style={[styles.complianceBanner, { backgroundColor: c.warningMuted, borderColor: c.warning }]}>
+              <Ionicons name="warning" size={18} color={c.warning} />
               <View style={{ flex: 1, marginLeft: 8 }}>
                 <ThemedText type="defaultSemiBold" style={{ fontSize: 13 }}>
                   Roster Over Limit ({compliance.myCount}/{rosterSize})
@@ -547,8 +543,8 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
               </TouchableOpacity>
             </View>
           ) : (
-            <View style={[styles.complianceBanner, { backgroundColor: '#34C75922', borderColor: '#34C759' }]}>
-              <Ionicons name="checkmark-circle" size={18} color="#34C759" />
+            <View style={[styles.complianceBanner, { backgroundColor: c.successMuted, borderColor: c.success }]}>
+              <Ionicons name="checkmark-circle" size={18} color={c.success} />
               <ThemedText style={{ marginLeft: 8, fontSize: 13 }}>
                 Roster compliant ({compliance.myCount}/{rosterSize})
               </ThemedText>
@@ -564,14 +560,14 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
                 .filter((t) => t.count > rosterSize)
                 .map((t) => (
                   <View key={t.name} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 }}>
-                    <ThemedText style={{ fontSize: 12, color: '#FF9500' }}>{t.name}</ThemedText>
-                    <ThemedText style={{ fontSize: 12, color: '#FF9500', fontWeight: '600' }}>
+                    <ThemedText style={{ fontSize: 12, color: c.warning }}>{t.name}</ThemedText>
+                    <ThemedText style={{ fontSize: 12, color: c.warning, fontWeight: '600' }}>
                       {t.count}/{rosterSize}
                     </ThemedText>
                   </View>
                 ))}
               {compliance.teamCounts.filter((t) => t.count > rosterSize).length === 0 && (
-                <ThemedText style={{ fontSize: 12, color: '#34C759' }}>
+                <ThemedText style={{ fontSize: 12, color: c.success }}>
                   All teams are at or under the roster limit.
                 </ThemedText>
               )}
@@ -643,7 +639,6 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   actionBtnText: {
-    color: '#fff',
     fontWeight: '600',
     fontSize: 14,
   },

@@ -4,6 +4,7 @@ import { Colors } from "@/constants/Colors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { supabase } from "@/lib/supabase";
 import { isExpoGo } from "@/utils/buildConfig";
+import { capture } from "@/lib/posthog";
 import { Ionicons } from "@expo/vector-icons";
 import * as Crypto from "expo-crypto";
 import { useRouter } from "expo-router";
@@ -59,6 +60,8 @@ export default function Auth() {
   const [resetSent, setResetSent] = useState(false);
   const [otpToken, setOtpToken] = useState("");
   const [pendingVerification, setPendingVerification] = useState(false);
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const isSignUp = mode === "signup";
 
   async function signInWithEmail() {
     setLoading(true);
@@ -81,6 +84,7 @@ export default function Auth() {
       .limit(1)
       .single();
 
+    capture('sign_in', { method: 'email' });
     router.replace(team?.league_id ? "/(tabs)" : "/(setup)");
     setLoading(false);
   }
@@ -111,6 +115,7 @@ export default function Auth() {
       setLoading(false);
       return;
     }
+    capture('sign_up', { method: 'email' });
     setPendingVerification(true);
     setLoading(false);
   }
@@ -189,6 +194,7 @@ export default function Auth() {
         .limit(1)
         .single();
 
+      capture('sign_in', { method: 'google' });
       router.replace(team?.league_id ? "/(tabs)" : "/(setup)");
     } catch (err: any) {
       if (
@@ -255,11 +261,13 @@ export default function Auth() {
                     value={otpToken}
                     placeholder="00000000"
                     keyboardType="number-pad"
+                    textContentType="oneTimeCode"
+                    autoComplete="one-time-code"
                     maxLength={8}
                     autoFocus
                     placeholderTextColor={c.secondaryText}
                     accessibilityLabel="Verification code"
-                    accessibilityHint="Enter the 6-digit code from your email"
+                    accessibilityHint="Enter the 8-digit code from your email"
                   />
                 </View>
               </View>
@@ -310,6 +318,56 @@ export default function Auth() {
             </>
           ) : (
             <>
+              {/* Mode Toggle */}
+              <View
+                style={[
+                  styles.modeToggle,
+                  { backgroundColor: c.card, borderColor: c.border },
+                ]}
+                accessibilityRole="tablist"
+              >
+                <TouchableOpacity
+                  style={[
+                    styles.modeTab,
+                    !isSignUp && [styles.modeTabActive, { backgroundColor: c.accent }],
+                  ]}
+                  onPress={() => setMode("signin")}
+                  activeOpacity={0.8}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: !isSignUp }}
+                  accessibilityLabel="Sign in"
+                >
+                  <ThemedText
+                    style={[
+                      styles.modeTabText,
+                      { color: !isSignUp ? c.accentText : c.secondaryText },
+                    ]}
+                  >
+                    Sign In
+                  </ThemedText>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.modeTab,
+                    isSignUp && [styles.modeTabActive, { backgroundColor: c.accent }],
+                  ]}
+                  onPress={() => setMode("signup")}
+                  activeOpacity={0.8}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: isSignUp }}
+                  accessibilityLabel="Create account"
+                >
+                  <ThemedText
+                    style={[
+                      styles.modeTabText,
+                      { color: isSignUp ? c.accentText : c.secondaryText },
+                    ]}
+                  >
+                    Create Account
+                  </ThemedText>
+                </TouchableOpacity>
+              </View>
+
               {/* Form */}
               <View
                 style={[
@@ -332,6 +390,7 @@ export default function Auth() {
                     autoCapitalize="none"
                     keyboardType="email-address"
                     placeholderTextColor={c.secondaryText}
+                    accessibilityLabel="Email"
                   />
                 </View>
                 <View style={styles.inputRow}>
@@ -349,56 +408,43 @@ export default function Auth() {
                     placeholder="Password"
                     autoCapitalize="none"
                     placeholderTextColor={c.secondaryText}
+                    accessibilityLabel="Password"
                   />
                 </View>
               </View>
 
-              {/* Actions */}
+              {/* Primary Action */}
               <TouchableOpacity
                 style={[
                   styles.button,
                   { backgroundColor: loading ? c.buttonDisabled : c.accent },
                 ]}
                 disabled={loading}
-                onPress={signInWithEmail}
+                onPress={isSignUp ? signUpWithEmail : signInWithEmail}
                 activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={isSignUp ? "Create account" : "Sign in"}
               >
                 <ThemedText style={[styles.buttonText, { color: c.accentText }]}>
-                  Sign In
+                  {isSignUp ? "Create Account" : "Sign In"}
                 </ThemedText>
               </TouchableOpacity>
 
-              {/* Password reset uses magic links which require deep linking (TestFlight / prod only) */}
-              {!isExpoGo && (
+              {/* Forgot password — only shown in sign-in mode */}
+              {!isSignUp && !isExpoGo && (
                 <TouchableOpacity
                   onPress={handleResetPassword}
                   disabled={loading}
                   activeOpacity={0.7}
                   style={styles.forgotPassword}
+                  accessibilityRole="button"
+                  accessibilityLabel={resetSent ? "Resend reset email" : "Forgot password"}
                 >
                   <ThemedText style={[styles.forgotPasswordText, { color: c.accent }]}>
                     {resetSent ? "Resend reset email" : "Forgot Password?"}
                   </ThemedText>
                 </TouchableOpacity>
               )}
-
-              <TouchableOpacity
-                style={[
-                  styles.button,
-                  styles.secondaryButton,
-                  {
-                    backgroundColor: loading ? c.buttonDisabled : c.card,
-                    borderColor: c.border,
-                  },
-                ]}
-                disabled={loading}
-                onPress={signUpWithEmail}
-                activeOpacity={0.8}
-              >
-                <ThemedText style={[styles.buttonText, { color: c.text }]}>
-                  Create Account
-                </ThemedText>
-              </TouchableOpacity>
 
               {/* Divider */}
               <View style={styles.dividerRow} accessible={false}>
@@ -447,6 +493,7 @@ export default function Auth() {
                 <ThemedText
                   style={[styles.legalLink, { color: c.accent }]}
                   onPress={() => router.push("/legal?tab=terms" as any)}
+                  accessibilityRole="link"
                 >
                   Terms of Service
                 </ThemedText>
@@ -454,6 +501,7 @@ export default function Auth() {
                 <ThemedText
                   style={[styles.legalLink, { color: c.accent }]}
                   onPress={() => router.push("/legal?tab=privacy" as any)}
+                  accessibilityRole="link"
                 >
                   Privacy Policy
                 </ThemedText>
@@ -493,6 +541,26 @@ const styles = StyleSheet.create({
   },
   title: {
     marginBottom: 6,
+  },
+  modeToggle: {
+    flexDirection: "row",
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 3,
+    marginBottom: 16,
+  },
+  modeTab: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: "center",
+    borderRadius: 9,
+  },
+  modeTabActive: {
+    // backgroundColor set inline
+  },
+  modeTabText: {
+    fontSize: 15,
+    fontWeight: "600",
   },
   subtitle: {
     fontSize: 15,

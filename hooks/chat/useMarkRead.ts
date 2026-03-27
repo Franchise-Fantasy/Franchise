@@ -35,7 +35,8 @@ export function useMarkRead(
       .then(() => {
         queryClient.invalidateQueries({ queryKey: ['conversations', leagueId] });
         queryClient.invalidateQueries({ queryKey: ['chatUnread', leagueId] });
-      });
+      })
+      .catch((err: any) => console.warn('useMarkRead update failed:', err?.message ?? err));
 
     // Broadcast via presence channel for instant updates
     onReadUpdate?.(newestMessageId);

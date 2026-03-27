@@ -34,6 +34,17 @@ export function useTodayGameTimes(enabled: boolean): GameTimeMap {
 }
 
 /**
+ * Returns true if ANY NBA game today has already started (for daily lock mode).
+ */
+export function hasAnyGameStarted(gameTimeMap: GameTimeMap): boolean {
+  const now = new Date();
+  for (const timeStr of gameTimeMap.values()) {
+    if (new Date(timeStr) <= now) return true;
+  }
+  return false;
+}
+
+/**
  * Returns true if the player's game has started based on schedule time
  * or live game status (backup signal).
  */

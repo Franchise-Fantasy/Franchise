@@ -56,6 +56,7 @@ export function EditTradeSettingsModal({
   const [reviewHours, setReviewHours] = useState(24);
   const [votesToVeto, setVotesToVeto] = useState(4);
   const [pickConditions, setPickConditions] = useState(false);
+  const [autoRumors, setAutoRumors] = useState(false);
   const [tradeDeadlineWeek, setTradeDeadlineWeek] = useState(0);
   const [saving, setSaving] = useState(false);
 
@@ -66,6 +67,7 @@ export function EditTradeSettingsModal({
     setReviewHours(league.trade_review_period_hours ?? 24);
     setVotesToVeto(league.trade_votes_to_veto ?? 4);
     setPickConditions(league.pick_conditions_enabled ?? false);
+    setAutoRumors(league.auto_rumors_enabled ?? false);
     setTradeDeadlineWeek(calcDeadlineWeek());
   }, [visible]);
 
@@ -93,6 +95,7 @@ export function EditTradeSettingsModal({
         trade_review_period_hours: vetoDb === 'none' ? 0 : reviewHours,
         trade_votes_to_veto: votesToVeto,
         pick_conditions_enabled: pickConditions,
+        auto_rumors_enabled: autoRumors,
         trade_deadline:
           tradeDeadlineWeek > 0 && league.season_start_date
             ? (() => {
@@ -149,6 +152,7 @@ export function EditTradeSettingsModal({
           <ScrollView
             style={styles.scroll}
             showsVerticalScrollIndicator={false}
+            nestedScrollEnabled
           >
             {/* Veto Type */}
             <View style={[styles.editRow, { borderBottomColor: c.border }]}>
@@ -160,6 +164,13 @@ export function EditTradeSettingsModal({
                 selectedIndex={vetoIndex >= 0 ? vetoIndex : 0}
                 onSelect={(i) => setVetoType(VETO_OPTIONS[i])}
               />
+              <ThemedText style={[styles.helperText, { color: c.secondaryText, marginTop: 6 }]}>
+                {vetoType === 'Commissioner'
+                  ? 'Only the commissioner can veto trades during the review period.'
+                  : vetoType === 'League Vote'
+                    ? 'League members can vote to veto. The commissioner can also veto directly.'
+                    : 'Trades are processed immediately with no review period.'}
+              </ThemedText>
             </View>
 
             {/* Review Period - shown when veto !== 'None' */}
@@ -190,6 +201,16 @@ export function EditTradeSettingsModal({
               label="Pick Protections & Swaps"
               value={pickConditions}
               onToggle={setPickConditions}
+              c={c}
+            />
+
+            {/* League Intel */}
+            <ToggleRow
+              icon="megaphone-outline"
+              label="League Intel"
+              description="Automatically announce when multiple teams are bidding or interested in the same player"
+              value={autoRumors}
+              onToggle={setAutoRumors}
               c={c}
             />
 
@@ -266,7 +287,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   title: { fontSize: 17, fontWeight: '600' },
-  scroll: { paddingHorizontal: 16 },
+  scroll: { flexShrink: 1, paddingHorizontal: 16 },
   editRow: {
     flexDirection: 'row',
     alignItems: 'center',

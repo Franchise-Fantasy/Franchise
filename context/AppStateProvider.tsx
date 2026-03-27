@@ -27,7 +27,8 @@ export const AppStateProvider = ({ children }: { children: React.ReactNode }) =>
   const [state, setState] = useState({
     leagueId: null as string | null,
     teamId: null as string | null,
-    loading: true
+    loading: true,
+    resolvedUserId: null as string | null,
   });
 
   const setTeamId = useCallback((id: string | null) => {
@@ -39,7 +40,7 @@ export const AppStateProvider = ({ children }: { children: React.ReactNode }) =>
   }, []);
 
   const switchLeague = useCallback((leagueId: string, teamId: string) => {
-    setState({ leagueId, teamId, loading: false });
+    setState(prev => ({ ...prev, leagueId, teamId, loading: false }));
   }, []);
 
   useEffect(() => {
@@ -48,7 +49,7 @@ export const AppStateProvider = ({ children }: { children: React.ReactNode }) =>
     if (!initialized) return;
 
     if (!session?.user) {
-      setState({ leagueId: null, teamId: null, loading: false });
+      setState({ leagueId: null, teamId: null, loading: false, resolvedUserId: null });
       return;
     }
 
@@ -70,7 +71,7 @@ export const AppStateProvider = ({ children }: { children: React.ReactNode }) =>
           .maybeSingle();
 
         if (favTeam) {
-          setState({ teamId: favTeam.id, leagueId: favTeam.league_id, loading: false });
+          setState({ teamId: favTeam.id, leagueId: favTeam.league_id, loading: false, resolvedUserId: session.user.id });
           return;
         }
       }
@@ -85,19 +86,27 @@ export const AppStateProvider = ({ children }: { children: React.ReactNode }) =>
       setState({
         teamId: data?.id ?? null,
         leagueId: data?.league_id ?? null,
-        loading: false
+        loading: false,
+        resolvedUserId: session.user.id,
       });
     };
 
     fetchTeam();
   }, [initialized, session?.user?.id]);
 
+  // Treat as loading if the session user hasn't been resolved yet
+  // (prevents flash of setup screen before the team fetch effect fires)
+  const isLoading = state.loading ||
+    (!!session?.user?.id && state.resolvedUserId !== session.user.id);
+
   const value = useMemo(() => ({
-    ...state,
+    leagueId: state.leagueId,
+    teamId: state.teamId,
+    loading: isLoading,
     setTeamId,
     setLeagueId,
     switchLeague,
-  }), [state, setTeamId, setLeagueId, switchLeague]);
+  }), [state.leagueId, state.teamId, isLoading, setTeamId, setLeagueId, switchLeague]);
 
   return (
     <AppStateContext.Provider value={value}>

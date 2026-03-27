@@ -42,9 +42,10 @@ interface Props {
   onSelect: (emoji: string) => void;
   onClose: () => void;
   existingReactions?: ReactionGroup[];
+  extraActions?: React.ReactNode;
 }
 
-export function ReactionPicker({ visible, onSelect, onClose, existingReactions }: Props) {
+export function ReactionPicker({ visible, onSelect, onClose, existingReactions, extraActions }: Props) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const [expanded, setExpanded] = useState(false);
@@ -132,6 +133,9 @@ export function ReactionPicker({ visible, onSelect, onClose, existingReactions }
           ))}
         </View>
       )}
+
+      {/* Extra actions (e.g. pin) */}
+      {extraActions}
     </Pressable>
   );
 }

@@ -407,8 +407,8 @@ export default function ScoreboardScreen() {
                 {/* Status badge */}
                 {weekState === 'live' && (
                   <View style={styles.statusRow}>
-                    <View style={styles.inProgressBadge}>
-                      <Text style={styles.inProgressText}>IN PROGRESS</Text>
+                    <View style={[styles.inProgressBadge, { backgroundColor: c.danger }]}>
+                      <Text style={[styles.inProgressText, { color: c.statusText }]}>IN PROGRESS</Text>
                     </View>
                   </View>
                 )}
@@ -584,13 +584,11 @@ const styles = StyleSheet.create({
   },
   inProgressBadge: {
     alignSelf: 'flex-start',
-    backgroundColor: '#e03131',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
   },
   inProgressText: {
-    color: '#fff',
     fontSize: 9,
     fontWeight: '800',
     letterSpacing: 0.5,

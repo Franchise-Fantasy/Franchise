@@ -5,9 +5,16 @@ import { Transaction, TransactionItem, useTransactions } from '@/hooks/useTransa
 import { formatPickLabelShort } from '@/types/trade';
 import { Ionicons } from '@expo/vector-icons';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { useCallback } from 'react';
-import { ActivityIndicator, FlatList, StyleSheet, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+const FILTER_OPTIONS: { key: string | undefined; label: string }[] = [
+  { key: undefined, label: 'All' },
+  { key: 'trade', label: 'Trades' },
+  { key: 'waiver', label: 'Add/Drop' },
+  { key: 'commissioner', label: 'Commissioner' },
+];
 
 function getTransactionIcon(type: string): keyof typeof Ionicons.glyphMap {
   switch (type) {
@@ -89,8 +96,9 @@ function formatDate(dateStr: string): string {
 export default function Activity() {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const [typeFilter, setTypeFilter] = useState<string | undefined>(undefined);
 
-  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useTransactions();
+  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useTransactions(typeFilter);
 
   const transactions = data?.pages.flat() ?? [];
 
@@ -161,6 +169,34 @@ export default function Activity() {
     <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
       <PageHeader title="Transactions" />
 
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.filterRow}
+        style={styles.filterScroll}
+      >
+        {FILTER_OPTIONS.map((opt) => {
+          const active = typeFilter === opt.key;
+          return (
+            <Pressable
+              key={opt.label}
+              onPress={() => setTypeFilter(opt.key)}
+              style={[
+                styles.filterChip,
+                { borderColor: active ? c.accent : c.border, backgroundColor: active ? c.accent : c.card },
+              ]}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={`Filter by ${opt.label}`}
+            >
+              <ThemedText style={[styles.filterChipText, { color: active ? '#fff' : c.text }]}>
+                {opt.label}
+              </ThemedText>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
       {isLoading ? (
         <ActivityIndicator style={styles.loader} />
       ) : transactions.length === 0 ? (
@@ -204,7 +240,9 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   list: {
-    padding: 16,
+    paddingTop: 8,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
     gap: 10,
   },
   card: {
@@ -252,5 +290,28 @@ const styles = StyleSheet.create({
   },
   footerLoader: {
     paddingVertical: 16,
+  },
+  filterScroll: {
+    flexGrow: 0,
+  },
+  filterRow: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 2,
+    gap: 8,
+    alignItems: 'center',
+  },
+  filterChip: {
+    paddingHorizontal: 14,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 16,
   },
 });

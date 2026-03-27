@@ -3,6 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { notifyLeague } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { runLotteryDraw } from '../_shared/lottery.ts';
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return corsResponse();
@@ -40,7 +41,6 @@ Deno.serve(async (req) => {
       throw new Error('Only the commissioner can run the lottery');
     }
 
-    // Guard: only allow during offseason lottery phase
     const validSteps = ['lottery_pending', 'lottery_scheduled'];
     if (league.offseason_step && !validSteps.includes(league.offseason_step)) {
       throw new Error(`Cannot run lottery during offseason step: ${league.offseason_step}`);
@@ -62,50 +62,11 @@ Deno.serve(async (req) => {
       throw new Error('No lottery pool: all teams make the playoffs');
     }
 
-    const lotteryPool = allTeams.slice(0, lotteryPoolSize);
+    const lotteryPool = allTeams.slice(0, lotteryPoolSize).map(t => ({
+      ...t, points_for: Number(t.points_for),
+    }));
 
-    let odds: number[] = league.lottery_odds ?? generateDefaultOdds(lotteryPoolSize);
-    if (odds.length > lotteryPoolSize) odds = odds.slice(0, lotteryPoolSize);
-    else if (odds.length < lotteryPoolSize) odds = generateDefaultOdds(lotteryPoolSize);
-
-    const oddsTotal = odds.reduce((a, b) => a + b, 0);
-    const normalizedOdds = odds.map(o => o / oddsTotal);
-
-    const lotteryDraws = Math.min(league.lottery_draws ?? 4, lotteryPoolSize);
-    const drawnTeams: typeof lotteryPool = [];
-    const remainingPool = [...lotteryPool];
-    let remainingOdds = [...normalizedOdds];
-
-    for (let draw = 0; draw < lotteryDraws; draw++) {
-      const rand = Math.random();
-      let cumulative = 0;
-      let selectedIdx = remainingPool.length - 1;
-
-      for (let i = 0; i < remainingOdds.length; i++) {
-        cumulative += remainingOdds[i];
-        if (rand <= cumulative) { selectedIdx = i; break; }
-      }
-
-      drawnTeams.push(remainingPool[selectedIdx]);
-      remainingPool.splice(selectedIdx, 1);
-      remainingOdds.splice(selectedIdx, 1);
-
-      const remTotal = remainingOdds.reduce((a, b) => a + b, 0);
-      if (remTotal > 0) remainingOdds = remainingOdds.map(o => o / remTotal);
-    }
-
-    const finalOrder = [
-      ...drawnTeams.map((t, i) => ({
-        team_id: t.id, team_name: t.name,
-        original_standing: lotteryPool.findIndex(p => p.id === t.id) + 1,
-        lottery_position: i + 1, was_drawn: true,
-      })),
-      ...remainingPool.map((t, i) => ({
-        team_id: t.id, team_name: t.name,
-        original_standing: lotteryPool.findIndex(p => p.id === t.id) + 1,
-        lottery_position: drawnTeams.length + i + 1, was_drawn: false,
-      })),
-    ];
+    const finalOrder = runLotteryDraw(lotteryPool, league.lottery_odds, league.lottery_draws ?? 4);
 
     const { error: resultErr } = await supabaseAdmin
       .from('lottery_results')
@@ -123,7 +84,6 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Notify league about lottery results
     try {
       const topPick = finalOrder[0];
       const ln = league.name ?? 'Your League';
@@ -148,11 +108,3 @@ Deno.serve(async (req) => {
     );
   }
 });
-
-function generateDefaultOdds(numTeams: number): number[] {
-  if (numTeams <= 0) return [];
-  if (numTeams === 1) return [100];
-  const weights = Array.from({ length: numTeams }, (_, i) => numTeams - i);
-  const total = weights.reduce((a, b) => a + b, 0);
-  return weights.map(w => Math.round((w / total) * 1000) / 10);
-}

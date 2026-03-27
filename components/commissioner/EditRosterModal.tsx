@@ -1,7 +1,7 @@
 import { ThemedText } from '@/components/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { Colors } from '@/constants/Colors';
-import { DEFAULT_ROSTER_SLOTS } from '@/constants/LeagueDefaults';
+import { DEFAULT_ROSTER_SLOTS, NBA_POSITIONS, NbaPosition } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { useQueryClient } from '@tanstack/react-query';
@@ -15,6 +15,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 
@@ -27,14 +28,17 @@ interface EditRosterModalProps {
   onClose: () => void;
   leagueId: string;
   rosterConfig: { position: string; slot_count: number }[] | undefined;
+  positionLimits: Record<string, number> | null | undefined;
 }
 
-export function EditRosterModal({ visible, onClose, leagueId, rosterConfig }: EditRosterModalProps) {
+export function EditRosterModal({ visible, onClose, leagueId, rosterConfig, positionLimits }: EditRosterModalProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const queryClient = useQueryClient();
+  const { height: screenHeight } = useWindowDimensions();
 
   const [editRoster, setEditRoster] = useState<{ position: string; slot_count: number }[]>([]);
+  const [editPosLimits, setEditPosLimits] = useState<Record<string, number>>({});
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -44,6 +48,7 @@ export function EditRosterModal({ visible, onClose, leagueId, rosterConfig }: Ed
         return { position: d.position, slot_count: existing?.slot_count ?? 0 };
       });
       setEditRoster(merged);
+      setEditPosLimits(positionLimits && typeof positionLimits === 'object' ? { ...positionLimits } : {});
     }
   }, [visible]);
 
@@ -52,13 +57,14 @@ export function EditRosterModal({ visible, onClose, leagueId, rosterConfig }: Ed
     const rows = editRoster
       .filter((r) => r.slot_count > 0)
       .map((r) => ({ league_id: leagueId, position: r.position, slot_count: r.slot_count }));
-    const rosterSize = rows.reduce((sum, r) => (r.position === 'IR' ? sum : sum + r.slot_count), 0);
+    const rosterSize = rows.reduce((sum, r) => (r.position === 'IR' || r.position === 'TAXI') ? sum : sum + r.slot_count, 0);
 
     const { error: delErr } = await supabase.from('league_roster_config').delete().eq('league_id', leagueId);
     if (delErr) { setSaving(false); Alert.alert('Error', delErr.message); return; }
     const { error: insErr } = await supabase.from('league_roster_config').insert(rows);
     if (insErr) { setSaving(false); Alert.alert('Error', insErr.message); return; }
-    await supabase.from('leagues').update({ roster_size: rosterSize }).eq('id', leagueId);
+    const posLimitsPayload = Object.keys(editPosLimits).length > 0 ? editPosLimits : null;
+    await supabase.from('leagues').update({ roster_size: rosterSize, position_limits: posLimitsPayload }).eq('id', leagueId);
 
     setSaving(false);
     queryClient.invalidateQueries({ queryKey: ['leagueRosterConfig', leagueId] });
@@ -68,15 +74,16 @@ export function EditRosterModal({ visible, onClose, leagueId, rosterConfig }: Ed
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={[styles.sheet, { backgroundColor: c.card }]} onPress={() => {}} accessibilityViewIsModal={true}>
+      <View style={styles.backdrop}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close" />
+        <View style={[styles.sheet, { backgroundColor: c.card }]} accessibilityViewIsModal={true}>
           <View style={[styles.handle, { backgroundColor: c.border }]} />
 
           <View style={styles.titleRow}>
             <ThemedText accessibilityRole="header" style={styles.title}>Edit Roster</ThemedText>
           </View>
 
-          <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+          <ScrollView style={[styles.scroll, { maxHeight: screenHeight * 0.55 }]} showsVerticalScrollIndicator={false}>
             {editRoster.map((slot, idx) => (
               <NumberStepper
                 key={slot.position}
@@ -91,6 +98,31 @@ export function EditRosterModal({ visible, onClose, leagueId, rosterConfig }: Ed
                 max={slot.position === 'IR' ? 5 : 10}
               />
             ))}
+
+            <View style={[styles.posLimitSection, { borderTopColor: c.border }]}>
+              <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.posLimitTitle}>Position Limits</ThemedText>
+              <ThemedText style={[styles.posLimitNote, { color: c.secondaryText }]}>
+                0 = no limit. Limits the total number of players at each position.
+              </ThemedText>
+              {NBA_POSITIONS.map((pos) => (
+                <NumberStepper
+                  key={`pos-limit-${pos}`}
+                  label={pos}
+                  value={editPosLimits[pos] ?? 0}
+                  onValueChange={(v) => {
+                    const next = { ...editPosLimits };
+                    if (v === 0) {
+                      delete next[pos as NbaPosition];
+                    } else {
+                      next[pos as NbaPosition] = v;
+                    }
+                    setEditPosLimits(next);
+                  }}
+                  min={0}
+                  max={15}
+                />
+              ))}
+            </View>
           </ScrollView>
 
           <View style={styles.footer}>
@@ -112,8 +144,8 @@ export function EditRosterModal({ visible, onClose, leagueId, rosterConfig }: Ed
               )}
             </TouchableOpacity>
           </View>
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }
@@ -128,4 +160,7 @@ const styles = StyleSheet.create({
   footer: { flexDirection: 'row', gap: 12, paddingHorizontal: 16, paddingTop: 16 },
   btn: { flex: 1, paddingVertical: 14, borderRadius: 10, alignItems: 'center' },
   btnText: { fontSize: 15, fontWeight: '600' },
+  posLimitSection: { borderTopWidth: 1, marginTop: 16, paddingTop: 12 },
+  posLimitTitle: { marginBottom: 4 },
+  posLimitNote: { fontSize: 13, marginBottom: 8 },
 });

@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { notifyTeams, notifyLeague } from '../_shared/push.ts';
 import { snapshotBeforeDrop } from '../_shared/snapshotBeforeDrop.ts';
+import { checkPositionLimits } from '../_shared/positionLimits.ts';
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -38,13 +39,11 @@ function teamName(id: string): string {
 
 Deno.serve(async (req: Request) => {
   const cronSecret = Deno.env.get('CRON_SECRET');
-  if (cronSecret) {
-    const authHeader = req.headers.get('Authorization');
-    if (authHeader !== `Bearer ${cronSecret}`) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401, headers: { 'Content-Type': 'application/json' },
-      });
-    }
+  const authHeader = req.headers.get('Authorization');
+  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401, headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   const now = new Date();
@@ -114,7 +113,13 @@ Deno.serve(async (req: Request) => {
                   claimBody,
                   { screen: 'activity' }
                 );
-              } catch (_) {}
+                // Also notify the winning team directly
+                await notifyTeams(supabase, [claim.team_id], 'waivers',
+                  `${ln} — Waiver Claim Successful`,
+                  `You claimed ${playerName(claim.player_id)} off waivers!`,
+                  { screen: 'roster' }
+                );
+              } catch (err) { console.warn('Notification failed (non-fatal):', err); }
 
               await supabase.from('waiver_claims')
                 .update({ status: 'failed', processed_at: now.toISOString() })
@@ -131,7 +136,7 @@ Deno.serve(async (req: Request) => {
                     'Your waiver claim was not awarded.',
                     { screen: 'free-agents' }
                   );
-                } catch (_) {}
+                } catch (err) { console.warn('Notification failed (non-fatal):', err); }
               }
 
               processed++;
@@ -139,17 +144,20 @@ Deno.serve(async (req: Request) => {
             } else {
               // Notify team why their claim failed
               const ln = league.name ?? 'Your League';
-              if (result.reason === 'roster_full') {
+              if (result.reason === 'roster_full' || result.reason === 'drop_player_unavailable' || result.reason === 'position_limit') {
                 await supabase.from('waiver_claims')
                   .update({ status: 'failed', processed_at: now.toISOString() })
                   .eq('id', claim.id);
+                const msg = result.reason === 'drop_player_unavailable'
+                  ? `Your claim for ${playerName(claim.player_id)} failed: the player you selected to drop is no longer on your roster.`
+                  : result.reason === 'position_limit'
+                  ? `Your claim for ${playerName(claim.player_id)} failed: adding this player would exceed a position limit.`
+                  : `Your claim for ${playerName(claim.player_id)} failed: roster is full. Select a player to drop when placing claims.`;
                 try {
                   await notifyTeams(supabase, [claim.team_id], 'waivers',
-                    `${ln} — Waiver Claim Failed`,
-                    `Your claim for ${playerName(claim.player_id)} failed: roster is full. Select a player to drop when placing claims.`,
-                    { screen: 'free-agents' }
+                    `${ln} — Waiver Claim Failed`, msg, { screen: 'free-agents' }
                   );
-                } catch (_) {}
+                } catch (err) { console.warn('Notification failed (non-fatal):', err); }
                 failed++;
               }
               // 'already_owned' — skip silently, next claim may still succeed
@@ -225,7 +233,7 @@ Deno.serve(async (req: Request) => {
                 'Your bid was not the highest.',
                 { screen: 'free-agents' }
               );
-            } catch (_) {}
+            } catch (err) { console.warn('Notification failed (non-fatal):', err); }
             failed++;
             continue;
           }
@@ -257,21 +265,24 @@ Deno.serve(async (req: Request) => {
                   faabBody,
                   { screen: 'activity' }
                 );
-              } catch (_) {}
+              } catch (err) { console.warn('Notification failed (non-fatal):', err); }
 
               processed++;
-            } else if (result.reason === 'roster_full') {
+            } else if (result.reason === 'roster_full' || result.reason === 'drop_player_unavailable' || result.reason === 'position_limit') {
               await supabase.from('waiver_claims')
                 .update({ status: 'failed', processed_at: now.toISOString() })
                 .eq('id', claim.id);
               try {
                 const ln = league.name ?? 'Your League';
+                const msg = result.reason === 'drop_player_unavailable'
+                  ? `Your bid for ${playerName(claim.player_id)} failed: the player you selected to drop is no longer on your roster.`
+                  : result.reason === 'position_limit'
+                  ? `Your bid for ${playerName(claim.player_id)} failed: adding this player would exceed a position limit.`
+                  : `Your bid for ${playerName(claim.player_id)} failed: roster is full. Select a player to drop when placing bids.`;
                 await notifyTeams(supabase, [claim.team_id], 'waivers',
-                  `${ln} — FAAB Bid Failed`,
-                  `Your bid for ${playerName(claim.player_id)} failed: roster is full. Select a player to drop when placing bids.`,
-                  { screen: 'free-agents' }
+                  `${ln} — FAAB Bid Failed`, msg, { screen: 'free-agents' }
                 );
-              } catch (_) {}
+              } catch (err) { console.warn('Notification failed (non-fatal):', err); }
               failed++;
             }
           } catch (err: any) {
@@ -308,7 +319,7 @@ Deno.serve(async (req: Request) => {
   );
 });
 
-type ClaimResult = { ok: true } | { ok: false; reason: 'already_owned' | 'roster_full' };
+type ClaimResult = { ok: true } | { ok: false; reason: 'already_owned' | 'roster_full' | 'drop_player_unavailable' | 'position_limit' };
 
 async function checkAndProcessClaim(claim: any, leagueId: string, waiverPeriodDays: number): Promise<ClaimResult> {
   const now = new Date();
@@ -318,43 +329,67 @@ async function checkAndProcessClaim(claim: any, leagueId: string, waiverPeriodDa
     .eq('league_id', leagueId).eq('player_id', claim.player_id).limit(1);
   if (existing && existing.length > 0) return { ok: false, reason: 'already_owned' };
 
-  const [allRes, irRes, leagueRes] = await Promise.all([
+  const [allRes, irRes, taxiRes, leagueRes] = await Promise.all([
     supabase.from('league_players').select('id', { count: 'exact', head: true })
       .eq('league_id', leagueId).eq('team_id', claim.team_id),
     supabase.from('league_players').select('id', { count: 'exact', head: true })
       .eq('league_id', leagueId).eq('team_id', claim.team_id).eq('roster_slot', 'IR'),
-    supabase.from('leagues').select('roster_size').eq('id', leagueId).single(),
+    supabase.from('league_players').select('id', { count: 'exact', head: true })
+      .eq('league_id', leagueId).eq('team_id', claim.team_id).eq('roster_slot', 'TAXI'),
+    supabase.from('leagues').select('roster_size, position_limits').eq('id', leagueId).single(),
   ]);
 
-  const activeCount = (allRes.count ?? 0) - (irRes.count ?? 0);
+  const activeCount = (allRes.count ?? 0) - (irRes.count ?? 0) - (taxiRes.count ?? 0);
   const maxSize = leagueRes.data?.roster_size ?? 13;
+  const positionLimits = leagueRes.data?.position_limits as Record<string, number> | null;
   const rosterFull = activeCount >= maxSize;
 
   if (rosterFull && !claim.drop_player_id) return { ok: false, reason: 'roster_full' };
 
-  if (rosterFull && claim.drop_player_id) {
-    // Snapshot roster slot before dropping so mid-week scoring is preserved
-    await snapshotBeforeDrop(supabase, leagueId, claim.team_id, claim.drop_player_id);
+  if (claim.drop_player_id) {
+    // Check if the drop player is still on this team (could have been traded/dropped already)
+    const { data: dropCheck } = await supabase.from('league_players').select('id')
+      .eq('league_id', leagueId).eq('team_id', claim.team_id).eq('player_id', claim.drop_player_id).limit(1);
 
-    const { error: delErr } = await supabase.from('league_players').delete()
-      .eq('league_id', leagueId).eq('team_id', claim.team_id).eq('player_id', claim.drop_player_id);
-    if (delErr) throw delErr;
+    if (dropCheck && dropCheck.length > 0 && rosterFull) {
+      // Drop player exists and roster is full — execute the drop
+      await snapshotBeforeDrop(supabase, leagueId, claim.team_id, claim.drop_player_id);
 
-    if (waiverPeriodDays > 0) {
-      const raw = new Date();
-      raw.setDate(raw.getDate() + waiverPeriodDays);
-      const until = new Date(Date.UTC(
-        raw.getUTCFullYear(), raw.getUTCMonth(), raw.getUTCDate(), 6, 0, 0, 0
-      ));
-      if (raw.getTime() > until.getTime()) {
-        until.setUTCDate(until.getUTCDate() + 1);
+      const { error: delErr } = await supabase.from('league_players').delete()
+        .eq('league_id', leagueId).eq('team_id', claim.team_id).eq('player_id', claim.drop_player_id);
+      if (delErr) throw delErr;
+
+      if (waiverPeriodDays > 0) {
+        const raw = new Date();
+        raw.setDate(raw.getDate() + waiverPeriodDays);
+        const until = new Date(Date.UTC(
+          raw.getUTCFullYear(), raw.getUTCMonth(), raw.getUTCDate(), 6, 0, 0, 0
+        ));
+        if (raw.getTime() > until.getTime()) {
+          until.setUTCDate(until.getUTCDate() + 1);
+        }
+        await supabase.from('league_waivers').insert({
+          league_id: leagueId, player_id: claim.drop_player_id,
+          on_waivers_until: until.toISOString(), dropped_by_team_id: claim.team_id,
+        });
       }
-      await supabase.from('league_waivers').insert({
-        league_id: leagueId, player_id: claim.drop_player_id,
-        on_waivers_until: until.toISOString(), dropped_by_team_id: claim.team_id,
-      });
+    } else if (!dropCheck || dropCheck.length === 0) {
+      // Drop player is gone — if roster is still full, fail; otherwise skip the drop and continue
+      if (rosterFull) return { ok: false, reason: 'drop_player_unavailable' };
     }
   }
+
+  // Re-count roster before inserting to prevent overflow from concurrent adds
+  const [reAll, reIr, reTaxi] = await Promise.all([
+    supabase.from('league_players').select('id', { count: 'exact', head: true })
+      .eq('league_id', leagueId).eq('team_id', claim.team_id),
+    supabase.from('league_players').select('id', { count: 'exact', head: true })
+      .eq('league_id', leagueId).eq('team_id', claim.team_id).eq('roster_slot', 'IR'),
+    supabase.from('league_players').select('id', { count: 'exact', head: true })
+      .eq('league_id', leagueId).eq('team_id', claim.team_id).eq('roster_slot', 'TAXI'),
+  ]);
+  const reActive = (reAll.count ?? 0) - (reIr.count ?? 0) - (reTaxi.count ?? 0);
+  if (reActive >= maxSize) return { ok: false, reason: 'roster_full' };
 
   // Use cached player name instead of fetching again
   const pName = playerName(claim.player_id);
@@ -362,12 +397,35 @@ async function checkAndProcessClaim(claim: any, leagueId: string, waiverPeriodDa
   const { data: playerData } = await supabase
     .from('players').select('position').eq('id', claim.player_id).single();
 
+  // Position limit check
+  if (positionLimits && Object.keys(positionLimits).length > 0 && playerData?.position) {
+    const { data: rosterForLimits } = await supabase
+      .from('league_players')
+      .select('position, roster_slot')
+      .eq('league_id', leagueId)
+      .eq('team_id', claim.team_id);
+    const violation = checkPositionLimits(positionLimits, rosterForLimits ?? [], playerData.position);
+    if (violation) return { ok: false, reason: 'position_limit' };
+  }
+
   const { error: addErr } = await supabase.from('league_players').insert({
     league_id: leagueId, player_id: claim.player_id, team_id: claim.team_id,
     acquired_via: 'waiver', acquired_at: now.toISOString(),
     position: playerData?.position ?? 'UTIL',
+    roster_slot: 'BE',
   });
-  if (addErr) throw addErr;
+  if (addErr) {
+    // Unique constraint means another claim grabbed this player first
+    if (addErr.code === '23505') return { ok: false, reason: 'already_owned' };
+    throw addErr;
+  }
+
+  // Create daily_lineups entry so slot history is consistent from day one
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  await supabase.from('daily_lineups').upsert({
+    league_id: leagueId, team_id: claim.team_id, player_id: claim.player_id,
+    lineup_date: todayStr, roster_slot: 'BE',
+  }, { onConflict: 'team_id,player_id,lineup_date' });
 
   let notes = `Claimed ${pName} off waivers`;
   if (claim.bid_amount > 0) notes += ` ($${claim.bid_amount})`;

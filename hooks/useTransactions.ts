@@ -27,16 +27,16 @@ export interface Transaction {
   league_transaction_items: TransactionItem[];
 }
 
-export function useTransactions() {
+export function useTransactions(typeFilter?: string) {
   const { leagueId } = useAppState();
 
   return useInfiniteQuery({
-    queryKey: ['transactions', leagueId],
+    queryKey: ['transactions', leagueId, typeFilter ?? 'all'],
     queryFn: async ({ pageParam = 0 }) => {
       const from = pageParam * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
 
-      const { data, error } = await supabase
+      let query = supabase
         .from('league_transactions')
         .select(`
           id, league_id, type, notes, created_at, team_id,
@@ -52,6 +52,12 @@ export function useTransactions() {
         .eq('league_id', leagueId!)
         .order('created_at', { ascending: false })
         .range(from, to);
+
+      if (typeFilter) {
+        query = query.eq('type', typeFilter);
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
       return (data as any[]).map((row) => ({

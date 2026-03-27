@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { normalizeName } from '../_shared/normalize.ts';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -47,19 +48,6 @@ const POSITION_MAP: Record<string, string> = {
   UTIL: 'UTIL', FLEX: 'UTIL', BN: 'BE', IR: 'IR', IL: 'IR',
 };
 
-// --- Name normalization ---
-
-function normalizeName(name: string): string {
-  return name
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/\b(jr|sr|ii|iii|iv|v)\b\.?/g, '')
-    .replace(/\./g, '')
-    .replace(/['-]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
 
 // --- Main handler ---
 

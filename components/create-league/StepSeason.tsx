@@ -7,10 +7,13 @@ import {
   LeagueWizardState,
   NBA_SEASON_END,
   PLAYOFF_SEEDING_OPTIONS,
+  TIEBREAKER_OPTIONS,
 } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { calcLotteryPoolSize, getPlayoffTeamOptions } from '@/utils/lottery';
-import { StyleSheet, View } from 'react-native';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import { useState } from 'react';
+import { StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 
 interface StepSeasonProps {
   state: LeagueWizardState;
@@ -43,8 +46,8 @@ function formatDate(date: Date): string {
 
 /** Max weeks between season start and NBA season end.
  *  Week 1 may be partial (e.g. Tue–Sun), Week 2+ are full Mon–Sun. */
-export function computeMaxWeeks(season: string): number {
-  const start = computeSeasonStart();
+export function computeMaxWeeks(season: string, customStart?: Date): number {
+  const start = customStart ?? computeSeasonStart();
   const endStr = NBA_SEASON_END[season] ?? NBA_SEASON_END[CURRENT_NBA_SEASON];
   const [y, m, d] = endStr.split('-').map(Number);
   const msPerDay = 24 * 60 * 60 * 1000;
@@ -68,8 +71,15 @@ export function computeMaxWeeks(season: string): number {
 export function StepSeason({ state, onChange }: StepSeasonProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
-  const seasonStart = computeSeasonStart();
+  // Parse custom start date or fall back to auto
+  const seasonStart = state.seasonStartDate
+    ? (() => {
+        const [sy, sm, sd] = state.seasonStartDate.split('-').map(Number);
+        return new Date(sy, sm - 1, sd);
+      })()
+    : computeSeasonStart();
   const startDow = seasonStart.getDay(); // 0=Sun
   const shortFirstWeek = startDow !== 1; // not Monday
 
@@ -78,7 +88,19 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
   const [y, m, d] = nbaEndStr.split('-').map(Number);
   const nbaEnd = new Date(y, m - 1, d);
 
-  const maxTotalWeeks = computeMaxWeeks(state.season);
+  const maxTotalWeeks = computeMaxWeeks(state.season, seasonStart);
+
+  // Earliest selectable date is today
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const handleDateChange = (_event: DateTimePickerEvent, date?: Date) => {
+    setShowDatePicker(false);
+    if (!date) return;
+    date.setHours(0, 0, 0, 0);
+    const iso = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    onChange('seasonStartDate', iso);
+  };
 
   const maxRegularSeasonWeeks = Math.max(1, maxTotalWeeks - state.playoffWeeks);
   const maxPlayoffWeeks = Math.max(1, maxTotalWeeks - state.regularSeasonWeeks);
@@ -107,9 +129,91 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
       ? `With ${state.teams} teams, regular season weeks must be a multiple of ${state.teams} for equal byes (e.g. ${state.teams}, ${state.teams * 2}, ${state.teams * 3}).`
       : null;
 
+  const canHaveDivisions = state.teams >= 4;
+
   return (
     <View style={styles.container}>
       <ThemedText accessibilityRole="header" type="subtitle" style={styles.heading}>Season Settings</ThemedText>
+
+      {/* League Structure (Divisions) */}
+      <View style={styles.section}>
+        <ThemedText style={styles.label}>League Structure</ThemedText>
+        <SegmentedControl
+          options={['No Divisions', '2 Divisions']}
+          selectedIndex={state.divisionCount === 2 ? 1 : 0}
+          onSelect={(i) => onChange('divisionCount', i === 1 ? 2 : 1)}
+          disabled={!canHaveDivisions && state.divisionCount !== 2}
+        />
+        {state.divisionCount === 2 && (
+          <View style={styles.divisionNames}>
+            <TextInput
+              style={[styles.divisionInput, { borderColor: c.border, backgroundColor: c.input, color: c.text }]}
+              value={state.division1Name}
+              onChangeText={(v) => onChange('division1Name', v)}
+              placeholder="Division 1"
+              placeholderTextColor={c.secondaryText}
+              maxLength={24}
+              accessibilityLabel="Division 1 name"
+            />
+            <TextInput
+              style={[styles.divisionInput, { borderColor: c.border, backgroundColor: c.input, color: c.text }]}
+              value={state.division2Name}
+              onChangeText={(v) => onChange('division2Name', v)}
+              placeholder="Division 2"
+              placeholderTextColor={c.secondaryText}
+              maxLength={24}
+              accessibilityLabel="Division 2 name"
+            />
+          </View>
+        )}
+        <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
+          {state.divisionCount === 2
+            ? 'Division winners are guaranteed the top 2 playoff seeds.'
+            : 'All teams compete in a single conference.'}
+        </ThemedText>
+        {!canHaveDivisions && (
+          <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
+            Divisions require at least 4 teams.
+          </ThemedText>
+        )}
+      </View>
+
+      {/* Season Start Date */}
+      <View style={styles.section}>
+        <ThemedText style={styles.label}>Season Start Date</ThemedText>
+        <TouchableOpacity
+          onPress={() => setShowDatePicker(true)}
+          style={[styles.dateButton, { borderColor: c.border, backgroundColor: c.card }]}
+          accessibilityRole="button"
+          accessibilityLabel={`Season start date: ${formatDate(seasonStart)}. Tap to change.`}
+        >
+          <ThemedText style={styles.dateButtonText}>{formatDate(seasonStart)}</ThemedText>
+        </TouchableOpacity>
+        {state.seasonStartDate && (
+          <TouchableOpacity
+            onPress={() => onChange('seasonStartDate', null)}
+            accessibilityRole="button"
+            accessibilityLabel="Reset to automatic start date"
+          >
+            <ThemedText style={[styles.hint, { color: c.accent }]}>Reset to auto</ThemedText>
+          </TouchableOpacity>
+        )}
+        {!state.seasonStartDate && (
+          <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
+            Auto-selected based on today's date. Tap to choose a different date.
+          </ThemedText>
+        )}
+        {showDatePicker && (
+          <DateTimePicker
+            value={seasonStart}
+            mode="date"
+            display="default"
+            minimumDate={today}
+            maximumDate={nbaEnd}
+            onChange={handleDateChange}
+          />
+        )}
+      </View>
 
       <View style={styles.section}>
         <NumberStepper
@@ -198,6 +302,21 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
         </View>
       )}
 
+      {/* Tiebreaker Priority */}
+      <View style={styles.section}>
+        <ThemedText style={styles.label}>Tiebreaker Priority</ThemedText>
+        <SegmentedControl
+          options={[...TIEBREAKER_OPTIONS]}
+          selectedIndex={TIEBREAKER_OPTIONS.indexOf(state.tiebreakerPrimary)}
+          onSelect={(i) => onChange('tiebreakerPrimary', TIEBREAKER_OPTIONS[i])}
+        />
+        <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
+          {state.tiebreakerPrimary === 'Head-to-Head'
+            ? 'Tied teams compared by head-to-head record first, then total points scored.'
+            : 'Tied teams compared by total points scored first, then head-to-head record.'}
+        </ThemedText>
+      </View>
+
       {/* Season preview card */}
       <View style={[styles.previewCard, { backgroundColor: c.card, borderColor: c.border }]}>
         <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.previewTitle}>Season Preview</ThemedText>
@@ -230,8 +349,8 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
       </View>
 
       {byeError && (
-        <View style={[styles.warningBox, { backgroundColor: '#fee2e2', borderColor: '#ef4444', marginTop: 8 }]}>
-          <ThemedText style={[styles.warningText, { color: '#b91c1c' }]}>
+        <View style={[styles.warningBox, { backgroundColor: c.dangerMuted, borderColor: c.danger, marginTop: 8 }]}>
+          <ThemedText style={[styles.warningText, { color: c.danger }]}>
             {byeError}
           </ThemedText>
         </View>
@@ -258,6 +377,17 @@ const styles = StyleSheet.create({
   hint: {
     fontSize: 13,
     marginTop: 6,
+  },
+  dateButton: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 4,
+  },
+  dateButtonText: {
+    fontSize: 16,
+    fontWeight: '500',
   },
   previewCard: {
     borderWidth: 1,
@@ -288,6 +418,19 @@ const styles = StyleSheet.create({
   divider: {
     height: StyleSheet.hairlineWidth,
     marginVertical: 8,
+  },
+  divisionNames: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+  },
+  divisionInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    fontSize: 15,
   },
   warningBox: {
     borderWidth: 1,

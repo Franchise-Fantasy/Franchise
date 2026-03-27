@@ -1,6 +1,6 @@
 import { ThemedText } from '@/components/ThemedText';
 import { Colors } from '@/constants/Colors';
-import { LEAGUE_TYPE_DISPLAY, LeagueWizardState, WAIVER_DAY_LABELS } from '@/constants/LeagueDefaults';
+import { LEAGUE_TYPE_DISPLAY, LeagueWizardState, NBA_POSITIONS, WAIVER_DAY_LABELS } from '@/constants/LeagueDefaults';
 import { taxiExperienceLabel } from '@/utils/taxiEligibility';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -35,6 +35,9 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
         <Row label="Teams" value={String(state.teams)} c={c} />
         <Row label="Visibility" value={state.isPrivate ? 'Private' : 'Public'} c={c} />
         <Row label="Buy-In" value={state.buyIn ? `$${state.buyIn}` : 'Free'} c={c} />
+        {state.buyIn > 0 && state.venmoUsername ? <Row label="Venmo" value={`@${state.venmoUsername}`} c={c} /> : null}
+        {state.buyIn > 0 && state.cashappTag ? <Row label="Cash App" value={`$${state.cashappTag}`} c={c} /> : null}
+        {state.buyIn > 0 && state.paypalUsername ? <Row label="PayPal" value={state.paypalUsername} c={c} /> : null}
       </View>
 
       {/* Roster */}
@@ -45,6 +48,11 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
         </ThemedText>
         {taxiSlotCount > 0 && (
           <Row label="Taxi Eligibility" value={taxiExperienceLabel(state.taxiMaxExperience)} c={c} />
+        )}
+        {Object.keys(state.positionLimits).length > 0 && (
+          <ThemedText style={[styles.rosterSummary, { color: c.secondaryText, marginTop: 4 }]}>
+            Position Limits: {NBA_POSITIONS.filter((p) => state.positionLimits[p] != null).map((p) => `${p}: ${state.positionLimits[p]}`).join('  |  ')}
+          </ThemedText>
         )}
       </View>
 
@@ -68,6 +76,7 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
       <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
         <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>Draft Settings</ThemedText>
         <Row label="Type" value={state.draftType} c={c} />
+        <Row label="Draft Order" value={state.initialDraftOrder} c={c} />
         <Row label="Time Per Pick" value={`${state.timePerPick}s`} c={c} />
         {isDynasty && (
           <>
@@ -115,6 +124,7 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
             <Row label="FAAB Budget" value={`$${state.faabBudget}`} c={c} />
           </>
         )}
+        <Row label="Player Lock" value={state.playerLockType} c={c} />
       </View>
 
       {/* Season */}
@@ -128,6 +138,11 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
         {state.playoffSeedingFormat === 'Standard' && (
           <Row label="Reseed Each Round" value={state.reseedEachRound ? 'Yes' : 'No'} c={c} />
         )}
+        <Row
+          label="Divisions"
+          value={state.divisionCount === 2 ? `${state.division1Name} & ${state.division2Name}` : 'None'}
+          c={c}
+        />
       </View>
 
       <TouchableOpacity

@@ -4,7 +4,7 @@ import { getEligiblePositions } from '@/utils/rosterSlots';
 import { useMemo, useState } from 'react';
 
 export type SortKey = 'FPTS' | 'PPG' | 'RPG' | 'APG' | 'SPG' | 'BPG' | 'MPG';
-export type TimeRange = 'season' | '7d' | '14d' | '30d';
+export type TimeRange = 'season' | '7d' | '14d' | '30d' | 'lastSeason';
 
 const SORT_FIELD: Record<Exclude<SortKey, 'FPTS'>, keyof PlayerSeasonStats> = {
   PPG: 'avg_pts',

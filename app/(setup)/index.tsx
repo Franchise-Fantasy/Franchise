@@ -14,7 +14,7 @@ export default function SetupHome() {
   return (
     <ThemedView style={styles.container}>
       <View style={styles.hero}>
-        <Ionicons name="trophy-outline" size={64} color={c.accent} />
+        <Ionicons name="trophy-outline" size={64} color={c.accent} accessible={false} />
         <ThemedText type="title" style={styles.title}>
           Welcome to Franchise
         </ThemedText>
@@ -28,8 +28,10 @@ export default function SetupHome() {
           style={[styles.primaryBtn, { backgroundColor: c.accent }]}
           onPress={() => router.push("/create-league")}
           activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="Create a league"
         >
-          <Ionicons name="add-circle-outline" size={22} color={c.accentText} />
+          <Ionicons name="add-circle-outline" size={22} color={c.accentText} accessible={false} />
           <Text style={[styles.primaryBtnText, { color: c.accentText }]}>
             Create a League
           </Text>
@@ -39,8 +41,10 @@ export default function SetupHome() {
           style={[styles.secondaryBtn, { borderColor: c.border }]}
           onPress={() => router.push("/join-league")}
           activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="Join a league"
         >
-          <Ionicons name="people-outline" size={22} color={c.text} />
+          <Ionicons name="people-outline" size={22} color={c.text} accessible={false} />
           <ThemedText style={styles.secondaryBtnText}>
             Join a League
           </ThemedText>

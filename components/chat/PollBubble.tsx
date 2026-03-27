@@ -1,6 +1,6 @@
 import { ThemedText } from '@/components/ThemedText';
 import { Colors } from '@/constants/Colors';
-import { usePoll, usePollResults, useVotePoll } from '@/hooks/chat';
+import { useClosePoll, usePoll, usePollResults, useVotePoll } from '@/hooks/chat';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -35,6 +35,7 @@ export const PollBubble = React.memo(function PollBubble({ pollId, teamId, isCom
   const { data: poll } = usePoll(pollId);
   const { data: results } = usePollResults(pollId, poll, teamId);
   const voteMutation = useVotePoll(pollId);
+  const closeMutation = useClosePoll(pollId);
 
   const [selected, setSelected] = useState<number[]>([]);
   const [countdown, setCountdown] = useState('');
@@ -199,7 +200,7 @@ export const PollBubble = React.memo(function PollBubble({ pollId, teamId, isCom
                     <Ionicons
                       name={poll.poll_type === 'single' ? 'ellipse' : 'checkmark'}
                       size={poll.poll_type === 'single' ? 8 : 12}
-                      color="#FFFFFF"
+                      color={c.statusText}
                     />
                   )}
                 </View>
@@ -283,10 +284,35 @@ export const PollBubble = React.memo(function PollBubble({ pollId, teamId, isCom
           accessibilityState={{ disabled: selected.length === 0 || voteMutation.isPending }}
         >
           {voteMutation.isPending ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
+            <ActivityIndicator size="small" color={c.statusText} />
           ) : (
-            <ThemedText style={styles.voteBtnText}>Vote</ThemedText>
+            <ThemedText style={[styles.voteBtnText, { color: c.statusText }]}>Vote</ThemedText>
           )}
+        </TouchableOpacity>
+      )}
+
+      {/* Close poll early (commissioner only) */}
+      {isCommissioner && !isClosed && (
+        <TouchableOpacity
+          onPress={() => {
+            Alert.alert('Close Poll', 'Close this poll now? Voting will end immediately.', [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Close Poll',
+                style: 'destructive',
+                onPress: () => closeMutation.mutate(),
+              },
+            ]);
+          }}
+          disabled={closeMutation.isPending}
+          style={[styles.closeBtn, { borderColor: c.border }]}
+          accessibilityRole="button"
+          accessibilityLabel="Close poll early"
+        >
+          <Ionicons name="lock-closed" size={14} color={c.secondaryText} accessible={false} />
+          <ThemedText style={[styles.closeBtnText, { color: c.secondaryText }]}>
+            {closeMutation.isPending ? 'Closing...' : 'Close Poll'}
+          </ThemedText>
         </TouchableOpacity>
       )}
 
@@ -430,8 +456,21 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   voteBtnText: {
-    color: '#FFFFFF',
     fontSize: 15,
+    fontWeight: '600',
+  },
+  closeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 8,
+    marginTop: 10,
+  },
+  closeBtnText: {
+    fontSize: 13,
     fontWeight: '600',
   },
   footer: {

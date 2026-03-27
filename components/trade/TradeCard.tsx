@@ -29,15 +29,17 @@ interface TradeCardProps {
   onPress: () => void;
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  pending: '#f0ad4e',
-  accepted: '#007AFF',
-  in_review: '#007AFF',
-  completed: '#28a745',
-  rejected: '#dc3545',
-  cancelled: '#6c757d',
-  vetoed: '#dc3545',
-};
+function getStatusColors(c: typeof Colors['light']): Record<string, string> {
+  return {
+    pending: c.warning,
+    accepted: c.link,
+    in_review: c.link,
+    completed: c.success,
+    rejected: c.danger,
+    cancelled: c.secondaryText,
+    vetoed: c.danger,
+  };
+}
 
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Pending',
@@ -65,6 +67,7 @@ export function TradeCard({ proposal, onPress }: TradeCardProps) {
   const c = Colors[scheme];
 
   const teamNames = proposal.teams.map((t) => t.team_name);
+  const STATUS_COLORS = getStatusColors(c);
   const statusColor = STATUS_COLORS[proposal.status] ?? c.secondaryText;
   const isCounteroffer = !!proposal.counteroffer_of;
   const newItemKeys = getNewItemKeys(proposal.items, proposal.original_items);
@@ -82,13 +85,13 @@ export function TradeCard({ proposal, onPress }: TradeCardProps) {
       <View style={styles.statusRow}>
         <View style={{ flexDirection: 'row', gap: 6 }}>
           <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-            <Text style={styles.statusText}>
+            <Text style={[styles.statusText, { color: c.statusText }]}>
               {STATUS_LABELS[proposal.status] ?? proposal.status}
             </Text>
           </View>
           {isCounteroffer && (
-            <View style={[styles.statusBadge, { backgroundColor: '#f0ad4e' }]}>
-              <Text style={styles.statusText}>Counteroffer</Text>
+            <View style={[styles.statusBadge, { backgroundColor: c.warning }]}>
+              <Text style={[styles.statusText, { color: c.statusText }]}>Counteroffer</Text>
             </View>
           )}
         </View>
@@ -117,8 +120,8 @@ export function TradeCard({ proposal, onPress }: TradeCardProps) {
                 {'  •  '}{asset.label}
               </ThemedText>
               {asset.isNew && (
-                <View style={styles.newBadge} accessibilityLabel="Newly added in counteroffer">
-                  <Text style={styles.newBadgeText}>NEW</Text>
+                <View style={[styles.newBadge, { backgroundColor: c.link }]} accessibilityLabel="Newly added in counteroffer">
+                  <Text style={[styles.newBadgeText, { color: c.statusText }]}>NEW</Text>
                 </View>
               )}
             </View>
@@ -187,7 +190,6 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   statusText: {
-    color: '#fff',
     fontSize: 11,
     fontWeight: '700',
   },
@@ -215,14 +217,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   newBadge: {
-    backgroundColor: '#007AFF',
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: 3,
     marginLeft: 6,
   },
   newBadgeText: {
-    color: '#fff',
     fontSize: 9,
     fontWeight: '700',
   },

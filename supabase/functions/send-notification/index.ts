@@ -42,7 +42,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const validCategories = ['draft', 'trades', 'trade_block', 'matchups', 'matchup_daily', 'waivers', 'injuries', 'playoffs', 'commissioner', 'league_activity', 'roster_reminders', 'lottery', 'roster_moves'];
+    const validCategories = ['draft', 'trades', 'trade_rumors', 'trade_block', 'matchups', 'matchup_daily', 'waivers', 'injuries', 'playoffs', 'commissioner', 'league_activity', 'roster_reminders', 'lottery', 'chat', 'roster_moves'];
     if (!validCategories.includes(category)) {
       return new Response(JSON.stringify({ error: `Invalid category. Must be one of: ${validCategories.join(', ')}` }), {
         status: 400,

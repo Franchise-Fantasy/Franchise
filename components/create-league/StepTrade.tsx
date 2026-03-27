@@ -27,6 +27,13 @@ export function StepTrade({ state, onChange }: StepTradeProps) {
           selectedIndex={TRADE_VETO_OPTIONS.indexOf(state.tradeVetoType)}
           onSelect={(i) => onChange('tradeVetoType', TRADE_VETO_OPTIONS[i])}
         />
+        <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
+          {state.tradeVetoType === 'Commissioner'
+            ? 'Only the commissioner can veto trades during the review period.'
+            : state.tradeVetoType === 'League Vote'
+              ? 'League members can vote to veto. The commissioner can also veto directly.'
+              : 'Trades are processed immediately with no review period.'}
+        </ThemedText>
       </View>
 
       {state.tradeVetoType !== 'None' && (
@@ -65,6 +72,17 @@ export function StepTrade({ state, onChange }: StepTradeProps) {
           />
         </View>
       )}
+
+      <View style={styles.section}>
+        <ToggleRow
+          icon="megaphone-outline"
+          label="League Intel"
+          description="Automatically announce when multiple teams are bidding or interested in the same player"
+          value={state.autoRumorsEnabled}
+          onToggle={(v) => onChange('autoRumorsEnabled', v)}
+          c={{ border: c.border, accent: c.accent, secondaryText: c.secondaryText }}
+        />
+      </View>
 
       <View style={styles.section}>
         <NumberStepper

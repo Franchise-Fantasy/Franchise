@@ -1,6 +1,7 @@
 // hooks/useDraftPlayer.ts
 
 import { globalToastRef } from '@/context/ToastProvider';
+import { capture } from '@/lib/posthog';
 import { supabase } from '@/lib/supabase';
 import { Player } from '@/types/draft';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -24,6 +25,13 @@ export const useDraftPlayer = (leagueId: string, draftId: string ) => {
 
       if (error) throw new Error(error.message);
       return data;
+    },
+    onSuccess: (_data, selectedPlayer) => {
+      capture('draft_pick_made', {
+        player_name: selectedPlayer.name,
+        position: selectedPlayer.position,
+        draft_id: draftId,
+      });
     },
     onMutate: async (selectedPlayer: Player) => {
       await queryClient.cancelQueries({ queryKey: ['availablePlayers', leagueId] });

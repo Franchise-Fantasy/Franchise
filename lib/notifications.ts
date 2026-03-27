@@ -10,6 +10,7 @@ const ASKED_KEY = '@notifications_asked';
 export interface PushPreferences {
   draft: boolean;
   trades: boolean;
+  trade_rumors: boolean;
   trade_block: boolean;
   matchups: boolean;
   matchup_daily: boolean;
@@ -27,6 +28,7 @@ export interface PushPreferences {
 export const DEFAULT_PREFERENCES: PushPreferences = {
   draft: true,
   trades: true,
+  trade_rumors: false,
   trade_block: true,
   matchups: true,
   matchup_daily: false,
@@ -69,6 +71,7 @@ export async function registerPushToken(userId: string): Promise<boolean> {
       const channels = [
         { id: 'draft',        name: 'Draft',                importance: Notifications.AndroidImportance.HIGH },
         { id: 'trades',       name: 'Trades',               importance: Notifications.AndroidImportance.HIGH },
+        { id: 'trade_rumors', name: 'Trade Rumors',           importance: Notifications.AndroidImportance.DEFAULT },
         { id: 'trade_block', name: 'Trade Block Interest',  importance: Notifications.AndroidImportance.DEFAULT },
         { id: 'matchups',     name: 'Matchup Results',      importance: Notifications.AndroidImportance.DEFAULT },
         { id: 'waivers',      name: 'Waiver Results',       importance: Notifications.AndroidImportance.DEFAULT },
@@ -111,17 +114,89 @@ export async function unregisterPushToken(userId: string): Promise<void> {
 // Returns the user's current notification preferences from Supabase.
 export async function getPushPrefs(
   userId: string,
-): Promise<{ enabled: boolean; preferences: PushPreferences }> {
+): Promise<{ enabled: boolean; preferences: PushPreferences; muteAll: boolean }> {
   const { data } = await supabase
     .from('push_tokens')
-    .select('token, preferences')
+    .select('token, preferences, mute_all')
     .eq('user_id', userId)
     .maybeSingle();
 
   return {
     enabled: !!data?.token,
     preferences: data?.preferences ?? DEFAULT_PREFERENCES,
+    muteAll: data?.mute_all ?? false,
   };
+}
+
+// Sets the global mute_all flag on/off.
+export async function setMuteAll(userId: string, muted: boolean): Promise<void> {
+  await supabase
+    .from('push_tokens')
+    .update({ mute_all: muted })
+    .eq('user_id', userId);
+}
+
+// Returns per-league notification overrides (sparse — only explicitly changed categories).
+export async function getLeagueNotifPrefs(
+  userId: string,
+  leagueId: string,
+): Promise<Partial<PushPreferences>> {
+  const { data } = await supabase
+    .from('league_notification_prefs')
+    .select('overrides')
+    .eq('user_id', userId)
+    .eq('league_id', leagueId)
+    .maybeSingle();
+
+  return (data?.overrides as Partial<PushPreferences>) ?? {};
+}
+
+// Merges a partial update into the user's per-league notification overrides.
+export async function updateLeagueNotifPrefs(
+  userId: string,
+  leagueId: string,
+  patch: Partial<PushPreferences>,
+): Promise<void> {
+  const { data: existing } = await supabase
+    .from('league_notification_prefs')
+    .select('overrides')
+    .eq('user_id', userId)
+    .eq('league_id', leagueId)
+    .maybeSingle();
+
+  const current = (existing?.overrides as Partial<PushPreferences>) ?? {};
+  const merged = { ...current, ...patch };
+
+  await supabase
+    .from('league_notification_prefs')
+    .upsert(
+      { user_id: userId, league_id: leagueId, overrides: merged, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id,league_id' },
+    );
+}
+
+// Resets a specific category's league override back to "use global default".
+export async function resetLeagueNotifPref(
+  userId: string,
+  leagueId: string,
+  key: keyof PushPreferences,
+): Promise<void> {
+  const { data: existing } = await supabase
+    .from('league_notification_prefs')
+    .select('overrides')
+    .eq('user_id', userId)
+    .eq('league_id', leagueId)
+    .maybeSingle();
+
+  if (!existing) return;
+  const current = { ...(existing.overrides as Record<string, boolean>) };
+  delete current[key];
+
+  await supabase
+    .from('league_notification_prefs')
+    .update({ overrides: current, updated_at: new Date().toISOString() })
+    .eq('user_id', userId)
+    .eq('league_id', leagueId);
 }
 
 // Fire-and-forget push notification via the send-notification edge function.

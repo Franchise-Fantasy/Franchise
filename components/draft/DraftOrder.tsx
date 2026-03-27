@@ -6,7 +6,7 @@ import { DraftState, Pick } from "@/types/draft";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { ActivityIndicator, AppState, StyleSheet, View } from "react-native";
 import Animated, {
   runOnJS,
   scrollTo,
@@ -14,6 +14,7 @@ import Animated, {
   useAnimatedRef,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
   withSequence,
   withSpring,
   withTiming,
@@ -24,13 +25,18 @@ import { ThemedView } from "../ThemedView";
 export interface PresenceTeam {
   teamId: string;
   teamName: string;
+  tricode: string;
+  logoKey: string | null;
 }
 
 interface DraftOrderProps {
   draftId: string;
   teamId: string;
   teamName: string;
+  tricode: string;
+  logoKey: string | null;
   isCommissioner: boolean;
+  autopickPending?: boolean;
   onCurrentPickChange: (
     pick: { id: string; current_team_id: string } | null,
   ) => void;
@@ -41,7 +47,10 @@ export function DraftOrder({
   draftId,
   teamId,
   teamName,
+  tricode,
+  logoKey,
   isCommissioner,
+  autopickPending,
   onCurrentPickChange,
   onPresenceChange,
 }: DraftOrderProps) {
@@ -131,8 +140,8 @@ export function DraftOrder({
   const flashPick = useCallback((pickId: string) => {
     setFlashingPickId(pickId);
     flashOpacity.value = withSequence(
-      withTiming(1, { duration: 300 }),
-      withTiming(0, { duration: 700 }, (finished) => {
+      withTiming(1, { duration: 500 }),
+      withTiming(0, { duration: 1500 }, (finished) => {
         if (finished) runOnJS(setFlashingPickId)(null);
       }),
     );
@@ -161,9 +170,14 @@ export function DraftOrder({
           pick_number,
           round,
           current_team_id,
+          original_team_id,
           player_id,
           slot_number,
           current_team:current_team_id (
+            name,
+            tricode
+          ),
+          original_team:original_team_id (
             name,
             tricode
           ),
@@ -189,10 +203,28 @@ export function DraftOrder({
         current_team: Array.isArray(pick.current_team)
           ? pick.current_team[0]
           : pick.current_team,
+        original_team: Array.isArray(pick.original_team)
+          ? pick.original_team[0]
+          : pick.original_team,
         player: Array.isArray(pick.player) ? pick.player[0] : pick.player,
       })) as Pick[];
     },
   });
+
+  // Refetch all draft data — used on reconnect / foreground resume
+  const catchUpDraft = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["draftState", draftId] });
+    queryClient.invalidateQueries({ queryKey: ["draftOrder", draftId] });
+    queryClient.invalidateQueries({ queryKey: ["draftQueue"] });
+  }, [draftId, queryClient]);
+
+  // Refetch when the app returns to the foreground (WebSocket may have died)
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") catchUpDraft();
+    });
+    return () => sub.remove();
+  }, [catchUpDraft]);
 
   // Update subscription to trigger flash
   useEffect(() => {
@@ -220,7 +252,12 @@ export function DraftOrder({
             const tid = (p as any).teamId as string;
             if (tid && !seen.has(tid)) {
               seen.add(tid);
-              teams.push({ teamId: tid, teamName: (p as any).teamName });
+              teams.push({
+                teamId: tid,
+                teamName: (p as any).teamName,
+                tricode: (p as any).tricode ?? '',
+                logoKey: (p as any).logoKey ?? null,
+              });
             }
           }
         }
@@ -228,7 +265,11 @@ export function DraftOrder({
       })
       .subscribe(async (status) => {
         if (status === "SUBSCRIBED" && teamId) {
-          await draftChannel.track({ teamId, teamName });
+          await draftChannel.track({ teamId, teamName, tricode, logoKey });
+        }
+        // Catch up on any events missed during the disconnect window
+        if (status === "SUBSCRIBED" || status === "TIMED_OUT" || status === "CHANNEL_ERROR") {
+          catchUpDraft();
         }
       });
     // Subscription for the pick list (for flashing)
@@ -268,28 +309,48 @@ export function DraftOrder({
           }
         },
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED" || status === "TIMED_OUT" || status === "CHANNEL_ERROR") {
+          catchUpDraft();
+        }
+      });
 
     return () => {
       supabase.removeChannel(picksChannel);
       supabase.removeChannel(draftChannel);
     };
-  }, [draftId, queryClient, teamId, teamName, onPresenceChange]);
+  }, [draftId, queryClient, teamId, teamName, tricode, logoKey, onPresenceChange, catchUpDraft]);
+
+  // Heartbeat: ping draft_team_status so the server knows this team exists.
+  // Autopick is purely user-controlled via the AUTO toggle.
+  useEffect(() => {
+    if (!teamId || !draftId) return;
+    const ping = () =>
+      supabase.rpc("ping_draft_presence", {
+        p_draft_id: draftId,
+        p_team_id: teamId,
+        p_reset_autopick: false,
+      });
+    ping();
+    const interval = setInterval(ping, 30_000);
+    return () => clearInterval(interval);
+  }, [draftId, teamId]);
 
   // Find the index of the first unmade pick
   const currentPickIndex = picks.findIndex((pick) => !pick.player_id);
   const currentPick = picks[currentPickIndex];
   const isMyTurn = currentPick?.current_team_id === teamId;
 
-  // Spring-scroll to the current pick when it changes
+  // Spring-scroll so the just-picked card is leftmost (current pick visible beside it)
   useEffect(() => {
     if (currentPickIndex < 0) return;
-    const targetX = Math.max(0, currentPickIndex * (120 + 4 * 2) - 2);
-    scrollTarget.value = withSpring(targetX, {
-      damping: 120,
-      mass: 4,
-      stiffness: 900,
-    });
+    const showIndex = Math.max(0, currentPickIndex - 1);
+    const targetX = Math.max(0, showIndex * (120 + 4 * 2) - 2);
+    // Delay scroll so the flash animation is visible before the strip moves
+    scrollTarget.value = withDelay(
+      800,
+      withSpring(targetX, { damping: 120, mass: 4, stiffness: 900 }),
+    );
   }, [currentPickIndex]);
 
   // Notify parent of current pick — only expose when the draft is actually running
@@ -349,7 +410,7 @@ export function DraftOrder({
                 backgroundColor: colors.activeCard,
                 borderColor: colors.activeBorder,
               },
-              isCurrentOnTheClock && styles.currentPick,
+              isCurrentOnTheClock && [styles.currentPick, { borderColor: colors.warning }],
             ]}
           >
             {pick.id === flashingPickId && (
@@ -370,8 +431,17 @@ export function DraftOrder({
               </ThemedText>
               <ThemedText
                 style={[styles.teamName, { color: colors.secondaryText }]}
+                numberOfLines={1}
               >
                 {pick.current_team?.tricode || "TBD"}
+                {pick.original_team_id !== pick.current_team_id && (
+                  <ThemedText
+                    style={[styles.viaBadge, { color: colors.accent }]}
+                    accessibilityLabel={`Originally ${pick.original_team?.name}'s pick`}
+                  >
+                    {" "}via {pick.original_team?.tricode}
+                  </ThemedText>
+                )}
               </ThemedText>
             </View>
             <View style={styles.pickContent}>
@@ -389,6 +459,10 @@ export function DraftOrder({
                   >
                     {pick.player?.position}
                   </ThemedText>
+                </ThemedText>
+              ) : autopickPending && !pick.player_id && pick.current_team_id === teamId ? (
+                <ThemedText style={[styles.timerText, { color: colors.success, fontSize: 11 }]}>
+                  Autopick
                 </ThemedText>
               ) : isCurrentOnTheClock && pick.id !== flashingPickId ? (
                 timeUntilDraft !== null ? (
@@ -445,6 +519,11 @@ const styles = StyleSheet.create({
     fontSize: 11,
     textAlign: "right",
   },
+  viaBadge: {
+    fontSize: 8,
+    fontWeight: "700",
+    fontStyle: "italic",
+  },
   playerName: {
     fontSize: 12,
     textAlign: "center",
@@ -453,7 +532,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
   },
   currentPick: {
-    borderColor: "#ffa500",
     borderWidth: 2,
   },
 });

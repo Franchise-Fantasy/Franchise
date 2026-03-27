@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 export interface ReadReceipt {
@@ -7,6 +8,35 @@ export interface ReadReceipt {
   tricode: string;
   last_read_message_id: string | null;
   online: boolean;
+}
+
+/** Query key used for the DB-backed read receipt seed. Prefetch this to avoid pop-in. */
+export function readReceiptSeedKey(conversationId: string, myTeamId: string) {
+  return ['readReceiptSeed', conversationId, myTeamId] as const;
+}
+
+/** Fetcher for the DB seed — exported so the chat list can prefetch it. */
+export async function fetchReadReceiptSeed(conversationId: string, myTeamId: string) {
+  const { data } = await supabase
+    .from('chat_members')
+    .select('team_id, last_read_message_id, teams!inner(name, tricode)')
+    .eq('conversation_id', conversationId)
+    .neq('team_id', myTeamId);
+
+  if (!data) return {};
+
+  const map: Record<string, ReadReceipt> = {};
+  for (const row of data) {
+    const team = row.teams as unknown as { name: string; tricode: string };
+    map[row.team_id] = {
+      team_id: row.team_id,
+      team_name: team.name,
+      tricode: team.tricode,
+      last_read_message_id: row.last_read_message_id,
+      online: false,
+    };
+  }
+  return map;
 }
 
 /**
@@ -20,41 +50,18 @@ export function useReadReceipts(
   myTeamName: string | null,
   myTricode: string | null,
 ) {
-  const [state, setState] = useState<Record<string, ReadReceipt>>({});
+  const [liveState, setLiveState] = useState<Record<string, ReadReceipt>>({});
   const [channel, setChannel] = useState<ReturnType<typeof supabase.channel> | null>(null);
   // Track which teams are currently online via presence
   const onlineRef = useRef<Set<string>>(new Set());
 
-  // Seed from DB so receipts are available immediately and persist offline
-  useEffect(() => {
-    if (!conversationId || !myTeamId) return;
-
-    supabase
-      .from('chat_members')
-      .select('team_id, last_read_message_id, teams!inner(name, tricode)')
-      .eq('conversation_id', conversationId)
-      .neq('team_id', myTeamId)
-      .then(({ data }) => {
-        if (!data) return;
-        setState((prev) => {
-          const next = { ...prev };
-          for (const row of data) {
-            const team = row.teams as unknown as { name: string; tricode: string };
-            // Only seed if presence hasn't already provided a newer value
-            if (!next[row.team_id]) {
-              next[row.team_id] = {
-                team_id: row.team_id,
-                team_name: team.name,
-                tricode: team.tricode,
-                last_read_message_id: row.last_read_message_id,
-                online: onlineRef.current.has(row.team_id),
-              };
-            }
-          }
-          return next;
-        });
-      });
-  }, [conversationId, myTeamId]);
+  // DB seed via React Query — can be prefetched from the chat list screen
+  const { data: dbSeed } = useQuery({
+    queryKey: readReceiptSeedKey(conversationId!, myTeamId!),
+    queryFn: () => fetchReadReceiptSeed(conversationId!, myTeamId!),
+    enabled: !!conversationId && !!myTeamId,
+    staleTime: 1000 * 60 * 5,
+  });
 
   // Presence channel for live updates
   useEffect(() => {
@@ -93,7 +100,7 @@ export function useReadReceipts(
       onlineRef.current = nowOnline;
 
       // Merge: presence updates override, but keep DB-seeded entries for offline users
-      setState((prev) => {
+      setLiveState((prev) => {
         const next = { ...prev };
         // Update online status for all known members
         for (const teamId of Object.keys(next)) {
@@ -145,7 +152,23 @@ export function useReadReceipts(
     };
   }, [channel, myTeamId, myTeamName, myTricode]);
 
-  const receipts = useMemo(() => Object.values(state), [state]);
+  // Merge: DB seed as base, live presence updates on top
+  const mergedState = useMemo(() => {
+    const merged = { ...(dbSeed ?? {}) };
+    // Layer live presence data on top of DB seed
+    for (const [teamId, receipt] of Object.entries(liveState)) {
+      merged[teamId] = receipt;
+    }
+    // For DB-seeded entries not yet updated by presence, update online status
+    for (const teamId of Object.keys(merged)) {
+      if (!liveState[teamId]) {
+        merged[teamId] = { ...merged[teamId], online: onlineRef.current.has(teamId) };
+      }
+    }
+    return merged;
+  }, [dbSeed, liveState]);
 
-  return { receipts, updateReadPosition, presenceState: state };
+  const receipts = useMemo(() => Object.values(mergedState), [mergedState]);
+
+  return { receipts, updateReadPosition, presenceState: mergedState };
 }

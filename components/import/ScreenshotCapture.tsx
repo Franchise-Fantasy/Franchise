@@ -94,7 +94,7 @@ export function ScreenshotCapture({
                 accessibilityLabel={`Screenshot ${index + 1}`}
               />
               <TouchableOpacity
-                style={[styles.removeBtn, { backgroundColor: '#FF3B30' }]}
+                style={[styles.removeBtn, { backgroundColor: c.danger }]}
                 onPress={() => removeImage(index)}
                 accessibilityRole="button"
                 accessibilityLabel={`Remove screenshot ${index + 1}`}

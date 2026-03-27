@@ -104,6 +104,16 @@ export async function assignDraftSlots(draftId: string, teamIds: string[]) {
 }
 
 export async function checkAndAssignDraftSlots(leagueId: string) {
+  // Check the league's initial_draft_order setting
+  const { data: league } = await supabase
+    .from('leagues')
+    .select('initial_draft_order')
+    .eq('id', leagueId)
+    .single();
+
+  // If manual, skip auto-assignment — commissioner will set order later
+  if (league?.initial_draft_order === 'manual') return;
+
   // Get the draft ID
   const { data: draft } = await supabase
     .from('drafts')
@@ -126,17 +136,30 @@ export async function checkAndAssignDraftSlots(leagueId: string) {
       const shuffledTeams = [...teamIds].sort(() => Math.random() - 0.5);
 
       await assignDraftSlots(draft.id, shuffledTeams);
-
-      // Also assign team ownership to future-season picks (no draft_id)
-      const futureUpdates = shuffledTeams.map((teamId, index) => {
-        return supabase
-          .from('draft_picks')
-          .update({ current_team_id: teamId, original_team_id: teamId })
-          .eq('league_id', leagueId)
-          .is('draft_id', null)
-          .eq('slot_number', index + 1);
-      });
-      await Promise.all(futureUpdates);
+      await assignFutureSlots(leagueId, shuffledTeams);
     }
   }
+}
+
+/** Assign team ownership to future-season picks (picks with no draft_id). */
+async function assignFutureSlots(leagueId: string, orderedTeamIds: string[]) {
+  const updates = orderedTeamIds.map((teamId, index) => {
+    return supabase
+      .from('draft_picks')
+      .update({ current_team_id: teamId, original_team_id: teamId })
+      .eq('league_id', leagueId)
+      .is('draft_id', null)
+      .eq('slot_number', index + 1);
+  });
+  await Promise.all(updates);
+}
+
+/** Commissioner manually sets the draft order via an ordered list of team IDs. */
+export async function manuallyAssignDraftSlots(
+  leagueId: string,
+  draftId: string,
+  orderedTeamIds: string[]
+) {
+  await assignDraftSlots(draftId, orderedTeamIds);
+  await assignFutureSlots(leagueId, orderedTeamIds);
 }

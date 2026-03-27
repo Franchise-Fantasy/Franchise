@@ -5,3 +5,5 @@ venv
 .vscode
 .expo
 .venv
+.claude/
+dist/

@@ -63,16 +63,16 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
 
         {/* Player portrait */}
         <View style={styles.portraitWrap}>
-          {headshotUrl ? (
-            <Image source={{ uri: headshotUrl }} style={styles.headshot} resizeMode="cover" />
-          ) : (
-            <View style={[styles.headshot, { backgroundColor: c.border }]} />
-          )}
+          <View style={[styles.headshotCircle, { borderColor: c.gold, backgroundColor: c.cardAlt }]}>
+            {headshotUrl ? (
+              <Image source={{ uri: headshotUrl }} style={styles.headshotImg} resizeMode="cover" />
+            ) : null}
+          </View>
           <View style={styles.teamPill}>
             {logoUrl && (
               <Image source={{ uri: logoUrl }} style={styles.teamPillLogo} resizeMode="contain" />
             )}
-            <Text style={styles.teamPillText}>{item.player.nba_team}</Text>
+            <Text style={[styles.teamPillText, { color: c.statusText }]}>{item.player.nba_team}</Text>
           </View>
         </View>
 
@@ -84,7 +84,7 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
             </ThemedText>
             {badge && (
               <View style={[styles.badge, { backgroundColor: badge.color }]}>
-                <Text style={styles.badgeText}>{badge.label}</Text>
+                <Text style={[styles.badgeText, { color: c.statusText }]}>{badge.label}</Text>
               </View>
             )}
           </View>
@@ -101,13 +101,13 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
 
           {isSuggested ? (
             <TouchableOpacity
-              style={[styles.draftButton, isDrafting && styles.draftButtonDisabled]}
+              style={[styles.draftButton, { backgroundColor: isDrafting ? c.buttonDisabled : c.link }]}
               onPress={() => handleDraft(item)}
               disabled={isDrafting}
               accessibilityRole="button"
               accessibilityLabel={`Draft ${item.player.name}`}
             >
-              <ThemedText style={styles.draftButtonText}>Draft</ThemedText>
+              <ThemedText style={[styles.draftButtonText, { color: c.statusText }]}>Draft</ThemedText>
             </TouchableOpacity>
           ) : (
             <View style={styles.reorderButtons}>
@@ -206,14 +206,23 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   portraitWrap: {
-    width: 44,
-    height: 40,
+    width: 50,
+    height: 50,
     marginRight: 8,
   },
-  headshot: {
-    width: 44,
-    height: 32,
-    borderRadius: 4,
+  headshotCircle: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    borderWidth: 1.5,
+    overflow: 'hidden' as const,
+  },
+  headshotImg: {
+    position: 'absolute' as const,
+    bottom: -2,
+    left: 0,
+    right: 0,
+    height: 42,
   },
   teamPill: {
     position: 'absolute',
@@ -228,11 +237,11 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   teamPillLogo: { width: 9, height: 9 },
-  teamPillText: { color: '#fff', fontSize: 7, fontWeight: '700', letterSpacing: 0.3 },
+  teamPillText: { fontSize: 7, fontWeight: '700', letterSpacing: 0.3 },
   info: { flex: 1, marginRight: 8 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   badge: { paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3 },
-  badgeText: { color: '#fff', fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
+  badgeText: { fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
   posText: { fontSize: 11, marginTop: 1 },
   rightSide: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   fpts: { fontSize: 11, fontWeight: '600' },
@@ -240,11 +249,9 @@ const styles = StyleSheet.create({
   arrowButton: { padding: 2 },
   removeButton: { padding: 2 },
   draftButton: {
-    backgroundColor: '#0066cc',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 4,
   },
-  draftButtonText: { color: '#fff', fontSize: 12, fontWeight: 'bold' },
-  draftButtonDisabled: { backgroundColor: '#ccc' },
+  draftButtonText: { fontSize: 12, fontWeight: 'bold' },
 });

@@ -85,6 +85,57 @@ export function StepBasics({ state, onChange }: StepBasicsProps) {
           step={5}
         />
       </View>
+
+      {state.buyIn > 0 && (
+        <View style={styles.section}>
+          <ThemedText style={styles.label}>Payment Methods</ThemedText>
+
+          <ThemedText style={styles.fieldLabel}>Venmo</ThemedText>
+          <TextInput
+            accessibilityLabel="Venmo username"
+            style={[
+              styles.input,
+              { borderColor: c.border, backgroundColor: c.input, color: c.text },
+            ]}
+            placeholder="username (no @)"
+            placeholderTextColor={c.secondaryText}
+            value={state.venmoUsername}
+            onChangeText={(text) => onChange("venmoUsername", text)}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+
+          <ThemedText style={styles.fieldLabel}>Cash App</ThemedText>
+          <TextInput
+            accessibilityLabel="Cash App tag"
+            style={[
+              styles.input,
+              { borderColor: c.border, backgroundColor: c.input, color: c.text },
+            ]}
+            placeholder="cashtag (no $)"
+            placeholderTextColor={c.secondaryText}
+            value={state.cashappTag}
+            onChangeText={(text) => onChange("cashappTag", text)}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+
+          <ThemedText style={styles.fieldLabel}>PayPal</ThemedText>
+          <TextInput
+            accessibilityLabel="PayPal username"
+            style={[
+              styles.input,
+              { borderColor: c.border, backgroundColor: c.input, color: c.text },
+            ]}
+            placeholder="username"
+            placeholderTextColor={c.secondaryText}
+            value={state.paypalUsername}
+            onChangeText={(text) => onChange("paypalUsername", text)}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+        </View>
+      )}
     </View>
   );
 }
@@ -107,6 +158,11 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     fontSize: 16,
     marginBottom: 16,
+  },
+  fieldLabel: {
+    marginBottom: 4,
+    fontSize: 13,
+    fontWeight: "500",
   },
   section: {
     marginTop: 8,

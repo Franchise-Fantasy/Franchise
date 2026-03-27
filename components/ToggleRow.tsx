@@ -11,6 +11,7 @@ interface ToggleRowProps {
   disabled?: boolean;
   c: { border: string; accent: string; secondaryText: string };
   indented?: boolean;
+  last?: boolean;
 }
 
 export function ToggleRow({
@@ -22,6 +23,7 @@ export function ToggleRow({
   disabled = false,
   c,
   indented = false,
+  last = false,
 }: ToggleRowProps) {
   return (
     <View
@@ -29,6 +31,7 @@ export function ToggleRow({
         styles.row,
         { borderBottomColor: c.border, opacity: disabled ? 0.4 : 1 },
         indented && styles.indented,
+        last && { borderBottomWidth: 0 },
       ]}
     >
       <View style={styles.left}>

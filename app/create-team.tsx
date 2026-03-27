@@ -62,7 +62,7 @@ export default function CreateTeam() {
 
       const { data: league, error: leagueError } = await supabase
         .from('leagues')
-        .select('current_teams, teams, faab_budget')
+        .select('current_teams, teams, faab_budget, division_count')
         .eq('id', leagueId)
         .single();
 
@@ -81,6 +81,28 @@ export default function CreateTeam() {
 
       if (league && league.current_teams === league.teams) {
         checkAndAssignDraftSlots(leagueId as string).catch(console.error);
+
+        // Auto-assign divisions when league is full
+        if (league.division_count === 2) {
+          const { data: allTeams } = await supabase
+            .from('teams')
+            .select('id')
+            .eq('league_id', leagueId as string)
+            .order('id');
+
+          if (allTeams && allTeams.length > 0) {
+            // Shuffle teams randomly
+            const shuffled = [...allTeams].sort(() => Math.random() - 0.5);
+            const half = Math.ceil(shuffled.length / 2);
+            const updates = shuffled.map((t, i) => ({
+              id: t.id,
+              division: (i < half ? 1 : 2) as 1 | 2,
+            }));
+            for (const u of updates) {
+              await supabase.from('teams').update({ division: u.division }).eq('id', u.id);
+            }
+          }
+        }
       }
 
     } catch (error) {

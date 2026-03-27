@@ -1,7 +1,9 @@
 import { ThemedText } from '@/components/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
-import { LeagueWizardState, WAIVER_DAY_LABELS, WAIVER_TYPE_OPTIONS } from '@/constants/LeagueDefaults';
+import { LeagueWizardState, PLAYER_LOCK_OPTIONS, WAIVER_DAY_LABELS, WAIVER_TYPE_OPTIONS } from '@/constants/LeagueDefaults';
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
 import { StyleSheet, View } from 'react-native';
 
 interface StepWaiversProps {
@@ -10,6 +12,9 @@ interface StepWaiversProps {
 }
 
 export function StepWaivers({ state, onChange }: StepWaiversProps) {
+  const scheme = useColorScheme() ?? 'light';
+  const c = Colors[scheme];
+
   return (
     <View style={styles.container}>
       <ThemedText accessibilityRole="header" type="subtitle" style={styles.heading}>Waiver Settings</ThemedText>
@@ -46,6 +51,20 @@ export function StepWaivers({ state, onChange }: StepWaiversProps) {
         />
         <ThemedText style={[styles.hint]}>
           {state.weeklyAcquisitionLimit ? `Max ${state.weeklyAcquisitionLimit} adds per week` : 'Unlimited adds per week'}
+        </ThemedText>
+      </View>
+
+      <View style={styles.section}>
+        <ThemedText style={styles.label}>Player Lock</ThemedText>
+        <SegmentedControl
+          options={PLAYER_LOCK_OPTIONS}
+          selectedIndex={PLAYER_LOCK_OPTIONS.indexOf(state.playerLockType)}
+          onSelect={(i) => onChange('playerLockType', PLAYER_LOCK_OPTIONS[i])}
+        />
+        <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
+          {state.playerLockType === 'Daily'
+            ? 'Once the first NBA game starts each day, adds process the next day'
+            : 'Players whose games have started cannot be added or dropped'}
         </ThemedText>
       </View>
 

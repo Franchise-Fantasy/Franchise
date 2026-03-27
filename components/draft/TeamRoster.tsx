@@ -1,19 +1,27 @@
-import { supabase } from '@/lib/supabase';
-import { PlayerSeasonStats } from '@/types/player';
-import { useQuery } from '@tanstack/react-query';
-import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { ThemedText } from '../ThemedText';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { useLeagueRosterConfig } from '@/hooks/useLeagueRosterConfig';
-import { useLeagueScoring } from '@/hooks/useLeagueScoring';
-import { slotLabel } from '@/utils/rosterSlots';
-import { formatPosition } from '@/utils/formatting';
-import { getInjuryBadge } from '@/utils/injuryBadge';
-import { getPlayerHeadshotUrl, getTeamLogoUrl } from '@/utils/playerHeadshot';
-import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
-import { PlayerDetailModal } from '../player/PlayerDetailModal';
-import { useState } from 'react';
+import { Colors } from "@/constants/Colors";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import { useLeagueRosterConfig } from "@/hooks/useLeagueRosterConfig";
+import { useLeagueScoring } from "@/hooks/useLeagueScoring";
+import { supabase } from "@/lib/supabase";
+import { PlayerSeasonStats } from "@/types/player";
+import { calculateAvgFantasyPoints } from "@/utils/fantasyPoints";
+import { formatPosition } from "@/utils/formatting";
+import { getInjuryBadge } from "@/utils/injuryBadge";
+import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
+import { slotLabel } from "@/utils/rosterSlots";
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import {
+  ActivityIndicator,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { PlayerDetailModal } from "../player/PlayerDetailModal";
+import { ThemedText } from "../ThemedText";
 
 interface TeamRosterProps {
   teamId: string;
@@ -31,36 +39,42 @@ interface SlotEntry {
 }
 
 export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
-  const colorScheme = useColorScheme() ?? 'light';
+  const colorScheme = useColorScheme() ?? "light";
   const c = Colors[colorScheme];
-  const [selectedPlayer, setSelectedPlayer] = useState<PlayerSeasonStats | null>(null);
+  const [selectedPlayer, setSelectedPlayer] =
+    useState<PlayerSeasonStats | null>(null);
 
   const { data: scoringWeights } = useLeagueScoring(leagueId);
-  const { data: rosterConfig, isLoading: isLoadingConfig } = useLeagueRosterConfig(leagueId);
+  const { data: rosterConfig, isLoading: isLoadingConfig } =
+    useLeagueRosterConfig(leagueId);
 
-  const { data: rosterPlayers, isLoading: isLoadingPlayers } = useQuery<RosterPlayer[]>({
-    queryKey: ['teamRoster', teamId],
+  const { data: rosterPlayers, isLoading: isLoadingPlayers } = useQuery<
+    RosterPlayer[]
+  >({
+    queryKey: ["teamRoster", teamId],
     queryFn: async () => {
       const { data: leaguePlayers, error: lpError } = await supabase
-        .from('league_players')
-        .select('player_id, roster_slot')
-        .eq('team_id', teamId);
+        .from("league_players")
+        .select("player_id, roster_slot")
+        .eq("team_id", teamId);
 
       if (lpError) throw lpError;
       if (!leaguePlayers || leaguePlayers.length === 0) return [];
 
-      const playerIds = leaguePlayers.map(lp => lp.player_id);
+      const playerIds = leaguePlayers.map((lp) => lp.player_id);
 
       const { data: stats, error: statsError } = await supabase
-        .from('player_season_stats')
-        .select('*')
-        .in('player_id', playerIds);
+        .from("player_season_stats")
+        .select("*")
+        .in("player_id", playerIds);
 
       if (statsError) throw statsError;
 
-      const slotMap = new Map(leaguePlayers.map(lp => [lp.player_id, lp.roster_slot]));
+      const slotMap = new Map(
+        leaguePlayers.map((lp) => [lp.player_id, lp.roster_slot]),
+      );
 
-      return (stats as PlayerSeasonStats[]).map(p => ({
+      return (stats as PlayerSeasonStats[]).map((p) => ({
         ...p,
         roster_slot: slotMap.get(p.player_id) ?? null,
       }));
@@ -76,28 +90,38 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
   const irSlots: SlotEntry[] = [];
 
   if (rosterConfig && rosterPlayers) {
-    const benchConfig = rosterConfig.find(c => c.position === 'BE');
-    const irConfig = rosterConfig.find(c => c.position === 'IR');
-    const activeConfigs = rosterConfig.filter(c => c.position !== 'BE' && c.position !== 'IR');
+    const benchConfig = rosterConfig.find((c) => c.position === "BE");
+    const irConfig = rosterConfig.find((c) => c.position === "IR");
+    const activeConfigs = rosterConfig.filter(
+      (c) => c.position !== "BE" && c.position !== "IR",
+    );
 
     const validSlotNames = new Set<string>();
     for (const config of activeConfigs) {
-      if (config.position === 'UTIL') {
-        for (let i = 1; i <= config.slot_count; i++) validSlotNames.add(`UTIL${i}`);
+      if (config.position === "UTIL") {
+        for (let i = 1; i <= config.slot_count; i++)
+          validSlotNames.add(`UTIL${i}`);
       } else {
         validSlotNames.add(config.position);
       }
     }
 
     for (const config of activeConfigs) {
-      if (config.position === 'UTIL') {
+      if (config.position === "UTIL") {
         for (let i = 0; i < config.slot_count; i++) {
           const numberedSlot = `UTIL${i + 1}`;
-          const player = rosterPlayers.find(p => p.roster_slot === numberedSlot) ?? null;
-          starterSlots.push({ slotPosition: numberedSlot, slotIndex: i, player });
+          const player =
+            rosterPlayers.find((p) => p.roster_slot === numberedSlot) ?? null;
+          starterSlots.push({
+            slotPosition: numberedSlot,
+            slotIndex: i,
+            player,
+          });
         }
       } else {
-        const playersInSlot = rosterPlayers.filter(p => p.roster_slot === config.position);
+        const playersInSlot = rosterPlayers.filter(
+          (p) => p.roster_slot === config.position,
+        );
         for (let i = 0; i < config.slot_count; i++) {
           starterSlots.push({
             slotPosition: config.position,
@@ -110,27 +134,34 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
 
     const benchPlayers: RosterPlayer[] = [];
     for (const player of rosterPlayers) {
-      if (player.roster_slot === 'IR') continue;
-      if (!player.roster_slot || player.roster_slot === 'BE' || !validSlotNames.has(player.roster_slot)) {
+      if (player.roster_slot === "IR") continue;
+      if (
+        !player.roster_slot ||
+        player.roster_slot === "BE" ||
+        !validSlotNames.has(player.roster_slot)
+      ) {
         benchPlayers.push(player);
       }
     }
 
-    const benchSlotCount = Math.max(benchConfig?.slot_count ?? 0, benchPlayers.length);
+    const benchSlotCount = Math.max(
+      benchConfig?.slot_count ?? 0,
+      benchPlayers.length,
+    );
     for (let i = 0; i < benchSlotCount; i++) {
       benchSlots.push({
-        slotPosition: 'BE',
+        slotPosition: "BE",
         slotIndex: i,
         player: benchPlayers[i] ?? null,
       });
     }
 
     if (irConfig && irConfig.slot_count > 0) {
-      const irPlayers = rosterPlayers.filter(p => p.roster_slot === 'IR');
+      const irPlayers = rosterPlayers.filter((p) => p.roster_slot === "IR");
       const irSlotCount = Math.max(irConfig.slot_count, irPlayers.length);
       for (let i = 0; i < irSlotCount; i++) {
         irSlots.push({
-          slotPosition: 'IR',
+          slotPosition: "IR",
           slotIndex: i,
           player: irPlayers[i] ?? null,
         });
@@ -146,19 +177,25 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
     );
   }
 
-  // Build position fill summary
-  const positionCounts: { label: string; filled: number; total: number }[] = [];
+  // Build position fill summary — count by player's actual position, not roster slot
+  const positionCounts: { label: string; filled: number; isAggregate?: boolean }[] = [];
   if (rosterConfig && rosterPlayers) {
-    const activeConfigs = rosterConfig.filter(cfg => cfg.position !== 'BE' && cfg.position !== 'IR');
-    for (const config of activeConfigs) {
-      if (config.position === 'UTIL') {
-        const filled = starterSlots.filter(s => s.slotPosition.startsWith('UTIL') && s.player !== null).length;
-        positionCounts.push({ label: 'UTIL', filled, total: config.slot_count });
-      } else {
-        const filled = starterSlots.filter(s => s.slotPosition === config.position && s.player !== null).length;
-        positionCounts.push({ label: config.position, filled, total: config.slot_count });
-      }
-    }
+    const countByPosition = (pos: string) =>
+      rosterPlayers.filter((p) => p.position?.split("-").includes(pos)).length;
+
+    const pg = countByPosition("PG");
+    const sg = countByPosition("SG");
+    const sf = countByPosition("SF");
+    const pf = countByPosition("PF");
+    const ctr = countByPosition("C");
+
+    positionCounts.push({ label: "PG", filled: pg });
+    positionCounts.push({ label: "SG", filled: sg });
+    positionCounts.push({ label: "G", filled: pg + sg, isAggregate: true });
+    positionCounts.push({ label: "SF", filled: sf });
+    positionCounts.push({ label: "PF", filled: pf });
+    positionCounts.push({ label: "F", filled: sf + pf, isAggregate: true });
+    positionCounts.push({ label: "C", filled: ctr });
   }
 
   if (!rosterPlayers || rosterPlayers.length === 0) {
@@ -174,9 +211,10 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
   }
 
   const renderSlotRow = (slot: SlotEntry, idx: number, list: SlotEntry[]) => {
-    const avgFpts = slot.player && scoringWeights
-      ? calculateAvgFantasyPoints(slot.player, scoringWeights)
-      : null;
+    const avgFpts =
+      slot.player && scoringWeights
+        ? calculateAvgFantasyPoints(slot.player, scoringWeights)
+        : null;
 
     return (
       <View
@@ -213,10 +251,21 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
             <View style={styles.portraitWrap}>
               {(() => {
                 const url = getPlayerHeadshotUrl(slot.player.external_id_nba);
-                return url ? (
-                  <Image source={{ uri: url }} style={styles.headshot} resizeMode="cover" />
-                ) : (
-                  <View style={[styles.headshot, { backgroundColor: c.border }]} />
+                return (
+                  <View
+                    style={[
+                      styles.headshotCircle,
+                      { borderColor: c.gold, backgroundColor: c.cardAlt },
+                    ]}
+                  >
+                    {url ? (
+                      <Image
+                        source={{ uri: url }}
+                        style={styles.headshotImg}
+                        resizeMode="cover"
+                      />
+                    ) : null}
+                  </View>
                 );
               })()}
               {(() => {
@@ -224,28 +273,50 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
                 return (
                   <View style={styles.teamPill}>
                     {logoUrl && (
-                      <Image source={{ uri: logoUrl }} style={styles.teamPillLogo} resizeMode="contain" />
+                      <Image
+                        source={{ uri: logoUrl }}
+                        style={styles.teamPillLogo}
+                        resizeMode="contain"
+                      />
                     )}
-                    <Text style={styles.teamPillText}>{slot.player.nba_team}</Text>
+                    <Text style={[styles.teamPillText, { color: c.statusText }]}>
+                      {slot.player.nba_team}
+                    </Text>
                   </View>
                 );
               })()}
             </View>
             <View style={styles.slotPlayerInfo}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexWrap: 'wrap', flexShrink: 1 }}>
-                <ThemedText type="defaultSemiBold" style={styles.slotPlayerName}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 4,
+                  flexWrap: "wrap",
+                  flexShrink: 1,
+                }}
+              >
+                <ThemedText
+                  type="defaultSemiBold"
+                  style={styles.slotPlayerName}
+                >
                   {slot.player.name}
                 </ThemedText>
                 {(() => {
                   const badge = getInjuryBadge(slot.player.status);
                   return badge ? (
-                    <View style={[styles.badge, { backgroundColor: badge.color }]}>
-                      <Text style={styles.badgeText}>{badge.label}</Text>
+                    <View
+                      style={[styles.badge, { backgroundColor: badge.color }]}
+                    >
+                      <Text style={[styles.badgeText, { color: c.statusText }]}>{badge.label}</Text>
                     </View>
                   ) : null;
                 })()}
               </View>
-              <ThemedText style={[styles.slotPlayerSub, { color: c.secondaryText }]} numberOfLines={1}>
+              <ThemedText
+                style={[styles.slotPlayerSub, { color: c.secondaryText }]}
+                numberOfLines={1}
+              >
                 {formatPosition(slot.player.position)}
               </ThemedText>
             </View>
@@ -257,7 +328,9 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
           </TouchableOpacity>
         ) : (
           <View style={styles.slotPlayer}>
-            <ThemedText style={[styles.emptySlotText, { color: c.secondaryText }]}>
+            <ThemedText
+              style={[styles.emptySlotText, { color: c.secondaryText }]}
+            >
               Empty
             </ThemedText>
           </View>
@@ -273,11 +346,19 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
         {positionCounts.length > 0 && (
           <View
             style={styles.positionSummary}
-            accessibilityLabel={`Roster positions filled: ${positionCounts.map(p => `${p.label} ${p.filled} of ${p.total}`).join(', ')}`}
+            accessibilityLabel={`Roster positions filled: ${positionCounts.map((p) => `${p.label} ${p.filled}`).join(", ")}`}
           >
             {positionCounts.map((p, i) => (
-              <ThemedText key={p.label} style={[styles.positionSummaryText, { color: c.secondaryText }]}>
-                {i > 0 ? '  |  ' : ''}{p.label} {p.filled}/{p.total}
+              <ThemedText
+                key={p.label}
+                style={[
+                  styles.positionSummaryText,
+                  { color: p.isAggregate ? c.text : c.secondaryText },
+                  p.isAggregate && { fontWeight: "700" },
+                ]}
+              >
+                {i > 0 ? "  |  " : ""}
+                {p.label} {p.filled}
               </ThemedText>
             ))}
           </View>
@@ -289,7 +370,9 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
             <ThemedText type="subtitle">Starters</ThemedText>
           </View>
           <View style={[styles.card, { backgroundColor: c.card }]}>
-            {starterSlots.map((slot, idx) => renderSlotRow(slot, idx, starterSlots))}
+            {starterSlots.map((slot, idx) =>
+              renderSlotRow(slot, idx, starterSlots),
+            )}
           </View>
         </View>
 
@@ -300,10 +383,14 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
           </View>
           <View style={[styles.card, { backgroundColor: c.card }]}>
             {benchSlots.length > 0 ? (
-              benchSlots.map((slot, idx) => renderSlotRow(slot, idx, benchSlots))
+              benchSlots.map((slot, idx) =>
+                renderSlotRow(slot, idx, benchSlots),
+              )
             ) : (
               <View style={styles.emptyBench}>
-                <ThemedText style={[styles.emptySlotText, { color: c.secondaryText }]}>
+                <ThemedText
+                  style={[styles.emptySlotText, { color: c.secondaryText }]}
+                >
                   No bench slots
                 </ThemedText>
               </View>
@@ -339,73 +426,82 @@ const styles = StyleSheet.create({
   scrollContent: { paddingBottom: 56 },
   centered: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     padding: 20,
   },
   positionSummary: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 4,
   },
   positionSummaryText: {
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   section: { padding: 16, paddingBottom: 0 },
   sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 8,
   },
   card: {
     borderRadius: 8,
-    overflow: 'hidden',
-    shadowColor: '#000',
+    overflow: "hidden",
+    shadowColor: "#000",
     shadowOpacity: 0.05,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
   slotRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     minHeight: 56,
   },
   slotLabel: {
     width: 44,
-    alignSelf: 'stretch',
-    justifyContent: 'center',
-    alignItems: 'center',
+    alignSelf: "stretch",
+    justifyContent: "center",
+    alignItems: "center",
   },
-  slotLabelText: { fontSize: 11, fontWeight: '700' },
+  slotLabelText: { fontSize: 11, fontWeight: "700" },
   slotPlayer: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingVertical: 6,
     paddingHorizontal: 12,
   },
   portraitWrap: {
-    width: 44,
-    height: 36,
+    width: 50,
+    height: 50,
     marginRight: 8,
   },
-  headshot: {
-    width: 44,
-    height: 32,
-    borderRadius: 4,
+  headshotCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 25,
+    borderWidth: 1.5,
+    overflow: "hidden",
+  },
+  headshotImg: {
+    position: "absolute" as const,
+    bottom: -2,
+    left: 0,
+    right: 0,
+    height: 42,
   },
   teamPill: {
-    position: 'absolute',
+    position: "absolute",
     bottom: -1,
-    alignSelf: 'center',
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.75)',
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.75)",
     borderRadius: 8,
     paddingHorizontal: 3,
     paddingVertical: 1,
@@ -416,26 +512,24 @@ const styles = StyleSheet.create({
     height: 9,
   },
   teamPillText: {
-    color: '#fff',
     fontSize: 7,
-    fontWeight: '700',
+    fontWeight: "700",
     letterSpacing: 0.3,
   },
   slotPlayerInfo: { flex: 1, marginRight: 8 },
   slotPlayerName: { fontSize: 14 },
   slotPlayerSub: { fontSize: 11, marginTop: 1 },
-  slotFpts: { fontSize: 13, fontWeight: '600' },
-  emptySlotText: { fontSize: 13, fontStyle: 'italic' },
-  emptyBench: { padding: 16, alignItems: 'center' },
+  slotFpts: { fontSize: 13, fontWeight: "600" },
+  emptySlotText: { fontSize: 13, fontStyle: "italic" },
+  emptyBench: { padding: 16, alignItems: "center" },
   badge: {
     paddingHorizontal: 4,
     paddingVertical: 1,
     borderRadius: 3,
   },
   badgeText: {
-    color: '#fff',
     fontSize: 8,
-    fontWeight: '800',
+    fontWeight: "800",
     letterSpacing: 0.5,
   },
 });

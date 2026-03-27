@@ -4,6 +4,10 @@ export interface RosterSlot {
   count: number;
 }
 
+export const NBA_POSITIONS = ['PG', 'SG', 'SF', 'PF', 'C'] as const;
+export type NbaPosition = (typeof NBA_POSITIONS)[number];
+export type PositionLimits = Partial<Record<NbaPosition, number | null>>;
+
 export interface ScoringCategory {
   stat_name: string;
   label: string;
@@ -115,8 +119,32 @@ export type WaiverTypeOption = (typeof WAIVER_TYPE_OPTIONS)[number];
 
 export const WAIVER_DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 
+export const PLAYER_LOCK_OPTIONS = ['Daily', 'Individual'] as const;
+export type PlayerLockOption = (typeof PLAYER_LOCK_OPTIONS)[number];
+
+export const PLAYER_LOCK_TO_DB: Record<PlayerLockOption, string> = {
+  'Daily': 'daily',
+  'Individual': 'individual',
+};
+export const PLAYER_LOCK_DISPLAY: Record<string, string> = {
+  daily: 'Daily',
+  individual: 'Individual',
+};
+
 export const ROOKIE_DRAFT_ORDER_OPTIONS = ['Reverse Record', 'Lottery'] as const;
 export type RookieDraftOrderOption = (typeof ROOKIE_DRAFT_ORDER_OPTIONS)[number];
+
+export const INITIAL_DRAFT_ORDER_OPTIONS = ['Random', 'Manual'] as const;
+export type InitialDraftOrderOption = (typeof INITIAL_DRAFT_ORDER_OPTIONS)[number];
+
+export const INITIAL_DRAFT_ORDER_TO_DB: Record<InitialDraftOrderOption, string> = {
+  Random: 'random',
+  Manual: 'manual',
+};
+export const INITIAL_DRAFT_ORDER_DISPLAY: Record<string, string> = {
+  random: 'Random',
+  manual: 'Manual',
+};
 
 export const PLAYOFF_SEEDING_OPTIONS = ['Standard', 'Fixed Bracket', 'Higher Seed Picks'] as const;
 export type PlayoffSeedingOption = (typeof PLAYOFF_SEEDING_OPTIONS)[number];
@@ -130,6 +158,20 @@ export const SEEDING_DISPLAY: Record<string, string> = {
   standard: 'Standard',
   fixed: 'Fixed Bracket',
   higher_seed_picks: 'Higher Seed Picks',
+};
+
+// ── Tiebreaker ──────────────────────────────────────────────────────────────
+
+export const TIEBREAKER_OPTIONS = ['Head-to-Head', 'Total Points'] as const;
+export type TiebreakerOption = (typeof TIEBREAKER_OPTIONS)[number];
+
+export const TIEBREAKER_TO_DB: Record<TiebreakerOption, string[]> = {
+  'Head-to-Head': ['head_to_head', 'points_for'],
+  'Total Points': ['points_for', 'head_to_head'],
+};
+export const TIEBREAKER_DISPLAY: Record<string, string> = {
+  head_to_head: 'Head-to-Head',
+  points_for: 'Total Points',
 };
 
 export const TAXI_EXPERIENCE_OPTIONS = [
@@ -165,6 +207,7 @@ export interface LeagueWizardState {
   scoring: ScoringCategory[];
   categories: CategoryConfig[];
   draftType: DraftType;
+  initialDraftOrder: InitialDraftOrderOption;
   timePerPick: TimePerPick;
   maxDraftYears: number;
   tradeVetoType: TradeVetoOption;
@@ -175,6 +218,8 @@ export interface LeagueWizardState {
   lotteryDraws: number;
   lotteryOdds: number[] | null;
   season: string;
+  /** ISO date string (YYYY-MM-DD) for the fantasy season start, or null for auto */
+  seasonStartDate: string | null;
   waiverType: WaiverTypeOption;
   waiverPeriodDays: number;
   faabBudget: number;
@@ -190,8 +235,23 @@ export interface LeagueWizardState {
   tradeDeadlineWeek: number;
   /** 0 = free league, positive = buy-in amount in dollars */
   buyIn: number;
+  venmoUsername: string;
+  cashappTag: string;
+  paypalUsername: string;
   /** null = no max, 1 = rookies only, 2-4 = max years of NBA experience */
   taxiMaxExperience: number | null;
   /** null = unlimited, positive = max adds per matchup week */
   weeklyAcquisitionLimit: number | null;
+  /** Lock mode for free-agent adds once games start */
+  playerLockType: PlayerLockOption;
+  /** Auto-announce when multiple teams bid on the same player */
+  autoRumorsEnabled: boolean;
+  /** Primary tiebreaker method when teams have equal wins */
+  tiebreakerPrimary: TiebreakerOption;
+  /** 1 = no divisions, 2 = two divisions */
+  divisionCount: 1 | 2;
+  division1Name: string;
+  division2Name: string;
+  /** Per-position roster limits. Empty object = no limits. */
+  positionLimits: PositionLimits;
 }

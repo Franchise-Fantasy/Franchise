@@ -124,7 +124,7 @@ export function TeamAssigner({ leagueId }: TeamAssignerProps) {
   };
 
   return (
-    <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border, borderLeftWidth: 3, borderLeftColor: '#007AFF' }]}>
+    <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border, borderLeftWidth: 3, borderLeftColor: c.link }]}>
       <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">
         Assign Imported Teams
       </ThemedText>

@@ -143,13 +143,23 @@ function calculateGameFpts(
   return Math.round(total * 100) / 100;
 }
 
-function resolveSlot(
+import { resolveSlot as sharedResolveSlot, isActiveSlot } from '../_shared/resolveSlot.ts';
+
+function resolveSlotForGame(
   dailyEntries: Array<{ lineup_date: string; roster_slot: string }>,
   day: string,
   defaultSlot: string,
+  opts: { isOnCurrentRoster: boolean; dropDate?: string; acquiredDate?: string; today: string },
 ): string {
-  const entry = dailyEntries.find((e) => e.lineup_date <= day);
-  return entry?.roster_slot ?? defaultSlot;
+  return sharedResolveSlot({
+    dailyEntries,
+    day,
+    defaultSlot,
+    isOnCurrentRoster: opts.isOnCurrentRoster,
+    dropDate: opts.dropDate,
+    acquiredDate: opts.acquiredDate,
+    today: opts.today,
+  });
 }
 
 async function fetchTeamRosterAndGames(
@@ -160,7 +170,7 @@ async function fetchTeamRosterAndGames(
 ) {
   const { data: leaguePlayers } = await supabase
     .from("league_players")
-    .select("player_id, roster_slot")
+    .select("player_id, roster_slot, acquired_at")
     .eq("team_id", teamId)
     .eq("league_id", leagueId);
 
@@ -168,6 +178,14 @@ async function fetchTeamRosterAndGames(
   const defaultSlotMap = new Map<string, string>(
     (leaguePlayers ?? []).map((lp: any) => [lp.player_id, lp.roster_slot ?? "BE"]),
   );
+
+  const acquiredDateMap = new Map<string, string>();
+  for (const lp of leaguePlayers ?? []) {
+    if ((lp as any).acquired_at) {
+      const d = new Date((lp as any).acquired_at);
+      acquiredDateMap.set((lp as any).player_id, `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
+    }
+  }
 
   const { data: dailyEntries } = await supabase
     .from("daily_lineups")
@@ -219,7 +237,15 @@ async function fetchTeamRosterAndGames(
     playerInfo.set(p.id, { name: p.name, position: p.position, nba_team: p.nba_team, external_id_nba: p.external_id_nba });
   }
 
-  return { allPlayerIds, defaultSlotMap, dailyByPlayer, gameLogs: gameLogs ?? [], playerInfo };
+  // Build drop-date map for players no longer on the team
+  const dropDateMap = new Map<string, string>();
+  for (const pid of droppedPlayerIds) {
+    const entries = dailyByPlayer.get(pid) ?? [];
+    const droppedEntry = entries.find((e: any) => e.roster_slot === "DROPPED");
+    if (droppedEntry) dropDateMap.set(pid, droppedEntry.lineup_date);
+  }
+
+  return { allPlayerIds, currentPlayerIds, defaultSlotMap, acquiredDateMap, dropDateMap, dailyByPlayer, gameLogs: gameLogs ?? [], playerInfo };
 }
 
 async function computeTeamScore(
@@ -229,10 +255,13 @@ async function computeTeamScore(
   endDate: string,
   weights: ScoringWeight[],
 ): Promise<{ total: number; playerScores: PlayerScoreEntry[] }> {
-  const { allPlayerIds, defaultSlotMap, dailyByPlayer, gameLogs, playerInfo } =
+  const { allPlayerIds, currentPlayerIds, defaultSlotMap, acquiredDateMap, dropDateMap, dailyByPlayer, gameLogs, playerInfo } =
     await fetchTeamRosterAndGames(teamId, leagueId, startDate, endDate);
 
   if (allPlayerIds.length === 0) return { total: 0, playerScores: [] };
+
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
   let teamTotal = 0;
   // Group games by player for building playerScores
@@ -240,16 +269,22 @@ async function computeTeamScore(
   const playerWeekPoints = new Map<string, number>();
 
   for (const game of gameLogs) {
-    const slot = resolveSlot(
+    const slot = resolveSlotForGame(
       dailyByPlayer.get(game.player_id) ?? [],
       game.game_date,
       defaultSlotMap.get(game.player_id) ?? "BE",
+      {
+        isOnCurrentRoster: currentPlayerIds.has(game.player_id),
+        dropDate: dropDateMap.get(game.player_id),
+        acquiredDate: acquiredDateMap.get(game.player_id),
+        today: todayStr,
+      },
     );
 
     const fpts = calculateGameFpts(game as any, weights);
-    const isActive = slot !== "BE" && slot !== "IR" && slot !== "TAXI" && slot !== "DROPPED";
+    const active = isActiveSlot(slot);
 
-    if (isActive) {
+    if (active) {
       teamTotal += fpts;
       playerWeekPoints.set(game.player_id, (playerWeekPoints.get(game.player_id) ?? 0) + fpts);
     }
@@ -292,23 +327,32 @@ async function computeTeamCategoryStats(
   startDate: string,
   endDate: string,
 ): Promise<{ teamStats: Record<string, number>; playerScores: PlayerScoreEntry[] }> {
-  const { allPlayerIds, defaultSlotMap, dailyByPlayer, gameLogs, playerInfo } =
+  const { allPlayerIds, currentPlayerIds, defaultSlotMap, acquiredDateMap, dropDateMap, dailyByPlayer, gameLogs, playerInfo } =
     await fetchTeamRosterAndGames(teamId, leagueId, startDate, endDate);
 
   if (allPlayerIds.length === 0) return { teamStats: {}, playerScores: [] };
+
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
   const activeGames: Record<string, any>[] = [];
   const playerGamesMap = new Map<string, PlayerGameEntry[]>();
 
   for (const game of gameLogs) {
-    const slot = resolveSlot(
+    const slot = resolveSlotForGame(
       dailyByPlayer.get(game.player_id) ?? [],
       game.game_date,
       defaultSlotMap.get(game.player_id) ?? "BE",
+      {
+        isOnCurrentRoster: currentPlayerIds.has(game.player_id),
+        dropDate: dropDateMap.get(game.player_id),
+        acquiredDate: acquiredDateMap.get(game.player_id),
+        today: todayStr,
+      },
     );
-    const isActive = slot !== "BE" && slot !== "IR" && slot !== "TAXI" && slot !== "DROPPED";
+    const active = isActiveSlot(slot);
 
-    if (isActive) activeGames.push(game);
+    if (active) activeGames.push(game);
 
     if (!playerGamesMap.has(game.player_id)) playerGamesMap.set(game.player_id, []);
     playerGamesMap.get(game.player_id)!.push({
@@ -378,6 +422,25 @@ async function computeStreak(
   return `${firstResult}${count}`;
 }
 
+/** Extract per-day fpts totals from active-slot games */
+function extractBestDay(
+  playerScores: PlayerScoreEntry[],
+): { date: string; total: number } | null {
+  const dailyTotals = new Map<string, number>();
+  for (const ps of playerScores) {
+    for (const g of ps.games) {
+      if (isActiveSlot(g.slot)) {
+        dailyTotals.set(g.date, (dailyTotals.get(g.date) ?? 0) + g.fpts);
+      }
+    }
+  }
+  let best: { date: string; total: number } | null = null;
+  for (const [date, total] of dailyTotals) {
+    if (!best || total > best.total) best = { date, total };
+  }
+  return best;
+}
+
 function calcRounds(playoffTeams: number): number {
   let p = 1;
   while (p < playoffTeams) p *= 2;
@@ -386,17 +449,85 @@ function calcRounds(playoffTeams: number): number {
 
 Deno.serve(async (req: Request) => {
   const cronSecret = Deno.env.get('CRON_SECRET');
-  if (cronSecret) {
-    const authHeader = req.headers.get('Authorization');
-    if (authHeader !== `Bearer ${cronSecret}`) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
+  const authHeader = req.headers.get('Authorization');
+  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   try {
+    // ── Recovery: flush stats for matchups claimed but not yet flushed ──
+    const { data: orphaned } = await supabase
+      .from("league_matchups")
+      .select("id, league_id, home_team_id, away_team_id, home_score, away_score, winner_team_id, playoff_round, home_category_wins, away_category_wins, schedule_id")
+      .eq("is_finalized", true)
+      .eq("stats_flushed", false);
+
+    if (orphaned && orphaned.length > 0) {
+      const recoveryStats: Array<{ p_team_id: string; p_wins: number; p_losses: number; p_ties: number; p_pf: number; p_pa: number }> = [];
+      const recoveryScores: Array<{ league_id: string; schedule_id: string; team_id: string; score: number; updated_at: string }> = [];
+      const recoveryTeams = new Set<string>();
+      const recoveryTeamLeague = new Map<string, string>();
+      const now = new Date().toISOString();
+
+      for (const m of orphaned) {
+        if (m.away_team_id === null) continue;
+
+        // Recover scores for all matchups (regular season + playoff)
+        recoveryScores.push(
+          { league_id: m.league_id, schedule_id: m.schedule_id, team_id: m.home_team_id, score: Number(m.home_score ?? 0), updated_at: now },
+          { league_id: m.league_id, schedule_id: m.schedule_id, team_id: m.away_team_id, score: Number(m.away_score ?? 0), updated_at: now },
+        );
+
+        // Only update team W/L for regular-season matchups
+        // PF/PA is owned by update-standings — pass 0 to avoid double-counting
+        if (m.playoff_round != null) continue;
+
+        if (m.winner_team_id === m.home_team_id) {
+          recoveryStats.push(
+            { p_team_id: m.home_team_id, p_wins: 1, p_losses: 0, p_ties: 0, p_pf: 0, p_pa: 0 },
+            { p_team_id: m.away_team_id, p_wins: 0, p_losses: 1, p_ties: 0, p_pf: 0, p_pa: 0 },
+          );
+        } else if (m.winner_team_id === m.away_team_id) {
+          recoveryStats.push(
+            { p_team_id: m.away_team_id, p_wins: 1, p_losses: 0, p_ties: 0, p_pf: 0, p_pa: 0 },
+            { p_team_id: m.home_team_id, p_wins: 0, p_losses: 1, p_ties: 0, p_pf: 0, p_pa: 0 },
+          );
+        } else {
+          recoveryStats.push(
+            { p_team_id: m.home_team_id, p_wins: 0, p_losses: 0, p_ties: 1, p_pf: 0, p_pa: 0 },
+            { p_team_id: m.away_team_id, p_wins: 0, p_losses: 0, p_ties: 1, p_pf: 0, p_pa: 0 },
+          );
+        }
+
+        recoveryTeams.add(m.home_team_id);
+        recoveryTeams.add(m.away_team_id);
+        recoveryTeamLeague.set(m.home_team_id, m.league_id);
+        recoveryTeamLeague.set(m.away_team_id, m.league_id);
+      }
+
+      if (recoveryScores.length > 0) {
+        await supabase.from("week_scores").upsert(recoveryScores, { onConflict: "league_id,schedule_id,team_id" });
+      }
+
+      if (recoveryStats.length > 0) {
+        await Promise.all(
+          recoveryStats.map((params) => supabase.rpc("increment_team_stats", params)),
+        );
+
+        await Promise.all([...recoveryTeams].map(async (teamId) => {
+          const lid = recoveryTeamLeague.get(teamId)!;
+          const streak = await computeStreak(teamId, lid);
+          await supabase.from("teams").update({ streak }).eq("id", teamId);
+        }));
+      }
+
+      await supabase.from("league_matchups").update({ stats_flushed: true }).in("id", orphaned.map((m: any) => m.id));
+      console.log(`Recovery: flushed stats for ${orphaned.length} orphaned matchups.`);
+    }
+
     const today = new Date().toISOString().split("T")[0];
 
     const { data: pendingWeeks, error: weekErr } = await supabase
@@ -480,6 +611,9 @@ Deno.serve(async (req: Request) => {
       league_id: string; schedule_id: string; team_id: string; score: number; updated_at: string;
     }> = [];
 
+    // Track highest-scoring-day candidates per league
+    const bestDayCandidates = new Map<string, { value: number; teamId: string; date: string; season: string }>();
+
     // Collect matchup results for notifications
     const matchupResults: Array<{
       leagueId: string;
@@ -554,6 +688,25 @@ Deno.serve(async (req: Request) => {
         else if (awayScore > homeScore) winnerId = matchup.away_team_id;
       }
 
+      // Track highest-scoring-day per league (points scoring only)
+      if (scoringType === 'points') {
+        const season = week.start_date.slice(0, 4);
+        for (const [tid, ps] of [[matchup.home_team_id, homePlayerScores], [matchup.away_team_id, awayPlayerScores]] as const) {
+          const best = extractBestDay(ps as PlayerScoreEntry[]);
+          if (best) {
+            const prev = bestDayCandidates.get(matchup.league_id);
+            if (!prev || best.total > prev.value) {
+              bestDayCandidates.set(matchup.league_id, {
+                value: best.total,
+                teamId: tid,
+                date: best.date,
+                season,
+              });
+            }
+          }
+        }
+      }
+
       await supabase
         .from("league_matchups")
         .update({
@@ -592,26 +745,22 @@ Deno.serve(async (req: Request) => {
       });
 
       if (!isPlayoff) {
-        // For category leagues, store category wins/losses as PF/PA for tiebreaking
-        const homePF = scoringType === 'h2h_categories' ? (homeCatWins ?? 0) : homeScore;
-        const homePa = scoringType === 'h2h_categories' ? (awayCatWins ?? 0) : awayScore;
-        const awayPF = scoringType === 'h2h_categories' ? (awayCatWins ?? 0) : awayScore;
-        const awayPa = scoringType === 'h2h_categories' ? (homeCatWins ?? 0) : homeScore;
-
+        // PF/PA is owned by update-standings (recalculates from all matchup scores).
+        // finalize-week only increments W/L/T here to avoid double-counting.
         if (winnerId === matchup.home_team_id) {
           pendingStatUpdates.push(
-            { p_team_id: matchup.home_team_id, p_wins: 1, p_losses: 0, p_ties: 0, p_pf: homePF, p_pa: homePa },
-            { p_team_id: matchup.away_team_id, p_wins: 0, p_losses: 1, p_ties: 0, p_pf: awayPF, p_pa: awayPa },
+            { p_team_id: matchup.home_team_id, p_wins: 1, p_losses: 0, p_ties: 0, p_pf: 0, p_pa: 0 },
+            { p_team_id: matchup.away_team_id, p_wins: 0, p_losses: 1, p_ties: 0, p_pf: 0, p_pa: 0 },
           );
         } else if (winnerId === matchup.away_team_id) {
           pendingStatUpdates.push(
-            { p_team_id: matchup.away_team_id, p_wins: 1, p_losses: 0, p_ties: 0, p_pf: awayPF, p_pa: awayPa },
-            { p_team_id: matchup.home_team_id, p_wins: 0, p_losses: 1, p_ties: 0, p_pf: homePF, p_pa: homePa },
+            { p_team_id: matchup.away_team_id, p_wins: 1, p_losses: 0, p_ties: 0, p_pf: 0, p_pa: 0 },
+            { p_team_id: matchup.home_team_id, p_wins: 0, p_losses: 1, p_ties: 0, p_pf: 0, p_pa: 0 },
           );
         } else {
           pendingStatUpdates.push(
-            { p_team_id: matchup.home_team_id, p_wins: 0, p_losses: 0, p_ties: 1, p_pf: homePF, p_pa: homePa },
-            { p_team_id: matchup.away_team_id, p_wins: 0, p_losses: 0, p_ties: 1, p_pf: awayPF, p_pa: awayPa },
+            { p_team_id: matchup.home_team_id, p_wins: 0, p_losses: 0, p_ties: 1, p_pf: 0, p_pa: 0 },
+            { p_team_id: matchup.away_team_id, p_wins: 0, p_losses: 0, p_ties: 1, p_pf: 0, p_pa: 0 },
           );
         }
 
@@ -654,6 +803,36 @@ Deno.serve(async (req: Request) => {
         const lid = teamLeagueMap.get(teamId)!;
         const streak = await computeStreak(teamId, lid);
         await supabase.from("teams").update({ streak }).eq("id", teamId);
+      }));
+    }
+
+    // Mark stats as flushed so a crash-recovery re-run won't double-count
+    const matchupIds = unfinalizedMatchups.map((m: any) => m.id);
+    if (matchupIds.length > 0) {
+      await supabase.from("league_matchups").update({ stats_flushed: true }).in("id", matchupIds);
+    }
+
+    // ── Upsert highest-scoring-day records (only if new value beats existing) ──
+    if (bestDayCandidates.size > 0) {
+      await Promise.all([...bestDayCandidates.entries()].map(async ([lid, candidate]) => {
+        const { data: existing } = await supabase
+          .from('league_records')
+          .select('value')
+          .eq('league_id', lid)
+          .eq('record_type', 'highest_scoring_day')
+          .single();
+
+        if (!existing || candidate.value > Number(existing.value)) {
+          await supabase.from('league_records').upsert({
+            league_id: lid,
+            record_type: 'highest_scoring_day',
+            value: candidate.value,
+            team_id: candidate.teamId,
+            detail: candidate.date,
+            season: candidate.season,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'league_id,record_type' });
+        }
       }));
     }
 

@@ -29,11 +29,7 @@ export const TIER_LABELS: Record<SubscriptionTier, string> = {
   premium: 'Premium',
 };
 
-export const TIER_COLORS = {
-  free: '#687076',
-  pro: '#007AFF',
-  premium: '#FFB800',
-} as const;
+export { TIER_COLORS } from '@/constants/StatusColors';
 
 /** Returns true if the user's tier meets or exceeds the required tier */
 export function hasAccess(userTier: SubscriptionTier, requiredTier: SubscriptionTier): boolean {

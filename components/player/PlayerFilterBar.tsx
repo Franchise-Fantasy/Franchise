@@ -21,6 +21,7 @@ const TIME_RANGE_OPTIONS: { key: TimeRange; label: string }[] = [
   { key: '7d', label: '7D' },
   { key: '14d', label: '14D' },
   { key: '30d', label: '30D' },
+  { key: 'lastSeason', label: "Last Season" },
 ];
 
 interface PlayerFilterBarProps {
@@ -111,13 +112,13 @@ export function PlayerFilterBar({
             style={[
               styles.filterBtn,
               { backgroundColor: c.input, borderColor: c.border },
-              !showFreeAgentsOnly && { backgroundColor: '#007AFF15', borderColor: '#007AFF' },
+              !showFreeAgentsOnly && { backgroundColor: c.link + '15', borderColor: c.link },
             ]}
             accessibilityRole="button"
             accessibilityLabel={showFreeAgentsOnly ? 'Show all players' : 'Show free agents only'}
             hitSlop={4}
           >
-            <Ionicons name="people" size={18} color={!showFreeAgentsOnly ? '#007AFF' : c.secondaryText} />
+            <Ionicons name="people" size={18} color={!showFreeAgentsOnly ? c.link : c.secondaryText} />
           </TouchableOpacity>
         )}
         <TouchableOpacity
@@ -129,8 +130,8 @@ export function PlayerFilterBar({
         >
           <Ionicons name="options-outline" size={18} color={activeFilterCount > 0 ? c.accent : c.secondaryText} />
           {activeFilterCount > 0 && (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>{activeFilterCount}</Text>
+            <View style={[styles.badge, { backgroundColor: c.danger }]}>
+              <Text style={[styles.badgeText, { color: c.statusText }]}>{activeFilterCount}</Text>
             </View>
           )}
         </TouchableOpacity>
@@ -177,12 +178,12 @@ export function PlayerFilterBar({
                       style={[
                         styles.toggleCompact,
                         { borderColor: c.border },
-                        showWatchlistOnly && { backgroundColor: '#007AFF15', borderColor: '#007AFF' },
+                        showWatchlistOnly && { backgroundColor: c.link + '15', borderColor: c.link },
                       ]}
                       onPress={() => onWatchlistOnlyChange(!showWatchlistOnly)}
                     >
-                      <Ionicons name={showWatchlistOnly ? 'eye' : 'eye-outline'} size={14} color={showWatchlistOnly ? '#007AFF' : c.secondaryText} />
-                      <ThemedText style={[styles.toggleCompactLabel, showWatchlistOnly && { color: '#007AFF' }]}>
+                      <Ionicons name={showWatchlistOnly ? 'eye' : 'eye-outline'} size={14} color={showWatchlistOnly ? c.link : c.secondaryText} />
+                      <ThemedText style={[styles.toggleCompactLabel, showWatchlistOnly && { color: c.link }]}>
                         Watchlist
                       </ThemedText>
                     </TouchableOpacity>
@@ -195,12 +196,12 @@ export function PlayerFilterBar({
                       style={[
                         styles.toggleCompact,
                         { borderColor: c.border },
-                        showMinutesUp && { backgroundColor: '#FF950015', borderColor: '#FF9500' },
+                        showMinutesUp && { backgroundColor: c.warningMuted, borderColor: c.warning },
                       ]}
                       onPress={() => onMinutesUpChange(!showMinutesUp)}
                     >
-                      <Ionicons name="trending-up" size={14} color={showMinutesUp ? '#FF9500' : c.secondaryText} />
-                      <ThemedText style={[styles.toggleCompactLabel, showMinutesUp && { color: '#FF9500' }]}>
+                      <Ionicons name="trending-up" size={14} color={showMinutesUp ? c.warning : c.secondaryText} />
+                      <ThemedText style={[styles.toggleCompactLabel, showMinutesUp && { color: c.warning }]}>
                         Min Up
                       </ThemedText>
                     </TouchableOpacity>
@@ -213,12 +214,12 @@ export function PlayerFilterBar({
                       style={[
                         styles.toggleCompact,
                         { borderColor: c.border },
-                        showAvailableToday && { backgroundColor: '#34C75915', borderColor: '#34C759' },
+                        showAvailableToday && { backgroundColor: c.successMuted, borderColor: c.success },
                       ]}
                       onPress={() => onAvailableTodayChange(!showAvailableToday)}
                     >
-                      <Ionicons name="basketball-outline" size={14} color={showAvailableToday ? '#34C759' : c.secondaryText} />
-                      <ThemedText style={[styles.toggleCompactLabel, showAvailableToday && { color: '#34C759' }]}>
+                      <Ionicons name="basketball-outline" size={14} color={showAvailableToday ? c.success : c.secondaryText} />
+                      <ThemedText style={[styles.toggleCompactLabel, showAvailableToday && { color: c.success }]}>
                         Playing Today
                       </ThemedText>
                     </TouchableOpacity>
@@ -339,7 +340,7 @@ export function PlayerFilterBar({
               accessibilityRole="button"
               accessibilityLabel="Close filters"
             >
-              <ThemedText style={styles.doneBtnText}>Done</ThemedText>
+              <ThemedText style={[styles.doneBtnText, { color: c.statusText }]}>Done</ThemedText>
             </TouchableOpacity>
           </Pressable>
         </Pressable>
@@ -380,7 +381,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -6,
     right: -6,
-    backgroundColor: '#FF3B30',
     borderRadius: 8,
     minWidth: 16,
     height: 16,
@@ -389,7 +389,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   badgeText: {
-    color: '#fff',
     fontSize: 10,
     fontWeight: '700',
     lineHeight: 16,
@@ -475,7 +474,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   doneBtnText: {
-    color: '#fff',
     fontSize: 15,
     fontWeight: '600',
   },

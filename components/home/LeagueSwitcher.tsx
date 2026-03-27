@@ -1,5 +1,6 @@
 import { ThemedText } from "@/components/ThemedText";
 import { Colors } from "@/constants/Colors";
+import { LEAGUE_TYPE_DISPLAY } from "@/constants/LeagueDefaults";
 import { useAppState } from "@/context/AppStateProvider";
 import { useSession } from "@/context/AuthProvider";
 import { useColorScheme } from "@/hooks/useColorScheme";
@@ -24,6 +25,7 @@ interface UserLeague {
   leagueId: string;
   leagueName: string;
   teamName: string;
+  leagueType: string;
 }
 
 interface LeagueSwitcherProps {
@@ -48,7 +50,7 @@ export function LeagueSwitcher({ visible, onClose }: LeagueSwitcherProps) {
         await Promise.all([
           supabase
             .from("teams")
-            .select("id, name, league_id, leagues!teams_league_id_fkey(id, name)")
+            .select("id, name, league_id, leagues!teams_league_id_fkey(id, name, league_type)")
             .eq("user_id", userId!),
           supabase
             .from("profiles")
@@ -64,6 +66,7 @@ export function LeagueSwitcher({ visible, onClose }: LeagueSwitcherProps) {
         leagueId: team.league_id,
         leagueName: team.leagues?.name ?? "Unknown League",
         teamName: team.name,
+        leagueType: team.leagues?.league_type ?? "redraft",
       }));
 
       return { leagues, favoriteLeagueId: profileData?.favorite_league_id ?? null };
@@ -180,6 +183,23 @@ export function LeagueSwitcher({ visible, onClose }: LeagueSwitcherProps) {
                       </ThemedText>
                     </View>
                     <View style={styles.rowIcons}>
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={20}
+                        color={isActive ? c.activeText : "transparent"}
+                        accessibilityElementsHidden={!isActive}
+                      />
+                      <View
+                        style={[
+                          styles.typeBadge,
+                          { backgroundColor: c.border },
+                        ]}
+                        accessibilityLabel={`${LEAGUE_TYPE_DISPLAY[league.leagueType] ?? 'Redraft'} league`}
+                      >
+                        <Text style={[styles.typeBadgeText, { color: c.secondaryText }]}>
+                          {LEAGUE_TYPE_DISPLAY[league.leagueType] ?? 'Redraft'}
+                        </Text>
+                      </View>
                       <Pressable
                         onPress={(e) => {
                           e.stopPropagation();
@@ -195,13 +215,6 @@ export function LeagueSwitcher({ visible, onClose }: LeagueSwitcherProps) {
                           color={isFav ? "#F5A623" : c.secondaryText}
                         />
                       </Pressable>
-                      {isActive && (
-                        <Ionicons
-                          name="checkmark-circle"
-                          size={20}
-                          color={c.activeText}
-                        />
-                      )}
                     </View>
                   </TouchableOpacity>
                 );
@@ -298,6 +311,15 @@ const styles = StyleSheet.create({
   teamName: {
     fontSize: 13,
     marginTop: 1,
+  },
+  typeBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  typeBadgeText: {
+    fontSize: 11,
+    fontWeight: "600",
   },
   rowIcons: {
     flexDirection: "row",

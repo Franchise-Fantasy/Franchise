@@ -787,7 +787,7 @@ export function ScreenshotImport() {
                     onChange={handleWizardChange}
                     onResetRoster={() => dispatch({ type: 'RESET_ROSTER' })}
                   />
-                  <View style={styles.divider} />
+                  <View style={[styles.divider, { backgroundColor: c.cardAlt }]} />
                   <StepScoring
                     state={state.wizardState}
                     onScoringChange={(i, val) => dispatch({ type: 'SET_SCORING', index: i, value: val })}
@@ -834,7 +834,7 @@ export function ScreenshotImport() {
                       styles.progressDot,
                       {
                         backgroundColor: t.extracted
-                          ? '#34C759'
+                          ? c.success
                           : i === state.currentTeamIndex
                             ? c.accent
                             : c.border,
@@ -1008,7 +1008,7 @@ export function ScreenshotImport() {
                                 i === state.currentHistoryIndex
                                   ? c.accent
                                   : s.extracted
-                                    ? '#34C759'
+                                    ? c.success
                                     : c.border,
                             },
                           ]}
@@ -1134,11 +1134,11 @@ export function ScreenshotImport() {
               </ThemedText>
 
               <StepTrade state={state.wizardState} onChange={handleWizardChange} />
-              <View style={styles.divider} />
+              <View style={[styles.divider, { backgroundColor: c.cardAlt }]} />
               <StepWaivers state={state.wizardState} onChange={handleWizardChange} />
-              <View style={styles.divider} />
+              <View style={[styles.divider, { backgroundColor: c.cardAlt }]} />
               <StepSeason state={state.wizardState} onChange={handleWizardChange} />
-              <View style={styles.divider} />
+              <View style={[styles.divider, { backgroundColor: c.cardAlt }]} />
               <StepDraft state={state.wizardState} onChange={handleWizardChange} />
             </View>
           )}
@@ -1187,9 +1187,9 @@ export function ScreenshotImport() {
                     </Text>
                   </View>
                   {team.extracted ? (
-                    <Ionicons name="checkmark-circle" size={20} color="#34C759" accessible={false} />
+                    <Ionicons name="checkmark-circle" size={20} color={c.success} accessible={false} />
                   ) : (
-                    <Ionicons name="alert-circle" size={20} color="#FF9500" accessible={false} />
+                    <Ionicons name="alert-circle" size={20} color={c.warning} accessible={false} />
                   )}
                 </View>
               ))}
@@ -1393,7 +1393,6 @@ const styles = StyleSheet.create({
   },
   divider: {
     height: 1,
-    backgroundColor: '#333',
     marginVertical: 16,
     opacity: 0.2,
   },

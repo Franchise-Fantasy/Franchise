@@ -1,5 +1,7 @@
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
+import { TeamLogo } from "@/components/team/TeamLogo";
+import { TeamLogoPickerModal } from "@/components/team/TeamLogoPickerModal";
 import { Colors } from "@/constants/Colors";
 import { useAppState } from "@/context/AppStateProvider";
 import { useSession } from "@/context/AuthProvider";
@@ -15,10 +17,13 @@ import { TIER_LABELS, TIER_COLORS } from "@/constants/Subscriptions";
 import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   Alert,
+  Image,
+  Platform,
   ScrollView,
   StyleSheet,
   Switch,
@@ -34,11 +39,64 @@ export default function ProfileScreen() {
   const c = Colors[scheme];
   const { teamId, leagueId } = useAppState();
   const { data: league } = useLeague();
+  const queryClient = useQueryClient();
   const [loading, setLoading] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [showLogoPicker, setShowLogoPicker] = useState(false);
 
   const userId = session?.user?.id;
+  const myTeam = (league?.league_teams ?? []).find((t: any) => t.id === teamId);
+  const myLogoKey = myTeam?.logo_key ?? null;
+  const myTeamName = myTeam?.name ?? "";
+  const myTricode = myTeam?.tricode ?? "";
   const { tier, individualTier, leagueTier } = useSubscription();
+
+  function handleEditTeamName() {
+    if (!teamId) return;
+    if (Platform.OS === 'ios') {
+      Alert.prompt(
+        'Edit Team Name',
+        'Enter your new team name',
+        async (value) => {
+          const name = (value ?? '').trim();
+          if (!name) return;
+          if (name.length > 30) { Alert.alert('Too long', 'Team name must be 30 characters or fewer.'); return; }
+          const { error } = await supabase.from('teams').update({ name }).eq('id', teamId);
+          if (error) { Alert.alert('Error', error.message); return; }
+          queryClient.invalidateQueries({ queryKey: ['league'] });
+        },
+        'plain-text',
+        myTeamName,
+      );
+    } else {
+      // Android doesn't support Alert.prompt — use inline editing via league-info or a simple alert
+      Alert.alert('Edit Team Name', 'Use the League Info page to edit your team name on Android.');
+    }
+  }
+
+  function handleEditTricode() {
+    if (!teamId) return;
+    if (Platform.OS === 'ios') {
+      Alert.prompt(
+        'Edit Tricode',
+        '2-4 characters (letters/numbers)',
+        async (value) => {
+          const code = (value ?? '').trim().toUpperCase();
+          if (!code || code.length < 2 || code.length > 4 || !/^[A-Z0-9]+$/.test(code)) {
+            Alert.alert('Invalid tricode', 'Must be 2-4 letters/numbers.');
+            return;
+          }
+          const { error } = await supabase.from('teams').update({ tricode: code }).eq('id', teamId);
+          if (error) { Alert.alert('Error', error.message); return; }
+          queryClient.invalidateQueries({ queryKey: ['league'] });
+        },
+        'plain-text',
+        myTricode,
+      );
+    } else {
+      Alert.alert('Edit Tricode', 'Use the League Info page to edit your tricode on Android.');
+    }
+  }
 
   useEffect(() => {
     if (!userId) return;
@@ -124,11 +182,30 @@ export default function ProfileScreen() {
       >
         {/* Profile Header */}
         <View style={styles.header}>
-          <View style={[styles.avatar, { backgroundColor: c.accent }]}>
-            <Text style={[styles.avatarText, { color: c.accentText }]}>
-              {userEmail.charAt(0).toUpperCase()}
-            </Text>
-          </View>
+          <TouchableOpacity
+            onPress={() => { if (teamId) setShowLogoPicker(true); }}
+            disabled={!teamId}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel={myLogoKey ? `${myTeamName} logo, tap to change` : "Set team logo"}
+          >
+            <View>
+              {myLogoKey?.startsWith("http") ? (
+                <Image source={{ uri: myLogoKey }} style={styles.avatar} />
+              ) : (
+                <View style={[styles.avatar, { backgroundColor: c.accent }]}>
+                  <Text style={[styles.avatarText, { color: c.accentText }]}>
+                    {(myTeamName || userEmail).charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+              )}
+              {teamId && (
+                <View style={[styles.avatarEditBadge, { backgroundColor: c.card, borderColor: c.border }]}>
+                  <Ionicons name="pencil" size={11} color={c.text} />
+                </View>
+              )}
+            </View>
+          </TouchableOpacity>
           <ThemedText type="subtitle" style={styles.email} accessibilityRole="header">
             {userEmail}
           </ThemedText>
@@ -175,8 +252,47 @@ export default function ProfileScreen() {
               label="Visibility"
               value={league.private ? "Private" : "Public"}
               c={c}
-              isLast
             />
+            {myTeam && (
+              <>
+                <TouchableOpacity
+                  style={[styles.settingRow, { borderBottomColor: c.border }]}
+                  onPress={handleEditTeamName}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Team Name: ${myTeamName}, tap to edit`}
+                >
+                  <View style={styles.actionLeft}>
+                    <Ionicons name="shirt-outline" size={20} color={c.secondaryText} accessible={false} />
+                    <ThemedText style={[styles.settingLabel, { color: c.secondaryText }]}>
+                      Team Name
+                    </ThemedText>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <ThemedText>{myTeamName}</ThemedText>
+                    <Ionicons name="pencil" size={14} color={c.secondaryText} accessible={false} />
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.settingRow, { borderBottomWidth: 0, borderBottomColor: c.border }]}
+                  onPress={handleEditTricode}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Tricode: ${myTricode || 'not set'}, tap to edit`}
+                >
+                  <View style={styles.actionLeft}>
+                    <Ionicons name="text-outline" size={20} color={c.secondaryText} accessible={false} />
+                    <ThemedText style={[styles.settingLabel, { color: c.secondaryText }]}>
+                      Tricode
+                    </ThemedText>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <ThemedText>{myTricode || '—'}</ThemedText>
+                    <Ionicons name="pencil" size={14} color={c.secondaryText} accessible={false} />
+                  </View>
+                </TouchableOpacity>
+              </>
+            )}
           </View>
         )}
 
@@ -377,8 +493,8 @@ export default function ProfileScreen() {
             accessibilityHint="Permanently deletes your account and all data"
           >
             <View style={styles.actionLeft}>
-              <Ionicons name="trash-outline" size={20} color="#FF3B30" accessible={false} />
-              <Text style={[styles.actionLabel, { color: "#FF3B30" }]}>
+              <Ionicons name="trash-outline" size={20} color={c.danger} accessible={false} />
+              <Text style={[styles.actionLabel, { color: c.danger }]}>
                 Delete Account
               </Text>
             </View>
@@ -396,6 +512,21 @@ export default function ProfileScreen() {
           Franchise v2.0.0
         </ThemedText>
       </ScrollView>
+
+      {/* Team Logo Picker */}
+      {teamId && (
+        <TeamLogoPickerModal
+          visible={showLogoPicker}
+          teamId={teamId}
+          teamName={myTeamName}
+          currentLogoKey={myLogoKey}
+          onClose={() => setShowLogoPicker(false)}
+          onSaved={() => {
+            queryClient.invalidateQueries({ queryKey: ['league'] });
+            queryClient.invalidateQueries({ queryKey: ['teamLogos'] });
+          }}
+        />
+      )}
     </ThemedView>
   );
 }
@@ -454,6 +585,17 @@ const styles = StyleSheet.create({
   avatarText: {
     fontSize: 28,
     fontWeight: "700",
+  },
+  avatarEditBadge: {
+    position: "absolute",
+    bottom: 4,
+    right: -4,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
   },
   email: {
     textAlign: "center",

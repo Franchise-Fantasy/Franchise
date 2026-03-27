@@ -1,7 +1,8 @@
 import { globalToastRef } from '@/context/ToastProvider';
 import { sendNotification } from '@/lib/notifications';
+import { capture } from '@/lib/posthog';
 import { supabase } from '@/lib/supabase';
-import type { ChatMessage } from '@/types/chat';
+import type { ChatMessage, ChatMessageType } from '@/types/chat';
 import {
   useInfiniteQuery,
   useMutation,
@@ -81,13 +82,20 @@ export function useSendMessage(
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (content: string) => {
+    mutationFn: async ({
+      content,
+      type = 'text',
+    }: {
+      content: string;
+      type?: ChatMessageType;
+    }) => {
       const { data, error } = await supabase
         .from('chat_messages')
         .insert({
           conversation_id: conversationId,
           team_id: teamId,
           content,
+          type,
           league_id: leagueId,
         })
         .select()
@@ -104,7 +112,13 @@ export function useSendMessage(
           if (!members || members.length === 0) return;
           const otherTeamIds = members.map((m) => m.team_id);
           const preview =
-            content.length > 100 ? content.slice(0, 100) + '\u2026' : content;
+            type === 'image'
+              ? '\ud83d\udcf7 Photo'
+              : type === 'gif'
+                ? 'GIF'
+                : content.length > 100
+                  ? content.slice(0, 100) + '\u2026'
+                  : content;
           sendNotification({
             league_id: leagueId,
             team_ids: otherTeamIds,
@@ -113,11 +127,12 @@ export function useSendMessage(
             body: preview,
             data: { screen: `chat/${conversationId}` },
           });
-        });
+        })
+        .catch((err: any) => console.warn('Chat push notification failed:', err?.message ?? err));
 
       return data;
     },
-    onMutate: async (content) => {
+    onMutate: async ({ content, type = 'text' }) => {
       await queryClient.cancelQueries({
         queryKey: ['messages', conversationId],
       });
@@ -129,7 +144,7 @@ export function useSendMessage(
         team_id: teamId,
         team_name: teamName,
         content,
-        type: 'text',
+        type,
         created_at: new Date().toISOString(),
       };
 
@@ -144,7 +159,7 @@ export function useSendMessage(
       );
       return { previous };
     },
-    onError: (err, _content, context) => {
+    onError: (err, _vars, context) => {
       if (context?.previous) {
         queryClient.setQueryData(
           ['messages', conversationId],
@@ -153,6 +168,9 @@ export function useSendMessage(
       }
       console.error('Send message error:', err);
       globalToastRef.current?.('error', `Message failed to send: ${(err as any)?.message ?? err}`);
+    },
+    onSuccess: (_data, { type = 'text' }) => {
+      capture('chat_message_sent', { type });
     },
     onSettled: () => {
       queryClient.invalidateQueries({

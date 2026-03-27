@@ -90,7 +90,7 @@ export function StandingsHistory({ leagueId }: StandingsHistoryProps) {
             key={t.id}
             style={[
               styles.tableRow,
-              t.playoff_result === 'champion' && { backgroundColor: '#FFD700' + '15' },
+              t.playoff_result === 'champion' && { backgroundColor: c.goldMuted },
               idx < seasonTeams.length - 1 && { borderBottomColor: c.border, borderBottomWidth: StyleSheet.hairlineWidth },
             ]}
           >
@@ -100,7 +100,7 @@ export function StandingsHistory({ leagueId }: StandingsHistoryProps) {
               {t.wins}-{t.losses}{t.ties > 0 ? `-${t.ties}` : ''}
             </ThemedText>
             <ThemedText style={[styles.colPF, { color: c.secondaryText }]}>{(t.points_for ?? 0).toFixed(1)}</ThemedText>
-            <View style={[styles.resultBadge, t.playoff_result === 'champion' && { backgroundColor: '#FFD700' + '33' }]}>
+            <View style={[styles.resultBadge, t.playoff_result === 'champion' && { backgroundColor: c.goldMuted }]}>
               <ThemedText style={[styles.resultText, { color: c.secondaryText }]}>
                 {resultLabel(t.playoff_result)}
               </ThemedText>

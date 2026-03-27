@@ -36,11 +36,9 @@ export interface LeagueAgeComparison {
   allProfiles: TeamAgeProfile[];
 }
 
-export const BUCKET_COLORS = {
-  rising: '#17a2b8',
-  prime: '#28a745',
-  vet: '#e67e22',
-} as const;
+import { AGE_BUCKET_COLORS } from '@/constants/StatusColors';
+
+export const BUCKET_COLORS = AGE_BUCKET_COLORS;
 
 const SUFFIXES = new Set(['Jr.', 'Jr', 'Sr.', 'Sr', 'II', 'III', 'IV', 'V']);
 
@@ -55,11 +53,20 @@ export function shortDisplayName(fullName: string): string {
   return last;
 }
 
+/** Returns precise fractional age (e.g. 28.3) for charts and averaging */
 export function calculateAge(birthdate: string): number {
   const birth = new Date(birthdate);
   const now = new Date();
-  const msPerYear = 365.25 * 24 * 60 * 60 * 1000;
-  return Math.round(((now.getTime() - birth.getTime()) / msPerYear) * 10) / 10;
+  let years = now.getFullYear() - birth.getFullYear();
+  const monthDiff = now.getMonth() - birth.getMonth();
+  const dayDiff = now.getDate() - birth.getDate();
+  if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) {
+    years--;
+  }
+  // Add fractional part from months elapsed since last birthday
+  let monthsElapsed = monthDiff + (dayDiff < 0 ? -1 : 0);
+  if (monthsElapsed < 0) monthsElapsed += 12;
+  return Math.round((years + monthsElapsed / 12) * 10) / 10;
 }
 
 export function ageBucket(age: number): 'rising' | 'prime' | 'vet' {

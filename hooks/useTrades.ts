@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { sendNotification } from '@/lib/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 
@@ -56,68 +57,75 @@ export function useTradeProposals(leagueId: string | null) {
       if (!proposals || proposals.length === 0) return [];
 
       const proposalIds = proposals.map((p) => p.id);
+      const counterofferOfIds = proposals
+        .filter((p) => p.counteroffer_of)
+        .map((p) => p.counteroffer_of!);
 
-      // Fetch teams for all proposals
-      const { data: proposalTeams, error: teamsError } = await supabase
-        .from('trade_proposal_teams')
-        .select('id, proposal_id, team_id, status, teams(name)')
-        .in('proposal_id', proposalIds);
-      if (teamsError) throw teamsError;
+      // Fetch teams, items, and counteroffer items in parallel
+      const [teamsRes, itemsRes, origItemsRes] = await Promise.all([
+        supabase
+          .from('trade_proposal_teams')
+          .select('id, proposal_id, team_id, status, teams(name)')
+          .in('proposal_id', proposalIds),
+        supabase
+          .from('trade_proposal_items')
+          .select('id, proposal_id, player_id, draft_pick_id, from_team_id, to_team_id, protection_threshold, pick_swap_season, pick_swap_round, players(name, position, nba_team), draft_picks(season, round, original_team_id)')
+          .in('proposal_id', proposalIds),
+        counterofferOfIds.length > 0
+          ? supabase
+              .from('trade_proposal_items')
+              .select('id, proposal_id, player_id, draft_pick_id, from_team_id, to_team_id, protection_threshold, pick_swap_season, pick_swap_round, players(name, position, nba_team), draft_picks(season, round, original_team_id)')
+              .in('proposal_id', counterofferOfIds)
+          : Promise.resolve({ data: [] as any[], error: null }),
+      ]);
+      if (teamsRes.error) throw teamsRes.error;
+      if (itemsRes.error) throw itemsRes.error;
+      if (origItemsRes.error) throw origItemsRes.error;
 
-      // Fetch items for all proposals
-      const { data: proposalItems, error: itemsError } = await supabase
-        .from('trade_proposal_items')
-        .select('id, proposal_id, player_id, draft_pick_id, from_team_id, to_team_id, protection_threshold, pick_swap_season, pick_swap_round, players(name, position, nba_team), draft_picks(season, round, original_team_id)')
-        .in('proposal_id', proposalIds);
-      if (itemsError) throw itemsError;
+      const proposalTeams = teamsRes.data;
+      const proposalItems = itemsRes.data;
 
-      // Collect original_team_ids to resolve names
-      const origTeamIds = (proposalItems ?? [])
-        .filter((i: any) => i.draft_picks?.original_team_id)
-        .map((i: any) => i.draft_picks.original_team_id);
+      // Collect original_team_ids from both item sets to resolve names in one query
+      const allItems = [...(proposalItems ?? []), ...(origItemsRes.data ?? [])] as any[];
+      const origTeamIds = [...new Set(
+        allItems
+          .filter((i: any) => i.draft_picks?.original_team_id)
+          .map((i: any) => i.draft_picks.original_team_id),
+      )];
       let origTeamNameMap: Record<string, string> = {};
       if (origTeamIds.length > 0) {
         const { data: origTeams } = await supabase
           .from('teams')
           .select('id, name')
-          .in('id', [...new Set(origTeamIds)]);
+          .in('id', origTeamIds);
         if (origTeams) {
           origTeamNameMap = Object.fromEntries(origTeams.map((t) => [t.id, t.name]));
         }
       }
 
-      // Collect counteroffer_of IDs to fetch original items
-      const counterofferOfIds = proposals
-        .filter((p) => p.counteroffer_of)
-        .map((p) => p.counteroffer_of!);
+      // Build counteroffer original items map
       let originalItemsMap: Record<string, TradeItemRow[]> = {};
-      if (counterofferOfIds.length > 0) {
-        const { data: origItems } = await supabase
-          .from('trade_proposal_items')
-          .select('id, proposal_id, player_id, draft_pick_id, from_team_id, to_team_id, protection_threshold, pick_swap_season, pick_swap_round, players(name, position, nba_team), draft_picks(season, round, original_team_id)')
-          .in('proposal_id', counterofferOfIds);
-        for (const i of (origItems ?? []) as any[]) {
-          const pid = i.proposal_id;
-          if (!originalItemsMap[pid]) originalItemsMap[pid] = [];
-          originalItemsMap[pid].push({
-            id: i.id,
-            player_id: i.player_id,
-            draft_pick_id: i.draft_pick_id,
-            from_team_id: i.from_team_id,
-            to_team_id: i.to_team_id,
-            player_name: i.players?.name ?? null,
-            player_position: i.players?.position ?? null,
-            player_nba_team: i.players?.nba_team ?? null,
-            pick_season: i.draft_picks?.season ?? null,
-            pick_round: i.draft_picks?.round ?? null,
-            pick_original_team_name: i.draft_picks?.original_team_id
-              ? origTeamNameMap[i.draft_picks.original_team_id] ?? null
-              : null,
-            protection_threshold: i.protection_threshold ?? null,
-            pick_swap_season: i.pick_swap_season ?? null,
-            pick_swap_round: i.pick_swap_round ?? null,
-          });
-        }
+      for (const i of (origItemsRes.data ?? []) as any[]) {
+        const pid = i.proposal_id;
+        if (!originalItemsMap[pid]) originalItemsMap[pid] = [];
+        originalItemsMap[pid].push({
+          id: i.id,
+          player_id: i.player_id,
+          draft_pick_id: i.draft_pick_id,
+          from_team_id: i.from_team_id,
+          to_team_id: i.to_team_id,
+          player_name: i.players?.name ?? null,
+          player_position: i.players?.position ?? null,
+          player_nba_team: i.players?.nba_team ?? null,
+          pick_season: i.draft_picks?.season ?? null,
+          pick_round: i.draft_picks?.round ?? null,
+          pick_original_team_name: i.draft_picks?.original_team_id
+            ? origTeamNameMap[i.draft_picks.original_team_id] ?? null
+            : null,
+          protection_threshold: i.protection_threshold ?? null,
+          pick_swap_season: i.pick_swap_season ?? null,
+          pick_swap_round: i.pick_swap_round ?? null,
+        });
       }
 
       const mapItem = (i: any): TradeItemRow => ({
@@ -202,7 +210,8 @@ export function useTeamTradablePicks(teamId: string | null, leagueId: string | n
       // Parse current season start year (e.g., '2025-26' -> 2025)
       const currentStartYear = parseInt(CURRENT_NBA_SEASON.split('-')[0], 10);
 
-      // Build list of valid seasons
+      // Current season (for in-progress initial draft) + future rookie drafts.
+      // max_future_seasons=3 means the next 3 rookie drafts (offset 1..3 from current season).
       const validSeasons: string[] = [];
       for (let i = 0; i <= maxFuture; i++) {
         const startYear = currentStartYear + i;
@@ -252,15 +261,26 @@ export function useMyPendingTrades(teamId: string | null, leagueId: string | nul
   return useQuery<number>({
     queryKey: ['pendingTradeCount', teamId, leagueId],
     queryFn: async () => {
-      const { count, error } = await supabase
-        .from('trade_proposal_teams')
-        .select('id, trade_proposals!inner(id)', { count: 'exact', head: true })
-        .eq('team_id', teamId!)
-        .eq('status', 'pending')
-        .eq('trade_proposals.league_id', leagueId!)
-        .eq('trade_proposals.status', 'pending');
-      if (error) throw error;
-      return count ?? 0;
+      // Count trades where I need to respond (pending) or select a drop (pending_drops without drop_player_id)
+      const [pendingRes, dropsRes] = await Promise.all([
+        supabase
+          .from('trade_proposal_teams')
+          .select('id, trade_proposals!inner(id)', { count: 'exact', head: true })
+          .eq('team_id', teamId!)
+          .eq('status', 'pending')
+          .eq('trade_proposals.league_id', leagueId!)
+          .eq('trade_proposals.status', 'pending'),
+        supabase
+          .from('trade_proposal_teams')
+          .select('id, trade_proposals!inner(id)', { count: 'exact', head: true })
+          .eq('team_id', teamId!)
+          .is('drop_player_id', null)
+          .eq('trade_proposals.league_id', leagueId!)
+          .eq('trade_proposals.status', 'pending_drops'),
+      ]);
+      if (pendingRes.error) throw pendingRes.error;
+      if (dropsRes.error) throw dropsRes.error;
+      return (pendingRes.count ?? 0) + (dropsRes.count ?? 0);
     },
     enabled: !!teamId && !!leagueId,
     staleTime: 1000 * 60 * 5,
@@ -276,6 +296,8 @@ export interface TradeBlockPlayer {
   team_name: string;
   trade_block_note: string | null;
   trade_block_interest: string[];
+  /** Map of team_id → team_name for teams that expressed interest */
+  interest_team_names: Record<string, string>;
 }
 
 export interface TradeBlockTeamGroup {
@@ -296,6 +318,22 @@ export function useTradeBlock(leagueId: string | null) {
       if (error) throw error;
       if (!data || data.length === 0) return [];
 
+      // Collect all unique team IDs from interest arrays to resolve names
+      const allInterestIds = new Set<string>();
+      for (const row of data as any[]) {
+        for (const id of row.trade_block_interest ?? []) allInterestIds.add(id);
+      }
+      let teamNameMap: Record<string, string> = {};
+      if (allInterestIds.size > 0) {
+        const { data: teams } = await supabase
+          .from('teams')
+          .select('id, name')
+          .in('id', [...allInterestIds]);
+        if (teams) {
+          for (const t of teams) teamNameMap[t.id] = t.name;
+        }
+      }
+
       // Group by team
       const grouped: Record<string, TradeBlockTeamGroup> = {};
       for (const row of data as any[]) {
@@ -307,6 +345,11 @@ export function useTradeBlock(leagueId: string | null) {
             players: [],
           };
         }
+        const interest: string[] = row.trade_block_interest ?? [];
+        const interestNames: Record<string, string> = {};
+        for (const id of interest) {
+          interestNames[id] = teamNameMap[id] ?? 'Unknown';
+        }
         grouped[tid].players.push({
           player_id: row.player_id,
           name: row.players?.name ?? 'Unknown',
@@ -315,7 +358,8 @@ export function useTradeBlock(leagueId: string | null) {
           team_id: tid,
           team_name: row.teams?.name ?? 'Unknown',
           trade_block_note: row.trade_block_note ?? null,
-          trade_block_interest: row.trade_block_interest ?? [],
+          trade_block_interest: interest,
+          interest_team_names: interestNames,
         });
       }
       return Object.values(grouped);
@@ -329,13 +373,48 @@ export function useToggleTradeBlockInterest(leagueId: string | null) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ playerId, teamId }: { playerId: string; teamId: string; currentInterest: string[] }) => {
-      const { error } = await supabase.rpc('toggle_trade_block_interest', {
+    mutationFn: async ({
+      playerId,
+      teamId,
+      currentInterest,
+      ownerTeamId,
+      playerName,
+    }: {
+      playerId: string;
+      teamId: string;
+      currentInterest: string[];
+      ownerTeamId?: string;
+      playerName?: string;
+    }) => {
+      const { data, error } = await supabase.rpc('toggle_trade_block_interest', {
         p_league_id: leagueId!,
         p_player_id: playerId,
         p_team_id: teamId,
       });
       if (error) throw error;
+
+      // RPC returns true when interest was added — notify the player's owner
+      if (data === true && ownerTeamId && playerName) {
+        sendNotification({
+          league_id: leagueId!,
+          team_ids: [ownerTeamId],
+          category: 'trade_block',
+          title: 'Trade Block Interest',
+          body: `A team is interested in ${playerName}`,
+        });
+      }
+
+      // When we just crossed the 2-team threshold, push-notify about the rumor
+      // (the RPC already created the rumor + chat message atomically)
+      if (data === true && playerName && currentInterest.length === 1) {
+        sendNotification({
+          league_id: leagueId!,
+          category: 'trade_rumors',
+          title: 'Trade Rumor',
+          body: `${playerName} is attracting attention on the trade block — multiple teams have expressed interest`,
+          data: { screen: 'chat' },
+        });
+      }
     },
     onMutate: async ({ playerId, teamId, currentInterest }) => {
       await queryClient.cancelQueries({ queryKey: ['tradeBlock', leagueId] });
@@ -365,8 +444,12 @@ export function useToggleTradeBlockInterest(leagueId: string | null) {
         queryClient.setQueryData(['tradeBlock', leagueId], context.previous);
       }
     },
-    onSettled: () => {
+    onSettled: (_data, _error, vars) => {
       queryClient.invalidateQueries({ queryKey: ['tradeBlock', leagueId] });
+      // If interest was added at the 2-team threshold, a rumor chat message was created
+      if (vars.currentInterest.length === 1) {
+        queryClient.invalidateQueries({ queryKey: ['conversations', leagueId] });
+      }
     },
   });
 }

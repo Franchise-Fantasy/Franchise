@@ -1,3 +1,4 @@
+import { capture } from '@/lib/posthog';
 import { PlayerMatchList } from '@/components/import/PlayerMatchList';
 import { ScreenshotImport } from '@/components/import/ScreenshotImport';
 import { SleeperPreview } from '@/components/import/SleeperPreview';
@@ -323,6 +324,7 @@ export default function ImportLeague() {
 
     try {
       const result = await importMutation.mutateAsync(payload);
+      capture('import_completed', { source: 'sleeper' });
       showToast('success', result.message);
       router.replace({
         pathname: '/claim-team',
@@ -424,7 +426,7 @@ export default function ImportLeague() {
 
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <ScrollView
           ref={scrollRef}
@@ -480,7 +482,7 @@ export default function ImportLeague() {
               </TouchableOpacity>
 
               {previewMutation.isError && (
-                <ThemedText style={[styles.errorText, { color: '#FF3B30' }]}>
+                <ThemedText style={[styles.errorText, { color: c.danger }]}>
                   {previewMutation.error?.message}
                 </ThemedText>
               )}
@@ -496,7 +498,7 @@ export default function ImportLeague() {
 
               <SleeperPreview data={state.previewData} />
 
-              <View style={styles.divider} />
+              <View style={[styles.divider, { backgroundColor: c.cardAlt }]} />
 
               <PlayerMatchList
                 matched={state.previewData.player_matches}
@@ -707,7 +709,6 @@ const styles = StyleSheet.create({
   },
   divider: {
     height: 1,
-    backgroundColor: '#333',
     marginVertical: 16,
     opacity: 0.2,
   },

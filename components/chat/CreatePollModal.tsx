@@ -150,7 +150,7 @@ export function CreatePollModal({
     <Modal visible={visible} animationType="slide" transparent onRequestClose={handleClose}>
       <KeyboardAvoidingView
         style={styles.overlay}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <View style={[styles.content, { backgroundColor: c.card }]} accessibilityViewIsModal>
           {/* Header */}
@@ -262,7 +262,7 @@ export function CreatePollModal({
                 >
                   <Text
                     style={{
-                      color: presetIdx === idx ? '#FFFFFF' : c.text,
+                      color: presetIdx === idx ? c.statusText : c.text,
                       fontSize: 13,
                       fontWeight: '600',
                     }}
@@ -286,7 +286,7 @@ export function CreatePollModal({
               >
                 <Text
                   style={{
-                    color: customDate ? '#FFFFFF' : c.text,
+                    color: customDate ? c.statusText : c.text,
                     fontSize: 13,
                     fontWeight: '600',
                   }}
@@ -347,9 +347,9 @@ export function CreatePollModal({
             accessibilityState={{ disabled: !canSubmit }}
           >
             {createPoll.isPending ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
+              <ActivityIndicator color={c.statusText} size="small" />
             ) : (
-              <Text style={styles.createBtnText}>Create Poll</Text>
+              <Text style={[styles.createBtnText, { color: c.statusText }]}>Create Poll</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -448,7 +448,6 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   createBtnText: {
-    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
   },

@@ -4,7 +4,7 @@ import { ThemedText } from '@/components/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Colors } from '@/constants/Colors';
-import { DRAFT_TYPE_OPTIONS, LeagueWizardState, ROOKIE_DRAFT_ORDER_OPTIONS, TIME_PER_PICK_OPTIONS } from '@/constants/LeagueDefaults';
+import { DRAFT_TYPE_OPTIONS, INITIAL_DRAFT_ORDER_OPTIONS, LeagueWizardState, ROOKIE_DRAFT_ORDER_OPTIONS, TIME_PER_PICK_OPTIONS } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/lottery';
 import { StyleSheet, View } from 'react-native';
@@ -43,6 +43,20 @@ export function StepDraft({ state, onChange }: StepDraftProps) {
           selectedIndex={TIME_PER_PICK_OPTIONS.indexOf(state.timePerPick)}
           onSelect={(i) => onChange('timePerPick', TIME_PER_PICK_OPTIONS[i])}
         />
+      </View>
+
+      <View style={styles.section}>
+        <ThemedText style={styles.label}>Draft Order</ThemedText>
+        <SegmentedControl
+          options={[...INITIAL_DRAFT_ORDER_OPTIONS]}
+          selectedIndex={INITIAL_DRAFT_ORDER_OPTIONS.indexOf(state.initialDraftOrder)}
+          onSelect={(i) => onChange('initialDraftOrder', INITIAL_DRAFT_ORDER_OPTIONS[i])}
+        />
+        <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
+          {state.initialDraftOrder === 'Random'
+            ? 'Teams are randomly assigned a draft position when all teams join.'
+            : 'The commissioner will set the draft order before the draft begins.'}
+        </ThemedText>
       </View>
 
       {isDynasty && (
@@ -92,8 +106,8 @@ export function StepDraft({ state, onChange }: StepDraftProps) {
           {state.rookieDraftOrder === 'Lottery' && (
             <>
               {lotteryTeams <= 0 ? (
-                <View style={[styles.warningBox, { backgroundColor: '#fee2e2', borderColor: '#ef4444' }]}>
-                  <ThemedText style={[styles.warningText, { color: '#b91c1c' }]}>
+                <View style={[styles.warningBox, { backgroundColor: c.dangerMuted, borderColor: c.danger }]}>
+                  <ThemedText style={[styles.warningText, { color: c.danger }]}>
                     All teams make the playoffs — no lottery pool. Adjust playoff teams in Season settings.
                   </ThemedText>
                 </View>

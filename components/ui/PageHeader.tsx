@@ -53,6 +53,7 @@ const styles = StyleSheet.create({
   },
   sideRight: {
     justifyContent: 'flex-end',
+    overflow: 'visible',
   },
   backText: {
     fontSize: 16,

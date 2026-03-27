@@ -2,7 +2,7 @@ import { ThemedText } from '@/components/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Colors } from '@/constants/Colors';
-import { WAIVER_DAY_LABELS, WAIVER_TYPE_OPTIONS } from '@/constants/LeagueDefaults';
+import { PLAYER_LOCK_DISPLAY, PLAYER_LOCK_OPTIONS, PLAYER_LOCK_TO_DB, WAIVER_DAY_LABELS, WAIVER_TYPE_OPTIONS } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { useQueryClient } from '@tanstack/react-query';
@@ -39,6 +39,7 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
   const [faabBudget, setFaabBudget] = useState(100);
   const [waiverDay, setWaiverDay] = useState(3);
   const [weeklyLimit, setWeeklyLimit] = useState(0);
+  const [playerLock, setPlayerLock] = useState('Daily');
   const [saving, setSaving] = useState(false);
 
   // Initialize from league when modal opens
@@ -49,6 +50,7 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
       setFaabBudget(league.faab_budget ?? 100);
       setWaiverDay(league.waiver_day_of_week ?? 3);
       setWeeklyLimit(league.weekly_acquisition_limit ?? 0);
+      setPlayerLock(PLAYER_LOCK_DISPLAY[league.player_lock_type] ?? 'Daily');
     }
   }, [visible, league]);
 
@@ -61,6 +63,7 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
       faab_budget: faabBudget,
       waiver_day_of_week: waiverDay,
       weekly_acquisition_limit: weeklyLimit === 0 ? null : weeklyLimit,
+      player_lock_type: PLAYER_LOCK_TO_DB[playerLock as keyof typeof PLAYER_LOCK_TO_DB] ?? 'daily',
     }).eq('id', leagueId);
     setSaving(false);
     if (error) { Alert.alert('Error', error.message); return; }
@@ -82,7 +85,7 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
             <ThemedText accessibilityRole="header" style={styles.title}>Waiver Settings</ThemedText>
           </View>
 
-          <ScrollView style={styles.scroll} bounces={false}>
+          <ScrollView style={styles.scroll} bounces={false} nestedScrollEnabled>
             {/* Waiver Type */}
             <View style={[styles.editRow, { borderBottomColor: c.border }]}>
               <ThemedText style={styles.rowLabel}>Waiver Type</ThemedText>
@@ -146,6 +149,23 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
               suffix={weeklyLimit === 0 ? ' (unlimited)' : ' per week'}
               accessibilityLabel="Weekly acquisition limit, 0 means unlimited"
             />
+
+            {/* Player Lock */}
+            <View style={[styles.editRow, { borderBottomColor: c.border }]}>
+              <ThemedText style={styles.rowLabel}>Player Lock</ThemedText>
+            </View>
+            <View style={{ paddingVertical: 8 }}>
+              <SegmentedControl
+                options={PLAYER_LOCK_OPTIONS}
+                selectedIndex={PLAYER_LOCK_OPTIONS.indexOf(playerLock as any)}
+                onSelect={(i) => setPlayerLock(PLAYER_LOCK_OPTIONS[i])}
+              />
+            </View>
+            <ThemedText style={{ fontSize: 13, color: c.secondaryText, marginBottom: 12 }}>
+              {playerLock === 'Daily'
+                ? 'Once the first NBA game starts each day, adds process the next day'
+                : 'Players whose games have started cannot be added or dropped'}
+            </ThemedText>
           </ScrollView>
 
           {/* Footer */}
@@ -180,7 +200,7 @@ const styles = StyleSheet.create({
   handle: { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 12 },
   titleRow: { flexDirection: 'row', justifyContent: 'center', paddingHorizontal: 16, marginBottom: 16 },
   title: { fontSize: 17, fontWeight: '600' },
-  scroll: { paddingHorizontal: 16 },
+  scroll: { flexShrink: 1, paddingHorizontal: 16 },
   editRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
   rowLabel: { fontSize: 14 },
   footer: { flexDirection: 'row', gap: 12, paddingHorizontal: 16, paddingTop: 16 },

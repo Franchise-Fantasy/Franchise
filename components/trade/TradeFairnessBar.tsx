@@ -37,7 +37,7 @@ export function TradeFairnessBar({ teams }: TradeFairnessBarProps) {
                   styles.bar,
                   {
                     width: `${barWidth}%`,
-                    backgroundColor: isPositive ? '#28a745' : '#dc3545',
+                    backgroundColor: isPositive ? c.success : c.danger,
                   },
                 ]}
               />
@@ -45,7 +45,7 @@ export function TradeFairnessBar({ teams }: TradeFairnessBarProps) {
             <ThemedText
               style={[
                 styles.value,
-                { color: isPositive ? '#28a745' : '#dc3545' },
+                { color: isPositive ? c.success : c.danger },
               ]}
             >
               {isPositive ? '+' : ''}{team.netFpts.toFixed(1)}

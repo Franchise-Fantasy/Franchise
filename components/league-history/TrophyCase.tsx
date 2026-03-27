@@ -19,7 +19,7 @@ export function TrophyCase({ leagueId }: TrophyCaseProps) {
   return (
     <View style={[styles.container, { backgroundColor: c.card, borderColor: c.border }]}>
       <View style={styles.headerRow}>
-        <Ionicons name="trophy" size={18} color="#FFD700" />
+        <Ionicons name="trophy" size={18} color={c.gold} />
         <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.title}>Trophy Case</ThemedText>
       </View>
 
@@ -32,8 +32,8 @@ export function TrophyCase({ leagueId }: TrophyCaseProps) {
           <View key={entry.season} style={[styles.seasonRow, { borderTopColor: c.border }]}>
             <ThemedText type="defaultSemiBold" style={styles.season}>{entry.season}</ThemedText>
             <View style={styles.resultRow}>
-              <View style={[styles.champBadge, { backgroundColor: '#FFD700' + '22' }]}>
-                <Ionicons name="trophy" size={12} color="#FFD700" />
+              <View style={[styles.champBadge, { backgroundColor: c.goldMuted }]}>
+                <Ionicons name="trophy" size={12} color={c.gold} />
                 <ThemedText style={styles.champName}>{entry.champion?.name ?? '—'}</ThemedText>
               </View>
               {entry.runnerUp && (

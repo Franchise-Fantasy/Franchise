@@ -87,9 +87,9 @@ export function TradePickPicker({
                 {formatPickLabel(item.season, item.round)}
               </ThemedText>
               {protection != null && (
-                <View style={[styles.protectionBadge, { backgroundColor: '#f59e0b20' }]}>
-                  <Ionicons name="shield-checkmark" size={10} color="#f59e0b" />
-                  <ThemedText style={styles.protectionBadgeText}>Top-{protection}</ThemedText>
+                <View style={[styles.protectionBadge, { backgroundColor: c.warningMuted }]}>
+                  <Ionicons name="shield-checkmark" size={10} color={c.warning} />
+                  <ThemedText style={[styles.protectionBadgeText, { color: c.warning }]}>Top-{protection}</ThemedText>
                 </View>
               )}
             </View>
@@ -112,18 +112,18 @@ export function TradePickPicker({
                 <Ionicons
                   name="shield-checkmark-outline"
                   size={18}
-                  color={protection != null ? '#f59e0b' : c.secondaryText}
+                  color={protection != null ? c.warning : c.secondaryText}
                 />
               </TouchableOpacity>
             )}
-            <ThemedText style={styles.check}>{isSelected ? '✓' : ''}</ThemedText>
+            <ThemedText style={[styles.check, { color: c.success }]}>{isSelected ? '✓' : ''}</ThemedText>
           </View>
         </TouchableOpacity>
 
         {showProtectionEditor && (
           <View style={[styles.protectionEditor, { backgroundColor: c.cardAlt, borderBottomColor: c.border }]}>
             <View style={styles.protectionHeader}>
-              <Ionicons name="shield-checkmark" size={16} color="#f59e0b" accessible={false} />
+              <Ionicons name="shield-checkmark" size={16} color={c.warning} accessible={false} />
               <ThemedText accessibilityRole="header" style={styles.protectionTitle}>Protection</ThemedText>
             </View>
             {protection != null ? (
@@ -144,7 +144,7 @@ export function TradePickPicker({
                     setExpandedPickId(null);
                   }}
                 >
-                  <ThemedText style={[styles.removeBtnText, { color: '#ef4444' }]}>
+                  <ThemedText style={[styles.removeBtnText, { color: c.danger }]}>
                     Remove Protection
                   </ThemedText>
                 </TouchableOpacity>
@@ -153,11 +153,11 @@ export function TradePickPicker({
               <TouchableOpacity
                 accessibilityRole="button"
                 accessibilityLabel="Add protection"
-                style={[styles.addProtectionBtn, { backgroundColor: '#f59e0b20', borderColor: '#f59e0b' }]}
+                style={[styles.addProtectionBtn, { backgroundColor: c.warningMuted, borderColor: c.warning }]}
                 onPress={() => onSetProtection(item.id, 3)}
               >
-                <Ionicons name="add" size={16} color="#f59e0b" accessible={false} />
-                <ThemedText style={[styles.addProtectionText, { color: '#f59e0b' }]}>
+                <Ionicons name="add" size={16} color={c.warning} accessible={false} />
+                <ThemedText style={[styles.addProtectionText, { color: c.warning }]}>
                   Add Protection
                 </ThemedText>
               </TouchableOpacity>
@@ -239,7 +239,6 @@ const styles = StyleSheet.create({
     width: 22,
     fontSize: 16,
     fontWeight: '700',
-    color: '#28a745',
     textAlign: 'center',
   },
   protectionBadge: {
@@ -250,7 +249,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 8,
   },
-  protectionBadgeText: { fontSize: 10, fontWeight: '600', color: '#f59e0b' },
+  protectionBadgeText: { fontSize: 10, fontWeight: '600' },
   protectionEditor: {
     paddingHorizontal: 14,
     paddingVertical: 10,

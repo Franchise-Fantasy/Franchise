@@ -5,12 +5,12 @@ import {
 } from "@react-navigation/native";
 import { useFonts } from "expo-font";
 import * as Notifications from "expo-notifications";
-import * as SplashScreen from "expo-splash-screen";
 import { Stack } from "expo-router";
+import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as Updates from "expo-updates";
-import "react-native-reanimated";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import "react-native-reanimated";
 
 import { isExpoGo } from "@/utils/buildConfig";
 
@@ -66,10 +66,14 @@ import { AnnouncementBanner } from "@/components/AnnouncementBanner";
 import { MatchupResultModal } from "@/components/MatchupResultModal";
 import { OfflineBanner } from "@/components/OfflineBanner";
 import { AppStateProvider, useAppState } from "@/context/AppStateProvider";
-import { AuthProvider, useAuthInitialized, useSession } from "@/context/AuthProvider";
+import {
+  AuthProvider,
+  useAuthInitialized,
+  useSession,
+} from "@/context/AuthProvider";
 import { globalToastRef, ToastProvider } from "@/context/ToastProvider";
 import { useColorScheme } from "@/hooks/useColorScheme";
-import { posthog } from "@/lib/posthog";
+import { posthog, setPostHogAdmin } from "@/lib/posthog";
 import { supabase } from "@/lib/supabase";
 import NetInfo from "@react-native-community/netinfo";
 import {
@@ -86,7 +90,7 @@ import {
   PostHogSurveyProvider,
   usePostHog,
 } from "posthog-react-native";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Alert, AppState } from "react-native";
 
 // Sync React Query's online state with actual device connectivity
@@ -144,12 +148,13 @@ const NOTIF_ROUTES: Record<string, string> = {
   "lottery-room": "/lottery-room",
 };
 
-/** Switch league/team context when a league_id is provided via notification or deep link. */
+/** Switch league/team context when a league_id is provided via notification or deep link.
+ *  Returns true if the user has a team in the league (membership confirmed). */
 async function switchLeagueContext(
   leagueId: string,
   userId: string,
   switchLeague: (leagueId: string, teamId: string) => void,
-) {
+): Promise<boolean> {
   const { data: team } = await supabase
     .from("teams")
     .select("id, league_id")
@@ -164,7 +169,9 @@ async function switchLeagueContext(
         return key !== "user-leagues" && key !== "userProfile";
       },
     });
+    return true;
   }
+  return false;
 }
 
 /** Keep the native splash visible until auth + app state are resolved. */
@@ -190,8 +197,10 @@ function PostHogIdentifier() {
   useEffect(() => {
     if (session?.user) {
       ph.identify(session.user.id, { email: session.user.email ?? null });
+      setPostHogAdmin(session.user.id);
     } else {
       ph.reset();
+      setPostHogAdmin(null);
     }
   }, [session?.user?.id]);
 
@@ -221,7 +230,20 @@ function ScreenTracker() {
 function NotificationAndLinkHandler() {
   const router = useRouter();
   const session = useSession();
-  const { switchLeague } = useAppState();
+  const { switchLeague, loading } = useAppState();
+
+  // Track loading state via ref so async callbacks see the latest value
+  const loadingRef = useRef(loading);
+  loadingRef.current = loading;
+  const pendingNavRef = useRef<(() => void) | null>(null);
+
+  // When AppState finishes loading, fire any deferred navigation
+  useEffect(() => {
+    if (!loading && pendingNavRef.current) {
+      pendingNavRef.current();
+      pendingNavRef.current = null;
+    }
+  }, [loading]);
 
   // Handle notification taps → navigate + switch context
   useEffect(() => {
@@ -233,22 +255,32 @@ function NotificationAndLinkHandler() {
         if (!data?.screen) return;
 
         if (data.league_id && session?.user) {
-          await switchLeagueContext(
+          const ok = await switchLeagueContext(
             data.league_id,
             session.user.id,
             switchLeague,
           );
+          if (!ok) return; // user doesn't belong to this league
         }
 
-        if (data.screen === "draft-room" && data.draft_id) {
-          router.navigate(`/draft-room/${data.draft_id}` as any);
-        } else if (data.screen.startsWith("chat/")) {
-          const conversationId = data.screen.split("/")[1];
-          if (conversationId) {
-            router.navigate(`/chat/${conversationId}` as any);
+        const navigate = () => {
+          if (data.screen === "draft-room" && data.draft_id) {
+            router.navigate(`/draft-room/${data.draft_id}` as any);
+          } else if (data.screen!.startsWith("chat/")) {
+            const conversationId = data.screen!.split("/")[1];
+            if (conversationId) {
+              router.navigate(`/chat/${conversationId}` as any);
+            }
+          } else if (NOTIF_ROUTES[data.screen!]) {
+            router.navigate(NOTIF_ROUTES[data.screen!] as any);
           }
-        } else if (NOTIF_ROUTES[data.screen]) {
-          router.navigate(NOTIF_ROUTES[data.screen] as any);
+        };
+
+        // Defer navigation if AppState hasn't finished loading
+        if (loadingRef.current) {
+          pendingNavRef.current = navigate;
+        } else {
+          navigate();
         }
       },
     );
@@ -261,6 +293,7 @@ function NotificationAndLinkHandler() {
   useEffect(() => {
     function handleUrl({ url }: { url: string }) {
       // Password recovery: Supabase redirects with #access_token=...&type=recovery
+      // This doesn't need AppState — handle immediately
       const fragment = url.split("#")[1];
       if (fragment) {
         const params = new URLSearchParams(fragment);
@@ -269,7 +302,10 @@ function NotificationAndLinkHandler() {
           const refreshToken = params.get("refresh_token");
           if (accessToken && refreshToken) {
             supabase.auth
-              .setSession({ access_token: accessToken, refresh_token: refreshToken })
+              .setSession({
+                access_token: accessToken,
+                refresh_token: refreshToken,
+              })
               .then(({ error }) => {
                 if (error) {
                   Alert.alert("Session error", error.message);
@@ -285,10 +321,13 @@ function NotificationAndLinkHandler() {
       if (!session?.user) return;
       const parsed = Linking.parse(url);
 
-      // Invite deep link: franchisev2://join?code=ABCD1234
+      // Invite deep link — doesn't need AppState
       const inviteCode = parsed.queryParams?.code;
       if (parsed.hostname === "join" && typeof inviteCode === "string") {
-        router.replace({ pathname: "/join-league", params: { code: inviteCode } });
+        router.replace({
+          pathname: "/join-league",
+          params: { code: inviteCode },
+        });
         return;
       }
 
@@ -351,140 +390,156 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-    <PostHogProvider
-      client={posthog}
-      autocapture={{ captureScreens: false, captureTouches: false }}
-    >
-      <PostHogSurveyProvider>
-        <QueryClientProvider client={queryClient}>
-          <ThemeProvider
-            value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
-          >
-            <ToastProvider>
-              <AuthProvider>
-                <AppStateProvider>
-                  <SplashGate />
-                  <PostHogIdentifier />
-                  <ScreenTracker />
-                  <NotificationAndLinkHandler />
-                  <OfflineBanner />
-                  <AnnouncementBanner />
-                  <MatchupResultModal />
-                  <Stack>
-                    <Stack.Screen
-                      name="index"
-                      options={{ headerShown: false }}
-                    />
-                    <Stack.Screen
-                      name="(tabs)"
-                      options={{
-                        headerShown: false,
-                        gestureEnabled: false,
-                        animation: "fade",
-                      }}
-                    />
-                    <Stack.Screen
-                      name="(setup)"
-                      options={{ headerShown: false, animation: "fade" }}
-                    />
-                    <Stack.Screen
-                      name="draft-room/[id]"
-                      options={{ headerShown: false }}
-                    />
-                    <Stack.Screen
-                      name="trades"
-                      options={{ headerShown: false }}
-                    />
-                    <Stack.Screen
-                      name="activity"
-                      options={{ headerShown: false }}
-                    />
-                    <Stack.Screen
-                      name="scoreboard"
-                      options={{ headerShown: false }}
-                    />
-                    <Stack.Screen
-                      name="analytics"
-                      options={{ headerShown: false }}
-                    />
-                    <Stack.Screen
-                      name="matchup-detail/[id]"
-                      options={{ headerShown: false }}
-                    />
-                    <Stack.Screen
-                      name="import-league"
-                      options={{ headerShown: false }}
-                    />
-                    <Stack.Screen
-                      name="league-info"
-                      options={{ headerShown: false }}
-                    />
-                    <Stack.Screen
-                      name="draft-hub"
-                      options={{ headerShown: false }}
-                    />
-                    <Stack.Screen
-                      name="playoff-bracket"
-                      options={{ headerShown: false }}
-                    />
-                    <Stack.Screen
-                      name="lottery-room"
-                      options={{ headerShown: false }}
-                    />
-                    <Stack.Screen
-                      name="chat"
-                      options={{ headerShown: false }}
-                    />
-                    <Stack.Screen
-                      name="chat/[id]"
-                      options={{ headerShown: false }}
-                    />
-                    <Stack.Screen
-                      name="team-roster/[id]"
-                      options={{ headerShown: false }}
-                    />
-                    <Stack.Screen
-                      name="league-history"
-                      options={{ headerShown: false }}
-                    />
-                    <Stack.Screen
-                      name="create-league"
-                      options={{ headerShown: false }}
-                    />
-                    <Stack.Screen
-                      name="create-team"
-                      options={{ headerShown: false }}
-                    />
-                    <Stack.Screen
-                      name="join-league"
-                      options={{ headerShown: false }}
-                    />
-                    <Stack.Screen
-                      name="notification-settings"
-                      options={{ headerShown: false }}
-                    />
-                    <Stack.Screen
-                      name="auth"
-                      options={{ headerShown: false }}
-                    />
-                    <Stack.Screen
-                      name="reset-password"
-                      options={{ headerShown: false }}
-                    />
-                    <Stack.Screen
-                      name="legal"
-                      options={{ headerShown: false }}
-                    />
-                    <Stack.Screen name="+not-found" />
-                  </Stack>
-                </AppStateProvider>
-                <StatusBar style="auto" />
-              </AuthProvider>
-            </ToastProvider>
-          </ThemeProvider>
-        </QueryClientProvider>
-      </PostHogSurveyProvider>
-    </PostHogProvider>
+      <PostHogProvider
+        client={posthog}
+        autocapture={{ captureScreens: false, captureTouches: false }}
+      >
+        <PostHogSurveyProvider>
+          <QueryClientProvider client={queryClient}>
+            <ThemeProvider
+              value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
+            >
+              <ToastProvider>
+                <AuthProvider>
+                  <AppStateProvider>
+                    <SplashGate />
+                    <PostHogIdentifier />
+                    <ScreenTracker />
+                    <NotificationAndLinkHandler />
+                    <OfflineBanner />
+                    <AnnouncementBanner />
+                    <MatchupResultModal />
+                    <Stack>
+                      <Stack.Screen
+                        name="index"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="(tabs)"
+                        options={{
+                          headerShown: false,
+                          gestureEnabled: false,
+                          animation: "fade",
+                        }}
+                      />
+                      <Stack.Screen
+                        name="(setup)"
+                        options={{ headerShown: false, animation: "fade" }}
+                      />
+                      <Stack.Screen
+                        name="draft-room/[id]"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="survey/[id]"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="trades"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="cms-test"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="news"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="schedule"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="activity"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="scoreboard"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="analytics"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="matchup-detail/[id]"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="import-league"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="league-info"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="draft-hub"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="playoff-bracket"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="lottery-room"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="chat"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="chat/[id]"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="team-roster/[id]"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="league-history"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="create-league"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="create-team"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="join-league"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="notification-settings"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="auth"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="reset-password"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="legal"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen name="+not-found" />
+                    </Stack>
+                  </AppStateProvider>
+                  <StatusBar style="auto" />
+                </AuthProvider>
+              </ToastProvider>
+            </ThemeProvider>
+          </QueryClientProvider>
+        </PostHogSurveyProvider>
+      </PostHogProvider>
     </GestureHandlerRootView>
   );
 }

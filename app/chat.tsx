@@ -5,14 +5,18 @@ import { Colors } from '@/constants/Colors';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { useAppState } from '@/context/AppStateProvider';
 import { useConversations, useCreateDM } from '@/hooks/chat';
+import { readReceiptSeedKey, fetchReadReceiptSeed } from '@/hooks/chat/useReadReceipts';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import type { ConversationPreview } from '@/types/chat';
+import { supabase } from '@/lib/supabase';
+import type { ChatMessage, ConversationPreview } from '@/types/chat';
 import { Ionicons } from '@expo/vector-icons';
+import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Image,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -26,8 +30,64 @@ export default function ChatList() {
   const c = Colors[scheme];
   const { leagueId, teamId } = useAppState();
 
+  const queryClient = useQueryClient();
   const { data: conversations, isLoading } = useConversations();
   const createDM = useCreateDM(leagueId!);
+
+  // Pre-load league chat messages so the FlatList doesn't jump on navigate
+  useEffect(() => {
+    if (!conversations) return;
+    const leagueChat = conversations.find((c) => c.type === 'league');
+    if (!leagueChat) return;
+
+    queryClient.prefetchInfiniteQuery({
+      queryKey: ['messages', leagueChat.id],
+      queryFn: async () => {
+        const { data } = await supabase.rpc('get_messages_page', {
+          p_conversation_id: leagueChat.id,
+          p_cursor: null,
+          p_cursor_id: null,
+          p_limit: 30,
+        });
+        return (data ?? []) as unknown as ChatMessage[];
+      },
+      initialPageParam: { cursor: null, cursorId: null },
+    });
+  }, [conversations, queryClient]);
+
+  // Prefetch team logos so presence avatars don't pop in when entering a chat
+  useEffect(() => {
+    if (!leagueId) return;
+    queryClient.prefetchQuery({
+      queryKey: ['teamLogos', leagueId],
+      queryFn: async () => {
+        const { data } = await supabase
+          .from('teams')
+          .select('id, logo_key')
+          .eq('league_id', leagueId);
+        const map: Record<string, string | null> = {};
+        for (const t of data ?? []) {
+          map[t.id] = t.logo_key;
+          // Warm the image cache so logos render instantly
+          if (t.logo_key?.startsWith('http')) Image.prefetch(t.logo_key);
+        }
+        return map;
+      },
+      staleTime: 1000 * 60 * 10,
+    });
+  }, [leagueId, queryClient]);
+
+  // Prefetch read receipts for each conversation so they don't pop in
+  useEffect(() => {
+    if (!conversations || !teamId) return;
+    for (const conv of conversations) {
+      queryClient.prefetchQuery({
+        queryKey: readReceiptSeedKey(conv.id, teamId),
+        queryFn: () => fetchReadReceiptSeed(conv.id, teamId),
+        staleTime: 1000 * 60 * 5,
+      });
+    }
+  }, [conversations, teamId, queryClient]);
   const [dmPickerVisible, setDmPickerVisible] = useState(false);
 
   const handleConversationPress = useCallback(

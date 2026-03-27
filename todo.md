@@ -2,7 +2,6 @@
 
 - [ ] Build Onboarding Walkthrough — tooltip tour, scaffold now, polish closer to launch
 - Sleeper ID: 851103743612141568
-- [ ] Deep-Linked Invite URL's (Needs dev build)
 
 ## Tier 2 — Analytics/Design-Dependent Premium Features
 

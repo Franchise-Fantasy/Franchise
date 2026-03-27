@@ -59,7 +59,7 @@ export function PremiumGate({ feature, tier: minTier, label, children }: Premium
         accessibilityRole="button"
         accessibilityLabel={`Upgrade to ${TIER_LABELS[requiredTier]}`}
       >
-        <ThemedText style={styles.buttonText}>
+        <ThemedText style={[styles.buttonText, { color: c.statusText }]}>
           Upgrade to {TIER_LABELS[requiredTier]}
         </ThemedText>
       </TouchableOpacity>
@@ -90,7 +90,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   buttonText: {
-    color: '#fff',
     fontSize: 15,
     fontWeight: '600',
   },

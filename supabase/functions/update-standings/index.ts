@@ -15,13 +15,11 @@ function toDateStr(d: Date): string {
 
 Deno.serve(async (req: Request) => {
   const cronSecret = Deno.env.get('CRON_SECRET');
-  if (cronSecret) {
-    const authHeader = req.headers.get('Authorization');
-    if (authHeader !== `Bearer ${cronSecret}`) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401, headers: { 'Content-Type': 'application/json' },
-      });
-    }
+  const authHeader = req.headers.get('Authorization');
+  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401, headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   try {
@@ -80,17 +78,19 @@ Deno.serve(async (req: Request) => {
       }
 
       // Step 2: Sum ALL matchup scores (finalized + current) for PF/PA
+      const isCat = league.scoring_type === 'h2h_categories';
       const { data: allMatchups } = await supabase
         .from("league_matchups")
-        .select("home_team_id, away_team_id, home_score, away_score")
+        .select("home_team_id, away_team_id, home_score, away_score, home_category_wins, away_category_wins")
         .eq("league_id", league.id)
         .is("playoff_round", null);
 
       const pf: Record<string, number> = {};
       const pa: Record<string, number> = {};
       for (const m of allMatchups ?? []) {
-        const hs = Number(m.home_score) || 0;
-        const as_ = Number(m.away_score) || 0;
+        // For category leagues, PF/PA track category wins/losses (mirrors finalize-week)
+        const hs = isCat ? (Number(m.home_category_wins) || 0) : (Number(m.home_score) || 0);
+        const as_ = isCat ? (Number(m.away_category_wins) || 0) : (Number(m.away_score) || 0);
         if (m.home_team_id) {
           pf[m.home_team_id] = (pf[m.home_team_id] ?? 0) + hs;
           pa[m.home_team_id] = (pa[m.home_team_id] ?? 0) + as_;

@@ -224,8 +224,8 @@ export default function PlayoffBracketScreen() {
 
       {/* Projected banner */}
       {!hasRealBracket && displaySlots.length > 0 && (
-        <View style={[styles.projectedBanner, { backgroundColor: '#f59e0b22', borderBottomColor: '#f59e0b' }]}>
-          <Text style={[styles.projectedText, { color: '#b45309' }]}>
+        <View style={[styles.projectedBanner, { backgroundColor: c.warningMuted, borderBottomColor: c.warning }]}>
+          <Text style={[styles.projectedText, { color: c.warning }]}>
             PROJECTED — Based on current standings
           </Text>
         </View>

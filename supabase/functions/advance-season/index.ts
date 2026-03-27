@@ -47,20 +47,24 @@ Deno.serve(async (req) => {
     if (league.created_by !== user.id) throw new Error('Only the commissioner can advance the season');
     if (league.offseason_step !== null) throw new Error('League is already in the offseason');
 
-    // Verify playoffs are complete (bracket exists and final round has a winner)
+    // Verify playoffs are complete: a non-bye championship entry must have a winner
     const { data: bracketCheck } = await supabaseAdmin
       .from('playoff_bracket')
       .select('round, winner_id, is_bye')
       .eq('league_id', league_id)
       .eq('season', league.season)
-      .order('round', { ascending: false })
-      .limit(1);
+      .order('round', { ascending: false });
 
     if (!bracketCheck || bracketCheck.length === 0) {
       throw new Error('Cannot advance season: no playoff bracket found. Playoffs must be completed first.');
     }
-    const finalEntry = bracketCheck[0];
-    if (!finalEntry.winner_id && !finalEntry.is_bye) {
+    const maxRound = bracketCheck[0].round;
+    const finalRoundEntries = bracketCheck.filter(e => e.round === maxRound);
+    const championshipEntry = finalRoundEntries.find(e => !e.is_bye);
+    if (!championshipEntry) {
+      throw new Error('Cannot advance season: no championship matchup found in the final round.');
+    }
+    if (!championshipEntry.winner_id) {
       throw new Error('Cannot advance season: the final playoff round has not been decided yet.');
     }
 
@@ -225,21 +229,52 @@ Deno.serve(async (req) => {
       if (league.rookie_draft_order === 'lottery') {
         leagueUpdates.offseason_step = 'lottery_pending';
       } else {
+        const rounds = league.rookie_draft_rounds ?? 2;
         const reversedTeams = [...allTeams].reverse();
-        for (let pos = 0; pos < reversedTeams.length; pos++) {
-          const team = reversedTeams[pos];
-          for (let round = 1; round <= (league.rookie_draft_rounds ?? 2); round++) {
-            await supabaseAdmin
-              .from('draft_picks')
-              .update({
-                pick_number: (round - 1) * reversedTeams.length + (pos + 1),
+
+        // Ensure draft picks exist for the new season — they may not if
+        // no future picks were created yet (e.g., brand-new league).
+        const { data: existingPicks } = await supabaseAdmin
+          .from('draft_picks')
+          .select('id')
+          .eq('league_id', league_id)
+          .eq('season', newSeason)
+          .is('draft_id', null)
+          .limit(1);
+
+        if (!existingPicks || existingPicks.length === 0) {
+          const newPicks = [];
+          for (let pos = 0; pos < reversedTeams.length; pos++) {
+            const team = reversedTeams[pos];
+            for (let round = 1; round <= rounds; round++) {
+              newPicks.push({
+                league_id: league_id,
+                season: newSeason,
+                round,
                 slot_number: pos + 1,
-              })
-              .eq('league_id', league_id)
-              .eq('season', newSeason)
-              .eq('round', round)
-              .eq('current_team_id', team.id)
-              .is('draft_id', null);
+                pick_number: (round - 1) * reversedTeams.length + (pos + 1),
+                current_team_id: team.id,
+                original_team_id: team.id,
+              });
+            }
+          }
+          await supabaseAdmin.from('draft_picks').insert(newPicks);
+        } else {
+          for (let pos = 0; pos < reversedTeams.length; pos++) {
+            const team = reversedTeams[pos];
+            for (let round = 1; round <= rounds; round++) {
+              await supabaseAdmin
+                .from('draft_picks')
+                .update({
+                  pick_number: (round - 1) * reversedTeams.length + (pos + 1),
+                  slot_number: pos + 1,
+                })
+                .eq('league_id', league_id)
+                .eq('season', newSeason)
+                .eq('round', round)
+                .eq('current_team_id', team.id)
+                .is('draft_id', null);
+            }
           }
         }
         leagueUpdates.offseason_step = 'rookie_draft_pending';

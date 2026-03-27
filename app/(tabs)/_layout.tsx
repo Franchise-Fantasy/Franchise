@@ -1,15 +1,21 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
-import { Platform } from 'react-native';
+import { Image, Platform, StyleSheet, Text, View } from 'react-native';
 
 import { HapticTab } from '@/components/HapticTab';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import TabBarBackground from '@/components/ui/TabBarBackground';
 import { Colors } from '@/constants/Colors';
+import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { useLeague } from '@/hooks/useLeague';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
+  const { teamId } = useAppState();
+  const { data: league } = useLeague();
+  const myTeam = (league?.league_teams ?? []).find((t: any) => t.id === teamId);
+  const logoKey = myTeam?.logo_key ?? null;
 
   return (
     <Tabs
@@ -63,9 +69,27 @@ export default function TabLayout() {
         name="profile"
         options={{
           title: 'Profile',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.crop.circle" color={color} />,
+          tabBarIcon: ({ color }) =>
+            logoKey?.startsWith('http') ? (
+              <Image
+                source={{ uri: logoKey }}
+                style={tabStyles.teamLogo}
+                accessibilityLabel="Team logo"
+                accessibilityRole="image"
+              />
+            ) : (
+              <IconSymbol size={28} name="person.crop.circle" color={color} />
+            ),
         }}
       />
     </Tabs>
   );
 }
+
+const tabStyles = StyleSheet.create({
+  teamLogo: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+  },
+});

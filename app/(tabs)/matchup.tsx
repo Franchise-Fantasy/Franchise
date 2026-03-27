@@ -1,9 +1,8 @@
 import { ErrorState } from "@/components/ErrorState";
+import { TeamLogo } from "@/components/team/TeamLogo";
 import { CategoryScoreboard } from "@/components/matchup/CategoryScoreboard";
-import {
-  MatchupSkeleton,
-  SkeletonBlock,
-} from "@/components/matchup/MatchupSkeleton";
+import { SkeletonBlock } from "@/components/matchup/MatchupSkeleton";
+import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import {
   buildStatLine,
   DisplayMode,
@@ -12,6 +11,7 @@ import {
   RosterPlayer,
   round1,
 } from "@/components/matchup/PlayerCell";
+import { WeeklySummaryModal } from "@/components/matchup/WeeklySummaryModal";
 import { FptsBreakdownModal } from "@/components/player/FptsBreakdownModal";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import { ThemedText } from "@/components/ThemedText";
@@ -21,6 +21,7 @@ import { CURRENT_NBA_SEASON } from "@/constants/LeagueDefaults";
 import { useAppState } from "@/context/AppStateProvider";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { useLeague } from "@/hooks/useLeague";
+import { useRosterChanges } from "@/hooks/useRosterChanges";
 import {
   RosterConfigSlot,
   useLeagueRosterConfig,
@@ -51,7 +52,7 @@ import {
 import { fetchNbaScheduleForDate } from "@/utils/nbaSchedule";
 import { slotLabel } from "@/utils/rosterSlots";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
   Modal,
@@ -106,6 +107,7 @@ interface StoredPlayerScore {
 interface TeamMatchupData {
   teamId: string;
   teamName: string;
+  logoKey: string | null;
   players: RosterPlayer[];
   weekTotal: number;
   dayTotal: number;
@@ -138,22 +140,27 @@ function buildMatchupSlots(
     (c) => c.position !== "BE" && c.position !== "IR",
   );
   const slots: MatchupSlotEntry[] = [];
+  // Track placed players so duplicate-slot collisions fall to bench
+  const placedPlayerIds = new Set<string>();
 
   for (const cfg of activeConfigs) {
     if (cfg.position === "UTIL") {
       for (let i = 0; i < cfg.slot_count; i++) {
         const numberedSlot = `UTIL${i + 1}`;
         const player =
-          players.find((p) => p.roster_slot === numberedSlot) ?? null;
+          players.find((p) => p.roster_slot === numberedSlot && !placedPlayerIds.has(p.player_id)) ?? null;
+        if (player) placedPlayerIds.add(player.player_id);
         slots.push({ slotPosition: numberedSlot, slotIndex: i, player });
       }
     } else {
-      const inSlot = players.filter((p) => p.roster_slot === cfg.position);
+      const inSlot = players.filter((p) => p.roster_slot === cfg.position && !placedPlayerIds.has(p.player_id));
       for (let i = 0; i < cfg.slot_count; i++) {
+        const player = inSlot[i] ?? null;
+        if (player) placedPlayerIds.add(player.player_id);
         slots.push({
           slotPosition: cfg.position,
           slotIndex: i,
-          player: inSlot[i] ?? null,
+          player,
         });
       }
     }
@@ -189,13 +196,13 @@ async function fetchMatchupForWeek(
   return data;
 }
 
-async function fetchTeamName(teamId: string): Promise<string> {
+async function fetchTeamInfo(teamId: string): Promise<{ name: string; logoKey: string | null }> {
   const { data } = await supabase
     .from("teams")
-    .select("name")
+    .select("name, logo_key")
     .eq("id", teamId)
     .single();
-  return data?.name ?? "Unknown Team";
+  return { name: data?.name ?? "Unknown Team", logoKey: data?.logo_key ?? null };
 }
 
 interface PillMatchup {
@@ -241,19 +248,6 @@ async function fetchWeeklyAdds(
   return count ?? 0;
 }
 
-async function fetchLeagueTeamNames(
-  leagueId: string,
-): Promise<Record<string, string>> {
-  const { data, error } = await supabase
-    .from("teams")
-    .select("id, name")
-    .eq("league_id", leagueId);
-  if (error) throw error;
-  const map: Record<string, string> = {};
-  for (const t of data ?? []) map[t.id] = t.name;
-  return map;
-}
-
 // Fetch seeds for a specific team in the current playoff round
 async function fetchTeamSeeds(
   leagueId: string,
@@ -283,6 +277,7 @@ function buildFromStored(
   scoring: ScoringWeight[],
 ): { players: RosterPlayer[]; teamStats: TeamStatTotals } {
   const activeGames: Record<string, any>[] = [];
+  const weekStatsPerPlayer = new Map<string, Record<string, number>>();
 
   const players: RosterPlayer[] = stored.map((p) => {
     const dayGame = p.games.find((g) => g.date === selectedDate);
@@ -295,6 +290,15 @@ function buildFromStored(
     for (const g of p.games) {
       if (g.slot !== "BE" && g.slot !== "IR" && g.slot !== "DROPPED") {
         activeGames.push(g.stats);
+        // Accumulate per-player weekly stat totals
+        const existing = weekStatsPerPlayer.get(p.player_id) ?? {};
+        for (const [key, val] of Object.entries(g.stats)) {
+          if (val != null) {
+            const numVal = typeof val === 'boolean' ? (val ? 1 : 0) : Number(val);
+            existing[key] = (existing[key] ?? 0) + numVal;
+          }
+        }
+        weekStatsPerPlayer.set(p.player_id, existing);
       }
     }
 
@@ -315,6 +319,7 @@ function buildFromStored(
         isDayActive && dayGame ? buildStatLine(dayGame.stats, scoring) : null,
       dayGameStats: isDayActive && dayGame ? dayGame.stats : null,
       projectedFpts: 0,
+      weekGameStats: weekStatsPerPlayer.get(p.player_id) ?? null,
     };
   });
 
@@ -347,15 +352,16 @@ async function fetchWeekMatchupData(
       ? matchup.away_player_scores
       : matchup.home_player_scores;
 
-    const [myName, oppName] = await Promise.all([
-      fetchTeamName(teamId),
-      opponentId ? fetchTeamName(opponentId) : Promise.resolve(null),
+    const [myInfo, oppInfo] = await Promise.all([
+      fetchTeamInfo(teamId),
+      opponentId ? fetchTeamInfo(opponentId) : Promise.resolve(null),
     ]);
 
     const myResult = buildFromStored(myStored, selectedDate, scoring);
     const myTeam: TeamMatchupData = {
       teamId,
-      teamName: myName,
+      teamName: myInfo.name,
+      logoKey: myInfo.logoKey,
       players: myResult.players,
       weekTotal: round1(myResult.players.reduce((s, p) => s + p.weekPoints, 0)),
       dayTotal: round1(myResult.players.reduce((s, p) => s + p.dayPoints, 0)),
@@ -363,11 +369,12 @@ async function fetchWeekMatchupData(
     };
 
     let opponentTeam: TeamMatchupData | null = null;
-    if (opponentId && oppStored && oppName) {
+    if (opponentId && oppStored && oppInfo) {
       const oppResult = buildFromStored(oppStored, selectedDate, scoring);
       opponentTeam = {
         teamId: opponentId,
-        teamName: oppName,
+        teamName: oppInfo.name,
+        logoKey: oppInfo.logoKey,
         players: oppResult.players,
         weekTotal: round1(
           oppResult.players.reduce((s, p) => s + p.weekPoints, 0),
@@ -383,34 +390,23 @@ async function fetchWeekMatchupData(
   }
 
   // Live reconstruction for current/unfinalized weeks — fetch both teams in parallel
-  const promises: [
-    Promise<{ players: any[]; teamStats: any }>,
-    Promise<string>,
-    Promise<{ players: any[]; teamStats: any }> | null,
-    Promise<string> | null,
-  ] = [
+  const [myResult, myInfo, oppResult, oppInfo] = await Promise.all([
     fetchTeamData(teamId, leagueId, week, selectedDate, scoring),
-    fetchTeamName(teamId),
+    fetchTeamInfo(teamId),
     opponentId
       ? fetchTeamData(opponentId, leagueId, week, selectedDate, scoring)
-      : null,
-    opponentId ? fetchTeamName(opponentId) : null,
-  ];
-
-  const [myResult, myName, oppResult, oppName] = await Promise.all([
-    promises[0],
-    promises[1],
-    promises[2] ?? Promise.resolve(null),
-    promises[3] ?? Promise.resolve(null),
+      : Promise.resolve(null),
+    opponentId ? fetchTeamInfo(opponentId) : Promise.resolve(null),
   ]);
 
   let opponentTeam: TeamMatchupData | null = null;
-  if (opponentId && oppResult && oppName) {
+  if (opponentId && oppResult && oppInfo) {
     opponentTeam = {
       teamId: opponentId,
-      teamName: oppName,
+      teamName: oppInfo.name,
+      logoKey: oppInfo.logoKey,
       players: oppResult.players,
-      weekTotal: round1(
+      weekTotal: oppResult.weekTotalAll ?? round1(
         oppResult.players.reduce((s, p) => s + p.weekPoints, 0),
       ),
       dayTotal: round1(oppResult.players.reduce((s, p) => s + p.dayPoints, 0)),
@@ -421,9 +417,10 @@ async function fetchWeekMatchupData(
   return {
     myTeam: {
       teamId,
-      teamName: myName,
+      teamName: myInfo.name,
+      logoKey: myInfo.logoKey,
       players: myResult.players,
-      weekTotal: round1(myResult.players.reduce((s, p) => s + p.weekPoints, 0)),
+      weekTotal: myResult.weekTotalAll ?? round1(myResult.players.reduce((s, p) => s + p.weekPoints, 0)),
       dayTotal: round1(myResult.players.reduce((s, p) => s + p.dayPoints, 0)),
       teamStats: myResult.teamStats,
     },
@@ -448,10 +445,10 @@ async function fetchMatchupDataById(
     .single();
   if (error) throw error;
 
-  const [homeName, awayName] = await Promise.all([
-    fetchTeamName(matchup.home_team_id),
+  const [homeInfo, awayInfo] = await Promise.all([
+    fetchTeamInfo(matchup.home_team_id),
     matchup.away_team_id
-      ? fetchTeamName(matchup.away_team_id)
+      ? fetchTeamInfo(matchup.away_team_id)
       : Promise.resolve(null),
   ]);
 
@@ -465,7 +462,8 @@ async function fetchMatchupDataById(
     );
     const homeTeam: TeamMatchupData = {
       teamId: matchup.home_team_id,
-      teamName: homeName,
+      teamName: homeInfo.name,
+      logoKey: homeInfo.logoKey,
       players: homeResult.players,
       weekTotal: round1(
         homeResult.players.reduce((s, p) => s + p.weekPoints, 0),
@@ -475,7 +473,7 @@ async function fetchMatchupDataById(
     };
 
     let awayTeam: TeamMatchupData | null = null;
-    if (matchup.away_team_id && awayName && matchup.away_player_scores) {
+    if (matchup.away_team_id && awayInfo && matchup.away_player_scores) {
       const awayResult = buildFromStored(
         matchup.away_player_scores,
         selectedDate,
@@ -483,7 +481,8 @@ async function fetchMatchupDataById(
       );
       awayTeam = {
         teamId: matchup.away_team_id,
-        teamName: awayName,
+        teamName: awayInfo.name,
+        logoKey: awayInfo.logoKey,
         players: awayResult.players,
         weekTotal: round1(
           awayResult.players.reduce((s, p) => s + p.weekPoints, 0),
@@ -514,20 +513,22 @@ async function fetchMatchupDataById(
 
   const homeTeam: TeamMatchupData = {
     teamId: matchup.home_team_id,
-    teamName: homeName,
+    teamName: homeInfo.name,
+    logoKey: homeInfo.logoKey,
     players: homeResult.players,
-    weekTotal: round1(homeResult.players.reduce((s, p) => s + p.weekPoints, 0)),
+    weekTotal: homeResult.weekTotalAll ?? round1(homeResult.players.reduce((s, p) => s + p.weekPoints, 0)),
     dayTotal: round1(homeResult.players.reduce((s, p) => s + p.dayPoints, 0)),
     teamStats: homeResult.teamStats,
   };
 
   let awayTeam: TeamMatchupData | null = null;
-  if (matchup.away_team_id && awayName && awayResult) {
+  if (matchup.away_team_id && awayInfo && awayResult) {
     awayTeam = {
       teamId: matchup.away_team_id,
-      teamName: awayName,
+      teamName: awayInfo.name,
+      logoKey: awayInfo.logoKey,
       players: awayResult.players,
-      weekTotal: round1(
+      weekTotal: awayResult.weekTotalAll ?? round1(
         awayResult.players.reduce((s, p) => s + p.weekPoints, 0),
       ),
       dayTotal: round1(awayResult.players.reduce((s, p) => s + p.dayPoints, 0)),
@@ -602,6 +603,7 @@ function MatchupBoard({
   seedMap,
   onPlayerPress,
   onFptsPress,
+  onSummaryPress,
   scoringType,
 }: {
   leftTeam: TeamMatchupData;
@@ -624,6 +626,7 @@ function MatchupBoard({
     playerName: string,
     gameLabel: string,
   ) => void;
+  onSummaryPress?: () => void;
   scoringType?: string;
 }) {
   const isCategories = scoringType === "h2h_categories";
@@ -701,16 +704,19 @@ function MatchupBoard({
           accessibilityLabel={`${leftTeam.teamName} ${formatScore(leftWeek)} versus ${rightTeam ? `${rightTeam.teamName} ${formatScore(rightWeek)}` : "BYE"}`}
         >
           <View style={[colStyles.scoreCol, { alignItems: "flex-start" }]}>
-            <Text
-              style={[colStyles.teamName, { color: c.text }]}
-              numberOfLines={1}
-              accessibilityRole="header"
-            >
-              {seedMap?.has(leftTeam.teamId)
-                ? `#${seedMap.get(leftTeam.teamId)} `
-                : ""}
-              {leftTeam.teamName}
-            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <TeamLogo logoKey={leftTeam.logoKey} teamName={leftTeam.teamName} size="small" />
+              <Text
+                style={[colStyles.teamName, { color: c.text }]}
+                numberOfLines={1}
+                accessibilityRole="header"
+              >
+                {seedMap?.has(leftTeam.teamId)
+                  ? `#${seedMap.get(leftTeam.teamId)} `
+                  : ""}
+                {leftTeam.teamName}
+              </Text>
+            </View>
             <Text style={[colStyles.total, { color: c.accent }]}>
               {formatScore(leftWeek)}
             </Text>
@@ -720,25 +726,41 @@ function MatchupBoard({
               </Text>
             )}
           </View>
-          <Text
-            style={[colStyles.vsText, { color: c.secondaryText }]}
-            accessible={false}
+          <TouchableOpacity
+            style={colStyles.vsCol}
+            onPress={onSummaryPress}
+            disabled={!onSummaryPress}
+            accessibilityRole="button"
+            accessibilityLabel="View weekly summary"
           >
-            vs
-          </Text>
-          <View style={[colStyles.scoreCol, { alignItems: "flex-end" }]}>
             <Text
-              style={[
-                colStyles.teamName,
-                { color: c.text, textAlign: "right" },
-              ]}
-              numberOfLines={1}
-              accessibilityRole="header"
+              style={[colStyles.vsText, { color: c.secondaryText }]}
+              accessible={false}
             >
-              {rightTeam
-                ? `${rightTeam.teamName}${seedMap?.has(rightTeam.teamId) ? ` #${seedMap.get(rightTeam.teamId)}` : ""}`
-                : "BYE"}
+              vs
             </Text>
+            {onSummaryPress && (
+              <Text style={[colStyles.summaryBtnText, { color: c.accent }]}>
+                Summary
+              </Text>
+            )}
+          </TouchableOpacity>
+          <View style={[colStyles.scoreCol, { alignItems: "flex-end" }]}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Text
+                style={[
+                  colStyles.teamName,
+                  { color: c.text, textAlign: "right" },
+                ]}
+                numberOfLines={1}
+                accessibilityRole="header"
+              >
+                {rightTeam
+                  ? `${rightTeam.teamName}${seedMap?.has(rightTeam.teamId) ? ` #${seedMap.get(rightTeam.teamId)}` : ""}`
+                  : "BYE"}
+              </Text>
+              {rightTeam && <TeamLogo logoKey={rightTeam.logoKey} teamName={rightTeam.teamName} size="small" />}
+            </View>
             <Text style={[colStyles.total, { color: c.accent }]}>
               {formatScore(rightWeek)}
             </Text>
@@ -805,11 +827,13 @@ function MatchupBoard({
 
       {/* Bench section */}
       {(() => {
+        const leftStarterIds = new Set(leftSlots.filter((s) => s.player).map((s) => s.player!.player_id));
         const leftBench = leftTeam.players.filter(
-          (p) => p.roster_slot === "BE",
+          (p) => !leftStarterIds.has(p.player_id) && p.roster_slot !== "IR" && p.roster_slot !== "DROPPED" && p.roster_slot !== "TAXI",
         );
+        const rightStarterIds = new Set(rightSlots.filter((s) => s.player).map((s) => s.player!.player_id));
         const rightBench =
-          rightTeam?.players.filter((p) => p.roster_slot === "BE") ?? [];
+          rightTeam?.players.filter((p) => !rightStarterIds.has(p.player_id) && p.roster_slot !== "IR" && p.roster_slot !== "DROPPED" && p.roster_slot !== "TAXI") ?? [];
         if (leftBench.length === 0 && rightBench.length === 0) return null;
         const maxBench = Math.max(leftBench.length, rightBench.length);
         return (
@@ -884,6 +908,7 @@ function MatchupBoard({
           </View>
         );
       })()}
+
     </View>
   );
 }
@@ -899,6 +924,7 @@ export default function MatchupScreen() {
   const { data: league } = useLeague();
   const { data: scoring } = useLeagueScoring(leagueId ?? "");
   const { data: rosterConfig } = useLeagueRosterConfig(leagueId ?? "");
+  useRosterChanges(leagueId);
 
   const today = useToday();
   const [selectedDate, setSelectedDate] = useState<string>(today);
@@ -914,6 +940,7 @@ export default function MatchupScreen() {
     playerName: string;
     gameLabel: string;
   } | null>(null);
+  const [weeklySummaryVisible, setWeeklySummaryVisible] = useState(false);
   const pillScrollRef = useRef<ScrollView>(null);
 
   const handlePlayerPress = async (playerId: string) => {
@@ -960,13 +987,13 @@ export default function MatchupScreen() {
     staleTime: 1000 * 60 * 5,
   });
 
-  // Fetch team names for pill labels
-  const { data: teamNames } = useQuery({
-    queryKey: ["leagueTeamNames", leagueId],
-    queryFn: () => fetchLeagueTeamNames(leagueId!),
-    enabled: !!leagueId,
-    staleTime: 1000 * 60 * 10,
-  });
+  // Derive team names from already-fetched league data (avoids extra query)
+  const teamNames = useMemo(() => {
+    if (!league?.league_teams) return undefined;
+    const map: Record<string, string> = {};
+    for (const t of league.league_teams) map[t.id] = t.name;
+    return map;
+  }, [league?.league_teams]);
 
   // Find the user's own matchup ID
   const userMatchupId =
@@ -1068,8 +1095,18 @@ export default function MatchupScreen() {
   // Filter live stats to only include games matching the selected date.
   // Yesterday's late games (still live past midnight) show on yesterday's view,
   // not today's.
-  const liveMap = new Map(
-    [...rawLiveMap].filter(([, stats]) => stats.game_date === selectedDate),
+  // For past dates, exclude final games (status 3) — those are already counted
+  // in dayTotal from player_games. Only keep still-live games to avoid doubling.
+  const liveMap = useMemo(
+    () =>
+      new Map(
+        [...rawLiveMap].filter(([, stats]) => {
+          if (stats.game_date !== selectedDate) return false;
+          if (stats.game_date < today && stats.game_status === 3) return false;
+          return true;
+        }),
+      ),
+    [rawLiveMap, selectedDate, today],
   );
 
   // Server-authoritative week scores (single source of truth)
@@ -1236,8 +1273,8 @@ export default function MatchupScreen() {
             <Text style={[styles.arrow, { color: c.buttonDisabled }]}>›</Text>
           </View>
         </View>
-        <View style={{ padding: 12 }}>
-          <MatchupSkeleton c={c} />
+        <View style={styles.spinnerWrap}>
+          <LogoSpinner />
         </View>
       </SafeAreaView>
     );
@@ -1435,17 +1472,22 @@ export default function MatchupScreen() {
       )}
 
       {/* Matchup body */}
-      <ScrollView contentContainerStyle={styles.body}>
-        {displayLoading && <MatchupSkeleton c={c} />}
+      {displayLoading && (
+        <View style={styles.spinnerWrap}>
+          <LogoSpinner />
+        </View>
+      )}
 
-        {!displayLoading && matchupError && isViewingOwnMatchup && (
+      {!displayLoading && (
+      <ScrollView contentContainerStyle={styles.body}>
+        {matchupError && isViewingOwnMatchup && (
           <ErrorState
             message="Failed to load matchup"
             onRetry={() => refetchMatchup()}
           />
         )}
 
-        {!displayLoading && !currentWeek && (
+        {!currentWeek && (
           <View style={styles.center}>
             <ThemedText style={{ color: c.secondaryText }}>
               No matchup for this date.
@@ -1453,7 +1495,7 @@ export default function MatchupScreen() {
           </View>
         )}
 
-        {!displayLoading && currentWeek && !displayData && (
+        {currentWeek && !displayData && (
           <View style={styles.center}>
             <ThemedText style={{ color: c.secondaryText }}>
               {currentWeek.is_playoff
@@ -1463,7 +1505,7 @@ export default function MatchupScreen() {
           </View>
         )}
 
-        {!displayLoading && displayData && (
+        {displayData && (
           <>
             <MatchupBoard
               leftTeam={displayData.leftTeam}
@@ -1506,6 +1548,7 @@ export default function MatchupScreen() {
               onFptsPress={(stats, name, label) =>
                 setFptsBreakdown({ stats, playerName: name, gameLabel: label })
               }
+              onSummaryPress={() => setWeeklySummaryVisible(true)}
               scoringType={league?.scoring_type}
             />
 
@@ -1530,7 +1573,7 @@ export default function MatchupScreen() {
                       {
                         color:
                           (leftAdds ?? 0) >= weeklyLimit
-                            ? "#dc3545"
+                            ? c.danger
                             : c.secondaryText,
                       },
                     ]}
@@ -1546,7 +1589,7 @@ export default function MatchupScreen() {
                         {
                           color:
                             (rightAdds ?? 0) >= weeklyLimit
-                              ? "#dc3545"
+                              ? c.danger
                               : c.secondaryText,
                         },
                       ]}
@@ -1560,6 +1603,7 @@ export default function MatchupScreen() {
           </>
         )}
       </ScrollView>
+      )}
 
       <PlayerDetailModal
         player={selectedPlayer}
@@ -1576,6 +1620,22 @@ export default function MatchupScreen() {
           gameLabel={fptsBreakdown.gameLabel}
           gameStats={fptsBreakdown.stats}
           scoringWeights={scoring}
+        />
+      )}
+
+      {scoring && displayData && currentWeek && (
+        <WeeklySummaryModal
+          visible={weeklySummaryVisible}
+          onClose={() => setWeeklySummaryVisible(false)}
+          homeTeam={{ teamName: displayData.leftTeam.teamName, players: displayData.leftTeam.players }}
+          awayTeam={
+            displayData.rightTeam
+              ? { teamName: displayData.rightTeam.teamName, players: displayData.rightTeam.players }
+              : null
+          }
+          scoring={scoring}
+          weekLabel={`Week ${currentWeek.week_number} · ${formatWeekRange(currentWeek.start_date, currentWeek.end_date)}`}
+          liveMap={rawLiveMap}
         />
       )}
 
@@ -1668,6 +1728,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 24,
   },
+  spinnerWrap: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 48,
+  },
   dayNav: {
     flexDirection: "row",
     alignItems: "center",
@@ -1745,7 +1811,8 @@ const styles = StyleSheet.create({
 const colStyles = StyleSheet.create({
   scoreHeader: { flexDirection: "row", alignItems: "center", marginBottom: 14 },
   scoreCol: { flex: 1 },
-  vsText: { fontSize: 12, fontWeight: "600", marginHorizontal: 10 },
+  vsCol: { alignItems: "center" as const, justifyContent: "center" as const, marginHorizontal: 6, marginTop: 14 },
+  vsText: { fontSize: 12, fontWeight: "600" },
   teamName: { fontWeight: "600", fontSize: 14, marginBottom: 2 },
   total: { fontSize: 20, fontWeight: "700" },
   dayTotal: { fontSize: 11, fontWeight: "500", marginTop: 2 },
@@ -1763,5 +1830,10 @@ const colStyles = StyleSheet.create({
   acqText: {
     fontSize: 12,
     fontWeight: "600",
+  },
+  summaryBtnText: {
+    fontSize: 10,
+    fontWeight: "600",
+    marginTop: 2,
   },
 });

@@ -110,7 +110,7 @@ export function ImportedLeagueSection({
       {teamStatus && (
         <View style={[styles.statusRow, { backgroundColor: c.cardAlt, borderColor: c.border }]}>
           <ThemedText style={styles.statusLabel}>Teams Claimed</ThemedText>
-          <ThemedText style={[styles.statusValue, { color: allClaimed ? '#34C759' : c.accent }]}>
+          <ThemedText style={[styles.statusValue, { color: allClaimed ? c.success : c.accent }]}>
             {teamStatus.claimed} / {teamStatus.total}
           </ThemedText>
         </View>

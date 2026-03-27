@@ -8,12 +8,7 @@ export function useLeague() {
   return useQuery({
     queryKey: ['league', leagueId],
     queryFn: async () => {
-      console.log('[useLeague] Fetching league:', leagueId);
-
-      if (!leagueId) {
-        console.log('[useLeague] No leagueId provided');
-        return null;
-      }
+      if (!leagueId) return null;
 
       const { data, error } = await supabase
         .from('leagues')
@@ -23,23 +18,22 @@ export function useLeague() {
             id,
             name,
             tricode,
-            is_commissioner
+            is_commissioner,
+            logo_key,
+            division,
+            user_id
           )
         `)
         .eq('id', leagueId)
         .single();
 
-      if (error) {
-        console.error('[useLeague] Error:', error);
-        throw error;
-      }
-
-      console.log('[useLeague] Fetched data:', data);
+      if (error) throw error;
       return data;
     },
     enabled: !!leagueId,
     retry: 3,
     retryDelay: 1000,
-    staleTime: 1000 * 60 * 5, // 5 minutes
+    staleTime: 1000 * 60, // 1 minute — keep short for phase transitions
+    refetchOnWindowFocus: true,
   });
 }

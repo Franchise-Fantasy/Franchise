@@ -45,6 +45,7 @@ export interface DraftHubLeagueSettings {
   lotteryOdds: number[] | null;
   rookieDraftRounds: number;
   pickConditionsEnabled: boolean;
+  leagueFull: boolean;
 }
 
 export interface DraftHubData {
@@ -61,7 +62,7 @@ export function useDraftHub(leagueId: string | null) {
     queryFn: async () => {
       const { data: league, error: leagueError } = await supabase
         .from('leagues')
-        .select('max_future_seasons, playoff_teams, lottery_draws, lottery_odds, rookie_draft_rounds, season, pick_conditions_enabled')
+        .select('max_future_seasons, playoff_teams, lottery_draws, lottery_odds, rookie_draft_rounds, season, pick_conditions_enabled, teams, current_teams')
         .eq('id', leagueId!)
         .single();
       if (leagueError) throw leagueError;
@@ -69,6 +70,8 @@ export function useDraftHub(leagueId: string | null) {
       const maxFuture = league?.max_future_seasons ?? 3;
       const currentStartYear = parseInt(CURRENT_NBA_SEASON.split('-')[0], 10);
 
+      // Future rookie drafts: 2026 draft = 2026-27 season, 2027 draft = 2027-28, etc.
+      // max_future_seasons=3 means the next 3 rookie drafts (offset 1..3 from current season).
       const validSeasons: string[] = [];
       for (let i = 1; i <= maxFuture; i++) {
         const startYear = currentStartYear + i;
@@ -147,6 +150,7 @@ export function useDraftHub(leagueId: string | null) {
           lotteryOdds: league?.lottery_odds ?? null,
           rookieDraftRounds: league?.rookie_draft_rounds ?? 2,
           pickConditionsEnabled: league?.pick_conditions_enabled ?? false,
+          leagueFull: (league?.current_teams ?? 0) >= (league?.teams ?? 0),
         },
       };
     },

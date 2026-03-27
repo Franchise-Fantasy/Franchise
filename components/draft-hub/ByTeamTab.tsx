@@ -93,7 +93,7 @@ export function ByTeamTab({ picks, swaps, teams, validSeasons, pickConditionsEna
               item.bySeason.map(({ season, picks: seasonPicks, swaps: seasonSwaps }) => (
                 <View key={season} style={styles.seasonBlock}>
                   <ThemedText style={[styles.seasonLabel, { color: c.accent }]}>
-                    {parseInt(season.split('-')[0], 10) + 1}
+                    {parseInt(season.split('-')[0], 10)}
                   </ThemedText>
                   {seasonPicks.map((pick, idx) => (
                     <View key={pick.id} style={[styles.pickRow, { borderBottomColor: c.border }, idx === seasonPicks.length - 1 && { borderBottomWidth: 0 }]}>
@@ -102,8 +102,8 @@ export function ByTeamTab({ picks, swaps, teams, validSeasons, pickConditionsEna
                           Round {pick.round}
                         </ThemedText>
                         {pick.protection_threshold && pickConditionsEnabled && (
-                          <View style={styles.protBadge}>
-                            <ThemedText style={styles.protBadgeText}>Top-{pick.protection_threshold}</ThemedText>
+                          <View style={[styles.protBadge, { backgroundColor: c.goldMuted }]}>
+                            <ThemedText style={[styles.protBadgeText, { color: c.gold }]}>Top-{pick.protection_threshold}</ThemedText>
                           </View>
                         )}
                       </View>
@@ -201,7 +201,6 @@ const styles = StyleSheet.create({
   },
   tradedText: { fontSize: 12 },
   protBadge: {
-    backgroundColor: '#d4920040',
     borderRadius: 4,
     paddingHorizontal: 5,
     paddingVertical: 1,
@@ -209,6 +208,5 @@ const styles = StyleSheet.create({
   protBadgeText: {
     fontSize: 10,
     fontWeight: '600',
-    color: '#d49200',
   },
 });

@@ -65,6 +65,8 @@ interface PlayerGameLogProps {
   liveToGameLog: (stats: any) => Record<string, number | boolean>;
   formatGameInfo: (stats: any) => string;
   playerName: string;
+  expanded: boolean;
+  onExpand: () => void;
   colors: {
     border: string;
     secondaryText: string;
@@ -81,6 +83,8 @@ export function PlayerGameLog({
   liveToGameLog: liveToGameLogFn,
   formatGameInfo: formatGameInfoFn,
   playerName,
+  expanded,
+  onExpand,
   colors: c,
 }: PlayerGameLogProps) {
   const [breakdownData, setBreakdownData] = useState<{ stats: Record<string, number | boolean>; label: string } | null>(null);
@@ -126,8 +130,13 @@ export function PlayerGameLog({
   }
 
   // Historical game log (skip the live game's date if already shown as live row)
-  for (const item of (gameLog ?? [])) {
-    if (showLiveRow && liveDate && item.game_date === liveDate) continue;
+  const historyItems = (gameLog ?? []).filter(
+    (item) => !(showLiveRow && liveDate && item.game_date === liveDate),
+  );
+  const PREVIEW_COUNT = 3;
+  const visibleHistory = expanded ? historyItems : historyItems.slice(0, PREVIEW_COUNT);
+  const hasMore = !expanded && historyItems.length > PREVIEW_COUNT;
+  for (const item of visibleHistory) {
     combinedRows.push({ kind: 'history', key: item.id, item });
   }
 
@@ -188,6 +197,7 @@ export function PlayerGameLog({
 
   // Actual game log table
   return (
+    <View>
     <View style={styles.gameLogContainer}>
       {/* Pinned left: DATE + OPP */}
       <View style={styles.pinnedLeft}>
@@ -334,6 +344,20 @@ export function PlayerGameLog({
         />
       )}
     </View>
+
+    {hasMore && (
+      <TouchableOpacity
+        onPress={onExpand}
+        accessibilityRole="button"
+        accessibilityLabel="Show full game log"
+        style={styles.showMoreBtn}
+      >
+        <ThemedText style={[styles.showMoreText, { color: c.accent }]}>
+          Show More
+        </ThemedText>
+      </TouchableOpacity>
+    )}
+    </View>
   );
 }
 
@@ -395,5 +419,13 @@ const styles = StyleSheet.create({
     height: 18,
     borderRadius: 4,
     opacity: 0.4,
+  },
+  showMoreBtn: {
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  showMoreText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

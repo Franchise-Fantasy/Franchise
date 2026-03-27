@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { Receiver } from 'https://esm.sh/@upstash/qstash';
 import { notifyTeams, notifyLeague } from '../_shared/push.ts';
+import { checkPositionLimits } from '../_shared/positionLimits.ts';
 
 // Position eligibility (mirrors utils/rosterSlots.ts)
 const POSITION_SPECTRUM = ['PG', 'SG', 'SF', 'PF', 'C'];
@@ -66,7 +67,7 @@ async function findBestSlot(
   return 'BE';
 }
 
-async function scheduleAutodraft(draft_id: string, pick_number: number, time_limit: number) {
+async function scheduleAutodraft(draft_id: string, pick_number: number, time_limit: number, autopick_triggered = false) {
   const autodraftUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/autodraft`;
   const res = await fetch(`https://qstash-us-east-1.upstash.io/v2/publish/${autodraftUrl}`, {
     method: 'POST',
@@ -75,7 +76,7 @@ async function scheduleAutodraft(draft_id: string, pick_number: number, time_lim
       'Content-Type': 'application/json',
       'Upstash-Delay': `${time_limit}s`,
     },
-    body: JSON.stringify({ draft_id, pick_number }),
+    body: JSON.stringify({ draft_id, pick_number, autopick_triggered }),
   });
   if (!res.ok) throw new Error(`QStash error: ${await res.text()}`);
 }
@@ -100,7 +101,7 @@ Deno.serve(async (req) => {
       return new Response('Unauthorized', { status: 401 });
     }
 
-    const { draft_id, pick_number } = JSON.parse(bodyText);
+    const { draft_id, pick_number, autopick_triggered } = JSON.parse(bodyText);
 
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -128,6 +129,23 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ message: 'Pick already made' }), { status: 200 });
     }
 
+    // If this was triggered by the autopick toggle (not the normal draft clock),
+    // re-check that the team still has autopick enabled — they may have toggled off.
+    if (autopick_triggered) {
+      const { data: teamStatus } = await supabaseAdmin
+        .from('draft_team_status')
+        .select('autopick_on')
+        .eq('draft_id', draft_id)
+        .eq('team_id', currentPick.current_team_id)
+        .maybeSingle();
+
+      if (!teamStatus?.autopick_on) {
+        // User turned off autopick before this fired — schedule normal clock instead
+        await scheduleAutodraft(draft_id, pick_number, draft.time_limit);
+        return new Response(JSON.stringify({ message: 'Autopick cancelled, normal clock scheduled' }), { status: 200 });
+      }
+    }
+
     const { data: draftedPlayers } = await supabaseAdmin
       .from('league_players')
       .select('player_id')
@@ -136,6 +154,20 @@ Deno.serve(async (req) => {
     const draftedIds = (draftedPlayers ?? []).map((p: { player_id: string }) => String(p.player_id));
 
     const isRookieDraft = draft.type === 'rookie';
+
+    // Fetch position limits for the league
+    const { data: leagueForLimits } = await supabaseAdmin
+      .from('leagues').select('position_limits').eq('id', draft.league_id).single();
+    const posLimits = leagueForLimits?.position_limits as Record<string, number> | null;
+    let teamRoster: { position: string; roster_slot: string }[] | null = null;
+    if (posLimits && Object.keys(posLimits).length > 0) {
+      const { data } = await supabaseAdmin
+        .from('league_players')
+        .select('position, roster_slot')
+        .eq('league_id', draft.league_id)
+        .eq('team_id', currentPick.current_team_id);
+      teamRoster = data ?? [];
+    }
 
     // Check if the team has a draft queue — pick from it first
     let topPlayer: { player_id: string; position: string } | null = null;
@@ -149,7 +181,7 @@ Deno.serve(async (req) => {
       .order('priority');
 
     if (queueEntries && queueEntries.length > 0) {
-      // Find first queued player that is still available
+      // Find first queued player that is still available and passes position limits
       for (const entry of queueEntries) {
         if (draftedIds.includes(String(entry.player_id))) continue;
         const { data: playerStats } = await supabaseAdmin
@@ -157,22 +189,26 @@ Deno.serve(async (req) => {
           .select('player_id, position')
           .eq('player_id', entry.player_id)
           .single();
-        if (playerStats) {
-          topPlayer = playerStats;
-          usedQueueEntryId = entry.id;
-          break;
+        if (!playerStats) continue;
+        // Check position limits
+        if (teamRoster && posLimits) {
+          const violation = checkPositionLimits(posLimits, teamRoster, playerStats.position);
+          if (violation) continue;
         }
+        topPlayer = playerStats;
+        usedQueueEntryId = entry.id;
+        break;
       }
     }
 
-    // Fall back to best available by avg_pts
+    // Fall back to best available by avg_pts (fetch multiple to handle position limits)
     if (!topPlayer) {
       let query = supabaseAdmin
         .from('player_season_stats')
         .select('player_id, position')
         .gt('games_played', 0)
         .order('avg_pts', { ascending: false })
-        .limit(1);
+        .limit(20);
 
       if (isRookieDraft) {
         query = query.eq('rookie', true);
@@ -182,11 +218,22 @@ Deno.serve(async (req) => {
         query = query.filter('player_id', 'not.in', `(${draftedIds.join(',')})`);
       }
 
-      const { data: bestPlayer, error: playerError } = await query.single();
-      if (playerError || !bestPlayer) {
+      const { data: candidates, error: playerError } = await query;
+      if (playerError || !candidates || candidates.length === 0) {
         return new Response(JSON.stringify({ message: 'No players available' }), { status: 200 });
       }
-      topPlayer = bestPlayer;
+
+      // Find first candidate that passes position limits
+      for (const candidate of candidates) {
+        if (teamRoster && posLimits) {
+          const violation = checkPositionLimits(posLimits, teamRoster, candidate.position);
+          if (violation) continue;
+        }
+        topPlayer = candidate;
+        break;
+      }
+      // Fallback: if all candidates violate limits, draft the best anyway to prevent deadlock
+      if (!topPlayer) topPlayer = candidates[0];
     }
 
     const timestamp = new Date().toISOString();
@@ -197,7 +244,6 @@ Deno.serve(async (req) => {
       .eq('draft_id', draft_id)
       .eq('pick_number', pick_number);
     if (updatePickError) throw updatePickError;
-    console.log('pick made')
 
     const rosterSlot = await findBestSlot(supabaseAdmin, draft.league_id, currentPick.current_team_id, topPlayer.position);
 
@@ -249,7 +295,6 @@ Deno.serve(async (req) => {
 
     if (!isDraftComplete) {
       try {
-        // Check if the next team's last pick was also autodrafted — if so, fire immediately
         const { data: nextPick } = await supabaseAdmin
           .from('draft_picks')
           .select('current_team_id')
@@ -258,23 +303,22 @@ Deno.serve(async (req) => {
           .single();
 
         let delay = draft.time_limit;
+        let nextIsAutopick = false;
         if (nextPick) {
-          const { data: lastPickByTeam } = await supabaseAdmin
-            .from('draft_picks')
-            .select('auto_drafted')
+          const { data: teamStatus } = await supabaseAdmin
+            .from('draft_team_status')
+            .select('autopick_on')
             .eq('draft_id', draft_id)
-            .eq('current_team_id', nextPick.current_team_id)
-            .not('player_id', 'is', null)
-            .order('pick_number', { ascending: false })
-            .limit(1)
-            .single();
+            .eq('team_id', nextPick.current_team_id)
+            .maybeSingle();
 
-          if (lastPickByTeam?.auto_drafted) {
+          if (teamStatus?.autopick_on) {
             delay = 1;
+            nextIsAutopick = true;
           }
         }
 
-        await scheduleAutodraft(draft_id, nextPickNumber, delay);
+        await scheduleAutodraft(draft_id, nextPickNumber, delay, nextIsAutopick);
       } catch (schedErr) {
         console.warn('Failed to schedule next autodraft (non-fatal):', schedErr);
       }

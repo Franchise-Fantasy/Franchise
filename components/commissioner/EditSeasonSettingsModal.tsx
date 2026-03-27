@@ -2,7 +2,7 @@ import { ThemedText } from '@/components/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Colors } from '@/constants/Colors';
-import { PLAYOFF_SEEDING_OPTIONS, SEEDING_DISPLAY, SEEDING_TO_DB } from '@/constants/LeagueDefaults';
+import { PLAYOFF_SEEDING_OPTIONS, SEEDING_DISPLAY, SEEDING_TO_DB, TIEBREAKER_DISPLAY, TIEBREAKER_OPTIONS, TIEBREAKER_TO_DB, TiebreakerOption } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { getPlayoffTeamOptions } from '@/utils/lottery';
@@ -42,6 +42,7 @@ export function EditSeasonSettingsModal({
   const [playoffTeams, setPlayoffTeams] = useState(4);
   const [seedingFormat, setSeedingFormat] = useState('Standard');
   const [reseed, setReseed] = useState(false);
+  const [tiebreakerPrimary, setTiebreakerPrimary] = useState<TiebreakerOption>('Head-to-Head');
   const [saving, setSaving] = useState(false);
 
   // Initialize from league when modal opens
@@ -54,6 +55,8 @@ export function EditSeasonSettingsModal({
       );
       setSeedingFormat(SEEDING_DISPLAY[league.playoff_seeding_format] ?? 'Standard');
       setReseed(league.reseed_each_round ?? false);
+      const primaryKey = (league.tiebreaker_order ?? ['head_to_head', 'points_for'])[0];
+      setTiebreakerPrimary((TIEBREAKER_DISPLAY[primaryKey] ?? 'Head-to-Head') as TiebreakerOption);
     }
   }, [visible, league, teamCount]);
 
@@ -90,6 +93,7 @@ export function EditSeasonSettingsModal({
         playoff_teams: playoffTeams,
         playoff_seeding_format: SEEDING_TO_DB[seedingFormat] ?? 'standard',
         reseed_each_round: reseed,
+        tiebreaker_order: TIEBREAKER_TO_DB[tiebreakerPrimary],
       })
       .eq('id', leagueId);
     setSaving(false);
@@ -117,12 +121,22 @@ export function EditSeasonSettingsModal({
             <ThemedText accessibilityRole="header" style={styles.title}>Season Settings</ThemedText>
           </View>
 
-          <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} nestedScrollEnabled>
             {/* Start Date (read-only) */}
             <View style={[styles.editRow, { borderBottomColor: c.border }]}>
               <ThemedText style={styles.rowLabel}>Start Date</ThemedText>
               <ThemedText style={[styles.rowLabel, { color: c.secondaryText }]}>
                 {formattedStartDate}
+              </ThemedText>
+            </View>
+
+            {/* Divisions (read-only) */}
+            <View style={[styles.editRow, { borderBottomColor: c.border }]}>
+              <ThemedText style={styles.rowLabel}>Divisions</ThemedText>
+              <ThemedText style={[styles.rowLabel, { color: c.secondaryText }]}>
+                {league?.division_count === 2
+                  ? `${league.division_1_name ?? 'Division 1'} & ${league.division_2_name ?? 'Division 2'}`
+                  : 'None'}
               </ThemedText>
             </View>
 
@@ -186,6 +200,23 @@ export function EditSeasonSettingsModal({
               </>
             )}
 
+            {/* Tiebreaker Priority */}
+            <View style={[styles.editRow, { borderBottomColor: c.border }]}>
+              <ThemedText style={styles.rowLabel}>Tiebreaker Priority</ThemedText>
+            </View>
+            <View style={{ marginBottom: 12 }}>
+              <SegmentedControl
+                options={TIEBREAKER_OPTIONS}
+                selectedIndex={TIEBREAKER_OPTIONS.indexOf(tiebreakerPrimary)}
+                onSelect={(i) => setTiebreakerPrimary(TIEBREAKER_OPTIONS[i])}
+              />
+              <ThemedText style={[styles.helperText, { color: c.secondaryText, marginTop: 6 }]}>
+                {tiebreakerPrimary === 'Head-to-Head'
+                  ? 'Tied teams compared by head-to-head record first, then total points.'
+                  : 'Tied teams compared by total points first, then head-to-head record.'}
+              </ThemedText>
+            </View>
+
             <ThemedText style={[styles.helperText, { color: c.secondaryText }]}>
               Changes take effect for future weeks. Active matchups are not affected.
             </ThemedText>
@@ -248,6 +279,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   scroll: {
+    flexShrink: 1,
     paddingHorizontal: 16,
   },
   editRow: {

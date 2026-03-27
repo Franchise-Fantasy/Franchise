@@ -16,19 +16,14 @@ describe('getInjuryBadge', () => {
     expect(badge).toEqual({ label: 'DOUBT', color: '#e8590c' });
   });
 
-  it('returns orange badge for DTD', () => {
-    const badge = getInjuryBadge('DTD');
-    expect(badge).toEqual({ label: 'DTD', color: '#fd7e14' });
-  });
-
-  it('returns amber badge for GTD', () => {
-    const badge = getInjuryBadge('GTD');
-    expect(badge).toEqual({ label: 'GTD', color: '#f59f00' });
-  });
-
   it('returns amber badge for QUES', () => {
     const badge = getInjuryBadge('QUES');
     expect(badge).toEqual({ label: 'QUES', color: '#f59f00' });
+  });
+
+  it('returns green badge for PROB', () => {
+    const badge = getInjuryBadge('PROB');
+    expect(badge).toEqual({ label: 'PROB', color: '#51cf66' });
   });
 
   it('returns null for active status', () => {

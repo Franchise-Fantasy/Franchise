@@ -111,15 +111,15 @@ export function SendAnnouncementModal({ visible, leagueId, teamId, onClose }: Pr
               accessibilityState={{ disabled: !content.trim() || sending }}
               style={[
                 styles.sendBtn,
-                { backgroundColor: content.trim() && !sending ? '#FF9500' : c.border },
+                { backgroundColor: content.trim() && !sending ? c.warning : c.border },
               ]}
               onPress={handleSend}
               disabled={!content.trim() || sending}
             >
               {sending ? (
-                <ActivityIndicator color="#fff" size="small" />
+                <ActivityIndicator color={c.statusText} size="small" />
               ) : (
-                <Text style={{ color: '#fff', fontWeight: '600' }}>Send</Text>
+                <Text style={{ color: c.statusText, fontWeight: '600' }}>Send</Text>
               )}
             </TouchableOpacity>
           </View>

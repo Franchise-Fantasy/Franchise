@@ -205,11 +205,11 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
               <TouchableOpacity
                 accessibilityRole="button"
                 accessibilityLabel="Drop player"
-                style={[styles.actionBtn, { backgroundColor: '#dc3545' }]}
+                style={[styles.actionBtn, { backgroundColor: c.danger }]}
                 onPress={() => { setAction('drop'); setStep('player'); }}
               >
-                <Ionicons name="person-remove" size={20} color="#fff" />
-                <Text style={{ color: '#fff', fontWeight: '600', marginLeft: 8 }}>Drop Player</Text>
+                <Ionicons name="person-remove" size={20} color={c.statusText} />
+                <Text style={{ color: c.statusText, fontWeight: '600', marginLeft: 8 }}>Drop Player</Text>
               </TouchableOpacity>
             </View>
           )}

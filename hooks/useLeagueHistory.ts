@@ -161,8 +161,8 @@ export function useAllTimeRecords(leagueId: string | null) {
   return useQuery<RecordEntry[]>({
     queryKey: ['allTimeRecords', leagueId],
     queryFn: async () => {
-      // Parallel fetch: team_seasons + matchups + teams
-      const [teamSeasonsRes, matchupData, teamsRes] = await Promise.all([
+      // Parallel fetch: team_seasons + matchups + teams + stored records
+      const [teamSeasonsRes, matchupData, teamsRes, storedRecordsRes] = await Promise.all([
         supabase
           .from('team_seasons')
           .select('team_id, season, wins, losses, points_for, team:teams!team_seasons_team_id_fkey(name)')
@@ -171,6 +171,10 @@ export function useAllTimeRecords(leagueId: string | null) {
         supabase
           .from('teams')
           .select('id, name')
+          .eq('league_id', leagueId!),
+        supabase
+          .from('league_records')
+          .select('record_type, value, team_id, detail, season')
           .eq('league_id', leagueId!),
       ]);
       if (teamSeasonsRes.error) throw teamSeasonsRes.error;
@@ -256,6 +260,19 @@ export function useAllTimeRecords(leagueId: string | null) {
             value: `+${bestBlowoutMargin.toFixed(1)}`,
             teamName: `${teamNameMap.get(blowoutWinnerId) ?? '?'} over ${teamNameMap.get(blowoutLoserId) ?? '?'}`,
             detail: sched ? `Week ${sched.week_number}, ${sched.season}` : '',
+          });
+        }
+      }
+
+      // Merge stored high-water-mark records (e.g. highest scoring day)
+      const storedRecords = (storedRecordsRes.data ?? []) as any[];
+      for (const sr of storedRecords) {
+        if (sr.record_type === 'highest_scoring_day') {
+          records.push({
+            label: 'Highest Scoring Day',
+            value: Number(sr.value).toFixed(1),
+            teamName: teamNameMap.get(sr.team_id) ?? 'Unknown',
+            detail: sr.detail ?? '',
           });
         }
       }

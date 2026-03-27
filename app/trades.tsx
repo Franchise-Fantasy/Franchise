@@ -17,7 +17,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -35,6 +35,14 @@ const HISTORY_STATUSES = ["completed", "rejected", "cancelled", "vetoed"];
 
 export default function Trades() {
   const router = useRouter();
+  const params = useLocalSearchParams<{
+    proposeTeamId?: string;
+    proposePlayerId?: string;
+    proposePlayerName?: string;
+    proposePlayerPos?: string;
+    proposePlayerTeam?: string;
+    proposePlayerFpts?: string;
+  }>();
   const scheme = useColorScheme() ?? "light";
   const c = Colors[scheme];
   const { leagueId, teamId } = useAppState();
@@ -52,7 +60,31 @@ export default function Trades() {
     useState<TradeProposalRow | null>(null);
   const [counterofferProposal, setCounterofferProposal] =
     useState<TradeProposalRow | null>(null);
+  const [editProposal, setEditProposal] = useState<TradeProposalRow | null>(null);
   const [showTradeBlock, setShowTradeBlock] = useState(false);
+
+  // Auto-open propose modal when navigated with route params
+  useEffect(() => {
+    if (params.proposePlayerId && params.proposePlayerName) {
+      const fpts = params.proposePlayerFpts ? parseFloat(params.proposePlayerFpts) : undefined;
+      setPreselectedPlayer({
+        player_id: params.proposePlayerId,
+        name: params.proposePlayerName,
+        position: params.proposePlayerPos ?? "",
+        nba_team: params.proposePlayerTeam ?? "",
+        team_id: params.proposeTeamId ?? "",
+        team_name: "",
+        trade_block_note: null,
+        trade_block_interest: [],
+        interest_team_names: {},
+        avg_fpts: fpts,
+      } as TradeBlockPlayer & { avg_fpts?: number });
+      if (params.proposeTeamId) {
+        setPreselectedTradeTeamId(params.proposeTeamId);
+      }
+      setShowPropose(true);
+    }
+  }, [params.proposePlayerId]);
 
   const { data: proposals, isLoading } = useTradeProposals(leagueId);
   const { data: tradeBlock } = useTradeBlock(leagueId);
@@ -98,8 +130,13 @@ export default function Trades() {
   const filtered = useMemo(() => {
     if (!proposals) return [];
     const statuses = tab === 0 ? ACTIVE_STATUSES : HISTORY_STATUSES;
-    return proposals.filter((p) => statuses.includes(p.status));
-  }, [proposals, tab]);
+    return proposals.filter((p) => {
+      if (!statuses.includes(p.status)) return false;
+      // Hide pending proposals the user isn't involved in
+      if (p.status === 'pending' && !p.teams.some((t) => t.team_id === teamId)) return false;
+      return true;
+    });
+  }, [proposals, tab, teamId]);
 
   const handleTradeBlockPlayerPress = (player: TradeBlockPlayer) => {
     if (player.team_id === teamId) return;
@@ -113,10 +150,17 @@ export default function Trades() {
     setPreselectedTradeTeamId(undefined);
     setPreselectedPlayer(undefined);
     setCounterofferProposal(null);
+    setEditProposal(null);
   };
 
   const handleCounteroffer = (proposal: TradeProposalRow) => {
     setCounterofferProposal(proposal);
+    setSelectedProposal(null);
+    setShowPropose(true);
+  };
+
+  const handleEdit = (proposal: TradeProposalRow) => {
+    setEditProposal(proposal);
     setSelectedProposal(null);
     setShowPropose(true);
   };
@@ -253,6 +297,12 @@ export default function Trades() {
             teams: counterofferProposal.teams,
             items: counterofferProposal.items,
           } : undefined}
+          editData={editProposal ? {
+            originalProposalId: editProposal.id,
+            teams: editProposal.teams,
+            items: editProposal.items,
+            notes: editProposal.notes,
+          } : undefined}
           onClose={handleProposeClose}
         />
       )}
@@ -264,6 +314,7 @@ export default function Trades() {
           teamId={teamId}
           onClose={() => setSelectedProposal(null)}
           onCounteroffer={handleCounteroffer}
+          onEdit={handleEdit}
         />
       )}
     </SafeAreaView>

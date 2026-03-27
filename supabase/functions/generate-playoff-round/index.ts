@@ -152,7 +152,7 @@ Deno.serve(async (req: Request) => {
 
     const { data: league, error: leagueErr } = await supabase
       .from('leagues')
-      .select('id, name, season, playoff_teams, playoff_weeks, regular_season_weeks, playoff_seeding_format, reseed_each_round')
+      .select('id, name, season, playoff_teams, playoff_weeks, regular_season_weeks, playoff_seeding_format, reseed_each_round, tiebreaker_order, division_count')
       .eq('id', league_id)
       .single();
 
@@ -199,16 +199,122 @@ Deno.serve(async (req: Request) => {
     if (round === 1) {
       const { data: teams } = await supabase
         .from('teams')
-        .select('id, wins, points_for')
+        .select('id, wins, points_for, division')
         .eq('league_id', league_id)
         .order('wins', { ascending: false })
         .order('points_for', { ascending: false });
 
       if (!teams || teams.length < 2) return json({ error: 'Not enough teams' }, 400);
 
-      const seeds: SeedEntry[] = teams
-        .slice(0, playoffTeams)
-        .map((t, i) => ({ teamId: t.id, seed: i + 1 }));
+      // Apply tiebreaker resolution
+      const tiebreakerOrder: string[] = league.tiebreaker_order ?? ['head_to_head', 'points_for'];
+
+      // Helper: rank a list of teams using tiebreaker logic
+      function rankTeams(teamList: typeof teams): typeof teams {
+        let ranked = teamList;
+
+        if (tiebreakerOrder.includes('head_to_head') && h2hMatchups) {
+          const sorted = [...teamList].sort((a, b) => b.wins - a.wins);
+          const groups: (typeof teamList)[] = [];
+          let currentGroup = [sorted[0]];
+          for (let i = 1; i < sorted.length; i++) {
+            if (sorted[i].wins === sorted[i - 1].wins) {
+              currentGroup.push(sorted[i]);
+            } else {
+              groups.push(currentGroup);
+              currentGroup = [sorted[i]];
+            }
+          }
+          groups.push(currentGroup);
+
+          ranked = [];
+          for (const group of groups) {
+            if (group.length === 1) { ranked.push(group[0]); continue; }
+            group.sort((a, b) => {
+              for (const method of tiebreakerOrder) {
+                let cmp = 0;
+                if (method === 'head_to_head') cmp = getH2HWins(b.id, group) - getH2HWins(a.id, group);
+                else if (method === 'points_for') cmp = b.points_for - a.points_for;
+                if (cmp !== 0) return cmp;
+              }
+              return 0;
+            });
+            ranked.push(...group);
+          }
+        }
+        return ranked;
+      }
+
+      // Fetch H2H matchups if needed
+      let h2hMatchups: any[] | null = null;
+      const h2hWins = new Map<string, number>();
+      const h2hKey = (a: string, b: string) => `${a}:${b}`;
+
+      if (tiebreakerOrder.includes('head_to_head')) {
+        const { data: matchups } = await supabase
+          .from('league_matchups')
+          .select('home_team_id, away_team_id, winner_team_id')
+          .eq('league_id', league_id)
+          .eq('is_finalized', true)
+          .is('playoff_round', null);
+
+        h2hMatchups = matchups ?? [];
+        for (const m of h2hMatchups) {
+          if (!m.away_team_id || !m.winner_team_id) continue;
+          const loserId = m.home_team_id === m.winner_team_id ? m.away_team_id : m.home_team_id;
+          h2hWins.set(h2hKey(m.winner_team_id, loserId), (h2hWins.get(h2hKey(m.winner_team_id, loserId)) ?? 0) + 1);
+        }
+      }
+
+      const getH2HWins = (teamId: string, group: typeof teams) => {
+        let wins = 0;
+        for (const other of group) {
+          if (other.id === teamId) continue;
+          wins += h2hWins.get(h2hKey(teamId, other.id)) ?? 0;
+        }
+        return wins;
+      };
+
+      let seeds: SeedEntry[];
+
+      if (league.division_count === 2) {
+        // Division-based seeding: division winners get seeds 1 & 2
+        const div1Teams = teams.filter(t => t.division === 1);
+        const div2Teams = teams.filter(t => t.division === 2);
+
+        const div1Ranked = rankTeams(div1Teams);
+        const div2Ranked = rankTeams(div2Teams);
+
+        const div1Winner = div1Ranked[0];
+        const div2Winner = div2Ranked[0];
+
+        // Determine which division winner gets seed 1 (better record)
+        let seed1: typeof teams[0], seed2: typeof teams[0];
+        if (div1Winner.wins > div2Winner.wins) {
+          seed1 = div1Winner; seed2 = div2Winner;
+        } else if (div2Winner.wins > div1Winner.wins) {
+          seed1 = div2Winner; seed2 = div1Winner;
+        } else {
+          // Tied on wins — use tiebreaker between the two
+          const ranked = rankTeams([div1Winner, div2Winner]);
+          seed1 = ranked[0]; seed2 = ranked[1];
+        }
+
+        // Remaining spots: all other teams ranked by overall record (wild card)
+        const divWinnerIds = new Set([seed1.id, seed2.id]);
+        const remainingTeams = teams.filter(t => !divWinnerIds.has(t.id));
+        const rankedRemaining = rankTeams(remainingTeams);
+
+        // Build seeds: division winners first, then wild cards
+        const seeded = [seed1, seed2, ...rankedRemaining.slice(0, playoffTeams - 2)];
+        seeds = seeded.map((t, i) => ({ teamId: t.id, seed: i + 1 }));
+      } else {
+        // Standard seeding: rank all teams together
+        const rankedTeams = rankTeams(teams);
+        seeds = rankedTeams
+          .slice(0, playoffTeams)
+          .map((t, i) => ({ teamId: t.id, seed: i + 1 }));
+      }
 
       if (format === 'higher_seed_picks' && !from_seed_picks) {
         const byes = calcByes(playoffTeams);

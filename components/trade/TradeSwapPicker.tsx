@@ -100,7 +100,7 @@ export function TradeSwapPicker({
                 onPress={() => setSelectedSeason(s)}
               >
                 <ThemedText style={[styles.pillText, { color: active ? c.accentText : c.text }]}>
-                  {parseInt(s.split('-')[0], 10) + 1}
+                  {parseInt(s.split('-')[0], 10)}
                 </ThemedText>
               </TouchableOpacity>
             );

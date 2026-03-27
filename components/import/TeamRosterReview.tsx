@@ -88,7 +88,7 @@ function MatchedRow({ match, isLast }: { match: ScreenshotPlayerMatch; isLast: b
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
 
-  const confColor = match.confidence === 'high' ? '#34C759' : '#FF9500';
+  const confColor = match.confidence === 'high' ? c.success : c.warning;
   const confIcon = match.confidence === 'high' ? 'checkmark-circle' : 'alert-circle';
 
   return (
@@ -184,7 +184,7 @@ function UnmatchedRow({
   return (
     <View style={[styles.unmatchedCard, { backgroundColor: c.card, borderColor: c.border }]}>
       <View style={styles.unmatchedHeader}>
-        <Ionicons name="alert-circle" size={18} color="#FF9500" accessible={false} />
+        <Ionicons name="alert-circle" size={18} color={c.warning} accessible={false} />
         <ThemedText style={styles.playerName} numberOfLines={1}>
           {player.extracted_name}
         </ThemedText>
@@ -290,7 +290,7 @@ function UnmatchedRow({
             </TouchableOpacity>
           </View>
           {searchOrCreate.isError && (
-            <Text style={styles.errorText}>{searchOrCreate.error.message}</Text>
+            <Text style={[styles.errorText, { color: c.danger }]}>{searchOrCreate.error.message}</Text>
           )}
         </View>
       ) : (
@@ -496,7 +496,6 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: 13,
-    color: '#FF3B30',
     marginTop: 8,
   },
 });

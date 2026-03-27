@@ -90,7 +90,7 @@ export function SleeperPreview({ data }: SleeperPreviewProps) {
             <Ionicons
               name="checkmark-circle"
               size={20}
-              color="#34C759"
+              color={c.success}
               accessible={false}
             />
             <ThemedText style={styles.matchText}>
@@ -102,7 +102,7 @@ export function SleeperPreview({ data }: SleeperPreviewProps) {
               <Ionicons
                 name="alert-circle"
                 size={20}
-                color="#FF9500"
+                color={c.warning}
                 accessible={false}
               />
               <ThemedText style={styles.matchText}>

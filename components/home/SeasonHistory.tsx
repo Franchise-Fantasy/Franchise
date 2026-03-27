@@ -79,7 +79,7 @@ export function SeasonHistory({ leagueId }: SeasonHistoryProps) {
               <ThemedText type="defaultSemiBold" style={{ fontSize: 14 }}>{season}</ThemedText>
               {champ && (
                 <View style={styles.champRow}>
-                  <Ionicons name="trophy" size={14} color="#FFD700" />
+                  <Ionicons name="trophy" size={14} color={c.gold} />
                   <ThemedText style={[styles.champText, { color: c.secondaryText }]}>
                     {champ.team?.name}
                   </ThemedText>
@@ -99,7 +99,7 @@ export function SeasonHistory({ leagueId }: SeasonHistoryProps) {
                 </ThemedText>
                 <View style={[
                   styles.resultBadge,
-                  t.playoff_result === 'champion' && { backgroundColor: '#FFD700' + '33' },
+                  t.playoff_result === 'champion' && { backgroundColor: c.goldMuted },
                   t.playoff_result === 'runner_up' && { backgroundColor: c.activeCard },
                 ]}>
                   <ThemedText style={[styles.resultText, { color: c.secondaryText }]}>

@@ -187,14 +187,14 @@ export default function LotteryRoomScreen() {
         style={[styles.slot, { backgroundColor: c.card, borderColor: c.border }]}
         accessibilityLabel={isRevealed ? `Pick ${pickNumber}: ${entry.team_name}${entry.was_drawn ? ', lottery winner' : ''}` : `Pick ${pickNumber}: not yet revealed`}
       >
-        <View style={[styles.pickNumberBadge, { backgroundColor: pickNumber === 1 ? '#FFD700' : c.cardAlt }]}>
-          <ThemedText style={[styles.pickNumber, pickNumber === 1 && { color: '#000' }]}>
+        <View style={[styles.pickNumberBadge, { backgroundColor: pickNumber === 1 ? c.gold : c.cardAlt }]}>
+          <ThemedText style={[styles.pickNumber, pickNumber === 1 && { color: c.background }]}>
             #{pickNumber}
           </ThemedText>
         </View>
         {isRevealed ? (
           <Animated.View style={[styles.revealedContent, { opacity, transform: [{ scale }] }]}>
-            <ThemedText type="defaultSemiBold" style={styles.teamName}>
+            <ThemedText type="defaultSemiBold" style={styles.teamName} numberOfLines={1}>
               {entry.team_name}
             </ThemedText>
             {entry.was_drawn && (
@@ -255,9 +255,9 @@ export default function LotteryRoomScreen() {
                 accessibilityState={{ disabled: isRunning }}
               >
                 {isRunning ? (
-                  <ActivityIndicator color="#fff" />
+                  <ActivityIndicator color={c.statusText} />
                 ) : (
-                  <ThemedText style={styles.actionButtonText}>Run Lottery</ThemedText>
+                  <ThemedText style={[styles.actionButtonText, { color: c.statusText }]}>Run Lottery</ThemedText>
                 )}
               </TouchableOpacity>
             )}
@@ -281,7 +281,7 @@ export default function LotteryRoomScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Begin Reveal"
               >
-                <ThemedText style={styles.actionButtonText}>Begin Reveal</ThemedText>
+                <ThemedText style={[styles.actionButtonText, { color: c.statusText }]}>Begin Reveal</ThemedText>
               </TouchableOpacity>
             )}
           </View>
@@ -305,7 +305,7 @@ export default function LotteryRoomScreen() {
                     accessibilityRole="button"
                     accessibilityLabel="Done"
                   >
-                    <ThemedText style={styles.actionButtonText}>Done</ThemedText>
+                    <ThemedText style={[styles.actionButtonText, { color: c.statusText }]}>Done</ThemedText>
                   </TouchableOpacity>
                 </>
               ) : isCommissioner ? (
@@ -315,7 +315,7 @@ export default function LotteryRoomScreen() {
                   accessibilityRole="button"
                   accessibilityLabel={`Reveal Pick number ${totalSlots - revealedCount}`}
                 >
-                  <ThemedText style={styles.actionButtonText}>
+                  <ThemedText style={[styles.actionButtonText, { color: c.statusText }]}>
                     Reveal Pick #{totalSlots - revealedCount}
                   </ThemedText>
                 </TouchableOpacity>
@@ -372,7 +372,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   actionButtonText: {
-    color: '#fff',
     fontSize: 16,
     fontWeight: '700',
   },
@@ -410,6 +409,7 @@ const styles = StyleSheet.create({
   },
   teamName: {
     fontSize: 15,
+    flexShrink: 1,
   },
   drawnBadge: {
     paddingHorizontal: 6,

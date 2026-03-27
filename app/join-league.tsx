@@ -1,8 +1,9 @@
 import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
+import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
@@ -180,12 +181,12 @@ export default function JoinLeagueScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
-      <ThemedText type="title" style={styles.header} accessibilityRole="header">Join a League</ThemedText>
+    <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
+      <PageHeader title="Join a League" />
 
       <ScrollView style={styles.content} keyboardShouldPersistTaps="handled">
         {/* Invite code section */}
-        <View style={[styles.codeSection, { backgroundColor: c.cardAlt }]}>
+        <View style={[styles.codeSection, { backgroundColor: c.card, borderColor: c.border }]}>
           <ThemedText type="subtitle" accessibilityRole="header">Have an invite code?</ThemedText>
           <View style={styles.codeInputRow}>
             <TextInput
@@ -229,14 +230,17 @@ export default function JoinLeagueScreen() {
         {isLoading ? (
           <ActivityIndicator style={styles.loading} />
         ) : !leagues?.length ? (
-          <ThemedView style={styles.emptyState}>
-            <ThemedText>No public leagues available</ThemedText>
-          </ThemedView>
+          <View style={styles.emptyState}>
+            <Ionicons name="people-outline" size={40} color={c.secondaryText} accessible={false} />
+            <ThemedText style={[styles.emptyText, { color: c.secondaryText }]}>
+              No public leagues available
+            </ThemedText>
+          </View>
         ) : (
           leagues.map(league => (
             <TouchableOpacity
               key={league.id}
-              style={[styles.leagueCard, { backgroundColor: c.cardAlt }]}
+              style={[styles.leagueCard, { backgroundColor: c.card, borderColor: c.border }]}
               onPress={() => handleJoinLeague(league)}
               accessibilityRole="button"
               accessibilityLabel={`${league.name}, ${league.current_teams ?? 0} of ${league.teams} teams`}
@@ -255,13 +259,19 @@ export default function JoinLeagueScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: { padding: 16, textAlign: 'center' },
-  content: { flex: 1, padding: 16 },
+  container: {
+    flex: 1,
+  },
+  content: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 16,
+  },
   codeSection: {
     padding: 16,
     borderRadius: 10,
-    marginBottom: 16,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   codeInputRow: {
     flexDirection: 'row',
@@ -306,11 +316,20 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   loading: { marginTop: 20 },
-  emptyState: { padding: 20, alignItems: 'center' },
-  leagueCard: { padding: 16, borderRadius: 8, marginBottom: 12 },
+  emptyState: {
+    paddingVertical: 40,
+    alignItems: 'center',
+    gap: 12,
+  },
+  emptyText: {
+    fontSize: 15,
+  },
+  leagueCard: {
+    padding: 16,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginBottom: 10,
+  },
   leagueInfo: { marginTop: 4, fontSize: 14 },
 });
 
-export const options = {
-  headerShown: false,
-};

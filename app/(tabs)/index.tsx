@@ -3,9 +3,11 @@ import { DraftSection } from '@/components/home/DraftSection';
 import { ErrorState } from '@/components/ErrorState';
 import { ImportedLeagueSection } from '@/components/home/ImportedLeagueSection';
 import { InviteSection } from '@/components/home/InviteSection';
+import { PaymentNudge } from '@/components/home/PaymentNudge';
 import { LeagueSwitcher } from '@/components/home/LeagueSwitcher';
 import { OffseasonDashboard } from '@/components/home/OffseasonDashboard';
 import { QuickNav } from '@/components/home/QuickNav';
+import { SeasonCompleteBanner } from '@/components/home/SeasonCompleteBanner';
 import { StandingsSection } from '@/components/home/StandingsSection';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
@@ -70,8 +72,8 @@ export default function HomeScreen() {
             accessible={false}
           />
           {(unreadCount ?? 0) > 0 && (
-            <View style={styles.unreadBadge} accessible={false}>
-              <ThemedText style={styles.unreadText}>
+            <View style={[styles.unreadBadge, { backgroundColor: c.danger }]} accessible={false}>
+              <ThemedText style={[styles.unreadText, { color: c.statusText }]}>
                 {unreadCount! > 99 ? '99+' : unreadCount}
               </ThemedText>
             </View>
@@ -97,7 +99,15 @@ export default function HomeScreen() {
                 keeperCount={league.keeper_count ?? 5}
               />
             ) : null}
-            {league.imported_from && !league.schedule_generated ? (
+            {!league.offseason_step && league.schedule_generated && league.playoff_teams && (
+              <SeasonCompleteBanner
+                leagueId={league.id}
+                season={league.season}
+                playoffTeams={league.playoff_teams}
+                isCommissioner={isCommissioner}
+              />
+            )}
+            {league.imported_from && !league.schedule_generated && !league.offseason_step ? (
               <ImportedLeagueSection
                 leagueId={league.id}
                 inviteCode={league.invite_code}
@@ -109,17 +119,35 @@ export default function HomeScreen() {
                 {(!league.offseason_step || (league.league_type ?? 'dynasty') === 'dynasty') && (
                   <DraftSection leagueId={league.id} isCommissioner={isCommissioner} />
                 )}
-                <InviteSection
-                  isCommissioner={isCommissioner}
-                  inviteCode={league.invite_code}
-                  leagueId={league.id}
-                  isFull={(league.current_teams ?? 0) >= league.teams}
-                />
+                {!league.offseason_step && (
+                  <InviteSection
+                    isCommissioner={isCommissioner}
+                    inviteCode={league.invite_code}
+                    leagueId={league.id}
+                    isFull={(league.current_teams ?? 0) >= league.teams}
+                  />
+                )}
+                {!league.offseason_step && !isCommissioner && !!league.buy_in_amount && teamId && (
+                  <PaymentNudge
+                    leagueId={league.id}
+                    leagueName={league.name}
+                    season={league.season}
+                    teamId={teamId}
+                    buyInAmount={league.buy_in_amount}
+                    venmoUsername={league.venmo_username ?? null}
+                    cashappTag={league.cashapp_tag ?? null}
+                    paypalUsername={league.paypal_username ?? null}
+                  />
+                )}
               </>
             )}
-            <AnalyticsPreviewCard leagueId={league.id} />
-            <QuickNav leagueType={league.league_type ?? 'dynasty'} />
-            <StandingsSection leagueId={league.id} playoffTeams={league.playoff_teams} scoringType={league.scoring_type} />
+            {!league.offseason_step && (
+              <>
+                <AnalyticsPreviewCard leagueId={league.id} />
+                <QuickNav leagueType={league.league_type ?? 'dynasty'} />
+                <StandingsSection leagueId={league.id} playoffTeams={league.playoff_teams} scoringType={league.scoring_type} tiebreakerOrder={league.tiebreaker_order} divisionCount={league.division_count} division1Name={league.division_1_name} division2Name={league.division_2_name} />
+              </>
+            )}
           </>
         ) : isError ? (
           <ErrorState message="Failed to load league data" onRetry={() => refetch()} />
@@ -168,13 +196,11 @@ const styles = StyleSheet.create({
     minWidth: 16,
     height: 16,
     borderRadius: 8,
-    backgroundColor: '#FF3B30',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 4,
   },
   unreadText: {
-    color: '#FFFFFF',
     fontSize: 10,
     fontWeight: '700',
     lineHeight: 16,

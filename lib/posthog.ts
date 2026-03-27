@@ -10,3 +10,28 @@ export const posthog = new PostHog(
     disabled: isExpoGo,
   },
 );
+
+// User IDs that should be excluded from analytics (admins, testers).
+// PostHog will still receive identify() calls but events are dropped client-side.
+const ADMIN_USER_IDS: ReadonlySet<string> = new Set(
+  (process.env.EXPO_PUBLIC_POSTHOG_ADMIN_IDS ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean),
+);
+
+let _isAdmin = false;
+
+/** Call once after auth to flag the current session as admin. */
+export function setPostHogAdmin(userId: string | null) {
+  _isAdmin = !!userId && ADMIN_USER_IDS.has(userId);
+}
+
+/** Capture an event, silently skipping admin users. */
+export function capture(
+  event: string,
+  properties?: Record<string, unknown>,
+) {
+  if (_isAdmin) return;
+  posthog.capture(event, properties);
+}

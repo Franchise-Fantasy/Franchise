@@ -71,10 +71,10 @@ export function MatchupResultModal() {
 
   // Outcome-based accent colors
   const accent = result.won
-    ? { bg: scheme === 'dark' ? '#1B3D2F' : '#D1FAE5', text: scheme === 'dark' ? '#4ADE80' : '#166534', icon: scheme === 'dark' ? '#4ADE80' : '#22C55E' }
+    ? { bg: c.successMuted, text: c.success, icon: c.success }
     : result.lost
-      ? { bg: scheme === 'dark' ? '#3D1B1B' : '#FEE2E2', text: scheme === 'dark' ? '#F87171' : '#991B1B', icon: scheme === 'dark' ? '#F87171' : '#EF4444' }
-      : { bg: scheme === 'dark' ? '#3D3520' : '#FFF3CD', text: scheme === 'dark' ? '#FFD866' : '#856404', icon: scheme === 'dark' ? '#FFD866' : '#EAB308' };
+      ? { bg: c.dangerMuted, text: c.danger, icon: c.danger }
+      : { bg: c.warningMuted, text: c.warning, icon: c.warning };
 
   return (
     <Modal
@@ -145,7 +145,7 @@ export function MatchupResultModal() {
               accessibilityRole="button"
               accessibilityLabel="View matchup details"
             >
-              <Text style={styles.primaryButtonText}>View Matchup</Text>
+              <Text style={[styles.primaryButtonText, { color: c.statusText }]}>View Matchup</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.button, styles.secondaryButton, { borderColor: c.border }]}
@@ -223,7 +223,6 @@ const styles = StyleSheet.create({
   },
   primaryButton: {},
   primaryButtonText: {
-    color: '#fff',
     fontSize: 15,
     fontWeight: '700',
   },
