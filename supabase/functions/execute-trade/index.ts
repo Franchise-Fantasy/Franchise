@@ -440,10 +440,9 @@ Deno.serve(async (req) => {
       }
     }
 
-    for (const item of playerItems) {
+    // Compute target slots for each player move (taxi logic)
+    const playerMoves = playerItems.map((item: any) => {
       let targetSlot = 'BE';
-
-      // If player was on taxi and receiving team has taxi capacity + player is eligible, keep on taxi
       if (currentSlotMap.get(item.player_id) === 'TAXI' && league?.taxi_slots && league.taxi_slots > 0) {
         const currentTaxiCount = taxiCountByTeam.get(item.to_team_id) ?? 0;
         if (currentTaxiCount < league.taxi_slots) {
@@ -456,123 +455,34 @@ Deno.serve(async (req) => {
           }
         }
       }
+      return {
+        player_id: item.player_id,
+        from_team_id: item.from_team_id,
+        to_team_id: item.to_team_id,
+        target_slot: targetSlot,
+        pre_trade_slot: currentSlotMap.get(item.player_id) ?? 'BE',
+      };
+    });
 
-      const { error } = await supabaseAdmin
-        .from('league_players')
-        .update({
-          team_id: item.to_team_id,
-          acquired_via: 'trade',
-          acquired_at: timestamp,
-          roster_slot: targetSlot,
-        })
-        .eq('league_id', proposal.league_id)
-        .eq('player_id', item.player_id)
-        .eq('team_id', item.from_team_id);
-      if (error) throw new Error(`Failed to transfer player ${item.player_id}: ${error.message}`);
+    const pickMoves = pickItems.map((item: any) => ({
+      draft_pick_id: item.draft_pick_id,
+      from_team_id: item.from_team_id,
+      to_team_id: item.to_team_id,
+      protection_threshold: item.protection_threshold ?? null,
+    }));
 
-      // Snapshot the outgoing player's pre-trade slot at the week start date so they
-      // remain visible in past-day roster/matchup views for the current week.
-      // Uses ignoreDuplicates so existing lineup decisions aren't overwritten.
-      if (currentWeek) {
-        const preTradeSlot = currentSlotMap.get(item.player_id) ?? 'BE';
-        // When the trade falls on the week's first day, writing the slot and DROPPED
-        // at the same date would cause DROPPED to overwrite. Use yesterday instead.
-        const snapshotDate = currentWeek.start_date === todayDate
-          ? toDateStr(new Date(new Date(todayDate + 'T12:00:00Z').getTime() - 86400000))
-          : currentWeek.start_date;
-        await supabaseAdmin
-          .from('daily_lineups')
-          .upsert(
-            {
-              league_id: proposal.league_id,
-              team_id: item.from_team_id,
-              player_id: item.player_id,
-              lineup_date: snapshotDate,
-              roster_slot: preTradeSlot,
-            },
-            { onConflict: 'team_id,player_id,lineup_date', ignoreDuplicates: true },
-          );
-      }
+    const pickSwaps = swapItems.map((item: any) => ({
+      season: item.pick_swap_season,
+      round: item.pick_swap_round,
+      beneficiary_team_id: item.to_team_id,
+      counterparty_team_id: item.from_team_id,
+    }));
 
-      // Mark outgoing player as DROPPED on their old team's daily_lineups
-      await supabaseAdmin
-        .from('daily_lineups')
-        .upsert(
-          {
-            league_id: proposal.league_id,
-            team_id: item.from_team_id,
-            player_id: item.player_id,
-            lineup_date: todayDate,
-            roster_slot: 'DROPPED',
-          },
-          { onConflict: 'team_id,player_id,lineup_date' },
-        );
-      // Remove any future lineup entries for the outgoing player on the old team
-      await supabaseAdmin
-        .from('daily_lineups')
-        .delete()
-        .eq('league_id', proposal.league_id)
-        .eq('team_id', item.from_team_id)
-        .eq('player_id', item.player_id)
-        .gt('lineup_date', todayDate);
-
-      // Upsert a daily_lineup entry on the receiving team so any stale DROPPED
-      // entry (from a previous ownership cycle) is overwritten
-      await supabaseAdmin
-        .from('daily_lineups')
-        .upsert(
-          {
-            league_id: proposal.league_id,
-            team_id: item.to_team_id,
-            player_id: item.player_id,
-            lineup_date: todayDate,
-            roster_slot: targetSlot,
-          },
-          { onConflict: 'team_id,player_id,lineup_date' },
-        );
-    }
-
-    // Clear trade block status for all traded players
-    if (tradedPlayerIds.length > 0) {
-      await supabaseAdmin
-        .from('league_players')
-        .update({ on_trade_block: false, trade_block_note: null, trade_block_interest: [] })
-        .eq('league_id', proposal.league_id)
-        .in('player_id', tradedPlayerIds);
-    }
-
-    for (const item of pickItems) {
-      const updatePayload: any = { current_team_id: item.to_team_id };
-      if (item.protection_threshold) {
-        updatePayload.protection_threshold = item.protection_threshold;
-        updatePayload.protection_owner_id = item.from_team_id;
-      }
-      const { error } = await supabaseAdmin
-        .from('draft_picks')
-        .update(updatePayload)
-        .eq('id', item.draft_pick_id);
-      if (error) throw new Error(`Failed to transfer pick ${item.draft_pick_id}: ${error.message}`);
-    }
-
-    // Insert pick swap rows
-    if (swapItems.length > 0) {
-      const swapRows = swapItems.map((item: any) => ({
-        league_id: proposal.league_id,
-        season: item.pick_swap_season,
-        round: item.pick_swap_round,
-        beneficiary_team_id: item.to_team_id,
-        counterparty_team_id: item.from_team_id,
-        created_by_proposal_id: proposal_id,
-      }));
-      const { error: swapError } = await supabaseAdmin.from('pick_swaps').insert(swapRows);
-      if (swapError) throw new Error(`Failed to create pick swaps: ${swapError.message}`);
-    }
-
+    // Build transaction notes (need name lookups first)
     const playerIds = playerItems.map((i: any) => i.player_id);
     const pickIds = pickItems.map((i: any) => i.draft_pick_id);
     const allTeamIds = [...new Set(items.flatMap((i: any) => [i.from_team_id, i.to_team_id]))];
 
-    // Fetch all name lookups in parallel
     const [playerNameRes, pickInfoRes, teamNameRes] = await Promise.all([
       playerIds.length > 0
         ? supabaseAdmin.from('players').select('id, name').in('id', playerIds)
@@ -611,28 +521,21 @@ Deno.serve(async (req) => {
     });
     const notes = `Trade completed: ${notesParts.join(', ')}`;
 
-    const { data: txn, error: txnError } = await supabaseAdmin
-      .from('league_transactions')
-      .insert({ league_id: proposal.league_id, type: 'trade', notes, team_id: proposal.proposed_by_team_id })
-      .select('id')
-      .single();
-    if (txnError) throw new Error(`Failed to create transaction: ${txnError.message}`);
-
-    const txnItems = items.map((item: any) => ({
-      transaction_id: txn.id,
-      player_id: item.player_id,
-      draft_pick_id: item.draft_pick_id,
-      team_from_id: item.from_team_id,
-      team_to_id: item.to_team_id,
-    }));
-    const { error: txnItemsError } = await supabaseAdmin.from('league_transaction_items').insert(txnItems);
-    if (txnItemsError) throw new Error(`Failed to create transaction items: ${txnItemsError.message}`);
-
-    const { error: completeError } = await supabaseAdmin
-      .from('trade_proposals')
-      .update({ status: 'completed', completed_at: timestamp, transaction_id: txn.id })
-      .eq('id', proposal_id);
-    if (completeError) throw new Error(`Failed to update proposal: ${completeError.message}`);
+    // Execute all mutations atomically in a single Postgres transaction.
+    // If any step fails, everything rolls back — no half-executed trades.
+    const { data: txnId, error: rpcError } = await supabaseAdmin.rpc('execute_trade_transfers', {
+      p_league_id: proposal.league_id,
+      p_proposal_id: proposal_id,
+      p_proposed_by: proposal.proposed_by_team_id,
+      p_timestamp: timestamp,
+      p_today: todayDate,
+      p_week_start: currentWeek?.start_date ?? null,
+      p_player_moves: playerMoves,
+      p_pick_moves: pickMoves,
+      p_pick_swaps: pickSwaps,
+      p_notes: notes,
+    });
+    if (rpcError) throw new Error(`Trade execution failed: ${rpcError.message}`);
 
     // Build trade summary for chat announcement
     let hypeTier: 'minor' | 'major' | 'blockbuster' = 'minor';
@@ -754,7 +657,7 @@ Deno.serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ message: 'Trade completed!', transaction_id: txn.id }),
+      JSON.stringify({ message: 'Trade completed!', transaction_id: txnId }),
       { status: 200, headers: { 'Content-Type': 'application/json' } }
     );
   } catch (error) {
