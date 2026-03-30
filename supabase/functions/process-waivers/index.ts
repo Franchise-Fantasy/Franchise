@@ -53,10 +53,14 @@ Deno.serve(async (req: Request) => {
   const errors: string[] = [];
 
   // Step A: Process Standard Waiver Claims (expired waiver periods)
+  // Atomically claim expired waivers by deleting them upfront — if two
+  // cron invocations overlap, only one gets each row (DELETE is atomic).
   try {
     const { data: expiredWaivers, error: ewErr } = await supabase
-      .from('league_waivers').select('id, league_id, player_id')
-      .lte('on_waivers_until', now.toISOString());
+      .from('league_waivers')
+      .delete()
+      .lte('on_waivers_until', now.toISOString())
+      .select('id, league_id, player_id');
     if (ewErr) throw ewErr;
 
     if (expiredWaivers && expiredWaivers.length > 0) {
@@ -71,7 +75,7 @@ Deno.serve(async (req: Request) => {
         const league = leagueMap.get(waiver.league_id);
 
         if (!league || league.waiver_type !== 'standard') {
-          await supabase.from('league_waivers').delete().eq('id', waiver.id);
+          // Already deleted atomically at Step A start — just skip processing
           continue;
         }
 
@@ -171,7 +175,7 @@ Deno.serve(async (req: Request) => {
           }
         }
 
-        await supabase.from('league_waivers').delete().eq('id', waiver.id);
+        // No need to delete league_waivers — already deleted atomically at Step A start
       }
     }
   } catch (err: any) {
@@ -305,13 +309,7 @@ Deno.serve(async (req: Request) => {
     errors.push(`Step B error: ${err.message}`);
   }
 
-  // Step C: Bulk cleanup expired league_waivers
-  try {
-    await supabase.from('league_waivers').delete()
-      .lte('on_waivers_until', now.toISOString());
-  } catch (err: any) {
-    errors.push(`Cleanup error: ${err.message}`);
-  }
+  // Step C removed — expired league_waivers are now atomically deleted at Step A start
 
   return new Response(
     JSON.stringify({ ok: true, processed, failed, errors }),

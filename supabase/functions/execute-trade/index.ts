@@ -69,18 +69,26 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
+    // Detect server-to-server calls (cron / process-pending-transactions)
     const authHeader = req.headers.get('Authorization');
-    const token = authHeader?.startsWith('Bearer ') ? authHeader : `Bearer ${authHeader}`;
-    const userClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: token ?? '' } } }
-    );
-    const { data: { user } } = await userClient.auth.getUser();
-    if (!user) throw new Error('Unauthorized');
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    const isServerCall = authHeader === `Bearer ${serviceRoleKey}`;
 
-    const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'execute-trade');
-    if (rateLimited) return rateLimited;
+    let user: { id: string } | null = null;
+    if (!isServerCall) {
+      const token = authHeader?.startsWith('Bearer ') ? authHeader : `Bearer ${authHeader}`;
+      const userClient = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+        { global: { headers: { Authorization: token ?? '' } } }
+      );
+      const { data } = await userClient.auth.getUser();
+      user = data?.user ?? null;
+      if (!user) throw new Error('Unauthorized');
+
+      const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'execute-trade');
+      if (rateLimited) return rateLimited;
+    }
 
     const { proposal_id } = await req.json();
     if (!proposal_id) throw new Error('proposal_id is required');
@@ -114,6 +122,31 @@ Deno.serve(async (req) => {
       const deadline = new Date(league.trade_deadline + 'T23:59:59Z');
       if (new Date() > deadline) {
         throw new Error('The trade deadline has passed. No trades can be executed.');
+      }
+    }
+
+    // Authorization: server calls (cron) are pre-authorized; user calls require commissioner or trade party
+    if (!isServerCall) {
+      const isCommissioner = league?.created_by === user!.id;
+
+      if (!isCommissioner) {
+        const { data: userTeamInTrade } = await supabaseAdmin
+          .from('trade_proposal_teams')
+          .select('id')
+          .eq('proposal_id', proposal_id)
+          .eq('team_id', (
+            await supabaseAdmin
+              .from('teams')
+              .select('id')
+              .eq('league_id', proposal.league_id)
+              .eq('user_id', user!.id)
+              .single()
+          ).data?.id ?? '')
+          .single();
+
+        if (!userTeamInTrade) {
+          throw new Error('Only trade parties or the commissioner can execute a trade.');
+        }
       }
     }
 
@@ -282,66 +315,49 @@ Deno.serve(async (req) => {
     const positionLimits = league?.position_limits as Record<string, number> | null;
     if (positionLimits && Object.keys(positionLimits).length > 0 && playerItems.length > 0) {
       const affectedTeamIdsForLimits = [...new Set(playerItems.map((i: any) => i.to_team_id))];
-      for (const tid of affectedTeamIdsForLimits) {
-        // Get current roster positions (excluding IR/TAXI)
-        const { data: currentRoster } = await supabaseAdmin
-          .from('league_players')
-          .select('player_id, position, roster_slot')
-          .eq('league_id', proposal.league_id)
-          .eq('team_id', tid);
 
-        // Compute post-trade roster: remove outgoing, add incoming
-        const outgoingIds = new Set(
-          playerItems.filter((i: any) => i.from_team_id === tid).map((i: any) => i.player_id),
-        );
-        const incomingIds = playerItems
-          .filter((i: any) => i.to_team_id === tid)
-          .map((i: any) => i.player_id);
+      // Parallel position limit checks for all affected teams
+      const limitResults = await Promise.all(
+        affectedTeamIdsForLimits.map(async (tid) => {
+          const { data: currentRoster } = await supabaseAdmin
+            .from('league_players')
+            .select('player_id, position, roster_slot')
+            .eq('league_id', proposal.league_id)
+            .eq('team_id', tid);
 
-        // Fetch positions of incoming players
-        const { data: incomingPlayers } = await supabaseAdmin
-          .from('players')
-          .select('id, position')
-          .in('id', incomingIds);
-        const incomingPosMap = new Map((incomingPlayers ?? []).map((p: any) => [p.id, p.position]));
+          const outgoingIds = new Set(
+            playerItems.filter((i: any) => i.from_team_id === tid).map((i: any) => i.player_id),
+          );
+          const incomingIds = playerItems
+            .filter((i: any) => i.to_team_id === tid)
+            .map((i: any) => i.player_id);
 
-        const postTradeRoster = [
-          ...(currentRoster ?? []).filter((p: any) => !outgoingIds.has(p.player_id)),
-          ...incomingIds.map((pid: string) => ({
-            position: incomingPosMap.get(pid) ?? 'UTIL',
-            roster_slot: 'BE',
-          })),
-        ];
+          const { data: incomingPlayers } = await supabaseAdmin
+            .from('players')
+            .select('id, position')
+            .in('id', incomingIds);
+          const incomingPosMap = new Map((incomingPlayers ?? []).map((p: any) => [p.id, p.position]));
 
-        const violation = checkPositionLimitsForRoster(positionLimits, postTradeRoster);
+          const postTradeRoster = [
+            ...(currentRoster ?? []).filter((p: any) => !outgoingIds.has(p.player_id)),
+            ...incomingIds.map((pid: string) => ({
+              position: incomingPosMap.get(pid) ?? 'UTIL',
+              roster_slot: 'BE',
+            })),
+          ];
+
+          const violation = checkPositionLimitsForRoster(positionLimits, postTradeRoster);
+          return { tid, violation };
+        }),
+      );
+
+      for (const { tid, violation } of limitResults) {
         if (violation) {
           const { data: teamInfo } = await supabaseAdmin.from('teams').select('name').eq('id', tid).single();
           throw new Error(
             `Trade would cause ${teamInfo?.name ?? 'a team'} to exceed the ${violation.position} position limit (${violation.count}/${violation.max}).`,
           );
         }
-      }
-    }
-
-    const isCommissioner = league?.created_by === user.id;
-
-    if (!isCommissioner) {
-      const { data: userTeamInTrade } = await supabaseAdmin
-        .from('trade_proposal_teams')
-        .select('id')
-        .eq('proposal_id', proposal_id)
-        .eq('team_id', (
-          await supabaseAdmin
-            .from('teams')
-            .select('id')
-            .eq('league_id', proposal.league_id)
-            .eq('user_id', user.id)
-            .single()
-        ).data?.id ?? '')
-        .single();
-
-      if (!userTeamInTrade) {
-        throw new Error('Only trade parties or the commissioner can execute a trade.');
       }
     }
 

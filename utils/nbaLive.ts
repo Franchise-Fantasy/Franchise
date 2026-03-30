@@ -78,10 +78,12 @@ export function useLivePlayerStats(
 ): Map<string, LivePlayerStats> {
   const [liveMap, setLiveMap] = useState<Map<string, LivePlayerStats>>(new Map());
   const dateRef = useRef<string>(toDateStr(new Date()));
+  const appActiveRef = useRef<boolean>(AppState.currentState === 'active');
 
-  // Track date changes from AppState (background → foreground after midnight)
+  // Track date changes + app active state to skip polling when backgrounded
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
+      appActiveRef.current = state === 'active';
       if (state === 'active') {
         const now = toDateStr(new Date());
         if (now !== dateRef.current) {
@@ -131,8 +133,10 @@ export function useLivePlayerStats(
     // Initial fetch
     fetchStats(playerIds);
 
-    // Poll every 30s to match the cron update cadence
-    const interval = setInterval(() => fetchStats(playerIds), 30_000);
+    // Poll every 30s to match the cron update cadence; skip when app is backgrounded
+    const interval = setInterval(() => {
+      if (appActiveRef.current) fetchStats(playerIds);
+    }, 30_000);
 
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -9,6 +9,7 @@ import { Colors } from '@/constants/Colors';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { useAppState } from '@/context/AppStateProvider';
 import {
+  useChatSubscription,
   useMarkRead,
   useMessages,
   usePinnedMessages,
@@ -308,6 +309,9 @@ export default function ConversationScreen() {
       }
     }, [conversationId, queryClient]),
   );
+
+  // Single realtime channel for both messages + reactions (saves one connection per conversation)
+  useChatSubscription(conversationId ?? null);
 
   const {
     data: msgData,

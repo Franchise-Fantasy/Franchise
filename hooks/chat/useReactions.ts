@@ -6,41 +6,16 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
-import { useEffect } from 'react';
 
 // ─── Reactions ───────────────────────────────────────────────
+// Realtime subscription is handled by useChatSubscription (one channel
+// for both messages + reactions), called from the chat screen.
 
 export function useReactions(
   conversationId: string | null,
   messageIds: string[],
   myTeamId: string | null,
 ) {
-  const queryClient = useQueryClient();
-
-  useEffect(() => {
-    if (!conversationId) return;
-    const channel = supabase
-      .channel(`chat_reactions_${conversationId}_${Date.now()}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'chat_reactions',
-          filter: `conversation_id=eq.${conversationId}`,
-        },
-        () => {
-          queryClient.invalidateQueries({
-            queryKey: ['reactions', conversationId],
-          });
-        },
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [conversationId, queryClient]);
-
   return useQuery<Record<string, ReactionGroup[]>>({
     queryKey: ['reactions', conversationId, messageIds],
     queryFn: async () => {

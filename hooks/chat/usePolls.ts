@@ -39,7 +39,7 @@ export function usePollResults(
   useEffect(() => {
     if (!pollId) return;
     const channel = supabase
-      .channel(`poll_votes_${pollId}_${Date.now()}`)
+      .channel(`poll_votes_${pollId}`)
       .on(
         'postgres_changes',
         {
@@ -114,11 +114,10 @@ export function usePollResults(
       return { totalVotes, optionCounts, myVote, votersByOption, isClosed };
     },
     enabled: !!pollId && !!poll && !!teamId,
-    refetchInterval: (query) => {
-      // Refetch every 30s while poll is open for countdown accuracy
-      const data = query.state.data;
-      return data?.isClosed ? false : 30_000;
-    },
+    // No polling needed — realtime subscription on poll_votes handles live updates.
+    // The countdown timer is computed client-side from poll.closes_at.
+    // We do one final refetch when the poll closes to lock in the final state.
+    refetchInterval: false,
   });
 }
 

@@ -887,11 +887,15 @@ Deno.serve(async (req) => {
 
     switch (action) {
       case 'extract_roster':
-        return await handleExtractRoster(body, supabaseAdmin);
       case 'extract_settings':
-        return await handleExtractSettings(body);
-      case 'extract_history':
+      case 'extract_history': {
+        // Extra rate limit for Claude Vision calls (expensive API)
+        const extractLimited = await checkRateLimit(supabaseAdmin, userId, 'import-extract');
+        if (extractLimited) return extractLimited;
+        if (action === 'extract_roster') return await handleExtractRoster(body, supabaseAdmin);
+        if (action === 'extract_settings') return await handleExtractSettings(body);
         return await handleExtractHistory(body);
+      }
       case 'search_or_create_player':
         return await handleSearchOrCreatePlayer(body, supabaseAdmin);
       case 'execute':

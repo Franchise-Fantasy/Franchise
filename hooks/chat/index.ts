@@ -1,3 +1,4 @@
+export { useChatSubscription } from './useChatSubscription';
 export { useConversations, useTotalUnread } from './useConversations';
 export { useMessages, useSendMessage } from './useMessages';
 export { useSendImage } from './useSendImage';

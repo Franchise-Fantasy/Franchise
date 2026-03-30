@@ -2,6 +2,7 @@ import { ThemedText } from '@/components/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useClosePoll, usePoll, usePollResults, useVotePoll } from '@/hooks/chat';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -32,6 +33,7 @@ function formatCountdown(closesAt: string): string {
 export const PollBubble = React.memo(function PollBubble({ pollId, teamId, isCommissioner }: Props) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const queryClient = useQueryClient();
   const { data: poll } = usePoll(pollId);
   const { data: results } = usePollResults(pollId, poll, teamId);
   const voteMutation = useVotePoll(pollId);
@@ -53,15 +55,22 @@ export const PollBubble = React.memo(function PollBubble({ pollId, teamId, isCom
   const showHiddenMsg =
     hasVoted && !poll?.show_live_results && !isClosed;
 
-  // Countdown timer
+  // Countdown timer — triggers a single refetch when poll transitions to closed
+  const wasClosed = React.useRef(isClosed);
   useEffect(() => {
     if (!poll) return;
     setCountdown(formatCountdown(poll.closes_at));
     const interval = setInterval(() => {
       setCountdown(formatCountdown(poll.closes_at));
+      // One-time refetch when poll transitions from open → closed
+      const nowClosed = new Date(poll.closes_at) <= new Date();
+      if (nowClosed && !wasClosed.current) {
+        wasClosed.current = true;
+        queryClient.invalidateQueries({ queryKey: ['pollResults', pollId] });
+      }
     }, 10_000);
     return () => clearInterval(interval);
-  }, [poll?.closes_at, poll]);
+  }, [poll?.closes_at, poll, pollId, queryClient]);
 
   const handleToggleOption = useCallback(
     (idx: number) => {

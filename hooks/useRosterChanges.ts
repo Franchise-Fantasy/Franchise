@@ -25,12 +25,15 @@ export function useRosterChanges(leagueId: string | null) {
           filter: `league_id=eq.${leagueId}`,
         },
         () => {
-          // Invalidate all roster and matchup queries — React Query will refetch
+          // Core roster queries — always needed
           queryClient.invalidateQueries({ queryKey: ['teamRoster'] });
           queryClient.invalidateQueries({ queryKey: ['teamRosterStats'] });
           queryClient.invalidateQueries({ queryKey: ['leagueRosterStats'] });
-          queryClient.invalidateQueries({ queryKey: ['weekMatchup'] });
-          queryClient.invalidateQueries({ queryKey: ['matchupById'] });
+          // Available players updates if a player was added/dropped
+          queryClient.invalidateQueries({ queryKey: ['availablePlayers'] });
+          // Matchup queries only need the current week's data refreshed
+          // (player scores won't change from a roster move, but lineup slots might)
+          queryClient.invalidateQueries({ queryKey: ['weekMatchup', leagueId] });
         },
       )
       .subscribe();

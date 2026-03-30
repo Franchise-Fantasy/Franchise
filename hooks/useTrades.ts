@@ -52,7 +52,8 @@ export function useTradeProposals(leagueId: string | null) {
         .from('trade_proposals')
         .select('*')
         .eq('league_id', leagueId!)
-        .order('proposed_at', { ascending: false });
+        .order('proposed_at', { ascending: false })
+        .limit(200);
       if (error) throw error;
       if (!proposals || proposals.length === 0) return [];
 

@@ -32,13 +32,16 @@ export async function bdlFetch(
   return res.json();
 }
 
-/** Paginate through all results using BDL cursor-based pagination. */
+/** Paginate through all results using BDL cursor-based pagination.
+ *  Safety cap prevents runaway pagination from a misbehaving endpoint. */
 export async function bdlFetchAll(
   path: string,
   params?: Record<string, string>,
+  maxPages = 50,
 ): Promise<any[]> {
   const all: any[] = [];
   let cursor: string | undefined;
+  let pages = 0;
 
   do {
     const p: Record<string, string> = { ...params, per_page: "100" };
@@ -47,6 +50,12 @@ export async function bdlFetchAll(
     const data = await bdlFetch(path, p);
     all.push(...(data.data ?? []));
     cursor = data.meta?.next_cursor?.toString();
+    pages++;
+
+    if (pages >= maxPages) {
+      console.warn(`bdlFetchAll: hit ${maxPages}-page safety cap for ${path}`);
+      break;
+    }
   } while (cursor);
 
   return all;
@@ -63,11 +72,20 @@ export function mapGameStatus(status: string): number {
 }
 
 /**
- * Convert BDL clock string ("3:44") to ISO duration format ("PT03M44.00S")
+ * Convert BDL clock string to ISO duration format ("PT05M23.00S")
  * used in live_player_stats.game_clock.
+ * BDL returns "Q3 6:56", "Q1 :13.7", or "Final" — strip the prefix first.
  */
 export function toIsoDuration(time: string): string {
   if (!time || !time.includes(":")) return "";
-  const [mins, secs] = time.split(":");
-  return `PT${mins.padStart(2, "0")}M${(secs ?? "00").padStart(2, "0")}.00S`;
+  // Strip "Q1 ", "Q3 ", etc. prefix
+  const clock = time.replace(/^Q\d\s*/, "");
+  // Handle ":13.7" (seconds only, no minutes)
+  if (clock.startsWith(":")) {
+    const secs = Math.floor(parseFloat(clock.slice(1)));
+    return `PT00M${String(secs).padStart(2, "0")}.00S`;
+  }
+  const [mins, rawSecs] = clock.split(":");
+  const secs = Math.floor(parseFloat(rawSecs ?? "0"));
+  return `PT${mins.padStart(2, "0")}M${String(secs).padStart(2, "0")}.00S`;
 }

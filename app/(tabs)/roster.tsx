@@ -41,6 +41,7 @@ import {
   formatGameTime,
   ScheduleEntry,
 } from "@/utils/nbaSchedule";
+import { buildCompositeScatter } from "@/utils/categoryAnalytics";
 import { isOnline } from "@/utils/network";
 import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
 import { isEligibleForSlot, slotLabel } from "@/utils/rosterSlots";
@@ -835,6 +836,17 @@ export default function RosterScreen() {
         (isPlayerLocked(sourcePlayer) || isPlayerLocked(destPlayer));
       const effectiveDate = deferred ? addDays(today, 1) : selectedDate;
 
+      // ── 0. Pin today's slot when deferred ──
+      // When a game is in progress, the move doesn't take effect until tomorrow.
+      // Lock the player's current slot into today's daily_lineups so resolveSlot
+      // returns the old slot for today (instead of falling back to league_players).
+      if (deferred) {
+        await upsertDailySlot(sourcePlayer.player_id, sourceSlotPosition, today);
+        if (destPlayer) {
+          await upsertDailySlot(destPlayer.player_id, destSlotPosition, today);
+        }
+      }
+
       // ── 1. Displace destination player ──
       if (destPlayer) {
         if (dstIsIR) {
@@ -1060,6 +1072,15 @@ export default function RosterScreen() {
       let totalMoves = 0;
       let daysChanged = 0;
 
+      // For CAT leagues, rank players by composite z-score instead of FPTS
+      const catRankMap = new Map<string, number>();
+      if (isCategories && filteredRosterPlayers.length >= 3) {
+        const composite = buildCompositeScatter(filteredRosterPlayers);
+        for (const pt of composite) {
+          catRankMap.set(pt.playerId, pt.value);
+        }
+      }
+
       for (const date of dates) {
         const teamsPlaying = teamsPlayingByDate.get(date);
         const isDateToday = date === today;
@@ -1070,7 +1091,9 @@ export default function RosterScreen() {
             position: p.position,
             status: p.status,
             roster_slot: prevSlots.get(p.player_id) ?? "BE",
-            avgFpts: calculateAvgFantasyPoints(p, scoringWeights),
+            avgFpts: isCategories
+              ? catRankMap.get(p.player_id) ?? 0
+              : calculateAvgFantasyPoints(p, scoringWeights),
             locked: isDateToday ? isPlayerLocked(p) : false,
             hasGame: teamsPlaying?.has(p.nbaTricode ?? "") ?? false,
           }),
@@ -1945,7 +1968,7 @@ export default function RosterScreen() {
             queryClient.prefetchQuery({
               queryKey: ["teamRoster", teamId, day],
               queryFn: () => fetchTeamRosterForDate(teamId, leagueId, day),
-              staleTime: 0,
+              staleTime: 1000 * 60 * 2,
             });
           }
         }}

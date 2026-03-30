@@ -95,7 +95,8 @@ export function useChampions(leagueId: string | null) {
         .select('season, playoff_result, team:teams!team_seasons_team_id_fkey(id, name)')
         .eq('league_id', leagueId!)
         .in('playoff_result', ['champion', 'runner_up'])
-        .order('season', { ascending: true });
+        .order('season', { ascending: true })
+        .limit(200);
       if (error) throw error;
 
       const byS = new Map<string, ChampionEntry>();
@@ -123,7 +124,8 @@ export function useSeasonStandings(leagueId: string | null) {
         .select('id, team_id, season, wins, losses, ties, points_for, points_against, final_standing, playoff_result, team:teams!team_seasons_team_id_fkey(id, name)')
         .eq('league_id', leagueId!)
         .order('season', { ascending: false })
-        .order('final_standing', { ascending: true });
+        .order('final_standing', { ascending: true })
+        .limit(1000);
       if (error) throw error;
       return (data ?? []) as unknown as TeamSeasonRow[];
     },

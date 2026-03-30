@@ -10,7 +10,8 @@ export function usePlayerSeasonStats(excludePlayerIds?: string[]) {
         .from('player_season_stats')
         .select('*')
         .gt('games_played', 0)
-        .order('avg_pts', { ascending: false });
+        .order('avg_pts', { ascending: false })
+        .limit(600);
 
       if (excludePlayerIds && excludePlayerIds.length > 0) {
         query = query.filter(

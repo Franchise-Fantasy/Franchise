@@ -31,7 +31,8 @@ export function usePlayerHistoricalStats(playerId: string | null) {
           'season, games_played, avg_pts, avg_reb, avg_ast, avg_stl, avg_blk, avg_tov, avg_min, avg_fgm, avg_fga, avg_3pm, avg_3pa, avg_ftm, avg_fta, avg_pf, nba_team',
         )
         .eq('player_id', playerId!)
-        .order('season', { ascending: false });
+        .order('season', { ascending: false })
+        .limit(25);
       if (error) throw error;
       return (data ?? []) as HistoricalSeasonStats[];
     },

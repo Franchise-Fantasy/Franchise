@@ -46,6 +46,14 @@ Deno.serve(async (req: Request) => {
     // Strip data URI prefix if present
     const raw = image_base64.replace(/^data:image\/\w+;base64,/, "");
 
+    // ~3.75 MB decoded limit (5 MB base64 string)
+    if (raw.length > 5_000_000) {
+      return new Response(
+        JSON.stringify({ error: "Image too large. Max size is ~3.75 MB." }),
+        { status: 413, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
     // Moderate with Cloud Vision
     const modResult = await moderateImage(raw);
     if (!modResult.safe) {

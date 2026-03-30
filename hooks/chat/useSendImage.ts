@@ -1,6 +1,7 @@
 import { globalToastRef } from '@/context/ToastProvider';
 import { supabase } from '@/lib/supabase';
 import * as ImagePicker from 'expo-image-picker';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { useCallback, useState } from 'react';
 import { useSendMessage } from './useMessages';
 
@@ -38,13 +39,27 @@ export function useSendImage(
         const result = await pickerFn({
           mediaTypes: ['images'],
           allowsEditing: true,
-          quality: 0.4,
-          base64: true,
+          quality: 0.7,
         });
 
-        if (result.canceled || !result.assets?.[0]?.base64) return;
+        if (result.canceled || !result.assets?.[0]?.uri) return;
 
         setIsUploading(true);
+
+        // Resize + compress before upload to reduce payload and Cloud Vision cost
+        const MAX_DIMENSION = 1200;
+        const asset = result.assets[0];
+        const needsResize =
+          (asset.width && asset.width > MAX_DIMENSION) ||
+          (asset.height && asset.height > MAX_DIMENSION);
+
+        const compressed = await manipulateAsync(
+          asset.uri,
+          needsResize ? [{ resize: { width: MAX_DIMENSION } }] : [],
+          { compress: 0.6, format: SaveFormat.JPEG, base64: true },
+        );
+
+        if (!compressed.base64) throw new Error('Failed to compress image');
 
         const { data: sessionData } = await supabase.auth.getSession();
         const token = sessionData?.session?.access_token;
@@ -61,7 +76,7 @@ export function useSendImage(
             body: JSON.stringify({
               league_id: leagueId,
               team_id: teamId,
-              image_base64: result.assets[0].base64,
+              image_base64: compressed.base64,
             }),
           },
         );

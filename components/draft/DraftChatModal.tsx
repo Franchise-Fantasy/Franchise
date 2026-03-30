@@ -4,6 +4,7 @@ import { ReactionPicker } from '@/components/chat/ReactionPicker';
 import { ThemedText } from '@/components/ThemedText';
 import { Colors } from '@/constants/Colors';
 import {
+  useChatSubscription,
   useMarkRead,
   useMessages,
   useReactions,
@@ -161,6 +162,9 @@ export function DraftChatModal({
     enabled: !!leagueId,
     staleTime: 1000 * 60 * 10,
   });
+
+  // Single realtime channel for both messages + reactions
+  useChatSubscription(visible ? conversationId ?? null : null);
 
   const {
     data: msgData,

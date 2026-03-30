@@ -228,7 +228,7 @@ export function DraftOrder({
 
   // Update subscription to trigger flash
   useEffect(() => {
-    // Subscription for the main draft state (for timer) + presence tracking
+    // Single channel for draft state + picks + presence (saves one connection)
     const draftChannel = supabase
       .channel(`draft_room_${draftId}`)
       .on(
@@ -241,6 +241,38 @@ export function DraftOrder({
         },
         (payload) => {
           queryClient.setQueryData(["draftState", draftId], payload.new);
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "draft_picks",
+          filter: `draft_id=eq.${draftId}`,
+        },
+        (payload) => {
+          if (payload.eventType === "UPDATE") {
+            if (payload.new.player_id) {
+              flashPick(payload.new.id);
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              queryClient.invalidateQueries({
+                queryKey: ["draftOrder", draftId],
+              });
+              queryClient.invalidateQueries({
+                queryKey: ["draftQueue"],
+              });
+              if (payload.new.current_team_id === teamId) {
+                queryClient.invalidateQueries({
+                  queryKey: ["teamRoster"],
+                });
+              }
+            } else if (payload.old?.current_team_id !== payload.new.current_team_id) {
+              queryClient.invalidateQueries({
+                queryKey: ["draftOrder", draftId],
+              });
+            }
+          }
         },
       )
       .on("presence", { event: "sync" }, () => {
@@ -267,56 +299,12 @@ export function DraftOrder({
         if (status === "SUBSCRIBED" && teamId) {
           await draftChannel.track({ teamId, teamName, tricode, logoKey });
         }
-        // Catch up on any events missed during the disconnect window
-        if (status === "SUBSCRIBED" || status === "TIMED_OUT" || status === "CHANNEL_ERROR") {
-          catchUpDraft();
-        }
-      });
-    // Subscription for the pick list (for flashing)
-    const picksChannel = supabase
-      .channel(`draft_picks_${draftId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "draft_picks",
-          filter: `draft_id=eq.${draftId}`,
-        },
-        (payload) => {
-          if (payload.eventType === "UPDATE") {
-            if (payload.new.player_id) {
-              // A pick was used (player drafted)
-              flashPick(payload.new.id);
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              queryClient.invalidateQueries({
-                queryKey: ["draftOrder", draftId],
-              });
-              queryClient.invalidateQueries({
-                queryKey: ["draftQueue"],
-              });
-              if (payload.new.current_team_id === teamId) {
-                queryClient.invalidateQueries({
-                  queryKey: ["teamRoster"],
-                });
-              }
-            } else if (payload.old?.current_team_id !== payload.new.current_team_id) {
-              // A pick changed ownership (traded during draft)
-              queryClient.invalidateQueries({
-                queryKey: ["draftOrder", draftId],
-              });
-            }
-          }
-        },
-      )
-      .subscribe((status) => {
         if (status === "SUBSCRIBED" || status === "TIMED_OUT" || status === "CHANNEL_ERROR") {
           catchUpDraft();
         }
       });
 
     return () => {
-      supabase.removeChannel(picksChannel);
       supabase.removeChannel(draftChannel);
     };
   }, [draftId, queryClient, teamId, teamName, tricode, logoKey, onPresenceChange, catchUpDraft]);

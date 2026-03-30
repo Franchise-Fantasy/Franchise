@@ -8,7 +8,6 @@ import {
   useMutation,
   useQueryClient,
 } from '@tanstack/react-query';
-import { useEffect } from 'react';
 
 const PAGE_SIZE = 30;
 
@@ -18,34 +17,10 @@ interface Cursor {
 }
 
 // ─── Messages (infinite scroll, cursor-based) ───────────────
+// Realtime subscription is handled by useChatSubscription (one channel
+// for both messages + reactions), called from the chat screen.
 
 export function useMessages(conversationId: string | null) {
-  const queryClient = useQueryClient();
-
-  useEffect(() => {
-    if (!conversationId) return;
-    const channel = supabase
-      .channel(`chat_msgs_${conversationId}_${Date.now()}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'chat_messages',
-          filter: `conversation_id=eq.${conversationId}`,
-        },
-        () => {
-          queryClient.invalidateQueries({
-            queryKey: ['messages', conversationId],
-          });
-        },
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [conversationId, queryClient]);
-
   return useInfiniteQuery({
     queryKey: ['messages', conversationId],
     queryFn: async ({ pageParam }: { pageParam: Cursor }) => {
