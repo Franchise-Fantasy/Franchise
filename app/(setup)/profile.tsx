@@ -1,5 +1,6 @@
-import { ThemedText } from "@/components/ThemedText";
-import { ThemedView } from "@/components/ThemedView";
+import { ThemedText } from "@/components/ui/ThemedText";
+import { ms, s } from "@/utils/scale";
+import { ThemedView } from "@/components/ui/ThemedView";
 import { Colors } from "@/constants/Colors";
 import { useSession } from "@/context/AuthProvider";
 import { useColorScheme } from "@/hooks/useColorScheme";
@@ -210,7 +211,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   avatarText: {
-    fontSize: 28,
+    fontSize: ms(28),
     fontWeight: "700",
   },
   email: {
@@ -241,11 +242,11 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   actionLabel: {
-    fontSize: 16,
+    fontSize: ms(16),
   },
   versionText: {
     textAlign: "center",
-    fontSize: 13,
+    fontSize: ms(13),
     marginTop: 8,
   },
 });

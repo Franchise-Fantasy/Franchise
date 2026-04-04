@@ -1,5 +1,6 @@
 import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
+import { ms, s } from '@/utils/scale';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { useLeagueRosterStats } from '@/hooks/useLeagueRosterStats';
@@ -8,13 +9,18 @@ import {
   calculateRosterAgeProfile,
   getInsightText,
 } from '@/utils/rosterAge';
+import {
+  computeTeamCategoryAvgs,
+  computeTeamZScores,
+  CAT_ORDER,
+} from '@/utils/categoryAnalytics';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useMemo } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { ThemedText } from '../ThemedText';
+import { ThemedText } from '../ui/ThemedText';
 
-export function AnalyticsPreviewCard({ leagueId }: { leagueId: string }) {
+export function AnalyticsPreviewCard({ leagueId, scoringType }: { leagueId: string; scoringType?: string }) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const isDark = scheme === 'dark';
@@ -43,6 +49,28 @@ export function AnalyticsPreviewCard({ leagueId }: { leagueId: string }) {
     if (!profile) return '';
     return getInsightText(profile, comparison);
   }, [profile, comparison]);
+
+  const isCategories = scoringType === 'h2h_categories';
+
+  const teamAvgs = useMemo(() => {
+    if (!isCategories || !allPlayers?.length) return null;
+    return computeTeamCategoryAvgs(allPlayers as any);
+  }, [isCategories, allPlayers]);
+
+  const zScores = useMemo(() => {
+    if (!teamAvgs || !teamId) return null;
+    return computeTeamZScores(teamAvgs, teamId);
+  }, [teamAvgs, teamId]);
+
+  const topStrengths = useMemo(() => {
+    if (!zScores?.length) return [];
+    return [...zScores].sort((a, b) => b.zScore - a.zScore).slice(0, 3);
+  }, [zScores]);
+
+  const topWeaknesses = useMemo(() => {
+    if (!zScores?.length) return [];
+    return [...zScores].sort((a, b) => a.zScore - b.zScore).slice(0, 3);
+  }, [zScores]);
 
   if (!teamId) return null;
 
@@ -85,15 +113,42 @@ export function AnalyticsPreviewCard({ leagueId }: { leagueId: string }) {
 
       {isLoading ? (
         <ActivityIndicator style={styles.loading} />
+      ) : isCategories && topStrengths.length > 0 ? (
+        <>
+          {/* CAT strengths / weaknesses */}
+          <View style={styles.pillRow}>
+            <View style={[styles.pill, { flex: 1, backgroundColor: isDark ? 'rgba(52,211,153,0.08)' : 'rgba(16,185,129,0.06)', borderWidth: 1, borderColor: isDark ? 'rgba(52,211,153,0.15)' : 'rgba(16,185,129,0.15)' }]}>
+              <Text style={[styles.pillLabel, { color: c.secondaryText }]}>STRENGTHS</Text>
+              {topStrengths.map((s) => (
+                <View key={s.cat} style={styles.zRow}>
+                  <ThemedText style={styles.zCat}>{s.cat}</ThemedText>
+                  <Text style={[styles.zValue, { color: isDark ? '#6EE7B7' : '#059669' }]}>
+                    {s.zScore >= 0 ? '+' : ''}{s.zScore.toFixed(1)}
+                  </Text>
+                </View>
+              ))}
+            </View>
+            <View style={[styles.pill, { flex: 1, backgroundColor: isDark ? 'rgba(248,113,113,0.08)' : 'rgba(239,68,68,0.06)', borderWidth: 1, borderColor: isDark ? 'rgba(248,113,113,0.15)' : 'rgba(239,68,68,0.15)' }]}>
+              <Text style={[styles.pillLabel, { color: c.secondaryText }]}>WEAKNESSES</Text>
+              {topWeaknesses.map((s) => (
+                <View key={s.cat} style={styles.zRow}>
+                  <ThemedText style={styles.zCat}>{s.cat}</ThemedText>
+                  <Text style={[styles.zValue, { color: isDark ? '#FCA5A5' : '#DC2626' }]}>
+                    {s.zScore >= 0 ? '+' : ''}{s.zScore.toFixed(1)}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        </>
       ) : !profile || profile.totalWithAge < 3 ? (
         <ThemedText style={[styles.placeholderText, { color: c.secondaryText }]}>
           Not enough age data available
         </ThemedText>
       ) : (
         <>
-          {/* Pills row */}
+          {/* Points league: age pills */}
           <View style={styles.pillRow}>
-            {/* Weighted Age pill */}
             <View style={[styles.pill, {
               backgroundColor: skewsOlder
                 ? (isDark ? 'rgba(129,140,248,0.08)' : 'rgba(99,102,241,0.06)')
@@ -111,7 +166,6 @@ export function AnalyticsPreviewCard({ leagueId }: { leagueId: string }) {
               </Text>
             </View>
 
-            {/* League Rank pill */}
             <View style={[styles.pill, {
               backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
             }]}>
@@ -128,7 +182,6 @@ export function AnalyticsPreviewCard({ leagueId }: { leagueId: string }) {
               )}
             </View>
 
-            {/* VS League pill */}
             <View style={[styles.pill, {
               backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
             }]}>
@@ -148,7 +201,6 @@ export function AnalyticsPreviewCard({ leagueId }: { leagueId: string }) {
             </View>
           </View>
 
-          {/* Insight text */}
           <Text style={[styles.insight, { color: c.secondaryText }]}>
             {insight}
           </Text>
@@ -162,65 +214,79 @@ const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
     borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 14,
-    marginBottom: 16,
+    paddingHorizontal: s(16),
+    paddingTop: s(14),
+    paddingBottom: s(14),
+    marginBottom: s(16),
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: s(12),
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: s(6),
   },
   headerLabel: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: '700',
     letterSpacing: 1.5,
   },
   pillRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: s(8),
   },
   pill: {
     flex: 1,
     borderRadius: 10,
-    paddingVertical: 7,
-    paddingHorizontal: 8,
+    paddingVertical: s(7),
+    paddingHorizontal: s(8),
     alignItems: 'center',
   },
   pillLabel: {
-    fontSize: 8,
+    fontSize: ms(8),
     fontWeight: '600',
     letterSpacing: 0.8,
     textTransform: 'uppercase',
-    marginBottom: 2,
+    marginBottom: s(2),
   },
   pillValue: {
-    fontSize: 18,
+    fontSize: ms(18),
     fontWeight: '700',
   },
   pillSub: {
-    fontSize: 9,
+    fontSize: ms(9),
     fontWeight: '500',
-    marginTop: 1,
+    marginTop: s(1),
   },
   insight: {
-    fontSize: 11,
-    marginTop: 10,
-    lineHeight: 16,
+    fontSize: ms(11),
+    marginTop: s(10),
+    lineHeight: ms(16),
   },
   placeholderText: {
-    fontSize: 13,
+    fontSize: ms(13),
     textAlign: 'center',
-    paddingVertical: 8,
+    paddingVertical: s(8),
   },
   loading: {
-    paddingVertical: 12,
+    paddingVertical: s(12),
+  },
+  zRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: s(2),
+  },
+  zCat: {
+    fontSize: ms(12),
+    fontWeight: '600',
+  },
+  zValue: {
+    fontSize: ms(12),
+    fontWeight: '700',
   },
 });

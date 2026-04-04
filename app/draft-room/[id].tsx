@@ -7,14 +7,16 @@ import { TeamRoster } from '@/components/draft/TeamRoster';
 import { DraftChatModal } from '@/components/draft/DraftChatModal';
 import { ProposeTradeModal } from '@/components/trade/ProposeTradeModal';
 import { TradeDetailModal } from '@/components/trade/TradeDetailModal';
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { ThemedView } from '@/components/ui/ThemedView';
 import { supabase } from '@/lib/supabase';
 import { CurrentPick, DraftState } from '@/types/draft';
 import { setDraftRoomOpen } from '@/lib/activeScreen';
 import { capture } from '@/lib/posthog';
 import { useDraftQueue } from '@/hooks/useDraftQueue';
+import { useRosterChanges } from '@/hooks/useRosterChanges';
 import { useTradeProposals, TradeProposalRow } from '@/hooks/useTrades';
+import { queryKeys } from '@/constants/queryKeys';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -23,6 +25,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Ionicons } from '@expo/vector-icons';
+import { ms, s } from '@/utils/scale';
 
 type ViewMode = 'players' | 'roster' | 'queue' | 'trades';
 
@@ -42,42 +45,63 @@ export default function DraftRoomScreen() {
   const [autopickOn, setAutopickOn] = useState(false);
   const handlePresenceChange = useCallback((teams: PresenceTeam[]) => setPresentTeams(teams), []);
 
-  // Sync autopick state from DB so it survives re-mounts
-  const { data: dbAutopick } = useQuery({
-    queryKey: ['autopickStatus', draftId, teamData?.id],
+  // ─── Single RPC to load all draft room init data ───────────
+  // Replaces 5+ separate queries (drafts x2, teams, leagues x2, draft_team_status)
+  const { data: initData, isError: isDraftError } = useQuery({
+    queryKey: queryKeys.draftRoomInit(draftId),
     queryFn: async () => {
-      const { data } = await supabase
-        .from('draft_team_status')
-        .select('autopick_on')
-        .eq('draft_id', draftId)
-        .eq('team_id', teamData!.id)
-        .maybeSingle();
-      return data?.autopick_on ?? false;
+      const { data, error } = await supabase.rpc('get_draft_room_init' as any, {
+        p_draft_id: draftId,
+      });
+      if (error) throw error;
+      return data as unknown as {
+        draft: DraftState;
+        team: { id: string; name: string; tricode: string | null; logo_key: string | null; is_commissioner: boolean };
+        draft_pick_trading_enabled: boolean;
+        autopick_on: boolean;
+      };
     },
-    enabled: !!teamData?.id,
   });
 
-  // Seed local state from DB on first load
-  useEffect(() => {
-    if (dbAutopick !== undefined) setAutopickOn(dbAutopick);
-  }, [dbAutopick]);
+  // Derive convenience accessors from the init RPC
+  const draftData = initData ? { league_id: initData.draft.league_id, type: initData.draft.type } : undefined;
+  const teamData = initData?.team ? { ...initData.team, isCommissioner: initData.team.is_commissioner } : undefined;
+  const isLoadingTeam = !initData;
+  const isRookieDraft = draftData?.type === 'rookie';
+  const draftPickTradingEnabled = initData?.draft_pick_trading_enabled ?? false;
 
-  // First, get the league ID and draft type from the draft
-  const { data: draftData, isError: isDraftError } = useQuery({
-    queryKey: ['draft', draftId],
+  // Seed the shared draftState cache so DraftOrder's realtime subscription updates it
+  useEffect(() => {
+    if (initData?.draft) {
+      queryClient.setQueryData(queryKeys.draftState(draftId), initData.draft);
+    }
+  }, [initData?.draft, draftId, queryClient]);
+
+  // Seed autopick local state from init RPC
+  useEffect(() => {
+    if (initData?.autopick_on !== undefined) setAutopickOn(initData.autopick_on);
+  }, [initData?.autopick_on]);
+
+  // Shared cache key with DraftOrder's real-time subscription — updates automatically
+  const { data: draftState } = useQuery<DraftState>({
+    queryKey: queryKeys.draftState(draftId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('drafts')
-        .select('league_id, type')
+        .select('*')
         .eq('id', draftId)
         .single();
-
       if (error) throw error;
-      return data;
-    }
+      return data as unknown as DraftState;
+    },
+    // Seeded from initData above; only refetches if realtime invalidates
+    enabled: !!initData,
   });
 
-  const isRookieDraft = draftData?.type === 'rookie';
+  const isDraftComplete = draftState?.status === 'complete';
+
+  // Shared realtime subscription for league_players changes (draft picks, etc.)
+  useRosterChanges(draftData?.league_id ?? null);
 
   // Suppress draft push notifications while this screen is open
   useEffect(() => {
@@ -86,50 +110,17 @@ export default function DraftRoomScreen() {
     return () => setDraftRoomOpen(false);
   }, []);
 
-  // Shared cache key with DraftOrder's real-time subscription — updates automatically
-  const { data: draftState } = useQuery<DraftState>({
-    queryKey: ['draftState', draftId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('drafts')
-        .select('*')
-        .eq('id', draftId)
-        .single();
-      if (error) throw error;
-      return data;
-    },
-  });
-
-  const isDraftComplete = draftState?.status === 'complete';
-
   // Auto-generate schedule when initial draft completes (idempotent — edge fn ignores duplicates)
   // Rookie drafts don't trigger schedule generation (offseason handles that separately)
   useEffect(() => {
     if (!isDraftComplete || !draftData?.league_id) return;
     // Unlock free-agent adds across all screens that cache this query
-    queryClient.invalidateQueries({ queryKey: ['hasActiveDraft', draftData.league_id] });
+    queryClient.invalidateQueries({ queryKey: queryKeys.hasActiveDraft(draftData.league_id) });
     if (isRookieDraft) return;
     supabase.functions
       .invoke('generate-schedule', { body: { league_id: draftData.league_id } })
       .catch(() => {});
   }, [isDraftComplete, draftData?.league_id, isRookieDraft, queryClient]);
-
-  // Then, use the league ID to get the user's team + commissioner status
-  const { data: teamData, isLoading: isLoadingTeam } = useQuery({
-    queryKey: ['myTeam', draftData?.league_id],
-    queryFn: async () => {
-      if (!draftData?.league_id) return null;
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
-      const [teamRes, leagueRes] = await Promise.all([
-        supabase.from('teams').select('id, name, tricode, logo_key').eq('league_id', draftData.league_id).eq('user_id', user.id).single(),
-        supabase.from('leagues').select('created_by').eq('id', draftData.league_id).single(),
-      ]);
-      if (teamRes.error) throw teamRes.error;
-      return { ...teamRes.data, isCommissioner: leagueRes.data?.created_by === user.id };
-    },
-    enabled: !!draftData?.league_id
-  });
 
   // Map presence data for PresenceAvatars (exclude self)
   const otherTeams = useMemo(
@@ -149,28 +140,11 @@ export default function DraftRoomScreen() {
     [presentTeams],
   );
 
-  // Fetch draft pick trading setting
-  const { data: leagueSettings } = useQuery({
-    queryKey: ['draftLeagueSettings', draftData?.league_id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('leagues')
-        .select('draft_pick_trading_enabled')
-        .eq('id', draftData!.league_id)
-        .single();
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!draftData?.league_id,
-  });
-
   const { addToQueue, queuedPlayerIds } = useDraftQueue(
     draftId,
     teamData?.id || '',
     draftData?.league_id || '',
   );
-
-  const draftPickTradingEnabled = leagueSettings?.draft_pick_trading_enabled ?? false;
   const showTradeButton = draftPickTradingEnabled && !isDraftComplete;
 
   // Trade proposals for the draft trades tab — polls every 10s so the other
@@ -185,7 +159,7 @@ export default function DraftRoomScreen() {
   useEffect(() => {
     if (!draftData?.league_id || !showTradeButton) return;
     const interval = setInterval(() => {
-      queryClient.invalidateQueries({ queryKey: ['tradeProposals', draftData.league_id] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.tradeProposals(draftData.league_id) });
     }, 10_000);
     return () => clearInterval(interval);
   }, [draftData?.league_id, showTradeButton, queryClient]);
@@ -248,10 +222,10 @@ export default function DraftRoomScreen() {
           <TouchableOpacity style={styles.headerButton} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back">
             <ThemedText style={[styles.backButton, { color: colors.activeText }]}>←</ThemedText>
           </TouchableOpacity>
-          <ThemedText type="defaultSemiBold" style={styles.headerTitle}>Draft</ThemedText>
+          <ThemedText type="defaultSemiBold" style={styles.headerText}>Draft</ThemedText>
           <View style={styles.headerButton} />
         </ThemedView>
-        <ThemedText style={{ textAlign: 'center', marginTop: 40, fontSize: 15, color: colors.secondaryText }}>
+        <ThemedText style={{ textAlign: 'center', marginTop: s(40), fontSize: ms(15), color: colors.secondaryText }}>
           Draft not found
         </ThemedText>
       </SafeAreaView>
@@ -317,7 +291,7 @@ export default function DraftRoomScreen() {
             <ThemedText type="defaultSemiBold" style={{ color: colors.activeText }}>
               {isRookieDraft ? 'The rookie draft is over!' : 'The draft is over!'}
             </ThemedText>
-            <ThemedText style={{ color: colors.secondaryText, fontSize: 13, marginTop: 2 }}>
+            <ThemedText style={{ color: colors.secondaryText, fontSize: ms(13), marginTop: s(2) }}>
               {isRookieDraft
                 ? 'Check your new rookies. Head back to the home screen.'
                 : 'Free agency is now open. Head back to the home screen.'}
@@ -365,14 +339,14 @@ export default function DraftRoomScreen() {
                 accessibilityLabel="Propose a new trade"
               >
                 <Ionicons name="add" size={18} color={colors.statusText} accessible={false} />
-                <ThemedText style={{ color: colors.statusText, fontWeight: '600', fontSize: 14 }}>Propose Trade</ThemedText>
+                <ThemedText style={{ color: colors.statusText, fontWeight: '600', fontSize: ms(14) }}>Propose Trade</ThemedText>
               </TouchableOpacity>
               <FlatList
                 data={(tradeProposals ?? []).filter((p) => ['pending', 'in_review'].includes(p.status))}
                 keyExtractor={(item) => item.id}
-                contentContainerStyle={{ paddingBottom: 16 }}
+                contentContainerStyle={{ paddingBottom: s(16) }}
                 ListEmptyComponent={
-                  <ThemedText style={{ textAlign: 'center', marginTop: 40, color: colors.secondaryText, fontSize: 14 }}>
+                  <ThemedText style={{ textAlign: 'center', marginTop: s(40), color: colors.secondaryText, fontSize: ms(14) }}>
                     No active trade proposals
                   </ThemedText>
                 }
@@ -389,16 +363,16 @@ export default function DraftRoomScreen() {
                       accessibilityLabel={`Trade between ${teamNames}${needsResponse ? ', needs your response' : ''}`}
                     >
                       <View style={{ flex: 1 }}>
-                        <ThemedText type="defaultSemiBold" style={{ fontSize: 14 }} numberOfLines={1}>
+                        <ThemedText type="defaultSemiBold" style={{ fontSize: ms(14) }} numberOfLines={1}>
                           {teamNames}
                         </ThemedText>
-                        <ThemedText style={{ fontSize: 12, color: colors.secondaryText, marginTop: 2 }}>
+                        <ThemedText style={{ fontSize: ms(12), color: colors.secondaryText, marginTop: s(2) }}>
                           {item.items.filter((i) => i.draft_pick_id).length} pick(s) · {item.items.filter((i) => i.player_id).length} player(s)
                         </ThemedText>
                       </View>
                       {needsResponse && (
                         <View style={[styles.responseBadge, { backgroundColor: colors.accent }]}>
-                          <ThemedText style={{ color: colors.statusText, fontSize: 10, fontWeight: '800' }}>RESPOND</ThemedText>
+                          <ThemedText style={{ color: colors.statusText, fontSize: ms(10), fontWeight: '800' }}>RESPOND</ThemedText>
                         </View>
                       )}
                       <Ionicons name="chevron-forward" size={16} color={colors.secondaryText} accessible={false} />
@@ -498,7 +472,7 @@ export default function DraftRoomScreen() {
       >
         <Pressable style={styles.presenceOverlay} onPress={() => setShowPresenceList(false)}>
           <View style={[styles.presenceModal, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <ThemedText type="defaultSemiBold" style={{ marginBottom: 8 }}>
+            <ThemedText type="defaultSemiBold" style={{ marginBottom: s(8) }}>
               Online ({presentTeams.length}/{draftState?.picks_per_round ?? '?'})
             </ThemedText>
             <FlatList
@@ -529,7 +503,7 @@ export default function DraftRoomScreen() {
           teamId={teamData.id}
           onClose={() => {
             setShowTradeModal(false);
-            queryClient.invalidateQueries({ queryKey: ['tradeProposals', draftData.league_id] });
+            queryClient.invalidateQueries({ queryKey: queryKeys.tradeProposals(draftData.league_id) });
             queryClient.invalidateQueries({ queryKey: ['draftOrder', draftId] });
           }}
         />
@@ -542,7 +516,7 @@ export default function DraftRoomScreen() {
           teamId={teamData.id}
           onClose={() => {
             setSelectedProposal(null);
-            queryClient.invalidateQueries({ queryKey: ['tradeProposals', draftData.league_id] });
+            queryClient.invalidateQueries({ queryKey: queryKeys.tradeProposals(draftData.league_id) });
             queryClient.invalidateQueries({ queryKey: ['draftOrder', draftId] });
           }}
         />
@@ -581,22 +555,22 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    padding: 8,
+    padding: s(8),
     borderBottomWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
-    height: 50,
+    height: s(50),
     justifyContent: 'space-between',
   },
   headerText: {
     flex: 1,
     textAlign: 'center',
-    fontSize: 20,
+    fontSize: ms(20),
     fontWeight: 'thin',
-    marginHorizontal: 40,
+    marginHorizontal: s(40),
   },
   headerButton: {
-    padding: 8,
-    width: 36,
+    padding: s(8),
+    width: s(36),
     alignItems: 'center',
   },
   content: {
@@ -604,12 +578,12 @@ const styles = StyleSheet.create({
   },
   toggleContainer: {
     flexDirection: 'row',
-    padding: 8,
+    padding: s(8),
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   toggleButton: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: s(10),
     alignItems: 'center',
     borderRadius: 8,
   },
@@ -617,21 +591,21 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   backButton: {
-    fontSize: 24,
+    fontSize: ms(24),
   },
   completeBanner: {
-    padding: 12,
+    padding: s(12),
     borderBottomWidth: 1,
     alignItems: 'center',
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: s(8),
   },
   onlineDot: {
-    width: 8,
-    height: 8,
+    width: s(8),
+    height: s(8),
     borderRadius: 4,
   },
   presenceOverlay: {
@@ -641,22 +615,22 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
   presenceModal: {
-    width: 300,
+    width: s(300),
     maxHeight: '70%',
     borderRadius: 12,
-    padding: 16,
+    padding: s(16),
     borderWidth: 1,
   },
   presenceRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 8,
+    gap: s(8),
+    paddingVertical: s(8),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   autoBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: s(8),
+    paddingVertical: s(3),
     borderRadius: 6,
     borderWidth: 1.5,
   },
@@ -664,35 +638,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    margin: 12,
-    paddingVertical: 10,
+    gap: s(6),
+    margin: s(12),
+    paddingVertical: s(10),
     borderRadius: 8,
   },
   tradeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: s(16),
+    paddingVertical: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
-    gap: 8,
+    gap: s(8),
   },
   responseBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: s(8),
+    paddingVertical: s(3),
     borderRadius: 6,
   },
   autoBadgeText: {
-    fontSize: 10,
+    fontSize: ms(10),
     fontWeight: '800',
     letterSpacing: 0.5,
   },
   chatFab: {
     position: 'absolute',
-    right: 16,
-    bottom: 60,
-    width: 48,
-    height: 48,
+    right: s(16),
+    bottom: s(60),
+    width: s(48),
+    height: s(48),
     borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',

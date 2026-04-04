@@ -1,8 +1,8 @@
 import { ScreenshotCapture } from '@/components/import/ScreenshotCapture';
 import { ScreenshotSettingsReview } from '@/components/import/ScreenshotSettingsReview';
 import { TeamRosterReview } from '@/components/import/TeamRosterReview';
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { ThemedView } from '@/components/ui/ThemedView';
 import { StepDraft } from '@/components/create-league/StepDraft';
 import { StepRoster } from '@/components/create-league/StepRoster';
 import { StepScoring } from '@/components/create-league/StepScoring';
@@ -11,6 +11,7 @@ import { StepTrade } from '@/components/create-league/StepTrade';
 import { StepWaivers } from '@/components/create-league/StepWaivers';
 import { StepIndicator } from '@/components/ui/StepIndicator';
 import { Colors } from '@/constants/Colors';
+import { ms, s } from '@/utils/scale';
 import {
   CURRENT_NBA_SEASON,
   DEFAULT_CATEGORIES,
@@ -1286,69 +1287,69 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 60,
-    paddingHorizontal: 20,
+    paddingTop: s(60),
+    paddingHorizontal: s(20),
   },
   flex: {
     flex: 1,
   },
   contentInner: {
-    paddingBottom: 24,
+    paddingBottom: s(24),
   },
   stepContent: {
-    gap: 12,
+    gap: s(12),
   },
   stepTitle: {
-    fontSize: 22,
-    marginBottom: 4,
+    fontSize: ms(22),
+    marginBottom: s(4),
   },
   stepDesc: {
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: ms(14),
+    lineHeight: ms(20),
   },
   fieldGroup: {
-    gap: 6,
+    gap: s(6),
   },
   fieldLabel: {
-    fontSize: 15,
+    fontSize: ms(15),
   },
   input: {
     borderWidth: 1,
     borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
+    paddingHorizontal: s(14),
+    paddingVertical: s(12),
+    fontSize: ms(16),
   },
   stepperRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    gap: s(16),
   },
   stepperBtn: {
-    width: 36,
-    height: 36,
+    width: s(36),
+    height: s(36),
     borderRadius: 8,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
   stepperValue: {
-    fontSize: 20,
-    minWidth: 30,
+    fontSize: ms(20),
+    minWidth: s(30),
     textAlign: 'center',
   },
   typeRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: s(8),
   },
   typeChip: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+    paddingVertical: s(8),
+    paddingHorizontal: s(16),
     borderRadius: 8,
     borderWidth: 1,
   },
   typeChipText: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '600',
   },
   modeCard: {
@@ -1356,125 +1357,125 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderRadius: 14,
-    padding: 16,
-    gap: 14,
+    padding: s(16),
+    gap: s(14),
   },
   modeIcon: {
-    width: 48,
-    height: 48,
+    width: s(48),
+    height: s(48),
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   modeInfo: {
     flex: 1,
-    gap: 2,
+    gap: s(2),
   },
   modeDesc: {
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: ms(13),
+    lineHeight: ms(18),
   },
   extractBtn: {
-    paddingVertical: 14,
+    paddingVertical: s(14),
     borderRadius: 10,
     alignItems: 'center',
   },
   extractBtnText: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: '700',
   },
   switchModeLink: {
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: s(8),
   },
   switchModeText: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '500',
   },
   divider: {
     height: 1,
-    marginVertical: 16,
+    marginVertical: s(16),
     opacity: 0.2,
   },
   progressBar: {
     flexDirection: 'row',
-    gap: 6,
-    padding: 12,
+    gap: s(6),
+    padding: s(12),
     borderRadius: 10,
     borderWidth: 1,
     justifyContent: 'center',
     flexWrap: 'wrap',
   },
   progressDot: {
-    width: 20,
-    height: 20,
+    width: s(20),
+    height: s(20),
     borderRadius: 10,
   },
   teamProgress: {
-    fontSize: 13,
+    fontSize: ms(13),
     textAlign: 'center',
   },
   teamNavRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 12,
+    marginTop: s(12),
   },
   teamNavBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
+    gap: s(4),
+    paddingVertical: s(10),
+    paddingHorizontal: s(16),
     borderRadius: 8,
     borderWidth: 1,
     borderColor: 'transparent',
   },
   teamNavText: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '600',
   },
   historyCard: {
     borderRadius: 12,
     borderWidth: 1,
-    padding: 14,
-    gap: 6,
+    padding: s(14),
+    gap: s(6),
   },
   historyRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 6,
+    gap: s(8),
+    paddingVertical: s(6),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   historyRank: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '600',
-    width: 24,
+    width: s(24),
   },
   historyTeam: {
-    fontSize: 14,
+    fontSize: ms(14),
     flex: 1,
   },
   historyRecord: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: '500',
   },
   summaryCard: {
     borderRadius: 12,
     borderWidth: 1,
-    padding: 16,
-    gap: 4,
+    padding: s(16),
+    gap: s(4),
   },
   summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 4,
+    paddingVertical: s(4),
   },
   summaryLabel: {
-    fontSize: 14,
+    fontSize: ms(14),
   },
   summaryValue: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '600',
   },
   teamSummaryRow: {
@@ -1482,41 +1483,41 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 10,
     borderWidth: 1,
-    padding: 12,
-    marginTop: 6,
+    padding: s(12),
+    marginTop: s(6),
   },
   teamSummaryInfo: {
     flex: 1,
   },
   teamSummaryName: {
-    fontSize: 14,
+    fontSize: ms(14),
   },
   teamSummaryCount: {
-    fontSize: 12,
-    marginTop: 2,
+    fontSize: ms(12),
+    marginTop: s(2),
   },
   importBtn: {
-    paddingVertical: 16,
+    paddingVertical: s(16),
     borderRadius: 10,
     alignItems: 'center',
-    marginTop: 16,
+    marginTop: s(16),
   },
   importBtnText: {
-    fontSize: 17,
+    fontSize: ms(17),
     fontWeight: '700',
   },
   navRow: {
     flexDirection: 'row',
-    paddingVertical: 16,
-    paddingBottom: 32,
+    paddingVertical: s(16),
+    paddingBottom: s(32),
   },
   navBtn: {
-    paddingVertical: 12,
-    paddingHorizontal: 28,
+    paddingVertical: s(12),
+    paddingHorizontal: s(28),
     borderRadius: 8,
   },
   navBtnText: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: '600',
   },
 });

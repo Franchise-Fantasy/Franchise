@@ -1,11 +1,12 @@
 import { CategoryScoreboard } from '@/components/matchup/CategoryScoreboard';
+import { ms, s } from "@/utils/scale";
 import { PlayerCell, pStyles, RosterPlayer, DisplayMode, round1, buildStatLine } from '@/components/matchup/PlayerCell';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { WeeklySummaryModal } from '@/components/matchup/WeeklySummaryModal';
 import { TeamLogo } from '@/components/team/TeamLogo';
 import { FptsBreakdownModal } from '@/components/player/FptsBreakdownModal';
 import { PlayerDetailModal } from '@/components/player/PlayerDetailModal';
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
@@ -22,7 +23,9 @@ import { liveToGameLog, LivePlayerStats, useLivePlayerStats } from '@/utils/nbaL
 import { parseLocalDate, addDays, formatDayLabel, useToday } from '@/utils/dates';
 import { fetchNbaScheduleForDate } from '@/utils/nbaSchedule';
 import { calculateGameFantasyPoints, formatScore } from '@/utils/fantasyPoints';
+import { calcRounds } from '@/utils/playoff';
 import { slotLabel } from '@/utils/rosterSlots';
+import { queryKeys } from '@/constants/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { useRosterChanges } from '@/hooks/useRosterChanges';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -49,6 +52,14 @@ async function fetchWeeklyAdds(leagueId: string, teamId: string): Promise<number
   return count ?? 0;
 }
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+function getPlayoffRoundLabel(round: number, totalRounds: number, isThirdPlace: boolean): string {
+  if (isThirdPlace) return '3rd Place Game';
+  if (round === totalRounds) return 'Championship';
+  if (round === totalRounds - 1) return 'Semifinals';
+  if (round === totalRounds - 2) return 'Quarterfinals';
+  return `Playoff Round ${round}`;
+}
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -202,7 +213,7 @@ export default function MatchupDetailScreen() {
 
   // Fetch matchup + week info
   const { data: matchupInfo, isLoading: infoLoading, isError: isInfoError } = useQuery({
-    queryKey: ['matchupDetail', matchupId],
+    queryKey: queryKeys.matchupDetail(matchupId!),
     queryFn: async () => {
       const { data: matchup, error: mErr } = await supabase
         .from('league_matchups')
@@ -225,6 +236,17 @@ export default function MatchupDetailScreen() {
 
       const teamMap = new Map((teams ?? []).map((t: any) => [t.id, { name: t.name, logoKey: t.logo_key ?? null }]));
 
+      // Check if this is a 3rd place game (for playoff matchups)
+      let isThirdPlace = false;
+      if (matchup.playoff_round != null) {
+        const { data: bracketRow } = await supabase
+          .from('playoff_bracket')
+          .select('is_third_place')
+          .eq('matchup_id', matchup.id)
+          .maybeSingle();
+        isThirdPlace = bracketRow?.is_third_place ?? false;
+      }
+
       return {
         matchup,
         week: week as Week,
@@ -232,6 +254,7 @@ export default function MatchupDetailScreen() {
         homeLogoKey: teamMap.get(matchup.home_team_id)?.logoKey ?? null,
         awayName: matchup.away_team_id ? (teamMap.get(matchup.away_team_id)?.name ?? 'Unknown') : null,
         awayLogoKey: matchup.away_team_id ? (teamMap.get(matchup.away_team_id)?.logoKey ?? null) : null,
+        isThirdPlace,
       };
     },
     enabled: !!matchupId,
@@ -251,7 +274,7 @@ export default function MatchupDetailScreen() {
 
   // Fetch both teams' rosters
   const { data: teamData, isLoading: teamLoading } = useQuery({
-    queryKey: ['matchupTeams', matchupId, effectiveDate],
+    queryKey: queryKeys.matchupTeams(matchupId!, effectiveDate),
     queryFn: async () => {
       if (!matchupInfo || !leagueId || !scoring) return null;
       const { matchup, week: w, homeName, awayName, homeLogoKey, awayLogoKey } = matchupInfo;
@@ -355,7 +378,7 @@ export default function MatchupDetailScreen() {
   // Future schedule
   const isFutureDate = effectiveDate > today;
   const { data: futureSchedule } = useQuery<Map<string, any>>({
-    queryKey: ['futureSchedule', effectiveDate],
+    queryKey: queryKeys.futureSchedule(effectiveDate),
     queryFn: () => fetchNbaScheduleForDate(effectiveDate),
     enabled: isToday || isFutureDate,
     staleTime: 1000 * 60 * 60,
@@ -367,14 +390,14 @@ export default function MatchupDetailScreen() {
   const awayTeamId = teamData?.awayTeam?.teamId ?? null;
 
   const { data: homeAdds } = useQuery({
-    queryKey: ['weeklyAdds', leagueId, homeTeamId],
+    queryKey: queryKeys.weeklyAdds(leagueId!, homeTeamId!),
     queryFn: () => fetchWeeklyAdds(leagueId!, homeTeamId!),
     enabled: !!leagueId && !!homeTeamId && weeklyLimit != null,
     staleTime: 1000 * 60 * 2,
   });
 
   const { data: awayAdds } = useQuery({
-    queryKey: ['weeklyAdds', leagueId, awayTeamId],
+    queryKey: queryKeys.weeklyAdds(leagueId!, awayTeamId!),
     queryFn: () => fetchWeeklyAdds(leagueId!, awayTeamId!),
     enabled: !!leagueId && !!awayTeamId && weeklyLimit != null,
     staleTime: 1000 * 60 * 2,
@@ -467,7 +490,7 @@ export default function MatchupDetailScreen() {
           </View>
           <View style={styles.navArrow} />
         </View>
-        <ThemedText style={{ textAlign: 'center', marginTop: 40, fontSize: 15, color: c.secondaryText }}>
+        <ThemedText style={{ textAlign: 'center', marginTop: 40, fontSize: ms(15), color: c.secondaryText }}>
           Matchup not found
         </ThemedText>
       </SafeAreaView>
@@ -499,7 +522,10 @@ export default function MatchupDetailScreen() {
                 {formatDayLabel(effectiveDate)}
               </ThemedText>
               <ThemedText style={[styles.weekMeta, { color: c.secondaryText }]}>
-                {week.is_playoff ? 'Playoffs · ' : ''}Week {week.week_number} · {formatWeekRange(week.start_date, week.end_date)}
+                {week.is_playoff && matchupInfo?.matchup.playoff_round != null && league
+                  ? `${getPlayoffRoundLabel(matchupInfo.matchup.playoff_round, calcRounds(league.playoff_teams ?? 8), matchupInfo.isThirdPlace)} · `
+                  : week.is_playoff ? 'Playoffs · ' : ''}
+                Week {week.week_number} · {formatWeekRange(week.start_date, week.end_date)}
               </ThemedText>
             </View>
             <TouchableOpacity
@@ -530,6 +556,27 @@ export default function MatchupDetailScreen() {
           </View>
         ) : teamData ? (
           <View>
+            {/* Playoff round badge */}
+            {matchupInfo?.matchup.playoff_round != null && league && (
+              <>
+                <View style={[playoffStyles.accentLine, { backgroundColor: c.gold }]} />
+                <View
+                  style={[playoffStyles.badge, { backgroundColor: c.goldMuted }]}
+                  accessibilityRole="header"
+                  accessibilityLabel={getPlayoffRoundLabel(matchupInfo.matchup.playoff_round, calcRounds(league.playoff_teams ?? 8), matchupInfo.isThirdPlace)}
+                >
+                  <Ionicons
+                    name={matchupInfo.isThirdPlace ? 'medal-outline' : 'trophy'}
+                    size={14}
+                    color={c.gold}
+                  />
+                  <Text style={[playoffStyles.badgeText, { color: c.gold }]}>
+                    {getPlayoffRoundLabel(matchupInfo.matchup.playoff_round, calcRounds(league.playoff_teams ?? 8), matchupInfo.isThirdPlace)}
+                  </Text>
+                </View>
+              </>
+            )}
+
             {/* Score header */}
             {(() => {
               const homeWeek = weekScores?.[teamData.homeTeam.teamId] ?? teamData.homeTeam.weekTotal;
@@ -544,10 +591,28 @@ export default function MatchupDetailScreen() {
                 : (teamData.awayTeam ? round1(teamData.awayTeam.dayTotal + awayDayLiveBonus) : 0);
 
               if (isCategories && teamData.awayTeam) {
+                // Merge live in-progress game stats into DB-based teamStats
+                const mergeWithLive = (team: TeamMatchupData): TeamStatTotals => {
+                  if (liveMap.size === 0) return team.teamStats;
+                  const merged = { ...team.teamStats };
+                  for (const p of team.players) {
+                    if (p.roster_slot === 'BE' || p.roster_slot === 'IR' || p.roster_slot === 'DROPPED') continue;
+                    const live = liveMap.get(p.player_id);
+                    if (!live) continue;
+                    const gameLog = liveToGameLog(live);
+                    for (const [key, val] of Object.entries(gameLog)) {
+                      if (val == null) continue;
+                      const numVal = typeof val === 'boolean' ? (val ? 1 : 0) : Number(val);
+                      merged[key] = (merged[key] ?? 0) + numVal;
+                    }
+                  }
+                  return merged;
+                };
+
                 const catComparison = computeCategoryResults(
-                  teamData.homeTeam.teamStats,
-                  teamData.awayTeam.teamStats,
-                  (scoring as any[] ?? []).filter((s) => s.is_enabled).map((s) => ({ stat_name: s.stat_name, inverse: !!s.inverse })),
+                  mergeWithLive(teamData.homeTeam),
+                  mergeWithLive(teamData.awayTeam),
+                  (scoring ?? []).map((s) => ({ stat_name: s.stat_name, inverse: !!s.inverse })),
                 );
                 return (
                   <View style={{ marginBottom: 14 }}>
@@ -660,7 +725,7 @@ export default function MatchupDetailScreen() {
               return (
                 <View style={{ marginTop: 12 }}>
                   <View style={{ alignItems: 'center', paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.border }}>
-                    <Text style={{ color: c.secondaryText, fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>BENCH</Text>
+                    <Text style={{ color: c.secondaryText, fontSize: ms(11), fontWeight: '700', letterSpacing: 1 }}>BENCH</Text>
                   </View>
                   {Array.from({ length: maxBench }).map((_, i) => (
                     <View key={`bench-${i}`} style={[pStyles.slotRow, { borderBottomColor: c.border, opacity: 0.7 }, i === maxBench - 1 && { borderBottomWidth: 0 }]}>
@@ -776,10 +841,36 @@ export default function MatchupDetailScreen() {
 
 // ─── Styles ─────────────────────────────────────────────────────────────────
 
+const playoffStyles = StyleSheet.create({
+  accentLine: {
+    height: 2,
+    marginHorizontal: 6,
+    borderRadius: 1,
+  },
+  badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    alignSelf: 'center',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  badgeText: {
+    fontSize: ms(13),
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+});
+
 const styles = StyleSheet.create({
   container: { flex: 1 },
   backBtn: { width: 36, alignItems: 'center' as const, justifyContent: 'center' as const },
-  weekMeta: { fontSize: 11, marginTop: 2 },
+  weekMeta: { fontSize: ms(11), marginTop: 2 },
   dayNav: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -791,9 +882,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  arrow: { fontSize: 28, fontWeight: '300' },
+  arrow: { fontSize: ms(28), fontWeight: '300' },
   dayInfo: { flex: 1, alignItems: 'center' },
-  dayLabel: { fontSize: 15 },
+  dayLabel: { fontSize: ms(15) },
   scroll: { flex: 1 },
   empty: { paddingVertical: 60, alignItems: 'center' },
 });
@@ -802,10 +893,10 @@ const colStyles = StyleSheet.create({
   scoreHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
   scoreCol: { flex: 1 },
   vsCol: { alignItems: 'center' as const, justifyContent: 'center' as const, marginHorizontal: 6, marginTop: 14 },
-  vsText: { fontSize: 12, fontWeight: '600' },
-  teamName: { fontWeight: '600', fontSize: 14, marginBottom: 2 },
-  total: { fontSize: 20, fontWeight: '700' },
-  dayTotal: { fontSize: 11, fontWeight: '500', marginTop: 2 },
+  vsText: { fontSize: ms(12), fontWeight: '600' },
+  teamName: { fontWeight: '600', fontSize: ms(14), marginBottom: 2 },
+  total: { fontSize: ms(20), fontWeight: '700' },
+  dayTotal: { fontSize: ms(11), fontWeight: '500', marginTop: 2 },
   acqRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -818,11 +909,11 @@ const colStyles = StyleSheet.create({
     alignItems: 'center',
   },
   acqText: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '600',
   },
   summaryBtnText: {
-    fontSize: 10,
+    fontSize: ms(10),
     fontWeight: '600' as const,
     marginTop: 2,
   },

@@ -1,7 +1,8 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { ToggleRow } from '@/components/ToggleRow';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { ms, s } from '@/utils/scale';
 import {
   getLeagueNotifPrefs,
   getPushPrefs,
@@ -44,6 +45,7 @@ const CATEGORIES: {
   { key: 'matchup_daily', icon: 'trending-up-outline', label: 'Daily Score Updates', parentKey: 'matchups' },
   { key: 'waivers', icon: 'hourglass-outline', label: 'Waiver Results' },
   { key: 'injuries', icon: 'medkit-outline', label: 'Injury Updates' },
+  { key: 'player_news', icon: 'newspaper-outline', label: 'Player News' },
   { key: 'playoffs', icon: 'trophy-outline', label: 'Playoff Alerts' },
   { key: 'lottery', icon: 'dice-outline', label: 'Lottery Results' },
   { key: 'chat', icon: 'chatbubbles-outline', label: 'Chat Messages' },
@@ -204,35 +206,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: s(16),
+    paddingVertical: s(12),
   },
-  headerTitle: { fontSize: 17, flex: 1, textAlign: 'center' },
+  headerTitle: { fontSize: ms(17), flex: 1, textAlign: 'center' },
   hint: {
-    fontSize: 13,
+    fontSize: ms(13),
     textAlign: 'center',
-    paddingHorizontal: 24,
-    marginBottom: 8,
+    paddingHorizontal: s(24),
+    marginBottom: s(8),
   },
   scrollContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 40,
+    paddingHorizontal: s(16),
+    paddingBottom: s(40),
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   indented: {
-    paddingLeft: 20,
+    paddingLeft: s(20),
   },
   dotWrap: {
-    width: 20,
+    width: s(20),
     alignItems: 'center',
     justifyContent: 'center',
   },
   dot: {
-    width: 8,
-    height: 8,
+    width: s(8),
+    height: s(8),
     borderRadius: 4,
   },
   toggleWrap: {

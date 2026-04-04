@@ -1,22 +1,24 @@
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import { PlayerFilterBar } from "@/components/player/PlayerFilterBar";
-import { ThemedText } from "@/components/ThemedText";
+import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
+import { queryKeys } from "@/constants/queryKeys";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
 import { TimeRange, usePlayerFilter } from "@/hooks/usePlayerFilter";
 import { useWatchlist } from "@/hooks/useWatchlist";
-import { sendNotification } from "@/lib/notifications";
 import { supabase } from "@/lib/supabase";
+import { addFreeAgent } from "@/utils/addFreeAgent";
 import { PlayerSeasonStats } from "@/types/player";
 import { toDateStr } from "@/utils/dates";
 import { calculateAvgFantasyPoints } from "@/utils/fantasyPoints";
 import { formatPosition } from "@/utils/formatting";
 import { getInjuryBadge } from "@/utils/injuryBadge";
-import { hasAnyGameStarted, isGameStarted, useTodayGameTimes } from "@/utils/gameStarted";
+import { useTodayGameTimes } from "@/utils/gameStarted";
 import { checkPositionLimits } from "@/utils/positionLimits";
 import { fetchNbaScheduleForDate } from "@/utils/nbaSchedule";
 import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
+import { ms, s } from "@/utils/scale";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -214,16 +216,32 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
   const { data: scoringWeights } = useLeagueScoring(leagueId);
 
+  // Detect category leagues to show cat stats instead of FPTS
+  const { data: leagueScoringType } = useQuery({
+    queryKey: queryKeys.leagueScoringType(leagueId),
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("leagues")
+        .select("scoring_type")
+        .eq("id", leagueId)
+        .single();
+      return data?.scoring_type as string | null;
+    },
+    enabled: !!leagueId,
+    staleTime: 1000 * 60 * 30,
+  });
+  const isCategories = leagueScoringType === "h2h_categories";
+
   // Fetch today's NBA schedule for "playing today" indicator
   const todayStr = toDateStr(new Date());
   const { data: todaySchedule } = useQuery({
-    queryKey: ["todaySchedule", todayStr],
+    queryKey: queryKeys.todaySchedule(todayStr),
     queryFn: () => fetchNbaScheduleForDate(todayStr),
     staleTime: 1000 * 60 * 30,
   });
 
   const { data: hasActiveDraft } = useQuery({
-    queryKey: ["hasActiveDraft", leagueId],
+    queryKey: queryKeys.hasActiveDraft(leagueId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from("drafts")
@@ -256,7 +274,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         },
         () => {
           queryClient.invalidateQueries({
-            queryKey: ["hasActiveDraft", leagueId],
+            queryKey: queryKeys.hasActiveDraft(leagueId),
           });
         },
       )
@@ -268,7 +286,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
   // Fetch roster info + league waiver settings
   const { data: rosterInfo } = useQuery({
-    queryKey: ["freeAgentRosterInfo", leagueId, teamId],
+    queryKey: queryKeys.freeAgentRosterInfo(leagueId, teamId),
     queryFn: async () => {
       const [allPlayersRes, irPlayersRes, leagueRes] = await Promise.all([
         supabase
@@ -330,7 +348,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   // Only counts transactions where a player was actually added to the team
   // (excludes pure drops and trade-related transactions)
   const { data: weeklyAddsUsed } = useQuery({
-    queryKey: ["weeklyAdds", leagueId, teamId],
+    queryKey: queryKeys.weeklyAdds(leagueId, teamId),
     queryFn: async () => {
       const now = new Date();
       const day = now.getUTCDay(); // 0=Sun, use UTC to match DB timestamps
@@ -370,7 +388,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
   // Fetch players currently on waivers in this league (with expiry times)
   const { data: waiverPlayerMap } = useQuery({
-    queryKey: ["leagueWaivers", leagueId],
+    queryKey: queryKeys.leagueWaivers(leagueId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from("league_waivers")
@@ -387,7 +405,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
   // Fetch team's FAAB remaining (for FAAB mode)
   const { data: faabRemaining } = useQuery({
-    queryKey: ["faabRemaining", leagueId, teamId],
+    queryKey: queryKeys.faabRemaining(leagueId, teamId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from("waiver_priority")
@@ -403,7 +421,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
   // Fetch waiver priority order for all teams in the league (no dependency on rosterInfo)
   const { data: waiverOrder } = useQuery({
-    queryKey: ["waiverOrder", leagueId],
+    queryKey: queryKeys.waiverOrder(leagueId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from("waiver_priority")
@@ -420,7 +438,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
   // Fetch pending claims for this team
   const { data: pendingClaims } = useQuery({
-    queryKey: ["pendingClaims", leagueId, teamId],
+    queryKey: queryKeys.pendingClaims(leagueId, teamId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from("waiver_claims")
@@ -440,7 +458,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   const { watchlistedIds } = useWatchlist();
 
   const { data: allPlayers, isLoading } = useQuery<PlayerSeasonStats[]>({
-    queryKey: ["allPlayers", leagueId],
+    queryKey: queryKeys.allPlayers(leagueId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from("player_season_stats")
@@ -456,7 +474,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
   // Fetch rostered player IDs + team names for this league
   const { data: ownershipRows } = useQuery({
-    queryKey: ["leagueOwnership", leagueId],
+    queryKey: queryKeys.leagueOwnership(leagueId),
     queryFn: async () => {
       const [lpRes, teamsRes] = await Promise.all([
         supabase
@@ -494,40 +512,15 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     return map;
   }, [ownershipRows]);
 
-  // Exclude players that already have a pending queued pickup (add or add_drop)
-  const { data: pendingAddPlayerIds } = useQuery({
-    queryKey: ["pendingAddPlayerIds", leagueId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("pending_transactions")
-        .select("target_player_id")
-        .eq("league_id", leagueId)
-        .eq("status", "pending")
-        .in("action_type", ["add", "add_drop"]);
-      if (error) throw error;
-      return new Set(
-        (data ?? [])
-          .map((r) => r.target_player_id as string)
-          .filter(Boolean),
-      );
-    },
-    enabled: !!leagueId,
-    staleTime: 1000 * 60 * 2,
-  });
-
   // Fetch last 30 days of game logs for FREE AGENTS only (time-range stats + "Minutes Up" filter)
   const freeAgentIds = useMemo(() => {
     if (!allPlayers || !rosteredPlayerIds) return [];
     return allPlayers
-      .filter(
-        (p) =>
-          !rosteredPlayerIds.has(p.player_id) &&
-          !pendingAddPlayerIds?.has(p.player_id),
-      )
+      .filter((p) => !rosteredPlayerIds.has(p.player_id))
       .map((p) => p.player_id);
-  }, [allPlayers, rosteredPlayerIds, pendingAddPlayerIds]);
+  }, [allPlayers, rosteredPlayerIds]);
   const { data: recentGameLogs } = useQuery({
-    queryKey: ["recentGameLogs", leagueId],
+    queryKey: queryKeys.recentGameLogs(leagueId),
     queryFn: async () => {
       const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - 30);
@@ -789,7 +782,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       const maxSize = leagueRes.data?.roster_size ?? 13;
       if (activeCount >= maxSize) {
         queryClient.invalidateQueries({
-          queryKey: ["freeAgentRosterInfo", leagueId, teamId],
+          queryKey: queryKeys.freeAgentRosterInfo(leagueId, teamId),
         });
         setOpenAsDropPicker(true);
         setSelectedPlayer(player);
@@ -847,7 +840,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
         if ((addsThisWeek ?? 0) >= serverWeeklyLimit) {
           queryClient.invalidateQueries({
-            queryKey: ["weeklyAdds", leagueId, teamId],
+            queryKey: queryKeys.weeklyAdds(leagueId, teamId),
           });
           Alert.alert(
             "Acquisition Limit Reached",
@@ -858,118 +851,43 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         }
       }
 
-      // Player lock check
-      if (playerLockType === "daily" && hasAnyGameStarted(gameTimeMap)) {
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        const executeAfter = toDateStr(tomorrow);
-
-        // Check for duplicate pending add
-        const { count: existing } = await supabase
-          .from("pending_transactions")
-          .select("id", { count: "exact", head: true })
-          .eq("league_id", leagueId)
-          .eq("team_id", teamId)
-          .eq("target_player_id", player.player_id)
-          .eq("status", "pending");
-        if ((existing ?? 0) > 0) {
-          Alert.alert("Already Queued", `${player.name} is already queued to be added tomorrow.`);
-          setAddingPlayerId(null);
-          return;
-        }
-
-        const { error } = await supabase.from("pending_transactions").insert({
-          league_id: leagueId,
-          team_id: teamId,
+      // Add the player (lock-aware: deferred adds get tomorrow's acquired_at)
+      const { deferred } = await addFreeAgent({
+        leagueId,
+        teamId,
+        player: {
           player_id: player.player_id,
-          target_player_id: player.player_id,
-          action_type: "add",
-          execute_after: executeAfter,
-          status: "pending",
-          metadata: { position: player.position, name: player.name },
-        });
-        if (error) throw error;
+          name: player.name,
+          position: player.position,
+          nba_team: player.nba_team ?? "",
+        },
+        playerLockType,
+        gameTimeMap,
+      });
 
-        queryClient.invalidateQueries({ queryKey: ["pendingAddPlayerIds", leagueId] });
+      if (deferred) {
         Alert.alert(
-          "Add Queued",
-          `Games have started today. ${player.name} will be added to your roster tomorrow.`,
+          "Player Added",
+          `${player.name} will appear on your roster tomorrow.`,
         );
-        setAddingPlayerId(null);
-        return;
-      }
-      if (playerLockType === "individual" && isGameStarted(player.nba_team, gameTimeMap)) {
-        Alert.alert(
-          "Player Locked",
-          `${player.name}'s game has already started. You cannot add this player today.`,
-        );
-        setAddingPlayerId(null);
-        return;
       }
 
-      const { error: lpError } = await supabase.from("league_players").insert({
-        league_id: leagueId,
-        player_id: player.player_id,
-        team_id: teamId,
-        acquired_via: "free_agent",
-        acquired_at: new Date().toISOString(),
-        position: player.position,
-        roster_slot: "BE",
-      });
-
-      if (lpError) throw lpError;
-
-      const { data: txn, error: txnError } = await supabase
-        .from("league_transactions")
-        .insert({
-          league_id: leagueId,
-          type: "waiver",
-          notes: `Added ${player.name} from free agency`,
-          team_id: teamId,
-        })
-        .select("id")
-        .single();
-
-      if (txnError) throw txnError;
-
-      await supabase.from("league_transaction_items").insert({
-        transaction_id: txn.id,
-        player_id: player.player_id,
-        team_to_id: teamId,
-      });
-
-      // Fire-and-forget notification to league
-      (async () => {
-        const { data: team } = await supabase
-          .from("teams")
-          .select("name")
-          .eq("id", teamId)
-          .single();
-        sendNotification({
-          league_id: leagueId,
-          category: "roster_moves",
-          title: "Roster Move",
-          body: `${team?.name ?? "A team"} added ${player.name}`,
-          data: { screen: "roster" },
-        });
-      })();
-
-      queryClient.invalidateQueries({ queryKey: ["allPlayers", leagueId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.allPlayers(leagueId) });
       queryClient.invalidateQueries({
-        queryKey: ["leagueOwnership", leagueId],
+        queryKey: queryKeys.leagueOwnership(leagueId),
       });
-      queryClient.invalidateQueries({ queryKey: ["teamRoster", teamId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.teamRoster(teamId) });
       queryClient.invalidateQueries({
-        queryKey: ["freeAgentRosterInfo", leagueId, teamId],
+        queryKey: queryKeys.freeAgentRosterInfo(leagueId, teamId),
       });
       queryClient.invalidateQueries({
-        queryKey: ["rosterInfo", leagueId, teamId],
+        queryKey: queryKeys.rosterInfo(leagueId, teamId),
       });
       queryClient.invalidateQueries({
-        queryKey: ["leagueRosterStats", leagueId],
+        queryKey: queryKeys.leagueRosterStats(leagueId),
       });
       queryClient.invalidateQueries({
-        queryKey: ["weeklyAdds", leagueId, teamId],
+        queryKey: queryKeys.weeklyAdds(leagueId, teamId),
       });
 
       // Warn if roster is now full and there are pending claims without a drop player
@@ -1058,12 +976,12 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       if (error) throw error;
 
       queryClient.invalidateQueries({
-        queryKey: ["pendingClaims", leagueId, teamId],
+        queryKey: queryKeys.pendingClaims(leagueId, teamId),
       });
       queryClient.invalidateQueries({
-        queryKey: ["faabRemaining", leagueId, teamId],
+        queryKey: queryKeys.faabRemaining(leagueId, teamId),
       });
-      queryClient.invalidateQueries({ queryKey: ["waiverOrder", leagueId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.waiverOrder(leagueId) });
       Alert.alert(
         "Claim Submitted",
         `Waiver claim for ${player.name} submitted.`,
@@ -1108,12 +1026,12 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       if (error) throw error;
 
       queryClient.invalidateQueries({
-        queryKey: ["pendingClaims", leagueId, teamId],
+        queryKey: queryKeys.pendingClaims(leagueId, teamId),
       });
       queryClient.invalidateQueries({
-        queryKey: ["faabRemaining", leagueId, teamId],
+        queryKey: queryKeys.faabRemaining(leagueId, teamId),
       });
-      queryClient.invalidateQueries({ queryKey: ["waiverOrder", leagueId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.waiverOrder(leagueId) });
       Alert.alert("Bid Submitted", `$${bid} bid for ${player.name} submitted.`);
     } catch (err: any) {
       Alert.alert("Error", err.message ?? "Failed to submit bid");
@@ -1133,12 +1051,12 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       return;
     }
     queryClient.invalidateQueries({
-      queryKey: ["pendingClaims", leagueId, teamId],
+      queryKey: queryKeys.pendingClaims(leagueId, teamId),
     });
     queryClient.invalidateQueries({
-      queryKey: ["faabRemaining", leagueId, teamId],
+      queryKey: queryKeys.faabRemaining(leagueId, teamId),
     });
-    queryClient.invalidateQueries({ queryKey: ["waiverOrder", leagueId] });
+    queryClient.invalidateQueries({ queryKey: queryKeys.waiverOrder(leagueId) });
   };
 
   // State to track if the drop picker is in "claim with drop" mode
@@ -1163,7 +1081,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     }
     setEditingClaimId(null);
     queryClient.invalidateQueries({
-      queryKey: ["pendingClaims", leagueId, teamId],
+      queryKey: queryKeys.pendingClaims(leagueId, teamId),
     });
     Alert.alert(
       "Updated",
@@ -1230,9 +1148,10 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     item: PlayerSeasonStats;
     index: number;
   }) => {
-    const fpts = scoringWeights
-      ? calculateAvgFantasyPoints(item, scoringWeights)
-      : undefined;
+    const fpts =
+      scoringWeights && !isCategories
+        ? calculateAvgFantasyPoints(item, scoringWeights)
+        : undefined;
     const isAdding = addingPlayerId === item.player_id;
     const headshotUrl = getPlayerHeadshotUrl(item.external_id_nba);
     const logoUrl = getTeamLogoUrl(item.nba_team);
@@ -1256,7 +1175,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         onPress={() => selectPlayer(item)}
         activeOpacity={0.7}
         accessibilityRole="button"
-        accessibilityLabel={`${item.name}, ${formatPosition(item.position)}, ${item.nba_team}${ownerTeamName ? `, rostered by ${ownerTeamName}` : ""}${fpts !== undefined ? `, ${fpts} fantasy points` : ""}`}
+        accessibilityLabel={`${item.name}, ${formatPosition(item.position)}, ${item.nba_team}${ownerTeamName ? `, rostered by ${ownerTeamName}` : ""}${fpts !== undefined ? `, ${fpts} fantasy points` : ""}${isCategories ? `, ${item.avg_pts} points, ${item.avg_reb} rebounds, ${item.avg_ast} assists, ${item.avg_stl} steals, ${item.avg_blk} blocks` : ""}`}
       >
         <View style={styles.portraitWrap}>
           <View
@@ -1290,7 +1209,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
             <ThemedText
               type="defaultSemiBold"
               numberOfLines={1}
-              style={{ flexShrink: 1, fontSize: 14 }}
+              style={{ flexShrink: 1, fontSize: ms(14) }}
             >
               {item.name}
             </ThemedText>
@@ -1332,13 +1251,32 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
         <View style={styles.rightSide}>
           <View style={styles.stats}>
-            <ThemedText style={[styles.statLine, { color: c.secondaryText }]}>
-              {item.avg_pts}/{item.avg_reb}/{item.avg_ast}
-            </ThemedText>
-            {fpts !== undefined && (
-              <ThemedText style={[styles.fpts, { color: c.accent }]}>
-                {fpts} FPTS
-              </ThemedText>
+            {isCategories ? (
+              <>
+                <ThemedText style={[styles.statLine, { color: c.secondaryText }]}>
+                  {item.avg_pts}/{item.avg_reb}/{item.avg_ast}/{item.avg_stl}/{item.avg_blk}
+                </ThemedText>
+                <ThemedText style={[styles.catLine, { color: c.secondaryText }]}>
+                  {item.avg_fga > 0
+                    ? ((item.avg_fgm / item.avg_fga) * 100).toFixed(1)
+                    : "0.0"}
+                  % FG · {item.avg_fta > 0
+                    ? ((item.avg_ftm / item.avg_fta) * 100).toFixed(1)
+                    : "0.0"}
+                  % FT · {item.avg_tov} TO
+                </ThemedText>
+              </>
+            ) : (
+              <>
+                <ThemedText style={[styles.statLine, { color: c.secondaryText }]}>
+                  {item.avg_pts}/{item.avg_reb}/{item.avg_ast}
+                </ThemedText>
+                {fpts !== undefined && (
+                  <ThemedText style={[styles.fpts, { color: c.accent }]}>
+                    {fpts} FPTS
+                  </ThemedText>
+                )}
+              </>
             )}
           </View>
           {!isRostered && (
@@ -1407,7 +1345,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         >
           <Ionicons name="lock-closed" size={14} color={c.warning} />
           <ThemedText
-            style={{ fontSize: 12, marginLeft: 6, color: c.secondaryText }}
+            style={{ fontSize: ms(12), marginLeft: 6, color: c.secondaryText }}
           >
             Free agent transactions are locked during the offseason.
           </ThemedText>
@@ -1453,7 +1391,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
                   />
                   <Text
                     style={{
-                      fontSize: 12,
+                      fontSize: ms(12),
                       fontWeight: "600",
                       color: weeklyLimitReached ? c.danger : c.link,
                     }}
@@ -1493,7 +1431,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
                     accessible={false}
                   />
                   <Text
-                    style={{ fontSize: 12, fontWeight: "600", color: c.gold }}
+                    style={{ fontSize: ms(12), fontWeight: "600", color: c.gold }}
                   >
                     Claims ({claimCount})
                   </Text>
@@ -1528,7 +1466,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
                     accessible={false}
                   />
                   <Text
-                    style={{ fontSize: 12, fontWeight: "600", color: c.accent }}
+                    style={{ fontSize: ms(12), fontWeight: "600", color: c.accent }}
                   >
                     {waiverType === "faab"
                       ? `FAAB: $${faabRemaining ?? 0}`
@@ -1583,11 +1521,11 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
                     ]}
                   >
                     <View style={{ flex: 1 }}>
-                      <ThemedText style={{ fontSize: 13, fontWeight: "600" }}>
+                      <ThemedText style={{ fontSize: ms(13), fontWeight: "600" }}>
                         {claim.player?.name ?? "Unknown"}
                       </ThemedText>
                       <ThemedText
-                        style={{ fontSize: 11, color: c.secondaryText }}
+                        style={{ fontSize: ms(11), color: c.secondaryText }}
                       >
                         {claim.player?.position} - {claim.player?.nba_team}
                         {waiverType === "faab"
@@ -1597,7 +1535,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
                       </ThemedText>
                       <ThemedText
                         style={{
-                          fontSize: 11,
+                          fontSize: ms(11),
                           color:
                             hasNoDrop && rosterIsFull
                               ? c.danger
@@ -1679,7 +1617,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
                   >
                     <ThemedText
                       style={{
-                        fontSize: 14,
+                        fontSize: ms(14),
                         fontWeight: "700",
                         width: 24,
                         color: c.secondaryText,
@@ -1690,7 +1628,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
                     <ThemedText
                       style={{
                         flex: 1,
-                        fontSize: 13,
+                        fontSize: ms(13),
                         fontWeight: wp.team_id === teamId ? "700" : "400",
                       }}
                     >
@@ -1699,7 +1637,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
                     </ThemedText>
                     {waiverType === "faab" && (
                       <ThemedText
-                        style={{ fontSize: 12, color: c.secondaryText }}
+                        style={{ fontSize: ms(12), color: c.secondaryText }}
                       >
                         ${wp.faab_remaining}
                       </ThemedText>
@@ -1771,19 +1709,19 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
           <View style={[styles.faabModal, { backgroundColor: c.card }]}>
             <ThemedText
               type="defaultSemiBold"
-              style={{ fontSize: 16, marginBottom: 4 }}
+              style={{ fontSize: ms(16), marginBottom: 4 }}
             >
               Place FAAB Bid
             </ThemedText>
             <ThemedText
-              style={{ fontSize: 13, color: c.secondaryText, marginBottom: 16 }}
+              style={{ fontSize: ms(13), color: c.secondaryText, marginBottom: 16 }}
             >
               {faabModalPlayer?.name} -{" "}
               {formatPosition(faabModalPlayer?.position ?? "")}
             </ThemedText>
 
             <View style={styles.bidRow}>
-              <ThemedText style={{ fontSize: 14, color: c.secondaryText }}>
+              <ThemedText style={{ fontSize: ms(14), color: c.secondaryText }}>
                 Bid Amount ($)
               </ThemedText>
               <TextInput
@@ -1803,7 +1741,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
               />
             </View>
             <ThemedText
-              style={{ fontSize: 11, color: c.secondaryText, marginBottom: 16 }}
+              style={{ fontSize: ms(11), color: c.secondaryText, marginBottom: 16 }}
             >
               Remaining budget: ${faabRemaining ?? 0}
             </ThemedText>
@@ -1854,51 +1792,51 @@ const styles = StyleSheet.create({
   offseasonBanner: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 10,
-    marginHorizontal: 8,
-    marginTop: 4,
+    padding: s(10),
+    marginHorizontal: s(8),
+    marginTop: s(4),
     borderRadius: 8,
     borderWidth: 1,
   },
   listContent: {
-    paddingHorizontal: 8,
-    paddingBottom: 8,
+    paddingHorizontal: s(8),
+    paddingBottom: s(8),
   },
   ribbonRow: {
     flexDirection: "row",
     alignItems: "center",
   },
   statInfoBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: s(10),
+    paddingVertical: s(4),
     marginLeft: "auto",
   },
   row: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingVertical: s(6),
+    paddingHorizontal: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   portraitWrap: {
-    width: 58,
-    height: 58,
-    marginRight: 10,
+    width: s(58),
+    height: s(58),
+    marginRight: s(10),
     alignItems: "center",
   },
   headshotCircle: {
-    width: 54,
-    height: 54,
+    width: s(54),
+    height: s(54),
     borderRadius: 29,
     borderWidth: 1.5,
     overflow: "hidden" as const,
   },
   headshotImg: {
     position: "absolute" as const,
-    bottom: -2,
+    bottom: s(-2),
     left: 0,
     right: 0,
-    height: 48,
+    height: s(48),
   },
   teamPill: {
     position: "absolute",
@@ -1908,141 +1846,145 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "rgba(0,0,0,0.75)",
     borderRadius: 8,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    gap: 2,
+    paddingHorizontal: s(4),
+    paddingVertical: s(1),
+    gap: s(2),
   },
   teamPillLogo: {
-    width: 10,
-    height: 10,
+    width: s(10),
+    height: s(10),
   },
   teamPillText: {
-    fontSize: 8,
+    fontSize: ms(8),
     fontWeight: "700",
     letterSpacing: 0.3,
   },
   info: {
     flex: 1,
-    marginRight: 8,
+    marginRight: s(8),
   },
   nameRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: s(4),
   },
   badge: {
-    paddingHorizontal: 4,
-    paddingVertical: 1,
+    paddingHorizontal: s(4),
+    paddingVertical: s(1),
     borderRadius: 3,
   },
   badgeText: {
-    fontSize: 8,
+    fontSize: ms(8),
     fontWeight: "800",
     letterSpacing: 0.5,
   },
   posRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: s(4),
   },
   posText: {
-    fontSize: 11,
+    fontSize: ms(11),
     marginTop: 0,
   },
   waiverBadge: {
-    paddingHorizontal: 5,
-    paddingVertical: 1,
+    paddingHorizontal: s(5),
+    paddingVertical: s(1),
     borderRadius: 3,
-    marginLeft: 4,
+    marginLeft: s(4),
   },
   waiverBadgeText: {
-    fontSize: 9,
+    fontSize: ms(9),
     fontWeight: "700",
   },
   gameTodayBadge: {
-    paddingHorizontal: 4,
-    paddingVertical: 1,
+    paddingHorizontal: s(4),
+    paddingVertical: s(1),
     borderRadius: 3,
   },
   gameTodayText: {
-    fontSize: 9,
+    fontSize: ms(9),
     fontWeight: "700",
   },
   rightSide: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: s(8),
   },
   stats: {
     alignItems: "flex-end",
   },
   statLine: {
-    fontSize: 12,
+    fontSize: ms(12),
   },
   fpts: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: "600",
     marginTop: 1,
   },
+  catLine: {
+    fontSize: ms(10),
+    marginTop: 1,
+  },
   addButton: {
-    width: 28,
-    height: 28,
+    width: s(28),
+    height: s(28),
     borderRadius: 14,
     alignItems: "center" as const,
     justifyContent: "center" as const,
   },
   claimButton: {
-    width: 28,
-    height: 28,
+    width: s(28),
+    height: s(28),
     borderRadius: 14,
     alignItems: "center" as const,
     justifyContent: "center" as const,
   },
   addButtonText: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: "bold",
-    lineHeight: 16,
+    lineHeight: ms(16),
   },
   addButtonDisabled: {
     opacity: 0.4,
   },
   skeletonBar: {
-    height: 12,
+    height: s(12),
     borderRadius: 4,
   },
 
   // Status ribbon
   ribbonScroll: {
-    marginTop: 4,
-    marginHorizontal: 8,
+    marginTop: s(4),
+    marginHorizontal: s(8),
   },
   ribbonContent: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    paddingVertical: 4,
-    paddingHorizontal: 2,
+    gap: s(8),
+    paddingVertical: s(4),
+    paddingHorizontal: s(2),
   },
   ribbonPill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    gap: s(4),
+    paddingHorizontal: s(10),
+    paddingVertical: s(6),
     borderRadius: 16,
     borderWidth: 1,
   },
   claimsList: {
-    marginHorizontal: 8,
-    marginTop: 4,
+    marginHorizontal: s(8),
+    marginTop: s(4),
     borderWidth: 1,
     borderRadius: 8,
-    paddingHorizontal: 12,
+    paddingHorizontal: s(12),
   },
   claimRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 8,
+    paddingVertical: s(8),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
 
@@ -2056,34 +1998,34 @@ const styles = StyleSheet.create({
   faabModal: {
     width: "80%",
     borderRadius: 12,
-    padding: 20,
+    padding: s(20),
   },
   bidRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 4,
+    marginBottom: s(4),
   },
   bidInput: {
-    width: 80,
+    width: s(80),
     borderWidth: 1,
     borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 16,
+    paddingHorizontal: s(12),
+    paddingVertical: s(8),
+    fontSize: ms(16),
     fontWeight: "700",
     textAlign: "center",
   },
   modalButtons: {
     flexDirection: "row",
     justifyContent: "flex-end",
-    gap: 10,
+    gap: s(10),
   },
   modalBtn: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingHorizontal: s(20),
+    paddingVertical: s(10),
     borderRadius: 8,
     alignItems: "center",
-    minWidth: 80,
+    minWidth: s(80),
   },
 });

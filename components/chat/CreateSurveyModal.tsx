@@ -1,11 +1,13 @@
 import { capture } from '@/lib/posthog';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { ToggleRow } from '@/components/ToggleRow';
 import { Colors } from '@/constants/Colors';
 import { useToast } from '@/context/ToastProvider';
 import { useCreateSurvey } from '@/hooks/chat/useSurveys';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { containsBlockedContent } from '@/utils/moderation';
+import { ms, s } from '@/utils/scale';
 import type { SurveyQuestionType } from '@/types/survey';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -199,6 +201,15 @@ export function CreateSurveyModal({
 
   async function handleCreate() {
     if (!canSubmit || !closesAt) return;
+    const allText = [
+      trimmedTitle,
+      description.trim(),
+      ...questions.flatMap((q) => [q.prompt.trim(), ...q.options.map((o) => o.trim())]),
+    ].join(' ');
+    if (containsBlockedContent(allText)) {
+      Alert.alert('Content blocked', 'Your survey contains language that isn\u2019t allowed.');
+      return;
+    }
 
     createSurvey.mutate(
       {
@@ -250,7 +261,7 @@ export function CreateSurveyModal({
           <ThemedText accessibilityRole="header" type="subtitle">
             Create Survey
           </ThemedText>
-          <View style={{ width: 24 }} />
+          <View style={{ width: s(24) }} />
         </View>
 
         <KeyboardAvoidingView
@@ -279,7 +290,7 @@ export function CreateSurveyModal({
             </ThemedText>
 
             {/* Description */}
-            <ThemedText style={[styles.label, { color: c.text, marginTop: 12 }]}>
+            <ThemedText style={[styles.label, { color: c.text, marginTop: s(12) }]}>
               Description (optional)
             </ThemedText>
             <TextInput
@@ -295,7 +306,7 @@ export function CreateSurveyModal({
             />
 
             {/* Questions */}
-            <View style={[styles.sectionHeader, { borderTopColor: c.border, marginTop: 16 }]}>
+            <View style={[styles.sectionHeader, { borderTopColor: c.border, marginTop: s(16) }]}>
               <ThemedText style={[styles.sectionTitle, { color: c.text }]}>
                 Questions ({questions.length}/20)
               </ThemedText>
@@ -389,7 +400,7 @@ export function CreateSurveyModal({
                       <Text
                         style={{
                           color: q.type === qt.value ? c.statusText : c.text,
-                          fontSize: 12,
+                          fontSize: ms(12),
                           fontWeight: '600',
                         }}
                       >
@@ -484,7 +495,7 @@ export function CreateSurveyModal({
             )}
 
             {/* Results visibility */}
-            <View style={[styles.sectionHeader, { borderTopColor: c.border, marginTop: 16 }]}>
+            <View style={[styles.sectionHeader, { borderTopColor: c.border, marginTop: s(16) }]}>
               <ThemedText style={[styles.label, { color: c.text }]}>
                 Results Visibility
               </ThemedText>
@@ -496,7 +507,7 @@ export function CreateSurveyModal({
             />
 
             {/* Closing time */}
-            <ThemedText style={[styles.label, { color: c.text, marginTop: 16 }]}>
+            <ThemedText style={[styles.label, { color: c.text, marginTop: s(16) }]}>
               Closing Time
             </ThemedText>
             <View style={styles.presets}>
@@ -518,7 +529,7 @@ export function CreateSurveyModal({
                   <Text
                     style={{
                       color: presetIdx === idx ? c.statusText : c.text,
-                      fontSize: 13,
+                      fontSize: ms(13),
                       fontWeight: '600',
                     }}
                   >
@@ -542,7 +553,7 @@ export function CreateSurveyModal({
                 <Text
                   style={{
                     color: customDate ? c.statusText : c.text,
-                    fontSize: 13,
+                    fontSize: ms(13),
                     fontWeight: '600',
                   }}
                 >
@@ -569,7 +580,7 @@ export function CreateSurveyModal({
             )}
 
             {/* Spacer for bottom button */}
-            <View style={{ height: 80 }} />
+            <View style={{ height: s(80) }} />
           </ScrollView>
         </KeyboardAvoidingView>
 
@@ -604,123 +615,123 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 56,
-    paddingBottom: 12,
+    paddingHorizontal: s(16),
+    paddingTop: s(56),
+    paddingBottom: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  scroll: { flex: 1, paddingHorizontal: 16, paddingTop: 16 },
-  label: { fontSize: 14, fontWeight: '600', marginBottom: 6 },
+  scroll: { flex: 1, paddingHorizontal: s(16), paddingTop: s(16) },
+  label: { fontSize: ms(14), fontWeight: '600', marginBottom: s(6) },
   input: {
     borderWidth: 1,
     borderRadius: 8,
-    padding: 12,
-    fontSize: 15,
+    padding: s(12),
+    fontSize: ms(15),
   },
-  multiline: { minHeight: 60 },
-  counter: { fontSize: 11, textAlign: 'right', marginTop: 2 },
+  multiline: { minHeight: s(60) },
+  counter: { fontSize: ms(11), textAlign: 'right', marginTop: s(2) },
   sectionHeader: {
     borderTopWidth: StyleSheet.hairlineWidth,
-    paddingTop: 14,
-    marginBottom: 10,
+    paddingTop: s(14),
+    marginBottom: s(10),
   },
-  sectionTitle: { fontSize: 16, fontWeight: '700' },
+  sectionTitle: { fontSize: ms(16), fontWeight: '700' },
   // Question card
   questionCard: {
     borderWidth: 1,
     borderRadius: 12,
-    padding: 12,
-    marginBottom: 10,
-    gap: 8,
+    padding: s(12),
+    marginBottom: s(10),
+    gap: s(8),
   },
   questionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  questionNum: { fontSize: 14, fontWeight: '700' },
-  questionActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  typeScroll: { marginBottom: 4 },
+  questionNum: { fontSize: ms(14), fontWeight: '700' },
+  questionActions: { flexDirection: 'row', alignItems: 'center', gap: s(10) },
+  typeScroll: { marginBottom: s(4) },
   typeChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: s(10),
+    paddingVertical: s(5),
     borderRadius: 14,
     borderWidth: 1,
-    marginRight: 6,
+    marginRight: s(6),
   },
   qInput: {
     borderWidth: 1,
     borderRadius: 8,
-    padding: 10,
-    fontSize: 14,
-    minHeight: 44,
+    padding: s(10),
+    fontSize: ms(14),
+    minHeight: s(44),
   },
-  optionsSection: { gap: 4 },
+  optionsSection: { gap: s(4) },
   optionInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: s(6),
   },
   optionInput: {
     flex: 1,
     borderWidth: 1,
     borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    fontSize: 14,
+    paddingHorizontal: s(10),
+    paddingVertical: s(7),
+    fontSize: ms(14),
   },
   addOptBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingVertical: 4,
+    gap: s(4),
+    paddingVertical: s(4),
   },
-  addOptText: { fontSize: 13, fontWeight: '600' },
+  addOptText: { fontSize: ms(13), fontWeight: '600' },
   // Add question button
   addQuestionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 14,
+    gap: s(8),
+    paddingVertical: s(14),
     borderWidth: 1,
     borderStyle: 'dashed',
     borderRadius: 12,
-    marginBottom: 10,
+    marginBottom: s(10),
   },
-  addQuestionText: { fontSize: 14, fontWeight: '600' },
+  addQuestionText: { fontSize: ms(14), fontWeight: '600' },
   // Presets
   presets: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 8,
+    gap: s(8),
+    marginBottom: s(8),
   },
   presetChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: s(12),
+    paddingVertical: s(6),
     borderRadius: 16,
     borderWidth: 1,
   },
-  closesLabel: { fontSize: 12, marginBottom: 8 },
+  closesLabel: { fontSize: ms(12), marginBottom: s(8) },
   // Bottom bar
   bottomBar: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 34,
+    paddingHorizontal: s(16),
+    paddingTop: s(10),
+    paddingBottom: s(34),
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   createBtn: {
     borderRadius: 10,
-    paddingVertical: 12,
+    paddingVertical: s(12),
     alignItems: 'center',
   },
   createBtnText: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: '600',
   },
 });

@@ -188,39 +188,45 @@ export function getInsightText(
   profile: RosterAgeProfile,
   comparison?: LeagueAgeComparison | null,
 ): string {
-  // If we have league comparison, give contextual insight
+  const { risingCount, primeCount, vetCount, avgAge, weightedProductionAge } = profile;
+
+  // Build composition string
+  const parts: string[] = [];
+  if (primeCount > 0) parts.push(`${primeCount} prime-age`);
+  if (risingCount > 0) parts.push(`${risingCount} rising`);
+  if (vetCount > 0) parts.push(`${vetCount} veteran`);
+  const composition = parts.length > 0 ? parts.join(', ') : null;
+
+  // League-aware insight
   if (comparison) {
-    const diff = comparison.myProfile.weightedProductionAge - comparison.leagueAvgWeightedAge;
     const rank = comparison.weightedAgeRank;
     const total = comparison.totalTeams;
 
-    if (rank <= Math.ceil(total * 0.33)) {
-      // Youngest third
-      return `Your core produces younger than ${total - rank} of ${total} teams — long window ahead`;
-    } else if (rank >= Math.ceil(total * 0.67)) {
-      // Oldest third
-      const aboveAvg = Math.abs(diff).toFixed(1);
-      return `Production skews ${aboveAvg}yr older than league avg — consider selling high on veterans`;
-    }
-    return 'Mid-pack production age — flexible to pivot either direction';
+    let rankLabel: string;
+    if (rank === 1) rankLabel = 'Youngest roster in league';
+    else if (rank === total) rankLabel = 'Oldest roster in league';
+    else if (rank <= Math.ceil(total / 2)) rankLabel = `${ordinal(rank)} youngest of ${total} teams`;
+    else rankLabel = `${ordinal(total - rank + 1)} oldest of ${total} teams`;
+
+    return composition ? `${rankLabel} — ${composition}` : rankLabel;
   }
 
-  // Fallback: team-only insight
-  const { avgAge, weightedProductionAge, risingCount, primeCount } = profile;
+  // Fallback: team-only insight using weighted vs raw gap
   const diff = weightedProductionAge - avgAge;
   const gap = Math.abs(diff).toFixed(1);
 
-  if (diff > 1) {
-    return `Your best output comes from older players (+${gap}yr) — win-now window`;
-  } else if (diff < -1) {
-    return `Your best output comes from younger players (${gap}yr) — core is ascending`;
-  }
+  let detail: string;
+  if (diff > 1) detail = `Production weighted ${gap}yr above raw average`;
+  else if (diff < -1) detail = `Production weighted ${gap}yr below raw average`;
+  else detail = 'Balanced age profile';
 
-  let insight = 'Balanced age profile across your roster';
-  if (risingCount >= primeCount && risingCount > 0) {
-    insight += ' · Rising talent pipeline';
-  }
-  return insight;
+  return composition ? `${detail} — ${composition}` : detail;
+}
+
+function ordinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
 export const PEAK_YEARS = { start: 25, end: 30 };

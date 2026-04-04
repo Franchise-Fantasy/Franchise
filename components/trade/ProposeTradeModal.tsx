@@ -1,15 +1,18 @@
 import { capture } from '@/lib/posthog';
 import { TradeFairnessBar } from '@/components/trade/TradeFairnessBar';
+import { TradeSideSummary } from '@/components/trade/TradeSideSummary';
 import { TradePickPicker } from '@/components/trade/TradePickPicker';
 import { TradePlayerPicker } from '@/components/trade/TradePlayerPicker';
 import { TradeSwapPicker } from '@/components/trade/TradeSwapPicker';
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
+import { ms, s } from '@/utils/scale';
+import { queryKeys } from '@/constants/queryKeys';
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { useLockedTradeAssets, usePendingDropPlayerIds } from '@/hooks/useTeamRosterForTrade';
-import { TradeProposalRow } from '@/hooks/useTrades';
+import { TradeItemRow, TradeProposalRow } from '@/hooks/useTrades';
 import { sendNotification } from '@/lib/notifications';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats } from '@/types/player';
@@ -25,12 +28,15 @@ import {
 } from '@/types/trade';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useReducer, useState } from 'react';
+import { useEffect, useReducer, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
+  Dimensions,
   FlatList,
   Modal,
+  Pressable,
   ScrollView,
   StyleSheet,
   TextInput,
@@ -70,6 +76,8 @@ interface ProposeTradeModalProps {
   counterofferData?: CounterofferData;
   /** Pre-populate with an existing proposal's data for editing */
   editData?: EditData;
+  /** When true, block submission (trade deadline has passed) */
+  isPastDeadline?: boolean;
   onClose: () => void;
 }
 
@@ -342,6 +350,7 @@ export function ProposeTradeModal({
   instantExecute = false,
   counterofferData,
   editData,
+  isPastDeadline = false,
   onClose,
 }: ProposeTradeModalProps) {
   const scheme = useColorScheme() ?? 'light';
@@ -352,13 +361,30 @@ export function ProposeTradeModal({
   // Inline picker state: null = show assets, { type, teamId } = show picker inline
   const [pickerFor, setPickerFor] = useState<{ type: 'player' | 'pick' | 'swap'; teamId: string } | null>(null);
 
+  const slideAnim = useRef(new Animated.Value(Dimensions.get('window').height)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 250, useNativeDriver: true }),
+      Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, bounciness: 0, speed: 14 }),
+    ]).start();
+  }, []);
+
+  const handleClose = () => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
+      Animated.timing(slideAnim, { toValue: Dimensions.get('window').height, duration: 200, useNativeDriver: true }),
+    ]).start(() => onClose());
+  };
+
   // Fetch locked assets for the team currently in the picker
   const { data: lockedAssets } = useLockedTradeAssets(pickerFor?.teamId ?? null, leagueId);
   const { data: pendingDropIds } = usePendingDropPlayerIds(pickerFor?.teamId ?? null, leagueId);
 
   // Fetch all teams in the league
   const { data: leagueTeams } = useQuery({
-    queryKey: ['leagueTeams', leagueId],
+    queryKey: queryKeys.leagueTeams(leagueId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('teams')
@@ -373,11 +399,11 @@ export function ProposeTradeModal({
 
   // Fetch league settings for pick conditions
   const { data: leagueSettings } = useQuery({
-    queryKey: ['leagueTradeConditions', leagueId],
+    queryKey: queryKeys.leagueTradeConditions(leagueId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('leagues')
-        .select('pick_conditions_enabled, draft_pick_trading_enabled, teams, max_future_seasons, rookie_draft_rounds, league_type, season, offseason_step')
+        .select('pick_conditions_enabled, draft_pick_trading_enabled, teams, max_future_seasons, rookie_draft_rounds, league_type, season, offseason_step, scoring_type')
         .eq('id', leagueId)
         .single();
       if (error) throw error;
@@ -387,6 +413,7 @@ export function ProposeTradeModal({
   });
 
   const { data: scoringWeights } = useLeagueScoring(leagueId);
+  const isCategories = leagueSettings?.scoring_type === 'h2h_categories';
   const isDynastyLeague = (leagueSettings?.league_type ?? 'dynasty') === 'dynasty';
   const pickConditionsEnabled = isDynastyLeague && (leagueSettings?.pick_conditions_enabled ?? false);
   const draftPickTradingEnabled = isDynastyLeague && (leagueSettings?.draft_pick_trading_enabled ?? false);
@@ -527,7 +554,7 @@ export function ProposeTradeModal({
 
   // Roster capacity warning — check if any team would go over the limit
   const { data: rosterWarnings } = useQuery<string[]>({
-    queryKey: ['tradeRosterWarnings', leagueId, ...allTradeTeamIds, JSON.stringify(allBuilderTeams.map((t) => t.sending_players.map((p) => `${p.player_id}:${p.to_team_id}`)))],
+    queryKey: queryKeys.tradeRosterWarnings(leagueId, ...allTradeTeamIds, JSON.stringify(allBuilderTeams.map((t) => t.sending_players.map((p) => `${p.player_id}:${p.to_team_id}`)))),
     queryFn: async () => {
       // Compute net player gain per team
       const netByTeam = new Map<string, number>();
@@ -570,6 +597,10 @@ export function ProposeTradeModal({
 
   // --- Submit ---
   const handleSubmit = async () => {
+    if (isPastDeadline) {
+      Alert.alert('Trade Deadline', 'The trade deadline has passed. No new trades can be proposed.');
+      return;
+    }
     setSubmitting(true);
     try {
       const items: Array<{
@@ -699,7 +730,7 @@ export function ProposeTradeModal({
         });
         if (execError) throw execError;
 
-        queryClient.invalidateQueries({ queryKey: ['tradeProposals', leagueId] });
+        queryClient.invalidateQueries({ queryKey: queryKeys.tradeProposals(leagueId) });
         queryClient.invalidateQueries({ queryKey: ['pendingTradeCount'] });
         queryClient.invalidateQueries({ queryKey: ['tradablePicks'] });
         queryClient.invalidateQueries({ queryKey: ['draftOrder'] });
@@ -724,7 +755,7 @@ export function ProposeTradeModal({
         data: { screen: 'trades' },
       });
 
-      queryClient.invalidateQueries({ queryKey: ['tradeProposals', leagueId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.tradeProposals(leagueId) });
       queryClient.invalidateQueries({ queryKey: ['pendingTradeCount'] });
 
       const eventName = isCounteroffer ? 'trade_countered' : isEdit ? 'trade_edited' : 'trade_proposed';
@@ -797,9 +828,12 @@ export function ProposeTradeModal({
     allTradeTeamIds.filter((id) => id !== forTeamId);
 
   return (
-    <Modal visible animationType="slide" transparent>
+    <Modal visible animationType="none" transparent onRequestClose={handleClose}>
       <View style={styles.overlay}>
-        <View style={[styles.sheet, { backgroundColor: c.background }]} accessibilityViewIsModal={true}>
+        <Animated.View style={[styles.scrim, { opacity: fadeAnim }]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} accessibilityRole="button" accessibilityLabel="Close modal" />
+        </Animated.View>
+        <Animated.View style={[styles.sheet, { backgroundColor: c.background, transform: [{ translateY: slideAnim }] }]} accessibilityViewIsModal={true}>
 
           {/* If a picker is active, show it inline instead of the normal content */}
           {pickerFor ? (
@@ -815,6 +849,7 @@ export function ProposeTradeModal({
                 pendingDropPlayerIds={pendingDropIds}
                 onToggle={handleTogglePlayer(pickerFor.teamId)}
                 onBack={() => setPickerFor(null)}
+                isCategories={isCategories}
               />
             ) : pickerFor.type === 'pick' ? (
               <TradePickPicker
@@ -877,7 +912,7 @@ export function ProposeTradeModal({
             <>
               {/* Header */}
               <View style={[styles.header, { borderBottomColor: c.border }]}>
-                <View>
+                <View style={styles.headerLeft}>
                   <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.headerTitle}>
                     {state.step === 0 ? 'Select Teams' : state.step === 1 ? 'Select Assets' : (instantExecute ? 'Confirm & Execute' : 'Review Trade')}
                   </ThemedText>
@@ -888,13 +923,33 @@ export function ProposeTradeModal({
                   )}
                   {isEdit && (
                     <ThemedText style={[styles.counterofferBanner, { color: c.link }]} accessibilityLabel="Editing trade">
-                      Editing Trade
+                      Editing
                     </ThemedText>
                   )}
                 </View>
-                <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                  <ThemedText style={styles.closeText}>✕</ThemedText>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel="Close"
+                  onPress={handleClose}
+                  hitSlop={12}
+                >
+                  <View style={[styles.closeBtn, { backgroundColor: c.cardAlt }]}>
+                    <Ionicons name="close" size={16} color={c.text} />
+                  </View>
                 </TouchableOpacity>
+              </View>
+
+              {/* Step indicator */}
+              <View style={styles.stepIndicator} accessibilityLabel={`Step ${state.step + 1} of 3`}>
+                {[0, 1, 2].map((s) => (
+                  <View
+                    key={s}
+                    style={[
+                      styles.stepDot,
+                      { backgroundColor: s <= state.step ? c.accent : c.border },
+                    ]}
+                  />
+                ))}
               </View>
 
               {/* Step 0: Team selection */}
@@ -918,7 +973,9 @@ export function ProposeTradeModal({
                         onPress={() => dispatch({ type: 'TOGGLE_TEAM', teamId: item.id, teamName: item.name, myTeamId: teamId })}
                       >
                         <ThemedText type="defaultSemiBold">{item.name}</ThemedText>
-                        <ThemedText style={[styles.check, { color: c.success }]}>{selected ? '✓' : ''}</ThemedText>
+                        <View style={[styles.radioOuter, { borderColor: selected ? c.accent : c.border }]}>
+                          {selected && <View style={[styles.radioInner, { backgroundColor: c.accent }]} />}
+                        </View>
                       </TouchableOpacity>
                     );
                   }}
@@ -939,9 +996,9 @@ export function ProposeTradeModal({
                       const destOptions = getDestinationOptions(bt.team_id);
 
                       return (
-                        <View key={bt.team_id} style={[styles.teamCard, { backgroundColor: c.card }]}>
+                        <View key={bt.team_id} style={[styles.teamCard, { backgroundColor: c.card, borderColor: c.border }]}>
                           {/* Card header: title left, add icons right */}
-                          <View style={styles.cardHeader}>
+                          <View style={[styles.cardHeader, { borderBottomColor: c.border }]}>
                             <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.cardTitle} numberOfLines={1}>
                               {isMe ? 'You Send' : `${bt.team_name} Sends`}
                             </ThemedText>
@@ -1001,9 +1058,11 @@ export function ProposeTradeModal({
                               <ThemedText style={[styles.assetMeta, { color: c.secondaryText }]}>
                                 {p.position}
                               </ThemedText>
-                              <ThemedText style={[styles.assetFpts, { color: c.accent }]}>
-                                {p.avg_fpts}
-                              </ThemedText>
+                              {!isCategories && (
+                                <ThemedText style={[styles.assetFpts, { color: c.accent }]}>
+                                  {p.avg_fpts}
+                                </ThemedText>
+                              )}
                               <TouchableOpacity
                                 accessibilityRole="button"
                                 accessibilityLabel={`Remove ${p.name}`}
@@ -1064,7 +1123,7 @@ export function ProposeTradeModal({
                           {/* Compact asset list — swaps */}
                           {bt.sending_swaps.map((sw) => (
                             <View key={`${sw.season}-${sw.round}`} style={[styles.assetRow, { borderTopColor: c.border }]}>
-                              <Ionicons name="swap-horizontal" size={14} color={c.accent} style={{ marginRight: 4 }} />
+                              <Ionicons name="swap-horizontal" size={14} color={c.accent} style={{ marginRight: s(4) }} />
                               <ThemedText style={styles.assetName} numberOfLines={1}>
                                 {formatPickLabel(sw.season, sw.round)} swap
                               </ThemedText>
@@ -1093,8 +1152,8 @@ export function ProposeTradeModal({
                     })}
                   </ScrollView>
 
-                  {/* Pinned fairness bar */}
-                  {hasAssets && (
+                  {/* Pinned fairness bar (points leagues only) */}
+                  {!isCategories && hasAssets && (
                     <View style={[styles.pinnedFairness, { borderTopColor: c.border }]}>
                       <TradeFairnessBar teams={fairness} />
                     </View>
@@ -1102,123 +1161,165 @@ export function ProposeTradeModal({
                 </View>
               )}
 
-              {/* Step 2: Review */}
-              {state.step === 2 && (
-                <View style={styles.assetLayout}>
-                  <ScrollView contentContainerStyle={styles.assetScroll} showsVerticalScrollIndicator={false}>
-                    {allBuilderTeams.map((bt) => {
-                      const isMe = bt.team_id === teamId;
+              {/* Step 2: Review — "receives" framing like TradeDetailModal */}
+              {state.step === 2 && (() => {
+                // Convert builder data to TradeItemRow format for TradeSideSummary
+                const reviewItems: TradeItemRow[] = [];
+                for (const bt of allBuilderTeams) {
+                  for (const p of bt.sending_players) {
+                    const dest = isSimpleTrade
+                      ? allTradeTeamIds.find((id) => id !== bt.team_id) ?? ''
+                      : p.to_team_id;
+                    reviewItems.push({
+                      id: `p-${p.player_id}-${bt.team_id}`,
+                      player_id: p.player_id,
+                      draft_pick_id: null,
+                      from_team_id: bt.team_id,
+                      to_team_id: dest,
+                      player_name: p.name,
+                      player_position: p.position,
+                      player_nba_team: p.nba_team,
+                      pick_season: null,
+                      pick_round: null,
+                      pick_original_team_name: null,
+                      protection_threshold: null,
+                      pick_swap_season: null,
+                      pick_swap_round: null,
+                    });
+                  }
+                  for (const pk of bt.sending_picks) {
+                    const dest = isSimpleTrade
+                      ? allTradeTeamIds.find((id) => id !== bt.team_id) ?? ''
+                      : pk.to_team_id;
+                    reviewItems.push({
+                      id: `pk-${pk.draft_pick_id}-${bt.team_id}`,
+                      player_id: null,
+                      draft_pick_id: pk.draft_pick_id,
+                      from_team_id: bt.team_id,
+                      to_team_id: dest,
+                      player_name: null,
+                      player_position: null,
+                      player_nba_team: null,
+                      pick_season: pk.season,
+                      pick_round: pk.round,
+                      pick_original_team_name: pk.original_team_name || null,
+                      protection_threshold: pk.protection_threshold ?? null,
+                      pick_swap_season: null,
+                      pick_swap_round: null,
+                    });
+                  }
+                  for (const sw of bt.sending_swaps) {
+                    reviewItems.push({
+                      id: `sw-${sw.season}-${sw.round}-${bt.team_id}`,
+                      player_id: null,
+                      draft_pick_id: null,
+                      from_team_id: sw.counterparty_team_id,
+                      to_team_id: sw.beneficiary_team_id,
+                      player_name: null,
+                      player_position: null,
+                      player_nba_team: null,
+                      pick_season: null,
+                      pick_round: null,
+                      pick_original_team_name: null,
+                      protection_threshold: null,
+                      pick_swap_season: sw.season,
+                      pick_swap_round: sw.round,
+                    });
+                  }
+                }
 
-                      return (
-                        <View key={bt.team_id} style={[styles.reviewCard, { backgroundColor: c.card }]}>
-                          <ThemedText type="defaultSemiBold" style={styles.reviewTitle}>
-                            {isMe ? 'You Send' : `${bt.team_name} Sends`}
+                // Group by receiving team
+                const receivedByTeam: Record<string, TradeItemRow[]> = {};
+                for (const bt of allBuilderTeams) { receivedByTeam[bt.team_id] = []; }
+                for (const item of reviewItems) {
+                  if (receivedByTeam[item.to_team_id]) {
+                    receivedByTeam[item.to_team_id].push(item);
+                  }
+                }
+
+                // Build player FPTS map from builder data (skip for CAT leagues)
+                const reviewFptsMap: Record<string, number> = {};
+                if (!isCategories) {
+                  for (const bt of allBuilderTeams) {
+                    for (const p of bt.sending_players) {
+                      reviewFptsMap[p.player_id] = p.avg_fpts;
+                    }
+                  }
+                }
+
+                const reviewIsTwoTeam = allTradeTeamIds.length === 2;
+
+                return (
+                  <View style={styles.assetLayout}>
+                    <ScrollView contentContainerStyle={styles.assetScroll} showsVerticalScrollIndicator={false}>
+                      <View style={reviewIsTwoTeam ? styles.reviewTwoCol : styles.reviewStacked}>
+                        {allBuilderTeams.map((bt) => (
+                          <View key={bt.team_id} style={reviewIsTwoTeam ? styles.reviewColHalf : undefined}>
+                            <TradeSideSummary
+                              teamId={bt.team_id}
+                              teamName={bt.team_id === teamId ? 'You' : bt.team_name}
+                              receivedItems={receivedByTeam[bt.team_id] ?? []}
+                              playerFptsMap={reviewFptsMap}
+                              playerHeadshotMap={{}}
+                              newItemKeys={new Set()}
+                              itemKeyFn={(item) => item.id}
+                              teamNameMap={teamNameMap}
+                              isMultiTeam={!reviewIsTwoTeam}
+                            />
+                          </View>
+                        ))}
+                      </View>
+
+                      {/* Roster capacity warning */}
+                      {rosterWarnings && rosterWarnings.length > 0 && (
+                        <View
+                          accessibilityRole="alert"
+                          style={[styles.rosterWarning, { backgroundColor: c.warningMuted, borderColor: c.warning }]}
+                        >
+                          <Ionicons name="warning" size={16} color={c.warning} />
+                          <ThemedText style={{ fontSize: ms(13), color: c.warning, flex: 1 }}>
+                            {rosterWarnings.length === 1
+                              ? `${rosterWarnings[0]} would exceed the roster limit. They'll need to drop a player to complete this trade.`
+                              : `${rosterWarnings.join(' and ')} would exceed the roster limit. They'll need to drop players to complete this trade.`}
                           </ThemedText>
-                          {bt.sending_players.map((p) => {
-                            const dest = isSimpleTrade
-                              ? (isMe ? teamNameMap[state.selectedTeamIds[0]] : myTeam?.name ?? 'Unknown')
-                              : teamNameMap[p.to_team_id];
-                            return (
-                              <View key={p.player_id} style={styles.reviewItemRow}>
-                                <ThemedText style={styles.reviewItem}>
-                                  {p.name} ({p.avg_fpts} FPTS)
-                                </ThemedText>
-                                {isMultiTeam && dest && (
-                                  <ThemedText style={[styles.reviewDest, { color: c.secondaryText }]}>
-                                    → {dest}
-                                  </ThemedText>
-                                )}
-                              </View>
-                            );
-                          })}
-                          {bt.sending_picks.map((pk) => {
-                            const dest = isSimpleTrade
-                              ? (isMe ? teamNameMap[state.selectedTeamIds[0]] : myTeam?.name ?? 'Unknown')
-                              : teamNameMap[pk.to_team_id];
-                            return (
-                              <View key={pk.draft_pick_id} style={styles.reviewItemRow}>
-                                <ThemedText style={styles.reviewItem}>
-                                  {formatPickLabel(pk.season, pk.round)} (~{pk.estimated_fpts} FPTS)
-                                </ThemedText>
-                                {pk.protection_threshold && (
-                                  <View style={[styles.protectionBadge, { backgroundColor: c.goldMuted }]}>
-                                    <ThemedText style={[styles.protectionBadgeText, { color: c.gold }]}>
-                                      Top-{pk.protection_threshold}
-                                    </ThemedText>
-                                  </View>
-                                )}
-                                {isMultiTeam && dest && (
-                                  <ThemedText style={[styles.reviewDest, { color: c.secondaryText }]}>
-                                    → {dest}
-                                  </ThemedText>
-                                )}
-                              </View>
-                            );
-                          })}
-                          {bt.sending_swaps.map((sw) => (
-                            <View key={`${sw.season}-${sw.round}`} style={styles.reviewItemRow}>
-                              <Ionicons name="swap-horizontal" size={14} color={c.accent} style={{ marginRight: 4 }} />
-                              <ThemedText style={styles.reviewItem}>
-                                {formatPickLabel(sw.season, sw.round)} swap — {teamNameMap[sw.beneficiary_team_id] ?? '?'} gets better pick
-                              </ThemedText>
-                            </View>
-                          ))}
-                          {bt.sending_players.length === 0 && bt.sending_picks.length === 0 && bt.sending_swaps.length === 0 && (
-                            <ThemedText style={[styles.reviewItem, { color: c.secondaryText }]}>
-                              No assets
-                            </ThemedText>
-                          )}
                         </View>
-                      );
-                    })}
+                      )}
 
-                    {/* Roster capacity warning */}
-                    {rosterWarnings && rosterWarnings.length > 0 && (
-                      <View
-                        accessibilityRole="alert"
-                        style={[styles.rosterWarning, { backgroundColor: c.warningMuted, borderColor: c.warning }]}
-                      >
-                        <ThemedText style={{ fontSize: 13, color: c.warning }}>
-                          {rosterWarnings.length === 1
-                            ? `${rosterWarnings[0]} would exceed the roster limit. They'll need to drop a player to complete this trade.`
-                            : `${rosterWarnings.join(' and ')} would exceed the roster limit. They'll need to drop players to complete this trade.`}
-                        </ThemedText>
+                      <TextInput
+                        accessibilityLabel="Trade note"
+                        style={[styles.notesInput, { backgroundColor: c.cardAlt, color: c.text, borderColor: c.border }]}
+                        placeholder="Add a note (optional)"
+                        placeholderTextColor={c.secondaryText}
+                        value={state.notes}
+                        onChangeText={(v) => dispatch({ type: 'SET_NOTES', notes: v })}
+                        multiline
+                      />
+                    </ScrollView>
+
+                    {/* Pinned fairness bar (points leagues only) */}
+                    {!isCategories && hasAssets && (
+                      <View style={[styles.pinnedFairness, { borderTopColor: c.border }]}>
+                        <TradeFairnessBar teams={fairness} />
                       </View>
                     )}
-
-                    <TextInput
-                      accessibilityLabel="Trade note"
-                      style={[styles.notesInput, { backgroundColor: c.cardAlt, color: c.text, borderColor: c.border }]}
-                      placeholder="Add a note (optional)"
-                      placeholderTextColor={c.secondaryText}
-                      value={state.notes}
-                      onChangeText={(v) => dispatch({ type: 'SET_NOTES', notes: v })}
-                      multiline
-                    />
-                  </ScrollView>
-
-                  {/* Pinned fairness bar */}
-                  {hasAssets && (
-                    <View style={[styles.pinnedFairness, { borderTopColor: c.border }]}>
-                      <TradeFairnessBar teams={fairness} />
-                    </View>
-                  )}
-                </View>
-              )}
+                  </View>
+                );
+              })()}
 
               {/* Navigation */}
               <View style={[styles.navRow, { borderTopColor: c.border }]}>
-                {state.step > 0 ? (
+                {state.step > 0 && (
                   <TouchableOpacity
                     accessibilityRole="button"
                     accessibilityLabel="Back"
                     style={[styles.navBtn, { borderColor: c.border }]}
                     onPress={() => dispatch({ type: 'PREV_STEP' })}
                   >
-                    <ThemedText style={styles.navBtnText}>Back</ThemedText>
+                    <View style={styles.navBtnInner}>
+                      <Ionicons name="arrow-back" size={16} color={c.text} />
+                      <ThemedText style={styles.navBtnText}>Back</ThemedText>
+                    </View>
                   </TouchableOpacity>
-                ) : (
-                  <View />
                 )}
 
                 {state.step < 2 ? (
@@ -1228,6 +1329,7 @@ export function ProposeTradeModal({
                     accessibilityState={{ disabled: (state.step === 0 && state.selectedTeamIds.length === 0) || (state.step === 1 && !hasAssets) }}
                     style={[
                       styles.navBtn,
+                      state.step === 0 && styles.navBtnFull,
                       {
                         backgroundColor:
                           (state.step === 0 && state.selectedTeamIds.length > 0) ||
@@ -1242,7 +1344,10 @@ export function ProposeTradeModal({
                     }
                     onPress={() => dispatch({ type: 'NEXT_STEP' })}
                   >
-                    <ThemedText style={[styles.navBtnText, { color: c.statusText }]}>Next</ThemedText>
+                    <View style={styles.navBtnInner}>
+                      <ThemedText style={[styles.navBtnText, { color: c.statusText }]}>Next</ThemedText>
+                      <Ionicons name="arrow-forward" size={16} color={c.statusText} />
+                    </View>
                   </TouchableOpacity>
                 ) : (
                   <TouchableOpacity
@@ -1256,14 +1361,17 @@ export function ProposeTradeModal({
                     {submitting ? (
                       <ActivityIndicator size="small" color={c.statusText} />
                     ) : (
-                      <ThemedText style={[styles.navBtnText, { color: c.statusText }]}>{instantExecute ? 'Execute Trade' : isCounteroffer ? 'Send Counteroffer' : isEdit ? 'Update Trade' : 'Propose Trade'}</ThemedText>
+                      <View style={styles.navBtnInner}>
+                        <Ionicons name="send" size={14} color={c.statusText} />
+                        <ThemedText style={[styles.navBtnText, { color: c.statusText }]}>{instantExecute ? 'Execute Trade' : isCounteroffer ? 'Send Counteroffer' : isEdit ? 'Update Trade' : 'Propose Trade'}</ThemedText>
+                      </View>
                     )}
                   </TouchableOpacity>
                 )}
               </View>
             </>
           )}
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -1317,48 +1425,80 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'flex-end',
   },
+  scrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
   sheet: {
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
+    borderTopLeftRadius: s(16),
+    borderTopRightRadius: s(16),
     maxHeight: '92%',
     minHeight: '70%',
-    paddingBottom: 32,
+    paddingBottom: s(32),
     flex: 1,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 14,
+    padding: s(14),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(8),
+    flex: 1,
+  },
   headerTitle: {
-    fontSize: 16,
+    fontSize: ms(16),
   },
   counterofferBanner: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '600',
-    marginTop: 2,
   },
-  closeText: {
-    fontSize: 18,
-    padding: 4,
+  closeBtn: {
+    borderRadius: 15,
+    width: s(30),
+    height: s(30),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepIndicator: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: s(6),
+    paddingVertical: s(8),
+  },
+  stepDot: {
+    width: s(8),
+    height: s(8),
+    borderRadius: 4,
   },
   listContent: {
-    paddingVertical: 4,
-    paddingBottom: 24,
+    paddingVertical: s(4),
+    paddingBottom: s(24),
   },
   teamRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingVertical: s(14),
+    paddingHorizontal: s(16),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  check: {
-    fontSize: 18,
-    fontWeight: '700',
+  radioOuter: {
+    width: s(20),
+    height: s(20),
+    borderRadius: 10,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioInner: {
+    width: s(10),
+    height: s(10),
+    borderRadius: 5,
   },
 
   // Step 1 — asset layout with pinned fairness
@@ -1366,45 +1506,43 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   assetScroll: {
-    padding: 12,
-    paddingBottom: 8,
+    padding: s(12),
+    paddingBottom: s(8),
   },
 
   // Team card (compact)
   teamCard: {
     borderRadius: 10,
-    padding: 10,
-    marginBottom: 10,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
+    marginBottom: s(10),
+    borderWidth: 1,
+    overflow: 'hidden',
   },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    paddingHorizontal: s(12),
+    paddingVertical: s(8),
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   cardTitle: {
-    fontSize: 13,
+    fontSize: ms(13),
     flex: 1,
   },
   addIcons: {
     flexDirection: 'row',
-    gap: 14,
+    gap: s(10),
   },
 
   // Per-asset destination chip
   assetDestChip: {
     borderRadius: 10,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    marginRight: 4,
+    paddingHorizontal: s(7),
+    paddingVertical: s(2),
+    marginRight: s(4),
   },
   assetDestChipText: {
-    fontSize: 10,
+    fontSize: ms(10),
     fontWeight: '600',
   },
 
@@ -1412,113 +1550,112 @@ const styles = StyleSheet.create({
   assetRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 5,
+    paddingVertical: s(5),
+    paddingHorizontal: s(12),
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   assetName: {
     flex: 1,
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: '500',
   },
   assetMeta: {
-    fontSize: 11,
-    marginHorizontal: 6,
+    fontSize: ms(11),
+    marginHorizontal: s(6),
   },
   assetFpts: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '600',
-    marginRight: 6,
+    marginRight: s(6),
   },
   removeBtn: {
-    fontSize: 13,
-    padding: 4,
+    fontSize: ms(13),
+    padding: s(4),
   },
   protectionBadge: {
     borderRadius: 4,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    marginRight: 4,
+    paddingHorizontal: s(5),
+    paddingVertical: s(1),
+    marginRight: s(4),
   },
   protectionBadgeText: {
-    fontSize: 10,
+    fontSize: ms(10),
     fontWeight: '600',
   },
 
   emptyHint: {
-    fontSize: 12,
+    fontSize: ms(12),
     textAlign: 'center',
-    paddingVertical: 8,
+    paddingVertical: s(8),
+    paddingHorizontal: s(12),
   },
 
   // Pinned fairness bar
   pinnedFairness: {
-    paddingHorizontal: 12,
-    paddingTop: 8,
-    paddingBottom: 4,
+    paddingHorizontal: s(12),
+    paddingTop: s(8),
+    paddingBottom: s(4),
     borderTopWidth: StyleSheet.hairlineWidth,
   },
 
-  // Review step
-  reviewCard: {
-    borderRadius: 10,
-    padding: 10,
-    marginBottom: 8,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  reviewTitle: {
-    fontSize: 13,
-    marginBottom: 4,
-  },
-  reviewItemRow: {
+  // Review step — two-column / stacked layout (matches TradeDetailModal)
+  reviewTwoCol: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
+    gap: s(10),
+    marginBottom: s(10),
   },
-  reviewDest: {
-    fontSize: 11,
+  reviewColHalf: {
+    flex: 1,
   },
-  reviewItem: {
-    fontSize: 13,
-    paddingVertical: 2,
-    paddingLeft: 2,
+  reviewStacked: {
+    gap: s(10),
+    marginBottom: s(10),
   },
   notesInput: {
     borderWidth: 1,
     borderRadius: 8,
-    padding: 10,
-    fontSize: 14,
-    minHeight: 50,
-    marginTop: 4,
+    padding: s(10),
+    fontSize: ms(14),
+    minHeight: s(50),
+    marginTop: s(4),
     textAlignVertical: 'top',
   },
   rosterWarning: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(8),
     borderWidth: 1,
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 8,
+    borderRadius: 10,
+    padding: s(12),
+    marginBottom: s(8),
   },
 
   // Navigation
   navRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingTop: 10,
+    paddingHorizontal: s(12),
+    paddingTop: s(10),
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   navBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 20,
+    paddingVertical: s(10),
+    paddingHorizontal: s(20),
     borderRadius: 8,
     borderWidth: 1,
     borderColor: 'transparent',
   },
+  navBtnFull: {
+    flex: 1,
+  },
+  navBtnInner: {
+    flexDirection: 'row',
+    gap: s(6),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   navBtnText: {
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: '600',
   },
 });

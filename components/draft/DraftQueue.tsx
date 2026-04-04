@@ -1,4 +1,4 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useDraftPlayer } from '@/hooks/useDraftPlayer';
@@ -8,6 +8,7 @@ import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
 import { formatPosition } from '@/utils/formatting';
 import { getInjuryBadge } from '@/utils/injuryBadge';
 import { getPlayerHeadshotUrl, getTeamLogoUrl } from '@/utils/playerHeadshot';
+import { ms, s } from '@/utils/scale';
 import { useCallback } from 'react';
 import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -79,7 +80,7 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
         {/* Player info */}
         <View style={styles.info}>
           <View style={styles.nameRow}>
-            <ThemedText type="defaultSemiBold" numberOfLines={1} style={{ flexShrink: 1, fontSize: 14 }}>
+            <ThemedText type="defaultSemiBold" numberOfLines={1} style={{ flexShrink: 1, fontSize: ms(14) }}>
               {item.player.name}
             </ThemedText>
             {badge && (
@@ -167,7 +168,7 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
     <View style={styles.container}>
       {isMyTurn && queue.length > 0 && (
         <View style={[styles.suggestedBanner, { backgroundColor: c.activeCard, borderBottomColor: c.activeBorder }]}>
-          <ThemedText type="defaultSemiBold" style={{ color: c.activeText, fontSize: 13 }}>
+          <ThemedText type="defaultSemiBold" style={{ color: c.activeText, fontSize: ms(13) }}>
             Your turn — top queued player highlighted below
           </ThemedText>
         </View>
@@ -185,73 +186,73 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
 const styles = StyleSheet.create({
   container: { flex: 1 },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  empty: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 },
-  listContent: { padding: 8 },
+  empty: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: s(32) },
+  listContent: { padding: s(8) },
   suggestedBanner: {
-    padding: 10,
+    padding: s(10),
     borderBottomWidth: 1,
     alignItems: 'center',
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 8,
+    paddingVertical: s(8),
+    paddingHorizontal: s(8),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   rank: {
-    width: 24,
-    fontSize: 13,
+    width: s(24),
+    fontSize: ms(13),
     fontWeight: '700',
     textAlign: 'center',
   },
   portraitWrap: {
-    width: 50,
-    height: 50,
-    marginRight: 8,
+    width: s(50),
+    height: s(50),
+    marginRight: s(8),
   },
   headshotCircle: {
-    width: 50,
-    height: 50,
+    width: s(50),
+    height: s(50),
     borderRadius: 25,
     borderWidth: 1.5,
     overflow: 'hidden' as const,
   },
   headshotImg: {
     position: 'absolute' as const,
-    bottom: -2,
+    bottom: s(-2),
     left: 0,
     right: 0,
-    height: 42,
+    height: s(42),
   },
   teamPill: {
     position: 'absolute',
-    bottom: -1,
+    bottom: s(-1),
     alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(0,0,0,0.75)',
     borderRadius: 8,
-    paddingHorizontal: 3,
+    paddingHorizontal: s(3),
     paddingVertical: 1,
-    gap: 2,
+    gap: s(2),
   },
-  teamPillLogo: { width: 9, height: 9 },
-  teamPillText: { fontSize: 7, fontWeight: '700', letterSpacing: 0.3 },
-  info: { flex: 1, marginRight: 8 },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  badge: { paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3 },
-  badgeText: { fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
-  posText: { fontSize: 11, marginTop: 1 },
-  rightSide: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  fpts: { fontSize: 11, fontWeight: '600' },
+  teamPillLogo: { width: s(9), height: s(9) },
+  teamPillText: { fontSize: ms(7), fontWeight: '700', letterSpacing: 0.3 },
+  info: { flex: 1, marginRight: s(8) },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: s(4) },
+  badge: { paddingHorizontal: s(4), paddingVertical: 1, borderRadius: 3 },
+  badgeText: { fontSize: ms(8), fontWeight: '800', letterSpacing: 0.5 },
+  posText: { fontSize: ms(11), marginTop: 1 },
+  rightSide: { flexDirection: 'row', alignItems: 'center', gap: s(6) },
+  fpts: { fontSize: ms(11), fontWeight: '600' },
   reorderButtons: { flexDirection: 'column', gap: 0 },
-  arrowButton: { padding: 2 },
-  removeButton: { padding: 2 },
+  arrowButton: { padding: s(2) },
+  removeButton: { padding: s(2) },
   draftButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: s(12),
+    paddingVertical: s(6),
     borderRadius: 4,
   },
-  draftButtonText: { fontSize: 12, fontWeight: 'bold' },
+  draftButtonText: { fontSize: ms(12), fontWeight: 'bold' },
 });

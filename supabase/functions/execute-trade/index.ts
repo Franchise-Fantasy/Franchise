@@ -113,7 +113,7 @@ Deno.serve(async (req) => {
 
     const { data: league } = await supabaseAdmin
       .from('leagues')
-      .select('created_by, name, trade_deadline, taxi_slots, taxi_max_experience, season, roster_size, position_limits')
+      .select('created_by, name, trade_deadline, taxi_slots, taxi_max_experience, season, roster_size, position_limits, waiver_type, waiver_period_days')
       .eq('id', proposal.league_id)
       .single();
 
@@ -217,7 +217,22 @@ Deno.serve(async (req) => {
 
       const { data: conflicting } = await lockedQuery;
       if (conflicting && conflicting.length > 0) {
-        throw new Error('One or more assets in this trade are involved in another active trade proposal. Please resolve those trades first.');
+        // If this trade is already in_review (review period expired), it has priority —
+        // auto-cancel any conflicting pending/accepted proposals instead of blocking.
+        if (['in_review', 'delayed'].includes(proposal.status)) {
+          const conflictingIds = [...new Set(
+            conflicting.map((c: any) => (c as any).trade_proposals.id),
+          )];
+          for (const cid of conflictingIds) {
+            await supabaseAdmin
+              .from('trade_proposals')
+              .update({ status: 'cancelled' })
+              .eq('id', cid)
+              .in('status', ['pending', 'accepted']);
+          }
+        } else {
+          throw new Error('One or more assets in this trade are involved in another active trade proposal. Please resolve those trades first.');
+        }
       }
     }
 
@@ -246,19 +261,19 @@ Deno.serve(async (req) => {
       // Fetch drop selections from trade_proposal_teams
       const { data: proposalTeams } = await supabaseAdmin
         .from('trade_proposal_teams')
-        .select('team_id, drop_player_id')
+        .select('team_id, drop_player_ids')
         .eq('proposal_id', proposal_id);
-      const dropsByTeam = new Map<string, string>(
+      const dropsByTeam = new Map<string, string[]>(
         (proposalTeams ?? [])
-          .filter((t: any) => t.drop_player_id)
-          .map((t: any) => [t.team_id, t.drop_player_id]),
+          .filter((t: any) => t.drop_player_ids && t.drop_player_ids.length > 0)
+          .map((t: any) => [t.team_id, t.drop_player_ids as string[]]),
       );
 
       const teamsNeedingDrops: string[] = [];
       for (const [tid, netGain] of netPlayersByTeam) {
         if (netGain <= 0) continue;
-        // Each drop selection offsets one gained player
-        const dropOffset = dropsByTeam.has(tid) ? 1 : 0;
+        // Each selected drop offsets one gained player
+        const dropOffset = dropsByTeam.get(tid)?.length ?? 0;
         const effectiveGain = netGain - dropOffset;
         if (effectiveGain <= 0) continue;
 
@@ -300,14 +315,35 @@ Deno.serve(async (req) => {
       }
 
       // Process approved drops before the trade transfers
-      for (const [tid, dropPlayerId] of dropsByTeam) {
-        await snapshotBeforeDrop(supabaseAdmin, proposal.league_id, tid, dropPlayerId);
-        await supabaseAdmin
-          .from('league_players')
-          .delete()
-          .eq('league_id', proposal.league_id)
-          .eq('team_id', tid)
-          .eq('player_id', dropPlayerId);
+      const waiverType = league?.waiver_type ?? 'none';
+      const waiverDays = league?.waiver_period_days ?? 2;
+      for (const [tid, dropPlayerIds] of dropsByTeam) {
+        for (const dropPlayerId of dropPlayerIds) {
+          await snapshotBeforeDrop(supabaseAdmin, proposal.league_id, tid, dropPlayerId);
+          await supabaseAdmin
+            .from('league_players')
+            .delete()
+            .eq('league_id', proposal.league_id)
+            .eq('team_id', tid)
+            .eq('player_id', dropPlayerId);
+
+          // Place dropped player on waivers so they don't become an instant free agent
+          if (waiverType !== 'none' && waiverDays > 0) {
+            const raw = new Date();
+            raw.setDate(raw.getDate() + waiverDays);
+            const until = new Date(Date.UTC(
+              raw.getUTCFullYear(), raw.getUTCMonth(), raw.getUTCDate(), 6, 0, 0, 0,
+            ));
+            if (raw.getTime() > until.getTime()) until.setUTCDate(until.getUTCDate() + 1);
+
+            await supabaseAdmin.from('league_waivers').insert({
+              league_id: proposal.league_id,
+              player_id: dropPlayerId,
+              on_waivers_until: until.toISOString(),
+              dropped_by_team_id: tid,
+            });
+          }
+        }
       }
     }
 

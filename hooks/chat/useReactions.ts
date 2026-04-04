@@ -1,3 +1,4 @@
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import type { ReactionGroup } from '@/types/chat';
 import {
@@ -17,7 +18,7 @@ export function useReactions(
   myTeamId: string | null,
 ) {
   return useQuery<Record<string, ReactionGroup[]>>({
-    queryKey: ['reactions', conversationId, messageIds],
+    queryKey: queryKeys.reactions(conversationId!, messageIds),
     queryFn: async () => {
       if (messageIds.length === 0) return {};
       const { data, error } = await supabase
@@ -84,13 +85,13 @@ export function useToggleReaction(conversationId: string) {
     },
     onMutate: async ({ messageId, teamId, emoji }) => {
       await queryClient.cancelQueries({
-        queryKey: ['reactions', conversationId],
+        queryKey: queryKeys.reactions(conversationId),
         exact: false,
       });
 
       // Snapshot all reaction queries for this conversation
       const cache = queryClient.getQueriesData<Record<string, ReactionGroup[]>>({
-        queryKey: ['reactions', conversationId],
+        queryKey: queryKeys.reactions(conversationId),
       });
 
       // Optimistically toggle the reaction in every matching cache entry
@@ -131,7 +132,7 @@ export function useToggleReaction(conversationId: string) {
     },
     onSettled: () => {
       queryClient.invalidateQueries({
-        queryKey: ['reactions', conversationId],
+        queryKey: queryKeys.reactions(conversationId),
       });
     },
   });

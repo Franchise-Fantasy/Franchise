@@ -1,3 +1,4 @@
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
@@ -51,7 +52,7 @@ export function useWeekScores({ leagueId, scheduleId, weekIsLive }: UseWeekScore
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   const query = useQuery({
-    queryKey: ['weekScores', leagueId, scheduleId],
+    queryKey: queryKeys.weekScores(leagueId!, scheduleId!),
     queryFn: async () => {
       if (!scheduleId || !leagueId) return {};
 
@@ -95,7 +96,7 @@ export function useWeekScores({ leagueId, scheduleId, weekIsLive }: UseWeekScore
           const row = payload.new as { team_id: string; score: number } | undefined;
           if (row?.team_id != null && row?.score != null) {
             queryClient.setQueryData(
-              ['weekScores', leagueId, scheduleId],
+              queryKeys.weekScores(leagueId!, scheduleId!),
               (old: Record<string, number> | undefined) => ({
                 ...old,
                 [row.team_id]: Number(row.score),

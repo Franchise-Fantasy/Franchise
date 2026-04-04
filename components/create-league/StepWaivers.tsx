@@ -1,10 +1,11 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { LeagueWizardState, PLAYER_LOCK_OPTIONS, WAIVER_DAY_LABELS, WAIVER_TYPE_OPTIONS } from '@/constants/LeagueDefaults';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { StyleSheet, View } from 'react-native';
+import { ms, s } from '@/utils/scale';
 
 interface StepWaiversProps {
   state: LeagueWizardState;
@@ -100,19 +101,19 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   heading: {
-    marginBottom: 20,
+    marginBottom: s(20),
   },
   label: {
-    marginBottom: 8,
-    fontSize: 14,
+    marginBottom: s(8),
+    fontSize: ms(14),
     fontWeight: '500',
   },
   section: {
-    marginBottom: 20,
+    marginBottom: s(20),
   },
   hint: {
-    fontSize: 11,
-    marginTop: 4,
+    fontSize: ms(11),
+    marginTop: s(4),
     opacity: 0.6,
   },
 });

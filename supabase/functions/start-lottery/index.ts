@@ -154,6 +154,9 @@ Deno.serve(async (req) => {
       .eq('season', season)
       .eq('resolved', false);
 
+    const teamNameMap = new Map(orderedTeams.map(t => [t.id, t.name]));
+    const swapWarnings: string[] = [];
+
     for (const swap of unresolvedSwaps ?? []) {
       // Find both teams' picks in this round
       const { data: benefPick } = await supabaseAdmin
@@ -179,9 +182,30 @@ Deno.serve(async (req) => {
           await supabaseAdmin.from('draft_picks').update({ current_team_id: swap.beneficiary_team_id }).eq('id', counterPick.id);
           await supabaseAdmin.from('draft_picks').update({ current_team_id: swap.counterparty_team_id }).eq('id', benefPick.id);
         }
+      } else {
+        // Swap voided — one or both teams no longer own a pick in this round (likely due to protection)
+        const benefName = teamNameMap.get(swap.beneficiary_team_id) ?? 'Unknown';
+        const counterName = teamNameMap.get(swap.counterparty_team_id) ?? 'Unknown';
+        const missing = !benefPick && !counterPick ? 'both teams' : !benefPick ? benefName : counterName;
+        swapWarnings.push(`Rd ${swap.round} swap between ${benefName} and ${counterName} voided — ${missing} no longer holds a pick in this round (protection triggered).`);
+        console.warn(`Swap voided: Rd ${swap.round} ${benefName} vs ${counterName} — ${missing} missing pick`);
       }
       // Mark swap as resolved
       await supabaseAdmin.from('pick_swaps').update({ resolved: true }).eq('id', swap.id);
+    }
+
+    // Notify commissioner if any swaps were voided
+    if (swapWarnings.length > 0) {
+      try {
+        const ln = league.name ?? 'Your League';
+        await notifyLeague(supabaseAdmin, league_id, 'draft',
+          `${ln} — Lottery Notice`,
+          `${swapWarnings.length} pick swap(s) voided due to protection: ${swapWarnings.join(' ')}`,
+          { screen: 'home' }
+        );
+      } catch (notifyErr) {
+        console.warn('Swap warning notification failed (non-fatal):', notifyErr);
+      }
     }
 
     // Update league state
@@ -195,10 +219,13 @@ Deno.serve(async (req) => {
 
     return new Response(
       JSON.stringify({
-        message: 'Lottery completed!',
+        message: swapWarnings.length > 0
+          ? `Lottery completed! Note: ${swapWarnings.length} pick swap(s) voided due to protection.`
+          : 'Lottery completed!',
         results: finalOrder,
         lottery_pool_size: lotteryPoolSize,
         draws: league.lottery_draws ?? 4,
+        swap_warnings: swapWarnings,
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } }
     );

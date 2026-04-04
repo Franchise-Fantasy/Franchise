@@ -1,7 +1,8 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -178,25 +179,25 @@ export function TransferOwnershipModal({ visible, onClose, leagueId, teams }: Tr
 
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'transparent', justifyContent: 'flex-end' },
-  sheet: { borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingTop: 12, paddingBottom: 40, maxHeight: '85%' },
-  handle: { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 12 },
-  titleRow: { flexDirection: 'row', justifyContent: 'center', paddingHorizontal: 16, marginBottom: 8 },
-  title: { fontSize: 17, fontWeight: '600' },
-  scroll: { flexShrink: 1, paddingHorizontal: 16 },
-  hint: { fontSize: 13, marginBottom: 12, textAlign: 'center' },
+  sheet: { borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingTop: s(12), paddingBottom: s(40), maxHeight: '85%' },
+  handle: { width: s(40), height: s(4), borderRadius: 2, alignSelf: 'center', marginBottom: s(12) },
+  titleRow: { flexDirection: 'row', justifyContent: 'center', paddingHorizontal: s(16), marginBottom: s(8) },
+  title: { fontSize: ms(17), fontWeight: '600' },
+  scroll: { flexShrink: 1, paddingHorizontal: s(16) },
+  hint: { fontSize: ms(13), marginBottom: s(12), textAlign: 'center' },
   teamRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
+    padding: s(12),
     borderRadius: 10,
     borderWidth: 1,
-    marginBottom: 8,
+    marginBottom: s(8),
   },
-  unclaimed: { fontSize: 11, fontWeight: '600', marginLeft: 8 },
-  emailSection: { marginTop: 8 },
-  label: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
-  textInput: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14 },
-  footer: { flexDirection: 'row', gap: 12, paddingHorizontal: 16, paddingTop: 16 },
-  btn: { flex: 1, paddingVertical: 14, borderRadius: 10, alignItems: 'center' },
-  btnText: { fontSize: 15, fontWeight: '600' },
+  unclaimed: { fontSize: ms(11), fontWeight: '600', marginLeft: s(8) },
+  emailSection: { marginTop: s(8) },
+  label: { fontSize: ms(12), fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: s(6) },
+  textInput: { borderWidth: 1, borderRadius: 8, paddingHorizontal: s(12), paddingVertical: s(10), fontSize: ms(14) },
+  footer: { flexDirection: 'row', gap: s(12), paddingHorizontal: s(16), paddingTop: s(16) },
+  btn: { flex: 1, paddingVertical: s(14), borderRadius: 10, alignItems: 'center' },
+  btnText: { fontSize: ms(15), fontWeight: '600' },
 });

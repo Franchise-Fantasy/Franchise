@@ -1,9 +1,10 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { Colors } from '@/constants/Colors';
 import { LeagueWizardState, NBA_POSITIONS, NbaPosition, PositionLimits, TAXI_EXPERIENCE_OPTIONS } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { StyleSheet, Switch, TouchableOpacity, View } from 'react-native';
+import { ms, s } from '@/utils/scale';
 
 interface StepRosterProps {
   state: LeagueWizardState;
@@ -78,7 +79,7 @@ export function StepRoster({ state, onSlotChange, onChange, onResetRoster }: Ste
           />
           {taxiSlot.count > 0 && (
             <View style={styles.experienceRow}>
-              <ThemedText style={[styles.extraNote, { color: c.secondaryText, marginBottom: 6 }]}>
+              <ThemedText style={[styles.extraNote, { color: c.secondaryText, marginBottom: s(6) }]}>
                 Max player experience for taxi eligibility:
               </ThemedText>
               <View style={styles.experienceOptions}>
@@ -127,7 +128,7 @@ export function StepRoster({ state, onSlotChange, onChange, onResetRoster }: Ste
         </View>
         {posLimitsEnabled && (
           <>
-            <ThemedText style={[styles.extraNote, { color: c.secondaryText, marginBottom: 4 }]}>
+            <ThemedText style={[styles.extraNote, { color: c.secondaryText, marginBottom: s(4) }]}>
               0 = no limit. Multi-position players count toward each eligible position.
             </ThemedText>
             {NBA_POSITIONS.map((pos) => (
@@ -164,54 +165,54 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   heading: {
-    marginBottom: 4,
+    marginBottom: s(4),
   },
   description: {
-    fontSize: 14,
-    marginBottom: 12,
+    fontSize: ms(14),
+    marginBottom: s(12),
   },
   totalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 14,
+    paddingVertical: s(14),
     borderTopWidth: 2,
-    marginTop: 4,
+    marginTop: s(4),
   },
   resetBtn: {
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: s(12),
   },
   extraSection: {
-    marginTop: 16,
+    marginTop: s(16),
   },
   extraHeading: {
-    marginBottom: 4,
+    marginBottom: s(4),
   },
   extraNote: {
-    fontSize: 13,
-    marginBottom: 8,
+    fontSize: ms(13),
+    marginBottom: s(8),
   },
   experienceRow: {
-    marginTop: 8,
+    marginTop: s(8),
   },
   experienceOptions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: s(8),
   },
   experienceChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: s(12),
+    paddingVertical: s(6),
     borderRadius: 16,
     borderWidth: 1,
   },
   experienceChipText: {
-    fontSize: 13,
+    fontSize: ms(13),
   },
   posLimitHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    marginBottom: 8,
+    gap: s(12),
+    marginBottom: s(8),
   },
 });

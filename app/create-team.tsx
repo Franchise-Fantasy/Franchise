@@ -1,9 +1,11 @@
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { ms, s } from "@/utils/scale";
+import { ThemedView } from '@/components/ui/ThemedView';
 import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { checkAndAssignDraftSlots } from '@/lib/draft';
+import { containsBlockedContent } from '@/utils/moderation';
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -25,6 +27,10 @@ export default function CreateTeam() {
     if (!teamName.trim()) {
       Alert.alert('Please enter a team name.')
       return
+    }
+    if (containsBlockedContent(teamName)) {
+      Alert.alert('Invalid name', 'That team name contains language that isn\u2019t allowed.');
+      return;
     }
     const code = tricode.trim().toUpperCase();
     if (!code || code.length < 2 || code.length > 4 || !/^[A-Z0-9]+$/.test(code)) {
@@ -168,7 +174,7 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 12,
     borderRadius: 6,
-    fontSize: 16,
+    fontSize: ms(16),
   }
 })
 

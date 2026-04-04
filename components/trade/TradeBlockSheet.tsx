@@ -1,16 +1,18 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { TradeBlockPlayer, TradeBlockTeamGroup, useToggleTradeBlockInterest } from '@/hooks/useTrades';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Animated,
+  Dimensions,
   Modal,
-  NativeSyntheticEvent,
+  Pressable,
   ScrollView,
   StyleSheet,
-  TextLayoutEventData,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -31,7 +33,6 @@ export function TradeBlockSheet({ visible, tradeBlock, leagueId, teamId, onClose
   const [expandedInterest, setExpandedInterest] = useState<string | null>(null);
   const [expandedNote, setExpandedNote] = useState<string | null>(null);
   const { mutate: toggleInterest } = useToggleTradeBlockInterest(leagueId);
-  const [truncatedNotes, setTruncatedNotes] = useState<Set<string>>(new Set());
 
   const storageKey = `hiddenTradeBlock:${leagueId}`;
 
@@ -70,10 +71,32 @@ export function TradeBlockSheet({ visible, tradeBlock, leagueId, teamId, onClose
   const totalPlayers = filteredBlock.reduce((sum, g) => sum + g.players.length, 0);
   const hiddenCount = hiddenPlayers.size;
 
+  const slideAnim = useRef(new Animated.Value(Dimensions.get('window').height)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.parallel([
+        Animated.timing(fadeAnim, { toValue: 1, duration: 250, useNativeDriver: true }),
+        Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, bounciness: 0, speed: 14 }),
+      ]).start();
+    }
+  }, [visible]);
+
+  const handleClose = () => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
+      Animated.timing(slideAnim, { toValue: Dimensions.get('window').height, duration: 200, useNativeDriver: true }),
+    ]).start(() => onClose());
+  };
+
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal visible={visible} animationType="none" transparent onRequestClose={handleClose}>
       <View style={styles.overlay}>
-        <View style={[styles.sheet, { backgroundColor: c.background }]} accessibilityViewIsModal>
+        <Animated.View style={[styles.scrim, { opacity: fadeAnim }]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} accessibilityRole="button" accessibilityLabel="Close trade block" />
+        </Animated.View>
+        <Animated.View style={[styles.sheet, { backgroundColor: c.background, transform: [{ translateY: slideAnim }] }]} accessibilityViewIsModal>
           {/* Header */}
           <View style={[styles.header, { borderBottomColor: c.border }]}>
             <View>
@@ -123,53 +146,37 @@ export function TradeBlockSheet({ visible, tradeBlock, leagueId, teamId, onClose
                         <ThemedText style={[styles.playerMeta, { color: c.secondaryText }]}>
                           {p.position} · {p.nba_team}
                         </ThemedText>
-                        {p.trade_block_note ? (
-                          <TouchableOpacity
-                            onPress={() => truncatedNotes.has(p.player_id) ? setExpandedNote(expandedNote === p.player_id ? null : p.player_id) : undefined}
-                            activeOpacity={truncatedNotes.has(p.player_id) ? 0.7 : 1}
-                            style={styles.noteTouchable}
-                            accessibilityRole={truncatedNotes.has(p.player_id) ? 'button' : undefined}
-                            accessibilityLabel={truncatedNotes.has(p.player_id)
-                              ? `Looking for: ${p.trade_block_note}. Tap to ${expandedNote === p.player_id ? 'collapse' : 'expand'}`
-                              : `Looking for: ${p.trade_block_note}`}
-                          >
-                            <ThemedText
-                              style={[styles.askingPrice, { color: c.accent }]}
-                              numberOfLines={expandedNote === p.player_id ? undefined : 1}
-                              onTextLayout={(e: NativeSyntheticEvent<TextLayoutEventData>) => {
-                                // Only measure when collapsed (numberOfLines=1), otherwise expanding removes the chevron
-                                if (expandedNote === p.player_id) return;
-                                const lines = e.nativeEvent.lines;
-                                const isTruncated = lines.length > 1 ||
-                                  (lines.length === 1 && lines[0]?.text !== `Looking for: ${p.trade_block_note}`);
-                                setTruncatedNotes((prev) => {
-                                  if (isTruncated && !prev.has(p.player_id)) {
-                                    const next = new Set(prev);
-                                    next.add(p.player_id);
-                                    return next;
-                                  }
-                                  if (!isTruncated && prev.has(p.player_id)) {
-                                    const next = new Set(prev);
-                                    next.delete(p.player_id);
-                                    return next;
-                                  }
-                                  return prev;
-                                });
-                              }}
+                        {p.trade_block_note ? (() => {
+                          const willTruncate = p.trade_block_note.length > 35;
+                          const isExpanded = expandedNote === p.player_id;
+                          return (
+                            <TouchableOpacity
+                              onPress={() => willTruncate ? setExpandedNote(isExpanded ? null : p.player_id) : undefined}
+                              activeOpacity={willTruncate ? 0.7 : 1}
+                              style={styles.noteTouchable}
+                              accessibilityRole={willTruncate ? 'button' : undefined}
+                              accessibilityLabel={willTruncate
+                                ? `Looking for: ${p.trade_block_note}. Tap to ${isExpanded ? 'collapse' : 'expand'}`
+                                : `Looking for: ${p.trade_block_note}`}
                             >
-                              Looking for: {p.trade_block_note}
-                            </ThemedText>
-                            {truncatedNotes.has(p.player_id) && (
-                              <Ionicons
-                                name={expandedNote === p.player_id ? 'chevron-up' : 'chevron-down'}
-                                size={11}
-                                color={c.accent}
-                                style={styles.noteChevron}
-                                accessible={false}
-                              />
-                            )}
-                          </TouchableOpacity>
-                        ) : null}
+                              {willTruncate && (
+                                <Ionicons
+                                  name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                                  size={11}
+                                  color={c.accent}
+                                  style={styles.noteChevron}
+                                  accessible={false}
+                                />
+                              )}
+                              <ThemedText
+                                style={[styles.askingPrice, { color: c.accent }]}
+                                numberOfLines={isExpanded ? undefined : 1}
+                              >
+                                Looking for: {p.trade_block_note}
+                              </ThemedText>
+                            </TouchableOpacity>
+                          );
+                        })() : null}
                       </View>
                       {p.team_id !== teamId && (
                         <Ionicons name="swap-horizontal-outline" size={16} color={c.accent} accessible={false} />
@@ -252,7 +259,7 @@ export function TradeBlockSheet({ visible, tradeBlock, leagueId, teamId, onClose
               </View>
             ))}
           </ScrollView>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -263,69 +270,73 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'flex-end',
   },
+  scrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
   sheet: {
     borderTopLeftRadius: 14,
     borderTopRightRadius: 14,
     maxHeight: '85%',
-    paddingBottom: 32,
+    paddingBottom: s(32),
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    padding: 16,
+    padding: s(16),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   headerTitle: {
-    fontSize: 18,
-    marginBottom: 4,
+    fontSize: ms(18),
+    marginBottom: s(4),
   },
   headerCount: {
-    fontSize: 13,
+    fontSize: ms(13),
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: s(10),
   },
   showAllBtn: {
     borderWidth: 1,
     borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: s(8),
+    paddingVertical: s(4),
   },
   showAllText: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '600',
   },
   closeText: {
-    fontSize: 18,
-    padding: 4,
+    fontSize: ms(18),
+    padding: s(4),
   },
   content: {
-    padding: 16,
-    paddingBottom: 8,
+    padding: s(16),
+    paddingBottom: s(8),
   },
   section: {
     borderWidth: 1,
     borderRadius: 10,
-    padding: 12,
-    marginBottom: 12,
+    padding: s(12),
+    marginBottom: s(12),
   },
   teamName: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    marginBottom: 8,
+    marginBottom: s(8),
   },
   playerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingVertical: s(10),
+    paddingHorizontal: s(12),
     borderRadius: 8,
-    marginBottom: 4,
+    marginBottom: s(4),
   },
   playerTouchable: {
     flex: 1,
@@ -336,68 +347,68 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   playerName: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '500',
   },
   playerMeta: {
-    fontSize: 12,
+    fontSize: ms(12),
   },
   noteTouchable: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 2,
+    marginTop: s(2),
   },
   askingPrice: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontStyle: 'italic',
     flexShrink: 1,
   },
   noteChevron: {
-    marginLeft: 3,
+    marginRight: s(3),
     marginTop: 1,
   },
   interestBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
-    paddingLeft: 8,
+    gap: s(3),
+    paddingLeft: s(8),
   },
   interestCount: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '600',
   },
   actionButtons: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
-    paddingLeft: 12,
+    gap: s(16),
+    paddingLeft: s(12),
   },
   actionBtn: {
-    padding: 6,
+    padding: s(6),
   },
   interestList: {
-    marginHorizontal: 12,
-    marginBottom: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    marginHorizontal: s(12),
+    marginBottom: s(6),
+    paddingVertical: s(8),
+    paddingHorizontal: s(12),
     borderRadius: 8,
     borderWidth: StyleSheet.hairlineWidth,
-    gap: 6,
+    gap: s(6),
   },
   interestListHeader: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    marginBottom: 2,
+    marginBottom: s(2),
   },
   interestTeamRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: s(8),
   },
   interestTeamName: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: '500',
     flex: 1,
   },

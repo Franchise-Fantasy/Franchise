@@ -1,5 +1,6 @@
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { ms, s } from '@/utils/scale';
 import { ScoringWeight } from '@/types/player';
 import { calculateGameFantasyPoints, STAT_TO_GAME, formatScore } from '@/utils/fantasyPoints';
 import { RosterPlayer, round1 } from '@/components/matchup/PlayerCell';
@@ -96,7 +97,7 @@ export function WeeklySummaryModal({
               accessibilityRole="button"
               accessibilityLabel="Close"
             >
-              <Text style={{ color: c.secondaryText, fontSize: 16 }}>✕</Text>
+              <Text style={{ color: c.secondaryText, fontSize: ms(16) }}>✕</Text>
             </TouchableOpacity>
           </View>
 
@@ -293,81 +294,81 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 12,
+    padding: s(12),
   },
   card: {
     borderWidth: 1,
     borderRadius: 16,
     width: '100%',
-    maxWidth: 420,
+    maxWidth: s(420),
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    paddingBottom: 12,
+    padding: s(16),
+    paddingBottom: s(12),
   },
   title: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: '700',
   },
   weekLabel: {
-    fontSize: 13,
-    marginTop: 2,
+    fontSize: ms(13),
+    marginTop: s(2),
   },
   body: {},
   divider: {
     height: StyleSheet.hairlineWidth,
-    marginHorizontal: 16,
-    marginVertical: 8,
+    marginHorizontal: s(16),
+    marginVertical: s(8),
   },
   teamSection: {
-    paddingHorizontal: 12,
-    paddingBottom: 8,
+    paddingHorizontal: s(12),
+    paddingBottom: s(8),
   },
   teamName: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '700',
-    marginBottom: 6,
-    paddingHorizontal: 4,
+    marginBottom: s(6),
+    paddingHorizontal: s(4),
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 7,
-    paddingHorizontal: 4,
+    paddingVertical: s(7),
+    paddingHorizontal: s(4),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   headerRow: {
-    paddingVertical: 4,
+    paddingVertical: s(4),
   },
   totalRow: {
     borderBottomWidth: 0,
-    paddingTop: 10,
-    paddingBottom: 12,
+    paddingTop: s(10),
+    paddingBottom: s(12),
   },
   totalText: {
     fontWeight: '700',
   },
   colHeader: {
-    fontSize: 10,
+    fontSize: ms(10),
     fontWeight: '600',
     textTransform: 'uppercase',
   },
   nameCol: {
-    width: 110,
-    fontSize: 13,
-    paddingRight: 4,
+    width: s(110),
+    fontSize: ms(13),
+    paddingRight: s(4),
   },
   statCol: {
-    width: 38,
-    fontSize: 13,
+    width: s(38),
+    fontSize: ms(13),
     textAlign: 'center',
   },
   fptsCol: {
-    width: 50,
-    fontSize: 13,
+    width: s(50),
+    fontSize: ms(13),
     textAlign: 'right',
   },
 });

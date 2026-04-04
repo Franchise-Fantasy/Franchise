@@ -1,8 +1,9 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { ArticleCardProps } from '@/types/cms';
 import { Image, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ms, s } from '@/utils/scale';
 
 export function ArticleCard({
   title,
@@ -96,43 +97,43 @@ const styles = StyleSheet.create({
   },
   hero: {
     width: '100%',
-    height: 180,
+    height: s(180),
   },
   content: {
-    padding: 14,
+    padding: s(14),
   },
   categoryPill: {
     alignSelf: 'flex-start',
     borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    marginBottom: 6,
+    paddingHorizontal: s(8),
+    paddingVertical: s(2),
+    marginBottom: s(6),
   },
   categoryText: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: '600',
   },
   title: {
-    fontSize: 16,
-    marginBottom: 4,
+    fontSize: ms(16),
+    marginBottom: s(4),
   },
   excerpt: {
-    fontSize: 13,
-    lineHeight: 18,
-    marginBottom: 6,
+    fontSize: ms(13),
+    lineHeight: ms(18),
+    marginBottom: s(6),
   },
   videoBadge: {
     alignSelf: 'flex-start',
     borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    marginBottom: 6,
+    paddingHorizontal: s(8),
+    paddingVertical: s(3),
+    marginBottom: s(6),
   },
   videoBadgeText: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '600',
   },
   meta: {
-    fontSize: 11,
+    fontSize: ms(11),
   },
 });

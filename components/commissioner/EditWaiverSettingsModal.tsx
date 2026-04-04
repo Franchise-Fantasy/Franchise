@@ -1,10 +1,11 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Colors } from '@/constants/Colors';
 import { PLAYER_LOCK_DISPLAY, PLAYER_LOCK_OPTIONS, PLAYER_LOCK_TO_DB, WAIVER_DAY_LABELS, WAIVER_TYPE_OPTIONS } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
+import { ms, s } from '@/utils/scale';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
@@ -90,7 +91,7 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
             <View style={[styles.editRow, { borderBottomColor: c.border }]}>
               <ThemedText style={styles.rowLabel}>Waiver Type</ThemedText>
             </View>
-            <View style={{ paddingVertical: 8 }}>
+            <View style={{ paddingVertical: s(8) }}>
               <SegmentedControl
                 options={WAIVER_TYPE_OPTIONS}
                 selectedIndex={typeIndex >= 0 ? typeIndex : 0}
@@ -116,7 +117,7 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
                 <View style={[styles.editRow, { borderBottomColor: c.border }]}>
                   <ThemedText style={styles.rowLabel}>Process Day</ThemedText>
                 </View>
-                <View style={{ paddingVertical: 8 }}>
+                <View style={{ paddingVertical: s(8) }}>
                   <SegmentedControl
                     options={WAIVER_DAY_LABELS}
                     selectedIndex={waiverDay}
@@ -154,14 +155,14 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
             <View style={[styles.editRow, { borderBottomColor: c.border }]}>
               <ThemedText style={styles.rowLabel}>Player Lock</ThemedText>
             </View>
-            <View style={{ paddingVertical: 8 }}>
+            <View style={{ paddingVertical: s(8) }}>
               <SegmentedControl
                 options={PLAYER_LOCK_OPTIONS}
                 selectedIndex={PLAYER_LOCK_OPTIONS.indexOf(playerLock as any)}
                 onSelect={(i) => setPlayerLock(PLAYER_LOCK_OPTIONS[i])}
               />
             </View>
-            <ThemedText style={{ fontSize: 13, color: c.secondaryText, marginBottom: 12 }}>
+            <ThemedText style={{ fontSize: ms(13), color: c.secondaryText, marginBottom: s(12) }}>
               {playerLock === 'Daily'
                 ? 'Once the first NBA game starts each day, adds process the next day'
                 : 'Players whose games have started cannot be added or dropped'}
@@ -196,14 +197,14 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
 
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'transparent', justifyContent: 'flex-end' },
-  sheet: { borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingTop: 12, paddingBottom: 40, maxHeight: '85%' },
-  handle: { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 12 },
-  titleRow: { flexDirection: 'row', justifyContent: 'center', paddingHorizontal: 16, marginBottom: 16 },
-  title: { fontSize: 17, fontWeight: '600' },
-  scroll: { flexShrink: 1, paddingHorizontal: 16 },
-  editRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
-  rowLabel: { fontSize: 14 },
-  footer: { flexDirection: 'row', gap: 12, paddingHorizontal: 16, paddingTop: 16 },
-  btn: { flex: 1, paddingVertical: 14, borderRadius: 10, alignItems: 'center' },
-  btnText: { fontSize: 15, fontWeight: '600' },
+  sheet: { borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingTop: s(12), paddingBottom: s(40), maxHeight: '85%' },
+  handle: { width: s(40), height: s(4), borderRadius: 2, alignSelf: 'center', marginBottom: s(12) },
+  titleRow: { flexDirection: 'row', justifyContent: 'center', paddingHorizontal: s(16), marginBottom: s(16) },
+  title: { fontSize: ms(17), fontWeight: '600' },
+  scroll: { flexShrink: 1, paddingHorizontal: s(16) },
+  editRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: s(12), borderBottomWidth: StyleSheet.hairlineWidth },
+  rowLabel: { fontSize: ms(14) },
+  footer: { flexDirection: 'row', gap: s(12), paddingHorizontal: s(16), paddingTop: s(16) },
+  btn: { flex: 1, paddingVertical: s(14), borderRadius: 10, alignItems: 'center' },
+  btnText: { fontSize: ms(15), fontWeight: '600' },
 });

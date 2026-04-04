@@ -1,3 +1,4 @@
+import { queryKeys } from '@/constants/queryKeys';
 import { sendNotification } from '@/lib/notifications';
 import { supabase } from '@/lib/supabase';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -29,7 +30,7 @@ async function findChainRoot(proposalId: string): Promise<string> {
 /** Check if a manual leak already exists for this proposal chain */
 export function useCanLeak(proposalId: string | null, leagueId: string | null) {
   return useQuery({
-    queryKey: ['canLeak', proposalId],
+    queryKey: queryKeys.canLeak(proposalId!),
     queryFn: async () => {
       if (!proposalId) return false;
       const rootId = await findChainRoot(proposalId);
@@ -71,9 +72,9 @@ export function useLeakRumor() {
       if (error) throw error;
     },
     onSuccess: (_data, vars) => {
-      queryClient.invalidateQueries({ queryKey: ['canLeak', vars.proposalId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.canLeak(vars.proposalId) });
       queryClient.invalidateQueries({ queryKey: ['messages'] });
-      queryClient.invalidateQueries({ queryKey: ['conversations', vars.leagueId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.conversations(vars.leagueId) });
 
       // Push notify the league about the leaked rumor
       sendNotification({

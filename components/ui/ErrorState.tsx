@@ -1,6 +1,7 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
@@ -39,22 +40,22 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
-    minHeight: 200,
+    padding: s(24),
+    minHeight: s(200),
   },
   message: {
-    fontSize: 15,
+    fontSize: ms(15),
     textAlign: 'center',
-    marginTop: 12,
-    marginBottom: 16,
+    marginTop: s(12),
+    marginBottom: s(16),
   },
   retryButton: {
-    paddingHorizontal: 24,
-    paddingVertical: 10,
+    paddingHorizontal: s(24),
+    paddingVertical: s(10),
     borderRadius: 8,
   },
   retryText: {
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: '600',
   },
 });

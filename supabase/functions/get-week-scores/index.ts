@@ -20,6 +20,71 @@ const STAT_TO_GAME: Record<string, string> = {
 interface ScoringWeight {
   stat_name: string;
   point_value: number;
+  is_enabled?: boolean;
+  inverse?: boolean;
+}
+
+// ── Category scoring helpers ────────────────────────────────────────────────
+
+const PERCENTAGE_STATS: Record<string, { numerator: string; denominator: string }> = {
+  'FG%': { numerator: 'fgm', denominator: 'fga' },
+  'FT%': { numerator: 'ftm', denominator: 'fta' },
+};
+
+function aggregateGameStats(
+  gameLogs: Record<string, any>[],
+): Record<string, number> {
+  const totals: Record<string, number> = {};
+  for (const game of gameLogs) {
+    for (const [, gameKey] of Object.entries(STAT_TO_GAME)) {
+      const raw = game[gameKey];
+      if (raw == null) continue;
+      const val = typeof raw === 'boolean' ? (raw ? 1 : 0) : Number(raw);
+      totals[gameKey] = (totals[gameKey] ?? 0) + val;
+    }
+  }
+  return totals;
+}
+
+function compareCategoryStats(
+  homeStats: Record<string, number>,
+  awayStats: Record<string, number>,
+  categories: ScoringWeight[],
+): { homeWins: number; awayWins: number; ties: number } {
+  let homeWins = 0;
+  let awayWins = 0;
+  let ties = 0;
+
+  for (const cat of categories) {
+    if (!cat.is_enabled) continue;
+    const pctDef = PERCENTAGE_STATS[cat.stat_name];
+    let homeVal: number;
+    let awayVal: number;
+
+    if (pctDef) {
+      const hNum = homeStats[pctDef.numerator] ?? 0;
+      const hDen = homeStats[pctDef.denominator] ?? 0;
+      const aNum = awayStats[pctDef.numerator] ?? 0;
+      const aDen = awayStats[pctDef.denominator] ?? 0;
+      homeVal = hDen > 0 ? Math.round((hNum / hDen) * 1000) / 1000 : 0;
+      awayVal = aDen > 0 ? Math.round((aNum / aDen) * 1000) / 1000 : 0;
+    } else {
+      const gameKey = STAT_TO_GAME[cat.stat_name];
+      if (!gameKey) continue;
+      homeVal = homeStats[gameKey] ?? 0;
+      awayVal = awayStats[gameKey] ?? 0;
+    }
+
+    if (homeVal === awayVal) {
+      ties++;
+    } else if (cat.inverse) {
+      if (homeVal < awayVal) homeWins++; else awayWins++;
+    } else {
+      if (homeVal > awayVal) homeWins++; else awayWins++;
+    }
+  }
+
+  return { homeWins, awayWins, ties };
 }
 
 function calcFpts(
@@ -70,10 +135,21 @@ function addDays(dateStr: string, days: number): string {
 
 // ── Score computation for a single league/week ──────────────────────────────
 
+interface WeekScoreResult {
+  teamScores: Record<string, number>;
+  isCategories: boolean;
+  categoryUpdates: Array<{
+    matchupId: string;
+    homeWins: number;
+    awayWins: number;
+    ties: number;
+  }>;
+}
+
 async function computeWeekScores(
   leagueId: string,
   scheduleId: string,
-): Promise<Record<string, number>> {
+): Promise<WeekScoreResult> {
   // Single RPC call fetches ALL data (week, scoring, matchups, rosters, lineups, games, live)
   // in one DB round trip instead of 3 sequential rounds.
   const { data: bundle, error: rpcError } = await supabase.rpc("get_week_score_data", {
@@ -89,6 +165,8 @@ async function computeWeekScores(
   const week = bundle.week;
   const weights: ScoringWeight[] = bundle.scoring ?? [];
   const matchups = bundle.matchups ?? [];
+  const scoringType: string = bundle.scoring_type ?? 'h2h_points';
+  const isCategories = scoringType === 'h2h_categories';
 
   // Collect all unique team IDs
   const teamIds = new Set<string>();
@@ -98,7 +176,7 @@ async function computeWeekScores(
   }
   const teamIdList = [...teamIds];
 
-  if (teamIdList.length === 0) return {};
+  if (teamIdList.length === 0) return { teamScores: {}, isCategories, categoryUpdates: [] };
 
   const leaguePlayers = bundle.rosters ?? [];
   const dailyEntries = bundle.lineups ?? [];
@@ -231,7 +309,63 @@ async function computeWeekScores(
     teamScores[k] = round2(teamScores[k]);
   }
 
-  return teamScores;
+  // 6. For category leagues, compute per-matchup category wins from raw stats
+  const categoryUpdates: WeekScoreResult['categoryUpdates'] = [];
+  if (isCategories) {
+    // Build per-team aggregated stats (completed games + live)
+    const teamStats = new Map<string, Record<string, number>>();
+    for (const tid of teamIdList) teamStats.set(tid, {});
+
+    for (const game of gameLogs) {
+      for (const [tid, playerSet] of allPlayersByTeam) {
+        if (!playerSet.has(game.player_id)) continue;
+        const slot = resolveSlot(tid, game.player_id, game.game_date);
+        if (!isActiveSlot(slot)) continue;
+        const stats = teamStats.get(tid)!;
+        for (const [, gameKey] of Object.entries(STAT_TO_GAME)) {
+          const raw = game[gameKey];
+          if (raw == null) continue;
+          const val = typeof raw === 'boolean' ? (raw ? 1 : 0) : Number(raw);
+          stats[gameKey] = (stats[gameKey] ?? 0) + val;
+        }
+        break;
+      }
+    }
+
+    for (const live of liveStats) {
+      if (completedToday.has(live.player_id) && live.game_date === today) continue;
+      for (const [tid, playerSet] of allPlayersByTeam) {
+        if (!playerSet.has(live.player_id)) continue;
+        const slot = resolveSlot(tid, live.player_id, live.game_date);
+        if (!isActiveSlot(slot)) continue;
+        const gameLog = liveToGameLog(live as Record<string, number>);
+        const stats = teamStats.get(tid)!;
+        for (const [, gameKey] of Object.entries(STAT_TO_GAME)) {
+          const raw = gameLog[gameKey];
+          if (raw == null) continue;
+          const val = typeof raw === 'boolean' ? (raw ? 1 : 0) : Number(raw);
+          stats[gameKey] = (stats[gameKey] ?? 0) + val;
+        }
+        break;
+      }
+    }
+
+    // Compare each matchup
+    for (const m of matchups) {
+      if (!m.away_team_id) continue;
+      const homeStats = teamStats.get(m.home_team_id) ?? {};
+      const awayStats = teamStats.get(m.away_team_id) ?? {};
+      const result = compareCategoryStats(homeStats, awayStats, weights);
+      categoryUpdates.push({
+        matchupId: m.id,
+        homeWins: result.homeWins,
+        awayWins: result.awayWins,
+        ties: result.ties,
+      });
+    }
+  }
+
+  return { teamScores, isCategories, categoryUpdates };
 }
 
 // ── Upsert scores into week_scores table ────────────────────────────────────
@@ -258,14 +392,44 @@ async function upsertScores(
   if (error) throw error;
 }
 
+// ── Update live category wins on league_matchups ───────────────────────────
+
+async function upsertCategoryWins(
+  updates: WeekScoreResult['categoryUpdates'],
+): Promise<void> {
+  if (updates.length === 0) return;
+
+  // Batch update all matchups in parallel
+  await Promise.all(
+    updates.map(({ matchupId, homeWins, awayWins, ties }) =>
+      supabase
+        .from("league_matchups")
+        .update({
+          home_category_wins: homeWins,
+          away_category_wins: awayWins,
+          category_ties: ties,
+        })
+        .eq("id", matchupId)
+    ),
+  );
+}
+
 // ── NBA game check via balldontlie ───────────────────────────────────────────
 
-/** Returns true if any NBA game is currently live or recently finished today. */
+/** Returns true if any NBA game is currently live or recently finished today.
+ *  Between midnight–3am ET, also checks yesterday for late West Coast games. */
 async function hasActiveOrFinishedGames(): Promise<boolean> {
   try {
-    const today = new Date().toISOString().slice(0, 10);
-    const data = await bdlFetch("/games", { "dates[]": today });
-    const games: any[] = data?.data ?? [];
+    const nowET = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const today = nowET.toISOString().slice(0, 10);
+    const hour = nowET.getHours();
+    const yesterdayET = new Date(nowET.getTime() - 86_400_000).toISOString().slice(0, 10);
+    const datesToCheck = hour < 3 ? [today, yesterdayET] : [today];
+
+    const results = await Promise.all(
+      datesToCheck.map(d => bdlFetch("/games", { "dates[]": d })),
+    );
+    const games = results.flatMap((r: any) => r?.data ?? []);
     return games.some((g: any) => {
       const s: string = g.status ?? "";
       return s === "Final" || /Qtr|Half|OT/i.test(s);
@@ -313,11 +477,12 @@ Deno.serve(async (req: Request) => {
       const rateLimited = await checkRateLimit(supabase, user.id, 'get-week-scores');
       if (rateLimited) return rateLimited;
 
-      const scores = await computeWeekScores(league_id, schedule_id);
-      await upsertScores(league_id, schedule_id, scores);
+      const result = await computeWeekScores(league_id, schedule_id);
+      await upsertScores(league_id, schedule_id, result.teamScores);
+      if (result.isCategories) await upsertCategoryWins(result.categoryUpdates);
 
       return new Response(
-        JSON.stringify({ scores }),
+        JSON.stringify({ scores: result.teamScores }),
         { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
       );
     }
@@ -363,12 +528,13 @@ Deno.serve(async (req: Request) => {
 
     const settled = await Promise.allSettled(
       (liveWeeks ?? []).map(async (week) => {
-        const scores = await computeWeekScores(week.league_id, week.id);
-        await upsertScores(week.league_id, week.id, scores);
+        const result = await computeWeekScores(week.league_id, week.id);
+        await upsertScores(week.league_id, week.id, result.teamScores);
+        if (result.isCategories) await upsertCategoryWins(result.categoryUpdates);
         return {
           league_id: week.league_id,
           schedule_id: week.id,
-          teams: Object.keys(scores).length,
+          teams: Object.keys(result.teamScores).length,
         };
       }),
     );

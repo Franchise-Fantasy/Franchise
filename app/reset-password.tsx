@@ -1,5 +1,6 @@
-import { ThemedText } from "@/components/ThemedText";
-import { ThemedView } from "@/components/ThemedView";
+import { ThemedText } from "@/components/ui/ThemedText";
+import { ms, s } from "@/utils/scale";
+import { ThemedView } from "@/components/ui/ThemedView";
 import { Colors } from "@/constants/Colors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { supabase } from "@/lib/supabase";
@@ -168,7 +169,7 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   title: { marginBottom: 8 },
-  subtitle: { fontSize: 15, textAlign: "center" },
+  subtitle: { fontSize: ms(15), textAlign: "center" },
   section: {
     borderWidth: 1,
     borderRadius: 12,
@@ -183,12 +184,12 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   inputIcon: { marginRight: 12 },
-  input: { flex: 1, fontSize: 16 },
+  input: { flex: 1, fontSize: ms(16) },
   button: {
     borderRadius: 12,
     paddingVertical: 15,
     alignItems: "center",
     marginBottom: 12,
   },
-  buttonText: { fontSize: 16, fontWeight: "600" },
+  buttonText: { fontSize: ms(16), fontWeight: "600" },
 });

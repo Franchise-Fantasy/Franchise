@@ -1,7 +1,8 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { SettingsExtractionResult } from '@/hooks/useImportScreenshot';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback } from 'react';
 import {
@@ -165,7 +166,7 @@ function SettingCard({
     <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
       <View style={styles.settingRow}>
         <View>
-          <ThemedText style={[styles.cardLabel, { fontSize: 13 }]}>{label}</ThemedText>
+          <ThemedText style={[styles.cardLabel, { fontSize: ms(13) }]}>{label}</ThemedText>
           <ThemedText type="defaultSemiBold" style={styles.settingValue}>{value}</ThemedText>
         </View>
         <TouchableOpacity
@@ -183,84 +184,84 @@ function SettingCard({
 
 const styles = StyleSheet.create({
   container: {
-    gap: 12,
+    gap: s(12),
   },
   header: {
-    fontSize: 16,
+    fontSize: ms(16),
   },
   desc: {
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: ms(13),
+    lineHeight: ms(18),
   },
   card: {
     borderRadius: 12,
     borderWidth: 1,
-    padding: 14,
-    gap: 10,
+    padding: s(14),
+    gap: s(10),
   },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: s(8),
   },
   cardLabel: {
-    fontSize: 14,
+    fontSize: ms(14),
   },
   cardValue: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '500',
   },
   scoringGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: s(8),
   },
   scoringItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    gap: s(4),
+    paddingHorizontal: s(8),
+    paddingVertical: s(4),
     borderRadius: 6,
     backgroundColor: 'rgba(128,128,128,0.1)',
   },
   statName: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: '600',
   },
   statValue: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: '700',
   },
   rosterGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: s(8),
   },
   rosterItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    gap: s(4),
+    paddingHorizontal: s(8),
+    paddingVertical: s(4),
     borderRadius: 6,
     backgroundColor: 'rgba(128,128,128,0.1)',
   },
   posName: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: '600',
   },
   posCount: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: '700',
   },
   acceptBtn: {
-    paddingVertical: 10,
+    paddingVertical: s(10),
     borderRadius: 8,
     alignItems: 'center',
   },
   acceptBtnText: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '700',
   },
   settingRow: {
@@ -269,28 +270,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   settingValue: {
-    fontSize: 16,
-    marginTop: 2,
+    fontSize: ms(16),
+    marginTop: s(2),
   },
   useBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 14,
+    paddingVertical: s(6),
+    paddingHorizontal: s(14),
     borderRadius: 6,
   },
   useBtnText: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: '600',
   },
   emptyCard: {
     borderRadius: 12,
     borderWidth: 1,
-    padding: 20,
-    gap: 10,
+    padding: s(20),
+    gap: s(10),
     alignItems: 'center',
   },
   emptyText: {
-    fontSize: 14,
+    fontSize: ms(14),
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: ms(20),
   },
 });

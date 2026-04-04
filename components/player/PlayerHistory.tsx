@@ -1,4 +1,5 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { ms, s } from "@/utils/scale";
 import { TradeHistoryModal } from '@/components/player/TradeHistoryModal';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -59,10 +60,6 @@ export function PlayerHistory({ playerId, leagueId }: PlayerHistoryProps) {
 
   return (
     <View style={styles.container}>
-      <ThemedText type="subtitle" style={styles.title}>
-        Transaction History
-      </ThemedText>
-
       {selectedTradeTransactionId && (
         <TradeHistoryModal
           transactionId={selectedTradeTransactionId}
@@ -146,9 +143,6 @@ const styles = StyleSheet.create({
   container: {
     paddingHorizontal: 16,
   },
-  title: {
-    marginBottom: 8,
-  },
   content: {
     marginTop: 0,
   },
@@ -156,11 +150,11 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   emptyText: {
-    fontSize: 13,
+    fontSize: ms(13),
     paddingVertical: 8,
   },
   noOtherText: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontStyle: 'italic',
     paddingLeft: 40,
     paddingTop: 4,
@@ -196,11 +190,11 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   eventDescription: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: '500',
   },
   eventDate: {
-    fontSize: 11,
+    fontSize: ms(11),
     marginTop: 2,
   },
 });

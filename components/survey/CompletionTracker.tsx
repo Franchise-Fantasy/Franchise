@@ -1,7 +1,8 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useSurveyCompletionTracker } from '@/hooks/chat/useSurveys';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
@@ -59,27 +60,27 @@ export function CompletionTracker({ surveyId, leagueId }: Props) {
 }
 
 const styles = StyleSheet.create({
-  loader: { marginTop: 20 },
+  loader: { marginTop: s(20) },
   summaryRow: {
-    marginBottom: 12,
+    marginBottom: s(12),
   },
   summaryText: {
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: '600',
   },
-  list: { gap: 4 },
+  list: { gap: s(4) },
   teamRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingVertical: 10,
+    gap: s(10),
+    paddingVertical: s(10),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   teamName: {
-    fontSize: 14,
+    fontSize: ms(14),
     flex: 1,
   },
   timestamp: {
-    fontSize: 11,
+    fontSize: ms(11),
   },
 });

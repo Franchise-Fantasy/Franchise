@@ -1,10 +1,12 @@
+import { CatAnalytics } from "@/components/analytics/CatAnalytics";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
-import { ThemedText } from "@/components/ThemedText";
+import { ThemedText } from "@/components/ui/ThemedText";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Colors } from "@/constants/Colors";
 import { PlayerSeasonStats } from "@/types/player";
 import { useAppState } from "@/context/AppStateProvider";
 import { useColorScheme } from "@/hooks/useColorScheme";
+import { useLeague } from "@/hooks/useLeague";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
 import { useLeagueRosterStats } from "@/hooks/useLeagueRosterStats";
 import {
@@ -17,14 +19,23 @@ import {
   calculateRosterAgeProfile,
   getInsightText,
 } from "@/utils/rosterAge";
+import {
+  AGING_CURVES,
+  getTierForLeague,
+  statLineToFpts,
+  type PositionCurve,
+} from "@/constants/agingCurves";
+import { getPositionCurveKey } from "@/utils/agingCurve";
 import { Ionicons } from "@expo/vector-icons";
 import {
   Canvas,
   Circle,
   DashPathEffect,
   Group,
+  Path as SkiaPath,
   Rect,
   Line as SkiaLine,
+  Skia,
   vec,
 } from "@shopify/react-native-skia";
 import { scaleLinear } from "d3-scale";
@@ -45,18 +56,22 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { ms, s } from "@/utils/scale";
 
 // ─── Chart layout ────────────────────────────────────────────────────────────
 
-const PAD = { top: 16, right: 12, bottom: 36, left: 40 };
-const CHART_HEIGHT = 400;
-const DOT_RADIUS = 6;
+const PAD = { top: s(16), right: s(12), bottom: s(36), left: s(40) };
+const CHART_HEIGHT = s(400);
+const DOT_RADIUS = s(6);
 
 export default function AnalyticsScreen() {
   const scheme = useColorScheme() ?? "light";
   const c = Colors[scheme];
   const isDark = scheme === "dark";
   const { leagueId, teamId } = useAppState();
+
+  const { data: league } = useLeague();
+  const isCategories = league?.scoring_type === "h2h_categories";
 
   const { data: allPlayers, isLoading: loadingPlayers } = useLeagueRosterStats(
     leagueId!,
@@ -73,6 +88,7 @@ export default function AnalyticsScreen() {
     null,
   );
   const [infoModalVisible, setInfoModalVisible] = useState(false);
+  const [selectedCurve, setSelectedCurve] = useState<PositionCurve>("ALL");
 
   // My team's players (for scatter plot + detail modal)
   const players = useMemo(
@@ -161,10 +177,106 @@ export default function AnalyticsScreen() {
     };
   }, [scatterData, plotW, plotH]);
 
+  // Filter dots by selected position curve
+  const filteredScatter = useMemo(() => {
+    if (selectedCurve === "ALL") return scatterData;
+    return scatterData.filter((d) => {
+      const key = getPositionCurveKey(d.position);
+      if (selectedCurve === "G") return key === "PG" || key === "SG" || key === "G";
+      if (selectedCurve === "F") return key === "SF" || key === "PF" || key === "F";
+      return key === selectedCurve;
+    });
+  }, [scatterData, selectedCurve]);
+
+  // Pick the right tier based on league size
+  const tierKey = useMemo(() => {
+    if (!comparison) return "100"; // sensible default
+    const totalTeams = comparison.totalTeams;
+    // Estimate roster size from rostered players per team
+    const playersPerTeam = allPlayers?.length
+      ? Math.round(allPlayers.length / totalTeams)
+      : 13;
+    return getTierForLeague(totalTeams, playersPerTeam);
+  }, [comparison, allPlayers]);
+
+  // Build Skia paths for the aging curve overlay + confidence band.
+  // Converts tier stat lines to FPTS using the league's scoring weights,
+  // so the curve is league-scoring-specific and depth-appropriate.
+  const { curvePath, bandPath } = useMemo(() => {
+    if (!xScale || !yScale || !weights?.length)
+      return { curvePath: null, bandPath: null };
+
+    const tier = AGING_CURVES.tiers?.[tierKey];
+    if (!tier) return { curvePath: null, bandPath: null };
+
+    const statLines = tier.statLines?.[selectedCurve];
+    if (!statLines || Object.keys(statLines).length < 2)
+      return { curvePath: null, bandPath: null };
+
+    const [domainMin, domainMax] = xScale.domain();
+    const minAge = Math.ceil(domainMin);
+    const maxAge = Math.floor(domainMax);
+
+    // Convert stat lines to FPTS at each age
+    const fptsByAge: Record<number, number> = {};
+    for (let age = minAge; age <= maxAge; age++) {
+      const sl = statLines[String(age)];
+      if (!sl) continue;
+      fptsByAge[age] = statLineToFpts(sl, weights);
+    }
+
+    // Median line
+    const line = Skia.Path.Make();
+    let lineStarted = false;
+    for (let age = minAge; age <= maxAge; age++) {
+      const v = fptsByAge[age];
+      if (v == null) continue;
+      const x = xScale(age);
+      const y = Math.max(0, Math.min(plotH, yScale(v)));
+      if (!lineStarted) { line.moveTo(x, y); lineStarted = true; }
+      else line.lineTo(x, y);
+    }
+
+    // Confidence band (p25 to p75)
+    const slP25 = tier.statLinesP25?.[selectedCurve];
+    const slP75 = tier.statLinesP75?.[selectedCurve];
+    let band: ReturnType<typeof Skia.Path.Make> | null = null;
+
+    if (slP25 && slP75 && Object.keys(slP25).length > 2) {
+      band = Skia.Path.Make();
+      const hiPoints: { x: number; y: number }[] = [];
+      const loPoints: { x: number; y: number }[] = [];
+
+      for (let age = minAge; age <= maxAge; age++) {
+        const lo = slP25[String(age)];
+        const hi = slP75[String(age)];
+        if (!lo || !hi) continue;
+        const loFpts = statLineToFpts(lo, weights);
+        const hiFpts = statLineToFpts(hi, weights);
+        hiPoints.push({ x: xScale(age), y: Math.max(0, Math.min(plotH, yScale(hiFpts))) });
+        loPoints.push({ x: xScale(age), y: Math.max(0, Math.min(plotH, yScale(loFpts))) });
+      }
+
+      if (hiPoints.length > 1) {
+        band.moveTo(hiPoints[0].x, hiPoints[0].y);
+        for (let i = 1; i < hiPoints.length; i++) band.lineTo(hiPoints[i].x, hiPoints[i].y);
+        for (let i = loPoints.length - 1; i >= 0; i--) band.lineTo(loPoints[i].x, loPoints[i].y);
+        band.close();
+      } else {
+        band = null;
+      }
+    }
+
+    return {
+      curvePath: lineStarted ? line : null,
+      bandPath: band,
+    };
+  }, [xScale, yScale, selectedCurve, plotH, tierKey, weights]);
+
   // Handle dot taps via responder on an overlay View
   const handleTap = useCallback(
     (evt: GestureResponderEvent) => {
-      if (!xScale || !yScale || !scatterData.length) return;
+      if (!xScale || !yScale || !filteredScatter.length) return;
       const touchX = evt.nativeEvent.locationX;
       const touchY = evt.nativeEvent.locationY;
 
@@ -174,7 +286,7 @@ export default function AnalyticsScreen() {
       let closest: AgeFptsPoint | null = null;
       let closestDist = Infinity;
 
-      for (const point of scatterData) {
+      for (const point of filteredScatter) {
         const px = xScale(point.age);
         const py = yScale(point.avgFpts);
         const dist = Math.sqrt((adjX - px) ** 2 + (adjY - py) ** 2);
@@ -192,14 +304,31 @@ export default function AnalyticsScreen() {
         selectPlayer(null);
       }
     },
-    [xScale, yScale, scatterData, selectedPlayer],
+    [xScale, yScale, filteredScatter, selectedPlayer],
   );
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
       <PageHeader title="Roster Analytics" />
       <View style={styles.content}>
-        {isLoading ? (
+        {isCategories ? (
+          isLoading ? (
+            <ActivityIndicator style={styles.loading} />
+          ) : allPlayers && allPlayers.length > 0 ? (
+            <CatAnalytics
+              allPlayers={allPlayers as any}
+              myPlayers={players}
+              teamId={teamId!}
+              leagueId={leagueId!}
+            />
+          ) : (
+            <View style={styles.emptyState}>
+              <ThemedText style={{ color: c.secondaryText }}>
+                Not enough data to display analytics
+              </ThemedText>
+            </View>
+          )
+        ) : isLoading ? (
           <ActivityIndicator style={styles.loading} />
         ) : !profile || profile.totalWithAge < 3 ? (
           <View style={styles.emptyState}>
@@ -258,6 +387,8 @@ export default function AnalyticsScreen() {
                 >
                   <Text
                     style={[styles.agePillLabel, { color: c.secondaryText }]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
                   >
                     WEIGHTED AGE
                   </Text>
@@ -266,7 +397,7 @@ export default function AnalyticsScreen() {
                   </Text>
                 </View>
 
-                {/* League Rank pill */}
+                {/* Age rank pill */}
                 <View
                   style={[
                     styles.agePill,
@@ -276,11 +407,18 @@ export default function AnalyticsScreen() {
                         : "rgba(0,0,0,0.03)",
                     },
                   ]}
+                  accessibilityLabel={
+                    comparison
+                      ? `Age rank ${comparison.weightedAgeRank} of ${comparison.totalTeams}, youngest to oldest`
+                      : "Age rank unavailable"
+                  }
                 >
                   <Text
                     style={[styles.agePillLabel, { color: c.secondaryText }]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
                   >
-                    LEAGUE RANK
+                    AGE RANK
                   </Text>
                   <ThemedText style={styles.agePillValue}>
                     {comparison
@@ -290,8 +428,10 @@ export default function AnalyticsScreen() {
                   {comparison && (
                     <Text
                       style={[styles.agePillSub, { color: c.secondaryText }]}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
                     >
-                      of {comparison.totalTeams}
+                      youngest → oldest
                     </Text>
                   )}
                 </View>
@@ -309,6 +449,8 @@ export default function AnalyticsScreen() {
                 >
                   <Text
                     style={[styles.agePillLabel, { color: c.secondaryText }]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
                   >
                     VS LEAGUE
                   </Text>
@@ -320,6 +462,8 @@ export default function AnalyticsScreen() {
                   {comparison && (
                     <Text
                       style={[styles.agePillSub, { color: c.secondaryText }]}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
                     >
                       yr
                     </Text>
@@ -354,12 +498,61 @@ export default function AnalyticsScreen() {
               </View>
             </View>
 
+            {/* ── Position Curve Toggle ── */}
+            <View style={styles.curveToggleRow}>
+              {(["ALL", "PG", "SG", "SF", "PF", "C"] as PositionCurve[]).map(
+                (key) => {
+                  const active = selectedCurve === key;
+                  return (
+                    <TouchableOpacity
+                      key={key}
+                      style={[
+                        styles.curveTogglePill,
+                        {
+                          backgroundColor: active
+                            ? isDark
+                              ? "rgba(255,255,255,0.12)"
+                              : "rgba(0,0,0,0.08)"
+                            : "transparent",
+                          borderColor: active
+                            ? isDark
+                              ? "rgba(255,255,255,0.2)"
+                              : "rgba(0,0,0,0.15)"
+                            : isDark
+                              ? "rgba(255,255,255,0.06)"
+                              : "rgba(0,0,0,0.06)",
+                        },
+                      ]}
+                      onPress={() => setSelectedCurve(key)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Show ${key === "ALL" ? "all positions" : key} aging curve`}
+                      accessibilityState={{ selected: active }}
+                    >
+                      <Text
+                        style={[
+                          styles.curveToggleText,
+                          {
+                            color: active
+                              ? c.text
+                              : c.secondaryText,
+                            fontWeight: active ? "700" : "500",
+                          },
+                        ]}
+                      >
+                        {key}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                },
+              )}
+            </View>
+
             {/* ── Chart ── */}
             <View
               style={styles.chartArea}
               onLayout={onLayout}
               accessibilityRole="image"
-              accessibilityLabel={`Age versus fantasy points scatterplot with ${scatterData.length} players`}
+              accessibilityLabel={`Age versus fantasy points scatterplot with ${filteredScatter.length} players, ${selectedCurve} aging curve`}
             >
               {canvasWidth > 0 && xScale && yScale ? (
                 <>
@@ -445,7 +638,7 @@ export default function AnalyticsScreen() {
                       })()}
 
                       {/* Data dots */}
-                      {scatterData.map((point) => {
+                      {filteredScatter.map((point) => {
                         const cx = xScale(point.age);
                         const cy = yScale(point.avgFpts);
                         const bucket = ageBucket(point.age);
@@ -576,7 +769,7 @@ export default function AnalyticsScreen() {
                   {/* Player name labels — nudged to avoid overlaps */}
                   {(() => {
                     // Compute initial label positions
-                    const labels = scatterData.map((point) => {
+                    const labels = filteredScatter.map((point) => {
                       const cx = xScale(point.age);
                       const cy = yScale(point.avgFpts);
                       const label = point.shortName;
@@ -840,6 +1033,19 @@ export default function AnalyticsScreen() {
               young — a prime window may be ahead. If higher, your best output
               comes from older players — a win-now window.
             </Text>
+
+            <Text style={[styles.modalText, { color: c.secondaryText, fontWeight: "600" }]}>
+              Aging Curve
+            </Text>
+            <Text style={[styles.modalText, { color: c.secondaryText }]}>
+              The line shows expected production at each age for
+              fantasy-relevant players, based on 20+ years of NBA data
+              filtered to your league's roster depth. Players above the line
+              are outperforming for their age; below means they may be
+              developing or declining. The shaded band shows the typical
+              range (25th–75th percentile). Use the position pills to
+              compare — PGs tend to age more gracefully than SGs.
+            </Text>
           </View>
         </TouchableOpacity>
       </Modal>
@@ -856,45 +1062,62 @@ export default function AnalyticsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { flex: 1, paddingHorizontal: 16, paddingTop: 10 },
-  loading: { marginTop: 40 },
-  emptyState: { alignItems: "center", marginTop: 40 },
+  content: { flex: 1, paddingHorizontal: s(16), paddingTop: s(10) },
+  loading: { marginTop: s(40) },
+  emptyState: { alignItems: "center", marginTop: s(40) },
 
   // Narrative Card
   windowCard: {
     borderWidth: 1,
     borderRadius: 14,
-    padding: 14,
-    marginBottom: 10,
+    padding: s(14),
+    marginBottom: s(10),
   },
   windowLabel: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: "700",
     letterSpacing: 1.5,
     textTransform: "uppercase",
-    marginBottom: 12,
+    marginBottom: s(12),
   },
-  agePillRow: { flexDirection: "row", gap: 12, marginBottom: 12 },
+  agePillRow: { flexDirection: "row", gap: s(8), marginBottom: s(12) },
   agePill: {
     flex: 1,
     borderRadius: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
+    paddingVertical: s(8),
+    paddingHorizontal: s(6),
     alignItems: "center",
+    justifyContent: "center",
   },
   agePillLabel: {
-    fontSize: 9,
+    fontSize: ms(8),
     fontWeight: "600",
-    letterSpacing: 1,
+    letterSpacing: 0.5,
     textTransform: "uppercase",
     marginBottom: 3,
   },
-  agePillValue: { fontSize: 22, fontWeight: "700" },
-  agePillSub: { fontSize: 9, fontWeight: "500", marginTop: 1 },
-  windowInsight: { fontSize: 12, lineHeight: 18, marginBottom: 8 },
+  agePillValue: { fontSize: ms(20), fontWeight: "700" },
+  agePillSub: { fontSize: ms(8), fontWeight: "500", marginTop: 1 },
+  windowInsight: { fontSize: ms(12), lineHeight: ms(18), marginBottom: s(8) },
   bucketRow: { flexDirection: "row", alignItems: "center" },
-  bucketText: { fontSize: 12, fontWeight: "600" },
-  bucketDot: { fontSize: 12 },
+  bucketText: { fontSize: ms(12), fontWeight: "600" },
+  bucketDot: { fontSize: ms(12) },
+  curveToggleRow: {
+    flexDirection: "row",
+    gap: s(6),
+    marginBottom: s(10),
+    paddingHorizontal: 2,
+  },
+  curveTogglePill: {
+    paddingVertical: s(4),
+    paddingHorizontal: s(10),
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  curveToggleText: {
+    fontSize: ms(11),
+    letterSpacing: 0.3,
+  },
 
   // Chart — positioned relative so text overlays work
   chartArea: { marginBottom: 0, position: "relative", height: CHART_HEIGHT },
@@ -902,61 +1125,61 @@ const styles = StyleSheet.create({
   // Absolutely positioned text labels over the Canvas
   axisLabel: {
     position: "absolute",
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: "500",
   },
   axisTitleLabel: {
     position: "absolute",
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: "700",
   },
   indicatorLabel: {
     position: "absolute",
-    fontSize: 8,
+    fontSize: ms(8),
     fontWeight: "700",
     letterSpacing: 0.5,
   },
   playerNameLabel: {
     position: "absolute",
-    fontSize: 9,
+    fontSize: ms(9),
   },
 
   // Detail Card
   detailCard: {
     borderWidth: 1,
     borderRadius: 12,
-    padding: 14,
-    marginBottom: 8,
-    marginTop: 8,
-    height: 96,
+    padding: s(14),
+    marginBottom: s(8),
+    marginTop: s(8),
+    height: s(96),
   },
   detailHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
   },
-  detailName: { fontSize: 15, fontWeight: "700" },
-  detailMeta: { fontSize: 12, marginTop: 2 },
+  detailName: { fontSize: ms(15), fontWeight: "700" },
+  detailMeta: { fontSize: ms(12), marginTop: 2 },
   detailFpts: { alignItems: "flex-end" },
-  detailFptsValue: { fontSize: 18, fontWeight: "700" },
-  detailFptsLabel: { fontSize: 9, fontWeight: "600", letterSpacing: 0.5 },
-  detailBadges: { flexDirection: "row", gap: 8, marginTop: 8 },
-  badge: { paddingVertical: 3, paddingHorizontal: 8, borderRadius: 6 },
-  badgeText: { fontSize: 11, fontWeight: "600" },
+  detailFptsValue: { fontSize: ms(18), fontWeight: "700" },
+  detailFptsLabel: { fontSize: ms(9), fontWeight: "600", letterSpacing: 0.5 },
+  detailBadges: { flexDirection: "row", gap: s(8), marginTop: s(8) },
+  badge: { paddingVertical: s(3), paddingHorizontal: s(8), borderRadius: 6 },
+  badgeText: { fontSize: ms(11), fontWeight: "600" },
   detailHintWrap: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
   },
-  detailHint: { fontSize: 12, textAlign: "center" },
+  detailHint: { fontSize: ms(12), textAlign: "center" },
 
   // Info icon on chart
   infoIcon: {
     position: "absolute",
-    top: 4,
-    right: 4,
+    top: s(4),
+    right: s(4),
     zIndex: 20,
-    padding: 4,
+    padding: s(4),
   },
 
   // Info modal
@@ -965,46 +1188,46 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "center",
     alignItems: "center",
-    padding: 24,
+    padding: s(24),
   },
   modalCard: {
     borderWidth: 1,
     borderRadius: 16,
-    padding: 20,
+    padding: s(20),
     width: "100%",
-    maxWidth: 360,
+    maxWidth: s(360),
   },
   modalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 14,
+    marginBottom: s(14),
   },
   modalTitle: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: "700",
   },
   modalText: {
-    fontSize: 13,
-    lineHeight: 19,
-    marginBottom: 12,
+    fontSize: ms(13),
+    lineHeight: ms(19),
+    marginBottom: s(12),
   },
   modalSwatchRow: {
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "wrap",
-    gap: 5,
-    marginBottom: 12,
+    gap: s(5),
+    marginBottom: s(12),
   },
   modalSwatch: {
-    width: 10,
-    height: 10,
+    width: s(10),
+    height: s(10),
     borderRadius: 5,
   },
   modalSwatchLabel: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: "500",
   },
 
-  footnote: { fontSize: 10, fontStyle: "italic", textAlign: "center" },
+  footnote: { fontSize: ms(10), fontStyle: "italic", textAlign: "center" },
 });

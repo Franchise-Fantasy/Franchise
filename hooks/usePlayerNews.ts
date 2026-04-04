@@ -1,3 +1,4 @@
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import type { PlayerNewsArticle } from '@/types/news';
 import { useQuery } from '@tanstack/react-query';
@@ -5,7 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 /** Fetch news articles mentioning a specific player. */
 export function usePlayerNews(playerId: string | undefined) {
   return useQuery<PlayerNewsArticle[]>({
-    queryKey: ['playerNews', playerId],
+    queryKey: queryKeys.playerNews(playerId!),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('player_news_mentions')

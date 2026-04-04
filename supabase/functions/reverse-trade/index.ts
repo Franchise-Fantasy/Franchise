@@ -77,8 +77,13 @@ Deno.serve(async (req) => {
         warnings.push(`${pick.season} Rd ${pick.round} pick already used — skipped.`);
         continue;
       }
+      // Only clear protection if THIS trade set it; preserve prior protection otherwise
+      const tradeSetProtection = item.protection_threshold != null;
       const { error } = await supabaseAdmin.from('draft_picks')
-        .update({ current_team_id: item.from_team_id, protection_threshold: null, protection_owner_id: null })
+        .update({
+          current_team_id: item.from_team_id,
+          ...(tradeSetProtection ? { protection_threshold: null, protection_owner_id: null } : {}),
+        })
         .eq('id', item.draft_pick_id);
       if (error) throw new Error(`Failed to reverse pick ${item.draft_pick_id}: ${error.message}`);
     }

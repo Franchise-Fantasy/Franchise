@@ -1,19 +1,22 @@
 import { useAppState } from '@/context/AppStateProvider';
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import type { ConversationPreview } from '@/types/chat';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
-// ─── Conversation list ───────────────────────────────────────
+// ─── Shared realtime subscription for chat_messages ─────────
+// Both useConversations and useTotalUnread need to know about new
+// messages in the league. One channel serves both, halving the
+// realtime connection cost.
 
-export function useConversations() {
-  const { leagueId, teamId } = useAppState();
+function useChatMessageSubscription(leagueId: string | null) {
   const queryClient = useQueryClient();
 
   useEffect(() => {
     if (!leagueId) return;
     const channel = supabase
-      .channel(`chat_list_${leagueId}`)
+      .channel(`chat_messages_${leagueId}`)
       .on(
         'postgres_changes',
         {
@@ -23,7 +26,8 @@ export function useConversations() {
           filter: `league_id=eq.${leagueId}`,
         },
         () => {
-          queryClient.invalidateQueries({ queryKey: ['conversations', leagueId] });
+          queryClient.invalidateQueries({ queryKey: queryKeys.conversations(leagueId!) });
+          queryClient.invalidateQueries({ queryKey: queryKeys.chatUnread(leagueId!) });
         },
       )
       .subscribe();
@@ -31,9 +35,17 @@ export function useConversations() {
       supabase.removeChannel(channel);
     };
   }, [leagueId, queryClient]);
+}
+
+// ─── Conversation list ───────────────────────────────────────
+
+export function useConversations() {
+  const { leagueId, teamId } = useAppState();
+
+  useChatMessageSubscription(leagueId);
 
   return useQuery<ConversationPreview[]>({
-    queryKey: ['conversations', leagueId],
+    queryKey: queryKeys.conversations(leagueId!),
     queryFn: async () => {
       const { data, error } = await supabase.rpc('get_conversations', {
         p_league_id: leagueId!,
@@ -51,32 +63,11 @@ export function useConversations() {
 
 export function useTotalUnread() {
   const { leagueId, teamId } = useAppState();
-  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    if (!leagueId) return;
-    const channel = supabase
-      .channel(`chat_unread_${leagueId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'chat_messages',
-          filter: `league_id=eq.${leagueId}`,
-        },
-        () => {
-          queryClient.invalidateQueries({ queryKey: ['chatUnread', leagueId] });
-        },
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [leagueId, queryClient]);
+  useChatMessageSubscription(leagueId);
 
   return useQuery<number>({
-    queryKey: ['chatUnread', leagueId],
+    queryKey: queryKeys.chatUnread(leagueId!),
     queryFn: async () => {
       const { data, error } = await supabase.rpc('get_total_unread', {
         p_league_id: leagueId!,

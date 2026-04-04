@@ -23,20 +23,6 @@ function parseMinutes(min: string | null): number {
   return parseInt(parts[0], 10) || 0;
 }
 
-/**
- * Extract period number from BDL status string.
- * "1st Qtr" → 1, "4th Qtr" → 4, "OT1" → 5, "OT2" → 6, "Halftime" → 2, etc.
- */
-function extractPeriod(status: string, period?: number): number {
-  if (period != null && period > 0) return period;
-  const qtrMatch = status.match(/(\d)(?:st|nd|rd|th)\s*Qtr/i);
-  if (qtrMatch) return parseInt(qtrMatch[1], 10);
-  if (/half/i.test(status)) return 2;
-  const otMatch = status.match(/OT(\d*)/i);
-  if (otMatch) return 4 + (parseInt(otMatch[1], 10) || 1);
-  return 0;
-}
-
 Deno.serve(async (req: Request) => {
   // Verify cron secret
   const cronSecret = Deno.env.get('CRON_SECRET');
@@ -59,43 +45,70 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Single BDL call returns all live games with full player stats
-    const data = await bdlFetch("/box_scores/live");
-    const boxScores: any[] = data?.data ?? [];
+    // Use ET date since NBA games are scheduled in Eastern time.
+    // Between midnight–3am ET, also check yesterday since West Coast games
+    // (10pm ET tip) can run past midnight.
+    const gameDate = nowET.toISOString().slice(0, 10);
+    const yesterdayET = new Date(nowET.getTime() - 86_400_000).toISOString().slice(0, 10);
+    const datesToCheck = hour < 3 ? [gameDate, yesterdayET] : [gameDate];
 
-    if (boxScores.length === 0) {
-      return new Response(
-        JSON.stringify({ ok: true, games: 0 }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
-    }
+    // Parallel BDL calls for each date
+    const [gamesResults, statsResults] = await Promise.all([
+      Promise.all(datesToCheck.map(d => bdlFetch("/games", { "dates[]": d }))),
+      Promise.all(datesToCheck.map(d => bdlFetch("/stats", { "dates[]": d, per_page: "100" }))),
+    ]);
+    const gamesData = { data: gamesResults.flatMap((r: any) => r?.data ?? []) };
+    const statsData = { data: statsResults.flatMap((r: any) => r?.data ?? []), meta: statsResults[0]?.meta };
 
-    // Filter to active/finished games only
-    const activeBoxScores = boxScores.filter((bs: any) => {
-      const status = mapGameStatus(bs.game?.status ?? "");
-      return status === 2 || status === 3;
+    const allGames: any[] = gamesData?.data ?? [];
+    const activeGames = allGames.filter((g: any) => {
+      const s = mapGameStatus(g.status ?? "");
+      return s === 2 || s === 3;
     });
 
-    if (activeBoxScores.length === 0) {
+    if (activeGames.length === 0) {
       return new Response(
-        JSON.stringify({ ok: true, games: 0, allGames: boxScores.length }),
+        JSON.stringify({ ok: true, games: 0, allGames: allGames.length }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     }
 
-    // Collect all BDL player IDs from the box scores
-    const allBdlIds = new Set<number>();
-    for (const bs of activeBoxScores) {
-      for (const ps of [...(bs.home_team_player_stats ?? []), ...(bs.visitor_team_player_stats ?? [])]) {
-        if (ps.player?.id) allBdlIds.add(ps.player.id);
+    // Build game lookup: gameId → game metadata
+    const gameMap = new Map<number, any>();
+    for (const g of activeGames) gameMap.set(g.id, g);
+
+    // Paginate through all stats for checked dates
+    let allStats: any[] = statsData?.data ?? [];
+    for (const d of datesToCheck) {
+      // First page already fetched above; paginate remaining pages per date
+      // Find the cursor for this date's initial fetch
+      const initialIdx = datesToCheck.indexOf(d);
+      let cursor = statsResults[initialIdx]?.meta?.next_cursor;
+      while (cursor) {
+        const page = await bdlFetch("/stats", {
+          "dates[]": d,
+          per_page: "100",
+          cursor: String(cursor),
+        });
+        allStats.push(...(page?.data ?? []));
+        cursor = page?.meta?.next_cursor;
       }
     }
 
-    if (allBdlIds.size === 0) {
+    // Filter to only stats from active/finished games
+    const activeStats = allStats.filter((s: any) => gameMap.has(s.game?.id));
+
+    if (activeStats.length === 0) {
       return new Response(
-        JSON.stringify({ ok: true, players: 0 }),
+        JSON.stringify({ ok: true, games: activeGames.length, players: 0 }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
+    }
+
+    // Collect BDL player IDs
+    const allBdlIds = new Set<number>();
+    for (const s of activeStats) {
+      if (s.player?.id) allBdlIds.add(s.player.id);
     }
 
     // Look up internal player IDs by external_id_bdl
@@ -118,101 +131,95 @@ Deno.serve(async (req: Request) => {
       console.warn(`Players not in DB (BDL IDs): ${missingBdlIds.join(', ')}`);
     }
 
-    // Fetch current minutes for oncourt derivation
-    const gameDate = new Date().toISOString().slice(0, 10);
+    // Fetch previous minutes for oncourt derivation (both dates when checking yesterday too)
     const { data: existingLive } = await supabase
       .from("live_player_stats")
-      .select("player_id, min")
+      .select("player_id, game_date, min")
       .in("player_id", [...bdlIdToPlayerId.values()])
-      .eq("game_date", gameDate);
+      .in("game_date", datesToCheck);
 
     const prevMinMap = new Map<string, number>(
-      (existingLive ?? []).map((r: any) => [r.player_id, parseMinutes(r.min ?? "0")]),
+      (existingLive ?? []).map((r: any) => [`${r.player_id}:${r.game_date}`, parseMinutes(String(r.min ?? "0"))]),
     );
 
     const allLiveRows: any[] = [];
     const allGameRows: any[] = [];
     const allTeamUpdates: any[] = [];
 
-    for (const bs of activeBoxScores) {
-      const game = bs.game;
+    for (const stat of activeStats) {
+      const playerId = bdlIdToPlayerId.get(stat.player?.id);
+      if (!playerId) continue;
+
+      const game = gameMap.get(stat.game?.id);
       if (!game) continue;
 
       const gameStatus = mapGameStatus(game.status ?? "");
-      const period = extractPeriod(game.status ?? "", game.period);
+      const period = game.period ?? 0;
       const gameClock = toIsoDuration(game.time ?? "");
       const gameId = String(game.id);
-      const bsDate: string = game.date?.slice(0, 10) ?? gameDate;
-      const homeTeam: string = bs.home_team?.abbreviation ?? "";
-      const awayTeam: string = bs.visitor_team?.abbreviation ?? "";
-      const homeScore: number = bs.home_team_score ?? 0;
-      const awayScore: number = bs.visitor_team_score ?? 0;
+      // Use the game's own date from BDL, not the poll date.
+      // Late West Coast games that cross midnight keep yesterday's date.
+      const actualGameDate = game.date?.slice(0, 10) ?? gameDate;
 
-      const sides = [
-        { players: bs.home_team_player_stats ?? [], tricode: homeTeam, oppTricode: awayTeam, isHome: true },
-        { players: bs.visitor_team_player_stats ?? [], tricode: awayTeam, oppTricode: homeTeam, isHome: false },
-      ];
+      // Determine home/away from the stat's team vs game's home team
+      const statTeamId = stat.team?.id;
+      const isHome = statTeamId === game.home_team?.id;
+      const ownTricode = stat.team?.abbreviation ?? "";
+      const oppTricode = isHome ? game.visitor_team?.abbreviation ?? "" : game.home_team?.abbreviation ?? "";
+      const matchup = isHome ? `vs ${oppTricode}` : `@${oppTricode}`;
+      const homeScore = game.home_team_score ?? 0;
+      const awayScore = game.visitor_team_score ?? 0;
 
-      for (const side of sides) {
-        const matchup = side.isHome ? `vs ${side.oppTricode}` : `@${side.oppTricode}`;
+      const pts = stat.pts ?? 0;
+      const reb = stat.reb ?? 0;
+      const ast = stat.ast ?? 0;
+      const blk = stat.blk ?? 0;
+      const stl = stat.stl ?? 0;
+      const tov = stat.turnover ?? 0;
+      const fgm = stat.fgm ?? 0;
+      const fga = stat.fga ?? 0;
+      const fg3m = stat.fg3m ?? 0;
+      const fg3a = stat.fg3a ?? 0;
+      const ftm = stat.ftm ?? 0;
+      const fta = stat.fta ?? 0;
+      const pf = stat.pf ?? 0;
+      const currentMin = parseMinutes(stat.min ?? "0");
 
-        for (const ps of side.players) {
-          const playerId = bdlIdToPlayerId.get(ps.player?.id);
-          if (!playerId) continue;
+      // Derive oncourt: if minutes increased since last poll, player is on the floor
+      const prevMin = prevMinMap.get(`${playerId}:${actualGameDate}`) ?? 0;
+      const oncourt = gameStatus === 2 && currentMin > prevMin;
 
-          const pts = ps.pts ?? 0;
-          const reb = ps.reb ?? 0;
-          const ast = ps.ast ?? 0;
-          const blk = ps.blk ?? 0;
-          const stl = ps.stl ?? 0;
-          const tov = ps.turnover ?? 0;
-          const fgm = ps.fgm ?? 0;
-          const fga = ps.fga ?? 0;
-          const fg3m = ps.fg3m ?? 0;
-          const fg3a = ps.fg3a ?? 0;
-          const ftm = ps.ftm ?? 0;
-          const fta = ps.fta ?? 0;
-          const pf = ps.pf ?? 0;
-          const currentMin = parseMinutes(ps.min ?? "0");
+      allLiveRows.push({
+        player_id: playerId,
+        game_id: gameId,
+        game_date: actualGameDate,
+        game_status: gameStatus,
+        period,
+        game_clock: gameClock,
+        matchup,
+        home_score: homeScore,
+        away_score: awayScore,
+        oncourt,
+        pts, reb, ast, blk, stl, tov, fgm, fga,
+        "3pm": fg3m, "3pa": fg3a, ftm, fta, pf,
+        updated_at: new Date().toISOString(),
+      });
 
-          // Derive oncourt: if minutes increased since last poll, player is on the floor
-          const prevMin = prevMinMap.get(playerId) ?? 0;
-          const oncourt = gameStatus === 2 && currentMin > prevMin;
+      allTeamUpdates.push({ id: playerId, nba_team: ownTricode });
 
-          allLiveRows.push({
-            player_id: playerId,
-            game_id: gameId,
-            game_date: bsDate,
-            game_status: gameStatus,
-            period,
-            game_clock: gameClock,
-            matchup,
-            home_score: homeScore,
-            away_score: awayScore,
-            oncourt,
-            pts, reb, ast, blk, stl, tov, fgm, fga,
-            "3pm": fg3m, "3pa": fg3a, ftm, fta, pf,
-            min: ps.min ?? "0",
-            updated_at: new Date().toISOString(),
-          });
-
-          allTeamUpdates.push({ id: playerId, nba_team: side.tricode });
-
-          if (gameStatus === 3) {
-            const { double_double, triple_double } = computeDoubles({ pts, reb, ast, stl, blk });
-            allGameRows.push({
-              player_id: playerId,
-              game_id: gameId,
-              game_date: bsDate,
-              matchup,
-              min: currentMin,
-              pts, reb, ast, blk, stl, tov, fgm, fga,
-              "3pm": fg3m, "3pa": fg3a, ftm, fta, pf,
-              double_double,
-              triple_double,
-            });
-          }
-        }
+      if (gameStatus === 3) {
+        const { double_double, triple_double } = computeDoubles({ pts, reb, ast, stl, blk });
+        allGameRows.push({
+          player_id: playerId,
+          game_id: gameId,
+          game_date: actualGameDate,
+          matchup,
+          min: currentMin,
+          pts, reb, ast, blk, stl, tov, fgm, fga,
+          "3pm": fg3m, "3pa": fg3a, ftm, fta, pf,
+          double_double,
+          triple_double,
+        });
       }
     }
 
@@ -260,7 +267,7 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         ok: true,
         gameDate,
-        activeGames: activeBoxScores.length,
+        activeGames: activeGames.length,
         matchedPlayers: bdlIdToPlayerId.size,
         liveRowsUpserted: totalLiveRows,
         gameRowsUpserted: totalGameRows,

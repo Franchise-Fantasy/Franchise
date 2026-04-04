@@ -1,3 +1,4 @@
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import { useQuery } from '@tanstack/react-query';
 
@@ -88,7 +89,7 @@ export interface DraftHistoryPick {
 
 export function useChampions(leagueId: string | null) {
   return useQuery<ChampionEntry[]>({
-    queryKey: ['leagueChampions', leagueId],
+    queryKey: queryKeys.leagueChampions(leagueId!),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('team_seasons')
@@ -117,7 +118,7 @@ export function useChampions(leagueId: string | null) {
 
 export function useSeasonStandings(leagueId: string | null) {
   return useQuery<TeamSeasonRow[]>({
-    queryKey: ['seasonStandings', leagueId],
+    queryKey: queryKeys.seasonStandings(leagueId!),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('team_seasons')
@@ -161,7 +162,7 @@ async function fetchAllMatchups(leagueId: string) {
 
 export function useAllTimeRecords(leagueId: string | null) {
   return useQuery<RecordEntry[]>({
-    queryKey: ['allTimeRecords', leagueId],
+    queryKey: queryKeys.allTimeRecords(leagueId!),
     queryFn: async () => {
       // Parallel fetch: team_seasons + matchups + teams + stored records
       const [teamSeasonsRes, matchupData, teamsRes, storedRecordsRes] = await Promise.all([
@@ -288,7 +289,7 @@ export function useAllTimeRecords(leagueId: string | null) {
 
 export function useHeadToHead(leagueId: string | null) {
   return useQuery<H2HData>({
-    queryKey: ['headToHead', leagueId],
+    queryKey: queryKeys.headToHead(leagueId!),
     queryFn: async () => {
       const [matchupData, teamsRes] = await Promise.all([
         fetchAllMatchups(leagueId!),
@@ -336,7 +337,7 @@ export function useHeadToHead(leagueId: string | null) {
 
 export function useDraftHistory(leagueId: string | null) {
   return useQuery<{ drafts: DraftSummary[]; picks: DraftHistoryPick[] }>({
-    queryKey: ['draftHistory', leagueId],
+    queryKey: queryKeys.draftHistory(leagueId!),
     queryFn: async () => {
       // Fetch completed drafts
       const { data: drafts, error: draftErr } = await supabase

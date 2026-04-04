@@ -1,11 +1,12 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { ms, s } from "@/utils/scale";
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Transaction, TransactionItem, useTransactions } from '@/hooks/useTransactions';
 import { formatPickLabelShort } from '@/types/trade';
 import { Ionicons } from '@expo/vector-icons';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -98,7 +99,9 @@ export default function Activity() {
   const c = Colors[scheme];
   const [typeFilter, setTypeFilter] = useState<string | undefined>(undefined);
 
-  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useTransactions(typeFilter);
+  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage, refetch } = useTransactions(typeFilter);
+  const [refreshing, setRefreshing] = useState(false);
+  const lastRefresh = useRef(0);
 
   const transactions = data?.pages.flat() ?? [];
 
@@ -161,6 +164,14 @@ export default function Activity() {
     [c]
   );
 
+  const onRefresh = useCallback(async () => {
+    if (Date.now() - lastRefresh.current < 10_000) return;
+    lastRefresh.current = Date.now();
+    setRefreshing(true);
+    await refetch();
+    setRefreshing(false);
+  }, [refetch]);
+
   const onEndReached = useCallback(() => {
     if (hasNextPage && !isFetchingNextPage) fetchNextPage();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
@@ -214,6 +225,8 @@ export default function Activity() {
           contentContainerStyle={styles.list}
           onEndReached={onEndReached}
           onEndReachedThreshold={0.5}
+          refreshing={refreshing}
+          onRefresh={onRefresh}
           ListFooterComponent={
             isFetchingNextPage ? <ActivityIndicator style={styles.footerLoader} /> : null
           }
@@ -237,7 +250,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   emptyText: {
-    fontSize: 15,
+    fontSize: ms(15),
   },
   list: {
     paddingTop: 8,
@@ -270,14 +283,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   typeLabel: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '600',
   },
   time: {
-    fontSize: 12,
+    fontSize: ms(12),
   },
   notes: {
-    fontSize: 13,
+    fontSize: ms(13),
     marginTop: 4,
     lineHeight: 18,
   },
@@ -285,7 +298,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   tradeSummaryTeam: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '600',
   },
   footerLoader: {
@@ -310,7 +323,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   filterChipText: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: '600',
     lineHeight: 16,
   },

@@ -7,3 +7,4 @@ venv
 .venv
 .claude/
 dist/
+backend/.aging_curve_cache.json

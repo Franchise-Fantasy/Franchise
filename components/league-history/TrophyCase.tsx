@@ -1,7 +1,8 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useChampions } from '@/hooks/useLeagueHistory';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
@@ -53,33 +54,33 @@ const styles = StyleSheet.create({
   container: {
     borderRadius: 12,
     borderWidth: 1,
-    padding: 16,
-    marginBottom: 16,
+    padding: s(16),
+    marginBottom: s(16),
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 4,
+    gap: s(8),
+    marginBottom: s(4),
   },
-  title: { fontSize: 16 },
-  emptyText: { fontSize: 13, marginTop: 8 },
+  title: { fontSize: ms(16) },
+  emptyText: { fontSize: ms(13), marginTop: s(8) },
   seasonRow: {
     borderTopWidth: StyleSheet.hairlineWidth,
-    paddingTop: 10,
-    marginTop: 10,
+    paddingTop: s(10),
+    marginTop: s(10),
   },
-  season: { fontSize: 13, marginBottom: 6 },
-  resultRow: { gap: 4 },
+  season: { fontSize: ms(13), marginBottom: s(6) },
+  resultRow: { gap: s(4) },
   champBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    gap: s(6),
+    paddingHorizontal: s(8),
+    paddingVertical: s(4),
     borderRadius: 6,
     alignSelf: 'flex-start',
   },
-  champName: { fontSize: 14, fontWeight: '600' },
-  runnerUp: { fontSize: 12, marginTop: 2 },
+  champName: { fontSize: ms(14), fontWeight: '600' },
+  runnerUp: { fontSize: ms(12), marginTop: s(2) },
 });

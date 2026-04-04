@@ -1,9 +1,10 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Ionicons } from '@expo/vector-icons';
 import type { TipCardProps } from '@/types/cms';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ms, s } from '@/utils/scale';
 
 export function TipCard({ title, body, category, iconName, onPress }: TipCardProps) {
   const scheme = useColorScheme() ?? 'light';
@@ -50,15 +51,15 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: 10,
     borderWidth: 1,
-    padding: 12,
+    padding: s(12),
   },
   row: {
     flexDirection: 'row',
-    gap: 10,
+    gap: s(10),
   },
   iconWrap: {
-    width: 36,
-    height: 36,
+    width: s(36),
+    height: s(36),
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
@@ -67,22 +68,22 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   title: {
-    fontSize: 14,
-    marginBottom: 2,
+    fontSize: ms(14),
+    marginBottom: s(2),
   },
   body: {
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: ms(13),
+    lineHeight: ms(18),
   },
   categoryPill: {
     alignSelf: 'flex-start',
     borderRadius: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    marginTop: 8,
+    paddingHorizontal: s(8),
+    paddingVertical: s(2),
+    marginTop: s(8),
   },
   categoryText: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: '600',
   },
 });

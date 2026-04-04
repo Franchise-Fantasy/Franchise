@@ -1,5 +1,6 @@
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { ms, s } from '@/utils/scale';
 import { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
 
@@ -123,7 +124,7 @@ export function StepIndicator({ currentStep, steps }: StepIndicatorProps) {
 
 const styles = StyleSheet.create({
   container: {
-    paddingVertical: 12,
+    paddingVertical: s(12),
     alignItems: 'center',
   },
   window: {
@@ -146,7 +147,7 @@ const styles = StyleSheet.create({
   line: {
     position: 'absolute',
     top: CIRCLE_ROW_HEIGHT / 2 - 1,
-    height: 2,
+    height: s(2),
     right: '50%',
     left: '-50%',
     zIndex: 0,
@@ -161,11 +162,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   label: {
-    marginTop: 6,
+    marginTop: s(6),
     textAlign: 'center',
   },
   counter: {
-    marginTop: 8,
-    fontSize: 12,
+    marginTop: s(8),
+    fontSize: ms(12),
   },
 });

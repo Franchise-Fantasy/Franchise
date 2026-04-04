@@ -10,6 +10,7 @@ import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as Updates from "expo-updates";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { KeyboardProvider } from "react-native-keyboard-controller";
 import "react-native-reanimated";
 
 import { isExpoGo } from "@/utils/buildConfig";
@@ -72,6 +73,7 @@ import {
   useSession,
 } from "@/context/AuthProvider";
 import { globalToastRef, ToastProvider } from "@/context/ToastProvider";
+import { Colors } from "@/constants/Colors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { posthog, setPostHogAdmin } from "@/lib/posthog";
 import { supabase } from "@/lib/supabase";
@@ -389,7 +391,8 @@ export default function RootLayout() {
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: Colors[colorScheme ?? "dark"].background }}>
+      <KeyboardProvider>
       <PostHogProvider
         client={posthog}
         autocapture={{ captureScreens: false, captureTouches: false }}
@@ -409,7 +412,16 @@ export default function RootLayout() {
                     <OfflineBanner />
                     <AnnouncementBanner />
                     <MatchupResultModal />
-                    <Stack>
+                    <Stack
+                      screenOptions={{
+                        contentStyle: {
+                          backgroundColor:
+                            Colors[colorScheme ?? "dark"].background,
+                        },
+                        animation: "slide_from_right",
+                        gestureEnabled: true,
+                        gestureDirection: "horizontal",
+                      }}>
                       <Stack.Screen
                         name="index"
                         options={{ headerShown: false }}
@@ -479,6 +491,18 @@ export default function RootLayout() {
                         options={{ headerShown: false }}
                       />
                       <Stack.Screen
+                        name="prospects"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="prospect/[id]"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="prospect-board"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
                         name="playoff-bracket"
                         options={{ headerShown: false }}
                       />
@@ -540,6 +564,7 @@ export default function RootLayout() {
           </QueryClientProvider>
         </PostHogSurveyProvider>
       </PostHogProvider>
+    </KeyboardProvider>
     </GestureHandlerRootView>
   );
 }

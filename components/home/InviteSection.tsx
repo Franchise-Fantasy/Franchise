@@ -5,9 +5,10 @@ import { generateInviteCode } from '@/utils/inviteCode';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { useQueryClient } from '@tanstack/react-query';
+import { ms, s } from '@/utils/scale';
 import { Alert, Share, StyleSheet, TouchableOpacity, View } from 'react-native';
-import { ThemedText } from '../ThemedText';
-import { ThemedView } from '../ThemedView';
+import { ThemedText } from '../ui/ThemedText';
+import { ThemedView } from '../ui/ThemedView';
 
 interface InviteSectionProps {
   isCommissioner: boolean;
@@ -84,17 +85,17 @@ export function InviteSection({ isCommissioner, inviteCode, leagueId, isFull }: 
 }
 
 const styles = StyleSheet.create({
-  section: { marginBottom: 16 },
-  label: { marginBottom: 8 },
+  section: { marginBottom: s(16) },
+  label: { marginBottom: s(8) },
   codeCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 14,
+    padding: s(14),
     borderRadius: 10,
   },
   code: {
-    fontSize: 20,
+    fontSize: ms(20),
     fontWeight: '700',
     letterSpacing: 3,
     fontFamily: 'monospace',
@@ -102,9 +103,9 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: s(12),
   },
   actionBtn: {
-    padding: 4,
+    padding: s(4),
   },
 });

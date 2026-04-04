@@ -1,5 +1,5 @@
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { ThemedView } from '@/components/ui/ThemedView';
 import { useLeague } from '@/hooks/useLeague';
 import { useRouter } from 'expo-router';
 import { useEffect } from 'react';

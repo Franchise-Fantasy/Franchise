@@ -1,10 +1,11 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Colors } from '@/constants/Colors';
 import { LeagueWizardState, SCORING_TYPE_OPTIONS, ScoringTypeOption } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { StyleSheet, Switch, TouchableOpacity, View } from 'react-native';
+import { ms, s } from '@/utils/scale';
 
 interface StepScoringProps {
   state: LeagueWizardState;
@@ -40,7 +41,7 @@ export function StepScoring({
         onSelect={(i) => onScoringTypeChange(SCORING_TYPE_OPTIONS[i])}
       />
 
-      <ThemedText style={[styles.description, { color: c.secondaryText, marginTop: 12 }]}>
+      <ThemedText style={[styles.description, { color: c.secondaryText, marginTop: s(12) }]}>
         {isCategories
           ? 'Each stat is a category. Win the majority of categories to win the week.'
           : 'Adjust point values for each stat category.'}
@@ -118,39 +119,39 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   heading: {
-    marginBottom: 8,
+    marginBottom: s(8),
   },
   description: {
-    fontSize: 14,
-    marginBottom: 12,
+    fontSize: ms(14),
+    marginBottom: s(12),
   },
   categoryCount: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: '600',
-    marginBottom: 8,
+    marginBottom: s(8),
   },
   categoryRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 10,
+    paddingVertical: s(10),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   categoryLeft: {
     flex: 1,
-    marginRight: 12,
+    marginRight: s(12),
   },
   categoryLabel: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: '600',
   },
   categorySublabel: {
-    fontSize: 12,
+    fontSize: ms(12),
     marginTop: 1,
   },
   resetBtn: {
     alignItems: 'center',
-    paddingVertical: 12,
-    marginTop: 4,
+    paddingVertical: s(12),
+    marginTop: s(4),
   },
 });

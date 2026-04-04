@@ -2,7 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { notifyTeams } from '../_shared/push.ts';
 import { CORS_HEADERS } from '../_shared/cors.ts';
-import { bdlFetchAll } from '../_shared/bdl.ts';
+import { bdlFetch, bdlFetchAll } from '../_shared/bdl.ts';
 import { normalizeName } from '../_shared/normalize.ts';
 
 const supabase = createClient(
@@ -12,118 +12,16 @@ const supabase = createClient(
 
 const VALID_STATUSES = new Set(['OUT', 'SUSP', 'DOUBT', 'QUES', 'PROB', 'active']);
 
-const STATUS_MAP: Record<string, string> = {
-  'out': 'OUT', 'suspended': 'SUSP', 'doubtful': 'DOUBT',
-  'day-to-day': 'QUES', 'day to day': 'QUES',
-  'game time decision': 'QUES', 'gtd': 'QUES', 'questionable': 'QUES',
-  'available': 'active', 'probable': 'PROB',
-};
-
 // Statuses that are game-day designations and safe to auto-reset when absent from report.
 // OUT and SUSP are long-term and should only change when the player explicitly reappears.
 const GAME_DAY_STATUSES = new Set(['QUES', 'DOUBT', 'PROB']);
 
-// Maps full NBA team names to tricodes for PDF parsing
-const TEAM_NAME_TO_TRICODE: Record<string, string> = {
-  'atlanta hawks': 'ATL', 'boston celtics': 'BOS', 'brooklyn nets': 'BKN',
-  'charlotte hornets': 'CHA', 'chicago bulls': 'CHI', 'cleveland cavaliers': 'CLE',
-  'dallas mavericks': 'DAL', 'denver nuggets': 'DEN', 'detroit pistons': 'DET',
-  'golden state warriors': 'GSW', 'houston rockets': 'HOU', 'indiana pacers': 'IND',
-  'los angeles clippers': 'LAC', 'la clippers': 'LAC',
-  'los angeles lakers': 'LAL', 'la lakers': 'LAL',
-  'memphis grizzlies': 'MEM', 'miami heat': 'MIA', 'milwaukee bucks': 'MIL',
-  'minnesota timberwolves': 'MIN', 'new orleans pelicans': 'NOP',
-  'new york knicks': 'NYK', 'oklahoma city thunder': 'OKC', 'orlando magic': 'ORL',
-  'philadelphia 76ers': 'PHI', 'phoenix suns': 'PHX', 'portland trail blazers': 'POR',
-  'sacramento kings': 'SAC', 'san antonio spurs': 'SAS', 'toronto raptors': 'TOR',
-  'utah jazz': 'UTA', 'washington wizards': 'WAS',
-};
-
-function extractTeamsFromText(text: string): string[] {
-  // NBA PDFs often strip spaces from team names (e.g. "OrlandoMagic"),
-  // so we normalize both text and team names by removing spaces.
-  const teams = new Set<string>();
-  const normalized = text.toLowerCase().replace(/\s/g, '');
-  for (const [name, tricode] of Object.entries(TEAM_NAME_TO_TRICODE)) {
-    if (normalized.includes(name.replace(/\s/g, ''))) teams.add(tricode);
-  }
-  return [...teams].sort();
-}
-
 const jsonHeaders = { ...CORS_HEADERS, 'Content-Type': 'application/json' };
-
-
-function buildPdfUrls(): string[] {
-  const now = new Date();
-  const urls: string[] = [];
-  for (let offset = 0; offset <= 8; offset++) {
-    const t = new Date(now.getTime() - offset * 15 * 60_000);
-    const et = new Date(t.getTime() - 5 * 3600_000);
-    const dateStr = et.toISOString().slice(0, 10);
-    const h24 = et.getUTCHours();
-    const h12 = h24 % 12 || 12;
-    const ampm = h24 < 12 ? 'AM' : 'PM';
-    const roundedMin = Math.floor(et.getUTCMinutes() / 15) * 15;
-    const timeStr = `${String(h12).padStart(2, '0')}_${String(roundedMin).padStart(2, '0')}${ampm}`;
-    urls.push(`https://ak-static.cms.nba.com/referee/injury/Injury-Report_${dateStr}_${timeStr}.pdf`);
-  }
-  return urls;
-}
-
-function extractPdfText(bytes: Uint8Array): string {
-  const raw = new TextDecoder('latin1').decode(bytes);
-  const parts: string[] = [];
-  const btEt = /BT\s([\s\S]*?)\s*ET/g;
-  let m;
-  while ((m = btEt.exec(raw)) !== null) {
-    const block = m[1];
-    const tj = /\(([^)]*)\)\s*Tj/g;
-    let t;
-    while ((t = tj.exec(block)) !== null) parts.push(t[1]);
-    const tjArr = /\[([^\]]*)\]\s*TJ/g;
-    let a;
-    while ((a = tjArr.exec(block)) !== null) {
-      const inner = a[1];
-      const s = /\(([^)]*)\)/g;
-      let ss;
-      while ((ss = s.exec(inner)) !== null) parts.push(ss[1]);
-    }
-  }
-  return parts.join(' ');
-}
-
-function parseInjuriesFromText(text: string): Array<{ player_name: string; status: string }> {
-  const re = /([A-Z][a-zA-Z'\-\.]+(?:(?:Jr|Sr|III|II|IV)\.?)?,\s*[A-Z][a-zA-Z'\-\.]+)\s+(Out|Questionable|Doubtful|Probable|Day-To-Day|Available)(?:\s|$)/g;
-  const injuries: Array<{ player_name: string; status: string }> = [];
-  const seen = new Set<string>();
-  let match;
-  while ((match = re.exec(text)) !== null) {
-    const rawName = match[1].trim();
-    const rawStatus = match[2].trim();
-    const mapped = STATUS_MAP[rawStatus.toLowerCase()];
-    if (!mapped) continue;
-    const commaIdx = rawName.indexOf(',');
-    let name: string;
-    if (commaIdx > 0) {
-      let last = rawName.slice(0, commaIdx).trim();
-      const first = rawName.slice(commaIdx + 1).trim();
-      last = last.replace(/(Jr|Sr)(\.?)$/, ' $1$2');
-      last = last.replace(/(I{2,3}|IV)$/, ' $1');
-      name = `${first} ${last}`.replace(/\s+/g, ' ').trim();
-    } else {
-      name = rawName;
-    }
-    const key = name.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    injuries.push({ player_name: name, status: mapped });
-  }
-  return injuries;
-}
 
 /** Map BDL injury status strings to app status codes. */
 const BDL_STATUS_MAP: Record<string, string> = {
-  'out': 'OUT', 'suspended': 'SUSP', 'doubtful': 'DOUBT',
+  'out': 'OUT', 'out for season': 'OUT',
+  'suspended': 'SUSP', 'doubtful': 'DOUBT',
   'day-to-day': 'QUES', 'questionable': 'QUES', 'probable': 'PROB',
 };
 
@@ -146,8 +44,16 @@ async function fetchInjuriesFromBdl(): Promise<{
   teamsOnReport: string[];
 } | null> {
   try {
-    const bdlInjuries = await bdlFetchAll('/player_injuries');
+    // BDL injury endpoint only returns team_id (numeric), so look up abbreviations
+    const [bdlInjuries, bdlTeams] = await Promise.all([
+      bdlFetchAll('/player_injuries'),
+      bdlFetch('/teams').then((d: any) => d.data ?? []),
+    ]);
     if (!bdlInjuries || bdlInjuries.length === 0) return null;
+
+    const teamIdToAbbr = new Map<number, string>(
+      bdlTeams.map((t: any) => [t.id, t.abbreviation]),
+    );
 
     const injuries: Array<{ bdl_id: number; player_name: string; status: string }> = [];
     const teamsOnReport = new Set<string>();
@@ -157,7 +63,7 @@ async function fetchInjuriesFromBdl(): Promise<{
       if (!player?.id) continue;
 
       const status = mapBdlStatus(inj.status ?? '', inj.description);
-      const team = player.team?.abbreviation;
+      const team = teamIdToAbbr.get(player.team_id);
       if (team) teamsOnReport.add(team);
 
       injuries.push({
@@ -282,22 +188,26 @@ function formatNextGameLabel(gameDate: string, now: Date): string {
 }
 
 async function getNextGameByTeam(nbaTeams: string[]): Promise<Map<string, string>> {
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
   const nextGameMap = new Map<string, string>();
   if (nbaTeams.length === 0) return nextGameMap;
 
-  // Fetch the next upcoming game for each team (today or later)
-  // We grab a small window and pick the earliest per team
+  // Fetch upcoming games that haven't started yet.
+  // Use game_time_utc when available so we skip today's games already in progress / finished.
   const { data: upcoming } = await supabase
     .from('nba_schedule')
-    .select('game_date, home_team, away_team')
+    .select('game_date, game_time_utc, home_team, away_team')
     .gte('game_date', todayStr)
+    .neq('status', 'final')
     .or(nbaTeams.map(t => `home_team.eq.${t},away_team.eq.${t}`).join(','))
     .order('game_date', { ascending: true })
     .limit(100);
 
-  const now = new Date();
   for (const game of upcoming ?? []) {
+    // Skip games that have already tipped off today (in-progress)
+    if (game.game_time_utc && new Date(game.game_time_utc) <= now) continue;
+
     for (const team of [game.home_team, game.away_team]) {
       if (!nextGameMap.has(team)) {
         nextGameMap.set(team, formatNextGameLabel(game.game_date, now));

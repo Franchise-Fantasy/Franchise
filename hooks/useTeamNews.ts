@@ -1,3 +1,4 @@
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import type { PlayerNewsArticle } from '@/types/news';
 import { useQuery } from '@tanstack/react-query';
@@ -5,24 +6,24 @@ import { useQuery } from '@tanstack/react-query';
 /** Fetch news articles mentioning any of the given players, or all recent news. */
 export function useTeamNews(playerIds: string[], mode: 'filtered' | 'all' = 'filtered') {
   return useQuery<PlayerNewsArticle[]>({
-    queryKey: ['teamNews', mode, playerIds],
+    queryKey: queryKeys.teamNews(mode, playerIds),
     queryFn: async () => {
       if (mode === 'all') {
         const { data, error } = await supabase
           .from('player_news')
-          .select('id, title, description, link, source, published_at, has_minutes_restriction, return_estimate')
+          .select('id, title, description, link, source, published_at, has_minutes_restriction, return_estimate, mentioned_players')
           .order('published_at', { ascending: false })
           .limit(50);
         if (error) throw error;
         return (data ?? []) as PlayerNewsArticle[];
       }
 
-      // Filtered mode: fetch by player IDs
+      // Filtered mode: fetch by player IDs via junction table
       if (playerIds.length === 0) return [];
 
       const { data, error } = await supabase
         .from('player_news_mentions')
-        .select('player_id, news_id, player_news(id, title, description, link, source, published_at, has_minutes_restriction, return_estimate)')
+        .select('player_news(id, title, description, link, source, published_at, has_minutes_restriction, return_estimate, mentioned_players)')
         .in('player_id', playerIds)
         .order('player_news(published_at)', { ascending: false })
         .limit(100);

@@ -1,10 +1,12 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { StyleSheet, View } from 'react-native';
+import { ms, s } from '@/utils/scale';
 
 interface SeasonHistoryProps {
   leagueId: string;
@@ -44,7 +46,7 @@ export function SeasonHistory({ leagueId }: SeasonHistoryProps) {
   const c = Colors[scheme];
 
   const { data: history } = useQuery({
-    queryKey: ['seasonHistory', leagueId],
+    queryKey: queryKeys.seasonHistory(leagueId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('team_seasons')
@@ -76,7 +78,7 @@ export function SeasonHistory({ leagueId }: SeasonHistoryProps) {
         return (
           <View key={season} style={[styles.seasonBlock, { borderTopColor: c.border }]}>
             <View style={styles.seasonHeader}>
-              <ThemedText type="defaultSemiBold" style={{ fontSize: 14 }}>{season}</ThemedText>
+              <ThemedText type="defaultSemiBold" style={{ fontSize: ms(14) }}>{season}</ThemedText>
               {champ && (
                 <View style={styles.champRow}>
                   <Ionicons name="trophy" size={14} color={c.gold} />
@@ -119,61 +121,61 @@ const styles = StyleSheet.create({
   container: {
     borderRadius: 12,
     borderWidth: 1,
-    padding: 16,
-    marginBottom: 16,
+    padding: s(16),
+    marginBottom: s(16),
   },
   title: {
-    fontSize: 16,
-    marginBottom: 8,
+    fontSize: ms(16),
+    marginBottom: s(8),
   },
   seasonBlock: {
     borderTopWidth: StyleSheet.hairlineWidth,
-    paddingTop: 10,
-    marginTop: 8,
+    paddingTop: s(10),
+    marginTop: s(8),
   },
   seasonHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: s(8),
   },
   champRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: s(4),
   },
   champText: {
-    fontSize: 12,
+    fontSize: ms(12),
   },
   teamRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 6,
-    gap: 8,
+    paddingVertical: s(6),
+    gap: s(8),
   },
   standing: {
-    width: 20,
-    fontSize: 12,
+    width: s(20),
+    fontSize: ms(12),
     textAlign: 'right',
   },
   teamName: {
     flex: 1,
-    fontSize: 13,
+    fontSize: ms(13),
   },
   record: {
-    fontSize: 12,
-    width: 50,
+    fontSize: ms(12),
+    width: s(50),
     textAlign: 'right',
   },
   resultBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingHorizontal: s(6),
+    paddingVertical: s(2),
     borderRadius: 4,
-    minWidth: 60,
+    minWidth: s(60),
     alignItems: 'center',
   },
   resultText: {
-    fontSize: 10,
+    fontSize: ms(10),
     fontWeight: '600',
   },
 });

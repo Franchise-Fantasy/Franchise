@@ -1,10 +1,11 @@
-import { ThemedText } from "@/components/ThemedText";
-import { ThemedView } from "@/components/ThemedView";
+import { ThemedText } from "@/components/ui/ThemedText";
+import { ThemedView } from "@/components/ui/ThemedView";
 import { Colors } from "@/constants/Colors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { supabase } from "@/lib/supabase";
 import { isExpoGo } from "@/utils/buildConfig";
 import { capture } from "@/lib/posthog";
+import { ms, s } from "@/utils/scale";
 import { Ionicons } from "@expo/vector-icons";
 import * as Crypto from "expo-crypto";
 import { useRouter } from "expo-router";
@@ -256,7 +257,7 @@ export default function Auth() {
                     style={styles.inputIcon}
                   />
                   <TextInput
-                    style={[styles.input, { color: c.text, letterSpacing: 8, fontSize: 22, fontWeight: "600" }]}
+                    style={[styles.input, { color: c.text, letterSpacing: 8, fontSize: ms(22), fontWeight: "600" }]}
                     onChangeText={setOtpToken}
                     value={otpToken}
                     placeholder="00000000"
@@ -523,35 +524,35 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 100,
-    paddingBottom: 40,
+    paddingHorizontal: s(20),
+    paddingTop: s(100),
+    paddingBottom: s(40),
   },
   header: {
     alignItems: "center",
-    marginBottom: 32,
+    marginBottom: s(32),
   },
   avatar: {
-    width: 72,
-    height: 72,
+    width: s(72),
+    height: s(72),
     borderRadius: 36,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 14,
+    marginBottom: s(14),
   },
   title: {
-    marginBottom: 6,
+    marginBottom: s(6),
   },
   modeToggle: {
     flexDirection: "row",
     borderWidth: 1,
     borderRadius: 12,
-    padding: 3,
-    marginBottom: 16,
+    padding: s(3),
+    marginBottom: s(16),
   },
   modeTab: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: s(10),
     alignItems: "center",
     borderRadius: 9,
   },
@@ -559,65 +560,65 @@ const styles = StyleSheet.create({
     // backgroundColor set inline
   },
   modeTabText: {
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: "600",
   },
   subtitle: {
-    fontSize: 15,
+    fontSize: ms(15),
   },
   section: {
     borderWidth: 1,
     borderRadius: 12,
-    paddingHorizontal: 16,
-    marginBottom: 16,
+    paddingHorizontal: s(16),
+    marginBottom: s(16),
     overflow: "hidden",
   },
   inputRow: {
     flexDirection: "row",
     alignItems: "center",
     borderBottomWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 14,
+    paddingVertical: s(14),
   },
   inputIcon: {
-    marginRight: 12,
+    marginRight: s(12),
   },
   input: {
     flex: 1,
-    fontSize: 16,
+    fontSize: ms(16),
   },
   button: {
     borderRadius: 12,
-    paddingVertical: 15,
+    paddingVertical: s(15),
     alignItems: "center",
-    marginBottom: 12,
+    marginBottom: s(12),
   },
   secondaryButton: {
     borderWidth: 1,
   },
   buttonText: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: "600",
   },
   forgotPassword: {
     alignItems: "center",
-    marginBottom: 16,
+    marginBottom: s(16),
   },
   forgotPasswordText: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: "500",
   },
   dividerRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginVertical: 8,
+    marginVertical: s(8),
   },
   dividerLine: {
     flex: 1,
     height: StyleSheet.hairlineWidth,
   },
   dividerText: {
-    marginHorizontal: 12,
-    fontSize: 13,
+    marginHorizontal: s(12),
+    fontSize: ms(13),
   },
   googleButton: {
     flexDirection: "row",
@@ -625,21 +626,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   googleIcon: {
-    marginRight: 10,
+    marginRight: s(10),
   },
   legalText: {
-    fontSize: 12,
+    fontSize: ms(12),
     textAlign: "center",
-    lineHeight: 18,
-    marginTop: 4,
+    lineHeight: ms(18),
+    marginTop: s(4),
   },
   legalLink: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: "500",
   },
   otpSubtitle: {
-    fontSize: 15,
+    fontSize: ms(15),
     textAlign: "center",
-    marginBottom: 20,
+    marginBottom: s(20),
   },
 });

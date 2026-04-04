@@ -1,10 +1,12 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { calcRounds } from '@/utils/playoff';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { ms, s } from '@/utils/scale';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, TouchableOpacity, View } from 'react-native';
 
@@ -28,7 +30,7 @@ export function SeasonCompleteBanner({ leagueId, season, playoffTeams, isCommiss
   const totalRounds = calcRounds(playoffTeams);
 
   const { data: championshipComplete } = useQuery({
-    queryKey: ['championship-check', leagueId, season],
+    queryKey: queryKeys.championshipCheck(leagueId, season as unknown as number),
     queryFn: async () => {
       // Check if the final playoff round has a winner
       const { data } = await supabase
@@ -64,7 +66,7 @@ export function SeasonCompleteBanner({ leagueId, season, playoffTeams, isCommiss
                 body: { league_id: leagueId },
               });
               if (error) throw error;
-              queryClient.invalidateQueries({ queryKey: ['league', leagueId] });
+              queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId) });
               queryClient.invalidateQueries({ queryKey: ['championship-check', leagueId] });
             } catch (err: any) {
               Alert.alert('Error', err.message ?? 'Failed to advance season');
@@ -85,10 +87,10 @@ export function SeasonCompleteBanner({ leagueId, season, playoffTeams, isCommiss
     >
       <Ionicons name="trophy" size={22} color={c.gold} />
       <View style={styles.textContainer}>
-        <ThemedText type="defaultSemiBold" style={{ fontSize: 14 }}>
+        <ThemedText type="defaultSemiBold" style={{ fontSize: ms(14) }}>
           Season Complete!
         </ThemedText>
-        <ThemedText style={{ fontSize: 12, color: c.secondaryText }}>
+        <ThemedText style={{ fontSize: ms(12), color: c.secondaryText }}>
           {isCommissioner
             ? 'Tap below to archive the season and start the offseason.'
             : 'Waiting for the commissioner to start the offseason.'}
@@ -105,7 +107,7 @@ export function SeasonCompleteBanner({ leagueId, season, playoffTeams, isCommiss
           {advancing ? (
             <ActivityIndicator size="small" color={c.statusText} />
           ) : (
-            <ThemedText style={{ color: c.statusText, fontSize: 13, fontWeight: '600' }}>Go</ThemedText>
+            <ThemedText style={{ color: c.statusText, fontSize: ms(13), fontWeight: '600' }}>Go</ThemedText>
           )}
         </TouchableOpacity>
       )}
@@ -117,21 +119,21 @@ const styles = StyleSheet.create({
   banner: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
+    padding: s(12),
     borderRadius: 10,
     borderWidth: 1,
-    marginBottom: 16,
-    gap: 10,
+    marginBottom: s(16),
+    gap: s(10),
   },
   textContainer: {
     flex: 1,
-    gap: 2,
+    gap: s(2),
   },
   button: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: s(14),
+    paddingVertical: s(8),
     borderRadius: 8,
-    minWidth: 44,
+    minWidth: s(44),
     alignItems: 'center',
   },
 });

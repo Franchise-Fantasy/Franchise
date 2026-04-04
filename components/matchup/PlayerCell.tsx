@@ -10,6 +10,7 @@ import {
 } from "@/utils/nbaLive";
 import { formatGameTime, ScheduleEntry } from "@/utils/nbaSchedule";
 import { getPlayerHeadshotUrl } from "@/utils/playerHeadshot";
+import { ms, s } from "@/utils/scale";
 import React, { useEffect, useRef } from "react";
 import {
   Animated,
@@ -585,45 +586,45 @@ export const pStyles = StyleSheet.create({
   slotRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 6,
+    paddingVertical: s(6),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  cell: { flex: 1, paddingHorizontal: 2 },
-  slotCenter: { width: 34, alignItems: "center", justifyContent: "center" },
-  slotText: { fontSize: 10, fontWeight: "600" },
+  cell: { flex: 1, paddingHorizontal: s(2) },
+  slotCenter: { width: s(34), alignItems: "center", justifyContent: "center" },
+  slotText: { fontSize: ms(10), fontWeight: "600" },
   nameRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
+    gap: s(3),
     flexShrink: 1,
   },
   gameInfoRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: s(4),
     marginTop: 1,
   },
   statsRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: s(6),
     marginTop: 1,
   },
-  name: { fontSize: 12, fontWeight: "500" },
-  meta: { fontSize: 10 },
-  pts: { fontSize: 13, fontWeight: "700" },
-  matchupChip: { paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3 },
+  name: { fontSize: ms(12), fontWeight: "500" },
+  meta: { fontSize: ms(10) },
+  pts: { fontSize: ms(13), fontWeight: "700" },
+  matchupChip: { paddingHorizontal: s(4), paddingVertical: 1, borderRadius: 3 },
   matchupChipLive: { borderWidth: 1 },
-  matchupChipText: { fontSize: 9, fontWeight: "600" },
-  injuryBadge: { paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3 },
+  matchupChipText: { fontSize: ms(9), fontWeight: "600" },
+  injuryBadge: { paddingHorizontal: s(4), paddingVertical: 1, borderRadius: 3 },
   injuryText: {
-    fontSize: 8,
+    fontSize: ms(8),
     fontWeight: "800",
     letterSpacing: 0.5,
   },
   headshotCircle: {
-    width: 38,
-    height: 38,
+    width: s(38),
+    height: s(38),
     borderRadius: 20,
     borderWidth: 1.5,
     overflow: "hidden" as const,
@@ -633,7 +634,7 @@ export const pStyles = StyleSheet.create({
     bottom: -2,
     left: 0,
     right: 0,
-    height: 34,
+    height: s(34),
   },
-  headshotPlaceholder: { width: 40 },
+  headshotPlaceholder: { width: s(40) },
 });

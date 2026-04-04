@@ -1,7 +1,8 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { ImageData } from '@/hooks/useImportScreenshot';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useCallback } from 'react';
@@ -138,48 +139,48 @@ export function ScreenshotCapture({
 
 const styles = StyleSheet.create({
   container: {
-    gap: 10,
+    gap: s(10),
   },
   label: {
-    fontSize: 15,
+    fontSize: ms(15),
   },
   thumbnails: {
     flexDirection: 'row',
-    gap: 10,
+    gap: s(10),
     flexWrap: 'wrap',
   },
   thumbnailWrapper: {
     position: 'relative',
   },
   thumbnail: {
-    width: 90,
-    height: 160,
+    width: s(90),
+    height: s(160),
     borderRadius: 8,
   },
   removeBtn: {
     position: 'absolute',
-    top: -6,
-    right: -6,
-    width: 22,
-    height: 22,
+    top: s(-6),
+    right: s(-6),
+    width: s(22),
+    height: s(22),
     borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
   },
   buttonRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: s(10),
   },
   captureBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
+    gap: s(6),
+    paddingVertical: s(10),
+    paddingHorizontal: s(16),
     borderRadius: 8,
   },
   captureBtnText: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '600',
   },
 });

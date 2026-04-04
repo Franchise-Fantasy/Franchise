@@ -1,5 +1,7 @@
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { containsBlockedContent } from '@/utils/moderation';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -70,8 +72,13 @@ export function ChatInput({ conversationId, onSend, sending, isCommissioner, isL
 
   const handleSend = async () => {
     if (!canSend) return;
-    if (saveTimer.current) clearTimeout(saveTimer.current);
     const msg = text.trim();
+    if (containsBlockedContent(msg)) {
+      const { Alert } = require('react-native');
+      Alert.alert('Message blocked', 'Your message contains language that isn\u2019t allowed.');
+      return;
+    }
+    if (saveTimer.current) clearTimeout(saveTimer.current);
     setText('');
     await AsyncStorage.removeItem(DRAFT_PREFIX + conversationId);
     onSend(msg);
@@ -181,29 +188,29 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    padding: 8,
-    gap: 8,
+    padding: s(8),
+    gap: s(8),
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   input: {
     flex: 1,
     borderRadius: 20,
     borderWidth: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    fontSize: 15,
-    maxHeight: 100,
+    paddingHorizontal: s(16),
+    paddingVertical: s(8),
+    fontSize: ms(15),
+    maxHeight: s(100),
   },
   attachBtn: {
-    width: 34,
-    height: 34,
+    width: s(34),
+    height: s(34),
     borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
   },
   sendBtn: {
-    width: 34,
-    height: 34,
+    width: s(34),
+    height: s(34),
     borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',

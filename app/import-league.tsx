@@ -6,8 +6,8 @@ import { StepDraft } from '@/components/create-league/StepDraft';
 import { StepSeason, computeMaxWeeks } from '@/components/create-league/StepSeason';
 import { StepTrade } from '@/components/create-league/StepTrade';
 import { StepWaivers } from '@/components/create-league/StepWaivers';
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { ThemedView } from '@/components/ui/ThemedView';
 import { StepIndicator } from '@/components/ui/StepIndicator';
 import { Colors } from '@/constants/Colors';
 import {
@@ -27,6 +27,7 @@ import {
   type SleeperUnmatched,
 } from '@/hooks/useImportSleeper';
 import { mapSleeperPositions, mapSleeperScoring, computeRosterSize } from '@/utils/sleeperMapping';
+import { ms, s } from '@/utils/scale';
 import { useToast } from '@/context/ToastProvider';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -666,138 +667,138 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 60,
-    paddingHorizontal: 20,
+    paddingTop: s(60),
+    paddingHorizontal: s(20),
   },
   flex: {
     flex: 1,
   },
   contentInner: {
-    paddingBottom: 24,
+    paddingBottom: s(24),
   },
   stepContent: {
-    gap: 12,
+    gap: s(12),
   },
   stepTitle: {
-    fontSize: 22,
-    marginBottom: 4,
+    fontSize: ms(22),
+    marginBottom: s(4),
   },
   stepDesc: {
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: ms(14),
+    lineHeight: ms(20),
   },
   input: {
     borderWidth: 1,
     borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
+    paddingHorizontal: s(14),
+    paddingVertical: s(12),
+    fontSize: ms(16),
   },
   fetchBtn: {
-    paddingVertical: 14,
+    paddingVertical: s(14),
     borderRadius: 10,
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: s(8),
   },
   fetchBtnText: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: '700',
   },
   errorText: {
-    fontSize: 14,
-    marginTop: 8,
+    fontSize: ms(14),
+    marginTop: s(8),
   },
   divider: {
     height: 1,
-    marginVertical: 16,
+    marginVertical: s(16),
     opacity: 0.2,
   },
   settingsSection: {
-    marginBottom: 16,
+    marginBottom: s(16),
   },
   sectionLabel: {
-    fontSize: 15,
-    marginBottom: 8,
+    fontSize: ms(15),
+    marginBottom: s(8),
   },
   summaryCard: {
     borderRadius: 12,
     borderWidth: 1,
-    padding: 16,
-    gap: 4,
+    padding: s(16),
+    gap: s(4),
   },
   summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 4,
+    paddingVertical: s(4),
   },
   summaryLabel: {
-    fontSize: 14,
+    fontSize: ms(14),
   },
   summaryValue: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '600',
   },
   importBtn: {
-    paddingVertical: 16,
+    paddingVertical: s(16),
     borderRadius: 10,
     alignItems: 'center',
-    marginTop: 16,
+    marginTop: s(16),
   },
   importBtnText: {
-    fontSize: 17,
+    fontSize: ms(17),
     fontWeight: '700',
   },
   navRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 16,
-    paddingBottom: 32,
+    paddingVertical: s(16),
+    paddingBottom: s(32),
   },
   navBtn: {
-    paddingVertical: 12,
-    paddingHorizontal: 28,
+    paddingVertical: s(12),
+    paddingHorizontal: s(28),
     borderRadius: 8,
     borderWidth: 1,
     borderColor: 'transparent',
   },
   navBtnText: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: '600',
   },
   sourceList: {
-    gap: 12,
-    marginTop: 20,
+    gap: s(12),
+    marginTop: s(20),
   },
   sourceCard: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
     borderRadius: 14,
-    padding: 16,
-    gap: 14,
+    padding: s(16),
+    gap: s(14),
   },
   sourceIcon: {
-    width: 52,
-    height: 52,
+    width: s(52),
+    height: s(52),
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   sourceInfo: {
     flex: 1,
-    gap: 2,
+    gap: s(2),
   },
   sourceTitle: {
-    fontSize: 16,
+    fontSize: ms(16),
   },
   sourceDesc: {
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: ms(13),
+    lineHeight: ms(18),
   },
   comingSoon: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '700',
-    marginTop: 4,
+    marginTop: s(4),
   },
 });
 

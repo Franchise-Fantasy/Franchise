@@ -1,5 +1,6 @@
-import { ThemedText } from "@/components/ThemedText";
+import { ThemedText } from "@/components/ui/ThemedText";
 import { PlayerSeasonStats } from "@/types/player";
+import { ms, s } from "@/utils/scale";
 import { StyleSheet, View } from "react-native";
 
 interface SeasonAveragesProps {
@@ -110,53 +111,53 @@ export function SeasonAverages({
 
 const styles = StyleSheet.create({
   section: {
-    paddingHorizontal: 16,
+    paddingHorizontal: s(16),
     marginBottom: 0,
   },
   badgeRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 4,
+    marginBottom: s(4),
   },
   rankGroup: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: s(6),
   },
   fptsInline: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: "700",
   },
   rankBadge: {
-    paddingHorizontal: 5,
-    paddingVertical: 1,
+    paddingHorizontal: s(5),
+    paddingVertical: s(1),
     borderRadius: 8,
   },
   rankBadgeText: {
-    fontSize: 9,
+    fontSize: ms(9),
     fontWeight: "700",
   },
   statsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     borderRadius: 8,
-    paddingHorizontal: 4,
-    paddingTop: 2,
-    paddingBottom: 6,
+    paddingHorizontal: s(4),
+    paddingTop: s(2),
+    paddingBottom: s(6),
   },
   statBox: {
     width: "20%",
     alignItems: "center",
-    paddingVertical: 4,
+    paddingVertical: s(4),
   },
   statValue: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: "600",
-    lineHeight: 18,
+    lineHeight: ms(18),
   },
   statLabel: {
-    fontSize: 10,
-    marginBottom: 1,
+    fontSize: ms(10),
+    marginBottom: s(1),
   },
 });

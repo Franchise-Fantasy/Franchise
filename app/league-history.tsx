@@ -1,13 +1,16 @@
 import { AllTimeRecords } from '@/components/league-history/AllTimeRecords';
+import { ms, s } from "@/utils/scale";
 import { DraftBoard } from '@/components/league-history/DraftBoard';
 import { HeadToHeadMatrix } from '@/components/league-history/HeadToHeadMatrix';
 import { StandingsHistory } from '@/components/league-history/StandingsHistory';
 import { TradeHistory } from '@/components/league-history/TradeHistory';
 import { TrophyCase } from '@/components/league-history/TrophyCase';
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { useDraftHistory, useHeadToHead, useSeasonStandings } from '@/hooks/useLeagueHistory';
+import { useTradeProposals } from '@/hooks/useTrades';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -34,6 +37,12 @@ export default function LeagueHistory() {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const { leagueId } = useAppState();
+
+  // Prefetch so data is ready when sections expand
+  useSeasonStandings(leagueId);
+  useHeadToHead(leagueId);
+  useDraftHistory(leagueId);
+  useTradeProposals(leagueId);
 
   const [expandedSection, setExpandedSection] = useState<SectionKey | null>(null);
 
@@ -110,8 +119,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   backBtn: { width: 70, paddingHorizontal: 8 },
-  backText: { fontSize: 16, fontWeight: '500' },
-  title: { fontSize: 16, textAlign: 'center' },
+  backText: { fontSize: ms(16), fontWeight: '500' },
+  title: { fontSize: ms(16), textAlign: 'center' },
   scroll: { flex: 1 },
   scrollContent: {
     paddingHorizontal: 16,
@@ -130,7 +139,7 @@ const styles = StyleSheet.create({
     padding: 14,
     gap: 10,
   },
-  sectionTitle: { flex: 1, fontSize: 14 },
+  sectionTitle: { flex: 1, fontSize: ms(14) },
   sectionContent: {
     padding: 14,
     paddingTop: 12,

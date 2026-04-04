@@ -1,9 +1,11 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { ms, s } from "@/utils/scale";
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
+import { queryKeys } from '@/constants/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
@@ -38,7 +40,7 @@ export default function JoinLeagueScreen() {
   const autoJoinTriggered = useRef(false);
 
   const { data: leagues, isLoading } = useQuery({
-    queryKey: ['public-leagues'],
+    queryKey: queryKeys.publicLeagues(),
     queryFn: async () => {
       const user = (await supabase.auth.getUser()).data.user;
 
@@ -284,7 +286,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 12,
     borderRadius: 8,
-    fontSize: 18,
+    fontSize: ms(18),
     fontWeight: '600',
     letterSpacing: 2,
     textAlign: 'center',
@@ -295,7 +297,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   joinBtnText: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: '600',
   },
   dividerRow: {
@@ -309,7 +311,7 @@ const styles = StyleSheet.create({
   },
   dividerText: {
     marginHorizontal: 12,
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: '600',
   },
   publicTitle: {
@@ -322,7 +324,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   emptyText: {
-    fontSize: 15,
+    fontSize: ms(15),
   },
   leagueCard: {
     padding: 16,
@@ -330,6 +332,6 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     marginBottom: 10,
   },
-  leagueInfo: { marginTop: 4, fontSize: 14 },
+  leagueInfo: { marginTop: 4, fontSize: ms(14) },
 });
 

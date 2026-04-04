@@ -2,6 +2,7 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeague } from '@/hooks/useLeague';
 import { useMatchupResult } from '@/hooks/useMatchupResult';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
@@ -171,10 +172,10 @@ const styles = StyleSheet.create({
   },
   card: {
     width: '85%',
-    maxWidth: 360,
+    maxWidth: s(360),
     borderRadius: 16,
-    paddingVertical: 28,
-    paddingHorizontal: 24,
+    paddingVertical: s(28),
+    paddingHorizontal: s(24),
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
@@ -183,54 +184,54 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   iconCircle: {
-    width: 64,
-    height: 64,
+    width: s(64),
+    height: s(64),
     borderRadius: 32,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: s(16),
   },
   header: {
-    fontSize: 18,
+    fontSize: ms(18),
     fontWeight: '700',
-    marginBottom: 12,
+    marginBottom: s(12),
   },
   score: {
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: '500',
     textAlign: 'center',
-    lineHeight: 22,
-    marginBottom: 4,
+    lineHeight: ms(22),
+    marginBottom: s(4),
   },
   scoreNumber: {
     fontWeight: '800',
-    fontSize: 16,
+    fontSize: ms(16),
   },
   outcome: {
-    fontSize: 20,
+    fontSize: ms(20),
     fontWeight: '800',
-    marginTop: 8,
-    marginBottom: 24,
+    marginTop: s(8),
+    marginBottom: s(24),
   },
   buttons: {
     width: '100%',
-    gap: 10,
+    gap: s(10),
   },
   button: {
-    paddingVertical: 12,
+    paddingVertical: s(12),
     borderRadius: 10,
     alignItems: 'center',
   },
   primaryButton: {},
   primaryButtonText: {
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: '700',
   },
   secondaryButton: {
     borderWidth: 1,
   },
   secondaryButtonText: {
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: '600',
   },
 });

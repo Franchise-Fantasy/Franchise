@@ -1,16 +1,18 @@
 import { AnnouncementBanner } from '@/components/cms/AnnouncementBanner';
+import { ms, s } from "@/utils/scale";
 import { ArticleCard } from '@/components/cms/ArticleCard';
 import { PollCard } from '@/components/cms/PollCard';
 import { RichTextRenderer } from '@/components/cms/RichTextRenderer';
 import { SpotlightCard } from '@/components/cms/SpotlightCard';
 import { TipCard } from '@/components/cms/TipCard';
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { contentful } from '@/lib/contentful';
 import { mapEntry } from '@/lib/cms-mappers';
 import type { CmsMappedEntry } from '@/types/cms';
+import { queryKeys } from '@/constants/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
@@ -34,13 +36,13 @@ export default function CmsTestScreen() {
 
   // Fetch all content types for the filter chips
   const typesQuery = useQuery({
-    queryKey: ['contentful', 'types'],
+    queryKey: queryKeys.contentfulTypes(),
     queryFn: () => contentful.getContentTypes(),
   });
 
   // Fetch entries, optionally filtered by content type
   const entriesQuery = useQuery({
-    queryKey: ['contentful', 'entries', contentType],
+    queryKey: queryKeys.contentfulEntries(contentType),
     queryFn: () =>
       contentful.getEntries(contentType ? { content_type: contentType } : {}),
   });
@@ -157,7 +159,7 @@ function DetailModal({ entry, onClose }: { entry: CmsMappedEntry | null; onClose
               accessibilityRole="button"
               accessibilityLabel="Close"
             >
-              <ThemedText style={{ color: c.accent, fontSize: 16 }}>Done</ThemedText>
+              <ThemedText style={{ color: c.accent, fontSize: ms(16) }}>Done</ThemedText>
             </TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={styles.modalBody}>
@@ -219,7 +221,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
   },
-  chipText: { fontSize: 13 },
+  chipText: { fontSize: ms(13) },
   loader: { marginTop: 40 },
   list: { padding: 16, gap: 12 },
   empty: { textAlign: 'center', marginTop: 40, opacity: 0.6 },
@@ -243,7 +245,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 12,
   },
-  modalTitle: { fontSize: 18, flex: 1, marginRight: 12 },
+  modalTitle: { fontSize: ms(18), flex: 1, marginRight: 12 },
   modalBody: { padding: 16, paddingTop: 0 },
 
   // Raw fallback
@@ -252,6 +254,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 14,
   },
-  rawTitle: { fontSize: 12, marginBottom: 8 },
-  rawField: { fontSize: 12, marginTop: 2 },
+  rawTitle: { fontSize: ms(12), marginBottom: 8 },
+  rawField: { fontSize: ms(12), marginTop: 2 },
 });

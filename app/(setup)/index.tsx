@@ -1,5 +1,6 @@
-import { ThemedText } from "@/components/ThemedText";
-import { ThemedView } from "@/components/ThemedView";
+import { ThemedText } from "@/components/ui/ThemedText";
+import { ms, s } from "@/utils/scale";
+import { ThemedView } from "@/components/ui/ThemedView";
 import { Colors } from "@/constants/Colors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { Ionicons } from "@expo/vector-icons";
@@ -71,7 +72,7 @@ const styles = StyleSheet.create({
   subtitle: {
     marginTop: 8,
     textAlign: "center",
-    fontSize: 16,
+    fontSize: ms(16),
     lineHeight: 22,
   },
   actions: {
@@ -86,7 +87,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   primaryBtnText: {
-    fontSize: 17,
+    fontSize: ms(17),
     fontWeight: "700",
   },
   secondaryBtn: {
@@ -99,7 +100,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
   },
   secondaryBtnText: {
-    fontSize: 17,
+    fontSize: ms(17),
     fontWeight: "600",
   },
 });

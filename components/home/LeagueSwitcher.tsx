@@ -1,5 +1,6 @@
-import { ThemedText } from "@/components/ThemedText";
+import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
+import { queryKeys } from "@/constants/queryKeys";
 import { LEAGUE_TYPE_DISPLAY } from "@/constants/LeagueDefaults";
 import { useAppState } from "@/context/AppStateProvider";
 import { useSession } from "@/context/AuthProvider";
@@ -19,6 +20,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { ms, s } from '@/utils/scale';
 
 interface UserLeague {
   teamId: string;
@@ -44,7 +46,7 @@ export function LeagueSwitcher({ visible, onClose }: LeagueSwitcherProps) {
   const userId = session?.user?.id;
 
   const { data, isLoading: loading } = useQuery({
-    queryKey: ["user-leagues", userId],
+    queryKey: queryKeys.userLeagues(userId!),
     queryFn: async () => {
       const [{ data: teamsData, error }, { data: profileData }] =
         await Promise.all([
@@ -96,7 +98,7 @@ export function LeagueSwitcher({ visible, onClose }: LeagueSwitcherProps) {
     const newFavoriteId =
       league.leagueId === favoriteLeagueId ? null : league.leagueId;
     // Optimistic update
-    queryClient.setQueryData(["user-leagues", userId], (old: typeof data) =>
+    queryClient.setQueryData(queryKeys.userLeagues(userId!), (old: typeof data) =>
       old ? { ...old, favoriteLeagueId: newFavoriteId } : old
     );
     await supabase
@@ -274,12 +276,12 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.3)",
   },
   dropdown: {
-    marginTop: 100,
-    marginHorizontal: 16,
+    marginTop: s(100),
+    marginHorizontal: s(16),
     borderRadius: 14,
     borderWidth: 1,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingVertical: s(8),
+    paddingHorizontal: s(12),
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
@@ -287,59 +289,59 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   loader: {
-    paddingVertical: 16,
+    paddingVertical: s(16),
   },
   emptyText: {
     textAlign: "center",
-    paddingVertical: 16,
-    fontSize: 15,
+    paddingVertical: s(16),
+    fontSize: ms(15),
   },
   leagueList: {
-    maxHeight: 300,
+    maxHeight: s(300),
   },
   leagueRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 12,
-    paddingHorizontal: 12,
+    paddingVertical: s(12),
+    paddingHorizontal: s(12),
     borderRadius: 10,
   },
   leagueInfo: {
     flex: 1,
   },
   teamName: {
-    fontSize: 13,
+    fontSize: ms(13),
     marginTop: 1,
   },
   typeBadge: {
-    paddingHorizontal: 6,
+    paddingHorizontal: s(6),
     paddingVertical: 1,
     borderRadius: 4,
   },
   typeBadgeText: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: "600",
   },
   rowIcons: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: s(6),
   },
   divider: {
     height: StyleSheet.hairlineWidth,
-    marginHorizontal: 4,
-    marginVertical: 4,
+    marginHorizontal: s(4),
+    marginVertical: s(4),
   },
   actionRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    gap: s(8),
+    paddingVertical: s(10),
+    paddingHorizontal: s(12),
   },
   actionText: {
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: "600",
   },
 });

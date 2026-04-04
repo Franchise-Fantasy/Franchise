@@ -1,10 +1,11 @@
 import { TradeCard } from '@/components/trade/TradeCard';
 import { TradeDetailModal } from '@/components/trade/TradeDetailModal';
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { TradeProposalRow, useTradeProposals } from '@/hooks/useTrades';
+import { ms, s } from '@/utils/scale';
 import { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 
@@ -106,14 +107,14 @@ export function TradeHistory({ leagueId }: TradeHistoryProps) {
 }
 
 const styles = StyleSheet.create({
-  emptyText: { fontSize: 13, textAlign: 'center', paddingVertical: 16 },
-  filterRow: { marginBottom: 10 },
+  emptyText: { fontSize: ms(13), textAlign: 'center', paddingVertical: s(16) },
+  filterRow: { marginBottom: s(10) },
   pill: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: s(12),
+    paddingVertical: s(6),
     borderRadius: 16,
-    marginRight: 8,
+    marginRight: s(8),
   },
-  pillText: { fontSize: 12, fontWeight: '600' },
-  count: { fontSize: 12, marginBottom: 10 },
+  pillText: { fontSize: ms(12), fontWeight: '600' },
+  count: { fontSize: ms(12), marginBottom: s(10) },
 });

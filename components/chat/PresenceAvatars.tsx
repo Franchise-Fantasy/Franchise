@@ -2,6 +2,7 @@ import { TeamLogo } from "@/components/team/TeamLogo";
 import { Colors } from "@/constants/Colors";
 import type { ReadReceipt } from "@/hooks/chat/useReadReceipts";
 import { useColorScheme } from "@/hooks/useColorScheme";
+import { ms, s } from "@/utils/scale";
 import React, { useEffect, useRef, useState } from "react";
 import { StyleSheet, TouchableOpacity, View } from "react-native";
 import Animated, {
@@ -275,7 +276,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     overflow: "visible",
-    marginRight: 4,
+    marginRight: s(4),
   },
   avatarWrapper: {
     borderRadius: AVATAR_SIZE / 2,
@@ -294,7 +295,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   overflowText: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: "700",
   },
 });

@@ -1,6 +1,6 @@
 import { AnalyticsPreviewCard } from '@/components/home/AnalyticsPreviewCard';
 import { DraftSection } from '@/components/home/DraftSection';
-import { ErrorState } from '@/components/ErrorState';
+import { ErrorState } from '@/components/ui/ErrorState';
 import { ImportedLeagueSection } from '@/components/home/ImportedLeagueSection';
 import { InviteSection } from '@/components/home/InviteSection';
 import { PaymentNudge } from '@/components/home/PaymentNudge';
@@ -9,8 +9,8 @@ import { OffseasonDashboard } from '@/components/home/OffseasonDashboard';
 import { QuickNav } from '@/components/home/QuickNav';
 import { SeasonCompleteBanner } from '@/components/home/SeasonCompleteBanner';
 import { StandingsSection } from '@/components/home/StandingsSection';
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { ThemedView } from '@/components/ui/ThemedView';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
@@ -18,6 +18,7 @@ import { useSession } from '@/context/AuthProvider';
 import { useTotalUnread } from '@/hooks/chat';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeague } from '@/hooks/useLeague';
+import { ms, s } from '@/utils/scale';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
@@ -99,7 +100,7 @@ export default function HomeScreen() {
                 keeperCount={league.keeper_count ?? 5}
               />
             ) : null}
-            {!league.offseason_step && league.schedule_generated && league.playoff_teams && (
+            {!league.offseason_step && league.schedule_generated && !!league.playoff_teams && (
               <SeasonCompleteBanner
                 leagueId={league.id}
                 season={league.season}
@@ -143,7 +144,7 @@ export default function HomeScreen() {
             )}
             {!league.offseason_step && (
               <>
-                <AnalyticsPreviewCard leagueId={league.id} />
+                <AnalyticsPreviewCard leagueId={league.id} scoringType={league.scoring_type} />
                 <QuickNav leagueType={league.league_type ?? 'dynasty'} />
                 <StandingsSection leagueId={league.id} playoffTeams={league.playoff_teams} scoringType={league.scoring_type} tiebreakerOrder={league.tiebreaker_order} divisionCount={league.division_count} division1Name={league.division_1_name} division2Name={league.division_2_name} />
               </>
@@ -164,54 +165,54 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    padding: 8,
+    padding: s(8),
     borderBottomWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
-    height: 50,
+    height: s(50),
     justifyContent: 'space-between',
   },
   headerText: {
     flex: 1,
     textAlign: 'center',
-    fontSize: 20,
+    fontSize: ms(20),
     fontWeight: 'thin',
-    marginHorizontal: 40,
+    marginHorizontal: s(40),
   },
   leagueSwitcher: {
-    padding: 8,
-    marginLeft: 4,
-    width: 36,
+    padding: s(8),
+    marginLeft: s(4),
+    width: s(36),
     alignItems: 'center',
   },
   chatButton: {
-    padding: 8,
-    marginRight: 4,
-    width: 36,
+    padding: s(8),
+    marginRight: s(4),
+    width: s(36),
     alignItems: 'center',
   },
   unreadBadge: {
     position: 'absolute',
-    top: 2,
+    top: s(2),
     right: 0,
-    minWidth: 16,
-    height: 16,
+    minWidth: s(16),
+    height: s(16),
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 4,
+    paddingHorizontal: s(4),
   },
   unreadText: {
-    fontSize: 10,
+    fontSize: ms(10),
     fontWeight: '700',
-    lineHeight: 16,
+    lineHeight: ms(16),
     includeFontPadding: false,
   },
   content: {
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 40,
+    paddingHorizontal: s(20),
+    paddingTop: s(16),
+    paddingBottom: s(40),
   },
 });

@@ -1,10 +1,11 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { SleeperPlayerMatch, SleeperUnmatched } from '@/hooks/useImportSleeper';
 import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useState } from 'react';
+import { ms, s } from '@/utils/scale';
 import {
   ActivityIndicator,
   FlatList,
@@ -226,104 +227,104 @@ function UnmatchedRow({
 
 const styles = StyleSheet.create({
   container: {
-    gap: 20,
+    gap: s(20),
   },
   sectionTitle: {
-    fontSize: 16,
-    marginBottom: 4,
+    fontSize: ms(16),
+    marginBottom: s(4),
   },
   sectionDesc: {
-    fontSize: 13,
-    marginBottom: 12,
+    fontSize: ms(13),
+    marginBottom: s(12),
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    gap: 8,
+    paddingVertical: s(8),
+    gap: s(8),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   rowText: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: s(6),
   },
   playerName: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '500',
     flexShrink: 1,
   },
   matchedTo: {
-    fontSize: 13,
+    fontSize: ms(13),
     flexShrink: 1,
   },
   confBadge: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '600',
     textTransform: 'capitalize',
   },
   unmatchedCard: {
     borderRadius: 10,
     borderWidth: 1,
-    padding: 12,
-    marginBottom: 8,
+    padding: s(12),
+    marginBottom: s(8),
   },
   unmatchedHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: s(8),
   },
   teamBadge: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '600',
   },
   unmatchedActions: {
     flexDirection: 'row',
-    gap: 8,
-    marginTop: 10,
+    gap: s(8),
+    marginTop: s(10),
   },
   actionBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+    paddingVertical: s(8),
+    paddingHorizontal: s(16),
     borderRadius: 6,
   },
   actionBtnText: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '600',
   },
   searchArea: {
-    marginTop: 10,
+    marginTop: s(10),
   },
   searchInput: {
     borderWidth: 1,
     borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
+    paddingHorizontal: s(12),
+    paddingVertical: s(10),
+    fontSize: ms(14),
   },
   searchLoading: {
-    marginTop: 8,
+    marginTop: s(8),
   },
   searchResult: {
-    paddingVertical: 10,
-    paddingHorizontal: 4,
+    paddingVertical: s(10),
+    paddingHorizontal: s(4),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   resultName: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '500',
   },
   resultTeam: {
-    fontSize: 12,
-    marginTop: 2,
+    fontSize: ms(12),
+    marginTop: s(2),
   },
   cancelSearch: {
-    paddingVertical: 10,
+    paddingVertical: s(10),
     alignItems: 'center',
   },
   cancelText: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '500',
   },
 });

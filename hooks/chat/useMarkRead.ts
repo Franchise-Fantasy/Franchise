@@ -1,4 +1,5 @@
 import { useAppState } from '@/context/AppStateProvider';
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
@@ -33,8 +34,8 @@ export function useMarkRead(
       .eq('conversation_id', conversationId)
       .eq('team_id', teamId)
       .then(() => {
-        queryClient.invalidateQueries({ queryKey: ['conversations', leagueId] });
-        queryClient.invalidateQueries({ queryKey: ['chatUnread', leagueId] });
+        queryClient.invalidateQueries({ queryKey: queryKeys.conversations(leagueId!) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.chatUnread(leagueId!) });
       })
       .catch((err: any) => console.warn('useMarkRead update failed:', err?.message ?? err));
 

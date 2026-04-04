@@ -1,13 +1,27 @@
-import { SegmentedControl } from '@/components/ui/SegmentedControl';
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { PlayoffBracketSlot } from '@/types/playoff';
-import { calcRounds, nextPowerOf2 } from '@/utils/playoff';
+import { calcRounds } from '@/utils/playoff';
+import { formatScore } from '@/utils/fantasyPoints';
+import { ms, s as scale } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { useMemo, useRef } from 'react';
+import {
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+  useWindowDimensions,
+} from 'react-native';
+
+// ─── Layout constants ───────────────────────────────────────────────────────
+
+const CARD_HEIGHT = scale(88); // two 43px rows + hairline divider + 2px border
+const CARD_GAP = scale(12); // vertical gap between cards in round 1
+const CONNECTOR_W = scale(28); // width of connector zone between columns
+const LABEL_H = scale(32); // height reserved for round label above cards
 
 interface Props {
   slots: PlayoffBracketSlot[];
@@ -15,9 +29,12 @@ interface Props {
   playoffTeams: number;
 }
 
+// ─── Sub-components ─────────────────────────────────────────────────────────
+
 function TeamRow({
   name,
   seed,
+  score,
   isWinner,
   isTBD,
   isBye,
@@ -25,6 +42,7 @@ function TeamRow({
 }: {
   name: string;
   seed: number | null;
+  score: number | null | undefined;
   isWinner: boolean;
   isTBD: boolean;
   isBye: boolean;
@@ -32,7 +50,7 @@ function TeamRow({
 }) {
   return (
     <View
-      accessibilityLabel={`${seed !== null ? `Seed ${seed}, ` : ''}${name}${isWinner ? ', winner' : ''}`}
+      accessibilityLabel={`${seed !== null ? `Seed ${seed}, ` : ''}${name}${score != null ? `, ${formatScore(score)}` : ''}${isWinner ? ', winner' : ''}`}
       style={[styles.teamRow, isWinner && { backgroundColor: c.accent + '15' }]}
     >
       {seed !== null ? (
@@ -56,8 +74,21 @@ function TeamRow({
       >
         {name}
       </ThemedText>
+      {score != null && !isBye && !isTBD ? (
+        <ThemedText
+          style={[
+            styles.scoreText,
+            { color: isWinner ? c.accent : c.text },
+            isWinner && { fontWeight: '700' },
+          ]}
+        >
+          {formatScore(score)}
+        </ThemedText>
+      ) : !isBye && !isTBD ? (
+        <ThemedText style={[styles.scoreText, { color: c.secondaryText }]}>–</ThemedText>
+      ) : null}
       {isWinner && (
-        <Ionicons name="checkmark-circle" size={18} color={c.accent} style={styles.winnerIcon} />
+        <Ionicons name="checkmark-circle" size={16} color={c.accent} style={{ marginLeft: 4 }} />
       )}
     </View>
   );
@@ -67,10 +98,12 @@ function MatchupCard({
   slot,
   teamMap,
   c,
+  width,
 }: {
   slot: PlayoffBracketSlot;
   teamMap: Map<string, string>;
   c: any;
+  width: number;
 }) {
   const router = useRouter();
   const teamAName = slot.team_a_id ? teamMap.get(slot.team_a_id) ?? 'Unknown' : 'TBD';
@@ -90,13 +123,14 @@ function MatchupCard({
     <View
       style={[
         styles.card,
-        { backgroundColor: c.card, borderColor: c.border },
-        isByeCard && { opacity: 0.6 },
+        { backgroundColor: c.card, borderColor: c.border, width },
+        isByeCard && { opacity: 0.5 },
       ]}
     >
       <TeamRow
         name={teamAName}
         seed={slot.team_a_seed}
+        score={slot.team_a_score}
         isWinner={aWinner}
         isTBD={!slot.team_a_id}
         isBye={false}
@@ -106,6 +140,7 @@ function MatchupCard({
       <TeamRow
         name={teamBName}
         seed={slot.team_b_seed}
+        score={slot.team_b_score}
         isWinner={bWinner}
         isTBD={!slot.team_b_id && !slot.is_bye}
         isBye={slot.is_bye}
@@ -131,37 +166,50 @@ function MatchupCard({
   return <View accessibilityLabel={accessibilityLabel}>{cardContent}</View>;
 }
 
-function ChampionCard({ name, c }: { name: string; c: any }) {
+function ChampionBanner({ name, c, width }: { name: string; c: any; width: number }) {
   return (
     <View
-      style={[styles.championCard, { borderColor: c.accent, backgroundColor: c.accent + '12' }]}
+      style={[styles.championCard, { borderColor: c.accent, backgroundColor: c.accent + '12', width }]}
       accessibilityLabel={`Champion: ${name}`}
       accessibilityRole="header"
     >
+      <Ionicons name="trophy" size={18} color={c.accent} />
       <ThemedText style={[styles.championLabel, { color: c.accent }]}>Champion</ThemedText>
       <ThemedText style={[styles.championName, { color: c.accent }]}>{name}</ThemedText>
     </View>
   );
 }
 
+// ─── Main component ─────────────────────────────────────────────────────────
+
 export function PlayoffBracket({ slots, teamMap, playoffTeams }: Props) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const { width: screenWidth } = useWindowDimensions();
+  const scrollRef = useRef<ScrollView>(null);
 
   const totalRounds = calcRounds(playoffTeams);
 
-  // Group slots by round
-  const byRound = useMemo(() => {
+  // Card width: fill ~78% of screen so the next round peeks in
+  const cardWidth = Math.min(Math.round(screenWidth * 0.78), 320);
+  const colWidth = cardWidth + CONNECTOR_W;
+
+  // Group slots by round, separating 3rd place
+  const { byRound, thirdPlaceSlots } = useMemo(() => {
     const map = new Map<number, PlayoffBracketSlot[]>();
+    const tp: PlayoffBracketSlot[] = [];
     for (const s of slots) {
+      if (s.is_third_place) {
+        tp.push(s);
+        continue;
+      }
       if (!map.has(s.round)) map.set(s.round, []);
       map.get(s.round)!.push(s);
     }
-    // Sort each round by bracket_position
     for (const [, roundSlots] of map) {
       roundSlots.sort((a, b) => a.bracket_position - b.bracket_position);
     }
-    return map;
+    return { byRound: map, thirdPlaceSlots: tp };
   }, [slots]);
 
   // Find champion
@@ -169,7 +217,7 @@ export function PlayoffBracket({ slots, teamMap, playoffTeams }: Props) {
   const championId = finalSlot?.winner_id ?? null;
   const championName = championId ? teamMap.get(championId) ?? 'Unknown' : null;
 
-  // Smart default: latest round with at least one populated matchup
+  // Smart default scroll: latest active round
   const defaultRound = useMemo(() => {
     if (championId) return totalRounds;
     for (let r = totalRounds; r >= 1; r--) {
@@ -178,9 +226,6 @@ export function PlayoffBracket({ slots, teamMap, playoffTeams }: Props) {
     }
     return 1;
   }, [byRound, totalRounds, championId]);
-
-  const [selectedRoundIndex, setSelectedRoundIndex] = useState(defaultRound - 1);
-  const selectedRound = selectedRoundIndex + 1;
 
   // Round labels
   const roundLabels = useMemo(() => {
@@ -192,7 +237,30 @@ export function PlayoffBracket({ slots, teamMap, playoffTeams }: Props) {
     });
   }, [totalRounds]);
 
-  const currentSlots = byRound.get(selectedRound) ?? [];
+  // Vertical position for card at (round, index).
+  // Round 1 stacks tight. Later rounds center between their two feeders.
+  const round1Count = byRound.get(1)?.length ?? 1;
+
+  function cardTop(round: number, index: number): number {
+    if (round === 1) {
+      return index * (CARD_HEIGHT + CARD_GAP);
+    }
+    const topFeeder = cardTop(round - 1, index * 2);
+    const botFeeder = cardTop(round - 1, index * 2 + 1) + CARD_HEIGHT;
+    return topFeeder + (botFeeder - topFeeder - CARD_HEIGHT) / 2;
+  }
+
+  // Total canvas dimensions
+  const bracketContentH = round1Count * CARD_HEIGHT + (round1Count - 1) * CARD_GAP;
+  const extraBelow = (championName ? 90 : 0) + (thirdPlaceSlots.length > 0 ? 100 : 0);
+  const canvasH = LABEL_H + bracketContentH + extraBelow + 24;
+  const canvasW = colWidth * totalRounds - CONNECTOR_W + 32; // last round has no connector
+
+  // Initial scroll
+  // Snap to the latest active round
+  const initialScrollX = useMemo(() => {
+    return (defaultRound - 1) * colWidth;
+  }, [defaultRound, colWidth]);
 
   if (slots.length === 0) {
     return (
@@ -204,63 +272,195 @@ export function PlayoffBracket({ slots, teamMap, playoffTeams }: Props) {
     );
   }
 
-  return (
-    <View style={styles.container}>
-      {/* Round tabs — hide if only 1 round */}
-      {totalRounds > 1 && (
-        <View style={styles.tabBar}>
-          <SegmentedControl
-            options={roundLabels}
-            selectedIndex={selectedRoundIndex}
-            onSelect={setSelectedRoundIndex}
-          />
-        </View>
-      )}
+  // Build all render elements
+  const elements: React.ReactNode[] = [];
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Champion card — show on finals tab when winner exists */}
-        {selectedRound === totalRounds && championName && (
-          <ChampionCard name={championName} c={c} />
-        )}
+  // Round labels
+  for (let i = 0; i < totalRounds; i++) {
+    elements.push(
+      <View
+        key={`lbl-${i}`}
+        style={{ position: 'absolute', left: i * colWidth, top: 0, width: cardWidth }}
+      >
+        <ThemedText
+          style={[styles.roundLabelText, { color: c.secondaryText }]}
+          accessibilityRole="header"
+        >
+          {roundLabels[i]}
+        </ThemedText>
+      </View>,
+    );
+  }
 
-        {/* Matchup cards */}
-        {currentSlots.map((slot) => (
-          <MatchupCard key={slot.id} slot={slot} teamMap={teamMap} c={c} />
-        ))}
+  // Cards + connectors
+  for (let r = 1; r <= totalRounds; r++) {
+    const roundSlots = byRound.get(r) ?? [];
+    const x = (r - 1) * colWidth;
+    const isLast = r === totalRounds;
 
-        {/* Empty state for rounds with no slots yet */}
-        {currentSlots.length === 0 && (
-          <View style={styles.emptyRound}>
-            <ThemedText style={{ color: c.secondaryText, fontStyle: 'italic' }}>
-              Matchups not yet determined
+    // Matchup cards
+    for (const [idx, slot] of roundSlots.entries()) {
+      const y = LABEL_H + cardTop(r, idx);
+      elements.push(
+        <View key={slot.id} style={{ position: 'absolute', left: x, top: y }}>
+          <MatchupCard slot={slot} teamMap={teamMap} c={c} width={cardWidth} />
+        </View>,
+      );
+    }
+
+    // Connector lines between this round and the next
+    if (!isLast) {
+      for (let idx = 0; idx < roundSlots.length; idx += 2) {
+        if (idx + 1 >= roundSlots.length) break;
+        const topCardMid = LABEL_H + cardTop(r, idx) + CARD_HEIGHT / 2;
+        const botCardMid = LABEL_H + cardTop(r, idx + 1) + CARD_HEIGHT / 2;
+        const connX = x + cardWidth; // right edge of cards
+
+        // Horizontal stub from top card
+        elements.push(
+          <View
+            key={`conn-t-${r}-${idx}`}
+            style={{
+              position: 'absolute',
+              left: connX,
+              top: topCardMid,
+              width: CONNECTOR_W / 2,
+              height: 1,
+              backgroundColor: c.border,
+            }}
+          />,
+        );
+        // Horizontal stub from bottom card
+        elements.push(
+          <View
+            key={`conn-b-${r}-${idx}`}
+            style={{
+              position: 'absolute',
+              left: connX,
+              top: botCardMid,
+              width: CONNECTOR_W / 2,
+              height: 1,
+              backgroundColor: c.border,
+            }}
+          />,
+        );
+        // Vertical line connecting the two stubs
+        elements.push(
+          <View
+            key={`conn-v-${r}-${idx}`}
+            style={{
+              position: 'absolute',
+              left: connX + CONNECTOR_W / 2 - 1,
+              top: topCardMid,
+              width: 1,
+              height: botCardMid - topCardMid + 1,
+              backgroundColor: c.border,
+            }}
+          />,
+        );
+        // Horizontal exit from midpoint to next round
+        const midY = topCardMid + (botCardMid - topCardMid) / 2;
+        elements.push(
+          <View
+            key={`conn-e-${r}-${idx}`}
+            style={{
+              position: 'absolute',
+              left: connX + CONNECTOR_W / 2 - 1,
+              top: midY,
+              width: CONNECTOR_W / 2 + 1,
+              height: 1,
+              backgroundColor: c.border,
+            }}
+          />,
+        );
+      }
+    }
+
+    // Champion banner below finals
+    if (isLast && championName && roundSlots.length > 0) {
+      const y = LABEL_H + cardTop(r, 0) + CARD_HEIGHT + 14;
+      elements.push(
+        <View key="champion" style={{ position: 'absolute', left: x, top: y }}>
+          <ChampionBanner name={championName} c={c} width={cardWidth} />
+        </View>,
+      );
+    }
+
+    // 3rd place game below champion/finals
+    if (isLast && thirdPlaceSlots.length > 0) {
+      const y = LABEL_H + cardTop(r, 0) + CARD_HEIGHT + (championName ? 106 : 14);
+      elements.push(
+        <View key="3rd-label" style={{ position: 'absolute', left: x, top: y, width: cardWidth }}>
+          <View style={styles.thirdPlaceDivider} accessibilityRole="header">
+            <Ionicons name="medal-outline" size={12} color={c.secondaryText} />
+            <ThemedText style={[styles.thirdPlaceLabel, { color: c.secondaryText }]}>
+              3rd Place
             </ThemedText>
           </View>
-        )}
+        </View>,
+      );
+      for (const [i, slot] of thirdPlaceSlots.entries()) {
+        elements.push(
+          <View
+            key={slot.id}
+            style={{ position: 'absolute', left: x, top: y + 24 + i * (CARD_HEIGHT + 6) }}
+          >
+            <MatchupCard slot={slot} teamMap={teamMap} c={c} width={cardWidth} />
+          </View>,
+        );
+      }
+    }
+  }
+
+  return (
+    <ScrollView
+      ref={scrollRef}
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentOffset={{ x: initialScrollX, y: 0 }}
+      snapToInterval={colWidth}
+      decelerationRate="fast"
+      style={styles.outerScroll}
+      accessibilityLabel="Playoff bracket. Scroll left and right to view rounds."
+    >
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{
+          width: canvasW,
+          height: canvasH,
+          paddingHorizontal: 16,
+        }}
+      >
+        <View style={{ width: canvasW, height: canvasH }}>
+          {elements}
+        </View>
       </ScrollView>
-    </View>
+    </ScrollView>
   );
 }
 
+// ─── Styles ─────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  container: {
+  outerScroll: {
     flex: 1,
   },
   empty: {
     alignItems: 'center',
-    paddingTop: 40,
+    paddingTop: scale(40),
   },
-  tabBar: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 4,
+  // ─── Round label ───
+  roundLabelText: {
+    fontSize: ms(12),
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    textAlign: 'center',
   },
-  scrollContent: {
-    padding: 16,
-    gap: 12,
-  },
+  // ─── Card ───
   card: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 10,
     overflow: 'hidden',
   },
   cardDivider: {
@@ -269,51 +469,65 @@ const styles = StyleSheet.create({
   teamRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingHorizontal: scale(12),
+    paddingVertical: scale(10),
+    height: scale(43),
   },
   seedBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: scale(26),
+    height: scale(26),
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 10,
+    marginRight: scale(8),
   },
   seedSpacer: {
-    width: 24,
-    marginRight: 10,
+    width: scale(26),
+    marginRight: scale(8),
   },
   seedText: {
-    fontSize: 11,
+    fontSize: ms(12),
     fontWeight: '700',
   },
   teamName: {
-    fontSize: 15,
+    fontSize: ms(15),
     flex: 1,
   },
-  winnerIcon: {
-    marginLeft: 8,
+  scoreText: {
+    fontSize: ms(15),
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+    marginLeft: scale(8),
   },
+  // ─── Champion ───
   championCard: {
     borderWidth: 2,
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 10,
+    padding: scale(10),
     alignItems: 'center',
+    gap: 2,
   },
   championLabel: {
-    fontSize: 11,
+    fontSize: ms(10),
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 1,
-    marginBottom: 4,
   },
   championName: {
-    fontSize: 18,
+    fontSize: ms(14),
     fontWeight: '700',
   },
-  emptyRound: {
+  // ─── 3rd place ───
+  thirdPlaceDivider: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 32,
+    justifyContent: 'center',
+    gap: scale(4),
+  },
+  thirdPlaceLabel: {
+    fontSize: ms(11),
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
 });

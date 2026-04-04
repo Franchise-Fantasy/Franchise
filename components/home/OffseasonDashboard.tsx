@@ -1,9 +1,11 @@
 import { DeclareKeepers } from '@/components/home/DeclareKeepers';
 import { DraftSection } from '@/components/home/DraftSection';
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
@@ -95,7 +97,7 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
 
   // Fetch rookie draft if it exists (dynasty only)
   const { data: rookieDraft } = useQuery({
-    queryKey: ['rookieDraft', leagueId, season],
+    queryKey: queryKeys.rookieDraft(leagueId, season as unknown as number),
     queryFn: async () => {
       const { data } = await supabase
         .from('drafts')
@@ -111,7 +113,7 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
 
   // Fetch season draft for keeper/redraft leagues
   const { data: seasonDraft } = useQuery({
-    queryKey: ['seasonDraft', leagueId, season],
+    queryKey: queryKeys.seasonDraft(leagueId, season as unknown as number),
     queryFn: async () => {
       const { data } = await supabase
         .from('drafts')
@@ -131,7 +133,7 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
 
   // Fetch champion info
   const { data: champion } = useQuery({
-    queryKey: ['champion', leagueId],
+    queryKey: queryKeys.champion(leagueId),
     queryFn: async () => {
       const { data: league } = await supabase
         .from('leagues')
@@ -151,7 +153,7 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
   // Roster compliance check (dynasty only, after rookie draft)
   const showCompliance = isDynasty && (offseasonStep === 'rookie_draft_complete' || offseasonStep === 'ready_for_new_season');
   const { data: compliance } = useQuery({
-    queryKey: ['rosterCompliance', leagueId, teamId],
+    queryKey: queryKeys.rosterCompliance(leagueId, teamId),
     queryFn: async () => {
       const { count: myCount } = await supabase
         .from('league_players')
@@ -188,9 +190,9 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
         body: { league_id: leagueId },
       });
       if (error) throw error;
-      queryClient.invalidateQueries({ queryKey: ['league', leagueId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId) });
       queryClient.invalidateQueries({ queryKey: ['rookieDraft', leagueId] });
-      queryClient.invalidateQueries({ queryKey: ['activeDraft', leagueId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.activeDraft(leagueId) });
       Alert.alert('Rookie Draft Created', 'Schedule the date to begin.');
     } catch (err: any) {
       Alert.alert('Error', err.message ?? 'Failed to create rookie draft');
@@ -215,7 +217,7 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
                 body: { league_id: leagueId },
               });
               if (error) throw error;
-              queryClient.invalidateQueries({ queryKey: ['league', leagueId] });
+              queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId) });
               queryClient.invalidateQueries({ queryKey: ['keeperDeclarations'] });
               Alert.alert('Keepers Finalized', 'Non-kept players have been released.');
             } catch (err: any) {
@@ -253,7 +255,7 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
       if (error) throw error;
 
       queryClient.invalidateQueries({ queryKey: ['seasonDraft', leagueId] });
-      queryClient.invalidateQueries({ queryKey: ['activeDraft', leagueId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.activeDraft(leagueId) });
       Alert.alert('Draft Created', 'Schedule the date to begin.');
     } catch (err: any) {
       Alert.alert('Error', err.message ?? 'Failed to create draft');
@@ -312,7 +314,7 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
                 body: { league_id: leagueId },
               });
               if (error) throw error;
-              queryClient.invalidateQueries({ queryKey: ['league', leagueId] });
+              queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId) });
             } catch (err: any) {
               Alert.alert('Error', err.message ?? 'Failed to start season');
             } finally {
@@ -334,7 +336,7 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
       {champion && (
         <View style={[styles.championBanner, { backgroundColor: c.goldMuted, borderColor: c.gold }]}>
           <Ionicons name="trophy" size={20} color={c.gold} />
-          <ThemedText type="defaultSemiBold" style={{ marginLeft: 8, fontSize: 14 }}>
+          <ThemedText type="defaultSemiBold" style={{ marginLeft: s(8), fontSize: ms(14) }}>
             {champion.name} — League Champions
           </ThemedText>
         </View>
@@ -497,7 +499,7 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
 
       {/* Keeper/Redraft: show DraftSection when draft exists but not complete */}
       {!isDynasty && offseasonStep === 'ready_for_new_season' && seasonDraft && !seasonDraftComplete && (
-        <View style={{ marginTop: 8 }}>
+        <View style={{ marginTop: s(8) }}>
           <DraftSection leagueId={leagueId} isCommissioner={isCommissioner} />
         </View>
       )}
@@ -530,44 +532,44 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
           {compliance.myCount > rosterSize ? (
             <View style={[styles.complianceBanner, { backgroundColor: c.warningMuted, borderColor: c.warning }]}>
               <Ionicons name="warning" size={18} color={c.warning} />
-              <View style={{ flex: 1, marginLeft: 8 }}>
-                <ThemedText type="defaultSemiBold" style={{ fontSize: 13 }}>
+              <View style={{ flex: 1, marginLeft: s(8) }}>
+                <ThemedText type="defaultSemiBold" style={{ fontSize: ms(13) }}>
                   Roster Over Limit ({compliance.myCount}/{rosterSize})
                 </ThemedText>
-                <ThemedText style={{ fontSize: 12, color: c.secondaryText, marginTop: 2 }}>
+                <ThemedText style={{ fontSize: ms(12), color: c.secondaryText, marginTop: s(2) }}>
                   Cut {compliance.myCount - rosterSize} player{compliance.myCount - rosterSize !== 1 ? 's' : ''} before the new season.
                 </ThemedText>
               </View>
               <TouchableOpacity accessibilityRole="button" accessibilityLabel="Manage roster" onPress={() => router.push('/(tabs)/roster')}>
-                <ThemedText style={{ color: c.accent, fontSize: 13, fontWeight: '600' }}>Manage</ThemedText>
+                <ThemedText style={{ color: c.accent, fontSize: ms(13), fontWeight: '600' }}>Manage</ThemedText>
               </TouchableOpacity>
             </View>
           ) : (
             <View style={[styles.complianceBanner, { backgroundColor: c.successMuted, borderColor: c.success }]}>
               <Ionicons name="checkmark-circle" size={18} color={c.success} />
-              <ThemedText style={{ marginLeft: 8, fontSize: 13 }}>
+              <ThemedText style={{ marginLeft: s(8), fontSize: ms(13) }}>
                 Roster compliant ({compliance.myCount}/{rosterSize})
               </ThemedText>
             </View>
           )}
 
           {isCommissioner && (
-            <View style={{ marginTop: 8 }}>
-              <ThemedText style={{ fontSize: 12, color: c.secondaryText, marginBottom: 6 }}>
+            <View style={{ marginTop: s(8) }}>
+              <ThemedText style={{ fontSize: ms(12), color: c.secondaryText, marginBottom: s(6) }}>
                 All teams must be at or under {rosterSize} players before the season can begin.
               </ThemedText>
               {compliance.teamCounts
                 .filter((t) => t.count > rosterSize)
                 .map((t) => (
-                  <View key={t.name} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 }}>
-                    <ThemedText style={{ fontSize: 12, color: c.warning }}>{t.name}</ThemedText>
-                    <ThemedText style={{ fontSize: 12, color: c.warning, fontWeight: '600' }}>
+                  <View key={t.name} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: s(3) }}>
+                    <ThemedText style={{ fontSize: ms(12), color: c.warning }}>{t.name}</ThemedText>
+                    <ThemedText style={{ fontSize: ms(12), color: c.warning, fontWeight: '600' }}>
                       {t.count}/{rosterSize}
                     </ThemedText>
                   </View>
                 ))}
               {compliance.teamCounts.filter((t) => t.count > rosterSize).length === 0 && (
-                <ThemedText style={{ fontSize: 12, color: c.success }}>
+                <ThemedText style={{ fontSize: ms(12), color: c.success }}>
                   All teams are at or under the roster limit.
                 </ThemedText>
               )}
@@ -583,91 +585,91 @@ const styles = StyleSheet.create({
   container: {
     borderRadius: 12,
     borderWidth: 1,
-    padding: 16,
-    marginBottom: 16,
+    padding: s(16),
+    marginBottom: s(16),
   },
   championBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 10,
+    padding: s(10),
     borderRadius: 8,
     borderWidth: 1,
-    marginBottom: 12,
+    marginBottom: s(12),
   },
   title: {
-    fontSize: 16,
-    marginBottom: 12,
+    fontSize: ms(16),
+    marginBottom: s(12),
   },
   stepper: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: s(16),
   },
   stepItem: {
     alignItems: 'center',
     flex: 1,
   },
   stepCircle: {
-    width: 30,
-    height: 30,
+    width: s(30),
+    height: s(30),
     borderRadius: 15,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: s(4),
   },
   stepLabel: {
-    fontSize: 10,
+    fontSize: ms(10),
     textAlign: 'center',
   },
   stepConnector: {
     position: 'absolute',
-    top: 14,
-    right: -20,
-    width: 40,
-    height: 2,
+    top: s(14),
+    right: s(-20),
+    width: s(40),
+    height: s(2),
     zIndex: -1,
   },
   actions: {
-    gap: 8,
+    gap: s(8),
   },
   actionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
+    paddingVertical: s(12),
     borderRadius: 10,
-    gap: 8,
+    gap: s(8),
   },
   actionBtnText: {
     fontWeight: '600',
-    fontSize: 14,
+    fontSize: ms(14),
   },
   statusText: {
-    fontSize: 13,
+    fontSize: ms(13),
     textAlign: 'center',
-    lineHeight: 18,
+    lineHeight: ms(18),
   },
   infoBanner: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    padding: 10,
+    padding: s(10),
     borderRadius: 8,
     borderWidth: 1,
-    marginTop: 12,
-    gap: 8,
+    marginTop: s(12),
+    gap: s(8),
   },
   infoBannerText: {
-    fontSize: 12,
+    fontSize: ms(12),
     flex: 1,
-    lineHeight: 17,
+    lineHeight: ms(17),
   },
   complianceSection: {
-    marginTop: 12,
+    marginTop: s(12),
   },
   complianceBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 10,
+    padding: s(10),
     borderRadius: 8,
     borderWidth: 1,
   },

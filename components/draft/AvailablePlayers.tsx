@@ -1,7 +1,8 @@
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import { PlayerFilterBar } from "@/components/player/PlayerFilterBar";
-import { ThemedText } from "@/components/ThemedText";
+import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
+import { queryKeys } from "@/constants/queryKeys";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { useDraftPlayer } from "@/hooks/useDraftPlayer";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
@@ -14,7 +15,7 @@ import { getInjuryBadge } from "@/utils/injuryBadge";
 import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -24,6 +25,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { ms, s } from "@/utils/scale";
 
 interface AvailablePlayersProps {
   draftId: string;
@@ -56,10 +58,26 @@ export function AvailablePlayers({
     draftId,
   );
   const { data: scoringWeights } = useLeagueScoring(leagueId);
+
+  const { data: scoringType } = useQuery<string>({
+    queryKey: queryKeys.leagueScoringType(leagueId),
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("leagues")
+        .select("scoring_type")
+        .eq("id", leagueId)
+        .single();
+      return data?.scoring_type ?? "points";
+    },
+    enabled: !!leagueId,
+    staleTime: 1000 * 60 * 30,
+  });
+  const isCategories = scoringType === "h2h_categories";
+
   const [timeRange, setTimeRange] = useState<TimeRange>("season");
 
   const { data: players, isLoading } = useQuery<PlayerSeasonStats[]>({
-    queryKey: ["availablePlayers", leagueId],
+    queryKey: queryKeys.availablePlayers(leagueId),
     queryFn: async () => {
       const { data: draftedPlayers, error: draftedError } = await supabase
         .from("league_players")
@@ -103,7 +121,7 @@ export function AvailablePlayers({
     [players],
   );
   const { data: recentGameLogs } = useQuery({
-    queryKey: ["draftRecentGameLogs", leagueId],
+    queryKey: queryKeys.draftRecentGameLogs(leagueId),
     queryFn: async () => {
       const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - 30);
@@ -137,7 +155,7 @@ export function AvailablePlayers({
 
   // Fetch last season's historical stats
   const { data: historicalStats } = useQuery({
-    queryKey: ["draftHistoricalStats", leagueId],
+    queryKey: queryKeys.draftHistoricalStats(leagueId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from("player_historical_stats")
@@ -309,34 +327,12 @@ export function AvailablePlayers({
     });
   };
 
-  // Real-time updates when players are drafted
-  useEffect(() => {
-    const channel = supabase
-      .channel(`league_players_${leagueId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "league_players",
-          filter: `league_id=eq.${leagueId}`,
-        },
-        () => {
-          queryClient.invalidateQueries({
-            queryKey: ["availablePlayers", leagueId],
-          });
-        },
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [leagueId, queryClient]);
+  // Realtime league_players subscription is handled by useRosterChanges
+  // in the parent draft-room screen — no duplicate subscription needed here.
 
   const renderPlayer = useCallback(
     ({ item }: { item: PlayerSeasonStats }) => {
-      const fpts = scoringWeights
+      const fpts = scoringWeights && !isCategories
         ? calculateAvgFantasyPoints(item, scoringWeights)
         : undefined;
       const headshotUrl = getPlayerHeadshotUrl(item.external_id_nba);
@@ -385,7 +381,7 @@ export function AvailablePlayers({
               <ThemedText
                 type="defaultSemiBold"
                 numberOfLines={1}
-                style={{ flexShrink: 1, fontSize: 14 }}
+                style={{ flexShrink: 1, fontSize: ms(14) }}
               >
                 {item.name}
               </ThemedText>
@@ -503,7 +499,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   listContent: {
-    padding: 8,
+    padding: s(8),
   },
   loading: {
     flex: 1,
@@ -513,28 +509,28 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingVertical: s(8),
+    paddingHorizontal: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   portraitWrap: {
-    width: 58,
-    height: 58,
-    marginRight: 10,
+    width: s(58),
+    height: s(58),
+    marginRight: s(10),
   },
   headshotCircle: {
-    width: 58,
-    height: 58,
+    width: s(58),
+    height: s(58),
     borderRadius: 29,
     borderWidth: 1.5,
     overflow: "hidden" as const,
   },
   headshotImg: {
     position: "absolute" as const,
-    bottom: -2,
+    bottom: s(-2),
     left: 0,
     right: 0,
-    height: 48,
+    height: s(48),
   },
   teamPill: {
     position: "absolute",
@@ -544,71 +540,71 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "rgba(0,0,0,0.75)",
     borderRadius: 8,
-    paddingHorizontal: 4,
+    paddingHorizontal: s(4),
     paddingVertical: 1,
-    gap: 2,
+    gap: s(2),
   },
   teamPillLogo: {
-    width: 10,
-    height: 10,
+    width: s(10),
+    height: s(10),
   },
   teamPillText: {
-    fontSize: 8,
+    fontSize: ms(8),
     fontWeight: "700",
     letterSpacing: 0.3,
   },
   info: {
     flex: 1,
-    marginRight: 8,
+    marginRight: s(8),
   },
   nameRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: s(4),
   },
   badge: {
-    paddingHorizontal: 4,
+    paddingHorizontal: s(4),
     paddingVertical: 1,
     borderRadius: 3,
   },
   badgeText: {
-    fontSize: 8,
+    fontSize: ms(8),
     fontWeight: "800",
     letterSpacing: 0.5,
   },
   posText: {
-    fontSize: 11,
+    fontSize: ms(11),
     marginTop: 1,
   },
   rightSide: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: s(6),
   },
   stats: {
     alignItems: "flex-end",
   },
   statLine: {
-    fontSize: 12,
+    fontSize: ms(12),
   },
   fpts: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: "600",
     marginTop: 1,
   },
   draftButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: s(12),
+    paddingVertical: s(6),
     borderRadius: 4,
   },
   draftButtonText: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: "bold",
   },
   draftButtonDisabled: {},
   draftButtonTextDisabled: {},
   queueButton: {
-    width: 22,
+    width: s(22),
     alignItems: "center",
     justifyContent: "center",
   },

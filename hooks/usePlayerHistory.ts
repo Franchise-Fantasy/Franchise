@@ -1,3 +1,4 @@
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import { useQuery } from '@tanstack/react-query';
 
@@ -14,7 +15,7 @@ export interface PlayerHistoryEvent {
 
 export function usePlayerHistory(playerId: string | undefined, leagueId: string) {
   return useQuery({
-    queryKey: ['playerHistory', leagueId, playerId],
+    queryKey: queryKeys.playerHistory(leagueId, playerId!),
     queryFn: async (): Promise<PlayerHistoryEvent[]> => {
       const events: PlayerHistoryEvent[] = [];
 

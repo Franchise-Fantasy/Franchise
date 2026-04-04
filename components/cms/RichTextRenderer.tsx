@@ -5,10 +5,11 @@
  *  hyperlinks, embedded assets, horizontal rules.
  * ────────────────────────────────────────────── */
 
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { RichTextDocument, RichTextNode } from '@/types/cms';
+import { ms, s } from '@/utils/scale';
 import React from 'react';
 import { Image, Linking, StyleSheet, Text, View } from 'react-native';
 
@@ -19,12 +20,12 @@ interface Props {
 }
 
 const HEADING_SIZES: Record<string, { fontSize: number; fontWeight: '700' | '600' }> = {
-  'heading-1': { fontSize: 24, fontWeight: '700' },
-  'heading-2': { fontSize: 22, fontWeight: '700' },
-  'heading-3': { fontSize: 20, fontWeight: '700' },
-  'heading-4': { fontSize: 18, fontWeight: '600' },
-  'heading-5': { fontSize: 16, fontWeight: '600' },
-  'heading-6': { fontSize: 14, fontWeight: '600' },
+  'heading-1': { fontSize: ms(24), fontWeight: '700' },
+  'heading-2': { fontSize: ms(22), fontWeight: '700' },
+  'heading-3': { fontSize: ms(20), fontWeight: '700' },
+  'heading-4': { fontSize: ms(18), fontWeight: '600' },
+  'heading-5': { fontSize: ms(16), fontWeight: '600' },
+  'heading-6': { fontSize: ms(14), fontWeight: '600' },
 };
 
 export function RichTextRenderer({ document, maxBlocks }: Props) {
@@ -46,7 +47,7 @@ export function RichTextRenderer({ document, maxBlocks }: Props) {
         if (m.type === 'code') {
           style.fontFamily = 'monospace';
           style.backgroundColor = c.cardAlt;
-          style.paddingHorizontal = 3;
+          style.paddingHorizontal = s(3);
           style.borderRadius = 3;
         }
       }
@@ -165,41 +166,41 @@ export function RichTextRenderer({ document, maxBlocks }: Props) {
 
 const styles = StyleSheet.create({
   paragraph: {
-    fontSize: 14,
-    lineHeight: 21,
-    marginBottom: 8,
+    fontSize: ms(14),
+    lineHeight: ms(21),
+    marginBottom: s(8),
   },
   heading: {
-    marginTop: 12,
-    marginBottom: 6,
+    marginTop: s(12),
+    marginBottom: s(6),
   },
   embeddedImage: {
     width: '100%',
     borderRadius: 8,
-    marginVertical: 8,
+    marginVertical: s(8),
   },
   hr: {
     borderBottomWidth: StyleSheet.hairlineWidth,
-    marginVertical: 12,
+    marginVertical: s(12),
   },
   blockquote: {
     borderLeftWidth: 3,
-    paddingLeft: 12,
-    marginVertical: 8,
+    paddingLeft: s(12),
+    marginVertical: s(8),
     opacity: 0.85,
   },
   list: {
-    marginBottom: 8,
-    paddingLeft: 4,
+    marginBottom: s(8),
+    paddingLeft: s(4),
   },
   listItem: {
     flexDirection: 'row',
-    marginBottom: 4,
+    marginBottom: s(4),
   },
   bullet: {
-    width: 20,
-    fontSize: 14,
-    lineHeight: 21,
+    width: s(20),
+    fontSize: ms(14),
+    lineHeight: ms(21),
   },
   listItemContent: {
     flex: 1,

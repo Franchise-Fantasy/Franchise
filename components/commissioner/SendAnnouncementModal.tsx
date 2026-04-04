@@ -1,8 +1,9 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { sendNotification } from '@/lib/notifications';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -134,8 +135,8 @@ const styles = StyleSheet.create({
   content: {
     borderTopLeftRadius: 14,
     borderTopRightRadius: 14,
-    padding: 20,
-    paddingBottom: 32,
+    padding: s(20),
+    paddingBottom: s(32),
     minHeight: '40%',
     maxHeight: '80%',
   },
@@ -143,29 +144,29 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: s(12),
   },
-  hint: { fontSize: 13, marginBottom: 12 },
+  hint: { fontSize: ms(13), marginBottom: s(12) },
   input: {
     borderWidth: 1,
     borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    minHeight: 120,
+    padding: s(12),
+    fontSize: ms(16),
+    minHeight: s(120),
     flex: 1,
   },
   footer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 12,
+    marginTop: s(12),
   },
-  counter: { fontSize: 12 },
+  counter: { fontSize: ms(12) },
   sendBtn: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingHorizontal: s(20),
+    paddingVertical: s(10),
     borderRadius: 8,
     alignItems: 'center',
-    minWidth: 80,
+    minWidth: s(80),
   },
 });

@@ -1,6 +1,7 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { ms, s } from '@/utils/scale';
 import { StyleSheet, View } from 'react-native';
 
 const AMBER = '#F59E0B';
@@ -34,21 +35,21 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: 14,
     borderLeftWidth: 3,
-    padding: 14,
-    gap: 6,
+    padding: s(14),
+    gap: s(6),
   },
   header: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '700',
     letterSpacing: 0.5,
   },
   rumorText: {
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: ms(15),
+    lineHeight: ms(22),
     fontStyle: 'italic',
   },
   attribution: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '600',
   },
 });

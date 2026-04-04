@@ -1,12 +1,14 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useWeekScores } from '@/hooks/useWeekScores';
 import { supabase } from '@/lib/supabase';
 import { formatScore } from '@/utils/fantasyPoints';
+import { ms, s } from '@/utils/scale';
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { useLeague } from '@/hooks/useLeague';
+import { queryKeys } from '@/constants/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { toDateStr, parseLocalDate } from '@/utils/dates';
@@ -127,7 +129,7 @@ async function fetchLeagueTeams(leagueId: string): Promise<Record<string, League
 
 function useWeeks(leagueId: string | null) {
   return useQuery({
-    queryKey: ['leagueSchedule', leagueId],
+    queryKey: queryKeys.leagueSchedule(leagueId!),
     queryFn: () => fetchWeeks(leagueId!),
     enabled: !!leagueId,
     staleTime: 1000 * 60 * 10,
@@ -142,7 +144,7 @@ function useScoreboardData(
 ) {
   // Matchups for the selected week
   const matchupsQuery = useQuery({
-    queryKey: ['scoreboardMatchups', week?.id],
+    queryKey: queryKeys.scoreboardMatchups(week?.id ?? ''),
     queryFn: () => fetchMatchups(week!.id),
     enabled: !!week,
     staleTime: 1000 * 60 * 5,
@@ -151,7 +153,7 @@ function useScoreboardData(
 
   // All teams in the league
   const teamsQuery = useQuery({
-    queryKey: ['leagueTeamsRecord', leagueId],
+    queryKey: queryKeys.leagueTeamsRecord(leagueId!),
     queryFn: () => fetchLeagueTeams(leagueId!),
     enabled: !!leagueId,
     staleTime: 1000 * 60 * 10,
@@ -164,7 +166,7 @@ function useScoreboardData(
 
   // Playoff seeds for the current round
   const seedsQuery = useQuery({
-    queryKey: ['playoffSeeds', leagueId, season, playoffRound],
+    queryKey: queryKeys.playoffSeeds(leagueId!, season, playoffRound!),
     queryFn: () => fetchPlayoffSeeds(leagueId!, season, playoffRound!),
     enabled: !!leagueId && !!season && playoffRound !== null,
     staleTime: 1000 * 60 * 5,
@@ -253,15 +255,17 @@ export default function ScoreboardScreen() {
 
   // Get formatted score display string
   const getScoreDisplay = (m: ScoreboardMatchup, teamIdToCheck: string): string => {
-    if (isCategories && weekState === 'past' && m.home_category_wins != null) {
-      // Show category record for the matchup
-      const catTies = m.category_ties ?? 0;
-      const homeW = m.home_category_wins ?? 0;
-      const awayW = m.away_category_wins ?? 0;
-      const isHome = teamIdToCheck === m.home_team_id;
-      const myW = isHome ? homeW : awayW;
-      const oppW = isHome ? awayW : homeW;
-      return catTies > 0 ? `${myW}-${oppW}-${catTies}` : `${myW}-${oppW}`;
+    if (isCategories) {
+      if (m.home_category_wins != null) {
+        const catTies = m.category_ties ?? 0;
+        const homeW = m.home_category_wins ?? 0;
+        const awayW = m.away_category_wins ?? 0;
+        const isHome = teamIdToCheck === m.home_team_id;
+        const myW = isHome ? homeW : awayW;
+        const oppW = isHome ? awayW : homeW;
+        return catTies > 0 ? `${myW}-${oppW}-${catTies}` : `${myW}-${oppW}`;
+      }
+      return '—';
     }
     return formatScore(getScore(m, teamIdToCheck));
   };
@@ -382,10 +386,19 @@ export default function ScoreboardScreen() {
             const awayScore = matchup.away_team_id
               ? getScore(matchup, matchup.away_team_id)
               : 0;
+            // For category leagues, use category wins to determine who's leading
             const homeWinning =
-              weekState !== 'future' && !isBye && homeScore > awayScore;
+              weekState !== 'future' && !isBye && (
+                isCategories
+                  ? (matchup.home_category_wins ?? 0) > (matchup.away_category_wins ?? 0)
+                  : homeScore > awayScore
+              );
             const awayWinning =
-              weekState !== 'future' && !isBye && awayScore > homeScore;
+              weekState !== 'future' && !isBye && (
+                isCategories
+                  ? (matchup.away_category_wins ?? 0) > (matchup.home_category_wins ?? 0)
+                  : awayScore > homeScore
+              );
 
             return (
               <TouchableOpacity
@@ -528,115 +541,115 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 8,
-    paddingVertical: 10,
+    paddingHorizontal: s(8),
+    paddingVertical: s(10),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   arrowBtn: {
-    width: 44,
+    width: s(44),
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 4,
+    paddingVertical: s(4),
   },
   arrow: {
-    fontSize: 28,
+    fontSize: ms(28),
     fontWeight: '300',
   },
   weekInfo: {
     alignItems: 'center',
   },
   weekLabel: {
-    fontSize: 15,
+    fontSize: ms(15),
   },
   weekRange: {
-    fontSize: 11,
-    marginTop: 2,
+    fontSize: ms(11),
+    marginTop: s(2),
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 40,
+    paddingHorizontal: s(16),
+    paddingTop: s(12),
+    paddingBottom: s(40),
   },
   loader: {
-    marginTop: 40,
+    marginTop: s(40),
   },
   emptyState: {
     alignItems: 'center',
-    paddingTop: 40,
+    paddingTop: s(40),
   },
   matchupCard: {
     borderWidth: 1,
     borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 10,
+    paddingHorizontal: s(14),
+    paddingVertical: s(12),
+    marginBottom: s(10),
   },
   myMatchupCard: {
     borderWidth: 1.5,
-    marginBottom: 14,
-    paddingVertical: 14,
+    marginBottom: s(14),
+    paddingVertical: s(14),
   },
   statusRow: {
-    marginBottom: 8,
+    marginBottom: s(8),
   },
   inProgressBadge: {
     alignSelf: 'flex-start',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingHorizontal: s(6),
+    paddingVertical: s(2),
     borderRadius: 4,
   },
   inProgressText: {
-    fontSize: 9,
+    fontSize: ms(9),
     fontWeight: '800',
     letterSpacing: 0.5,
   },
   upcomingText: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: '600',
   },
   teamRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 6,
+    paddingVertical: s(6),
   },
   teamInfo: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginRight: 12,
+    gap: s(8),
+    marginRight: s(12),
   },
   teamName: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '600',
     flexShrink: 1,
   },
   record: {
-    fontSize: 12,
+    fontSize: ms(12),
   },
   score: {
-    fontSize: 18,
+    fontSize: ms(18),
     fontWeight: '700',
   },
   divider: {
     height: StyleSheet.hairlineWidth,
   },
   seedBadge: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: '700',
   },
   bracketBtn: {
     alignSelf: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
+    paddingVertical: s(10),
+    paddingHorizontal: s(20),
     borderRadius: 8,
-    marginTop: 12,
+    marginTop: s(12),
   },
   bracketBtnText: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '600',
   },
 });

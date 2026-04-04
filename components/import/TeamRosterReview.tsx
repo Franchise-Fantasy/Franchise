@@ -1,6 +1,7 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { ms, s } from '@/utils/scale';
 import type { ScreenshotPlayerMatch, ScreenshotUnmatched } from '@/hooks/useImportScreenshot';
 import { useSearchOrCreatePlayer } from '@/hooks/useImportScreenshot';
 import { supabase } from '@/lib/supabase';
@@ -360,142 +361,142 @@ function UnmatchedRow({
 
 const styles = StyleSheet.create({
   container: {
-    gap: 16,
+    gap: s(16),
   },
   teamHeader: {
-    fontSize: 16,
+    fontSize: ms(16),
   },
   sectionTitle: {
-    fontSize: 15,
-    marginBottom: 4,
+    fontSize: ms(15),
+    marginBottom: s(4),
   },
   sectionDesc: {
-    fontSize: 13,
-    marginBottom: 10,
+    fontSize: ms(13),
+    marginBottom: s(10),
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    gap: 8,
+    paddingVertical: s(8),
+    gap: s(8),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   rowText: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: s(6),
   },
   playerName: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '500',
     flexShrink: 1,
   },
   matchedTo: {
-    fontSize: 13,
+    fontSize: ms(13),
     flexShrink: 1,
   },
   slotBadge: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: '600',
     textTransform: 'uppercase',
   },
   unmatchedCard: {
     borderRadius: 10,
     borderWidth: 1,
-    padding: 12,
-    marginBottom: 8,
+    padding: s(12),
+    marginBottom: s(8),
   },
   unmatchedHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: s(8),
   },
   unmatchedActions: {
     flexDirection: 'row',
-    gap: 8,
-    marginTop: 10,
+    gap: s(8),
+    marginTop: s(10),
   },
   actionBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+    paddingVertical: s(8),
+    paddingHorizontal: s(16),
     borderRadius: 6,
   },
   actionBtnText: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '600',
   },
   searchArea: {
-    marginTop: 10,
+    marginTop: s(10),
   },
   searchInput: {
     borderWidth: 1,
     borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
+    paddingHorizontal: s(12),
+    paddingVertical: s(10),
+    fontSize: ms(14),
   },
   searchLoading: {
-    marginTop: 8,
+    marginTop: s(8),
   },
   searchResult: {
-    paddingVertical: 10,
-    paddingHorizontal: 4,
+    paddingVertical: s(10),
+    paddingHorizontal: s(4),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   resultName: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '500',
   },
   resultTeam: {
-    fontSize: 12,
-    marginTop: 2,
+    fontSize: ms(12),
+    marginTop: s(2),
   },
   cancelSearch: {
-    paddingVertical: 10,
+    paddingVertical: s(10),
     alignItems: 'center',
   },
   cancelText: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '500',
   },
   positionRow: {
     flexDirection: 'row',
-    gap: 6,
-    marginTop: 10,
+    gap: s(6),
+    marginTop: s(10),
   },
   positionChip: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingVertical: s(6),
+    paddingHorizontal: s(12),
     borderRadius: 6,
     borderWidth: 1,
   },
   positionChipText: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: '600',
   },
   addActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    marginTop: 12,
+    gap: s(12),
+    marginTop: s(12),
   },
   addPlayerBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    gap: s(6),
+    paddingVertical: s(10),
+    paddingHorizontal: s(12),
     borderWidth: 1,
     borderRadius: 8,
-    marginTop: 8,
+    marginTop: s(8),
   },
   addPlayerBtnText: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '500',
   },
   errorText: {
-    fontSize: 13,
-    marginTop: 8,
+    fontSize: ms(13),
+    marginTop: s(8),
   },
 });

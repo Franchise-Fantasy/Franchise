@@ -1,5 +1,6 @@
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { ms, s } from '@/utils/scale';
 import { ScoringWeight } from '@/types/player';
 import { getFantasyPointsBreakdown, formatScore } from '@/utils/fantasyPoints';
 import {
@@ -65,7 +66,7 @@ export function FptsBreakdownModal({
               accessibilityRole="button"
               accessibilityLabel="Close"
             >
-              <Text style={{ color: c.secondaryText, fontSize: 16 }}>✕</Text>
+              <Text style={{ color: c.secondaryText, fontSize: ms(16) }}>✕</Text>
             </TouchableOpacity>
           </View>
 
@@ -114,70 +115,70 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: s(20),
   },
   modalCard: {
     borderWidth: 1,
     borderRadius: 16,
     width: '100%',
-    maxWidth: 360,
+    maxWidth: s(360),
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    paddingBottom: 12,
+    padding: s(16),
+    paddingBottom: s(12),
   },
   modalTitle: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: '700',
   },
   gameLabel: {
-    fontSize: 13,
-    marginTop: 2,
+    fontSize: ms(13),
+    marginTop: s(2),
   },
   scrollArea: {},
   row: {
     flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: s(16),
+    paddingVertical: s(10),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   headerRow: {
-    paddingVertical: 6,
+    paddingVertical: s(6),
   },
   colHeaderText: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: '600',
     textTransform: 'uppercase',
   },
   totalRow: {
     borderBottomWidth: 0,
-    paddingTop: 14,
-    paddingBottom: 16,
+    paddingTop: s(14),
+    paddingBottom: s(16),
   },
   totalText: {
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: '700',
   },
   colStat: {
     flex: 2,
-    fontSize: 14,
+    fontSize: ms(14),
   },
   colValue: {
     flex: 1.5,
-    fontSize: 14,
+    fontSize: ms(14),
     textAlign: 'center',
   },
   colWeight: {
     flex: 1.5,
-    fontSize: 14,
+    fontSize: ms(14),
     textAlign: 'center',
   },
   colPoints: {
     flex: 1.5,
-    fontSize: 14,
+    fontSize: ms(14),
     textAlign: 'right',
   },
 });

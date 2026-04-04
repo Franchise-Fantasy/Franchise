@@ -1,8 +1,9 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { PollCardProps } from '@/types/cms';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ms, s } from '@/utils/scale';
 
 export function PollCard({ question, options, expiryDate, onVote }: PollCardProps) {
   const scheme = useColorScheme() ?? 'light';
@@ -60,22 +61,22 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: 10,
     borderWidth: 1,
-    padding: 14,
+    padding: s(14),
   },
   question: {
-    fontSize: 15,
-    marginBottom: 10,
+    fontSize: ms(15),
+    marginBottom: s(10),
   },
   optionBar: {
     borderRadius: 8,
-    padding: 12,
-    marginTop: 8,
+    padding: s(12),
+    marginTop: s(8),
   },
   optionText: {
-    fontSize: 14,
+    fontSize: ms(14),
   },
   expiry: {
-    fontSize: 11,
-    marginTop: 10,
+    fontSize: ms(11),
+    marginTop: s(10),
   },
 });

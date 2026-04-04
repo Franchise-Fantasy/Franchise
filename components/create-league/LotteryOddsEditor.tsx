@@ -1,9 +1,10 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { generateDefaultOdds, normalizeOdds } from '@/utils/lottery';
 import { useState } from 'react';
 import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ms, s } from '@/utils/scale';
 
 interface LotteryOddsEditorProps {
   odds: number[];
@@ -135,57 +136,57 @@ const styles = StyleSheet.create({
   container: {
     borderWidth: 1,
     borderRadius: 10,
-    padding: 12,
+    padding: s(12),
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: s(8),
   },
   title: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '600',
   },
   resetBtn: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '600',
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 8,
+    paddingVertical: s(8),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   posLabel: {
-    fontSize: 14,
+    fontSize: ms(14),
     flex: 1,
   },
   controls: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: s(8),
   },
   btn: {
-    width: 28,
-    height: 28,
+    width: s(28),
+    height: s(28),
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
   btnText: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: '600',
   },
   valueText: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '600',
     textAlign: 'center',
   },
   valueBox: {
-    width: 60,
-    height: 28,
+    width: s(60),
+    height: s(28),
     borderWidth: 1,
     borderRadius: 6,
     alignItems: 'center',
@@ -195,10 +196,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: s(8),
   },
   totalLabel: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: '500',
   },
 });

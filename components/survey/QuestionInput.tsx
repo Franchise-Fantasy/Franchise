@@ -1,7 +1,8 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { SurveyAnswerValue, SurveyQuestion } from '@/types/survey';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 import { RankedChoiceInput } from './RankedChoiceInput';
@@ -200,54 +201,54 @@ function RatingInput({
 
 const styles = StyleSheet.create({
   // MC
-  mcContainer: { gap: 6 },
+  mcContainer: { gap: s(6) },
   mcOption: {
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: 10,
     borderWidth: 1,
-    padding: 12,
-    gap: 10,
+    padding: s(12),
+    gap: s(10),
   },
   radio: {
-    width: 20,
-    height: 20,
+    width: s(20),
+    height: s(20),
     borderRadius: 10,
     borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
   checkbox: {
-    width: 20,
-    height: 20,
+    width: s(20),
+    height: s(20),
     borderRadius: 4,
     borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  mcText: { fontSize: 15, flex: 1 },
+  mcText: { fontSize: ms(15), flex: 1 },
   // Free text
   textArea: {
     borderWidth: 1,
     borderRadius: 10,
-    padding: 12,
-    fontSize: 15,
-    minHeight: 100,
+    padding: s(12),
+    fontSize: ms(15),
+    minHeight: s(100),
   },
-  counter: { fontSize: 11, textAlign: 'right', marginTop: 2 },
+  counter: { fontSize: ms(11), textAlign: 'right', marginTop: s(2) },
   // Rating
   ratingRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    gap: 8,
+    gap: s(8),
   },
   ratingBtn: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: s(12),
     borderRadius: 10,
     borderWidth: 1,
-    gap: 4,
+    gap: s(4),
   },
-  ratingLabel: { fontSize: 13, fontWeight: '600' },
+  ratingLabel: { fontSize: ms(13), fontWeight: '600' },
 });

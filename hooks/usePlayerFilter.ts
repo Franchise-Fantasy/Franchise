@@ -6,6 +6,12 @@ import { useMemo, useState } from 'react';
 export type SortKey = 'FPTS' | 'PPG' | 'RPG' | 'APG' | 'SPG' | 'BPG' | 'MPG';
 export type TimeRange = 'season' | '7d' | '14d' | '30d' | 'lastSeason';
 
+/** Injury-status visibility filter */
+export type InjuryFilter = 'all' | 'healthy' | 'injured';
+
+/** Statuses considered "out / unlikely to play" */
+const OUT_STATUSES = new Set(['OUT', 'SUSP', 'DOUBT', 'QUES']);
+
 const SORT_FIELD: Record<Exclude<SortKey, 'FPTS'>, keyof PlayerSeasonStats> = {
   PPG: 'avg_pts',
   RPG: 'avg_reb',
@@ -44,6 +50,7 @@ export function usePlayerFilter(
   const [showAvailableToday, setShowAvailableToday] = useState(false);
   const [showWatchlistOnly, setShowWatchlistOnly] = useState(false);
   const [showFreeAgentsOnly, setShowFreeAgentsOnly] = useState(true);
+  const [injuryFilter, setInjuryFilter] = useState<InjuryFilter>('all');
 
   const filteredPlayers = useMemo(() => {
     if (!players) return [];
@@ -92,18 +99,30 @@ export function usePlayerFilter(
       result = result.filter(p => watchlistedIds.has(p.player_id));
     }
 
-    // Sort
-    result = [...result].sort((a, b) => {
-      if (sortBy === 'FPTS') {
-        if (!scoringWeights) return 0;
-        return calculateAvgFantasyPoints(b, scoringWeights) - calculateAvgFantasyPoints(a, scoringWeights);
+    // Injury status filter
+    if (injuryFilter === 'healthy') {
+      result = result.filter(p => !OUT_STATUSES.has(p.status));
+    } else if (injuryFilter === 'injured') {
+      result = result.filter(p => OUT_STATUSES.has(p.status));
+    }
+
+    // Sort — pre-compute FPTS once (N calculations) instead of inside
+    // the comparator (N×log(N) calculations)
+    if (sortBy === 'FPTS' && scoringWeights) {
+      const fptsMap = new Map<string, number>();
+      for (const p of result) {
+        fptsMap.set(p.player_id, calculateAvgFantasyPoints(p, scoringWeights));
       }
+      result = [...result].sort((a, b) =>
+        (fptsMap.get(b.player_id) ?? 0) - (fptsMap.get(a.player_id) ?? 0),
+      );
+    } else if (sortBy !== 'FPTS') {
       const field = SORT_FIELD[sortBy];
-      return (b[field] as number) - (a[field] as number);
-    });
+      result = [...result].sort((a, b) => (b[field] as number) - (a[field] as number));
+    }
 
     return result;
-  }, [players, searchText, selectedPosition, sortBy, scoringWeights, showMinutesUp, minutesUpPlayerIds, showAvailableToday, todaySchedule, showWatchlistOnly, watchlistedIds, showFreeAgentsOnly, rosteredPlayerIds]);
+  }, [players, searchText, selectedPosition, sortBy, scoringWeights, showMinutesUp, minutesUpPlayerIds, showAvailableToday, todaySchedule, showWatchlistOnly, watchlistedIds, showFreeAgentsOnly, rosteredPlayerIds, injuryFilter]);
 
   const filterBarProps = {
     searchText,
@@ -123,6 +142,8 @@ export function usePlayerFilter(
     hasWatchlistData: !!watchlistedIds && watchlistedIds.size > 0,
     showFreeAgentsOnly,
     onFreeAgentsOnlyChange: setShowFreeAgentsOnly,
+    injuryFilter,
+    onInjuryFilterChange: setInjuryFilter,
     hasRosteredData: rosteredPlayerIds !== undefined,
   };
 

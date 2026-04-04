@@ -11,6 +11,11 @@ export interface PlayoffBracketSlot {
   team_b_seed: number | null;
   winner_id: string | null;
   is_bye: boolean;
+  is_third_place: boolean;
+  /** Populated client-side from league_matchups join */
+  team_a_score?: number | null;
+  /** Populated client-side from league_matchups join */
+  team_b_score?: number | null;
 }
 
 export interface PlayoffSeedPick {

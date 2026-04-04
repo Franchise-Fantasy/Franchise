@@ -23,6 +23,7 @@ export interface PushPreferences {
   lottery: boolean;
   chat: boolean;
   roster_moves: boolean;
+  player_news: boolean;
 }
 
 export const DEFAULT_PREFERENCES: PushPreferences = {
@@ -41,6 +42,7 @@ export const DEFAULT_PREFERENCES: PushPreferences = {
   lottery: false,
   chat: false,
   roster_moves: false,
+  player_news: true,
 };
 
 export async function hasBeenAsked(): Promise<boolean> {
@@ -83,6 +85,7 @@ export async function registerPushToken(userId: string): Promise<boolean> {
         { id: 'lottery',      name: 'Lottery',              importance: Notifications.AndroidImportance.DEFAULT },
         { id: 'chat',         name: 'Chat Messages',        importance: Notifications.AndroidImportance.DEFAULT },
         { id: 'roster_moves', name: 'League Roster Moves',  importance: Notifications.AndroidImportance.LOW },
+        { id: 'player_news', name: 'Player News',           importance: Notifications.AndroidImportance.DEFAULT },
       ];
       for (const ch of channels) {
         await Notifications.setNotificationChannelAsync(ch.id, {

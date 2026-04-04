@@ -1,7 +1,9 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
+import { ms, s } from '@/utils/scale';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, TouchableOpacity, View } from 'react-native';
@@ -19,7 +21,7 @@ export function SeasonSection({ leagueId, isCommissioner }: SeasonSectionProps) 
 
   // Check whether schedule has been generated and whether draft is complete
   const { data: status, isLoading } = useQuery({
-    queryKey: ['seasonStatus', leagueId],
+    queryKey: queryKeys.seasonStatus(leagueId),
     queryFn: async () => {
       const [leagueRes, draftRes] = await Promise.all([
         supabase.from('leagues').select('schedule_generated').eq('id', leagueId).single(),
@@ -47,8 +49,8 @@ export function SeasonSection({ leagueId, isCommissioner }: SeasonSectionProps) 
         return;
       }
 
-      queryClient.invalidateQueries({ queryKey: ['seasonStatus', leagueId] });
-      queryClient.invalidateQueries({ queryKey: ['league', leagueId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.seasonStatus(leagueId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId) });
       Alert.alert('Season Started', `Schedule generated: ${res.data.total_weeks} weeks.`);
     } catch (err: any) {
       Alert.alert('Error', err.message ?? 'Unexpected error.');
@@ -96,24 +98,24 @@ export function SeasonSection({ leagueId, isCommissioner }: SeasonSectionProps) 
 
 const styles = StyleSheet.create({
   section: {
-    marginBottom: 16,
-    padding: 16,
+    marginBottom: s(16),
+    padding: s(16),
     borderRadius: 8,
-    gap: 10,
+    gap: s(10),
   },
   title: {
-    fontSize: 16,
+    fontSize: ms(16),
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: ms(14),
   },
   btn: {
-    paddingVertical: 12,
+    paddingVertical: s(12),
     borderRadius: 8,
     alignItems: 'center',
   },
   btnText: {
     fontWeight: '600',
-    fontSize: 15,
+    fontSize: ms(15),
   },
 });

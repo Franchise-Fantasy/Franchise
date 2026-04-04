@@ -1,5 +1,6 @@
-import { ThemedText } from "@/components/ThemedText";
-import { ThemedView } from "@/components/ThemedView";
+import { ThemedText } from "@/components/ui/ThemedText";
+import { ms, s } from "@/utils/scale";
+import { ThemedView } from "@/components/ui/ThemedView";
 import { Colors } from "@/constants/Colors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { Ionicons } from "@expo/vector-icons";
@@ -191,8 +192,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 12,
   },
-  tabText: { fontSize: 14, fontWeight: "600" },
+  tabText: { fontSize: ms(14), fontWeight: "600" },
   scroll: { flex: 1 },
   scrollContent: { padding: 20, paddingBottom: 60 },
-  body: { fontSize: 14, lineHeight: 22 },
+  body: { fontSize: ms(14), lineHeight: 22 },
 });

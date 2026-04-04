@@ -1,7 +1,8 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { GIPHY_API_KEY } from '@/constants/ApiKeys';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -209,38 +210,38 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     borderTopWidth: StyleSheet.hairlineWidth,
-    paddingBottom: 8,
+    paddingBottom: s(8),
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 8,
+    paddingHorizontal: s(16),
+    paddingTop: s(12),
+    paddingBottom: s(8),
   },
   title: {
-    fontSize: 17,
+    fontSize: ms(17),
   },
   searchInput: {
-    marginHorizontal: 12,
+    marginHorizontal: s(12),
     borderRadius: 10,
     borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 15,
-    marginBottom: 8,
+    paddingHorizontal: s(12),
+    paddingVertical: s(8),
+    fontSize: ms(15),
+    marginBottom: s(8),
   },
   loader: {
     flex: 1,
     justifyContent: 'center',
   },
   grid: {
-    paddingHorizontal: 12,
+    paddingHorizontal: s(12),
   },
   columnWrapper: {
-    gap: 4,
-    marginBottom: 4,
+    gap: s(4),
+    marginBottom: s(4),
   },
   gifThumb: {
     width: ITEM_SIZE,
@@ -249,7 +250,7 @@ const styles = StyleSheet.create({
   },
   attribution: {
     textAlign: 'center',
-    fontSize: 11,
-    paddingVertical: 4,
+    fontSize: ms(11),
+    paddingVertical: s(4),
   },
 });

@@ -50,7 +50,7 @@ Deno.serve(async (req) => {
     // Verify playoffs are complete: a non-bye championship entry must have a winner
     const { data: bracketCheck } = await supabaseAdmin
       .from('playoff_bracket')
-      .select('round, winner_id, is_bye')
+      .select('round, winner_id, is_bye, is_third_place')
       .eq('league_id', league_id)
       .eq('season', league.season)
       .order('round', { ascending: false });
@@ -60,7 +60,7 @@ Deno.serve(async (req) => {
     }
     const maxRound = bracketCheck[0].round;
     const finalRoundEntries = bracketCheck.filter(e => e.round === maxRound);
-    const championshipEntry = finalRoundEntries.find(e => !e.is_bye);
+    const championshipEntry = finalRoundEntries.find(e => !e.is_bye && !e.is_third_place);
     if (!championshipEntry) {
       throw new Error('Cannot advance season: no championship matchup found in the final round.');
     }
@@ -83,7 +83,7 @@ Deno.serve(async (req) => {
     // ── 2. Determine playoff results from bracket ──
     const { data: bracket } = await supabaseAdmin
       .from('playoff_bracket')
-      .select('round, team_a_id, team_b_id, winner_id, is_bye')
+      .select('round, team_a_id, team_b_id, winner_id, is_bye, is_third_place')
       .eq('league_id', league_id)
       .eq('season', currentSeason)
       .order('round', { ascending: true });
@@ -92,28 +92,44 @@ Deno.serve(async (req) => {
     const eliminatedInRound = new Map<string, number>();
     let championId: string | null = null;
     let runnerUpId: string | null = null;
+    let thirdPlaceId: string | null = null;
     let maxRound = 0;
 
     if (bracket && bracket.length > 0) {
       for (const slot of bracket) {
+        // Don't count 3rd place game participants in the main bracket tracking
+        if (slot.is_third_place) continue;
         if (slot.team_a_id) playoffTeamIds.add(slot.team_a_id);
         if (slot.team_b_id) playoffTeamIds.add(slot.team_b_id);
         if (slot.round > maxRound) maxRound = slot.round;
       }
+      // Still track 3rd place participants as playoff teams
+      for (const slot of bracket) {
+        if (!slot.is_third_place) continue;
+        if (slot.team_a_id) playoffTeamIds.add(slot.team_a_id);
+        if (slot.team_b_id) playoffTeamIds.add(slot.team_b_id);
+      }
 
       for (const slot of bracket) {
-        if (slot.is_bye || !slot.winner_id) continue;
+        if (slot.is_bye || !slot.winner_id || slot.is_third_place) continue;
         const loserId = slot.team_a_id === slot.winner_id ? slot.team_b_id : slot.team_a_id;
         if (loserId && !eliminatedInRound.has(loserId)) {
           eliminatedInRound.set(loserId, slot.round);
         }
       }
 
-      const finalSlots = bracket.filter(s => s.round === maxRound && s.winner_id);
+      // Championship: non-3rd-place entry in final round
+      const finalSlots = bracket.filter(s => s.round === maxRound && s.winner_id && !s.is_third_place);
       if (finalSlots.length > 0) {
         championId = finalSlots[0].winner_id;
         const finalSlot = finalSlots[0];
         runnerUpId = finalSlot.team_a_id === championId ? finalSlot.team_b_id : finalSlot.team_a_id;
+      }
+
+      // 3rd place winner
+      const thirdPlaceSlot = bracket.find(s => s.is_third_place && s.winner_id);
+      if (thirdPlaceSlot) {
+        thirdPlaceId = thirdPlaceSlot.winner_id;
       }
     }
 
@@ -122,6 +138,7 @@ Deno.serve(async (req) => {
       let playoffResult = 'missed_playoffs';
       if (t.id === championId) playoffResult = 'champion';
       else if (t.id === runnerUpId) playoffResult = 'runner_up';
+      else if (t.id === thirdPlaceId) playoffResult = 'third_place';
       else if (playoffTeamIds.has(t.id)) {
         const elimRound = eliminatedInRound.get(t.id);
         if (elimRound != null) playoffResult = `eliminated_round_${elimRound}`;

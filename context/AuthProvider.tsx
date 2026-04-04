@@ -2,6 +2,8 @@ import { Session } from '@supabase/supabase-js'
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import { Alert } from 'react-native'
 import { hasBeenAsked, markAsAsked, registerPushToken, refreshPushToken } from '../lib/notifications'
+// RevenueCat init is lazy — triggered when UpgradeModal opens, not on startup
+// import { initPurchases, logoutPurchases } from '../lib/purchases'
 import { supabase } from '../lib/supabase'
 
 const AuthContext = createContext<Session | null>(null)
@@ -55,7 +57,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Listen for changes
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession);
-      if (newSession?.user) promptNotificationsIfNeeded(newSession.user.id);
+      if (newSession?.user) {
+        promptNotificationsIfNeeded(newSession.user.id);
+      }
     });
 
     return () => {

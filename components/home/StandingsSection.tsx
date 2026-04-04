@@ -1,11 +1,13 @@
 import { supabase } from '@/lib/supabase';
 import { Colors } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useAppState } from '@/context/AppStateProvider';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { ActivityIndicator, StyleSheet, TouchableOpacity, View } from 'react-native';
-import { ThemedText } from '../ThemedText';
+import { ms, s } from '@/utils/scale';
+import { ThemedText } from '../ui/ThemedText';
 import { TeamLogo } from '../team/TeamLogo';
 
 interface TeamStanding {
@@ -192,7 +194,7 @@ export function StandingsSection({ leagueId, playoffTeams, scoringType, tiebreak
   const hasDivisions = divisionCount === 2;
 
   const { data: rawTeams, isLoading } = useQuery({
-    queryKey: ['standings', leagueId],
+    queryKey: queryKeys.standings(leagueId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('teams')
@@ -209,7 +211,7 @@ export function StandingsSection({ leagueId, playoffTeams, scoringType, tiebreak
 
   // Fetch finalized regular-season matchups for H2H tiebreaker
   const { data: matchups } = useQuery({
-    queryKey: ['standings-h2h', leagueId],
+    queryKey: queryKeys.standingsH2h(leagueId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('league_matchups')
@@ -226,7 +228,7 @@ export function StandingsSection({ leagueId, playoffTeams, scoringType, tiebreak
 
   // Fetch remaining regular-season matchups per team for clinch/elimination
   const { data: remainingGames } = useQuery({
-    queryKey: ['remaining-games', leagueId],
+    queryKey: queryKeys.remainingGames(leagueId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('league_matchups')
@@ -261,7 +263,7 @@ export function StandingsSection({ leagueId, playoffTeams, scoringType, tiebreak
   const renderHeader = () => (
     <View style={styles.headerRow}>
       <ThemedText style={[styles.rank, styles.headerText, { color: c.secondaryText }]}>#</ThemedText>
-      <View style={{ width: 28 }} />
+      <View style={{ width: s(28) }} />
       <ThemedText style={[styles.teamNameCol, styles.headerText, { color: c.secondaryText }]}>Team</ThemedText>
       <ThemedText style={[styles.record, styles.headerText, { color: c.secondaryText }]}>W-L-T</ThemedText>
       <ThemedText style={[styles.pf, styles.headerText, { color: c.secondaryText }]}>{scoringType === 'h2h_categories' ? 'CW' : 'PF'}</ThemedText>
@@ -343,7 +345,7 @@ export function StandingsSection({ leagueId, playoffTeams, scoringType, tiebreak
             {renderHeader()}
             {allStandings.map((team, idx) => (
               <View key={team.id}>
-                {playoffTeams && team.rank === playoffTeams + 1 && (
+                {!!playoffTeams && team.rank === playoffTeams + 1 && (
                   <View style={styles.playoffCutoff}>
                     <View style={[styles.cutoffLine, { backgroundColor: c.secondaryText }]} />
                     <ThemedText style={[styles.cutoffLabel, { color: c.secondaryText }]}>
@@ -366,53 +368,53 @@ const styles = StyleSheet.create({
   section: {
     borderWidth: 1,
     borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 2,
-    marginBottom: 16,
+    paddingHorizontal: s(16),
+    paddingTop: s(14),
+    paddingBottom: s(2),
+    marginBottom: s(16),
   },
   sectionTitle: {
-    marginBottom: 8,
+    marginBottom: s(8),
   },
-  standings: { marginTop: 4 },
+  standings: { marginTop: s(4) },
   divisionBlock: {
-    marginBottom: 12,
+    marginBottom: s(12),
   },
   divisionHeader: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    marginBottom: 4,
-    marginTop: 4,
+    marginBottom: s(4),
+    marginTop: s(4),
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 4,
+    paddingVertical: s(4),
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: 'rgba(128,128,128,0.3)',
   },
-  headerText: { fontSize: 10, fontWeight: '600' },
+  headerText: { fontSize: ms(10), fontWeight: '600' },
   standingRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: s(8),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  rank: { width: 24, fontSize: 12 },
-  teamNameCol: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 8 },
-  teamName: { flexShrink: 1, fontSize: 13 },
-  clinchBadge: { fontSize: 10, fontWeight: '700', fontStyle: 'italic' },
-  record: { width: 48, textAlign: 'center', fontSize: 12 },
-  pf: { width: 44, textAlign: 'right', fontSize: 11 },
-  pa: { width: 44, textAlign: 'right', fontSize: 11 },
-  streakCol: { width: 30, textAlign: 'right', fontSize: 11, fontWeight: '600' },
+  rank: { width: s(24), fontSize: ms(12) },
+  teamNameCol: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: s(6), marginLeft: s(8) },
+  teamName: { flexShrink: 1, fontSize: ms(13) },
+  clinchBadge: { fontSize: ms(10), fontWeight: '700', fontStyle: 'italic' },
+  record: { width: s(48), textAlign: 'center', fontSize: ms(12) },
+  pf: { width: s(44), textAlign: 'right', fontSize: ms(11) },
+  pa: { width: s(44), textAlign: 'right', fontSize: ms(11) },
+  streakCol: { width: s(30), textAlign: 'right', fontSize: ms(11), fontWeight: '600' },
   playoffCutoff: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 6,
-    gap: 8,
+    paddingVertical: s(6),
+    gap: s(8),
   },
   cutoffLine: {
     flex: 1,
@@ -420,12 +422,12 @@ const styles = StyleSheet.create({
     opacity: 0.4,
   },
   cutoffLabel: {
-    fontSize: 9,
+    fontSize: ms(9),
     fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
-  placeholder: { padding: 20, alignItems: 'center' },
-  placeholderText: { fontSize: 14 },
-  loading: { marginTop: 16 },
+  placeholder: { padding: s(20), alignItems: 'center' },
+  placeholderText: { fontSize: ms(14) },
+  loading: { marginTop: s(16) },
 });

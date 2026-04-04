@@ -1,3 +1,4 @@
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import type { ChatMessage } from '@/types/chat';
 import {
@@ -26,7 +27,7 @@ export function usePinnedMessages(conversationId: string | null) {
           filter: `conversation_id=eq.${conversationId}`,
         },
         () => {
-          queryClient.invalidateQueries({ queryKey: ['pinnedMessages', conversationId] });
+          queryClient.invalidateQueries({ queryKey: queryKeys.pinnedMessages(conversationId!) });
         },
       )
       .subscribe();
@@ -36,7 +37,7 @@ export function usePinnedMessages(conversationId: string | null) {
   }, [conversationId, queryClient]);
 
   return useQuery<ChatMessage[]>({
-    queryKey: ['pinnedMessages', conversationId],
+    queryKey: queryKeys.pinnedMessages(conversationId!),
     queryFn: async () => {
       const { data: pins, error: pinError } = await supabase
         .from('chat_pins')
@@ -128,7 +129,7 @@ export function useTogglePin(conversationId: string | null) {
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['pinnedMessages', conversationId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.pinnedMessages(conversationId!) });
     },
   });
 }

@@ -3,7 +3,7 @@ import { RumorBubble } from "@/components/chat/RumorBubble";
 import { SurveyBubble } from "@/components/chat/SurveyBubble";
 import { TradeBubble } from "@/components/chat/TradeBubble";
 import { TeamLogo } from "@/components/team/TeamLogo";
-import { ThemedText } from "@/components/ThemedText";
+import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import type { ChatMessage, ReactionGroup } from "@/types/chat";
@@ -12,6 +12,7 @@ import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import { useEffect, useMemo } from "react";
 import { StyleSheet, TouchableOpacity, View } from "react-native";
+import { ms, s } from "@/utils/scale";
 import Animated, {
   FadeInUp,
   ZoomIn,
@@ -608,69 +609,69 @@ const styles = StyleSheet.create({
     maxWidth: "80%",
   },
   wrapperGrouped: {
-    marginTop: 2,
+    marginTop: s(2),
   },
   wrapperGroupEnd: {
-    marginTop: 8,
+    marginTop: s(8),
   },
   pinSide: {
     alignSelf: "center",
-    marginHorizontal: 4,
+    marginHorizontal: s(4),
     opacity: 0.7,
   },
   pinSideFullWidth: {
     position: "absolute",
-    top: 8,
-    right: 4,
+    top: s(8),
+    right: s(4),
     zIndex: 1,
     opacity: 0.7,
   },
   sender: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: "600",
-    marginBottom: 2,
-    marginLeft: 10,
+    marginBottom: s(2),
+    marginLeft: s(10),
   },
   bubble: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: s(14),
+    paddingVertical: s(8),
   },
   content: {
-    fontSize: 15,
-    lineHeight: 20,
+    fontSize: ms(15),
+    lineHeight: ms(20),
   },
   mediaBubble: {
     overflow: "hidden",
   },
   mediaImage: {
-    width: 220,
-    height: 220,
+    width: s(220),
+    height: s(220),
   },
   // Reaction badges sitting above the bubble
   reactionRow: {
     flexDirection: "row",
-    gap: 2,
-    marginBottom: -12,
+    gap: s(2),
+    marginBottom: s(-12),
     zIndex: 1,
   },
   reactionRowLeft: {
     alignSelf: "flex-start",
-    marginLeft: -12,
+    marginLeft: s(-12),
   },
   reactionRowRight: {
     alignSelf: "flex-end",
-    marginRight: -12,
+    marginRight: s(-12),
   },
   reactionBadge: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    minWidth: 30,
-    height: 30,
+    minWidth: s(30),
+    height: s(30),
     borderRadius: 15,
-    paddingHorizontal: 6,
+    paddingHorizontal: s(6),
     borderWidth: 1.5,
-    gap: 2,
+    gap: s(2),
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.08,
@@ -678,23 +679,23 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   reactionEmoji: {
-    fontSize: 14,
-    lineHeight: 18,
+    fontSize: ms(14),
+    lineHeight: ms(18),
   },
   reactionCount: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: "600",
-    lineHeight: 14,
+    lineHeight: ms(14),
   },
   swipeTime: {
     position: "absolute",
     right: 0,
     alignItems: "center",
     justifyContent: "center",
-    width: 60,
+    width: s(60),
   },
   swipeTimeText: {
-    fontSize: 10,
+    fontSize: ms(10),
     fontWeight: "500",
   },
 });

@@ -1,7 +1,8 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { CategoryResult } from '@/utils/categoryScoring';
+import { ms, s } from '@/utils/scale';
 import { StyleSheet, View } from 'react-native';
 
 interface CategoryScoreboardProps {
@@ -94,35 +95,35 @@ export function CategoryScoreboard({
 
 const styles = StyleSheet.create({
   container: {
-    paddingVertical: 8,
+    paddingVertical: s(8),
   },
   record: {
     textAlign: 'center',
-    fontSize: 28,
+    fontSize: ms(28),
     fontWeight: '800',
-    marginBottom: 12,
+    marginBottom: s(12),
   },
   headerRow: {
     borderBottomWidth: 1,
-    paddingBottom: 6,
-    marginBottom: 2,
+    paddingBottom: s(6),
+    marginBottom: s(2),
   },
   headerText: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: '600',
     textTransform: 'uppercase',
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: s(8),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   statCol: {
-    width: 34,
+    width: s(34),
   },
   statLabel: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: '600',
   },
   valueCol: {
@@ -130,17 +131,17 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   valueText: {
-    fontSize: 15,
+    fontSize: ms(15),
     fontVariant: ['tabular-nums'],
   },
   vsCol: {
-    width: 20,
+    width: s(20),
     textAlign: 'center',
-    fontSize: 13,
+    fontSize: ms(13),
   },
   resultCol: {
-    width: 34,
+    width: s(34),
     textAlign: 'center',
-    fontSize: 14,
+    fontSize: ms(14),
   },
 });

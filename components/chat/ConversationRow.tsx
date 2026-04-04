@@ -1,7 +1,8 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { ConversationPreview } from '@/types/chat';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, View } from 'react-native';
 import Animated, {
@@ -110,20 +111,20 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    gap: 12,
+    paddingVertical: s(12),
+    paddingHorizontal: s(16),
+    gap: s(12),
   },
   iconCircle: {
-    width: 44,
-    height: 44,
+    width: s(44),
+    height: s(44),
     borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
   content: {
     flex: 1,
-    gap: 4,
+    gap: s(4),
   },
   topRow: {
     flexDirection: 'row',
@@ -131,38 +132,38 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   name: {
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: '600',
     flex: 1,
-    marginRight: 8,
+    marginRight: s(8),
   },
   time: {
-    fontSize: 12,
+    fontSize: ms(12),
   },
   bottomRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: s(8),
   },
   preview: {
-    fontSize: 13,
+    fontSize: ms(13),
     flex: 1,
   },
   previewBold: {
     fontWeight: '600',
   },
   badge: {
-    minWidth: 20,
-    height: 20,
+    minWidth: s(20),
+    height: s(20),
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 6,
+    paddingHorizontal: s(6),
   },
   badgeText: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: '700',
-    lineHeight: 20,
+    lineHeight: ms(20),
     includeFontPadding: false,
   },
 });

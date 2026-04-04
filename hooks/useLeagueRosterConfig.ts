@@ -1,3 +1,4 @@
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import { useQuery } from '@tanstack/react-query';
 
@@ -14,7 +15,7 @@ const SLOT_ORDER: Record<string, number> = {
 
 export function useLeagueRosterConfig(leagueId: string) {
   return useQuery<RosterConfigSlot[]>({
-    queryKey: ['leagueRosterConfig', leagueId],
+    queryKey: queryKeys.leagueRosterConfig(leagueId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('league_roster_config')

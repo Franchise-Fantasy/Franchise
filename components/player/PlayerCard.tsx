@@ -1,10 +1,11 @@
-import { ThemedText } from "@/components/ThemedText";
+import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { PlayerSeasonStats } from "@/types/player";
 import { formatPosition } from "@/utils/formatting";
 import { getInjuryBadge } from "@/utils/injuryBadge";
 import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
+import { ms, s } from "@/utils/scale";
 import { ReactNode } from "react";
 import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
@@ -105,73 +106,73 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingVertical: s(10),
+    paddingHorizontal: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   position: {
-    width: 32,
-    fontSize: 12,
+    width: s(32),
+    fontSize: ms(12),
     fontWeight: "600",
   },
   headshotCircle: {
-    width: 44,
-    height: 44,
+    width: s(44),
+    height: s(44),
     borderRadius: 23,
     borderWidth: 1.5,
     overflow: "hidden",
-    marginRight: 8,
+    marginRight: s(8),
   },
   headshotImg: {
     position: "absolute" as const,
-    bottom: -2,
+    bottom: s(-2),
     left: 0,
     right: 0,
-    height: 40,
+    height: s(40),
   },
   info: {
     flex: 1,
-    marginRight: 8,
+    marginRight: s(8),
   },
   nameRow: {
     flexDirection: "row" as const,
     alignItems: "center" as const,
-    gap: 4,
+    gap: s(4),
   },
   badge: {
-    paddingHorizontal: 4,
-    paddingVertical: 1,
+    paddingHorizontal: s(4),
+    paddingVertical: s(1),
     borderRadius: 3,
   },
   badgeText: {
-    fontSize: 8,
+    fontSize: ms(8),
     fontWeight: "800" as const,
     letterSpacing: 0.5,
   },
   teamRow: {
     flexDirection: "row" as const,
     alignItems: "center" as const,
-    gap: 3,
-    marginTop: 1,
+    gap: s(3),
+    marginTop: s(1),
   },
   teamLogo: {
-    width: 12,
-    height: 12,
+    width: s(12),
+    height: s(12),
     opacity: 0.5,
   },
   team: {
-    fontSize: 11,
+    fontSize: ms(11),
   },
   stats: {
     alignItems: "flex-end",
-    marginRight: 8,
+    marginRight: s(8),
   },
   statLine: {
-    fontSize: 12,
+    fontSize: ms(12),
   },
   fpts: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: "600",
-    marginTop: 1,
+    marginTop: s(1),
   },
 });

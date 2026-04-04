@@ -1,8 +1,9 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
+import { ms, s } from '@/utils/scale';
 import { TeamLogo } from '@/components/team/TeamLogo';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
@@ -187,79 +188,79 @@ const styles = StyleSheet.create({
   sheet: {
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
-    paddingTop: 12,
-    paddingBottom: 40,
+    paddingTop: s(12),
+    paddingBottom: s(40),
     maxHeight: '85%',
   },
   handle: {
-    width: 40,
-    height: 4,
+    width: s(40),
+    height: s(4),
     borderRadius: 2,
     alignSelf: 'center',
-    marginBottom: 12,
+    marginBottom: s(12),
   },
   titleRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    paddingHorizontal: 16,
-    marginBottom: 8,
+    paddingHorizontal: s(16),
+    marginBottom: s(8),
   },
   title: {
-    fontSize: 17,
+    fontSize: ms(17),
     fontWeight: '600',
   },
   balanceRow: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginHorizontal: 16,
+    paddingHorizontal: s(16),
+    paddingVertical: s(8),
+    marginHorizontal: s(16),
     borderRadius: 8,
-    marginBottom: 8,
+    marginBottom: s(8),
     alignItems: 'center',
   },
   balanceText: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: '500',
   },
   balanceWarn: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '600',
-    marginTop: 4,
+    marginTop: s(4),
   },
   scroll: {
     flexShrink: 1,
-    paddingHorizontal: 16,
+    paddingHorizontal: s(16),
   },
   teamRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 10,
+    paddingVertical: s(10),
     borderBottomWidth: StyleSheet.hairlineWidth,
-    gap: 8,
+    gap: s(8),
   },
   teamInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: s(8),
     flex: 1,
     minWidth: 0,
   },
   teamName: {
-    fontSize: 14,
+    fontSize: ms(14),
     flexShrink: 1,
   },
   segmentWrap: {
-    width: 180,
+    width: s(180),
   },
   footer: {
     flexDirection: 'row',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    gap: s(8),
+    paddingHorizontal: s(16),
+    paddingTop: s(16),
   },
   btn: {
     flex: 1,
-    paddingVertical: 14,
+    paddingVertical: s(14),
     borderRadius: 10,
     alignItems: 'center',
   },
@@ -267,7 +268,7 @@ const styles = StyleSheet.create({
     flex: 1.5,
   },
   btnText: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '600',
   },
 });

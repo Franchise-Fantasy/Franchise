@@ -1,4 +1,5 @@
 import { Colors } from "@/constants/Colors";
+import { queryKeys } from "@/constants/queryKeys";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { useDraftTimer } from "@/hooks/useDraftTimer";
 import { supabase } from "@/lib/supabase";
@@ -7,6 +8,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, AppState, StyleSheet, View } from "react-native";
+import { ms, s } from "@/utils/scale";
 import Animated, {
   runOnJS,
   scrollTo,
@@ -19,8 +21,8 @@ import Animated, {
   withSpring,
   withTiming,
 } from "react-native-reanimated";
-import { ThemedText } from "../ThemedText";
-import { ThemedView } from "../ThemedView";
+import { ThemedText } from "../ui/ThemedText";
+import { ThemedView } from "../ui/ThemedView";
 
 export interface PresenceTeam {
   teamId: string;
@@ -65,7 +67,7 @@ export function DraftOrder({
   // NEW: Fetch the main draft state for the timer
   const { data: draftState, isLoading: isLoadingDraftState } =
     useQuery<DraftState>({
-      queryKey: ["draftState", draftId],
+      queryKey: queryKeys.draftState(draftId),
       queryFn: async () => {
         const { data, error } = await supabase
           .from("drafts")
@@ -111,7 +113,7 @@ export function DraftOrder({
           await supabase.functions.invoke("start-draft", {
             body: { draft_id: draftId },
           });
-          queryClient.invalidateQueries({ queryKey: ["draftState", draftId] });
+          queryClient.invalidateQueries({ queryKey: queryKeys.draftState(draftId) });
         }
       } else {
         const totalSeconds = Math.floor(remaining / 1000);
@@ -160,7 +162,7 @@ export function DraftOrder({
     isLoading,
     error,
   } = useQuery({
-    queryKey: ["draftOrder", draftId, draftState?.picks_per_round],
+    queryKey: queryKeys.draftOrder(draftId, draftState?.picks_per_round),
     queryFn: async () => {
       const { data, error } = await supabase
         .from("draft_picks")
@@ -213,7 +215,7 @@ export function DraftOrder({
 
   // Refetch all draft data — used on reconnect / foreground resume
   const catchUpDraft = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ["draftState", draftId] });
+    queryClient.invalidateQueries({ queryKey: queryKeys.draftState(draftId) });
     queryClient.invalidateQueries({ queryKey: ["draftOrder", draftId] });
     queryClient.invalidateQueries({ queryKey: ["draftQueue"] });
   }, [draftId, queryClient]);
@@ -240,7 +242,7 @@ export function DraftOrder({
           filter: `id=eq.${draftId}`,
         },
         (payload) => {
-          queryClient.setQueryData(["draftState", draftId], payload.new);
+          queryClient.setQueryData(queryKeys.draftState(draftId), payload.new);
         },
       )
       .on(
@@ -333,7 +335,7 @@ export function DraftOrder({
   useEffect(() => {
     if (currentPickIndex < 0) return;
     const showIndex = Math.max(0, currentPickIndex - 1);
-    const targetX = Math.max(0, showIndex * (120 + 4 * 2) - 2);
+    const targetX = Math.max(0, showIndex * (s(120) + s(4) * 2) - 2);
     // Delay scroll so the flash animation is visible before the strip moves
     scrollTarget.value = withDelay(
       800,
@@ -449,12 +451,12 @@ export function DraftOrder({
                   </ThemedText>
                 </ThemedText>
               ) : autopickPending && !pick.player_id && pick.current_team_id === teamId ? (
-                <ThemedText style={[styles.timerText, { color: colors.success, fontSize: 11 }]}>
+                <ThemedText style={[styles.timerText, { color: colors.success, fontSize: ms(11) }]}>
                   Autopick
                 </ThemedText>
               ) : isCurrentOnTheClock && pick.id !== flashingPickId ? (
                 timeUntilDraft !== null ? (
-                  <ThemedText style={[styles.timerText, { fontSize: 11 }]}>
+                  <ThemedText style={[styles.timerText, { fontSize: ms(11) }]}>
                     Starts {timeUntilDraft}
                   </ThemedText>
                 ) : (
@@ -471,19 +473,19 @@ export function DraftOrder({
 
 const styles = StyleSheet.create({
   container: {
-    maxHeight: 100,
+    maxHeight: s(100),
     borderBottomWidth: 1,
   },
   timerText: {
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: "bold",
     textAlign: "center",
   },
   pickBlock: {
-    width: 120,
-    height: 80,
-    padding: 6,
-    margin: 4,
+    width: s(120),
+    height: s(80),
+    padding: s(6),
+    margin: s(4),
     borderRadius: 6,
     borderWidth: 1,
     overflow: "hidden",
@@ -492,7 +494,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 4,
+    marginBottom: s(4),
   },
   pickContent: {
     flex: 1,
@@ -500,24 +502,24 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   pickNumber: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: "bold",
   },
   teamName: {
-    fontSize: 11,
+    fontSize: ms(11),
     textAlign: "right",
   },
   viaBadge: {
-    fontSize: 8,
+    fontSize: ms(8),
     fontWeight: "700",
     fontStyle: "italic",
   },
   playerName: {
-    fontSize: 12,
+    fontSize: ms(12),
     textAlign: "center",
   },
   playerPosition: {
-    fontSize: 10,
+    fontSize: ms(10),
   },
   currentPick: {
     borderWidth: 2,

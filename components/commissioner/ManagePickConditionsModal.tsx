@@ -1,8 +1,10 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { Colors } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { ms, s } from '@/utils/scale';
 import { supabase } from '@/lib/supabase';
 import { formatPickLabel } from '@/types/trade';
 import { Ionicons } from '@expo/vector-icons';
@@ -64,7 +66,7 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
   }
 
   const { data: leagueSettings } = useQuery({
-    queryKey: ['commishPickConditions', leagueId],
+    queryKey: queryKeys.commishPickConditions(leagueId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('leagues')
@@ -99,7 +101,7 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
 
   // Fetch all draft picks for selecting
   const { data: allPicks, isLoading: picksLoading } = useQuery({
-    queryKey: ['commishAllPicks', leagueId],
+    queryKey: queryKeys.commishAllPicks(leagueId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('draft_picks')
@@ -117,7 +119,7 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
 
   // Fetch existing swaps
   const { data: existingSwaps, isLoading: swapsLoading } = useQuery({
-    queryKey: ['commishSwaps', leagueId],
+    queryKey: queryKeys.commishSwaps(leagueId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('pick_swaps')
@@ -290,7 +292,7 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
                     }}
                   >
                     <View style={{ flex: 1 }}>
-                      <ThemedText style={{ fontSize: 14 }}>
+                      <ThemedText style={{ fontSize: ms(14) }}>
                         {formatPickLabel(item.season, item.round)}
                       </ThemedText>
                       <ThemedText style={[styles.pickSub, { color: c.secondaryText }]}>
@@ -344,7 +346,7 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
                   ]}
                   onPress={() => setProtOwnerId(t.id)}
                 >
-                  <ThemedText style={{ fontSize: 14 }}>{t.name}</ThemedText>
+                  <ThemedText style={{ fontSize: ms(14) }}>{t.name}</ThemedText>
                   {protOwnerId === t.id && <Ionicons name="checkmark" size={18} color={c.accent} />}
                 </TouchableOpacity>
               ))}
@@ -401,7 +403,7 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
                       style={[styles.pill, { backgroundColor: swapSeason === s ? c.accent : c.cardAlt, borderColor: swapSeason === s ? c.accent : c.border }]}
                       onPress={() => setSwapSeason(s)}
                     >
-                      <ThemedText style={{ fontSize: 13, color: swapSeason === s ? c.accentText : c.text }}>
+                      <ThemedText style={{ fontSize: ms(13), color: swapSeason === s ? c.accentText : c.text }}>
                         {parseInt(s.split('-')[0], 10)}
                       </ThemedText>
                     </TouchableOpacity>
@@ -426,7 +428,7 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
                   ]}
                   onPress={() => setSwapBeneficiary(t.id)}
                 >
-                  <ThemedText style={{ fontSize: 13 }}>{t.name}</ThemedText>
+                  <ThemedText style={{ fontSize: ms(13) }}>{t.name}</ThemedText>
                   {swapBeneficiary === t.id && <Ionicons name="checkmark" size={16} color={c.accent} />}
                 </TouchableOpacity>
               ))}
@@ -446,7 +448,7 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
                   ]}
                   onPress={() => setSwapCounterparty(t.id)}
                 >
-                  <ThemedText style={{ fontSize: 13 }}>{t.name}</ThemedText>
+                  <ThemedText style={{ fontSize: ms(13) }}>{t.name}</ThemedText>
                   {swapCounterparty === t.id && <Ionicons name="checkmark" size={16} color={c.accent} />}
                 </TouchableOpacity>
               ))}
@@ -473,7 +475,7 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
                   {existingSwaps!.map((sw) => (
                     <View key={sw.id} style={[styles.swapRow, { borderColor: c.border }]}>
                       <View style={{ flex: 1 }}>
-                        <ThemedText style={{ fontSize: 13 }}>
+                        <ThemedText style={{ fontSize: ms(13) }}>
                           {formatPickLabel(sw.season, sw.round)} swap
                         </ThemedText>
                         <ThemedText style={[styles.pickSub, { color: c.secondaryText }]}>
@@ -509,65 +511,65 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 14,
     maxHeight: '90%',
     minHeight: '50%',
-    paddingBottom: 32,
+    paddingBottom: s(32),
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 14,
+    padding: s(14),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  backBtn: { width: 36 },
-  headerTitle: { fontSize: 16, flex: 1, textAlign: 'center' },
-  closeText: { fontSize: 18, padding: 4 },
-  loading: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 },
-  listContent: { paddingVertical: 4 },
-  chooseContainer: { padding: 16, gap: 12 },
+  backBtn: { width: s(36) },
+  headerTitle: { fontSize: ms(16), flex: 1, textAlign: 'center' },
+  closeText: { fontSize: ms(18), padding: s(4) },
+  loading: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: s(40) },
+  listContent: { paddingVertical: s(4) },
+  chooseContainer: { padding: s(16), gap: s(12) },
   chooseBtn: {
     borderWidth: 1,
     borderRadius: 12,
-    padding: 16,
-    gap: 4,
+    padding: s(16),
+    gap: s(4),
   },
-  chooseDesc: { fontSize: 12 },
+  chooseDesc: { fontSize: ms(12) },
   pickRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingVertical: s(12),
+    paddingHorizontal: s(16),
     borderBottomWidth: StyleSheet.hairlineWidth,
-    gap: 8,
+    gap: s(8),
   },
-  pickSub: { fontSize: 12, fontWeight: '500' },
+  pickSub: { fontSize: ms(12), fontWeight: '500' },
   protBadge: {
     borderRadius: 4,
-    paddingHorizontal: 5,
+    paddingHorizontal: s(5),
     paddingVertical: 1,
   },
-  protBadgeText: { fontSize: 10, fontWeight: '600' },
-  editContainer: { padding: 16, paddingBottom: 40 },
-  editButtons: { flexDirection: 'row', gap: 10, marginTop: 20 },
+  protBadgeText: { fontSize: ms(10), fontWeight: '600' },
+  editContainer: { padding: s(16), paddingBottom: s(40) },
+  editButtons: { flexDirection: 'row', gap: s(10), marginTop: s(20) },
   actionBtn: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: s(12),
     borderRadius: 8,
     alignItems: 'center',
   },
-  actionBtnText: { fontSize: 15, fontWeight: '600' },
+  actionBtnText: { fontSize: ms(15), fontWeight: '600' },
   teamOption: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     borderWidth: 1,
     borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 6,
+    paddingHorizontal: s(12),
+    paddingVertical: s(10),
+    marginBottom: s(6),
   },
   pill: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
+    paddingHorizontal: s(14),
+    paddingVertical: s(6),
     borderRadius: 16,
     borderWidth: 1,
   },
@@ -576,8 +578,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderRadius: 8,
-    padding: 12,
-    marginBottom: 8,
-    gap: 8,
+    padding: s(12),
+    marginBottom: s(8),
+    gap: s(8),
   },
 });

@@ -1,5 +1,5 @@
 import { capture } from "@/lib/posthog";
-import { ThemedText } from "@/components/ThemedText";
+import { ThemedText } from "@/components/ui/ThemedText";
 import { PlayerGameLog } from "@/components/player/PlayerGameLog";
 import { NewsCard } from "@/components/player/NewsCard";
 import { PlayerHistory } from "@/components/player/PlayerHistory";
@@ -8,6 +8,7 @@ import { PreviousSeasons } from "@/components/player/PreviousSeasons";
 import { SeasonAverages } from "@/components/player/SeasonAverages";
 import { HorizontalPager } from "@/components/ui/HorizontalPager";
 import { Colors } from "@/constants/Colors";
+import { queryKeys } from "@/constants/queryKeys";
 import { CURRENT_NBA_SEASON } from "@/constants/LeagueDefaults";
 import { useToast } from "@/context/ToastProvider";
 import { useColorScheme } from "@/hooks/useColorScheme";
@@ -24,7 +25,10 @@ import { toDateStr } from "@/utils/dates";
 import { isEligibleForSlot } from "@/utils/rosterSlots";
 import { calculateAvgFantasyPoints } from "@/utils/fantasyPoints";
 import { formatPosition } from "@/utils/formatting";
+import { addFreeAgent } from "@/utils/addFreeAgent";
 import { GameTimeMap, hasAnyGameStarted, isGameStarted, useTodayGameTimes } from "@/utils/gameStarted";
+import { isActiveSlot } from "@/utils/resolveSlot";
+import { ms, s } from '@/utils/scale';
 import { getInjuryBadge } from "@/utils/injuryBadge";
 import {
   formatGameInfo,
@@ -129,7 +133,7 @@ export function PlayerDetailModal({
 
   // Fetch scoring type for insights branching
   const { data: leagueScoringType } = useQuery({
-    queryKey: ["leagueScoringType", leagueId],
+    queryKey: queryKeys.leagueScoringType(leagueId),
     queryFn: async () => {
       const { data } = await supabase
         .from("leagues")
@@ -146,7 +150,7 @@ export function PlayerDetailModal({
 
   // Check if this player is on the user's team and get their current slot
   const { data: ownershipInfo } = useQuery({
-    queryKey: ["playerOwnership", leagueId, teamId, player?.player_id],
+    queryKey: queryKeys.playerOwnership(leagueId, teamId!, player?.player_id),
     queryFn: async () => {
       const { data, error } = await supabase
         .from("league_players")
@@ -175,7 +179,7 @@ export function PlayerDetailModal({
 
   // Check if player is owned by another team — use prop from parent if available, otherwise query
   const { data: queriedOwnerInfo, isLoading: ownershipLoading } = useQuery({
-    queryKey: ["playerLeagueOwnership", leagueId, player?.player_id],
+    queryKey: queryKeys.playerLeagueOwnership(leagueId, player?.player_id),
     queryFn: async () => {
       const { data, error } = await supabase
         .from("league_players")
@@ -210,7 +214,7 @@ export function PlayerDetailModal({
 
   // Get roster counts, max size, IR capacity, and waiver settings
   const { data: rosterInfo } = useQuery({
-    queryKey: ["rosterInfo", leagueId, teamId],
+    queryKey: queryKeys.rosterInfo(leagueId, teamId!),
     queryFn: async () => {
       const [
         allPlayersRes,
@@ -287,7 +291,7 @@ export function PlayerDetailModal({
 
   // Fetch roster players for the drop picker (exclude IR — dropping them doesn't free active spots)
   const { data: rosterPlayers } = useQuery<PlayerSeasonStats[]>({
-    queryKey: ["teamRoster", teamId],
+    queryKey: queryKeys.teamRoster(teamId!),
     queryFn: async () => {
       const { data: leaguePlayers, error: lpError } = await supabase
         .from("league_players")
@@ -317,7 +321,7 @@ export function PlayerDetailModal({
 
   // Check for active draft
   const { data: hasActiveDraft } = useQuery({
-    queryKey: ["hasActiveDraft", leagueId],
+    queryKey: queryKeys.hasActiveDraft(leagueId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from("drafts")
@@ -337,7 +341,7 @@ export function PlayerDetailModal({
   // Returns the count of adds this week (same shape as FreeAgentList's query
   // which shares the cache key ['weeklyAdds', leagueId, teamId])
   const { data: weeklyAddsCount } = useQuery({
-    queryKey: ["weeklyAdds", leagueId, teamId],
+    queryKey: queryKeys.weeklyAdds(leagueId, teamId!),
     queryFn: async () => {
       const now = new Date();
       const day = now.getDay();
@@ -364,7 +368,7 @@ export function PlayerDetailModal({
   });
 
   const { data: weeklyAcqLimit } = useQuery({
-    queryKey: ["weeklyAcqLimit", leagueId],
+    queryKey: queryKeys.weeklyAcqLimit(leagueId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from("leagues")
@@ -382,7 +386,7 @@ export function PlayerDetailModal({
 
   // How many games has this player's team played so far this season?
   const { data: teamGamesPlayed } = useQuery({
-    queryKey: ["teamGamesPlayed", player?.nba_team],
+    queryKey: queryKeys.teamGamesPlayed(player?.nba_team ?? ''),
     queryFn: async () => {
       const today = new Date().toISOString().slice(0, 10);
       const { count, error } = await supabase
@@ -411,7 +415,7 @@ export function PlayerDetailModal({
 
   // Next 3 upcoming games
   const { data: upcomingGames } = useQuery({
-    queryKey: ["upcomingGames", player?.nba_team],
+    queryKey: queryKeys.upcomingGames(player?.nba_team ?? ''),
     queryFn: async () => {
       const today = new Date().toISOString().slice(0, 10);
       const { data, error } = await supabase
@@ -490,7 +494,7 @@ export function PlayerDetailModal({
 
   // Check if this free agent player is on waivers
   const { data: playerOnWaivers } = useQuery({
-    queryKey: ["playerOnWaivers", leagueId, player?.player_id],
+    queryKey: queryKeys.playerOnWaivers(leagueId, player?.player_id),
     queryFn: async () => {
       const { data } = await supabase
         .from("league_waivers")
@@ -530,14 +534,14 @@ export function PlayerDetailModal({
     : null;
 
   const invalidateRosterQueries = () => {
-    queryClient.invalidateQueries({ queryKey: ["allPlayers", leagueId] });
-    queryClient.invalidateQueries({ queryKey: ["leagueOwnership", leagueId] });
-    queryClient.invalidateQueries({ queryKey: ["teamRoster", teamId] });
+    queryClient.invalidateQueries({ queryKey: queryKeys.allPlayers(leagueId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.leagueOwnership(leagueId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.teamRoster(teamId!) });
     queryClient.invalidateQueries({
-      queryKey: ["rosterInfo", leagueId, teamId],
+      queryKey: queryKeys.rosterInfo(leagueId, teamId!),
     });
     queryClient.invalidateQueries({
-      queryKey: ["freeAgentRosterInfo", leagueId, teamId],
+      queryKey: queryKeys.freeAgentRosterInfo(leagueId, teamId!),
     });
     queryClient.invalidateQueries({
       queryKey: ["playerOwnership", leagueId, teamId],
@@ -546,10 +550,10 @@ export function PlayerDetailModal({
     queryClient.invalidateQueries({ queryKey: ["weekMatchup"] });
     queryClient.invalidateQueries({ queryKey: ["matchupById"] });
     queryClient.invalidateQueries({
-      queryKey: ["leagueRosterStats", leagueId],
+      queryKey: queryKeys.leagueRosterStats(leagueId),
     });
     queryClient.invalidateQueries({
-      queryKey: ["weeklyAdds", leagueId, teamId],
+      queryKey: queryKeys.weeklyAdds(leagueId, teamId!),
     });
     onRosterChange?.();
   };
@@ -575,12 +579,12 @@ export function PlayerDetailModal({
     if (error) throw error;
 
     queryClient.invalidateQueries({
-      queryKey: ["pendingClaims", leagueId, teamId],
+      queryKey: queryKeys.pendingClaims(leagueId, teamId!),
     });
     queryClient.invalidateQueries({
-      queryKey: ["faabRemaining", leagueId, teamId],
+      queryKey: queryKeys.faabRemaining(leagueId, teamId!),
     });
-    queryClient.invalidateQueries({ queryKey: ["waiverOrder", leagueId] });
+    queryClient.invalidateQueries({ queryKey: queryKeys.waiverOrder(leagueId) });
     capture('waiver_claim_submitted', { player_name: player.name });
 
     Alert.alert(
@@ -656,58 +660,34 @@ export function PlayerDetailModal({
       const maxSize = leagueRes.data?.roster_size ?? 13;
       if (activeCount >= maxSize) {
         queryClient.invalidateQueries({
-          queryKey: ["rosterInfo", leagueId, teamId],
+          queryKey: queryKeys.rosterInfo(leagueId, teamId!),
         });
         setShowDropPicker(true);
         setIsProcessing(false);
         return;
       }
 
-      const { error: lpError } = await supabase.from("league_players").insert({
-        league_id: leagueId,
-        player_id: player.player_id,
-        team_id: teamId,
-        acquired_via: "free_agent",
-        acquired_at: new Date().toISOString(),
-        position: player.position,
+      const { deferred } = await addFreeAgent({
+        leagueId,
+        teamId: teamId!,
+        player: {
+          player_id: player.player_id,
+          name: player.name,
+          position: player.position,
+          nba_team: player.nba_team ?? "",
+        },
+        playerLockType: playerLockType ?? null,
+        gameTimeMap: parentGameTimeMap ?? gameTimeMap,
       });
-      if (lpError) throw lpError;
-
-      const { data: txn, error: txnError } = await supabase
-        .from("league_transactions")
-        .insert({
-          league_id: leagueId,
-          type: "waiver",
-          notes: `Added ${player.name} from free agency`,
-          team_id: teamId,
-        })
-        .select("id")
-        .single();
-      if (txnError) throw txnError;
-
-      await supabase.from("league_transaction_items").insert({
-        transaction_id: txn.id,
-        player_id: player.player_id,
-        team_to_id: teamId,
-      });
-
-      // Fire-and-forget notification to league
-      (async () => {
-        const { data: team } = await supabase
-          .from("teams")
-          .select("name")
-          .eq("id", teamId)
-          .single();
-        sendNotification({
-          league_id: leagueId,
-          category: "roster_moves",
-          title: "Roster Move",
-          body: `${team?.name ?? "A team"} added ${player.name}`,
-          data: { screen: "activity" },
-        });
-      })();
 
       capture('player_added', { player_name: player.name, position: player.position });
+
+      if (deferred) {
+        Alert.alert(
+          "Player Added",
+          `${player.name} will appear on your roster tomorrow.`,
+        );
+      }
 
       invalidateRosterQueries();
       onClose();
@@ -728,9 +708,25 @@ export function PlayerDetailModal({
 
     setIsProcessing(true);
     try {
-      // For add-and-drop, check player lock before proceeding
+      // For add-and-drop, check if the dropped player is a starter whose game
+      // has started — if so, queue the drop for tomorrow instead of dropping now.
       if (playerToDrop && player && parentGameTimeMap && playerLockType) {
-        if (playerLockType === "daily" && hasAnyGameStarted(parentGameTimeMap)) {
+        const { data: droppingLp } = await supabase
+          .from("league_players")
+          .select("roster_slot")
+          .eq("league_id", leagueId)
+          .eq("team_id", teamId)
+          .eq("player_id", dropping.player_id)
+          .single();
+        const droppingSlot = droppingLp?.roster_slot ?? "BE";
+        const droppingIsStarter = isActiveSlot(droppingSlot);
+        const droppingGameStarted =
+          playerLockType === "daily"
+            ? hasAnyGameStarted(parentGameTimeMap)
+            : isGameStarted(dropping.nba_team, parentGameTimeMap);
+
+        if (droppingIsStarter && droppingGameStarted) {
+          // Queue the drop for tomorrow — starter is mid-game
           const tomorrow = new Date();
           tomorrow.setDate(tomorrow.getDate() + 1);
           const executeAfter = toDateStr(tomorrow);
@@ -739,35 +735,39 @@ export function PlayerDetailModal({
             league_id: leagueId,
             team_id: teamId,
             player_id: dropping.player_id,
-            target_player_id: player.player_id,
-            action_type: "add_drop",
+            target_player_id: dropping.player_id,
+            action_type: "drop",
             execute_after: executeAfter,
             status: "pending",
-            metadata: { addName: player.name, dropName: dropping.name },
+            metadata: { name: dropping.name },
           });
           if (error) throw error;
 
-          queryClient.invalidateQueries({ queryKey: ["pendingAddPlayerIds", leagueId] });
+          // Add the new player immediately (lock-aware acquired_at)
+          const { deferred } = await addFreeAgent({
+            leagueId,
+            teamId: teamId!,
+            player: {
+              player_id: player.player_id,
+              name: player.name,
+              position: player.position,
+              nba_team: player.nba_team ?? "",
+            },
+            playerLockType,
+            gameTimeMap: parentGameTimeMap,
+          });
+
+          const addMsg = deferred
+            ? `${player.name} will appear on your roster tomorrow.`
+            : `${player.name} has been added.`;
           Alert.alert(
-            "Add/Drop Queued",
-            `Games have started today. ${player.name} will be added and ${dropping.name} will be dropped tomorrow.`,
+            "Add/Drop",
+            `${addMsg} ${dropping.name} will be dropped tomorrow (currently in lineup).`,
           );
           setIsProcessing(false);
           invalidateRosterQueries();
           onClose();
           return;
-        }
-        if (playerLockType === "individual") {
-          if (isGameStarted(player.nba_team, parentGameTimeMap)) {
-            Alert.alert("Player Locked", `${player.name}'s game has already started.`);
-            setIsProcessing(false);
-            return;
-          }
-          if (isGameStarted(dropping.nba_team, parentGameTimeMap)) {
-            Alert.alert("Player Locked", `${dropping.name}'s game has already started. You cannot drop this player right now.`);
-            setIsProcessing(false);
-            return;
-          }
         }
       }
 
@@ -909,46 +909,41 @@ export function PlayerDetailModal({
         });
       }
 
-      // If dropping from the picker (add-and-drop), handle as a single transaction
+      // If dropping from the picker (add-and-drop), add the new player
       if (playerToDrop && player) {
-        const { error: addError } = await supabase
-          .from("league_players")
-          .insert({
-            league_id: leagueId,
+        const { deferred } = await addFreeAgent({
+          leagueId,
+          teamId: teamId!,
+          player: {
             player_id: player.player_id,
-            team_id: teamId,
-            acquired_via: "free_agent",
-            acquired_at: new Date().toISOString(),
+            name: player.name,
             position: player.position,
-          });
-        if (addError) throw addError;
+            nba_team: player.nba_team ?? "",
+          },
+          playerLockType: playerLockType ?? null,
+          gameTimeMap: parentGameTimeMap ?? gameTimeMap,
+        });
 
-        const { data: txn, error: txnError } = await supabase
+        // Log the drop side of the transaction
+        const { data: dropTxn, error: dropTxnError } = await supabase
           .from("league_transactions")
           .insert({
             league_id: leagueId,
             type: "waiver",
-            notes: `Added ${player.name} (dropped ${dropping.name})`,
+            notes: `Dropped ${dropping.name}`,
             team_id: teamId,
           })
           .select("id")
           .single();
-        if (txnError) throw txnError;
+        if (dropTxnError) throw dropTxnError;
 
-        await supabase.from("league_transaction_items").insert([
-          {
-            transaction_id: txn.id,
-            player_id: player.player_id,
-            team_to_id: teamId,
-          },
-          {
-            transaction_id: txn.id,
-            player_id: dropping.player_id,
-            team_from_id: teamId,
-          },
-        ]);
+        await supabase.from("league_transaction_items").insert({
+          transaction_id: dropTxn.id,
+          player_id: dropping.player_id,
+          team_from_id: teamId,
+        });
 
-        // Fire-and-forget notification to league
+        // Fire-and-forget notification
         (async () => {
           const { data: team } = await supabase
             .from("teams")
@@ -964,11 +959,15 @@ export function PlayerDetailModal({
           });
         })();
 
+        if (deferred) {
+          Alert.alert("Player Added", `${player.name} will appear on your roster tomorrow.`);
+        }
+
         capture('player_add_drop', { added: player.name, dropped: dropping.name });
 
         invalidateRosterQueries();
         queryClient.invalidateQueries({
-          queryKey: ["leagueWaivers", leagueId],
+          queryKey: queryKeys.leagueWaivers(leagueId),
         });
         setShowDropPicker(false);
         onClose();
@@ -1012,7 +1011,7 @@ export function PlayerDetailModal({
 
         invalidateRosterQueries();
         queryClient.invalidateQueries({
-          queryKey: ["leagueWaivers", leagueId],
+          queryKey: queryKeys.leagueWaivers(leagueId),
         });
         onClose();
       }
@@ -1029,7 +1028,67 @@ export function PlayerDetailModal({
     try {
       const today = toDateStr(new Date());
 
-      // Write daily_lineups so roster/matchup pages reflect the move immediately
+      // Check if the player's game is in progress — defer to tomorrow if so
+      const isLocked =
+        (playerLockType === "daily" && hasAnyGameStarted(parentGameTimeMap ?? gameTimeMap)) ||
+        (playerLockType === "individual" && playerGameStarted);
+
+      if (isLocked) {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const tomorrowStr = toDateStr(tomorrow);
+
+        // Pin today's slot so the player stays in their current position today
+        await supabase.from("daily_lineups").upsert(
+          {
+            league_id: leagueId,
+            team_id: teamId,
+            player_id: player.player_id,
+            lineup_date: today,
+            roster_slot: playerRosterSlot ?? "BE",
+          },
+          { onConflict: "team_id,player_id,lineup_date" },
+        );
+        // Write IR for tomorrow onward
+        await supabase.from("daily_lineups").upsert(
+          {
+            league_id: leagueId,
+            team_id: teamId,
+            player_id: player.player_id,
+            lineup_date: tomorrowStr,
+            roster_slot: "IR",
+          },
+          { onConflict: "team_id,player_id,lineup_date" },
+        );
+        // Flip any future daily_lineups beyond tomorrow to IR
+        await supabase
+          .from("daily_lineups")
+          .update({ roster_slot: "IR" })
+          .eq("team_id", teamId)
+          .eq("league_id", leagueId)
+          .eq("player_id", player.player_id)
+          .neq("roster_slot", "IR")
+          .gt("lineup_date", tomorrowStr);
+
+        // Update league_players canonical slot (going-forward state)
+        const { error } = await supabase
+          .from("league_players")
+          .update({ roster_slot: "IR" })
+          .eq("league_id", leagueId)
+          .eq("team_id", teamId)
+          .eq("player_id", player.player_id);
+        if (error) throw error;
+
+        invalidateRosterQueries();
+        Alert.alert(
+          "Move Queued",
+          `${player.name}'s game is in progress. The move to IR takes effect tomorrow.`,
+        );
+        onClose();
+        return;
+      }
+
+      // No game lock — move immediately
       await supabase.from("daily_lineups").upsert(
         {
           league_id: leagueId,
@@ -1109,7 +1168,7 @@ export function PlayerDetailModal({
 
       if (freshActiveCount >= maxSize) {
         queryClient.invalidateQueries({
-          queryKey: ["rosterInfo", leagueId, teamId],
+          queryKey: queryKeys.rosterInfo(leagueId, teamId!),
         });
         setIsProcessing(false);
         setActivateFromIR(true);
@@ -1315,7 +1374,7 @@ export function PlayerDetailModal({
       capture('ir_activate_drop', { activated: player.name, dropped: playerToDrop.name });
 
       invalidateRosterQueries();
-      queryClient.invalidateQueries({ queryKey: ["leagueWaivers", leagueId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.leagueWaivers(leagueId) });
       setActivateFromIR(false);
       setShowDropPicker(false);
       onClose();
@@ -1423,13 +1482,13 @@ export function PlayerDetailModal({
         .eq("player_id", player.player_id);
       if (error) throw error;
       queryClient.setQueryData(
-        ["playerOwnership", leagueId, teamId, player.player_id],
+        queryKeys.playerOwnership(leagueId, teamId!, player.player_id),
         (old: any) =>
           old
             ? { ...old, onTradeBlock: newValue, tradeBlockNote: note ?? "" }
             : old,
       );
-      queryClient.invalidateQueries({ queryKey: ["tradeBlock", leagueId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.tradeBlock(leagueId) });
     } catch (err: any) {
       Alert.alert("Error", err.message ?? "Failed to update trade block");
     } finally {
@@ -1655,7 +1714,7 @@ export function PlayerDetailModal({
                 maxToRenderPerBatch={10}
                 windowSize={5}
                 ListEmptyComponent={
-                  <View style={{ padding: 20, alignItems: "center" }}>
+                  <View style={{ padding: s(20), alignItems: "center" }}>
                     <ThemedText
                       style={{ color: c.secondaryText, textAlign: "center" }}
                     >
@@ -1726,6 +1785,16 @@ export function PlayerDetailModal({
                     </View>
                   ) : null;
                 })()}
+                {playerNews?.some(a => a.has_minutes_restriction) && (
+                  <View
+                    style={[styles.injuryChip, { backgroundColor: c.warning }]}
+                    accessibilityLabel="Minutes restriction"
+                  >
+                    <ThemedText style={[styles.injuryChipText, { color: c.statusText }]}>
+                      MIN RESTRICT
+                    </ThemedText>
+                  </View>
+                )}
               </View>
               <View style={styles.headerInfo}>
                 {/* Line 1: Name + trade + watchlist */}
@@ -1754,7 +1823,7 @@ export function PlayerDetailModal({
                         });
                       }}
                       hitSlop={8}
-                      style={{ marginLeft: 6 }}
+                      style={{ marginLeft: s(6) }}
                       accessibilityRole="button"
                       accessibilityLabel={`Trade ${player.name}`}
                     >
@@ -1768,7 +1837,7 @@ export function PlayerDetailModal({
                   <TouchableOpacity
                     onPress={() => toggleWatchlist(player.player_id)}
                     hitSlop={8}
-                    style={{ marginLeft: 6 }}
+                    style={{ marginLeft: s(6) }}
                     accessibilityRole="button"
                     accessibilityLabel={
                       isWatchlisted(player.player_id)
@@ -2088,9 +2157,12 @@ export function PlayerDetailModal({
               scoringType={leagueScoringType ?? undefined}
             />
 
-            {/* Swipeable pager: News, Transactions, Previous Seasons */}
+            {/* Divider */}
+            <View style={styles.divider} />
+
+            {/* Tab pager: News, Transactions, Previous Seasons */}
             <HorizontalPager
-              fixedHeight={100}
+              minHeight={120}
               pageLabels={[
                 "News",
                 "Transactions",
@@ -2100,15 +2172,15 @@ export function PlayerDetailModal({
               ]}
             >
               {[
-                <View key="news" style={{ paddingHorizontal: 16, gap: 10 }}>
+                <View key="news" style={{ paddingHorizontal: s(16), gap: s(10) }}>
                   {isLoadingNews ? (
-                    <ActivityIndicator style={{ marginTop: 20 }} color={c.accent} />
+                    <ActivityIndicator style={{ marginTop: s(20) }} color={c.accent} />
                   ) : playerNews && playerNews.length > 0 ? (
                     playerNews.slice(0, 10).map((article) => (
                       <NewsCard key={article.id} article={article} />
                     ))
                   ) : (
-                    <ThemedText style={{ color: c.secondaryText, fontSize: 13, marginTop: 8 }}>
+                    <ThemedText style={{ color: c.secondaryText, fontSize: ms(13), marginTop: s(8) }}>
                       No recent news for {player?.name ?? 'this player'}
                     </ThemedText>
                   )}
@@ -2129,6 +2201,9 @@ export function PlayerDetailModal({
                   : []),
               ]}
             </HorizontalPager>
+
+            {/* Divider */}
+            <View style={styles.divider} />
 
             {/* Game Log */}
             <View style={styles.section}>
@@ -2169,6 +2244,7 @@ export function PlayerDetailModal({
               playerName={player?.name ?? ""}
               expanded={gameLogExpanded}
               onExpand={() => setGameLogExpanded(true)}
+              isCategories={isCategories}
               colors={{
                 border: c.border,
                 secondaryText: c.secondaryText,
@@ -2273,90 +2349,91 @@ const styles = StyleSheet.create({
     minHeight: "90%",
     maxHeight: "92%",
     overflow: "hidden",
-    paddingBottom: 32,
+    paddingBottom: s(32),
   },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    padding: 16,
+    padding: s(16),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   headerHeadshotWrap: {
     position: "relative" as const,
-    marginRight: 12,
+    marginRight: s(12),
   },
   headerHeadshotCircle: {
-    width: 74,
-    height: 74,
+    width: s(74),
+    height: s(74),
     borderRadius: 40,
     borderWidth: 1.5,
     overflow: "hidden" as const,
   },
   injuryChip: {
     position: "absolute" as const,
-    top: -2,
-    left: -4,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 6,
+    top: s(-2),
+    left: s(-4),
+    paddingHorizontal: s(4),
+    paddingVertical: 0,
+    borderRadius: 3,
   },
   injuryChipText: {
-    fontSize: 9,
-    fontWeight: "700" as const,
+    fontSize: ms(8),
+    fontWeight: "800" as const,
+    letterSpacing: 0.5,
   },
   headerHeadshotImg: {
     position: "absolute" as const,
-    bottom: -2,
+    bottom: s(-2),
     left: 0,
     right: 0,
-    height: 66,
+    height: s(66),
   },
   headerInfo: {
     flex: 1,
   },
   playerName: {
-    fontSize: 22,
+    fontSize: ms(22),
     flexShrink: 1,
   },
   subtitleRow: {
     flexDirection: "row" as const,
     alignItems: "center" as const,
-    gap: 4,
-    marginTop: 2,
+    gap: s(4),
+    marginTop: s(2),
   },
   modalTeamLogo: {
-    width: 14,
-    height: 14,
+    width: s(14),
+    height: s(14),
     opacity: 0.6,
   },
   subtitle: {
-    fontSize: 13,
+    fontSize: ms(13),
   },
   outBadge: {
     fontWeight: "700",
   },
   closeButton: {
-    padding: 8,
-    marginTop: -4,
-    marginRight: -4,
+    padding: s(8),
+    marginTop: s(-4),
+    marginRight: s(-4),
   },
   closeText: {
-    fontSize: 18,
+    fontSize: ms(18),
   },
   nameRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: s(8),
   },
   headerActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: s(4),
   },
   headerBtn: {
-    height: 26,
-    paddingHorizontal: 10,
+    height: s(26),
+    paddingHorizontal: s(10),
     borderRadius: 6,
     alignItems: "center",
     justifyContent: "center",
@@ -2366,18 +2443,18 @@ const styles = StyleSheet.create({
     backgroundColor: "#8e44ad",
   },
   headerBtnText: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: "600",
   },
   headerWarning: {
-    fontSize: 10,
-    marginTop: 2,
+    fontSize: ms(10),
+    marginTop: s(2),
   },
   buttonDisabled: {
     opacity: 0.5,
   },
   scrollContent: {
-    paddingTop: 12,
+    paddingTop: s(12),
   },
   sectionHeader: {
     flexDirection: "row",
@@ -2385,80 +2462,86 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   gamesThisWeek: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: "600",
   },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: "rgba(128,128,128,0.2)",
+    marginHorizontal: s(16),
+    marginVertical: s(8),
+  },
   section: {
-    paddingHorizontal: 16,
-    marginBottom: 8,
+    paddingHorizontal: s(16),
+    marginBottom: s(8),
   },
   sectionTitle: {
-    marginBottom: 8,
+    marginBottom: s(8),
   },
   loading: {
-    padding: 20,
+    padding: s(20),
   },
   dropPickerList: {
-    padding: 8,
+    padding: s(8),
   },
   dropPickerRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingVertical: s(14),
+    paddingHorizontal: s(16),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   dropPickerInfo: {
     flex: 1,
   },
   dropPickerSub: {
-    fontSize: 12,
-    marginTop: 2,
+    fontSize: ms(12),
+    marginTop: s(2),
   },
   dropPickerFpts: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: "600",
-    marginLeft: 12,
+    marginLeft: s(12),
   },
   tradeBlockPromptOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "center",
     alignItems: "center",
-    padding: 24,
+    padding: s(24),
     zIndex: 100,
   },
   tradeBlockPromptCard: {
     borderRadius: 14,
-    padding: 20,
+    padding: s(20),
     width: "100%",
-    maxWidth: 340,
+    maxWidth: s(340),
   },
   tradeBlockPromptTitle: {
-    fontSize: 17,
-    marginBottom: 4,
+    fontSize: ms(17),
+    marginBottom: s(4),
   },
   tradeBlockPromptDesc: {
-    fontSize: 13,
-    marginBottom: 12,
+    fontSize: ms(13),
+    marginBottom: s(12),
   },
   tradeBlockPromptInput: {
     borderWidth: 1,
     borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    marginBottom: 16,
+    paddingHorizontal: s(12),
+    paddingVertical: s(10),
+    fontSize: ms(14),
+    marginBottom: s(16),
   },
   tradeBlockPromptButtons: {
     flexDirection: "row",
     justifyContent: "flex-end",
-    gap: 8,
+    gap: s(8),
   },
   tradeBlockPromptBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: s(16),
+    paddingVertical: s(10),
     borderRadius: 8,
     borderWidth: 1,
     borderColor: "transparent",

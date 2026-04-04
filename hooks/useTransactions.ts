@@ -1,4 +1,5 @@
 import { useAppState } from '@/context/AppStateProvider';
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import { useInfiniteQuery } from '@tanstack/react-query';
 
@@ -31,7 +32,7 @@ export function useTransactions(typeFilter?: string) {
   const { leagueId } = useAppState();
 
   return useInfiniteQuery({
-    queryKey: ['transactions', leagueId, typeFilter ?? 'all'],
+    queryKey: queryKeys.transactions(leagueId!, typeFilter ?? 'all'),
     queryFn: async ({ pageParam = 0 }) => {
       const from = pageParam * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;

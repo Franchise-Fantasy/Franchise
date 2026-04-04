@@ -1,10 +1,11 @@
-import { ThemedText } from "@/components/ThemedText";
+import { ThemedText } from "@/components/ui/ThemedText";
 import { NumberStepper } from "@/components/ui/NumberStepper";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Colors } from "@/constants/Colors";
 import { LEAGUE_TYPE_OPTIONS, LeagueWizardState } from "@/constants/LeagueDefaults";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { StyleSheet, TextInput, View } from "react-native";
+import { ms, s } from "@/utils/scale";
 
 interface StepBasicsProps {
   state: LeagueWizardState;
@@ -145,26 +146,26 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   heading: {
-    marginBottom: 20,
+    marginBottom: s(20),
   },
   label: {
-    marginBottom: 8,
-    fontSize: 14,
+    marginBottom: s(8),
+    fontSize: ms(14),
     fontWeight: "500",
   },
   input: {
     borderWidth: 1,
-    padding: 12,
+    padding: s(12),
     borderRadius: 6,
-    fontSize: 16,
-    marginBottom: 16,
+    fontSize: ms(16),
+    marginBottom: s(16),
   },
   fieldLabel: {
-    marginBottom: 4,
-    fontSize: 13,
+    marginBottom: s(4),
+    fontSize: ms(13),
     fontWeight: "500",
   },
   section: {
-    marginTop: 8,
+    marginTop: s(8),
   },
 });

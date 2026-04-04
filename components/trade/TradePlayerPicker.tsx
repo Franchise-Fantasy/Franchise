@@ -1,5 +1,6 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
+import { ms, s } from '@/utils/scale';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { TradeRosterPlayer, useTeamRosterForTrade } from '@/hooks/useTeamRosterForTrade';
@@ -28,6 +29,7 @@ interface TradePlayerPickerProps {
   pendingDropPlayerIds?: Set<string>;
   onToggle: (player: TradeRosterPlayer, avgFpts: number) => void;
   onBack: () => void;
+  isCategories?: boolean;
 }
 
 export function TradePlayerPicker({
@@ -39,6 +41,7 @@ export function TradePlayerPicker({
   pendingDropPlayerIds,
   onToggle,
   onBack,
+  isCategories,
 }: TradePlayerPickerProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
@@ -57,7 +60,7 @@ export function TradePlayerPicker({
     const isPendingDrop = pendingDropPlayerIds?.has(item.player_id) ?? false;
     const isOnIR = item.roster_slot === 'IR';
     const isDisabled = isLocked || isOnIR || isPendingDrop;
-    const fpts = scoringWeights ? calculateAvgFantasyPoints(item, scoringWeights) : null;
+    const fpts = scoringWeights && !isCategories ? calculateAvgFantasyPoints(item, scoringWeights) : null;
     const headshotUrl = getPlayerHeadshotUrl(item.external_id_nba);
     const logoUrl = getTeamLogoUrl(item.nba_team);
     const badge = getInjuryBadge(item.status);
@@ -65,7 +68,7 @@ export function TradePlayerPicker({
     return (
       <TouchableOpacity
         accessibilityRole="button"
-        accessibilityLabel={`${item.name}, ${formatPosition(item.position)}${isOnIR ? ', on injured reserve' : ''}${isLocked ? ', in active trade' : ''}${isPendingDrop ? ', queued for drop' : ''}${fpts !== null ? `, ${fpts} fantasy points` : ''}`}
+        accessibilityLabel={`${item.name}, ${formatPosition(item.position)}${isOnIR ? ', on injured reserve' : ''}${isLocked ? ', in active trade' : ''}${isPendingDrop ? ', queued for drop' : ''}${fpts !== null ? `, ${fpts} fantasy points` : ''}${isCategories ? `, ${item.avg_pts} points, ${item.avg_reb} rebounds, ${item.avg_ast} assists, ${item.avg_stl} steals, ${item.avg_blk} blocks` : ''}`}
         accessibilityState={{ selected: isSelected, disabled: isDisabled }}
         disabled={isDisabled}
         style={[
@@ -93,7 +96,7 @@ export function TradePlayerPicker({
         </View>
 
         <View style={styles.info}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(4) }}>
             <ThemedText type="defaultSemiBold" style={[styles.playerName, { flexShrink: 1 }]} numberOfLines={1}>
               {item.name}
             </ThemedText>
@@ -122,11 +125,26 @@ export function TradePlayerPicker({
             {formatPosition(item.position)}
           </ThemedText>
         </View>
-        {fpts !== null && (
+        {isCategories ? (
+          <View style={styles.catStats}>
+            <ThemedText style={[styles.catStatLine, { color: c.secondaryText }]}>
+              {item.avg_pts}/{item.avg_reb}/{item.avg_ast}/{item.avg_stl}/{item.avg_blk}
+            </ThemedText>
+            <ThemedText style={[styles.catSubLine, { color: c.secondaryText }]}>
+              {item.avg_fga > 0
+                ? ((item.avg_fgm / item.avg_fga) * 100).toFixed(1)
+                : "0.0"}
+              % FG · {item.avg_fta > 0
+                ? ((item.avg_ftm / item.avg_fta) * 100).toFixed(1)
+                : "0.0"}
+              % FT · {item.avg_tov} TO
+            </ThemedText>
+          </View>
+        ) : fpts !== null ? (
           <ThemedText style={[styles.fpts, { color: c.accent }]}>
             {fpts}
           </ThemedText>
-        )}
+        ) : null}
         <ThemedText style={[styles.check, { color: c.success }]}>{isSelected ? '✓' : ''}</ThemedText>
       </TouchableOpacity>
     );
@@ -178,68 +196,68 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 12,
+    paddingVertical: s(12),
+    paddingHorizontal: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   backBtn: {
-    width: 60,
+    width: s(60),
   },
   backText: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: '500',
   },
   headerTitle: {
     flex: 1,
-    fontSize: 16,
+    fontSize: ms(16),
     textAlign: 'center',
   },
   doneBtn: {
-    width: 60,
+    width: s(60),
     alignItems: 'flex-end',
   },
   doneText: {
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: '600',
   },
   search: {
-    margin: 10,
-    padding: 8,
+    margin: s(10),
+    padding: s(8),
     borderRadius: 8,
     borderWidth: 1,
-    fontSize: 14,
+    fontSize: ms(14),
   },
   loader: {
-    marginTop: 20,
+    marginTop: s(20),
   },
   list: {
-    paddingBottom: 16,
+    paddingBottom: s(16),
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingVertical: s(8),
+    paddingHorizontal: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   portraitWrap: {
-    width: 50,
-    height: 50,
-    marginRight: 8,
+    width: s(50),
+    height: s(50),
+    marginRight: s(8),
   },
   headshotCircle: {
-    width: 50,
-    height: 50,
+    width: s(50),
+    height: s(50),
     borderRadius: 25,
     borderWidth: 1.5,
     overflow: 'hidden' as const,
   },
   headshotImg: {
     position: 'absolute' as const,
-    bottom: -2,
+    bottom: s(-2),
     left: 0,
     right: 0,
-    height: 42,
+    height: s(42),
   },
   teamPill: {
     position: 'absolute',
@@ -249,16 +267,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: 'rgba(0,0,0,0.75)',
     borderRadius: 8,
-    paddingHorizontal: 3,
-    paddingVertical: 1,
-    gap: 2,
+    paddingHorizontal: s(3),
+    paddingVertical: s(1),
+    gap: s(2),
   },
   teamPillLogo: {
-    width: 9,
-    height: 9,
+    width: s(9),
+    height: s(9),
   },
   teamPillText: {
-    fontSize: 7,
+    fontSize: ms(7),
     fontWeight: '700',
     letterSpacing: 0.3,
   },
@@ -266,30 +284,41 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   playerName: {
-    fontSize: 14,
+    fontSize: ms(14),
   },
   injuryBadge: {
-    paddingHorizontal: 4,
-    paddingVertical: 1,
+    paddingHorizontal: s(4),
+    paddingVertical: s(1),
     borderRadius: 3,
   },
   injuryBadgeText: {
-    fontSize: 8,
+    fontSize: ms(8),
     fontWeight: '800',
     letterSpacing: 0.5,
   },
   sub: {
-    fontSize: 11,
-    marginTop: 1,
+    fontSize: ms(11),
+    marginTop: s(1),
   },
   fpts: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: '600',
-    marginRight: 10,
+    marginRight: s(10),
+  },
+  catStats: {
+    alignItems: 'flex-end' as const,
+    marginRight: s(10),
+  },
+  catStatLine: {
+    fontSize: ms(11),
+  },
+  catSubLine: {
+    fontSize: ms(9),
+    marginTop: s(1),
   },
   check: {
-    width: 22,
-    fontSize: 16,
+    width: s(22),
+    fontSize: ms(16),
     fontWeight: '700',
     textAlign: 'center',
   },

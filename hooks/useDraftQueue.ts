@@ -1,3 +1,4 @@
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats } from '@/types/player';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -11,53 +12,25 @@ export interface QueuedPlayer {
 
 export function useDraftQueue(draftId: string, teamId: string, leagueId: string) {
   const queryClient = useQueryClient();
-  const queryKey = ['draftQueue', draftId, teamId];
+  const queryKey = queryKeys.draftQueue(draftId, teamId);
 
   const { data: queue = [], isLoading } = useQuery<QueuedPlayer[]>({
     queryKey,
     queryFn: async () => {
-      // Fetch queue entries
-      const { data: entries, error } = await supabase
-        .from('draft_queue')
-        .select('id, player_id, priority')
-        .eq('draft_id', draftId)
-        .eq('team_id', teamId)
-        .order('priority');
-
+      const { data, error } = await supabase.rpc('get_draft_queue' as any, {
+        p_draft_id: draftId,
+        p_team_id: teamId,
+        p_league_id: leagueId,
+      });
       if (error) throw error;
-      if (!entries || entries.length === 0) return [];
+      if (!data || data.length === 0) return [];
 
-      // Fetch already-drafted player IDs to filter out
-      const { data: draftedPlayers } = await supabase
-        .from('league_players')
-        .select('player_id')
-        .eq('league_id', leagueId);
-
-      const draftedIds = new Set((draftedPlayers ?? []).map(p => String(p.player_id)));
-
-      // Filter out drafted players
-      const availableEntries = entries.filter(e => !draftedIds.has(String(e.player_id)));
-
-      if (availableEntries.length === 0) return [];
-
-      // Fetch player stats for remaining entries
-      const playerIds = availableEntries.map(e => e.player_id);
-      const { data: stats, error: statsError } = await supabase
-        .from('player_season_stats')
-        .select('*')
-        .in('player_id', playerIds);
-
-      if (statsError) throw statsError;
-
-      const statsMap = new Map((stats as PlayerSeasonStats[]).map(s => [s.player_id, s]));
-
-      return availableEntries
-        .map(e => {
-          const player = statsMap.get(e.player_id);
-          if (!player) return null;
-          return { queue_id: e.id, player_id: e.player_id, priority: e.priority, player };
-        })
-        .filter(Boolean) as QueuedPlayer[];
+      return (data as any[]).map((row) => ({
+        queue_id: row.queue_id,
+        player_id: row.player_id,
+        priority: row.priority,
+        player: row as PlayerSeasonStats,
+      }));
     },
     enabled: !!draftId && !!teamId,
   });

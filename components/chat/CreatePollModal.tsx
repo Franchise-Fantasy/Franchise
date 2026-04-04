@@ -1,10 +1,12 @@
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { ToggleRow } from '@/components/ToggleRow';
 import { Colors } from '@/constants/Colors';
 import { useToast } from '@/context/ToastProvider';
 import { useCreatePoll } from '@/hooks/chat';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { containsBlockedContent } from '@/utils/moderation';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useState } from 'react';
@@ -122,6 +124,11 @@ export function CreatePollModal({
 
   async function handleCreate() {
     if (!canSubmit || !closesAt) return;
+    const allText = [trimmedQ, ...filledOptions].join(' ');
+    if (containsBlockedContent(allText)) {
+      Alert.alert('Content blocked', 'Your poll contains language that isn\u2019t allowed.');
+      return;
+    }
 
     createPoll.mutate(
       {
@@ -187,7 +194,7 @@ export function CreatePollModal({
             </ThemedText>
 
             {/* Options */}
-            <ThemedText style={[styles.label, { color: c.text, marginTop: 14 }]}>
+            <ThemedText style={[styles.label, { color: c.text, marginTop: s(14) }]}>
               Options
             </ThemedText>
             {options.map((opt, idx) => (
@@ -231,7 +238,7 @@ export function CreatePollModal({
             )}
 
             {/* Poll Type */}
-            <ThemedText style={[styles.label, { color: c.text, marginTop: 14 }]}>
+            <ThemedText style={[styles.label, { color: c.text, marginTop: s(14) }]}>
               Poll Type
             </ThemedText>
             <SegmentedControl
@@ -241,7 +248,7 @@ export function CreatePollModal({
             />
 
             {/* Closing Time */}
-            <ThemedText style={[styles.label, { color: c.text, marginTop: 14 }]}>
+            <ThemedText style={[styles.label, { color: c.text, marginTop: s(14) }]}>
               Closing Time
             </ThemedText>
             <View style={styles.presets}>
@@ -263,7 +270,7 @@ export function CreatePollModal({
                   <Text
                     style={{
                       color: presetIdx === idx ? c.statusText : c.text,
-                      fontSize: 13,
+                      fontSize: ms(13),
                       fontWeight: '600',
                     }}
                   >
@@ -287,7 +294,7 @@ export function CreatePollModal({
                 <Text
                   style={{
                     color: customDate ? c.statusText : c.text,
-                    fontSize: 13,
+                    fontSize: ms(13),
                     fontWeight: '600',
                   }}
                 >
@@ -363,92 +370,92 @@ const styles = StyleSheet.create({
   content: {
     borderTopLeftRadius: 14,
     borderTopRightRadius: 14,
-    padding: 20,
-    paddingBottom: 32,
+    padding: s(20),
+    paddingBottom: s(32),
     maxHeight: '90%',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: s(12),
   },
   scroll: {
     flexGrow: 0,
   },
   label: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '600',
-    marginBottom: 6,
+    marginBottom: s(6),
   },
   input: {
     borderWidth: 1,
     borderRadius: 8,
-    padding: 12,
-    fontSize: 15,
-    minHeight: 60,
+    padding: s(12),
+    fontSize: ms(15),
+    minHeight: s(60),
   },
   counter: {
-    fontSize: 11,
+    fontSize: ms(11),
     textAlign: 'right',
-    marginTop: 2,
+    marginTop: s(2),
   },
   optionInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginBottom: 6,
+    gap: s(6),
+    marginBottom: s(6),
   },
   optionInput: {
     flex: 1,
     borderWidth: 1,
     borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 15,
+    paddingHorizontal: s(12),
+    paddingVertical: s(8),
+    fontSize: ms(15),
   },
   removeBtn: {
-    padding: 4,
+    padding: s(4),
   },
   addBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: 6,
+    gap: s(6),
+    paddingVertical: s(6),
   },
   addText: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '600',
   },
   presets: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 8,
+    gap: s(8),
+    marginBottom: s(8),
   },
   presetChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: s(12),
+    paddingVertical: s(6),
     borderRadius: 16,
     borderWidth: 1,
   },
   closesLabel: {
-    fontSize: 12,
-    marginBottom: 8,
+    fontSize: ms(12),
+    marginBottom: s(8),
   },
   toggleSection: {
     borderTopWidth: StyleSheet.hairlineWidth,
-    marginTop: 14,
-    paddingTop: 8,
+    marginTop: s(14),
+    paddingTop: s(8),
   },
   createBtn: {
     borderRadius: 10,
-    paddingVertical: 12,
+    paddingVertical: s(12),
     alignItems: 'center',
-    marginTop: 12,
+    marginTop: s(12),
   },
   createBtnText: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: '600',
   },
 });

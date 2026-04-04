@@ -1,11 +1,13 @@
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { ms, s } from "@/utils/scale";
+import { ThemedView } from '@/components/ui/ThemedView';
 import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
 import { useToast } from '@/context/ToastProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
+import { queryKeys } from '@/constants/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -40,7 +42,7 @@ export default function ClaimTeamScreen() {
   const [claiming, setClaiming] = useState(false);
 
   const { data: teams, isLoading } = useQuery({
-    queryKey: ['unclaimed-teams', leagueId],
+    queryKey: queryKeys.unclaimedTeams(leagueId!),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('teams')
@@ -144,7 +146,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   desc: {
-    fontSize: 14,
+    fontSize: ms(14),
     textAlign: 'center',
     paddingHorizontal: 24,
     marginBottom: 16,
@@ -171,17 +173,17 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   teamName: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: '600',
   },
   teamTricode: {
-    fontSize: 13,
+    fontSize: ms(13),
     marginTop: 2,
   },
   empty: {
     textAlign: 'center',
     paddingVertical: 40,
-    fontSize: 15,
+    fontSize: ms(15),
   },
 });
 

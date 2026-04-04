@@ -1,10 +1,11 @@
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import { ScoringWeight } from '@/types/player';
 import { useQuery } from '@tanstack/react-query';
 
 export function useLeagueScoring(leagueId: string) {
   return useQuery<ScoringWeight[]>({
-    queryKey: ['leagueScoring', leagueId],
+    queryKey: queryKeys.leagueScoring(leagueId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('league_scoring_settings')

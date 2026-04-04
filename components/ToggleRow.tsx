@@ -1,4 +1,5 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, Switch, View } from 'react-native';
 
@@ -62,27 +63,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 12,
+    paddingVertical: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   indented: {
-    paddingLeft: 30,
+    paddingLeft: s(30),
   },
   left: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: s(10),
     flex: 1,
-    marginRight: 12,
+    marginRight: s(12),
   },
   labelWrap: {
     flex: 1,
   },
   label: {
-    fontSize: 16,
+    fontSize: ms(16),
   },
   description: {
-    fontSize: 12,
-    marginTop: 2,
+    fontSize: ms(12),
+    marginTop: s(2),
   },
 });

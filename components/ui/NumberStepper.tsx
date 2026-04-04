@@ -1,5 +1,6 @@
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { ms, s } from '@/utils/scale';
 import { useState } from 'react';
 import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
@@ -116,38 +117,38 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 12,
+    paddingVertical: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   label: {
-    fontSize: 16,
+    fontSize: ms(16),
     flex: 1,
   },
   controls: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: s(12),
   },
   btn: {
-    width: 36,
-    height: 36,
+    width: s(36),
+    height: s(36),
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },
   btnText: {
-    fontSize: 20,
+    fontSize: ms(20),
     fontWeight: '600',
   },
   value: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: '600',
     textAlign: 'center',
   },
   valueBox: {
-    minWidth: 52,
-    paddingHorizontal: 6,
-    height: 32,
+    minWidth: s(52),
+    paddingHorizontal: s(6),
+    height: s(32),
     borderWidth: 1,
     borderRadius: 6,
     alignItems: 'center',

@@ -1,7 +1,8 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useClosePoll, usePoll, usePollResults, useVotePoll } from '@/hooks/chat';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { ms, s } from '@/utils/scale';
 import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -352,18 +353,18 @@ const styles = StyleSheet.create({
   container: {
     borderRadius: 16,
     borderWidth: 1,
-    padding: 14,
-    marginVertical: 4,
+    padding: s(14),
+    marginVertical: s(4),
     width: '100%',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginBottom: 8,
+    gap: s(6),
+    marginBottom: s(8),
   },
   headerLabel: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
@@ -371,56 +372,56 @@ const styles = StyleSheet.create({
   anonBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
+    gap: s(3),
     marginLeft: 'auto',
   },
   badgeText: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: '600',
   },
   question: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: '600',
-    lineHeight: 22,
-    marginBottom: 4,
+    lineHeight: ms(22),
+    marginBottom: s(4),
   },
   typeHint: {
-    fontSize: 12,
-    marginBottom: 10,
+    fontSize: ms(12),
+    marginBottom: s(10),
   },
   options: {
-    gap: 6,
+    gap: s(6),
   },
   optionRow: {
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: 10,
     borderWidth: 1,
-    padding: 10,
-    gap: 8,
+    padding: s(10),
+    gap: s(8),
   },
   radio: {
-    width: 20,
-    height: 20,
+    width: s(20),
+    height: s(20),
     borderRadius: 10,
     borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
   checkbox: {
-    width: 20,
-    height: 20,
+    width: s(20),
+    height: s(20),
     borderRadius: 4,
     borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
   votedIcon: {
-    marginRight: -2,
+    marginRight: s(-2),
   },
   optionContent: {
     flex: 1,
-    gap: 4,
+    gap: s(4),
   },
   optionTextRow: {
     flexDirection: 'row',
@@ -428,16 +429,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   optionText: {
-    fontSize: 14,
+    fontSize: ms(14),
     flex: 1,
   },
   pctText: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '600',
-    marginLeft: 8,
+    marginLeft: s(8),
   },
   barBg: {
-    height: 4,
+    height: s(4),
     borderRadius: 2,
     overflow: 'hidden',
   },
@@ -446,59 +447,59 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   votersSection: {
-    marginTop: 8,
-    gap: 2,
+    marginTop: s(8),
+    gap: s(2),
   },
   voterLine: {
-    fontSize: 11,
+    fontSize: ms(11),
   },
   hiddenMsg: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontStyle: 'italic',
     textAlign: 'center',
-    marginTop: 10,
+    marginTop: s(10),
   },
   voteBtn: {
     borderRadius: 10,
-    paddingVertical: 10,
+    paddingVertical: s(10),
     alignItems: 'center',
-    marginTop: 10,
+    marginTop: s(10),
   },
   voteBtnText: {
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: '600',
   },
   closeBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: s(6),
     borderWidth: 1,
     borderRadius: 10,
-    paddingVertical: 8,
-    marginTop: 10,
+    paddingVertical: s(8),
+    marginTop: s(10),
   },
   closeBtnText: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: '600',
   },
   footer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 10,
+    marginTop: s(10),
   },
   footerText: {
-    fontSize: 11,
+    fontSize: ms(11),
   },
   visibilityNote: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    marginTop: 6,
+    gap: s(4),
+    marginTop: s(6),
     justifyContent: 'center',
   },
   visibilityText: {
-    fontSize: 11,
+    fontSize: ms(11),
   },
   // Skeleton styles
   skeletonBar: {
@@ -506,26 +507,26 @@ const styles = StyleSheet.create({
     opacity: 0.4,
   },
   skeletonHeader: {
-    width: 120,
-    height: 14,
-    marginBottom: 10,
+    width: s(120),
+    height: s(14),
+    marginBottom: s(10),
   },
   skeletonQuestion: {
     width: '75%',
-    height: 18,
-    marginBottom: 12,
+    height: s(18),
+    marginBottom: s(12),
   },
   skeletonOptions: {
-    gap: 6,
+    gap: s(6),
   },
   skeletonOption: {
-    height: 42,
+    height: s(42),
     borderRadius: 10,
     width: '100%',
   },
   skeletonFooter: {
-    width: 100,
-    height: 12,
-    marginTop: 12,
+    width: s(100),
+    height: s(12),
+    marginTop: s(12),
   },
 });

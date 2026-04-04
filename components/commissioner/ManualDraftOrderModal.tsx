@@ -1,7 +1,8 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { manuallyAssignDraftSlots } from '@/lib/draft';
+import { ms, s } from '@/utils/scale';
 import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
@@ -243,73 +244,73 @@ const styles = StyleSheet.create({
   sheet: {
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
-    paddingTop: 12,
-    paddingBottom: 40,
+    paddingTop: s(12),
+    paddingBottom: s(40),
     maxHeight: '85%',
   },
   handle: {
-    width: 40,
-    height: 4,
+    width: s(40),
+    height: s(4),
     borderRadius: 2,
     alignSelf: 'center',
-    marginBottom: 12,
+    marginBottom: s(12),
   },
   titleRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    paddingHorizontal: 16,
-    marginBottom: 8,
+    paddingHorizontal: s(16),
+    marginBottom: s(8),
   },
-  title: { fontSize: 17, fontWeight: '600' },
+  title: { fontSize: ms(17), fontWeight: '600' },
   hint: {
-    fontSize: 13,
-    paddingHorizontal: 16,
-    marginBottom: 12,
+    fontSize: ms(13),
+    paddingHorizontal: s(16),
+    marginBottom: s(12),
     textAlign: 'center',
   },
   loadingContainer: {
-    paddingVertical: 40,
+    paddingVertical: s(40),
     alignItems: 'center',
   },
   listContainer: {
     flexShrink: 1,
   },
   list: {
-    paddingHorizontal: 16,
+    paddingHorizontal: s(16),
   },
   teamRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    marginBottom: 6,
+    paddingVertical: s(14),
+    paddingHorizontal: s(12),
+    marginBottom: s(6),
     borderRadius: 10,
     borderWidth: 1,
   },
   slotBadge: {
-    width: 28,
+    width: s(28),
     alignItems: 'center',
   },
   slotText: {
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: '700',
   },
   teamName: {
     flex: 1,
-    fontSize: 15,
-    marginLeft: 8,
+    fontSize: ms(15),
+    marginLeft: s(8),
   },
   footer: {
     flexDirection: 'row',
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    gap: s(12),
+    paddingHorizontal: s(16),
+    paddingTop: s(16),
   },
   btn: {
     flex: 1,
-    paddingVertical: 14,
+    paddingVertical: s(14),
     borderRadius: 10,
     alignItems: 'center',
   },
-  btnText: { fontSize: 15, fontWeight: '600' },
+  btnText: { fontSize: ms(15), fontWeight: '600' },
 });

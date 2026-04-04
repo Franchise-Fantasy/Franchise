@@ -84,7 +84,7 @@ begin
   update league_players
   set on_trade_block = false,
       trade_block_note = null,
-      trade_block_interest = '[]'::jsonb
+      trade_block_interest = '{}'::uuid[]
   where league_id = p_league_id
     and player_id in (
       select (j->>'player_id')::uuid

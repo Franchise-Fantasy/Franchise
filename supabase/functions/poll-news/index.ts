@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { CORS_HEADERS } from '../_shared/cors.ts';
 import { normalizeName } from '../_shared/normalize.ts';
+import { getTokensForUsers, sendPush } from '../_shared/push.ts';
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -11,8 +12,7 @@ const supabase = createClient(
 const jsonHeaders = { ...CORS_HEADERS, 'Content-Type': 'application/json' };
 
 const RSS_FEEDS: { url: string; source: string }[] = [
-  { url: 'https://www.rotowire.com/basketball/rss/news.php', source: 'rotowire' },
-  { url: 'https://www.fantasypros.com/nba/news/feed/', source: 'fantasypros' },
+  { url: 'https://www.rotowire.com/rss/news.php?sport=NBA', source: 'rotowire' },
 ];
 
 // ── RSS Parsing ────────────────────────────────
@@ -50,7 +50,9 @@ function parseRssFeed(xml: string, source: string): RssItem[] {
     const block = match[1];
     const title = stripHtml(extractTag(block, 'title'));
     const link = stripHtml(extractTag(block, 'link'));
-    const description = stripHtml(extractTag(block, 'description'));
+    const description = stripHtml(extractTag(block, 'description'))
+      .replace(/\s*Visit RotoWire\.com for more analysis on this update\.?/i, '')
+      .trim();
     const pubDate = extractTag(block, 'pubDate');
     if (title && link) {
       items.push({ title, link, description, pubDate, source });
@@ -67,6 +69,16 @@ const MIN_RESTRICT_PATTERNS = [
   /minutes?\s+cap/i,
   /restricted\s+minutes/i,
   /limited\s+minutes/i,
+  /load\s+manag/i,
+  /ramp(ing|ed)?\s+(up|back)/i,
+  /reduced\s+(role|usage|workload|minutes)/i,
+  /ease[ds]?\s+(him|back|into)/i,
+  /playing\s+time\s+(will be|is being)?\s*(monitored|limited|managed)/i,
+  /won'?t\s+play\s+more\s+than\s+\d+\s+minutes/i,
+  /pitch\s+count/i,
+  /bringing\s+.{0,20}back\s+slowly/i,
+  /not\s+expected\s+to\s+play\s+(his|a)\s+full/i,
+  /workload\s+(will be|is being)?\s*(managed|monitored|limited)/i,
 ];
 
 const MIN_RESTRICT_NEGATIONS = [
@@ -74,6 +86,10 @@ const MIN_RESTRICT_NEGATIONS = [
   /no\s+longer\s+on\s+a?\s*minutes/i,
   /removed?\s+from\s+.*minutes?\s+(restriction|limit)/i,
   /without\s+.*minutes?\s+(restriction|limit)/i,
+  /no\s+(more\s+)?load\s+manag/i,
+  /done\s+ramp/i,
+  /full\s+go/i,
+  /no\s+(minutes?|playing\s+time)\s+(restriction|limit)/i,
 ];
 
 function detectMinutesRestriction(text: string): boolean {
@@ -120,6 +136,69 @@ function extractReturnEstimate(text: string): string | null {
   return null;
 }
 
+// ── Injury Status Parsing ──────────────────────
+
+// RotoWire titles follow: "Player Name: Status for Day"
+// Patterns checked against the title (after the colon)
+const TITLE_STATUS_PATTERNS: { re: RegExp; status: string }[] = [
+  // OUT
+  { re: /:\s*out\b/i, status: 'OUT' },
+  { re: /:\s*ruled out\b/i, status: 'OUT' },
+  { re: /:\s*will not play\b/i, status: 'OUT' },
+  { re: /:\s*won't play\b/i, status: 'OUT' },
+  { re: /:\s*not playing\b/i, status: 'OUT' },
+  { re: /:\s*sidelined\b/i, status: 'OUT' },
+  { re: /:\s*remains out\b/i, status: 'OUT' },
+  // DOUBT
+  { re: /:\s*doubtful\b/i, status: 'DOUBT' },
+  { re: /:\s*unlikely to play\b/i, status: 'DOUBT' },
+  // QUES
+  { re: /:\s*questionable\b/i, status: 'QUES' },
+  { re: /:\s*game.?time decision\b/i, status: 'QUES' },
+  { re: /:\s*day.?to.?day\b/i, status: 'QUES' },
+  { re: /:\s*iffy\b/i, status: 'QUES' },
+  // PROB
+  { re: /:\s*probable\b/i, status: 'PROB' },
+  { re: /:\s*upgraded to probable\b/i, status: 'PROB' },
+  // Active
+  { re: /:\s*will play\b/i, status: 'active' },
+  { re: /:\s*expected to play\b/i, status: 'active' },
+  { re: /:\s*cleared to play\b/i, status: 'active' },
+  { re: /:\s*available\b/i, status: 'active' },
+  { re: /:\s*back in lineup\b/i, status: 'active' },
+  { re: /:\s*good to go\b/i, status: 'active' },
+  { re: /:\s*not listed on injury report\b/i, status: 'active' },
+  { re: /:\s*starting\b/i, status: 'active' },
+];
+
+// Broader patterns checked against the description as a fallback
+const DESC_STATUS_PATTERNS: { re: RegExp; status: string }[] = [
+  { re: /\bruled out\b/i, status: 'OUT' },
+  { re: /\bwon't play\b/i, status: 'OUT' },
+  { re: /\bwill not play\b/i, status: 'OUT' },
+  { re: /\bnot playing\b/i, status: 'OUT' },
+  { re: /\bsidelined\b/i, status: 'OUT' },
+  { re: /\bis out\b/i, status: 'OUT' },
+  { re: /\bdoubtful\b/i, status: 'DOUBT' },
+  { re: /\bunlikely to play\b/i, status: 'DOUBT' },
+  { re: /\bis questionable\b/i, status: 'QUES' },
+  { re: /\bis probable\b/i, status: 'PROB' },
+  { re: /\bwill play\b/i, status: 'active' },
+  { re: /\bexpected to play\b/i, status: 'active' },
+  { re: /\bcleared to play\b/i, status: 'active' },
+  { re: /\bavailable\b/i, status: 'active' },
+];
+
+function parseStatus(title: string, description: string): string | null {
+  for (const { re, status } of TITLE_STATUS_PATTERNS) {
+    if (re.test(title)) return status;
+  }
+  for (const { re, status } of DESC_STATUS_PATTERNS) {
+    if (re.test(description)) return status;
+  }
+  return null;
+}
+
 // ── Hashing ────────────────────────────────────
 
 async function hashExternalId(source: string, link: string): Promise<string> {
@@ -137,9 +216,9 @@ Deno.serve(async (req: Request) => {
   }
 
   // Cron-only: check CRON_SECRET
-  const authHeader = req.headers.get('authorization') ?? '';
   const cronSecret = Deno.env.get('CRON_SECRET');
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  const authHeader = req.headers.get('Authorization');
+  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), {
       status: 401,
       headers: jsonHeaders,
@@ -177,13 +256,15 @@ Deno.serve(async (req: Request) => {
 
     // 2. Load all players for name matching
     const { data: allPlayers, error: playerErr } = await supabase
-      .from('players').select('id, name');
+      .from('players').select('id, name, external_id_nba, status');
     if (playerErr) throw new Error(`Failed to fetch players: ${playerErr.message}`);
 
-    // Build normalized name → player IDs map
+    // Build normalized name → player IDs map + player info lookup
     // Only match names with at least 2 parts (first + last) to avoid false positives
     const nameToIds = new Map<string, string[]>();
+    const playerById = new Map<string, { name: string; external_id_nba: string | null; status: string }>();
     for (const p of allPlayers ?? []) {
+      playerById.set(p.id, { name: p.name, external_id_nba: p.external_id_nba, status: p.status });
       const norm = normalizeName(p.name);
       if (norm.split(' ').length < 2) continue;
       const existing = nameToIds.get(norm) ?? [];
@@ -194,6 +275,10 @@ Deno.serve(async (req: Request) => {
     // 3. Process each article
     let inserted = 0;
     let mentionsInserted = 0;
+    let statusUpdates = 0;
+    const newArticlePlayerIds = new Set<string>();
+    // Map player name → most recent article title (for single-player notification body)
+    const newArticleTitles = new Map<string, string>();
 
     for (const item of allItems) {
       const publishedAt = item.pubDate ? new Date(item.pubDate) : new Date();
@@ -224,6 +309,29 @@ Deno.serve(async (req: Request) => {
         matchedPlayerIds.push(...playerIds);
       }
 
+      // Update player injury status on every poll (even for duplicate articles)
+      const parsedStatus = parseStatus(item.title, item.description);
+      if (parsedStatus && matchedPlayerIds.length === 1) {
+        const pid = matchedPlayerIds[0];
+        const current = playerById.get(pid);
+        if (current && current.status !== parsedStatus) {
+          const { error: statusErr } = await supabase
+            .from('players')
+            .update({ status: parsedStatus })
+            .eq('id', pid);
+          if (statusErr) {
+            console.warn(`Status update error for ${current.name}:`, statusErr.message);
+          } else {
+            console.log(`Status update: ${current.name} ${current.status} → ${parsedStatus} (via RSS)`);
+            current.status = parsedStatus;
+            statusUpdates++;
+          }
+        }
+      }
+
+      // Build mentioned players JSONB
+      const mentionedPlayers = matchedPlayerIds.map(pid => playerById.get(pid)).filter(Boolean);
+
       // Upsert article (skip if already exists)
       const { data: newsRow, error: newsErr } = await supabase
         .from('player_news')
@@ -236,16 +344,13 @@ Deno.serve(async (req: Request) => {
           published_at: publishedAt.toISOString(),
           has_minutes_restriction: hasMinutesRestriction,
           return_estimate: returnEstimate,
+          mentioned_players: mentionedPlayers,
         }, { onConflict: 'external_id', ignoreDuplicates: true })
         .select('id')
         .single();
 
       if (newsErr) {
-        // ignoreDuplicates returns no row on conflict — fetch the existing one
-        if (newsErr.code === 'PGRST116') {
-          // No row returned (duplicate) — skip mentions for this article
-          continue;
-        }
+        if (newsErr.code === 'PGRST116') continue; // duplicate
         console.warn(`Upsert error for "${item.title.slice(0, 50)}":`, newsErr.message);
         continue;
       }
@@ -253,7 +358,13 @@ Deno.serve(async (req: Request) => {
       if (newsRow) {
         inserted++;
 
-        // Insert player mentions
+        // Track newly inserted articles for push notifications
+        for (const pid of matchedPlayerIds) {
+          newArticlePlayerIds.add(pid);
+          const pName = playerById.get(pid)?.name;
+          if (pName) newArticleTitles.set(pName, item.title);
+        }
+
         if (matchedPlayerIds.length > 0) {
           const mentions = matchedPlayerIds.map(pid => ({
             news_id: newsRow.id,
@@ -273,14 +384,80 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // 4. Cleanup old articles
-    const { error: cleanupErr } = await supabase.rpc('cleanup_old_news');
-    if (cleanupErr) console.warn('Cleanup error:', cleanupErr.message);
+    // ── Send push notifications for new articles ──
+    // Collect all player IDs mentioned in newly inserted articles
+    let notificationsSent = 0;
+    if (newArticlePlayerIds.size > 0) {
+      const playerIdArr = [...newArticlePlayerIds];
+
+      // Find all league_players rows that roster these players
+      const { data: rosteredRows } = await supabase
+        .from('league_players')
+        .select('player_id, team_id, league_id')
+        .in('player_id', playerIdArr);
+
+      if (rosteredRows && rosteredRows.length > 0) {
+        // Look up user_id for each team
+        const teamIds = [...new Set(rosteredRows.map(r => r.team_id))];
+        const { data: teamRows } = await supabase
+          .from('teams')
+          .select('id, user_id, league_id')
+          .in('id', teamIds);
+
+        const teamUserMap = new Map<string, { user_id: string; league_id: string }>();
+        for (const t of teamRows ?? []) {
+          teamUserMap.set(t.id, { user_id: t.user_id, league_id: t.league_id });
+        }
+
+        // Group: user_id → Set of player names to notify about
+        const userNotifs = new Map<string, { playerNames: Set<string>; leagueIds: Set<string> }>();
+        for (const row of rosteredRows) {
+          const team = teamUserMap.get(row.team_id);
+          if (!team) continue;
+          const pName = playerById.get(row.player_id)?.name;
+          if (!pName) continue;
+          const existing = userNotifs.get(team.user_id) ?? { playerNames: new Set(), leagueIds: new Set() };
+          existing.playerNames.add(pName);
+          existing.leagueIds.add(team.league_id);
+          userNotifs.set(team.user_id, existing);
+        }
+
+        // Send one push per user (preference-filtered across any of their leagues)
+        for (const [userId, { playerNames, leagueIds }] of userNotifs) {
+          // Use the first league for preference resolution
+          const leagueId = [...leagueIds][0];
+          const tokens = await getTokensForUsers(supabase, [userId], 'player_news', undefined, leagueId);
+          if (tokens.length === 0) continue;
+
+          const names = [...playerNames];
+          const title = names.length === 1
+            ? `${names[0]} — New Update`
+            : `${names.length} Player Updates`;
+          const body = names.length === 1
+            ? (newArticleTitles.get(names[0]) ?? 'Tap to read the latest news')
+            : `News about ${names.slice(0, 3).join(', ')}${names.length > 3 ? ` +${names.length - 3} more` : ''}`;
+
+          const dead = await sendPush(tokens.map(to => ({
+            to,
+            title,
+            body,
+            data: { screen: 'news', channelId: 'player_news' },
+            channelId: 'player_news',
+          })));
+          if (dead.length > 0) {
+            await supabase.from('push_tokens').delete().in('token', dead);
+          }
+          notificationsSent++;
+        }
+      }
+    }
 
     const summary = {
       fetched: allItems.length,
       inserted,
       mentionsInserted,
+      statusUpdates,
+      notificationsSent,
       totalPlayers: nameToIds.size,
     };
     console.log('poll-news complete:', JSON.stringify(summary));

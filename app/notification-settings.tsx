@@ -1,5 +1,6 @@
 import { LeagueNotificationModal } from "@/components/LeagueNotificationModal";
-import { ThemedText } from "@/components/ThemedText";
+import { ms, s } from "@/utils/scale";
+import { ThemedText } from "@/components/ui/ThemedText";
 import { ToggleRow } from "@/components/ToggleRow";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Colors } from "@/constants/Colors";
@@ -149,10 +150,10 @@ export default function NotificationSettingsScreen() {
               />
             </View>
             <View style={{ flex: 1 }}>
-              <ThemedText style={{ fontSize: 14, fontWeight: "600" }}>
+              <ThemedText style={{ fontSize: ms(14), fontWeight: "600" }}>
                 {league.name}
               </ThemedText>
-              <ThemedText style={{ fontSize: 12, color: c.secondaryText }}>
+              <ThemedText style={{ fontSize: ms(12), color: c.secondaryText }}>
                 Customize notifications for this league
               </ThemedText>
             </View>
@@ -252,6 +253,14 @@ export default function NotificationSettingsScreen() {
             description="Your rostered player status changes"
             value={prefs.injuries}
             onToggle={toggle("injuries")}
+            c={c}
+          />
+          <ToggleRow
+            icon="newspaper-outline"
+            label="Player News"
+            description="News articles about players on your roster"
+            value={prefs.player_news}
+            onToggle={toggle("player_news")}
             c={c}
             last
           />
@@ -388,7 +397,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   title: {
-    fontSize: 20,
+    fontSize: ms(20),
   },
   section: {
     borderWidth: 1,
@@ -402,12 +411,12 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   muteHint: {
-    fontSize: 13,
+    fontSize: ms(13),
     textAlign: "center",
     marginBottom: 12,
   },
   explainer: {
-    fontSize: 13,
+    fontSize: ms(13),
     lineHeight: 19,
     marginBottom: 12,
   },

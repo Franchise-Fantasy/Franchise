@@ -1,9 +1,10 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { Colors } from '@/constants/Colors';
 import { DEFAULT_ROSTER_SLOTS, NBA_POSITIONS, NbaPosition } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
+import { ms, s } from '@/utils/scale';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
@@ -152,15 +153,15 @@ export function EditRosterModal({ visible, onClose, leagueId, rosterConfig, posi
 
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'transparent', justifyContent: 'flex-end' },
-  sheet: { borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingTop: 12, paddingBottom: 40, maxHeight: '85%' },
-  handle: { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 12 },
-  titleRow: { flexDirection: 'row', justifyContent: 'center', paddingHorizontal: 16, marginBottom: 16 },
-  title: { fontSize: 17, fontWeight: '600' },
-  scroll: { paddingHorizontal: 16 },
-  footer: { flexDirection: 'row', gap: 12, paddingHorizontal: 16, paddingTop: 16 },
-  btn: { flex: 1, paddingVertical: 14, borderRadius: 10, alignItems: 'center' },
-  btnText: { fontSize: 15, fontWeight: '600' },
-  posLimitSection: { borderTopWidth: 1, marginTop: 16, paddingTop: 12 },
-  posLimitTitle: { marginBottom: 4 },
-  posLimitNote: { fontSize: 13, marginBottom: 8 },
+  sheet: { borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingTop: s(12), paddingBottom: s(40), maxHeight: '85%' },
+  handle: { width: s(40), height: s(4), borderRadius: 2, alignSelf: 'center', marginBottom: s(12) },
+  titleRow: { flexDirection: 'row', justifyContent: 'center', paddingHorizontal: s(16), marginBottom: s(16) },
+  title: { fontSize: ms(17), fontWeight: '600' },
+  scroll: { paddingHorizontal: s(16) },
+  footer: { flexDirection: 'row', gap: s(12), paddingHorizontal: s(16), paddingTop: s(16) },
+  btn: { flex: 1, paddingVertical: s(14), borderRadius: 10, alignItems: 'center' },
+  btnText: { fontSize: ms(15), fontWeight: '600' },
+  posLimitSection: { borderTopWidth: 1, marginTop: s(16), paddingTop: s(12) },
+  posLimitTitle: { marginBottom: s(4) },
+  posLimitNote: { fontSize: ms(13), marginBottom: s(8) },
 });

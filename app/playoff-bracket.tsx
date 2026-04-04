@@ -1,4 +1,5 @@
 import { PlayoffBracket } from '@/components/playoff/PlayoffBracket';
+import { ms, s } from "@/utils/scale";
 import { SeedPickModal } from '@/components/playoff/SeedPickModal';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Colors } from '@/constants/Colors';
@@ -17,6 +18,7 @@ import {
   nextPowerOf2,
   seedTeams,
 } from '@/utils/playoff';
+import { queryKeys } from '@/constants/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import {
@@ -48,6 +50,7 @@ function pairingsToSlots(
     team_b_seed: p.teamB?.seed ?? null,
     winner_id: p.teamB === null ? p.teamA.teamId : null, // auto-advance byes
     is_bye: p.teamB === null,
+    is_third_place: false,
   }));
 }
 
@@ -134,7 +137,32 @@ function fillFutureRounds(
         team_b_seed: teamB?.seed ?? null,
         winner_id: null,
         is_bye: false,
+        is_third_place: false,
       });
+    }
+
+    // Add 3rd place placeholder on the finals round if previous round had 2+ non-bye matchups
+    if (r === totalRounds && r > 1) {
+      const prevNonBye = (byRound.get(r - 1) ?? []).filter(
+        (s) => !s.is_bye && !s.is_third_place,
+      );
+      if (prevNonBye.length >= 2) {
+        roundSlots.push({
+          id: `fill-${r}-3rd`,
+          league_id: leagueId,
+          season,
+          round: r,
+          bracket_position: matchupsInRound + 1,
+          matchup_id: null,
+          team_a_id: null,
+          team_a_seed: null,
+          team_b_id: null,
+          team_b_seed: null,
+          winner_id: null,
+          is_bye: false,
+          is_third_place: true,
+        });
+      }
     }
 
     byRound.set(r, roundSlots);
@@ -159,11 +187,11 @@ export default function PlayoffBracketScreen() {
 
   // Fetch team names + standings for projected bracket
   const { data: teamsData } = useQuery({
-    queryKey: ['bracketTeamData', leagueId],
+    queryKey: queryKeys.bracketTeamData(leagueId!),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('teams')
-        .select('id, name, wins, losses, points_for')
+        .select('id, name, wins, losses, ties, points_for')
         .eq('league_id', leagueId!);
       if (error) throw error;
       return data ?? [];
@@ -188,7 +216,11 @@ export default function PlayoffBracketScreen() {
     if (hasRealBracket || !teamsData || !leagueId || playoffTeams < 2) return null;
 
     const sorted = [...teamsData].sort((a, b) => {
-      if (b.wins !== a.wins) return b.wins - a.wins;
+      const gpa = a.wins + a.losses + a.ties;
+      const gpb = b.wins + b.losses + b.ties;
+      const pctA = gpa === 0 ? 0 : a.wins / gpa;
+      const pctB = gpb === 0 ? 0 : b.wins / gpb;
+      if (pctB !== pctA) return pctB - pctA;
       return parseFloat(String(b.points_for)) - parseFloat(String(a.points_for));
     });
 
@@ -282,7 +314,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   projectedText: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '700',
     letterSpacing: 0.5,
   },
@@ -292,7 +324,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   pickBannerText: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '600',
   },
   loader: {

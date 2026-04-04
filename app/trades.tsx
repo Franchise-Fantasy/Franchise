@@ -1,4 +1,4 @@
-import { ThemedText } from "@/components/ThemedText";
+import { ThemedText } from "@/components/ui/ThemedText";
 import { ProposeTradeModal } from "@/components/trade/ProposeTradeModal";
 import { TradeBlockSheet } from "@/components/trade/TradeBlockSheet";
 import { TradeCard } from "@/components/trade/TradeCard";
@@ -15,12 +15,15 @@ import {
   useTradeProposals,
 } from "@/hooks/useTrades";
 import { supabase } from "@/lib/supabase";
+import { ms, s } from "@/utils/scale";
 import { Ionicons } from "@expo/vector-icons";
+import { queryKeys } from "@/constants/queryKeys";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -86,12 +89,22 @@ export default function Trades() {
     }
   }, [params.proposePlayerId]);
 
-  const { data: proposals, isLoading } = useTradeProposals(leagueId);
-  const { data: tradeBlock } = useTradeBlock(leagueId);
+  const { data: proposals, isLoading, refetch: refetchProposals } = useTradeProposals(leagueId);
+  const { data: tradeBlock, refetch: refetchTradeBlock } = useTradeBlock(leagueId);
+  const [refreshing, setRefreshing] = useState(false);
+  const lastRefresh = useRef(0);
+
+  const onRefresh = useCallback(async () => {
+    if (Date.now() - lastRefresh.current < 10_000) return;
+    lastRefresh.current = Date.now();
+    setRefreshing(true);
+    await Promise.all([refetchProposals(), refetchTradeBlock()]);
+    setRefreshing(false);
+  }, [refetchProposals, refetchTradeBlock]);
 
   // Check trade deadline
   const { data: leagueDeadline } = useQuery({
-    queryKey: ["leagueDeadline", leagueId],
+    queryKey: queryKeys.leagueDeadline(leagueId!),
     queryFn: async () => {
       const { data } = await supabase
         .from("leagues")
@@ -104,28 +117,6 @@ export default function Trades() {
   });
   const isPastDeadline =
     !!leagueDeadline && new Date(leagueDeadline + "T23:59:59") < new Date();
-
-  // Auto-complete trades whose review period has expired (client-side check)
-  useEffect(() => {
-    if (!proposals) return;
-    const now = Date.now();
-    const expired = proposals.filter(
-      (p) =>
-        p.status === "in_review" &&
-        p.review_expires_at &&
-        new Date(p.review_expires_at).getTime() < now,
-    );
-    for (const p of expired) {
-      supabase.functions
-        .invoke("execute-trade", { body: { proposal_id: p.id } })
-        .then(() =>
-          queryClient.invalidateQueries({
-            queryKey: ["tradeProposals", leagueId],
-          }),
-        )
-        .catch(console.error);
-    }
-  }, [proposals, leagueId, queryClient]);
 
   const filtered = useMemo(() => {
     if (!proposals) return [];
@@ -238,6 +229,13 @@ export default function Trades() {
       <ScrollView
         style={styles.scrollArea}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            accessibilityLabel="Pull to refresh trades"
+          />
+        }
       >
         {/* Trade list */}
         {isLoading ? (
@@ -303,6 +301,7 @@ export default function Trades() {
             items: editProposal.items,
             notes: editProposal.notes,
           } : undefined}
+          isPastDeadline={isPastDeadline}
           onClose={handleProposeClose}
         />
       )}
@@ -313,8 +312,8 @@ export default function Trades() {
           leagueId={leagueId}
           teamId={teamId}
           onClose={() => setSelectedProposal(null)}
-          onCounteroffer={handleCounteroffer}
-          onEdit={handleEdit}
+          onCounteroffer={isPastDeadline ? undefined : handleCounteroffer}
+          onEdit={isPastDeadline ? undefined : handleEdit}
         />
       )}
     </SafeAreaView>
@@ -338,11 +337,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   backText: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: "500",
   },
   title: {
-    fontSize: 16,
+    fontSize: ms(16),
     textAlign: "center",
   },
   proposeBtn: {
@@ -354,7 +353,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   proposeBtnText: {
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: "700",
   },
   deadlineBanner: {
@@ -370,7 +369,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   deadlineText: {
-    fontSize: 13,
+    fontSize: ms(13),
     flex: 1,
   },
   scrollArea: {
@@ -397,7 +396,7 @@ const styles = StyleSheet.create({
     justifyContent: "center" as const,
   },
   tradeBlockPillText: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: "600",
   },
   tradeBlockBadge: {
@@ -409,7 +408,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 5,
   },
   tradeBlockBadgeText: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: "700",
     lineHeight: 20,
   },
@@ -424,7 +423,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   emptyText: {
-    fontSize: 15,
+    fontSize: ms(15),
   },
   list: {
     paddingHorizontal: 16,

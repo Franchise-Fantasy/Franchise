@@ -301,6 +301,9 @@ export function calculateBounceBack(
 
 /* ── Category (H2H) Insights ─────────────────────────────── */
 
+// Stats with low per-game averages where high CV is expected
+const LOW_VOLUME_CATS = new Set(["STL", "BLK", "TO", "3PM", "PF"]);
+
 // Maps stat_name to player_games column (same as categoryScoring.ts STAT_TO_GAME_KEY)
 const CAT_STAT_TO_GAME: Record<string, string> = {
   PTS: "pts",
@@ -388,10 +391,15 @@ export function calculateCategoryInsights(
     const stdDev = Math.sqrt(variance);
 
     const cv = seasonAvg !== 0 ? stdDev / Math.abs(seasonAvg) : 1;
+    // Low-volume stats naturally have higher CV — use relaxed thresholds
+    const isLowVolume = LOW_VOLUME_CATS.has(cat.stat_name);
+    const cutoffs = isLowVolume
+      ? { rockSolid: 0.5, steady: 0.65, variable: 0.8 }
+      : { rockSolid: 0.3, steady: 0.4, variable: 0.5 };
     let consistency: ConsistencyLabel;
-    if (cv < 0.3) consistency = "Rock Solid";
-    else if (cv < 0.4) consistency = "Steady";
-    else if (cv < 0.5) consistency = "Variable";
+    if (cv < cutoffs.rockSolid) consistency = "Rock Solid";
+    else if (cv < cutoffs.steady) consistency = "Steady";
+    else if (cv < cutoffs.variable) consistency = "Variable";
     else consistency = "Boom or Bust";
 
     const recentValues = values.slice(0, Math.min(recentWindow, values.length));

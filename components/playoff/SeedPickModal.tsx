@@ -1,10 +1,11 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useSeedPicks } from '@/hooks/usePlayoffBracket';
 import { supabase } from '@/lib/supabase';
 import { PlayoffSeedPick } from '@/types/playoff';
+import { ms, s } from '@/utils/scale';
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
@@ -188,48 +189,48 @@ const styles = StyleSheet.create({
     maxHeight: '70%',
     borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
-    padding: 20,
+    padding: s(20),
   },
   title: {
-    marginBottom: 4,
+    marginBottom: s(4),
   },
   subtitle: {
-    fontSize: 13,
-    marginBottom: 16,
+    fontSize: ms(13),
+    marginBottom: s(16),
   },
   waitingBox: {
-    paddingVertical: 24,
+    paddingVertical: s(24),
     alignItems: 'center',
   },
   noOpponents: {
     textAlign: 'center',
-    paddingVertical: 16,
+    paddingVertical: s(16),
   },
   opponentRow: {
     borderWidth: 1,
     borderRadius: 8,
-    padding: 14,
-    marginBottom: 8,
+    padding: s(14),
+    marginBottom: s(8),
   },
   opponentName: {
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: '600',
   },
   actions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    gap: 12,
-    marginTop: 16,
+    gap: s(12),
+    marginTop: s(16),
   },
   btn: {
-    paddingVertical: 10,
-    paddingHorizontal: 20,
+    paddingVertical: s(10),
+    paddingHorizontal: s(20),
     borderRadius: 8,
     borderWidth: 1,
     borderColor: 'transparent',
   },
   btnText: {
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: '600',
   },
 });

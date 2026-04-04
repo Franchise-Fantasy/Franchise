@@ -2,6 +2,7 @@ import { useAppState } from '@/context/AppStateProvider';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLatestAnnouncement } from '@/hooks/useAnnouncements';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
@@ -30,6 +31,7 @@ export function AnnouncementBanner() {
   const { data: latest } = useLatestAnnouncement(leagueId ?? null);
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [checkedId, setCheckedId] = useState<string | null>(null);
+  const insets = useSafeAreaInsets();
 
   // Check if latest announcement has been dismissed
   useEffect(() => {
@@ -67,7 +69,6 @@ export function AnnouncementBanner() {
   if (!latest || dismissed === latest.id || checkedId !== latest.id) return null;
 
   const c = Colors[scheme];
-  const insets = useSafeAreaInsets();
 
   return (
     <View style={[styles.container, { top: insets.top, backgroundColor: c.card, borderBottomColor: c.warning }]} accessibilityRole="alert" accessibilityLiveRegion="polite">
@@ -92,11 +93,11 @@ const styles = StyleSheet.create({
     zIndex: 999,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: s(14),
+    paddingVertical: s(12),
     borderBottomWidth: 2,
   },
-  icon: { marginRight: 8 },
+  icon: { marginRight: s(8) },
   textWrap: { flex: 1 },
-  text: { fontSize: 13, fontWeight: '600' },
+  text: { fontSize: ms(13), fontWeight: '600' },
 });

@@ -1,4 +1,4 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { ToggleRow } from '@/components/ToggleRow';
 import { LotteryOddsEditor } from '@/components/create-league/LotteryOddsEditor';
 import { NumberStepper } from '@/components/ui/NumberStepper';
@@ -8,6 +8,7 @@ import { DRAFT_TYPE_OPTIONS, INITIAL_DRAFT_ORDER_DISPLAY, INITIAL_DRAFT_ORDER_OP
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/lottery';
+import { ms, s } from '@/utils/scale';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
@@ -176,7 +177,7 @@ export function EditDraftSettingsModal({
             <View style={[styles.editRow, { borderBottomColor: c.border }]}>
               <ThemedText style={styles.rowLabel}>Type</ThemedText>
             </View>
-            <View style={{ paddingVertical: 8 }}>
+            <View style={{ paddingVertical: s(8) }}>
               <SegmentedControl
                 options={DRAFT_TYPE_OPTIONS}
                 selectedIndex={draftTypeIndex >= 0 ? draftTypeIndex : 0}
@@ -188,7 +189,7 @@ export function EditDraftSettingsModal({
             <View style={[styles.editRow, { borderBottomColor: c.border }]}>
               <ThemedText style={styles.rowLabel}>Time Per Pick</ThemedText>
             </View>
-            <View style={{ paddingVertical: 8 }}>
+            <View style={{ paddingVertical: s(8) }}>
               <SegmentedControl
                 options={TIME_LABELS}
                 selectedIndex={timeIndex >= 0 ? timeIndex : 1}
@@ -200,14 +201,14 @@ export function EditDraftSettingsModal({
             <View style={[styles.editRow, { borderBottomColor: c.border }]}>
               <ThemedText style={styles.rowLabel}>Draft Order</ThemedText>
             </View>
-            <View style={{ paddingVertical: 8 }}>
+            <View style={{ paddingVertical: s(8) }}>
               <SegmentedControl
                 options={[...INITIAL_DRAFT_ORDER_OPTIONS]}
                 selectedIndex={initialOrderIndex >= 0 ? initialOrderIndex : 0}
                 onSelect={(i) => setInitialOrder(INITIAL_DRAFT_ORDER_OPTIONS[i])}
               />
             </View>
-            <ThemedText style={[styles.helperText, { color: c.secondaryText, marginBottom: 8 }]}>
+            <ThemedText style={[styles.helperText, { color: c.secondaryText, marginBottom: s(8) }]}>
               {initialOrder === 'Random'
                 ? 'Teams are randomly assigned a draft position when all teams join.'
                 : 'The commissioner will set the draft order before the draft begins.'}
@@ -237,7 +238,7 @@ export function EditDraftSettingsModal({
                 <View style={[styles.editRow, { borderBottomColor: c.border }]}>
                   <ThemedText style={styles.rowLabel}>Rookie Draft Order</ThemedText>
                 </View>
-                <View style={{ paddingVertical: 8 }}>
+                <View style={{ paddingVertical: s(8) }}>
                   <SegmentedControl
                     options={ROOKIE_DRAFT_ORDER_OPTIONS}
                     selectedIndex={orderIndex >= 0 ? orderIndex : 0}
@@ -250,14 +251,14 @@ export function EditDraftSettingsModal({
                   <>
                     {lotteryPool <= 0 ? (
                       <ThemedText
-                        style={[styles.helperText, { color: c.secondaryText, marginBottom: 8 }]}
+                        style={[styles.helperText, { color: c.secondaryText, marginBottom: s(8) }]}
                       >
                         All teams make playoffs — no lottery pool.
                       </ThemedText>
                     ) : (
                       <>
                         <ThemedText
-                          style={[styles.helperText, { color: c.secondaryText, marginBottom: 8 }]}
+                          style={[styles.helperText, { color: c.secondaryText, marginBottom: s(8) }]}
                         >
                           {lotteryPool} non-playoff team(s) in the lottery
                         </ThemedText>
@@ -270,7 +271,7 @@ export function EditDraftSettingsModal({
                           max={lotteryPool}
                         />
 
-                        <View style={{ marginTop: 12 }}>
+                        <View style={{ marginTop: s(12) }}>
                           <LotteryOddsEditor
                             odds={lotteryOdds ?? generateDefaultOdds(lotteryPool)}
                             onChange={setLotteryOdds}
@@ -335,45 +336,45 @@ const styles = StyleSheet.create({
   sheet: {
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
-    paddingTop: 12,
-    paddingBottom: 40,
+    paddingTop: s(12),
+    paddingBottom: s(40),
     maxHeight: '85%',
   },
   handle: {
-    width: 40,
-    height: 4,
+    width: s(40),
+    height: s(4),
     borderRadius: 2,
     alignSelf: 'center',
-    marginBottom: 12,
+    marginBottom: s(12),
   },
   titleRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    paddingHorizontal: 16,
-    marginBottom: 16,
+    paddingHorizontal: s(16),
+    marginBottom: s(16),
   },
-  title: { fontSize: 17, fontWeight: '600' },
-  scroll: { paddingHorizontal: 16 },
+  title: { fontSize: ms(17), fontWeight: '600' },
+  scroll: { paddingHorizontal: s(16) },
   editRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 12,
+    paddingVertical: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  rowLabel: { fontSize: 14 },
-  helperText: { fontSize: 13, marginTop: 2 },
+  rowLabel: { fontSize: ms(14) },
+  helperText: { fontSize: ms(13), marginTop: s(2) },
   footer: {
     flexDirection: 'row',
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    gap: s(12),
+    paddingHorizontal: s(16),
+    paddingTop: s(16),
   },
   btn: {
     flex: 1,
-    paddingVertical: 14,
+    paddingVertical: s(14),
     borderRadius: 10,
     alignItems: 'center',
   },
-  btnText: { fontSize: 15, fontWeight: '600' },
+  btnText: { fontSize: ms(15), fontWeight: '600' },
 });

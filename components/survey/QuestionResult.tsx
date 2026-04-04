@@ -1,6 +1,7 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { ms, s } from '@/utils/scale';
 import type { SurveyQuestionResult } from '@/types/survey';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, View } from 'react-native';
@@ -246,42 +247,42 @@ const styles = StyleSheet.create({
   container: {
     borderRadius: 14,
     borderWidth: 1,
-    padding: 14,
-    gap: 6,
+    padding: s(14),
+    gap: s(6),
   },
-  questionNum: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase' },
-  prompt: { fontSize: 15, fontWeight: '600', lineHeight: 20 },
-  responseCount: { fontSize: 11, marginBottom: 6 },
+  questionNum: { fontSize: ms(11), fontWeight: '700', textTransform: 'uppercase' },
+  prompt: { fontSize: ms(15), fontWeight: '600', lineHeight: ms(20) },
+  responseCount: { fontSize: ms(11), marginBottom: s(6) },
   // MC
-  mcContainer: { gap: 8 },
-  mcRow: { gap: 4 },
+  mcContainer: { gap: s(8) },
+  mcRow: { gap: s(4) },
   mcTextRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  mcOption: { fontSize: 14, flex: 1 },
-  mcPct: { fontSize: 12, fontWeight: '600', marginLeft: 8 },
+  mcOption: { fontSize: ms(14), flex: 1 },
+  mcPct: { fontSize: ms(12), fontWeight: '600', marginLeft: s(8) },
   // Bars (shared)
-  barBg: { height: 6, borderRadius: 3, overflow: 'hidden' },
+  barBg: { height: s(6), borderRadius: 3, overflow: 'hidden' },
   barFill: { height: '100%', borderRadius: 3 },
   // Rating
-  ratingContainer: { gap: 10 },
-  averageRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  averageText: { fontSize: 28, fontWeight: '700' },
-  averageLabel: { fontSize: 14 },
-  distContainer: { gap: 4 },
-  distRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  distLabel: { width: 14, fontSize: 12, fontWeight: '600', textAlign: 'center' },
-  distBarBg: { flex: 1, height: 6, borderRadius: 3, overflow: 'hidden' },
-  distCount: { width: 24, fontSize: 11, textAlign: 'right' },
+  ratingContainer: { gap: s(10) },
+  averageRow: { flexDirection: 'row', alignItems: 'center', gap: s(6) },
+  averageText: { fontSize: ms(28), fontWeight: '700' },
+  averageLabel: { fontSize: ms(14) },
+  distContainer: { gap: s(4) },
+  distRow: { flexDirection: 'row', alignItems: 'center', gap: s(6) },
+  distLabel: { width: s(14), fontSize: ms(12), fontWeight: '600', textAlign: 'center' },
+  distBarBg: { flex: 1, height: s(6), borderRadius: 3, overflow: 'hidden' },
+  distCount: { width: s(24), fontSize: ms(11), textAlign: 'right' },
   // Free text
-  noResponses: { fontSize: 13, fontStyle: 'italic', textAlign: 'center', paddingVertical: 12 },
-  textContainer: { gap: 6 },
-  textResponse: { borderRadius: 8, borderWidth: 1, padding: 10 },
-  textResponseContent: { fontSize: 14, lineHeight: 20 },
+  noResponses: { fontSize: ms(13), fontStyle: 'italic', textAlign: 'center', paddingVertical: s(12) },
+  textContainer: { gap: s(6) },
+  textResponse: { borderRadius: 8, borderWidth: 1, padding: s(10) },
+  textResponseContent: { fontSize: ms(14), lineHeight: ms(20) },
   // Ranked
-  rankedContainer: { gap: 8 },
-  rankedRow: { gap: 4 },
-  rankedLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  rankedRank: { fontSize: 13, fontWeight: '700', width: 26 },
-  rankedOption: { fontSize: 14, flex: 1 },
-  rankedRight: { gap: 4, paddingLeft: 32 },
-  rankedScore: { fontSize: 11, textAlign: 'right' },
+  rankedContainer: { gap: s(8) },
+  rankedRow: { gap: s(4) },
+  rankedLeft: { flexDirection: 'row', alignItems: 'center', gap: s(6) },
+  rankedRank: { fontSize: ms(13), fontWeight: '700', width: s(26) },
+  rankedOption: { fontSize: ms(14), flex: 1 },
+  rankedRight: { gap: s(4), paddingLeft: s(32) },
+  rankedScore: { fontSize: ms(11), textAlign: 'right' },
 });

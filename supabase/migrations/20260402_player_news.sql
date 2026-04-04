@@ -10,7 +10,8 @@ CREATE TABLE player_news (
   published_at             timestamptz NOT NULL,
   fetched_at               timestamptz NOT NULL DEFAULT now(),
   has_minutes_restriction   boolean NOT NULL DEFAULT false,
-  return_estimate          text
+  return_estimate          text,
+  mentioned_players        jsonb NOT NULL DEFAULT '[]'::jsonb
 );
 
 CREATE TABLE player_news_mentions (
@@ -34,15 +35,4 @@ CREATE POLICY "Authenticated users can read news"
 CREATE POLICY "Authenticated users can read news mentions"
   ON player_news_mentions FOR SELECT TO authenticated USING (true);
 
--- Cleanup: delete articles older than 14 days UNLESS they are the most recent
--- article for any player they mention (preserves context for injured/inactive players).
-CREATE OR REPLACE FUNCTION cleanup_old_news() RETURNS void LANGUAGE sql AS $$
-  DELETE FROM player_news
-  WHERE published_at < now() - interval '14 days'
-    AND id NOT IN (
-      SELECT DISTINCT ON (pnm.player_id) pn.id
-      FROM player_news pn
-      JOIN player_news_mentions pnm ON pnm.news_id = pn.id
-      ORDER BY pnm.player_id, pn.published_at DESC
-    );
-$$;
+-- News accumulates indefinitely during the season; archived at end-of-season.

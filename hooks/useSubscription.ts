@@ -1,5 +1,6 @@
 import { useAppState } from '@/context/AppStateProvider';
 import { useSession } from '@/context/AuthProvider';
+import { queryKeys } from '@/constants/queryKeys';
 import {
   SubscriptionTier,
   TIER_RANK,
@@ -7,19 +8,20 @@ import {
   featureTier,
 } from '@/constants/Subscriptions';
 import { supabase } from '@/lib/supabase';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 export function useSubscription() {
   const session = useSession();
   const { leagueId } = useAppState();
+  const queryClient = useQueryClient();
   const userId = session?.user?.id;
 
   const { data: individualSub, isLoading: indLoading } = useQuery({
-    queryKey: ['userSubscription', userId],
+    queryKey: queryKeys.userSubscription(userId!),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('user_subscriptions')
-        .select('tier, status, expires_at')
+        .select('tier, status, expires_at, period_type')
         .eq('user_id', userId!)
         .eq('status', 'active')
         .maybeSingle();
@@ -33,11 +35,11 @@ export function useSubscription() {
   });
 
   const { data: leagueSub, isLoading: leagueLoading } = useQuery({
-    queryKey: ['leagueSubscription', leagueId],
+    queryKey: queryKeys.leagueSubscription(leagueId!),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('league_subscriptions')
-        .select('tier, status, expires_at')
+        .select('tier, status, expires_at, period_type')
         .eq('league_id', leagueId!)
         .eq('status', 'active')
         .maybeSingle();
@@ -51,7 +53,9 @@ export function useSubscription() {
   });
 
   const individualTier = (individualSub?.tier as SubscriptionTier) ?? null;
+  const individualPeriod = (individualSub?.period_type as string) ?? null;
   const leagueTier = (leagueSub?.tier as SubscriptionTier) ?? null;
+  const leaguePeriod = (leagueSub?.period_type as string) ?? null;
 
   // Effective tier = max of individual and league
   let tier: SubscriptionTier = 'free';
@@ -67,11 +71,20 @@ export function useSubscription() {
 
   const isLoading = indLoading || leagueLoading;
 
+  /** Force re-fetch subscription data (call after a purchase completes). */
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['userSubscription'] });
+    queryClient.invalidateQueries({ queryKey: ['leagueSubscription'] });
+  };
+
   return {
     tier,
     individualTier,
+    individualPeriod,
     leagueTier,
+    leaguePeriod,
     isLoading,
+    invalidate,
     canAccess: (feature: string) => hasAccess(tier, featureTier(feature)),
     meetsMinTier: (minTier: SubscriptionTier) => hasAccess(tier, minTier),
   };

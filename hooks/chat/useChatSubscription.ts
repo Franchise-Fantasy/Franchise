@@ -1,3 +1,4 @@
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
@@ -25,7 +26,7 @@ export function useChatSubscription(conversationId: string | null) {
         },
         () => {
           queryClient.invalidateQueries({
-            queryKey: ['messages', conversationId],
+            queryKey: queryKeys.messages(conversationId!),
           });
         },
       )
@@ -39,7 +40,7 @@ export function useChatSubscription(conversationId: string | null) {
         },
         () => {
           queryClient.invalidateQueries({
-            queryKey: ['reactions', conversationId],
+            queryKey: queryKeys.reactions(conversationId!),
           });
         },
       )

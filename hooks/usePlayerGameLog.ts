@@ -1,10 +1,11 @@
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import { PlayerGameLog } from '@/types/player';
 import { useQuery } from '@tanstack/react-query';
 
 export function usePlayerGameLog(playerId: string) {
   return useQuery<PlayerGameLog[]>({
-    queryKey: ['playerGameLog', playerId],
+    queryKey: queryKeys.playerGameLog(playerId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('player_games')

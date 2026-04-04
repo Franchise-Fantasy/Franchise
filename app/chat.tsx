@@ -1,6 +1,7 @@
 import { ConversationRow } from '@/components/chat/ConversationRow';
+import { ms, s } from "@/utils/scale";
 import { NewDMPicker } from '@/components/chat/NewDMPicker';
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { useAppState } from '@/context/AppStateProvider';
@@ -10,6 +11,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import type { ChatMessage, ConversationPreview } from '@/types/chat';
 import { Ionicons } from '@expo/vector-icons';
+import { queryKeys } from '@/constants/queryKeys';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -41,7 +43,7 @@ export default function ChatList() {
     if (!leagueChat) return;
 
     queryClient.prefetchInfiniteQuery({
-      queryKey: ['messages', leagueChat.id],
+      queryKey: queryKeys.messages(leagueChat.id),
       queryFn: async () => {
         const { data } = await supabase.rpc('get_messages_page', {
           p_conversation_id: leagueChat.id,
@@ -59,7 +61,7 @@ export default function ChatList() {
   useEffect(() => {
     if (!leagueId) return;
     queryClient.prefetchQuery({
-      queryKey: ['teamLogos', leagueId],
+      queryKey: queryKeys.teamLogos(leagueId),
       queryFn: async () => {
         const { data } = await supabase
           .from('teams')
@@ -189,11 +191,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   backText: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: '500',
   },
   title: {
-    fontSize: 16,
+    fontSize: ms(16),
     textAlign: 'center',
   },
   loader: {
@@ -206,7 +208,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   emptyText: {
-    fontSize: 15,
+    fontSize: ms(15),
   },
   list: {
     paddingVertical: 8,

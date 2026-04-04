@@ -1,4 +1,5 @@
 import { useAppState } from '@/context/AppStateProvider';
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import { useQuery } from '@tanstack/react-query';
 
@@ -6,7 +7,7 @@ export function useLeague() {
   const { leagueId } = useAppState();
 
   return useQuery({
-    queryKey: ['league', leagueId],
+    queryKey: queryKeys.league(leagueId!),
     queryFn: async () => {
       if (!leagueId) return null;
 
@@ -34,6 +35,5 @@ export function useLeague() {
     retry: 3,
     retryDelay: 1000,
     staleTime: 1000 * 60, // 1 minute — keep short for phase transitions
-    refetchOnWindowFocus: true,
   });
 }

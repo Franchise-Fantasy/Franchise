@@ -1,28 +1,137 @@
 import { useAppState } from '@/context/AppStateProvider';
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import { PlayoffBracketSlot, PlayoffSeedPick } from '@/types/playoff';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 
 export function usePlayoffBracket(season: string) {
   const { leagueId } = useAppState();
+  const queryClient = useQueryClient();
 
-  return useQuery({
-    queryKey: ['playoffBracket', leagueId, season],
-    queryFn: async (): Promise<PlayoffBracketSlot[]> => {
+  const bracketQuery = useQuery({
+    queryKey: queryKeys.playoffBracket(leagueId!, Number(season)),
+    queryFn: async (): Promise<{ slots: PlayoffBracketSlot[]; scheduleIds: string[] }> => {
       const { data, error } = await supabase
         .from('playoff_bracket')
-        .select('*')
+        .select('*, league_matchups(home_score, away_score, home_team_id, schedule_id)')
         .eq('league_id', leagueId!)
         .eq('season', season)
         .order('round', { ascending: true })
         .order('bracket_position', { ascending: true });
       if (error) throw error;
-      return data ?? [];
+
+      const scheduleIdSet = new Set<string>();
+
+      const slots = (data ?? []).map((row: any) => {
+        const m = row.league_matchups;
+        const slot: PlayoffBracketSlot = { ...row };
+        delete (slot as any).league_matchups;
+        if (m) {
+          const homeIsA = m.home_team_id === row.team_a_id;
+          slot.team_a_score = homeIsA ? m.home_score : m.away_score;
+          slot.team_b_score = homeIsA ? m.away_score : m.home_score;
+          if (m.schedule_id && !row.winner_id) scheduleIdSet.add(m.schedule_id);
+        }
+        return slot;
+      });
+
+      return { slots, scheduleIds: [...scheduleIdSet] };
     },
     enabled: !!leagueId && !!season,
     staleTime: 1000 * 60 * 2,
   });
+
+  const scheduleIds = bracketQuery.data?.scheduleIds ?? [];
+
+  // Fetch live scores from week_scores for active (non-finalized) playoff matchups
+  const liveScoresQuery = useQuery({
+    queryKey: queryKeys.playoffLiveScores(leagueId!, Number(season), scheduleIds),
+    queryFn: async (): Promise<Record<string, number>> => {
+      if (scheduleIds.length === 0) return {};
+      const { data, error } = await supabase
+        .from('week_scores')
+        .select('team_id, score')
+        .in('schedule_id', scheduleIds);
+      if (error) throw error;
+      const scores: Record<string, number> = {};
+      for (const row of data ?? []) scores[row.team_id] = Number(row.score);
+      return scores;
+    },
+    enabled: !!leagueId && scheduleIds.length > 0,
+    staleTime: 1000 * 60 * 5,
+  });
+
+  // Subscribe to week_scores changes for live score updates
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  useEffect(() => {
+    if (!leagueId || scheduleIds.length === 0) {
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
+      return;
+    }
+
+    const channel = supabase
+      .channel(`playoff-scores-${leagueId}-${season}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'week_scores',
+          filter: `league_id=eq.${leagueId}`,
+        },
+        (payload) => {
+          const row = payload.new as { team_id: string; score: number; schedule_id: string } | undefined;
+          if (row?.team_id != null && row?.score != null && scheduleIds.includes(row.schedule_id)) {
+            queryClient.setQueryData(
+              queryKeys.playoffLiveScores(leagueId!, Number(season), scheduleIds),
+              (old: Record<string, number> | undefined) => ({
+                ...old,
+                [row.team_id]: Number(row.score),
+              }),
+            );
+          }
+        },
+      )
+      .subscribe();
+
+    channelRef.current = channel;
+
+    return () => {
+      supabase.removeChannel(channel);
+      channelRef.current = null;
+    };
+  }, [leagueId, season, scheduleIds.join(','), queryClient]);
+
+  // Merge live scores onto bracket slots
+  const liveScores = liveScoresQuery.data ?? {};
+  const slots = useMemo(() => {
+    const baseSlots = bracketQuery.data?.slots;
+    if (!baseSlots) return undefined;
+    if (Object.keys(liveScores).length === 0) return baseSlots;
+
+    return baseSlots.map((slot) => {
+      // Only overlay live scores for active (non-finalized) matchups
+      if (slot.winner_id || !slot.matchup_id) return slot;
+      const aScore = slot.team_a_id ? liveScores[slot.team_a_id] : undefined;
+      const bScore = slot.team_b_id ? liveScores[slot.team_b_id] : undefined;
+      if (aScore === undefined && bScore === undefined) return slot;
+      return {
+        ...slot,
+        team_a_score: aScore ?? slot.team_a_score,
+        team_b_score: bScore ?? slot.team_b_score,
+      };
+    });
+  }, [bracketQuery.data?.slots, liveScores]);
+
+  return {
+    data: slots,
+    isLoading: bracketQuery.isLoading,
+    error: bracketQuery.error,
+  };
 }
 
 export function useSeedPicks(season: string, round: number | null, poll = false) {
@@ -31,7 +140,7 @@ export function useSeedPicks(season: string, round: number | null, poll = false)
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   const query = useQuery({
-    queryKey: ['seedPicks', leagueId, season, round],
+    queryKey: queryKeys.seedPicks(leagueId!, Number(season), round ?? undefined),
     queryFn: async (): Promise<PlayoffSeedPick[]> => {
       const { data, error } = await supabase
         .from('playoff_seed_picks')
@@ -68,7 +177,7 @@ export function useSeedPicks(season: string, round: number | null, poll = false)
           filter: `league_id=eq.${leagueId}`,
         },
         () => {
-          queryClient.invalidateQueries({ queryKey: ['seedPicks', leagueId, season, round] });
+          queryClient.invalidateQueries({ queryKey: queryKeys.seedPicks(leagueId!, Number(season), round ?? undefined) });
           // Also refresh pending seed pick since a pick was made
           queryClient.invalidateQueries({ queryKey: ['pendingSeedPick', leagueId] });
         },
@@ -93,7 +202,7 @@ export function usePendingSeedPick(season: string, poll = false) {
   // Real-time invalidation is handled by useSeedPicks above,
   // so this hook only needs a standard query — no polling needed.
   return useQuery({
-    queryKey: ['pendingSeedPick', leagueId, teamId, season],
+    queryKey: queryKeys.pendingSeedPick(leagueId!, teamId!, Number(season)),
     queryFn: async (): Promise<PlayoffSeedPick | null> => {
       const { data, error } = await supabase
         .from('playoff_seed_picks')

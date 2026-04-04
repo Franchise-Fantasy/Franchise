@@ -1,3 +1,4 @@
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats } from '@/types/player';
 import { useQuery } from '@tanstack/react-query';
@@ -6,29 +7,14 @@ export type TradeRosterPlayer = PlayerSeasonStats & { roster_slot: string | null
 
 export function useTeamRosterForTrade(teamId: string | null, leagueId: string | null) {
   return useQuery<TradeRosterPlayer[]>({
-    queryKey: ['teamRosterForTrade', teamId, leagueId],
+    queryKey: queryKeys.teamRosterForTrade(teamId!, leagueId!),
     queryFn: async () => {
-      const lpRes = await supabase
-        .from('league_players')
-        .select('player_id, roster_slot')
-        .eq('team_id', teamId!)
-        .eq('league_id', leagueId!);
-
-      if (lpRes.error) throw lpRes.error;
-      if (!lpRes.data || lpRes.data.length === 0) return [];
-
-      const slotMap = new Map(lpRes.data.map((lp) => [lp.player_id, lp.roster_slot]));
-      const playerIds = lpRes.data.map((lp) => lp.player_id);
-
-      const statsRes = await supabase
-        .from('player_season_stats')
-        .select('*')
-        .in('player_id', playerIds);
-
-      if (statsRes.error) throw statsRes.error;
-
-      return ((statsRes.data ?? []) as PlayerSeasonStats[])
-        .map((p) => ({ ...p, roster_slot: slotMap.get(p.player_id) ?? null })) as TradeRosterPlayer[];
+      const { data, error } = await supabase.rpc('get_team_roster_for_trade' as any, {
+        p_league_id: leagueId!,
+        p_team_id: teamId!,
+      });
+      if (error) throw error;
+      return (data ?? []) as unknown as TradeRosterPlayer[];
     },
     enabled: !!teamId && !!leagueId,
     staleTime: 1000 * 60 * 5,
@@ -38,7 +24,7 @@ export function useTeamRosterForTrade(teamId: string | null, leagueId: string | 
 // Returns sets of player_ids and draft_pick_ids that are locked in active trade proposals for a given team
 export function useLockedTradeAssets(teamId: string | null, leagueId: string | null) {
   return useQuery({
-    queryKey: ['lockedTradeAssets', teamId, leagueId],
+    queryKey: queryKeys.lockedTradeAssets(teamId!, leagueId!),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('trade_proposal_items')
@@ -63,7 +49,7 @@ export function useLockedTradeAssets(teamId: string | null, leagueId: string | n
 // Returns player_ids that are queued for drop via pending_transactions OR pending waiver claims
 export function usePendingDropPlayerIds(teamId: string | null, leagueId: string | null) {
   return useQuery({
-    queryKey: ['pendingDropPlayerIds', teamId, leagueId],
+    queryKey: queryKeys.pendingDropPlayerIds(teamId!, leagueId!),
     queryFn: async () => {
       const [txnRes, waiverRes] = await Promise.all([
         supabase

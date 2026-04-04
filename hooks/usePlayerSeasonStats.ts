@@ -1,10 +1,11 @@
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats } from '@/types/player';
 import { useQuery } from '@tanstack/react-query';
 
 export function usePlayerSeasonStats(excludePlayerIds?: string[]) {
   return useQuery<PlayerSeasonStats[]>({
-    queryKey: ['playerSeasonStats', excludePlayerIds],
+    queryKey: queryKeys.playerSeasonStats(excludePlayerIds ?? []),
     queryFn: async () => {
       let query = supabase
         .from('player_season_stats')

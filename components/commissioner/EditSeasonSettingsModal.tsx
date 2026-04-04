@@ -1,10 +1,11 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Colors } from '@/constants/Colors';
 import { PLAYOFF_SEEDING_OPTIONS, SEEDING_DISPLAY, SEEDING_TO_DB, TIEBREAKER_DISPLAY, TIEBREAKER_OPTIONS, TIEBREAKER_TO_DB, TiebreakerOption } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
+import { ms, s } from '@/utils/scale';
 import { getPlayoffTeamOptions } from '@/utils/lottery';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
@@ -162,7 +163,7 @@ export function EditSeasonSettingsModal({
             <View style={[styles.editRow, { borderBottomColor: c.border }]}>
               <ThemedText style={styles.rowLabel}>Playoff Teams</ThemedText>
             </View>
-            <View style={{ marginBottom: 12 }}>
+            <View style={{ marginBottom: s(12) }}>
               <SegmentedControl
                 options={playoffTeamStrings}
                 selectedIndex={playoffTeamOptions.indexOf(playoffTeams)}
@@ -174,7 +175,7 @@ export function EditSeasonSettingsModal({
             <View style={[styles.editRow, { borderBottomColor: c.border }]}>
               <ThemedText style={styles.rowLabel}>Seeding Format</ThemedText>
             </View>
-            <View style={{ marginBottom: 12 }}>
+            <View style={{ marginBottom: s(12) }}>
               <SegmentedControl
                 options={PLAYOFF_SEEDING_OPTIONS}
                 selectedIndex={PLAYOFF_SEEDING_OPTIONS.indexOf(
@@ -190,7 +191,7 @@ export function EditSeasonSettingsModal({
                 <View style={[styles.editRow, { borderBottomColor: c.border }]}>
                   <ThemedText style={styles.rowLabel}>Reseed Each Round</ThemedText>
                 </View>
-                <View style={{ marginBottom: 12 }}>
+                <View style={{ marginBottom: s(12) }}>
                   <SegmentedControl
                     options={['Yes', 'No']}
                     selectedIndex={reseed ? 0 : 1}
@@ -204,13 +205,13 @@ export function EditSeasonSettingsModal({
             <View style={[styles.editRow, { borderBottomColor: c.border }]}>
               <ThemedText style={styles.rowLabel}>Tiebreaker Priority</ThemedText>
             </View>
-            <View style={{ marginBottom: 12 }}>
+            <View style={{ marginBottom: s(12) }}>
               <SegmentedControl
                 options={TIEBREAKER_OPTIONS}
                 selectedIndex={TIEBREAKER_OPTIONS.indexOf(tiebreakerPrimary)}
                 onSelect={(i) => setTiebreakerPrimary(TIEBREAKER_OPTIONS[i])}
               />
-              <ThemedText style={[styles.helperText, { color: c.secondaryText, marginTop: 6 }]}>
+              <ThemedText style={[styles.helperText, { color: c.secondaryText, marginTop: s(6) }]}>
                 {tiebreakerPrimary === 'Head-to-Head'
                   ? 'Tied teams compared by head-to-head record first, then total points.'
                   : 'Tied teams compared by total points first, then head-to-head record.'}
@@ -257,59 +258,59 @@ const styles = StyleSheet.create({
   sheet: {
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
-    paddingTop: 12,
-    paddingBottom: 40,
+    paddingTop: s(12),
+    paddingBottom: s(40),
     maxHeight: '85%',
   },
   handle: {
-    width: 40,
-    height: 4,
+    width: s(40),
+    height: s(4),
     borderRadius: 2,
     alignSelf: 'center',
-    marginBottom: 12,
+    marginBottom: s(12),
   },
   titleRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    paddingHorizontal: 16,
-    marginBottom: 16,
+    paddingHorizontal: s(16),
+    marginBottom: s(16),
   },
   title: {
-    fontSize: 17,
+    fontSize: ms(17),
     fontWeight: '600',
   },
   scroll: {
     flexShrink: 1,
-    paddingHorizontal: 16,
+    paddingHorizontal: s(16),
   },
   editRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 12,
+    paddingVertical: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   rowLabel: {
-    fontSize: 14,
+    fontSize: ms(14),
   },
   helperText: {
-    fontSize: 13,
-    marginTop: 2,
+    fontSize: ms(13),
+    marginTop: s(2),
   },
   footer: {
     flexDirection: 'row',
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    gap: s(12),
+    paddingHorizontal: s(16),
+    paddingTop: s(16),
   },
   btn: {
     flex: 1,
-    paddingVertical: 14,
+    paddingVertical: s(14),
     borderRadius: 10,
     alignItems: 'center',
   },
   btnText: {
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: '600',
   },
 });

@@ -17,6 +17,10 @@ export const FEATURE_TIERS: Record<string, SubscriptionTier> = {
   strength_of_schedule: 'pro',
   contender_score: 'pro',
 
+  // Pro features — Prospects
+  prospects: 'pro',
+  prospect_board: 'pro',
+
   // Premium features
   age_curve: 'premium',
   draft_value_tracker: 'premium',

@@ -11,12 +11,16 @@ interface DraftState {
   id: string;
   league_id: string;
   status: 'unscheduled' | 'pending' | 'in_progress' | 'complete';
+  type: 'initial' | 'rookie';
   current_pick_number: number;
   current_pick_timestamp: string;
   time_limit: number;
   rounds: number;
   picks_per_round: number;
   draft_date?: string;
+  season?: string;
+  initial_draft_order?: string;
+  snake?: boolean;
 }
 
 interface CurrentPick {

@@ -1,5 +1,6 @@
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { ms, s } from '@/utils/scale';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface SegmentedControlProps {
@@ -52,12 +53,12 @@ const styles = StyleSheet.create({
   },
   option: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: s(10),
     alignItems: 'center',
     justifyContent: 'center',
   },
   optionText: {
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: '600',
   },
 });

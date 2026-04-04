@@ -1,3 +1,4 @@
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import { sendNotification } from '@/lib/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -45,7 +46,7 @@ export interface TradeProposalRow {
 
 export function useTradeProposals(leagueId: string | null) {
   return useQuery<TradeProposalRow[]>({
-    queryKey: ['tradeProposals', leagueId],
+    queryKey: queryKeys.tradeProposals(leagueId!),
     queryFn: async () => {
       // Fetch proposals
       const { data: proposals, error } = await supabase
@@ -178,7 +179,7 @@ export function useTradeProposals(leagueId: string | null) {
 
 export function useTradeVotes(proposalId: string | null) {
   return useQuery({
-    queryKey: ['tradeVotes', proposalId],
+    queryKey: queryKeys.tradeVotes(proposalId!),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('trade_votes')
@@ -197,7 +198,7 @@ export function useTradeVotes(proposalId: string | null) {
 
 export function useTeamTradablePicks(teamId: string | null, leagueId: string | null, draftPickTradingEnabled: boolean = true) {
   return useQuery({
-    queryKey: ['tradablePicks', teamId, leagueId, draftPickTradingEnabled],
+    queryKey: queryKeys.tradablePicks(teamId!, leagueId!, draftPickTradingEnabled),
     queryFn: async () => {
       // Get max_future_seasons from league
       const { data: league, error: leagueError } = await supabase
@@ -260,9 +261,9 @@ export function useTeamTradablePicks(teamId: string | null, leagueId: string | n
 
 export function useMyPendingTrades(teamId: string | null, leagueId: string | null) {
   return useQuery<number>({
-    queryKey: ['pendingTradeCount', teamId, leagueId],
+    queryKey: queryKeys.pendingTradeCount(teamId!, leagueId!),
     queryFn: async () => {
-      // Count trades where I need to respond (pending) or select a drop (pending_drops without drop_player_id)
+      // Count trades where I need to respond (pending) or select drops (pending_drops with empty drop_player_ids)
       const [pendingRes, dropsRes] = await Promise.all([
         supabase
           .from('trade_proposal_teams')
@@ -275,7 +276,7 @@ export function useMyPendingTrades(teamId: string | null, leagueId: string | nul
           .from('trade_proposal_teams')
           .select('id, trade_proposals!inner(id)', { count: 'exact', head: true })
           .eq('team_id', teamId!)
-          .is('drop_player_id', null)
+          .eq('drop_player_ids', '{}')
           .eq('trade_proposals.league_id', leagueId!)
           .eq('trade_proposals.status', 'pending_drops'),
       ]);
@@ -309,7 +310,7 @@ export interface TradeBlockTeamGroup {
 
 export function useTradeBlock(leagueId: string | null) {
   return useQuery<TradeBlockTeamGroup[]>({
-    queryKey: ['tradeBlock', leagueId],
+    queryKey: queryKeys.tradeBlock(leagueId!),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('league_players')
@@ -418,10 +419,10 @@ export function useToggleTradeBlockInterest(leagueId: string | null) {
       }
     },
     onMutate: async ({ playerId, teamId, currentInterest }) => {
-      await queryClient.cancelQueries({ queryKey: ['tradeBlock', leagueId] });
-      const previous = queryClient.getQueryData<TradeBlockTeamGroup[]>(['tradeBlock', leagueId]);
+      await queryClient.cancelQueries({ queryKey: queryKeys.tradeBlock(leagueId!) });
+      const previous = queryClient.getQueryData<TradeBlockTeamGroup[]>(queryKeys.tradeBlock(leagueId!));
 
-      queryClient.setQueryData<TradeBlockTeamGroup[]>(['tradeBlock', leagueId], (old) => {
+      queryClient.setQueryData<TradeBlockTeamGroup[]>(queryKeys.tradeBlock(leagueId!), (old) => {
         if (!old) return old;
         return old.map((group) => ({
           ...group,
@@ -442,14 +443,14 @@ export function useToggleTradeBlockInterest(leagueId: string | null) {
     },
     onError: (_err, _vars, context) => {
       if (context?.previous) {
-        queryClient.setQueryData(['tradeBlock', leagueId], context.previous);
+        queryClient.setQueryData(queryKeys.tradeBlock(leagueId!), context.previous);
       }
     },
     onSettled: (_data, _error, vars) => {
-      queryClient.invalidateQueries({ queryKey: ['tradeBlock', leagueId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.tradeBlock(leagueId!) });
       // If interest was added at the 2-team threshold, a rumor chat message was created
       if (vars.currentInterest.length === 1) {
-        queryClient.invalidateQueries({ queryKey: ['conversations', leagueId] });
+        queryClient.invalidateQueries({ queryKey: queryKeys.conversations(leagueId!) });
       }
     },
   });

@@ -195,11 +195,12 @@ Deno.serve(async (req: Request) => {
     }
 
     let pairings: BracketPairing[] = [];
+    let prevBracket: any[] | null = null;
 
     if (round === 1) {
       const { data: teams } = await supabase
         .from('teams')
-        .select('id, wins, points_for, division')
+        .select('id, wins, losses, ties, points_for, division')
         .eq('league_id', league_id)
         .order('wins', { ascending: false })
         .order('points_for', { ascending: false });
@@ -214,11 +215,15 @@ Deno.serve(async (req: Request) => {
         let ranked = teamList;
 
         if (tiebreakerOrder.includes('head_to_head') && h2hMatchups) {
-          const sorted = [...teamList].sort((a, b) => b.wins - a.wins);
+          const wpct = (t: typeof teamList[0]) => {
+            const gp = t.wins + t.losses + t.ties;
+            return gp === 0 ? 0 : t.wins / gp;
+          };
+          const sorted = [...teamList].sort((a, b) => wpct(b) - wpct(a));
           const groups: (typeof teamList)[] = [];
           let currentGroup = [sorted[0]];
           for (let i = 1; i < sorted.length; i++) {
-            if (sorted[i].wins === sorted[i - 1].wins) {
+            if (wpct(sorted[i]) === wpct(sorted[i - 1])) {
               currentGroup.push(sorted[i]);
             } else {
               groups.push(currentGroup);
@@ -288,14 +293,16 @@ Deno.serve(async (req: Request) => {
         const div1Winner = div1Ranked[0];
         const div2Winner = div2Ranked[0];
 
-        // Determine which division winner gets seed 1 (better record)
+        // Determine which division winner gets seed 1 (better record by win%)
         let seed1: typeof teams[0], seed2: typeof teams[0];
-        if (div1Winner.wins > div2Winner.wins) {
+        const div1Pct = wpct(div1Winner);
+        const div2Pct = wpct(div2Winner);
+        if (div1Pct > div2Pct) {
           seed1 = div1Winner; seed2 = div2Winner;
-        } else if (div2Winner.wins > div1Winner.wins) {
+        } else if (div2Pct > div1Pct) {
           seed1 = div2Winner; seed2 = div1Winner;
         } else {
-          // Tied on wins — use tiebreaker between the two
+          // Tied on win% — use tiebreaker between the two
           const ranked = rankTeams([div1Winner, div2Winner]);
           seed1 = ranked[0]; seed2 = ranked[1];
         }
@@ -337,6 +344,7 @@ Deno.serve(async (req: Request) => {
             team_b_seed: null,
             winner_id: pairing.teamA.teamId,
             is_bye: true,
+            is_third_place: false,
           }));
 
         if (byeBracketRows.length > 0) {
@@ -401,13 +409,15 @@ Deno.serve(async (req: Request) => {
           : buildStandardRound1(seeds);
       }
     } else {
-      const { data: prevBracket } = await supabase
+      const { data: prevBracketData } = await supabase
         .from('playoff_bracket')
-        .select('bracket_position, winner_id, team_a_seed, team_b_seed, team_a_id, team_b_id, is_bye')
+        .select('bracket_position, winner_id, team_a_seed, team_b_seed, team_a_id, team_b_id, is_bye, is_third_place')
         .eq('league_id', league_id)
         .eq('season', league.season)
         .eq('round', round - 1)
+        .eq('is_third_place', false)
         .order('bracket_position', { ascending: true });
+      prevBracket = prevBracketData;
 
       if (!prevBracket || prevBracket.length === 0) {
         return json({ error: `Previous round ${round - 1} not found` }, 400);
@@ -532,6 +542,7 @@ Deno.serve(async (req: Request) => {
           team_b_seed: null,
           winner_id: teamA.teamId,
           is_bye: true,
+          is_third_place: false,
         });
       } else {
         matchupInserts.push({
@@ -581,6 +592,7 @@ Deno.serve(async (req: Request) => {
           team_b_seed: ins.teamB.seed,
           winner_id: null,
           is_bye: false,
+          is_third_place: false,
         });
       }
     }
@@ -603,6 +615,67 @@ Deno.serve(async (req: Request) => {
       }
     } catch (notifyErr) {
       console.warn('Playoff matchup notification failed (non-fatal):', notifyErr);
+    }
+
+    // ── 3rd place game: create from semifinal losers when generating finals ──
+    if (round === totalRounds && round > 1) {
+      // prevBracket was fetched above (round > 1 path) — find semifinal losers
+      const losers = (prevBracket ?? [])
+        .filter(b => !b.is_bye && b.winner_id && b.team_a_id && b.team_b_id)
+        .map(b => {
+          const isAWinner = b.winner_id === b.team_a_id;
+          return {
+            teamId: isAWinner ? b.team_b_id! : b.team_a_id!,
+            seed: isAWinner ? b.team_b_seed! : b.team_a_seed!,
+          };
+        });
+
+      if (losers.length === 2) {
+        const [loserA, loserB] = losers[0].seed < losers[1].seed
+          ? [losers[0], losers[1]]
+          : [losers[1], losers[0]];
+
+        const { data: thirdPlaceMatchups, error: tpErr } = await supabase
+          .from('league_matchups')
+          .insert({
+            league_id,
+            schedule_id: scheduleWeek.id,
+            week_number: scheduleWeek.week_number,
+            home_team_id: loserA.teamId,
+            away_team_id: loserB.teamId,
+            playoff_round: round,
+          })
+          .select('id');
+
+        if (!tpErr && thirdPlaceMatchups?.[0]) {
+          await supabase.from('playoff_bracket').insert({
+            league_id,
+            season: league.season,
+            round,
+            bracket_position: pairings.length + 1,
+            matchup_id: thirdPlaceMatchups[0].id,
+            team_a_id: loserA.teamId,
+            team_a_seed: loserA.seed,
+            team_b_id: loserB.teamId,
+            team_b_seed: loserB.seed,
+            winner_id: null,
+            is_bye: false,
+            is_third_place: true,
+          });
+
+          // Notify 3rd place game teams
+          try {
+            const ln = league.name ?? 'Your League';
+            await notifyTeams(supabase, [loserA.teamId, loserB.teamId], 'playoffs',
+              `${ln} — 3rd Place Game`,
+              'You\'ve been matched up for the 3rd place game. Good luck!',
+              { screen: 'playoff-bracket' }
+            );
+          } catch (notifyErr) {
+            console.warn('3rd place notification failed (non-fatal):', notifyErr);
+          }
+        }
+      }
     }
 
     // Check if all entries this round are byes — if so, auto-generate next round

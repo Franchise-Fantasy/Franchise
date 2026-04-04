@@ -1,5 +1,7 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { ms, s } from "@/utils/scale";
 import { Colors } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { formatPickLabel } from '@/types/trade';
@@ -36,7 +38,7 @@ interface TradeSummaryItem {
 
 function useTradeByTransaction(transactionId: string, leagueId: string) {
   return useQuery({
-    queryKey: ['tradeByTransaction', transactionId],
+    queryKey: queryKeys.tradeByTransaction(transactionId),
     queryFn: async (): Promise<{
       date: string;
       items: TradeSummaryItem[];
@@ -260,11 +262,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   headerTitle: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '600',
   },
   closeText: {
-    fontSize: 18,
+    fontSize: ms(18),
     fontWeight: '600',
   },
   loader: {
@@ -281,15 +283,15 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   tradeSummaryTeam: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '600',
   },
   assetText: {
-    fontSize: 13,
+    fontSize: ms(13),
     marginTop: 4,
     lineHeight: 18,
   },
   dateText: {
-    fontSize: 12,
+    fontSize: ms(12),
   },
 });

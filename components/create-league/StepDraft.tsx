@@ -1,6 +1,6 @@
 import { LotteryOddsEditor } from '@/components/create-league/LotteryOddsEditor';
 import { ToggleRow } from '@/components/ToggleRow';
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Colors } from '@/constants/Colors';
@@ -8,6 +8,7 @@ import { DRAFT_TYPE_OPTIONS, INITIAL_DRAFT_ORDER_OPTIONS, LeagueWizardState, ROO
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/lottery';
 import { StyleSheet, View } from 'react-native';
+import { ms, s } from '@/utils/scale';
 
 interface StepDraftProps {
   state: LeagueWizardState;
@@ -151,28 +152,28 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   heading: {
-    marginBottom: 20,
+    marginBottom: s(20),
   },
   label: {
-    marginBottom: 8,
-    fontSize: 14,
+    marginBottom: s(8),
+    fontSize: ms(14),
     fontWeight: '500',
   },
   section: {
-    marginBottom: 20,
+    marginBottom: s(20),
   },
   hint: {
-    fontSize: 13,
-    marginBottom: 12,
-    lineHeight: 18,
+    fontSize: ms(13),
+    marginBottom: s(12),
+    lineHeight: ms(18),
   },
   warningBox: {
     borderWidth: 1,
     borderRadius: 8,
-    padding: 12,
-    marginBottom: 20,
+    padding: s(12),
+    marginBottom: s(20),
   },
   warningText: {
-    fontSize: 13,
+    fontSize: ms(13),
   },
 });

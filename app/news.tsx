@@ -1,5 +1,6 @@
 import { NewsCard } from '@/components/player/NewsCard';
-import { ThemedText } from '@/components/ThemedText';
+import { ms, s } from "@/utils/scale";
+import { ThemedText } from '@/components/ui/ThemedText';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
@@ -7,6 +8,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { useTeamNews } from '@/hooks/useTeamNews';
 import { supabase } from '@/lib/supabase';
 import type { PlayerNewsArticle } from '@/types/news';
+import { queryKeys } from '@/constants/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import {
@@ -35,7 +37,7 @@ export default function NewsScreen() {
 
   // Fetch player IDs for user's team
   const { data: myPlayerIds = [] } = useQuery<string[]>({
-    queryKey: ['newsRosterIds', leagueId, teamId],
+    queryKey: queryKeys.newsRosterIds(leagueId!, teamId!),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('league_players')
@@ -51,7 +53,7 @@ export default function NewsScreen() {
 
   // Fetch opponent player IDs for matchup filter
   const { data: matchupPlayerIds = [] } = useQuery<string[]>({
-    queryKey: ['newsMatchupIds', leagueId, teamId],
+    queryKey: queryKeys.newsMatchupIds(leagueId!, teamId!),
     queryFn: async () => {
       // Get current date for week lookup
       const today = new Date().toISOString().slice(0, 10);
@@ -143,7 +145,7 @@ export default function NewsScreen() {
         <FlatList
           data={newsQuery.data ?? []}
           keyExtractor={(item: PlayerNewsArticle) => item.id}
-          renderItem={({ item }) => <NewsCard article={item} />}
+          renderItem={({ item }) => <NewsCard article={item} showHeadshots />}
           refreshControl={
             <RefreshControl
               refreshing={newsQuery.isRefetching}
@@ -177,8 +179,8 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
   },
-  chipText: { fontSize: 13 },
+  chipText: { fontSize: ms(13) },
   loader: { marginTop: 40 },
   list: { padding: 16, gap: 12 },
-  empty: { textAlign: 'center', marginTop: 40, fontSize: 14, opacity: 0.6 },
+  empty: { textAlign: 'center', marginTop: 40, fontSize: ms(14), opacity: 0.6 },
 });

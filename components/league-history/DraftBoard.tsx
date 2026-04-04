@@ -1,7 +1,8 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useDraftHistory, DraftSummary, DraftHistoryPick } from '@/hooks/useLeagueHistory';
+import { ms, s } from '@/utils/scale';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 
@@ -50,7 +51,7 @@ export function DraftBoard({ leagueId }: DraftBoardProps) {
     return map;
   }, [data, activeDraft]);
 
-  if (isLoading) return <ActivityIndicator style={{ marginVertical: 16 }} />;
+  if (isLoading) return <ActivityIndicator style={{ marginVertical: s(16) }} />;
   if (!data || data.drafts.length === 0) {
     return (
       <ThemedText style={[styles.emptyText, { color: c.secondaryText }]}>
@@ -130,30 +131,30 @@ export function DraftBoard({ leagueId }: DraftBoardProps) {
 }
 
 const styles = StyleSheet.create({
-  emptyText: { fontSize: 13, textAlign: 'center', paddingVertical: 16 },
-  pillRow: { marginBottom: 10 },
+  emptyText: { fontSize: ms(13), textAlign: 'center', paddingVertical: s(16) },
+  pillRow: { marginBottom: s(10) },
   pill: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
+    paddingHorizontal: s(14),
+    paddingVertical: s(6),
     borderRadius: 16,
-    marginRight: 8,
+    marginRight: s(8),
   },
-  pillText: { fontSize: 13, fontWeight: '600' },
-  draftInfo: { fontSize: 12, marginBottom: 12 },
-  roundBlock: { marginBottom: 12 },
-  roundLabel: { fontSize: 12, marginBottom: 6 },
+  pillText: { fontSize: ms(13), fontWeight: '600' },
+  draftInfo: { fontSize: ms(12), marginBottom: s(12) },
+  roundBlock: { marginBottom: s(12) },
+  roundLabel: { fontSize: ms(12), marginBottom: s(6) },
   pickRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: s(8),
     borderBottomWidth: StyleSheet.hairlineWidth,
-    gap: 10,
+    gap: s(10),
   },
-  pickNum: { width: 28, fontSize: 12, textAlign: 'center', fontWeight: '600' },
+  pickNum: { width: s(28), fontSize: ms(12), textAlign: 'center', fontWeight: '600' },
   pickInfo: { flex: 1 },
-  pickTeam: { fontSize: 13, fontWeight: '600' },
-  viaLabel: { fontSize: 10, marginTop: 1 },
+  pickTeam: { fontSize: ms(13), fontWeight: '600' },
+  viaLabel: { fontSize: ms(10), marginTop: 1 },
   playerInfo: { alignItems: 'flex-end' },
-  playerName: { fontSize: 13 },
-  playerPos: { fontSize: 10, marginTop: 1 },
+  playerName: { fontSize: ms(13) },
+  playerPos: { fontSize: ms(10), marginTop: 1 },
 });

@@ -1,3 +1,4 @@
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import { useSession } from '@/context/AuthProvider';
 import { useCallback, useMemo } from 'react';
@@ -9,7 +10,7 @@ export function useWatchlist() {
   const queryClient = useQueryClient();
 
   const { data: watchlistedIds = new Set<string>(), isLoading } = useQuery({
-    queryKey: ['watchlist', userId],
+    queryKey: queryKeys.watchlist(userId!),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('watchlist')
@@ -33,7 +34,7 @@ export function useWatchlist() {
       const removing = watchlistedIds.has(playerId);
 
       // Optimistic update
-      queryClient.setQueryData<Set<string>>(['watchlist', userId], (prev) => {
+      queryClient.setQueryData<Set<string>>(queryKeys.watchlist(userId!), (prev) => {
         const next = new Set(prev);
         if (removing) next.delete(playerId);
         else next.add(playerId);
@@ -54,7 +55,7 @@ export function useWatchlist() {
         }
       } catch {
         // Revert on failure
-        queryClient.invalidateQueries({ queryKey: ['watchlist', userId] });
+        queryClient.invalidateQueries({ queryKey: queryKeys.watchlist(userId!) });
       }
     },
     [userId, watchlistedIds, queryClient],

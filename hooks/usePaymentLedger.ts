@@ -1,3 +1,4 @@
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
@@ -19,7 +20,7 @@ export interface PaymentRow {
 
 export function usePaymentLedger(leagueId: string | null, season: string | null) {
   return useQuery<PaymentRow[]>({
-    queryKey: ['paymentLedger', leagueId, season],
+    queryKey: queryKeys.paymentLedger(leagueId!, Number(season!)),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('league_payments')
@@ -38,7 +39,7 @@ export function usePaymentLedger(leagueId: string | null, season: string | null)
 
 export function useTogglePayment(leagueId: string, season: string) {
   const queryClient = useQueryClient();
-  const queryKey = ['paymentLedger', leagueId, season];
+  const queryKey = queryKeys.paymentLedger(leagueId, Number(season));
 
   return useMutation({
     mutationFn: async ({ teamId, action }: { teamId: string; action: 'confirm' | 'deny' }) => {
@@ -102,7 +103,7 @@ export function useTogglePayment(leagueId: string, season: string) {
 
 export function useSelfReportPayment(leagueId: string, season: string) {
   const queryClient = useQueryClient();
-  const queryKey = ['paymentLedger', leagueId, season];
+  const queryKey = queryKeys.paymentLedger(leagueId, Number(season));
 
   return useMutation({
     mutationFn: async ({ teamId }: { teamId: string }) => {
@@ -171,7 +172,7 @@ export function useUpdatePaymentNotes(leagueId: string, season: string) {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['paymentLedger', leagueId, season] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.paymentLedger(leagueId, Number(season)) });
     },
   });
 }

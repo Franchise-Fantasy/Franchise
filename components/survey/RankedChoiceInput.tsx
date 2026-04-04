@@ -1,6 +1,7 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect } from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
@@ -98,32 +99,32 @@ export function RankedChoiceInput({ options, value, onChange }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { gap: 6 },
+  container: { gap: s(6) },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: 10,
     borderWidth: 1,
-    padding: 10,
-    gap: 10,
+    padding: s(10),
+    gap: s(10),
   },
   rankBadge: {
-    width: 26,
-    height: 26,
+    width: s(26),
+    height: s(26),
     borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
   },
   rankText: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: '700',
   },
   optionText: {
-    fontSize: 14,
+    fontSize: ms(14),
     flex: 1,
   },
   arrows: {
     alignItems: 'center',
-    gap: 2,
+    gap: s(2),
   },
 });

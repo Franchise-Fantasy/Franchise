@@ -1,11 +1,13 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { generateDraftPicks, generateFutureDraftPicks } from '@/lib/draft';
 import { supabase } from '@/lib/supabase';
+import { containsBlockedContent } from '@/utils/moderation';
 import { sanitizeHandle } from '@/utils/paymentLinks';
+import { ms, s } from '@/utils/scale';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
@@ -61,6 +63,10 @@ export function EditBasicsModal({ visible, onClose, league, leagueId, canChangeS
   async function handleSave() {
     if (!name.trim()) {
       Alert.alert('Error', 'League name cannot be empty.');
+      return;
+    }
+    if (containsBlockedContent(name)) {
+      Alert.alert('Invalid name', 'That league name contains language that isn\u2019t allowed.');
       return;
     }
     setSaving(true);
@@ -178,7 +184,7 @@ export function EditBasicsModal({ visible, onClose, league, leagueId, canChangeS
 
             <View style={[styles.editRow, { borderBottomColor: c.border }]}>
               <ThemedText style={styles.rowLabel}>Visibility</ThemedText>
-              <View style={{ width: 160 }}>
+              <View style={{ width: s(160) }}>
                 <SegmentedControl
                   options={['Public', 'Private']}
                   selectedIndex={isPrivate ? 1 : 0}
@@ -286,16 +292,16 @@ export function EditBasicsModal({ visible, onClose, league, leagueId, canChangeS
 
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'transparent', justifyContent: 'flex-end' },
-  sheet: { borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingTop: 12, paddingBottom: 40, maxHeight: '85%' },
-  handle: { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 12 },
-  titleRow: { flexDirection: 'row', justifyContent: 'center', paddingHorizontal: 16, marginBottom: 16 },
-  title: { fontSize: 17, fontWeight: '600' },
-  scroll: { flexShrink: 1, paddingHorizontal: 16 },
-  editRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
-  rowLabel: { fontSize: 14 },
-  sectionLabel: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 16, marginBottom: 4 },
-  textInput: { flex: 1, marginLeft: 12, borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14 },
-  footer: { flexDirection: 'row', gap: 12, paddingHorizontal: 16, paddingTop: 16 },
-  btn: { flex: 1, paddingVertical: 14, borderRadius: 10, alignItems: 'center' },
-  btnText: { fontSize: 15, fontWeight: '600' },
+  sheet: { borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingTop: s(12), paddingBottom: s(40), maxHeight: '85%' },
+  handle: { width: s(40), height: s(4), borderRadius: 2, alignSelf: 'center', marginBottom: s(12) },
+  titleRow: { flexDirection: 'row', justifyContent: 'center', paddingHorizontal: s(16), marginBottom: s(16) },
+  title: { fontSize: ms(17), fontWeight: '600' },
+  scroll: { flexShrink: 1, paddingHorizontal: s(16) },
+  editRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: s(12), borderBottomWidth: StyleSheet.hairlineWidth },
+  rowLabel: { fontSize: ms(14) },
+  sectionLabel: { fontSize: ms(12), fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: s(16), marginBottom: s(4) },
+  textInput: { flex: 1, marginLeft: s(12), borderWidth: 1, borderRadius: 8, paddingHorizontal: s(10), paddingVertical: s(8), fontSize: ms(14) },
+  footer: { flexDirection: 'row', gap: s(12), paddingHorizontal: s(16), paddingTop: s(16) },
+  btn: { flex: 1, paddingVertical: s(14), borderRadius: 10, alignItems: 'center' },
+  btnText: { fontSize: ms(15), fontWeight: '600' },
 });

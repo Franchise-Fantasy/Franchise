@@ -1,7 +1,8 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { formatPickLabel } from '@/types/trade';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
@@ -88,19 +89,19 @@ export function TradeSwapPicker({
 
         <ThemedText accessibilityRole="header" style={[styles.sectionLabel, { color: c.secondaryText }]}>Season</ThemedText>
         <View style={styles.pillRow}>
-          {validSeasons.map((s) => {
-            const active = s === selectedSeason;
+          {validSeasons.map((season) => {
+            const active = season === selectedSeason;
             return (
               <TouchableOpacity
-                key={s}
+                key={season}
                 accessibilityRole="button"
-                accessibilityLabel={`Season ${s}`}
+                accessibilityLabel={`Season ${season}`}
                 accessibilityState={{ selected: active }}
                 style={[styles.pill, { backgroundColor: active ? c.accent : c.cardAlt, borderColor: active ? c.accent : c.border }]}
-                onPress={() => setSelectedSeason(s)}
+                onPress={() => setSelectedSeason(season)}
               >
                 <ThemedText style={[styles.pillText, { color: active ? c.accentText : c.text }]}>
-                  {parseInt(s.split('-')[0], 10)}
+                  {parseInt(season.split('-')[0], 10)}
                 </ThemedText>
               </TouchableOpacity>
             );
@@ -157,47 +158,47 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 12,
+    paddingVertical: s(12),
+    paddingHorizontal: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  backBtn: { width: 60 },
-  backText: { fontSize: 16, fontWeight: '500' },
-  headerTitle: { flex: 1, fontSize: 16, textAlign: 'center' },
-  content: { padding: 16, gap: 16 },
+  backBtn: { width: s(60) },
+  backText: { fontSize: ms(16), fontWeight: '500' },
+  headerTitle: { flex: 1, fontSize: ms(16), textAlign: 'center' },
+  content: { padding: s(16), gap: s(16) },
   infoCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    padding: 12,
+    gap: s(10),
+    padding: s(12),
     borderWidth: 1,
     borderRadius: 10,
   },
-  infoText: { flex: 1, fontSize: 13, lineHeight: 18 },
-  sectionLabel: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
-  pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  infoText: { flex: 1, fontSize: ms(13), lineHeight: ms(18) },
+  sectionLabel: { fontSize: ms(12), fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
+  pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: s(8) },
   pill: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: s(14),
+    paddingVertical: s(8),
     borderRadius: 20,
     borderWidth: 1,
   },
-  pillText: { fontSize: 13, fontWeight: '600' },
+  pillText: { fontSize: ms(13), fontWeight: '600' },
   preview: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
-    gap: 8,
-    padding: 14,
+    gap: s(8),
+    padding: s(14),
     borderWidth: 1,
     borderRadius: 10,
   },
-  previewText: { fontSize: 14, fontWeight: '600' },
-  previewSub: { fontSize: 12 },
+  previewText: { fontSize: ms(14), fontWeight: '600' },
+  previewSub: { fontSize: ms(12) },
   addBtn: {
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: s(12),
     borderRadius: 10,
   },
-  addBtnText: { fontSize: 15, fontWeight: '600' },
+  addBtnText: { fontSize: ms(15), fontWeight: '600' },
 });

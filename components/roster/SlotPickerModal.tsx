@@ -1,4 +1,4 @@
-import { ThemedText } from "@/components/ThemedText";
+import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { PlayerSeasonStats } from "@/types/player";
@@ -7,6 +7,7 @@ import { getInjuryBadge } from "@/utils/injuryBadge";
 import { formatGameTime, ScheduleEntry } from "@/utils/nbaSchedule";
 import { getPlayerHeadshotUrl } from "@/utils/playerHeadshot";
 import { slotLabel } from "@/utils/rosterSlots";
+import { ms, s } from "@/utils/scale";
 import {
   ActivityIndicator,
   Image,
@@ -202,7 +203,7 @@ export function SlotPickerModal({
               <ThemedText
                 accessibilityRole="header"
                 type="defaultSemiBold"
-                style={{ fontSize: 17 }}
+                style={{ fontSize: ms(17) }}
               >
                 {label} Slot
               </ThemedText>
@@ -213,12 +214,12 @@ export function SlotPickerModal({
               onPress={onClose}
               style={styles.closeBtn}
             >
-              <ThemedText style={{ fontSize: 16 }}>✕</ThemedText>
+              <ThemedText style={{ fontSize: ms(16) }}>✕</ThemedText>
             </TouchableOpacity>
           </View>
 
           {isAssigning ? (
-            <ActivityIndicator style={{ padding: 20 }} />
+            <ActivityIndicator style={{ padding: s(20) }} />
           ) : (
             <ScrollView style={styles.scroll} bounces={false}>
               {/* ─── Player card (occupied) ─── */}
@@ -252,7 +253,7 @@ export function SlotPickerModal({
                   <View style={{ flex: 1 }}>
                     <ThemedText
                       type="defaultSemiBold"
-                      style={{ fontSize: 16 }}
+                      style={{ fontSize: ms(16) }}
                     >
                       {player.name}
                     </ThemedText>
@@ -260,12 +261,12 @@ export function SlotPickerModal({
                       style={{
                         flexDirection: "row",
                         alignItems: "center",
-                        gap: 4,
-                        marginTop: 2,
+                        gap: s(4),
+                        marginTop: s(2),
                       }}
                     >
                       <ThemedText
-                        style={{ color: c.secondaryText, fontSize: 12 }}
+                        style={{ color: c.secondaryText, fontSize: ms(12) }}
                       >
                         {formatPosition(player.position)} · {player.nba_team}
                       </ThemedText>
@@ -316,13 +317,13 @@ export function SlotPickerModal({
                     ]}
                   >
                     <ThemedText
-                      style={{ color: c.secondaryText, fontSize: 18 }}
+                      style={{ color: c.secondaryText, fontSize: ms(18) }}
                     >
                       +
                     </ThemedText>
                   </View>
                   <ThemedText
-                    style={{ color: c.secondaryText, fontSize: 14 }}
+                    style={{ color: c.secondaryText, fontSize: ms(14) }}
                   >
                     Select a player to start at {label}
                   </ThemedText>
@@ -373,7 +374,7 @@ export function SlotPickerModal({
                 <>
                   {destinations.length === 0 &&
                     activeQuickActions.length === 0 && (
-                      <View style={{ padding: 20, alignItems: "center" }}>
+                      <View style={{ padding: s(20), alignItems: "center" }}>
                         <ThemedText style={{ color: c.secondaryText }}>
                           No eligible moves
                         </ThemedText>
@@ -501,7 +502,7 @@ export function SlotPickerModal({
                 style={{
                   flexDirection: "row",
                   alignItems: "center",
-                  gap: 4,
+                  gap: s(4),
                 }}
               >
                 <ThemedText
@@ -526,7 +527,7 @@ export function SlotPickerModal({
                 })()}
               </View>
               <ThemedText
-                style={{ color: c.secondaryText, fontSize: 12 }}
+                style={{ color: c.secondaryText, fontSize: ms(12) }}
               >
                 {formatPosition(occ.position)} · {occ.nba_team}
               </ThemedText>
@@ -628,7 +629,7 @@ export function SlotPickerModal({
                   style={{
                     flexDirection: "row",
                     alignItems: "center",
-                    gap: 4,
+                    gap: s(4),
                   }}
                 >
                   <ThemedText
@@ -655,7 +656,7 @@ export function SlotPickerModal({
                   })()}
                 </View>
                 <ThemedText
-                  style={{ color: c.secondaryText, fontSize: 12 }}
+                  style={{ color: c.secondaryText, fontSize: ms(12) }}
                 >
                   {formatPosition(item.position)} · {item.nba_team}
                 </ThemedText>
@@ -691,43 +692,43 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 14,
     maxHeight: "70%",
     overflow: "hidden",
-    paddingBottom: 32,
+    paddingBottom: s(32),
   },
   header: {
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 10,
+    paddingHorizontal: s(16),
+    paddingTop: s(14),
+    paddingBottom: s(10),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  closeBtn: { padding: 8, marginTop: -4, marginRight: -4 },
+  closeBtn: { padding: s(8), marginTop: s(-4), marginRight: s(-4) },
   scroll: { flexGrow: 0 },
   playerCard: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    gap: 10,
+    paddingHorizontal: s(16),
+    paddingVertical: s(8),
+    gap: s(10),
   },
   headshotCircle: {
-    width: 44,
-    height: 44,
+    width: s(44),
+    height: s(44),
     borderRadius: 22,
     borderWidth: 1,
     overflow: "hidden" as const,
   },
   headshotImg: {
     position: "absolute" as const,
-    bottom: -2,
+    bottom: s(-2),
     left: 0,
     right: 0,
-    height: 38,
+    height: s(38),
   },
   emptyCircle: {
-    width: 44,
-    height: 44,
+    width: s(44),
+    height: s(44),
     borderRadius: 22,
     borderWidth: 1,
     borderStyle: "dashed",
@@ -737,26 +738,26 @@ const styles = StyleSheet.create({
   quickActions: {
     flexDirection: "row",
     flexWrap: "wrap",
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    gap: 8,
+    paddingHorizontal: s(16),
+    paddingVertical: s(6),
+    gap: s(8),
   },
   quickActionBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
+    paddingHorizontal: s(14),
+    paddingVertical: s(7),
     borderRadius: 8,
     borderWidth: 1,
   },
   quickActionText: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: "600",
   },
   sectionHeader: {
-    paddingHorizontal: 16,
-    paddingVertical: 4,
+    paddingHorizontal: s(16),
+    paddingVertical: s(4),
   },
   sectionHeaderText: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: "700",
     letterSpacing: 0.5,
     textTransform: "uppercase",
@@ -764,50 +765,50 @@ const styles = StyleSheet.create({
   destRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 7,
-    paddingHorizontal: 16,
-    gap: 8,
+    paddingVertical: s(7),
+    paddingHorizontal: s(16),
+    gap: s(8),
   },
   rowHeadshot: {
-    width: 32,
-    height: 32,
+    width: s(32),
+    height: s(32),
     borderRadius: 16,
     borderWidth: 1,
     overflow: "hidden" as const,
   },
   rowHeadshotImg: {
     position: "absolute" as const,
-    bottom: -1,
+    bottom: s(-1),
     left: 0,
     right: 0,
-    height: 28,
+    height: s(28),
   },
   slotChip: {
-    width: 36,
-    paddingVertical: 4,
+    width: s(36),
+    paddingVertical: s(4),
     borderRadius: 6,
     alignItems: "center",
   },
   slotChipText: {
-    fontSize: 10,
+    fontSize: ms(10),
     fontWeight: "700",
   },
   gameChip: {
-    paddingHorizontal: 6,
-    paddingVertical: 3,
+    paddingHorizontal: s(6),
+    paddingVertical: s(3),
     borderRadius: 4,
   },
   gameChipText: {
-    fontSize: 10,
+    fontSize: ms(10),
     fontWeight: "600",
   },
   injuryBadge: {
-    paddingHorizontal: 4,
+    paddingHorizontal: s(4),
     paddingVertical: 1,
     borderRadius: 3,
   },
   injuryText: {
-    fontSize: 8,
+    fontSize: ms(8),
     fontWeight: "800",
     letterSpacing: 0.5,
   },

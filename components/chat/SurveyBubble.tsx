@@ -1,8 +1,9 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useSurvey, useSurveyResponseCount, useSurveyStatus } from '@/hooks/chat/useSurveys';
 import { useLeague } from '@/hooks/useLeague';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -174,7 +175,7 @@ export const SurveyBubble = React.memo(function SurveyBubble({
         accessibilityState={{ disabled: btnDisabled }}
       >
         {hasSubmitted && !isClosed && (
-          <Ionicons name="checkmark-circle" size={18} color={c.statusText} style={{ marginRight: 4 }} />
+          <Ionicons name="checkmark-circle" size={18} color={c.statusText} style={{ marginRight: s(4) }} />
         )}
         <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>{btnLabel}</ThemedText>
       </TouchableOpacity>
@@ -186,55 +187,55 @@ const styles = StyleSheet.create({
   container: {
     borderRadius: 16,
     borderWidth: 1,
-    padding: 14,
-    marginVertical: 4,
+    padding: s(14),
+    marginVertical: s(4),
     width: '100%',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginBottom: 8,
+    gap: s(6),
+    marginBottom: s(8),
   },
   headerLabel: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   title: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: '600',
-    lineHeight: 22,
-    marginBottom: 2,
+    lineHeight: ms(22),
+    marginBottom: s(2),
   },
   description: {
-    fontSize: 13,
-    lineHeight: 18,
-    marginBottom: 4,
+    fontSize: ms(13),
+    lineHeight: ms(18),
+    marginBottom: s(4),
   },
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginBottom: 10,
+    gap: s(6),
+    marginBottom: s(10),
   },
-  metaText: { fontSize: 12 },
-  metaDot: { fontSize: 12 },
+  metaText: { fontSize: ms(12) },
+  metaDot: { fontSize: ms(12) },
   actionBtn: {
     borderRadius: 10,
-    paddingVertical: 10,
+    paddingVertical: s(10),
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'center',
   },
   actionBtnText: {
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: '600',
   },
   // Skeleton
   skeletonBar: { borderRadius: 6, opacity: 0.4 },
-  skeletonHeader: { width: 140, height: 14, marginBottom: 10 },
-  skeletonTitle: { width: '70%', height: 18, marginBottom: 12 },
-  skeletonBtn: { height: 40, borderRadius: 10, width: '100%' },
+  skeletonHeader: { width: s(140), height: s(14), marginBottom: s(10) },
+  skeletonTitle: { width: '70%', height: s(18), marginBottom: s(12) },
+  skeletonBtn: { height: s(40), borderRadius: 10, width: '100%' },
 });

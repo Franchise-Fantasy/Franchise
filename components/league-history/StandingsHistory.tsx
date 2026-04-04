@@ -1,7 +1,8 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useSeasonStandings, TeamSeasonRow } from '@/hooks/useLeagueHistory';
+import { ms, s } from '@/utils/scale';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 
@@ -45,7 +46,7 @@ export function StandingsHistory({ leagueId }: StandingsHistoryProps) {
     return standings.filter((r) => r.season === activeSeason);
   }, [standings, activeSeason]);
 
-  if (isLoading) return <ActivityIndicator style={{ marginVertical: 16 }} />;
+  if (isLoading) return <ActivityIndicator style={{ marginVertical: s(16) }} />;
   if (seasons.length === 0) {
     return (
       <ThemedText style={[styles.emptyText, { color: c.secondaryText }]}>
@@ -113,41 +114,41 @@ export function StandingsHistory({ leagueId }: StandingsHistoryProps) {
 }
 
 const styles = StyleSheet.create({
-  emptyText: { fontSize: 13, textAlign: 'center', paddingVertical: 16 },
-  pillRow: { marginBottom: 12 },
+  emptyText: { fontSize: ms(13), textAlign: 'center', paddingVertical: s(16) },
+  pillRow: { marginBottom: s(12) },
   pill: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
+    paddingHorizontal: s(14),
+    paddingVertical: s(6),
     borderRadius: 16,
-    marginRight: 8,
+    marginRight: s(8),
   },
-  pillText: { fontSize: 13, fontWeight: '600' },
+  pillText: { fontSize: ms(13), fontWeight: '600' },
   table: { borderRadius: 8, overflow: 'hidden' },
   tableHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 10,
+    paddingVertical: s(8),
+    paddingHorizontal: s(10),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  headerText: { fontSize: 11, fontWeight: '600' },
+  headerText: { fontSize: ms(11), fontWeight: '600' },
   tableRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 10,
+    paddingVertical: s(8),
+    paddingHorizontal: s(10),
   },
-  colRank: { width: 22, fontSize: 12, textAlign: 'center' },
-  colName: { flex: 1, fontSize: 13, marginHorizontal: 6 },
-  colRecord: { width: 50, fontSize: 12, textAlign: 'center' },
-  colPF: { width: 50, fontSize: 12, textAlign: 'right' },
-  colResult: { width: 70, fontSize: 11, textAlign: 'center' },
+  colRank: { width: s(22), fontSize: ms(12), textAlign: 'center' },
+  colName: { flex: 1, fontSize: ms(13), marginHorizontal: s(6) },
+  colRecord: { width: s(50), fontSize: ms(12), textAlign: 'center' },
+  colPF: { width: s(50), fontSize: ms(12), textAlign: 'right' },
+  colResult: { width: s(70), fontSize: ms(11), textAlign: 'center' },
   resultBadge: {
-    width: 70,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
+    width: s(70),
+    paddingHorizontal: s(4),
+    paddingVertical: s(2),
     borderRadius: 4,
     alignItems: 'center',
   },
-  resultText: { fontSize: 10, fontWeight: '600' },
+  resultText: { fontSize: ms(10), fontWeight: '600' },
 });

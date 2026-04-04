@@ -1,5 +1,5 @@
 import { capture } from "@/lib/posthog";
-import { ErrorState } from "@/components/ErrorState";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { FptsBreakdownModal } from "@/components/player/FptsBreakdownModal";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import {
@@ -9,7 +9,7 @@ import {
   SlotEntry,
   SlotPickerModal,
 } from "@/components/roster/SlotPickerModal";
-import { ThemedText } from "@/components/ThemedText";
+import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
 import { useAppState } from "@/context/AppStateProvider";
 import { useToast } from "@/context/ToastProvider";
@@ -45,7 +45,9 @@ import { buildCompositeScatter } from "@/utils/categoryAnalytics";
 import { isOnline } from "@/utils/network";
 import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
 import { isEligibleForSlot, slotLabel } from "@/utils/rosterSlots";
+import { ms, s } from "@/utils/scale";
 import { isTaxiEligible } from "@/utils/taxiEligibility";
+import { queryKeys } from "@/constants/queryKeys";
 import {
   keepPreviousData,
   useQuery,
@@ -375,7 +377,7 @@ export default function RosterScreen() {
 
   // Current matchup week bounds (used to scope the Auto button)
   const { data: currentWeek } = useQuery({
-    queryKey: ["currentMatchupWeek", leagueId, today],
+    queryKey: queryKeys.currentMatchupWeek(leagueId!, today),
     queryFn: async () => {
       const { data } = await supabase
         .from("league_schedule")
@@ -391,7 +393,7 @@ export default function RosterScreen() {
   });
   // Earliest date this team acquired a player — prevents navigating before the roster existed
   const { data: rosterStartDate } = useQuery({
-    queryKey: ["rosterStartDate", teamId],
+    queryKey: queryKeys.rosterStartDate(teamId!),
     queryFn: async () => {
       const { data } = await supabase
         .from("league_players")
@@ -420,7 +422,7 @@ export default function RosterScreen() {
     isError: isRosterError,
     refetch: refetchRoster,
   } = useQuery<RosterPlayer[]>({
-    queryKey: ["teamRoster", teamId, selectedDate],
+    queryKey: queryKeys.teamRoster(teamId!, selectedDate),
     queryFn: () => fetchTeamRosterForDate(teamId!, leagueId!, selectedDate, currentWeek ?? undefined),
     enabled: !!teamId && !!leagueId,
     staleTime: 1000 * 30, // 30s — useRosterChanges handles realtime invalidation
@@ -429,7 +431,7 @@ export default function RosterScreen() {
 
   // For past dates: fetch that day's actual game stats
   const { data: dayGameStats } = useQuery<Map<string, DayGameStats>>({
-    queryKey: ["dayGameStats", teamId, selectedDate],
+    queryKey: queryKeys.dayGameStats(teamId!, selectedDate),
     queryFn: async () => {
       const playerIds = rosterPlayers!.map((p) => p.player_id);
       const { data } = await supabase
@@ -449,7 +451,7 @@ export default function RosterScreen() {
 
   // Schedule for today and future dates: tricode → matchup string
   const { data: daySchedule } = useQuery<Map<string, ScheduleEntry>>({
-    queryKey: ["daySchedule", selectedDate],
+    queryKey: queryKeys.daySchedule(selectedDate),
     queryFn: () => fetchNbaScheduleForDate(selectedDate),
     enabled: isToday || isFutureDate,
     staleTime: 1000 * 60 * 60,
@@ -480,13 +482,13 @@ export default function RosterScreen() {
     const todayStr = toDateStr(new Date());
     for (const day of adjacent) {
       queryClient.prefetchQuery({
-        queryKey: ["teamRoster", teamId, day],
+        queryKey: queryKeys.teamRoster(teamId, day),
         queryFn: () => fetchTeamRosterForDate(teamId, leagueId, day),
         staleTime: 1000 * 60 * 2,
       });
       if (day >= todayStr) {
         queryClient.prefetchQuery({
-          queryKey: ["daySchedule", day],
+          queryKey: queryKeys.daySchedule(day),
           queryFn: () => fetchNbaScheduleForDate(day),
           staleTime: 1000 * 60 * 60,
         });
@@ -506,18 +508,6 @@ export default function RosterScreen() {
 
   const isLoading = isLoadingConfig || isLoadingRoster;
 
-  // Players acquired today whose game has already started shouldn't appear until tomorrow
-  const filteredRosterPlayers = useMemo(() => {
-    if (!rosterPlayers || !isToday) return rosterPlayers;
-    return rosterPlayers.filter((p) => {
-      if (!p.acquired_at) return true;
-      const acquiredDate = toDateStr(new Date(p.acquired_at));
-      if (acquiredDate !== today) return true;
-      // Acquired today — exclude if their game has already started
-      const liveStatus = liveMap.get(p.player_id)?.game_status;
-      return !isGameStarted(p.nbaTricode, gameTimeMap, liveStatus);
-    });
-  }, [rosterPlayers, isToday, today, gameTimeMap, liveMap]);
 
   // ─── Build slot entries ───────────────────────────────────────────────────
 
@@ -526,7 +516,7 @@ export default function RosterScreen() {
   const irSlots: SlotEntry[] = [];
   const taxiSlots: SlotEntry[] = [];
 
-  if (rosterConfig && filteredRosterPlayers) {
+  if (rosterConfig && rosterPlayers) {
     const benchConfig = rosterConfig.find((c) => c.position === "BE");
     const irConfig = rosterConfig.find((c) => c.position === "IR");
     const taxiConfig = rosterConfig.find((c) => c.position === "TAXI");
@@ -555,7 +545,7 @@ export default function RosterScreen() {
         for (let i = 0; i < config.slot_count; i++) {
           const numberedSlot = `UTIL${i + 1}`;
           const player =
-            filteredRosterPlayers.find(
+            rosterPlayers.find(
               (p) =>
                 p.roster_slot === numberedSlot &&
                 !placedPlayerIds.has(p.player_id),
@@ -564,7 +554,7 @@ export default function RosterScreen() {
           slots.push({ slotPosition: numberedSlot, slotIndex: i, player });
         }
       } else {
-        const playersInSlot = filteredRosterPlayers.filter(
+        const playersInSlot = rosterPlayers.filter(
           (p) =>
             p.roster_slot === config.position &&
             !placedPlayerIds.has(p.player_id),
@@ -581,7 +571,7 @@ export default function RosterScreen() {
       }
     }
 
-    for (const player of filteredRosterPlayers) {
+    for (const player of rosterPlayers) {
       if (player.roster_slot === "IR" || player.roster_slot === "TAXI")
         continue;
       if (
@@ -607,7 +597,7 @@ export default function RosterScreen() {
     }
 
     if (irConfig && irConfig.slot_count > 0) {
-      const irPlayers = filteredRosterPlayers.filter(
+      const irPlayers = rosterPlayers.filter(
         (p) => p.roster_slot === "IR",
       );
       const irSlotCount = Math.max(irConfig.slot_count, irPlayers.length);
@@ -621,7 +611,7 @@ export default function RosterScreen() {
     }
 
     if (taxiConfig && taxiConfig.slot_count > 0) {
-      const taxiPlayers = filteredRosterPlayers.filter(
+      const taxiPlayers = rosterPlayers.filter(
         (p) => p.roster_slot === "TAXI",
       );
       const taxiSlotCount = Math.max(taxiConfig.slot_count, taxiPlayers.length);
@@ -642,7 +632,7 @@ export default function RosterScreen() {
 
   /** Compute destination slots for the selected player (dest mode). */
   const getEligibleDestinations = (): DestinationSlot[] => {
-    if (!activeSlot?.player || !filteredRosterPlayers) return [];
+    if (!activeSlot?.player || !rosterPlayers) return [];
 
     const player = activeSlot.player;
     const srcSlot = activeSlot.slotPosition;
@@ -739,13 +729,13 @@ export default function RosterScreen() {
 
   /** Compute eligible players for empty slots or IR/TAXI (fill mode). */
   const getEligibleFillPlayers = (): RosterPlayer[] => {
-    if (!activeSlot || !filteredRosterPlayers) return [];
+    if (!activeSlot || !rosterPlayers) return [];
     const slotPos = activeSlot.slotPosition;
     const isIR = slotPos === "IR";
     const isTaxi = slotPos === "TAXI";
     const currentPlayer = activeSlot.player;
 
-    return filteredRosterPlayers.filter((p) => {
+    return rosterPlayers.filter((p) => {
       if (currentPlayer?.player_id === p.player_id) return false;
 
       // IR: only OUT/SUSP players not already on IR
@@ -943,7 +933,7 @@ export default function RosterScreen() {
       // ── 4. Query invalidation ──
       if (isIrTaxiInvolved) {
         queryClient.invalidateQueries({
-          queryKey: ["rosterInfo", leagueId, teamId],
+          queryKey: queryKeys.rosterInfo(leagueId, teamId),
         });
         queryClient.invalidateQueries({
           queryKey: ["teamRoster", teamId],
@@ -954,7 +944,7 @@ export default function RosterScreen() {
           addDays(effectiveDate, 2),
         ]) {
           queryClient.prefetchQuery({
-            queryKey: ["teamRoster", teamId, day],
+            queryKey: queryKeys.teamRoster(teamId, day),
             queryFn: () => fetchTeamRosterForDate(teamId, leagueId, day),
             staleTime: 1000 * 30,
           });
@@ -967,7 +957,7 @@ export default function RosterScreen() {
         }
       } else {
         queryClient.invalidateQueries({
-          queryKey: ["teamRoster", teamId, selectedDate],
+          queryKey: queryKeys.teamRoster(teamId, selectedDate),
         });
       }
       queryClient.invalidateQueries({
@@ -986,7 +976,7 @@ export default function RosterScreen() {
 
   const promptAutoLineup = () => {
     if (
-      !filteredRosterPlayers ||
+      !rosterPlayers ||
       !rosterConfig ||
       !scoringWeights ||
       !teamId ||
@@ -1003,7 +993,7 @@ export default function RosterScreen() {
 
   const runAutoLineup = async (mode: "today" | "week") => {
     if (
-      !filteredRosterPlayers ||
+      !rosterPlayers ||
       !rosterConfig ||
       !scoringWeights ||
       !teamId ||
@@ -1067,17 +1057,25 @@ export default function RosterScreen() {
 
       // Start from the current effective lineup (feeds into each day's optimizer)
       const prevSlots = new Map(
-        filteredRosterPlayers.map((p) => [p.player_id, p.roster_slot ?? "BE"]),
+        rosterPlayers.map((p) => [p.player_id, p.roster_slot ?? "BE"]),
       );
       let totalMoves = 0;
       let daysChanged = 0;
 
-      // For CAT leagues, rank players by composite z-score instead of FPTS
+      // For CAT leagues, rank players by composite z-score instead of FPTS.
+      // Shift all values so the minimum is at least 1, because the optimizer
+      // treats 0 as "no game today" — negative z-scores would rank below
+      // players with no game, breaking the lineup.
       const catRankMap = new Map<string, number>();
-      if (isCategories && filteredRosterPlayers.length >= 3) {
-        const composite = buildCompositeScatter(filteredRosterPlayers);
+      if (isCategories && rosterPlayers.length >= 3) {
+        const composite = buildCompositeScatter(rosterPlayers);
+        const minVal = composite.reduce(
+          (m, pt) => Math.min(m, pt.value),
+          Infinity,
+        );
+        const shift = minVal < 1 ? 1 - minVal : 0;
         for (const pt of composite) {
-          catRankMap.set(pt.playerId, pt.value);
+          catRankMap.set(pt.playerId, pt.value + shift);
         }
       }
 
@@ -1085,7 +1083,7 @@ export default function RosterScreen() {
         const teamsPlaying = teamsPlayingByDate.get(date);
         const isDateToday = date === today;
 
-        const lineupPlayers: LineupPlayer[] = filteredRosterPlayers.map(
+        const lineupPlayers: LineupPlayer[] = rosterPlayers.map(
           (p) => ({
             player_id: p.player_id,
             position: p.position,
@@ -1298,7 +1296,7 @@ export default function RosterScreen() {
     if (isIrOrTaxiSrc) return new Set<string>();
     const dests = getEligibleDestinations();
     return new Set(dests.map((d) => `${d.slot.slotPosition}-${d.slot.slotIndex}`));
-  }, [activeSlot, filteredRosterPlayers, scoringWeights, daySchedule]);
+  }, [activeSlot, rosterPlayers, scoringWeights, daySchedule]);
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -1493,7 +1491,12 @@ export default function RosterScreen() {
             accessibilityLabel={`${slot.player!.name}, ${formatPosition(slot.player!.position)}, ${slot.player!.nba_team}${matchupDisplay ? `, ${matchupDisplay}` : ""}${!isCategories && fpts !== null ? `, ${formatScore(fpts)} fantasy points` : ""}${isLive ? ", live" : ""}${locked ? ", locked" : ""}`}
             accessibilityHint="Tap for player details, long press to change slot"
           >
-            {/* Headshot with team pill + on-court dot */}
+            {/* On-court dot — upper-left of the player row */}
+            {liveData?.oncourt && liveData.game_status === 2 && (
+              <View style={[styles.onCourtDot, { backgroundColor: c.success }]} accessible={false} />
+            )}
+
+            {/* Headshot with team pill */}
             <View style={styles.rosterPortraitWrap} accessible={false}>
               {(() => {
                 const url = getPlayerHeadshotUrl(slot.player.external_id_nba);
@@ -1516,9 +1519,6 @@ export default function RosterScreen() {
                   </View>
                 );
               })()}
-              {liveData?.oncourt && liveData.game_status === 2 && (
-                <View style={[styles.onCourtDot, { backgroundColor: c.success }]} accessible={false} />
-              )}
               {(() => {
                 const logoUrl = getTeamLogoUrl(slot.player.nba_team);
                 return (
@@ -1910,7 +1910,7 @@ export default function RosterScreen() {
             const src = activeSlot.slotPosition;
             if (action === "activate") {
               // Check if active roster is full before activating from IR
-              const activeCount = filteredRosterPlayers?.filter(
+              const activeCount = rosterPlayers?.filter(
                 (p) => p.roster_slot !== "IR" && p.roster_slot !== "TAXI",
               ).length ?? 0;
               const maxActive = league?.roster_size ?? 13;
@@ -1966,7 +1966,7 @@ export default function RosterScreen() {
             addDays(selectedDate, 2),
           ]) {
             queryClient.prefetchQuery({
-              queryKey: ["teamRoster", teamId, day],
+              queryKey: queryKeys.teamRoster(teamId, day),
               queryFn: () => fetchTeamRosterForDate(teamId, leagueId, day),
               staleTime: 1000 * 60 * 2,
             });
@@ -1993,66 +1993,66 @@ export default function RosterScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   autoButton: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: s(10),
+    paddingVertical: s(4),
     borderRadius: 6,
   },
   autoButtonText: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: "700",
   },
-  scrollContent: { paddingBottom: 56 },
+  scrollContent: { paddingBottom: s(56) },
   centered: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 20,
+    padding: s(20),
   },
   dayNav: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 10,
+    paddingHorizontal: s(8),
+    paddingVertical: s(10),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  navArrow: { padding: 12 },
-  navArrowText: { fontSize: 28, lineHeight: 32 },
+  navArrow: { padding: s(12) },
+  navArrowText: { fontSize: ms(28), lineHeight: ms(32) },
   todayChip: {
     position: "absolute",
     top: 0,
     bottom: 0,
     justifyContent: "center",
-    paddingHorizontal: 4,
+    paddingHorizontal: s(4),
   },
-  todayChipLeft: { left: 50 },
-  todayChipRight: { right: 50 },
+  todayChipLeft: { left: s(50) },
+  todayChipRight: { right: s(50) },
   dayInfo: { flex: 1, alignItems: "center" },
-  dayLabel: { fontSize: 16 },
-  daySubLabel: { fontSize: 11, marginTop: 2 },
-  section: { padding: 16, paddingBottom: 0 },
+  dayLabel: { fontSize: ms(16) },
+  daySubLabel: { fontSize: ms(11), marginTop: 2 },
+  section: { padding: s(16), paddingBottom: 0 },
   sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 8,
+    marginBottom: s(8),
   },
   totalBadge: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: s(8),
+    paddingVertical: s(3),
     borderRadius: 6,
     borderWidth: 1,
-    gap: 5,
+    gap: s(5),
   },
-  totalLabel: { fontSize: 10, fontWeight: "600" },
+  totalLabel: { fontSize: ms(10), fontWeight: "600" },
   totalValue: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: "700",
-    minWidth: 44,
+    minWidth: s(44),
     textAlign: "right",
   },
-  emptyBench: { padding: 16, alignItems: "center" },
+  emptyBench: { padding: s(16), alignItems: "center" },
   card: {
     borderRadius: 8,
     overflow: "hidden",
@@ -2065,40 +2065,40 @@ const styles = StyleSheet.create({
   slotRow: {
     flexDirection: "row",
     alignItems: "center",
-    minHeight: 56,
+    minHeight: s(56),
   },
   slotLabel: {
-    width: 44,
+    width: s(44),
     alignSelf: "stretch",
     justifyContent: "center",
     alignItems: "center",
   },
-  slotLabelText: { fontSize: 11, fontWeight: "700" },
+  slotLabelText: { fontSize: ms(11), fontWeight: "700" },
   slotPlayer: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingVertical: s(6),
+    paddingHorizontal: s(12),
   },
   rosterPortraitWrap: {
-    width: 50,
-    height: 50,
-    marginRight: 8,
+    width: s(50),
+    height: s(50),
+    marginRight: s(8),
     alignItems: "center",
   },
   onCourtDot: {
     position: "absolute" as const,
-    top: 8,
-    left: 7,
-    width: 8,
-    height: 8,
+    top: s(6),
+    left: s(6),
+    width: s(8),
+    height: s(8),
     borderRadius: 4,
     zIndex: 2,
   },
   rosterHeadshotCircle: {
-    width: 48,
-    height: 48,
+    width: s(48),
+    height: s(48),
     borderRadius: 25,
     borderWidth: 1.5,
     overflow: "hidden" as const,
@@ -2108,7 +2108,7 @@ const styles = StyleSheet.create({
     bottom: -2,
     left: 0,
     right: 0,
-    height: 42,
+    height: s(42),
   },
   rosterTeamPill: {
     position: "absolute",
@@ -2118,27 +2118,27 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "rgba(0,0,0,0.75)",
     borderRadius: 8,
-    paddingHorizontal: 3,
+    paddingHorizontal: s(3),
     paddingVertical: 1,
     gap: 2,
   },
   rosterTeamPillLogo: {
-    width: 9,
-    height: 9,
+    width: s(9),
+    height: s(9),
   },
   rosterTeamPillText: {
-    fontSize: 7,
+    fontSize: ms(7),
     fontWeight: "700",
     letterSpacing: 0.3,
   },
-  slotPlayerInfo: { flex: 1, marginRight: 8 },
-  slotPlayerName: { fontSize: 14 },
-  slotPlayerSub: { fontSize: 11, marginTop: 1 },
-  slotFpts: { fontSize: 13, fontWeight: "600" },
-  emptySlotText: { fontSize: 13, fontStyle: "italic" },
-  todayChipText: { fontSize: 11, fontWeight: "600" },
+  slotPlayerInfo: { flex: 1, marginRight: s(8) },
+  slotPlayerName: { fontSize: ms(14) },
+  slotPlayerSub: { fontSize: ms(11), marginTop: 1 },
+  slotFpts: { fontSize: ms(13), fontWeight: "600" },
+  emptySlotText: { fontSize: ms(13), fontStyle: "italic" },
+  todayChipText: { fontSize: ms(11), fontWeight: "600" },
   matchupChip: {
-    paddingHorizontal: 4,
+    paddingHorizontal: s(4),
     paddingVertical: 1,
     borderRadius: 3,
   },
@@ -2146,16 +2146,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   matchupChipText: {
-    fontSize: 9,
+    fontSize: ms(9),
     fontWeight: "600" as const,
   },
   liveBadge: {
-    paddingHorizontal: 4,
+    paddingHorizontal: s(4),
     paddingVertical: 1,
     borderRadius: 3,
   },
   liveText: {
-    fontSize: 8,
+    fontSize: ms(8),
     fontWeight: "800",
     letterSpacing: 0.5,
   },

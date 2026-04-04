@@ -1,3 +1,4 @@
+import { queryKeys } from '@/constants/queryKeys';
 import { capture } from '@/lib/posthog';
 import { supabase } from '@/lib/supabase';
 import type {
@@ -17,7 +18,7 @@ import {
 
 export function useSurvey(surveyId: string | null) {
   return useQuery<{ survey: CommissionerSurvey; questions: SurveyQuestion[] } | null>({
-    queryKey: ['survey', surveyId],
+    queryKey: queryKeys.survey(surveyId!),
     queryFn: async () => {
       const { data: survey, error: sErr } = await supabase
         .from('commissioner_surveys')
@@ -47,7 +48,7 @@ export function useSurvey(surveyId: string | null) {
 
 export function useSurveyStatus(surveyId: string | null, teamId: string | null) {
   return useQuery<{ hasSubmitted: boolean; submittedAt: string | null }>({
-    queryKey: ['surveyStatus', surveyId, teamId],
+    queryKey: queryKeys.surveyStatus(surveyId!, teamId!),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('survey_responses')
@@ -70,7 +71,7 @@ export function useSurveyStatus(surveyId: string | null, teamId: string | null) 
 
 export function useSurveyResponseCount(surveyId: string | null, enabled: boolean) {
   return useQuery<number>({
-    queryKey: ['surveyResponseCount', surveyId],
+    queryKey: queryKeys.surveyResponseCount(surveyId!),
     queryFn: async () => {
       const { count, error } = await supabase
         .from('survey_responses')
@@ -88,7 +89,7 @@ export function useSurveyResponseCount(surveyId: string | null, enabled: boolean
 
 export function useSurveyResults(surveyId: string | null) {
   return useQuery<SurveyQuestionResult[]>({
-    queryKey: ['surveyResults', surveyId],
+    queryKey: queryKeys.surveyResults(surveyId!),
     queryFn: async () => {
       const { data, error } = await supabase
         .rpc('get_survey_results', { p_survey_id: surveyId! });
@@ -107,7 +108,7 @@ export function useSurveyCompletionTracker(
   leagueId: string | null,
 ) {
   return useQuery<SurveyCompletionStatus[]>({
-    queryKey: ['surveyCompletion', surveyId],
+    queryKey: queryKeys.surveyCompletion(surveyId!),
     queryFn: async () => {
       // Get all teams in the league
       const { data: teams, error: tErr } = await supabase
@@ -157,8 +158,8 @@ export function useSubmitSurvey(surveyId: string | null) {
     onSuccess: () => {
       capture('survey_answered');
       queryClient.invalidateQueries({ queryKey: ['surveyStatus', surveyId] });
-      queryClient.invalidateQueries({ queryKey: ['surveyResults', surveyId] });
-      queryClient.invalidateQueries({ queryKey: ['surveyCompletion', surveyId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.surveyResults(surveyId!) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.surveyCompletion(surveyId!) });
     },
   });
 }
@@ -194,7 +195,7 @@ export function useCreateSurvey() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
-        queryKey: ['messages', variables.conversation_id],
+        queryKey: queryKeys.messages(variables.conversation_id),
       });
     },
   });

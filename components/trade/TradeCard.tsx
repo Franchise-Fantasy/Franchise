@@ -1,8 +1,9 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { TradeItemRow, TradeProposalRow } from '@/hooks/useTrades';
 import { formatPickLabel } from '@/types/trade';
+import { ms, s } from '@/utils/scale';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 /** Returns a set of item keys that are new in the counteroffer vs the original */
@@ -71,7 +72,7 @@ export function TradeCard({ proposal, onPress }: TradeCardProps) {
   const statusColor = STATUS_COLORS[proposal.status] ?? c.secondaryText;
   const isCounteroffer = !!proposal.counteroffer_of;
   const newItemKeys = getNewItemKeys(proposal.items, proposal.original_items);
-  const summary = buildTradeSummary(proposal, newItemKeys);
+  const summary = buildTradeReceiveSummary(proposal, newItemKeys);
 
   return (
     <TouchableOpacity
@@ -83,7 +84,7 @@ export function TradeCard({ proposal, onPress }: TradeCardProps) {
     >
       {/* Status row */}
       <View style={styles.statusRow}>
-        <View style={{ flexDirection: 'row', gap: 6 }}>
+        <View style={{ flexDirection: 'row', gap: s(6) }}>
           <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
             <Text style={[styles.statusText, { color: c.statusText }]}>
               {STATUS_LABELS[proposal.status] ?? proposal.status}
@@ -109,7 +110,7 @@ export function TradeCard({ proposal, onPress }: TradeCardProps) {
       {summary.map((group, i) => (
         <View key={i} style={styles.summaryGroup}>
           <ThemedText style={[styles.summaryTeam, { color: c.text }]} numberOfLines={1}>
-            {group.team} sends:
+            {group.team} received:
           </ThemedText>
           {group.assets.map((asset, j) => (
             <View key={j} style={styles.assetRow}>
@@ -134,7 +135,7 @@ export function TradeCard({ proposal, onPress }: TradeCardProps) {
 
 interface AssetEntry { label: string; isNew: boolean }
 
-function buildTradeSummary(
+function buildTradeReceiveSummary(
   proposal: TradeProposalRow,
   newItemKeys: Set<string>,
 ): { team: string; assets: AssetEntry[] }[] {
@@ -145,24 +146,24 @@ function buildTradeSummary(
 
   const isMultiTeam = proposal.teams.length > 2;
 
-  const sendsByTeam: Record<string, AssetEntry[]> = {};
+  const receivesByTeam: Record<string, AssetEntry[]> = {};
   for (const item of proposal.items) {
-    const from = teamNameMap[item.from_team_id] ?? 'Unknown';
-    if (!sendsByTeam[from]) sendsByTeam[from] = [];
+    const to = teamNameMap[item.to_team_id] ?? 'Unknown';
+    if (!receivesByTeam[to]) receivesByTeam[to] = [];
     const isNew = newItemKeys.has(itemKey(item));
-    const toSuffix = isMultiTeam ? ` → ${teamNameMap[item.to_team_id] ?? '?'}` : '';
+    const fromSuffix = isMultiTeam ? ` (from ${teamNameMap[item.from_team_id] ?? '?'})` : '';
     if (item.player_name) {
-      sendsByTeam[from].push({ label: item.player_name + toSuffix, isNew });
+      receivesByTeam[to].push({ label: item.player_name + fromSuffix, isNew });
     } else if (item.pick_swap_season && item.pick_swap_round) {
-      const to = teamNameMap[item.to_team_id] ?? '?';
-      sendsByTeam[from].push({ label: `Rd ${item.pick_swap_round} swap → ${to}`, isNew });
+      const from = teamNameMap[item.from_team_id] ?? '?';
+      receivesByTeam[to].push({ label: `Rd ${item.pick_swap_round} swap (from ${from})`, isNew });
     } else if (item.pick_season && item.pick_round) {
       const protLabel = item.protection_threshold ? ` (Top-${item.protection_threshold} P)` : '';
-      sendsByTeam[from].push({ label: formatPickLabel(item.pick_season!, item.pick_round!) + protLabel + toSuffix, isNew });
+      receivesByTeam[to].push({ label: formatPickLabel(item.pick_season!, item.pick_round!) + protLabel + fromSuffix, isNew });
     }
   }
 
-  return Object.entries(sendsByTeam).map(
+  return Object.entries(receivesByTeam).map(
     ([team, assets]) => ({ team, assets })
   );
 }
@@ -170,8 +171,8 @@ function buildTradeSummary(
 const styles = StyleSheet.create({
   card: {
     borderRadius: 10,
-    padding: 14,
-    marginBottom: 10,
+    padding: s(14),
+    marginBottom: s(10),
     shadowColor: '#000',
     shadowOpacity: 0.05,
     shadowRadius: 6,
@@ -182,34 +183,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: s(8),
   },
   statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: s(8),
+    paddingVertical: s(3),
     borderRadius: 4,
   },
   statusText: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: '700',
   },
   time: {
-    fontSize: 12,
+    fontSize: ms(12),
   },
   teamsLine: {
-    fontSize: 14,
-    marginBottom: 6,
+    fontSize: ms(14),
+    marginBottom: s(6),
   },
   summaryGroup: {
-    marginTop: 4,
+    marginTop: s(4),
   },
   summaryTeam: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '600',
   },
   summaryAsset: {
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: ms(12),
+    lineHeight: ms(18),
     flex: 1,
   },
   assetRow: {
@@ -217,13 +218,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   newBadge: {
-    paddingHorizontal: 5,
-    paddingVertical: 1,
+    paddingHorizontal: s(5),
+    paddingVertical: s(1),
     borderRadius: 3,
-    marginLeft: 6,
+    marginLeft: s(6),
   },
   newBadgeText: {
-    fontSize: 9,
+    fontSize: ms(9),
     fontWeight: '700',
   },
 });

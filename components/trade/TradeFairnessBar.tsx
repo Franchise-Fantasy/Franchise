@@ -1,6 +1,7 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { ms, s } from '@/utils/scale';
 import { StyleSheet, View } from 'react-native';
 
 interface TeamFairness {
@@ -59,36 +60,36 @@ export function TradeFairnessBar({ teams }: TradeFairnessBarProps) {
 
 const styles = StyleSheet.create({
   container: {
-    paddingVertical: 6,
+    paddingVertical: s(6),
   },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 6,
+    marginBottom: s(6),
   },
   title: {
-    fontSize: 12,
+    fontSize: ms(12),
   },
   subtitle: {
-    fontSize: 10,
+    fontSize: ms(10),
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: s(4),
   },
   teamName: {
-    width: 80,
-    fontSize: 12,
+    width: s(80),
+    fontSize: ms(12),
     fontWeight: '500',
   },
   barContainer: {
     flex: 1,
-    height: 8,
+    height: s(8),
     backgroundColor: 'rgba(128,128,128,0.15)',
     borderRadius: 4,
-    marginHorizontal: 6,
+    marginHorizontal: s(6),
     overflow: 'hidden',
   },
   bar: {
@@ -96,9 +97,9 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   value: {
-    width: 46,
+    width: s(46),
     textAlign: 'right',
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '700',
   },
 });

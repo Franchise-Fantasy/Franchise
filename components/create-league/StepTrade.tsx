@@ -1,11 +1,12 @@
 import { ToggleRow } from '@/components/ToggleRow';
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Colors } from '@/constants/Colors';
 import { LeagueWizardState, TRADE_VETO_OPTIONS } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { StyleSheet, View } from 'react-native';
+import { ms, s } from '@/utils/scale';
 
 interface StepTradeProps {
   state: LeagueWizardState;
@@ -107,19 +108,19 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   heading: {
-    marginBottom: 20,
+    marginBottom: s(20),
   },
   label: {
-    marginBottom: 8,
-    fontSize: 14,
+    marginBottom: s(8),
+    fontSize: ms(14),
     fontWeight: '500',
   },
   section: {
-    marginBottom: 20,
+    marginBottom: s(20),
   },
   hint: {
-    fontSize: 13,
-    marginTop: 6,
-    lineHeight: 18,
+    fontSize: ms(13),
+    marginTop: s(6),
+    lineHeight: ms(18),
   },
 });

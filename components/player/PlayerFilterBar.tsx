@@ -1,6 +1,7 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
-import { POSITIONS, SortKey, TimeRange } from '@/hooks/usePlayerFilter';
+import { ms, s } from '@/utils/scale';
+import { InjuryFilter, POSITIONS, SortKey, TimeRange } from '@/hooks/usePlayerFilter';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
@@ -16,6 +17,12 @@ import {
 } from 'react-native';
 
 const SORT_OPTIONS: SortKey[] = ['FPTS', 'PPG', 'RPG', 'APG', 'SPG', 'BPG', 'MPG'];
+const INJURY_OPTIONS: { key: InjuryFilter; label: string; icon: string }[] = [
+  { key: 'all', label: 'All', icon: 'people-outline' },
+  { key: 'healthy', label: 'Active / Probable', icon: 'checkmark-circle-outline' },
+  { key: 'injured', label: 'Out / GTD / Doubtful', icon: 'medkit-outline' },
+];
+
 const TIME_RANGE_OPTIONS: { key: TimeRange; label: string }[] = [
   { key: 'season', label: 'Season' },
   { key: '7d', label: '7D' },
@@ -45,6 +52,8 @@ interface PlayerFilterBarProps {
   showFreeAgentsOnly?: boolean;
   onFreeAgentsOnlyChange?: (show: boolean) => void;
   hasRosteredData?: boolean;
+  injuryFilter?: InjuryFilter;
+  onInjuryFilterChange?: (filter: InjuryFilter) => void;
 }
 
 export function PlayerFilterBar({
@@ -68,6 +77,8 @@ export function PlayerFilterBar({
   showFreeAgentsOnly,
   onFreeAgentsOnlyChange,
   hasRosteredData,
+  injuryFilter,
+  onInjuryFilterChange,
 }: PlayerFilterBarProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
@@ -80,7 +91,8 @@ export function PlayerFilterBar({
     (showMinutesUp ? 1 : 0) +
     (showAvailableToday ? 1 : 0) +
     (timeRange && timeRange !== 'season' ? 1 : 0) +
-    (showWatchlistOnly ? 1 : 0);
+    (showWatchlistOnly ? 1 : 0) +
+    (injuryFilter && injuryFilter !== 'all' ? 1 : 0);
 
   const resetFilters = () => {
     onPositionChange('All');
@@ -90,6 +102,7 @@ export function PlayerFilterBar({
     onTimeRangeChange?.('season');
     onWatchlistOnlyChange?.(false);
     onFreeAgentsOnlyChange?.(true);
+    onInjuryFilterChange?.('all');
   };
 
   return (
@@ -228,6 +241,48 @@ export function PlayerFilterBar({
               </View>
               )}
 
+              {/* Injury Status section */}
+              {onInjuryFilterChange && (
+                <View style={styles.section}>
+                  <ThemedText style={[styles.sectionLabel, { color: c.secondaryText }]}>Injury Status</ThemedText>
+                  <View style={styles.chipGrid}>
+                    {INJURY_OPTIONS.map(opt => {
+                      const active = injuryFilter === opt.key;
+                      return (
+                        <TouchableOpacity
+                          key={opt.key}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Injury filter: ${opt.label}`}
+                          accessibilityState={{ selected: active }}
+                          style={[
+                            styles.chip,
+                            { borderColor: c.border, flexDirection: 'row', alignItems: 'center' },
+                            active && { backgroundColor: c.activeCard, borderColor: c.activeBorder },
+                          ]}
+                          onPress={() => onInjuryFilterChange(opt.key)}
+                        >
+                          <Ionicons
+                            name={opt.icon as any}
+                            size={14}
+                            color={active ? c.activeText : c.secondaryText}
+                            style={{ marginRight: 4 }}
+                          />
+                          <ThemedText
+                            style={[
+                              styles.chipText,
+                              { color: c.secondaryText },
+                              active && { color: c.activeText, fontWeight: '600' },
+                            ]}
+                          >
+                            {opt.label}
+                          </ThemedText>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              )}
+
               {/* Time Range section */}
               {onTimeRangeChange && (
                 <View style={styles.section}>
@@ -351,27 +406,27 @@ export function PlayerFilterBar({
 
 const styles = StyleSheet.create({
   container: {
-    paddingHorizontal: 8,
-    paddingTop: 8,
-    paddingBottom: 6,
+    paddingHorizontal: s(8),
+    paddingTop: s(8),
+    paddingBottom: s(6),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   searchRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: s(8),
   },
   searchInput: {
     flex: 1,
-    height: 36,
+    height: s(36),
     borderRadius: 8,
     borderWidth: 1,
-    paddingHorizontal: 12,
-    fontSize: 14,
+    paddingHorizontal: s(12),
+    fontSize: ms(14),
   },
   filterBtn: {
-    width: 36,
-    height: 36,
+    width: s(36),
+    height: s(36),
     borderRadius: 8,
     borderWidth: 1,
     alignItems: 'center',
@@ -379,19 +434,19 @@ const styles = StyleSheet.create({
   },
   badge: {
     position: 'absolute',
-    top: -6,
-    right: -6,
+    top: s(-6),
+    right: s(-6),
     borderRadius: 8,
-    minWidth: 16,
-    height: 16,
+    minWidth: s(16),
+    height: s(16),
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 4,
+    paddingHorizontal: s(4),
   },
   badgeText: {
-    fontSize: 10,
+    fontSize: ms(10),
     fontWeight: '700',
-    lineHeight: 16,
+    lineHeight: ms(16),
     textAlign: 'center' as const,
   },
   // Modal
@@ -400,57 +455,57 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
+    padding: s(24),
   },
   modal: {
     width: '100%',
     maxHeight: '80%',
     borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
-    padding: 20,
+    padding: s(20),
   },
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: s(16),
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: ms(18),
   },
   resetText: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '500',
   },
   section: {
-    marginBottom: 18,
+    marginBottom: s(18),
   },
   sectionLabel: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '600',
     letterSpacing: 0.5,
     textTransform: 'uppercase',
-    marginBottom: 8,
+    marginBottom: s(8),
   },
   chipGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
+    gap: s(6),
   },
   chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: s(12),
+    paddingVertical: s(6),
     borderRadius: 16,
     borderWidth: 1,
   },
   chipText: {
-    fontSize: 13,
+    fontSize: ms(13),
   },
   // Quick filter toggles — side by side
   toggleGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: s(8),
   },
   toggleCompact: {
     flexBasis: '47%',
@@ -458,23 +513,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
+    gap: s(6),
+    paddingVertical: s(10),
     borderRadius: 10,
     borderWidth: 1,
   },
   toggleCompactLabel: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: '500',
   },
   doneBtn: {
-    marginTop: 12,
-    paddingVertical: 12,
+    marginTop: s(12),
+    paddingVertical: s(12),
     borderRadius: 10,
     alignItems: 'center',
   },
   doneBtnText: {
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: '600',
   },
 });

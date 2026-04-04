@@ -1,7 +1,8 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { ReadReceipt } from '@/hooks/chat/useReadReceipts';
+import { ms, s } from '@/utils/scale';
 import { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 
@@ -60,30 +61,30 @@ export function ReadReceiptIndicator({ isDM, readers }: Props) {
 
 const styles = StyleSheet.create({
   container: {
-    marginTop: 2,
-    marginBottom: 2,
+    marginTop: s(2),
+    marginBottom: s(2),
   },
   dmContainer: {
     alignItems: 'flex-end',
-    paddingRight: 4,
+    paddingRight: s(4),
   },
   groupContainer: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    gap: 4,
-    paddingRight: 4,
+    gap: s(4),
+    paddingRight: s(4),
   },
   seenText: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: '500',
   },
   tricodeBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingHorizontal: s(6),
+    paddingVertical: s(2),
     borderRadius: 8,
   },
   tricodeText: {
-    fontSize: 10,
+    fontSize: ms(10),
     fontWeight: '600',
   },
 });

@@ -1,11 +1,13 @@
 import { capture } from '@/lib/posthog';
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ms, s } from '@/utils/scale';
 
 interface DeclareKeepersProps {
   leagueId: string;
@@ -22,7 +24,7 @@ export function DeclareKeepers({ leagueId, teamId, season, keeperCount, isCommis
 
   // Fetch my roster
   const { data: roster } = useQuery({
-    queryKey: ['keeperRoster', leagueId, teamId],
+    queryKey: queryKeys.keeperRoster(leagueId, teamId),
     queryFn: async () => {
       const { data } = await supabase
         .from('league_players')
@@ -39,7 +41,7 @@ export function DeclareKeepers({ leagueId, teamId, season, keeperCount, isCommis
 
   // Fetch my declarations
   const { data: myDeclarations } = useQuery({
-    queryKey: ['keeperDeclarations', leagueId, teamId, season],
+    queryKey: queryKeys.keeperDeclarations(leagueId, teamId, season as unknown as number),
     queryFn: async () => {
       const { data } = await supabase
         .from('keeper_declarations')
@@ -53,7 +55,7 @@ export function DeclareKeepers({ leagueId, teamId, season, keeperCount, isCommis
 
   // Commissioner: fetch all teams' declaration counts
   const { data: teamStatuses } = useQuery({
-    queryKey: ['keeperDeclarations', leagueId, 'all', season],
+    queryKey: queryKeys.keeperDeclarations(leagueId, 'all', season as unknown as number),
     queryFn: async () => {
       const { data: teams } = await supabase
         .from('teams')
@@ -157,7 +159,7 @@ export function DeclareKeepers({ leagueId, teamId, season, keeperCount, isCommis
             const isDone = t.count >= keeperCount;
             return (
               <View key={t.name} style={styles.teamStatusRow}>
-                <ThemedText style={{ fontSize: 13 }}>{t.name}</ThemedText>
+                <ThemedText style={{ fontSize: ms(13) }}>{t.name}</ThemedText>
                 <ThemedText style={[styles.teamStatusCount, { color: isDone ? c.success : c.secondaryText }]}>
                   {t.count}/{keeperCount} {isDone ? '✓' : ''}
                 </ThemedText>
@@ -172,48 +174,48 @@ export function DeclareKeepers({ leagueId, teamId, season, keeperCount, isCommis
 
 const styles = StyleSheet.create({
   wrapper: {
-    marginBottom: 12,
+    marginBottom: s(12),
   },
   sectionTitle: {
-    fontSize: 14,
-    marginBottom: 8,
+    fontSize: ms(14),
+    marginBottom: s(8),
   },
   playerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingVertical: s(10),
+    paddingHorizontal: s(12),
     borderBottomWidth: 1,
     borderRadius: 6,
-    marginBottom: 2,
+    marginBottom: s(2),
   },
   playerInfo: {
     flex: 1,
   },
   playerName: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '500',
   },
   playerPos: {
-    fontSize: 12,
+    fontSize: ms(12),
     marginTop: 1,
   },
   emptyText: {
-    fontSize: 13,
+    fontSize: ms(13),
     textAlign: 'center',
-    paddingVertical: 12,
+    paddingVertical: s(12),
   },
   commSection: {
-    marginTop: 16,
+    marginTop: s(16),
   },
   teamStatusRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 4,
+    paddingVertical: s(4),
   },
   teamStatusCount: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: '600',
   },
 });

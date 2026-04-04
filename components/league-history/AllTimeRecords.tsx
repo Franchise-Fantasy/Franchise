@@ -1,8 +1,9 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useAllTimeRecords } from '@/hooks/useLeagueHistory';
 import { Ionicons } from '@expo/vector-icons';
+import { ms, s } from '@/utils/scale';
 import { useState } from 'react';
 import { ActivityIndicator, StyleSheet, TouchableOpacity, View } from 'react-native';
 
@@ -66,29 +67,29 @@ const styles = StyleSheet.create({
   container: {
     borderRadius: 12,
     borderWidth: 1,
-    padding: 16,
-    marginBottom: 16,
+    padding: s(16),
+    marginBottom: s(16),
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: s(10),
   },
-  title: { flex: 1, fontSize: 14 },
+  title: { flex: 1, fontSize: ms(14) },
   grid: {
-    marginTop: 12,
+    marginTop: s(12),
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: s(10),
   },
   statCard: {
     flexBasis: '47%',
     flexGrow: 1,
-    padding: 12,
+    padding: s(12),
     borderRadius: 10,
   },
-  statLabel: { fontSize: 11, fontWeight: '600', marginBottom: 4 },
-  statValue: { fontSize: 20, marginBottom: 2 },
-  statTeam: { fontSize: 12, marginBottom: 1 },
-  statDetail: { fontSize: 11 },
+  statLabel: { fontSize: ms(11), fontWeight: '600', marginBottom: s(4) },
+  statValue: { fontSize: ms(20), marginBottom: s(2) },
+  statTeam: { fontSize: ms(12), marginBottom: s(1) },
+  statDetail: { fontSize: ms(11) },
 });

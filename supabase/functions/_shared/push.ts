@@ -5,7 +5,7 @@ const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 type NotifCategory =
   | 'draft' | 'trades' | 'trade_rumors' | 'trade_block' | 'matchups' | 'matchup_daily' | 'waivers'
   | 'injuries' | 'playoffs' | 'commissioner' | 'league_activity'
-  | 'roster_reminders' | 'lottery' | 'chat' | 'roster_moves';
+  | 'roster_reminders' | 'lottery' | 'chat' | 'roster_moves' | 'player_news';
 
 // Server-side mirror of DEFAULT_PREFERENCES from lib/notifications.ts.
 // Used as fallback when a stored push_tokens row is missing newer keys.
@@ -25,6 +25,7 @@ const DEFAULT_PREFS: Record<string, boolean> = {
   lottery: false,
   chat: false,
   roster_moves: false,
+  player_news: true,
 };
 
 const CHANNEL_MAP: Record<string, string> = {

@@ -1,9 +1,10 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { LEAGUE_TYPE_DISPLAY, LeagueWizardState, NBA_POSITIONS, WAIVER_DAY_LABELS } from '@/constants/LeagueDefaults';
 import { taxiExperienceLabel } from '@/utils/taxiEligibility';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ms, s } from '@/utils/scale';
 
 interface StepReviewProps {
   state: LeagueWizardState;
@@ -50,7 +51,7 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
           <Row label="Taxi Eligibility" value={taxiExperienceLabel(state.taxiMaxExperience)} c={c} />
         )}
         {Object.keys(state.positionLimits).length > 0 && (
-          <ThemedText style={[styles.rosterSummary, { color: c.secondaryText, marginTop: 4 }]}>
+          <ThemedText style={[styles.rosterSummary, { color: c.secondaryText, marginTop: s(4) }]}>
             Position Limits: {NBA_POSITIONS.filter((p) => state.positionLimits[p] != null).map((p) => `${p}: ${state.positionLimits[p]}`).join('  |  ')}
           </ThemedText>
         )}
@@ -177,37 +178,37 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   heading: {
-    marginBottom: 16,
+    marginBottom: s(16),
   },
   section: {
     borderWidth: 1,
     borderRadius: 8,
-    padding: 14,
-    marginBottom: 12,
+    padding: s(14),
+    marginBottom: s(12),
   },
   sectionTitle: {
-    marginBottom: 8,
+    marginBottom: s(8),
   },
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 4,
+    paddingVertical: s(4),
   },
   rowLabel: {
-    fontSize: 14,
+    fontSize: ms(14),
   },
   rosterSummary: {
-    fontSize: 14,
-    lineHeight: 22,
+    fontSize: ms(14),
+    lineHeight: ms(22),
   },
   createBtn: {
-    paddingVertical: 14,
+    paddingVertical: s(14),
     borderRadius: 8,
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: s(8),
   },
   createBtnText: {
-    fontSize: 17,
+    fontSize: ms(17),
     fontWeight: '700',
   },
 });

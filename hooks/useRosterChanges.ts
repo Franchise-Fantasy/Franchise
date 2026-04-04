@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { queryKeys } from '@/constants/queryKeys';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 
@@ -33,7 +34,7 @@ export function useRosterChanges(leagueId: string | null) {
           queryClient.invalidateQueries({ queryKey: ['availablePlayers'] });
           // Matchup queries only need the current week's data refreshed
           // (player scores won't change from a roster move, but lineup slots might)
-          queryClient.invalidateQueries({ queryKey: ['weekMatchup', leagueId] });
+          queryClient.invalidateQueries({ queryKey: queryKeys.weekMatchup(leagueId!) });
         },
       )
       .subscribe();

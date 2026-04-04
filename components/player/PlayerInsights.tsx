@@ -1,4 +1,5 @@
-import { ThemedText } from "@/components/ThemedText";
+import { ms, s } from "@/utils/scale";
+import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
 import { TREND_COLORS } from "@/constants/StatusColors";
 import { useColorScheme } from "@/hooks/useColorScheme";
@@ -126,16 +127,15 @@ export function PlayerInsightsCard({
   if (isCategories) {
     if (!catInsights) return null;
 
-    const strengthsSorted = [...catInsights.categories].sort((a, b) => {
-      const rankDiff =
-        CONSISTENCY_RANK[a.consistency] - CONSISTENCY_RANK[b.consistency];
-      if (rankDiff !== 0) return rankDiff;
-      return b.seasonAvg - a.seasonAvg;
-    });
+    // Fixed canonical order so every player's layout is consistent
+    const CAT_ORDER: Record<string, number> = {
+      PTS: 0, REB: 1, AST: 2, STL: 3, BLK: 4, TO: 5, "3PM": 6, "FG%": 7, "FT%": 8,
+    };
+    const canonicalSort = (a: { stat_name: string }, b: { stat_name: string }) =>
+      (CAT_ORDER[a.stat_name] ?? 99) - (CAT_ORDER[b.stat_name] ?? 99);
 
-    const trendsSorted = [...catInsights.categories].sort(
-      (a, b) => Math.abs(b.trendDelta) - Math.abs(a.trendDelta),
-    );
+    const strengthsSorted = [...catInsights.categories].sort(canonicalSort);
+    const trendsSorted = [...catInsights.categories].sort(canonicalSort);
 
     const minTrendCfg = TREND_CONFIG[catInsights.minutesTrend];
 
@@ -193,7 +193,7 @@ export function PlayerInsightsCard({
             accessibilityRole="button"
             accessibilityLabel="Category insights info"
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            style={{ justifyContent: "center", paddingHorizontal: 8 }}
+            style={{ justifyContent: "center", paddingHorizontal: s(8) }}
           >
             <Ionicons name="information-circle-outline" size={16} color={colors.secondaryText} />
           </TouchableOpacity>
@@ -457,7 +457,7 @@ export function PlayerInsightsCard({
             accessibilityRole="button"
             accessibilityLabel={`Last ${recentWindow} games average: ${insights.recentAvg} fantasy points. Tap to change window.`}
           >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: s(2) }}>
               <ThemedText style={[styles.statLabel, { color: colors.secondaryText }]}>
                 Last {recentWindow}
               </ThemedText>
@@ -779,50 +779,50 @@ function BounceBackCell({ bb, colors }: { bb: BounceBack; colors: Props["colors"
 
 const styles = StyleSheet.create({
   container: {
-    paddingHorizontal: 16,
-    marginTop: 10,
-    marginBottom: 4,
+    paddingHorizontal: s(16),
+    marginTop: s(10),
+    marginBottom: s(4),
   },
   topRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    marginBottom: 6,
+    gap: s(6),
+    marginBottom: s(6),
   },
   badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: s(8),
+    paddingVertical: s(3),
     borderRadius: 10,
   },
   badgeText: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: "700",
   },
   stdDev: {
-    fontSize: 12,
+    fontSize: ms(12),
     flex: 1,
   },
   trendBox: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
+    gap: s(3),
   },
   trendIcon: {
-    fontSize: 10,
+    fontSize: ms(10),
     fontWeight: "700",
   },
   trendLabel: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: "600",
   },
   rangeSection: {
-    marginBottom: 6,
+    marginBottom: s(10),
   },
   rangeTrack: {
-    height: 6,
+    height: s(6),
     borderRadius: 3,
-    marginTop: 18,
-    marginBottom: 14,
+    marginTop: s(18),
+    marginBottom: s(14),
     overflow: "visible",
     position: "relative",
   },
@@ -834,103 +834,104 @@ const styles = StyleSheet.create({
   },
   avgMarker: {
     position: "absolute",
-    top: -2,
-    width: 4,
-    height: 10,
+    top: s(-2),
+    width: s(4),
+    height: s(10),
     borderRadius: 2,
-    marginLeft: -2,
+    marginLeft: s(-2),
   },
   rangeMarkerWrap: {
     position: "absolute",
     alignItems: "center",
-    top: -18,
-    marginLeft: -18,
-    width: 36,
+    top: s(-18),
+    marginLeft: s(-18),
+    width: s(36),
   },
   rangeMarkerValue: {
-    fontSize: 9,
+    fontSize: ms(9),
     fontWeight: "600",
-    marginBottom: 4,
+    marginBottom: s(4),
   },
   rangeMarkerLine: {
     width: 1,
-    height: 8,
+    height: s(8),
   },
   rangeMarkerLabel: {
-    fontSize: 8,
+    fontSize: ms(8),
     marginTop: 1,
   },
   sectionDivider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: "rgba(128,128,128,0.25)",
-    marginBottom: 4,
+    marginTop: s(2),
+    marginBottom: s(10),
   },
   trendRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 4,
+    marginBottom: s(4),
   },
   trendCell: {
     flex: 1,
     alignItems: "center",
   },
   dropdownArrow: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: "700",
     marginTop: -1,
   },
   statsRow: {
     flexDirection: "row",
     justifyContent: "space-around",
-    marginBottom: 10,
+    marginBottom: s(10),
   },
   stat: {
     alignItems: "center",
   },
   statLabel: {
-    fontSize: 10,
-    marginBottom: 2,
+    fontSize: ms(10),
+    marginBottom: s(2),
   },
   statValue: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: "700",
   },
   statValueSmall: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: "700",
   },
   minutesTrendRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 2,
+    gap: s(2),
   },
   expandToggle: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
-    paddingVertical: 4,
-    marginBottom: 6,
+    gap: s(4),
+    paddingVertical: s(4),
+    marginBottom: s(6),
   },
   expandText: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: "600",
   },
   expandArrow: {
-    fontSize: 9,
+    fontSize: ms(9),
   },
   miniLabel: {
-    fontSize: 10,
+    fontSize: ms(10),
     fontWeight: "600",
-    marginBottom: 4,
+    marginBottom: s(4),
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },
   // Splits (home/away, B2B)
   splitsRow: {
     flexDirection: "row",
-    gap: 12,
-    marginBottom: 10,
+    gap: s(12),
+    marginBottom: s(10),
   },
   splitCard: {
     flex: 1,
@@ -938,93 +939,93 @@ const styles = StyleSheet.create({
   splitValues: {
     flexDirection: "row",
     alignItems: "baseline",
-    gap: 4,
+    gap: s(4),
   },
   splitValue: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: "700",
   },
   splitDivider: {
-    fontSize: 12,
+    fontSize: ms(12),
   },
   splitDelta: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: "600",
   },
   splitSub: {
-    fontSize: 10,
+    fontSize: ms(10),
     marginTop: 1,
   },
   // Bounce-back
   bounceRow: {
-    marginBottom: 4,
+    marginBottom: s(4),
   },
   bounceCard: {},
   bounceValues: {
     flexDirection: "row",
     alignItems: "baseline",
-    gap: 6,
+    gap: s(6),
   },
   bounceRate: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: "700",
   },
   bounceSub: {
-    fontSize: 11,
+    fontSize: ms(11),
   },
   // CAT insights
   catTabBar: {
     flexDirection: "row",
-    marginBottom: 12,
+    marginBottom: s(12),
     borderBottomWidth: 1,
     borderBottomColor: "rgba(128,128,128,0.2)",
   },
   catTab: {
     flex: 1,
     alignItems: "center",
-    paddingVertical: 6,
+    paddingVertical: s(6),
     borderBottomWidth: 2,
     borderBottomColor: "transparent",
   },
   catTabText: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: "600",
   },
   catContent: {
-    gap: 8,
+    gap: s(8),
   },
   catRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: s(8),
   },
   catStatNameWrap: {
     flexDirection: "row",
     alignItems: "center",
-    width: 48,
-    gap: 2,
+    width: s(48),
+    gap: s(2),
   },
   catStatName: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: "700",
   },
   catInverse: {
-    fontSize: 10,
+    fontSize: ms(10),
   },
   catAvgValue: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: "700",
-    width: 50,
+    width: s(50),
     textAlign: "right",
   },
   catBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingHorizontal: s(6),
+    paddingVertical: s(2),
     borderRadius: 8,
     marginLeft: "auto",
   },
   catBadgeText: {
-    fontSize: 10,
+    fontSize: ms(10),
     fontWeight: "700",
   },
   catTrendInfo: {
@@ -1034,7 +1035,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   catDelta: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: "600",
   },
   // CAT trends sub-header
@@ -1042,10 +1043,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 8,
+    marginBottom: s(8),
   },
   recentTitle: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: "600",
     textTransform: "uppercase",
     letterSpacing: 0.5,
@@ -1054,47 +1055,47 @@ const styles = StyleSheet.create({
   windowPickerBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    gap: s(4),
+    paddingHorizontal: s(8),
+    paddingVertical: s(3),
     borderRadius: 10,
     borderWidth: 1,
   },
   windowPickerLabel: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: "600",
   },
   windowDropdownBackdrop: {
     position: "absolute",
     top: 0,
-    left: -1000,
-    right: -1000,
-    bottom: -1000,
+    left: s(-1000),
+    right: s(-1000),
+    bottom: s(-1000),
     zIndex: 9,
   },
   windowDropdown: {
     position: "absolute",
     top: "100%",
     right: 0,
-    marginTop: 4,
+    marginTop: s(4),
     borderRadius: 10,
     borderWidth: 1,
-    paddingVertical: 4,
+    paddingVertical: s(4),
     zIndex: 10,
     elevation: 5,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
     shadowRadius: 4,
-    minWidth: 52,
+    minWidth: s(52),
   },
   windowDropdownItem: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
+    paddingHorizontal: s(14),
+    paddingVertical: s(7),
     alignItems: "center",
   },
   windowDropdownText: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: "600",
   },
 });

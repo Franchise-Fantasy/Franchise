@@ -1,5 +1,6 @@
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { useNetInfo } from '@react-native-community/netinfo';
 import { StyleSheet, Text, View } from 'react-native';
@@ -32,7 +33,7 @@ export function OfflineBanner() {
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    bottom: 90,
+    bottom: s(90),
     left: 0,
     right: 0,
     zIndex: 998,
@@ -41,9 +42,9 @@ const styles = StyleSheet.create({
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginHorizontal: 16,
+    paddingHorizontal: s(14),
+    paddingVertical: s(10),
+    marginHorizontal: s(16),
     borderRadius: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -51,9 +52,9 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 6,
   },
-  icon: { marginRight: 8 },
+  icon: { marginRight: s(8) },
   text: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: '600',
   },
 });

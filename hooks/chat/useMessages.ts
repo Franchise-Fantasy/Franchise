@@ -1,3 +1,4 @@
+import { queryKeys } from '@/constants/queryKeys';
 import { globalToastRef } from '@/context/ToastProvider';
 import { sendNotification } from '@/lib/notifications';
 import { capture } from '@/lib/posthog';
@@ -22,7 +23,7 @@ interface Cursor {
 
 export function useMessages(conversationId: string | null) {
   return useInfiniteQuery({
-    queryKey: ['messages', conversationId],
+    queryKey: queryKeys.messages(conversationId!),
     queryFn: async ({ pageParam }: { pageParam: Cursor }) => {
       const { data, error } = await supabase.rpc('get_messages_page', {
         p_conversation_id: conversationId!,
@@ -43,6 +44,60 @@ export function useMessages(conversationId: string | null) {
     },
     enabled: !!conversationId,
     maxPages: 10, // Cap at ~300 messages in memory; older pages re-fetch on scroll
+  });
+}
+
+// ─── Send message ────────────────────────────────────────────
+
+// ─── Unsend (delete) message ────────────────────────────────
+
+export function useUnsendMessage(conversationId: string, leagueId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (messageId: string) => {
+      const { error } = await supabase
+        .from('chat_messages')
+        .delete()
+        .eq('id', messageId);
+      if (error) throw error;
+    },
+    onMutate: async (messageId) => {
+      await queryClient.cancelQueries({
+        queryKey: queryKeys.messages(conversationId),
+      });
+      const previous = queryClient.getQueryData(queryKeys.messages(conversationId));
+
+      queryClient.setQueryData(
+        queryKeys.messages(conversationId),
+        (old: any) => {
+          if (!old) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page: ChatMessage[]) =>
+              page.filter((m) => m.id !== messageId),
+            ),
+          };
+        },
+      );
+      return { previous };
+    },
+    onError: (err, _messageId, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(
+          queryKeys.messages(conversationId),
+          context.previous,
+        );
+      }
+      console.error('Unsend message error:', err);
+      globalToastRef.current?.('error', 'Failed to unsend message');
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.messages(conversationId),
+      });
+      queryClient.invalidateQueries({ queryKey: queryKeys.conversations(leagueId) });
+    },
   });
 }
 
@@ -109,9 +164,9 @@ export function useSendMessage(
     },
     onMutate: async ({ content, type = 'text' }) => {
       await queryClient.cancelQueries({
-        queryKey: ['messages', conversationId],
+        queryKey: queryKeys.messages(conversationId),
       });
-      const previous = queryClient.getQueryData(['messages', conversationId]);
+      const previous = queryClient.getQueryData(queryKeys.messages(conversationId));
 
       const optimistic: ChatMessage = {
         id: `temp-${Date.now()}`,
@@ -124,7 +179,7 @@ export function useSendMessage(
       };
 
       queryClient.setQueryData(
-        ['messages', conversationId],
+        queryKeys.messages(conversationId),
         (old: any) => {
           if (!old) return { pages: [[optimistic]], pageParams: [{ cursor: null, cursorId: null }] };
           const pages = [...old.pages];
@@ -137,7 +192,7 @@ export function useSendMessage(
     onError: (err, _vars, context) => {
       if (context?.previous) {
         queryClient.setQueryData(
-          ['messages', conversationId],
+          queryKeys.messages(conversationId),
           context.previous,
         );
       }
@@ -149,10 +204,10 @@ export function useSendMessage(
     },
     onSettled: () => {
       queryClient.invalidateQueries({
-        queryKey: ['messages', conversationId],
+        queryKey: queryKeys.messages(conversationId),
       });
-      queryClient.invalidateQueries({ queryKey: ['conversations', leagueId] });
-      queryClient.invalidateQueries({ queryKey: ['chatUnread', leagueId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.conversations(leagueId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.chatUnread(leagueId) });
     },
   });
 }

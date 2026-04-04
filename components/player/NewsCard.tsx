@@ -1,8 +1,10 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { PlayerNewsArticle } from '@/types/news';
-import { Linking, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { getPlayerHeadshotUrl } from '@/utils/playerHeadshot';
+import { ms, s } from '@/utils/scale';
+import { Image, Linking, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -16,11 +18,6 @@ function timeAgo(dateStr: string): string {
   if (days < 7) return `${days}d ago`;
   return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
-
-const SOURCE_LABELS: Record<string, string> = {
-  rotowire: 'RotoWire',
-  fantasypros: 'FantasyPros',
-};
 
 function returnEstimateColor(
   estimate: string,
@@ -36,15 +33,23 @@ function returnEstimateColor(
   return { bg: c.warningMuted, text: c.warning };
 }
 
-export function NewsCard({ article }: { article: PlayerNewsArticle }) {
+interface NewsCardProps {
+  article: PlayerNewsArticle;
+  /** Show circular player headshots (used on News screen, not in player modal). */
+  showHeadshots?: boolean;
+}
+
+export function NewsCard({ article, showHeadshots }: NewsCardProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
 
-  const sourceLabel = SOURCE_LABELS[article.source] ?? article.source;
-
-  const a11yParts = [`News: ${article.title}`, `from ${sourceLabel}`];
-  if (article.has_minutes_restriction) a11yParts.push('minutes restriction');
+  const a11yParts = [`News: ${article.title}`];
   if (article.return_estimate) a11yParts.push(`estimated return: ${article.return_estimate}`);
+
+  const players = article.mentioned_players ?? [];
+  const headshots = showHeadshots
+    ? players.map(p => getPlayerHeadshotUrl(p.external_id_nba)).filter(Boolean)
+    : [];
 
   return (
     <TouchableOpacity
@@ -54,31 +59,29 @@ export function NewsCard({ article }: { article: PlayerNewsArticle }) {
       accessibilityRole="link"
       accessibilityLabel={a11yParts.join(', ')}
     >
-      {/* Top row: source + badges + time */}
-      <View style={styles.topRow}>
-        <View style={styles.badges}>
-          <View style={[styles.pill, { backgroundColor: c.accent }]}>
-            <ThemedText style={[styles.pillText, { color: c.statusText }]}>
-              {sourceLabel}
-            </ThemedText>
+      {/* Title row: headshots + title */}
+      <View style={styles.titleRow}>
+        {headshots.length > 0 && (
+          <View style={styles.headshots}>
+            {headshots.slice(0, 2).map((url, i) => (
+              <View
+                key={i}
+                style={[styles.headshotCircle, { borderColor: c.gold, backgroundColor: c.cardAlt }]}
+                accessibilityLabel={players[i]?.name ?? 'Player'}
+              >
+                <Image
+                  source={{ uri: url! }}
+                  style={styles.headshotImg}
+                  resizeMode="cover"
+                />
+              </View>
+            ))}
           </View>
-          {article.has_minutes_restriction && (
-            <View style={[styles.pill, { backgroundColor: c.warningMuted }]}>
-              <ThemedText style={[styles.pillText, { color: c.warning }]}>
-                MIN RESTRICT
-              </ThemedText>
-            </View>
-          )}
-        </View>
-        <ThemedText style={[styles.time, { color: c.secondaryText }]}>
-          {timeAgo(article.published_at)}
+        )}
+        <ThemedText type="defaultSemiBold" style={styles.title} numberOfLines={2}>
+          {article.title}
         </ThemedText>
       </View>
-
-      {/* Title */}
-      <ThemedText type="defaultSemiBold" style={styles.title} numberOfLines={2}>
-        {article.title}
-      </ThemedText>
 
       {/* Return estimate badge */}
       {article.return_estimate && (
@@ -105,6 +108,16 @@ export function NewsCard({ article }: { article: PlayerNewsArticle }) {
           {article.description}
         </ThemedText>
       ) : null}
+
+      {/* Footer: time left, source right */}
+      <View style={styles.footer}>
+        <ThemedText style={[styles.meta, { color: c.secondaryText }]}>
+          {timeAgo(article.published_at)}
+        </ThemedText>
+        <ThemedText style={[styles.meta, { color: c.secondaryText }]}>
+          RotoWire.com
+        </ThemedText>
+      </View>
     </TouchableOpacity>
   );
 }
@@ -113,48 +126,56 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: 10,
     borderWidth: 1,
-    padding: 14,
-    gap: 6,
+    padding: s(14),
+    gap: s(6),
   },
-  topRow: {
+  titleRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    gap: s(10),
   },
-  badges: {
+  headshots: {
     flexDirection: 'row',
-    gap: 6,
-    flexShrink: 1,
+    gap: s(-8),
   },
-  pill: {
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
+  headshotCircle: {
+    width: s(38),
+    height: s(38),
+    borderRadius: 20,
+    borderWidth: 1.5,
+    overflow: 'hidden',
   },
-  pillText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  time: {
-    fontSize: 11,
-    flexShrink: 0,
-    marginLeft: 8,
+  headshotImg: {
+    position: 'absolute',
+    bottom: s(-2),
+    left: 0,
+    right: 0,
+    height: s(34),
   },
   title: {
-    fontSize: 15,
+    fontSize: ms(15),
+    flex: 1,
   },
   returnBadge: {
     alignSelf: 'flex-start',
     borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: s(8),
+    paddingVertical: s(3),
   },
   returnText: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: '600',
   },
   excerpt: {
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: ms(13),
+    lineHeight: ms(18),
+  },
+  footer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  meta: {
+    fontSize: ms(11),
   },
 });

@@ -1,4 +1,5 @@
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import { useQuery } from '@tanstack/react-query';
 
@@ -34,6 +35,7 @@ export interface DraftHubSwap {
 export interface DraftHubTeam {
   id: string;
   name: string;
+  tricode: string | null;
   wins: number;
   losses: number;
   points_for: number;
@@ -46,6 +48,7 @@ export interface DraftHubLeagueSettings {
   rookieDraftRounds: number;
   pickConditionsEnabled: boolean;
   leagueFull: boolean;
+  lotteryComplete: boolean;
 }
 
 export interface DraftHubData {
@@ -58,11 +61,11 @@ export interface DraftHubData {
 
 export function useDraftHub(leagueId: string | null) {
   return useQuery<DraftHubData>({
-    queryKey: ['draftHub', leagueId],
+    queryKey: queryKeys.draftHub(leagueId!),
     queryFn: async () => {
       const { data: league, error: leagueError } = await supabase
         .from('leagues')
-        .select('max_future_seasons, playoff_teams, lottery_draws, lottery_odds, rookie_draft_rounds, season, pick_conditions_enabled, teams, current_teams')
+        .select('max_future_seasons, playoff_teams, lottery_draws, lottery_odds, rookie_draft_rounds, season, pick_conditions_enabled, teams, current_teams, lottery_status')
         .eq('id', leagueId!)
         .single();
       if (leagueError) throw leagueError;
@@ -103,7 +106,7 @@ export function useDraftHub(leagueId: string | null) {
 
       const { data: teams, error: teamsError } = await supabase
         .from('teams')
-        .select('id, name, wins, losses, points_for')
+        .select('id, name, tricode, wins, losses, points_for')
         .eq('league_id', leagueId!)
         .order('wins', { ascending: false })
         .order('points_for', { ascending: false });
@@ -151,6 +154,7 @@ export function useDraftHub(leagueId: string | null) {
           rookieDraftRounds: league?.rookie_draft_rounds ?? 2,
           pickConditionsEnabled: league?.pick_conditions_enabled ?? false,
           leagueFull: (league?.current_teams ?? 0) >= (league?.teams ?? 0),
+          lotteryComplete: league?.lottery_status === 'complete',
         },
       };
     },

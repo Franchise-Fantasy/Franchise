@@ -1,4 +1,4 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
@@ -7,7 +7,9 @@ import { useLeague } from '@/hooks/useLeague';
 import { supabase } from '@/lib/supabase';
 import { toDateStr, parseLocalDate } from '@/utils/dates';
 import { formatScore } from '@/utils/fantasyPoints';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
+import { queryKeys } from '@/constants/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
@@ -133,14 +135,14 @@ export default function ScheduleScreen() {
   // ─── Queries ─────────────────────────────────────────────────────────────
 
   const { data: weeks, isLoading: weeksLoading } = useQuery({
-    queryKey: ['leagueSchedule', leagueId],
+    queryKey: queryKeys.leagueSchedule(leagueId!),
     queryFn: () => fetchWeeks(leagueId!),
     enabled: !!leagueId,
     staleTime: 1000 * 60 * 10,
   });
 
   const { data: matchups, isLoading: matchupsLoading } = useQuery({
-    queryKey: ['teamScheduleMatchups', leagueId, activeTeamId],
+    queryKey: queryKeys.teamScheduleMatchups(leagueId!, activeTeamId!),
     queryFn: () => fetchTeamMatchups(leagueId!, activeTeamId!),
     enabled: !!leagueId && !!activeTeamId,
     staleTime: 1000 * 60 * 5,
@@ -443,102 +445,102 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginHorizontal: 16,
-    marginTop: 12,
-    marginBottom: 4,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    marginHorizontal: s(16),
+    marginTop: s(12),
+    marginBottom: s(4),
+    paddingHorizontal: s(14),
+    paddingVertical: s(10),
     borderRadius: 10,
     borderWidth: 1,
   },
   pickerLabel: {
-    fontSize: 15,
+    fontSize: ms(15),
     flex: 1,
-    marginRight: 8,
+    marginRight: s(8),
   },
   listContent: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 40,
+    paddingHorizontal: s(16),
+    paddingTop: s(8),
+    paddingBottom: s(40),
   },
   weekRow: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
     borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 10,
-    minHeight: ROW_HEIGHT,
+    paddingHorizontal: s(14),
+    paddingVertical: s(12),
+    marginBottom: s(10),
+    minHeight: s(ROW_HEIGHT),
   },
   weekInfo: {
-    width: 130,
-    marginRight: 12,
+    width: s(130),
+    marginRight: s(12),
   },
   weekLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: s(6),
   },
   weekNumber: {
-    fontSize: 14,
+    fontSize: ms(14),
   },
   playoffBadge: {
     backgroundColor: '#7c3aed',
-    paddingHorizontal: 5,
-    paddingVertical: 1,
+    paddingHorizontal: s(5),
+    paddingVertical: s(1),
     borderRadius: 4,
   },
   playoffText: {
-    fontSize: 8,
+    fontSize: ms(8),
     fontWeight: '800',
     letterSpacing: 0.5,
   },
   liveBadge: {
-    paddingHorizontal: 5,
-    paddingVertical: 1,
+    paddingHorizontal: s(5),
+    paddingVertical: s(1),
     borderRadius: 4,
   },
   liveText: {
-    fontSize: 8,
+    fontSize: ms(8),
     fontWeight: '800',
     letterSpacing: 0.5,
   },
   dateRange: {
-    fontSize: 11,
-    marginTop: 2,
+    fontSize: ms(11),
+    marginTop: s(2),
   },
   matchupInfo: {
     flex: 1,
     alignItems: 'flex-end',
   },
   opponentText: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: '600',
   },
   resultText: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '700',
-    marginTop: 2,
+    marginTop: s(2),
   },
   upcomingLabel: {
-    fontSize: 11,
-    marginTop: 2,
+    fontSize: ms(11),
+    marginTop: s(2),
   },
   byeLabel: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontStyle: 'italic',
     fontWeight: '600',
   },
   chevron: {
-    marginLeft: 8,
+    marginLeft: s(8),
   },
   loader: {
-    marginTop: 40,
+    marginTop: s(40),
   },
   emptyState: {
     alignItems: 'center',
-    paddingTop: 40,
+    paddingTop: s(40),
   },
   // Modal styles
   modalOverlay: {
@@ -551,28 +553,28 @@ const styles = StyleSheet.create({
     width: '85%',
     maxHeight: '60%',
     borderRadius: 14,
-    paddingTop: 16,
-    paddingBottom: 8,
+    paddingTop: s(16),
+    paddingBottom: s(8),
   },
   modalTitle: {
-    fontSize: 16,
+    fontSize: ms(16),
     textAlign: 'center',
-    marginBottom: 12,
+    marginBottom: s(12),
   },
   teamOption: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: s(16),
+    paddingVertical: s(14),
     borderBottomWidth: StyleSheet.hairlineWidth,
-    gap: 8,
+    gap: s(8),
   },
   teamOptionName: {
-    fontSize: 15,
+    fontSize: ms(15),
     flex: 1,
   },
   teamOptionTricode: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '600',
   },
 });

@@ -1,7 +1,8 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { ReactionGroup } from '@/types/chat';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import {
@@ -151,8 +152,8 @@ const styles = StyleSheet.create({
   bar: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 6,
-    paddingVertical: 6,
+    paddingHorizontal: s(6),
+    paddingVertical: s(6),
     borderRadius: 24,
     borderWidth: StyleSheet.hairlineWidth,
     elevation: 6,
@@ -160,32 +161,32 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 8,
-    gap: 2,
+    gap: s(2),
   },
   emojiBtn: {
-    width: 40,
-    height: 40,
+    width: s(40),
+    height: s(40),
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 20,
   },
   emoji: {
-    fontSize: 24,
+    fontSize: ms(24),
   },
   expandBtn: {
-    width: 36,
-    height: 36,
+    width: s(36),
+    height: s(36),
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 18,
     backgroundColor: 'rgba(128,128,128,0.15)',
   },
   grid: {
-    width: 310,
-    maxHeight: 260,
+    width: s(310),
+    maxHeight: s(260),
     borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
-    marginBottom: 8,
+    marginBottom: s(8),
     elevation: 6,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
@@ -196,7 +197,7 @@ const styles = StyleSheet.create({
   gridContent: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    padding: 8,
+    padding: s(8),
   },
   gridEmoji: {
     width: '14.28%',
@@ -205,32 +206,32 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   gridEmojiText: {
-    fontSize: 22,
+    fontSize: ms(22),
   },
   attributionCard: {
-    marginTop: 8,
+    marginTop: s(8),
     borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    gap: 6,
+    paddingHorizontal: s(14),
+    paddingVertical: s(10),
+    gap: s(6),
     elevation: 6,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 8,
-    minWidth: 160,
+    minWidth: s(160),
   },
   attributionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: s(8),
   },
   attributionEmoji: {
-    fontSize: 18,
+    fontSize: ms(18),
   },
   attributionNames: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: '500',
     flexShrink: 1,
   },

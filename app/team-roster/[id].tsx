@@ -1,10 +1,11 @@
 import { PlayerDetailModal } from '@/components/player/PlayerDetailModal';
 import { ProposeTradeModal } from '@/components/trade/ProposeTradeModal';
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { ms, s } from '@/utils/scale';
 import { useLeagueRosterConfig, RosterConfigSlot } from '@/hooks/useLeagueRosterConfig';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { supabase } from '@/lib/supabase';
@@ -15,6 +16,7 @@ import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
 import { formatPosition } from '@/utils/formatting';
 import { getInjuryBadge } from '@/utils/injuryBadge';
 import { slotLabel } from '@/utils/rosterSlots';
+import { queryKeys } from '@/constants/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -58,7 +60,7 @@ export default function TeamRosterScreen() {
 
   // Check trade deadline
   const { data: leagueDeadline } = useQuery({
-    queryKey: ['leagueDeadline', leagueId],
+    queryKey: queryKeys.leagueDeadline(leagueId!),
     queryFn: async () => {
       const { data } = await supabase.from('leagues').select('trade_deadline').eq('id', leagueId!).single();
       return data?.trade_deadline as string | null;
@@ -73,7 +75,7 @@ export default function TeamRosterScreen() {
 
   // Fetch team name
   const { data: teamName, isError: isTeamError } = useQuery({
-    queryKey: ['teamName', viewTeamId],
+    queryKey: queryKeys.teamName(viewTeamId!),
     queryFn: async () => {
       const { data } = await supabase
         .from('teams')
@@ -87,7 +89,7 @@ export default function TeamRosterScreen() {
 
   // Fetch roster
   const { data: rosterPlayers, isLoading: isLoadingRoster } = useQuery<RosterPlayer[]>({
-    queryKey: ['viewTeamRoster', viewTeamId, today],
+    queryKey: queryKeys.viewTeamRoster(viewTeamId!, today),
     queryFn: async () => {
       const { data: leaguePlayers, error: lpError } = await supabase
         .from('league_players')
@@ -217,7 +219,7 @@ export default function TeamRosterScreen() {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
         <PageHeader title="Team" />
-        <ThemedText style={{ textAlign: 'center', marginTop: 40, fontSize: 15, color: c.secondaryText }}>
+        <ThemedText style={{ textAlign: 'center', marginTop: 40, fontSize: ms(15), color: c.secondaryText }}>
           Team not found
         </ThemedText>
       </SafeAreaView>
@@ -440,38 +442,38 @@ export default function TeamRosterScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
-  scrollContent: { paddingBottom: 56 },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: s(20) },
+  scrollContent: { paddingBottom: s(56) },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 12,
+    paddingHorizontal: s(8),
+    paddingVertical: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  backBtn: { width: 70, paddingHorizontal: 8 },
-  backText: { fontSize: 16, fontWeight: '500' },
+  backBtn: { width: s(70), paddingHorizontal: s(8) },
+  backText: { fontSize: ms(16), fontWeight: '500' },
   headerCenter: { flex: 1, alignItems: 'center' },
-  headerTitle: { fontSize: 16 },
-  headerSub: { fontSize: 11, marginTop: 2 },
-  section: { padding: 16, paddingBottom: 0 },
+  headerTitle: { fontSize: ms(16) },
+  headerSub: { fontSize: ms(11), marginTop: s(2) },
+  section: { padding: s(16), paddingBottom: 0 },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: s(8),
   },
   totalBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: s(10),
+    paddingVertical: s(4),
     borderRadius: 6,
     borderWidth: 1,
-    gap: 6,
+    gap: s(6),
   },
-  totalLabel: { fontSize: 10, fontWeight: '600' },
-  totalValue: { fontSize: 16, fontWeight: '700' },
+  totalLabel: { fontSize: ms(10), fontWeight: '600' },
+  totalValue: { fontSize: ms(16), fontWeight: '700' },
   card: {
     borderRadius: 8,
     overflow: 'hidden',
@@ -484,87 +486,87 @@ const styles = StyleSheet.create({
   slotRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 56,
+    minHeight: s(56),
   },
   slotLabel: {
-    width: 44,
+    width: s(44),
     alignSelf: 'stretch',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  slotLabelText: { fontSize: 11, fontWeight: '700' },
+  slotLabelText: { fontSize: ms(11), fontWeight: '700' },
   slotPlayer: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingVertical: s(6),
+    paddingHorizontal: s(12),
   },
   rosterPortraitWrap: {
-    width: 50,
-    height: 50,
-    marginRight: 8,
+    width: s(50),
+    height: s(50),
+    marginRight: s(8),
     alignItems: 'center',
   },
   rosterHeadshotCircle: {
-    width: 48,
-    height: 48,
+    width: s(48),
+    height: s(48),
     borderRadius: 25,
     borderWidth: 1.5,
     overflow: 'hidden' as const,
   },
   rosterHeadshotImg: {
     position: 'absolute' as const,
-    bottom: -2,
+    bottom: s(-2),
     left: 0,
     right: 0,
-    height: 42,
+    height: s(42),
   },
   rosterTeamPill: {
     position: 'absolute',
-    bottom: -1,
+    bottom: s(-1),
     alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(0,0,0,0.75)',
     borderRadius: 8,
-    paddingHorizontal: 3,
+    paddingHorizontal: s(3),
     paddingVertical: 1,
-    gap: 2,
+    gap: s(2),
   },
   rosterTeamPillLogo: {
-    width: 9,
-    height: 9,
+    width: s(9),
+    height: s(9),
   },
   rosterTeamPillText: {
-    fontSize: 7,
+    fontSize: ms(7),
     fontWeight: '700',
     letterSpacing: 0.3,
   },
-  slotPlayerInfo: { flex: 1, marginRight: 8 },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  slotPlayerName: { fontSize: 14, flexShrink: 1 },
+  slotPlayerInfo: { flex: 1, marginRight: s(8) },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: s(6) },
+  slotPlayerName: { fontSize: ms(14), flexShrink: 1 },
   injuryBadge: {
-    paddingHorizontal: 4,
+    paddingHorizontal: s(4),
     paddingVertical: 1,
     borderRadius: 3,
   },
   injuryText: {
-    fontSize: 8,
+    fontSize: ms(8),
     fontWeight: '800',
     letterSpacing: 0.5,
   },
-  slotPlayerSub: { fontSize: 11, marginTop: 2 },
-  slotFpts: { fontSize: 13, fontWeight: '600' },
-  emptySlotText: { fontSize: 13, fontStyle: 'italic' },
-  emptyBench: { padding: 16, alignItems: 'center' },
+  slotPlayerSub: { fontSize: ms(11), marginTop: s(2) },
+  slotFpts: { fontSize: ms(13), fontWeight: '600' },
+  emptySlotText: { fontSize: ms(13), fontStyle: 'italic' },
+  emptyBench: { padding: s(16), alignItems: 'center' },
   headerTradeBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: s(10),
+    paddingVertical: s(5),
     borderRadius: 6,
   },
   headerTradeBtnText: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '700',
   },
 });

@@ -1,9 +1,11 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
 import { useToast } from '@/context/ToastProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -46,7 +48,7 @@ export function TeamAssigner({ leagueId }: TeamAssignerProps) {
 
   // Fetch teams with user_id and sleeper_roster_id
   const { data, isLoading } = useQuery({
-    queryKey: ['imported-teams', leagueId],
+    queryKey: queryKeys.importedTeams(leagueId),
     queryFn: async () => {
       const { data: teams, error } = await supabase
         .from('teams')
@@ -113,7 +115,7 @@ export function TeamAssigner({ leagueId }: TeamAssignerProps) {
         .eq('id', importedTeam.id);
 
       showToast('success', `${memberTeam.name} assigned to ${importedTeam.name}`);
-      queryClient.invalidateQueries({ queryKey: ['imported-teams', leagueId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.importedTeams(leagueId) });
       queryClient.invalidateQueries({ queryKey: ['league'] });
       setSelectedTeam(null);
     } catch (err: any) {
@@ -224,87 +226,87 @@ const styles = StyleSheet.create({
   section: {
     borderRadius: 12,
     borderWidth: 1,
-    padding: 16,
+    padding: s(16),
   },
   sectionTitle: {
-    fontSize: 16,
-    marginBottom: 8,
+    fontSize: ms(16),
+    marginBottom: s(8),
   },
   desc: {
-    fontSize: 13,
-    lineHeight: 18,
-    marginBottom: 12,
+    fontSize: ms(13),
+    lineHeight: ms(18),
+    marginBottom: s(12),
   },
   teamRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 12,
+    paddingVertical: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   teamInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: s(8),
     flex: 1,
   },
   teamName: {
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: '500',
   },
   assignBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: s(4),
   },
   assignText: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '600',
   },
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.4)',
     justifyContent: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: s(24),
   },
   modal: {
     borderRadius: 14,
     borderWidth: 1,
-    padding: 20,
+    padding: s(20),
     maxHeight: '60%',
   },
   modalTitle: {
-    fontSize: 17,
-    marginBottom: 16,
+    fontSize: ms(17),
+    marginBottom: s(16),
   },
   emptyText: {
     textAlign: 'center',
-    paddingVertical: 20,
-    fontSize: 14,
+    paddingVertical: s(20),
+    fontSize: ms(14),
   },
   memberList: {
-    maxHeight: 300,
+    maxHeight: s(300),
   },
   memberRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 14,
+    paddingVertical: s(14),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   memberName: {
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: '500',
   },
   cancelBtn: {
-    marginTop: 16,
-    paddingVertical: 12,
+    marginTop: s(16),
+    paddingVertical: s(12),
     borderRadius: 8,
     borderWidth: 1,
     alignItems: 'center',
   },
   cancelText: {
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: '600',
   },
 });

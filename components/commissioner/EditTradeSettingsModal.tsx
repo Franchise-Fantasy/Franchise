@@ -1,10 +1,11 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { ToggleRow } from '@/components/ToggleRow';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
+import { ms, s } from '@/utils/scale';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
@@ -158,13 +159,13 @@ export function EditTradeSettingsModal({
             <View style={[styles.editRow, { borderBottomColor: c.border }]}>
               <ThemedText style={styles.rowLabel}>Veto Type</ThemedText>
             </View>
-            <View style={{ paddingVertical: 8 }}>
+            <View style={{ paddingVertical: s(8) }}>
               <SegmentedControl
                 options={VETO_OPTIONS}
                 selectedIndex={vetoIndex >= 0 ? vetoIndex : 0}
                 onSelect={(i) => setVetoType(VETO_OPTIONS[i])}
               />
-              <ThemedText style={[styles.helperText, { color: c.secondaryText, marginTop: 6 }]}>
+              <ThemedText style={[styles.helperText, { color: c.secondaryText, marginTop: s(6) }]}>
                 {vetoType === 'Commissioner'
                   ? 'Only the commissioner can veto trades during the review period.'
                   : vetoType === 'League Vote'
@@ -269,45 +270,45 @@ const styles = StyleSheet.create({
   sheet: {
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
-    paddingTop: 12,
-    paddingBottom: 40,
+    paddingTop: s(12),
+    paddingBottom: s(40),
     maxHeight: '85%',
   },
   handle: {
-    width: 40,
-    height: 4,
+    width: s(40),
+    height: s(4),
     borderRadius: 2,
     alignSelf: 'center',
-    marginBottom: 12,
+    marginBottom: s(12),
   },
   titleRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    paddingHorizontal: 16,
-    marginBottom: 16,
+    paddingHorizontal: s(16),
+    marginBottom: s(16),
   },
-  title: { fontSize: 17, fontWeight: '600' },
-  scroll: { flexShrink: 1, paddingHorizontal: 16 },
+  title: { fontSize: ms(17), fontWeight: '600' },
+  scroll: { flexShrink: 1, paddingHorizontal: s(16) },
   editRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 12,
+    paddingVertical: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  rowLabel: { fontSize: 14 },
-  helperText: { fontSize: 13, marginTop: 2 },
+  rowLabel: { fontSize: ms(14) },
+  helperText: { fontSize: ms(13), marginTop: s(2) },
   footer: {
     flexDirection: 'row',
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    gap: s(12),
+    paddingHorizontal: s(16),
+    paddingTop: s(16),
   },
   btn: {
     flex: 1,
-    paddingVertical: 14,
+    paddingVertical: s(14),
     borderRadius: 10,
     alignItems: 'center',
   },
-  btnText: { fontSize: 15, fontWeight: '600' },
+  btnText: { fontSize: ms(15), fontWeight: '600' },
 });

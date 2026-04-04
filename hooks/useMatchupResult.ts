@@ -1,4 +1,5 @@
 import { useAppState } from '@/context/AppStateProvider';
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import { useQuery } from '@tanstack/react-query';
 
@@ -26,7 +27,7 @@ export function useMatchupResult(scoringType: string | null | undefined) {
   const { leagueId, teamId } = useAppState();
 
   return useQuery<MatchupResult | null>({
-    queryKey: ['matchupResult', leagueId, teamId],
+    queryKey: queryKeys.matchupResult(leagueId!, teamId!),
     queryFn: async () => {
       if (!leagueId || !teamId) return null;
 

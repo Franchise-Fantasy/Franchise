@@ -1,3 +1,4 @@
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import type { CommissionerPoll, PollResults, PollVote } from '@/types/poll';
 import {
@@ -11,7 +12,7 @@ import { useEffect } from 'react';
 
 export function usePoll(pollId: string | null) {
   return useQuery<CommissionerPoll | null>({
-    queryKey: ['poll', pollId],
+    queryKey: queryKeys.poll(pollId!),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('commissioner_polls')
@@ -49,7 +50,7 @@ export function usePollResults(
           filter: `poll_id=eq.${pollId}`,
         },
         () => {
-          queryClient.invalidateQueries({ queryKey: ['pollResults', pollId] });
+          queryClient.invalidateQueries({ queryKey: queryKeys.pollResults(pollId!) });
         },
       )
       .subscribe();
@@ -59,7 +60,7 @@ export function usePollResults(
   }, [pollId, queryClient]);
 
   return useQuery<PollResults>({
-    queryKey: ['pollResults', pollId],
+    queryKey: queryKeys.pollResults(pollId!),
     queryFn: async () => {
       if (!poll || !pollId || !teamId) {
         return { totalVotes: 0, optionCounts: [], myVote: null, isClosed: false };
@@ -137,9 +138,9 @@ export function useVotePoll(pollId: string | null) {
     },
     onMutate: async (selections) => {
       // Optimistic: set myVote immediately
-      await queryClient.cancelQueries({ queryKey: ['pollResults', pollId] });
-      const previous = queryClient.getQueryData(['pollResults', pollId]);
-      queryClient.setQueryData(['pollResults', pollId], (old: PollResults | undefined) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.pollResults(pollId!) });
+      const previous = queryClient.getQueryData(queryKeys.pollResults(pollId!));
+      queryClient.setQueryData(queryKeys.pollResults(pollId!), (old: PollResults | undefined) => {
         if (!old) return old;
         const newCounts = [...old.optionCounts];
         for (const idx of selections) {
@@ -156,11 +157,11 @@ export function useVotePoll(pollId: string | null) {
     },
     onError: (_err, _selections, context) => {
       if (context?.previous) {
-        queryClient.setQueryData(['pollResults', pollId], context.previous);
+        queryClient.setQueryData(queryKeys.pollResults(pollId!), context.previous);
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['pollResults', pollId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.pollResults(pollId!) });
     },
   });
 }
@@ -179,8 +180,8 @@ export function useClosePoll(pollId: string | null) {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['poll', pollId] });
-      queryClient.invalidateQueries({ queryKey: ['pollResults', pollId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.poll(pollId!) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.pollResults(pollId!) });
     },
   });
 }
@@ -210,7 +211,7 @@ export function useCreatePoll() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
-        queryKey: ['messages', variables.conversation_id],
+        queryKey: queryKeys.messages(variables.conversation_id),
       });
     },
   });

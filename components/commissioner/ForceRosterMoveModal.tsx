@@ -1,11 +1,13 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats } from '@/types/player';
 import { getInjuryBadge } from '@/utils/injuryBadge';
 import { isEligibleForSlot, slotLabel } from '@/utils/rosterSlots';
 import { useLeagueRosterConfig } from '@/hooks/useLeagueRosterConfig';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -59,7 +61,7 @@ export function ForceRosterMoveModal({ visible, leagueId, teams, onClose }: Prop
 
   // Fetch team roster with slots
   const { data: roster, isLoading } = useQuery<RosterPlayer[]>({
-    queryKey: ['commishRosterMove', selectedTeam?.id, leagueId],
+    queryKey: queryKeys.commishRosterMove(selectedTeam?.id, leagueId),
     queryFn: async () => {
       const { data: lp, error: lpErr } = await supabase
         .from('league_players')
@@ -153,7 +155,7 @@ export function ForceRosterMoveModal({ visible, leagueId, teams, onClose }: Prop
             <ThemedText accessibilityRole="header" type="subtitle">
               {step === 'team' ? 'Select Team' : step === 'player' ? selectedTeam?.name : selectedPlayer?.name}
             </ThemedText>
-            <View style={{ width: 24 }} />
+            <View style={{ width: s(24) }} />
           </View>
 
           {step === 'team' && (
@@ -177,7 +179,7 @@ export function ForceRosterMoveModal({ visible, leagueId, teams, onClose }: Prop
           {step === 'player' && (
             <>
               {isLoading ? (
-                <ActivityIndicator style={{ marginTop: 20 }} />
+                <ActivityIndicator style={{ marginTop: s(20) }} />
               ) : !roster || roster.length === 0 ? (
                 <ThemedText style={[styles.empty, { color: c.secondaryText }]}>No players on roster.</ThemedText>
               ) : (
@@ -194,11 +196,11 @@ export function ForceRosterMoveModal({ visible, leagueId, teams, onClose }: Prop
                         onPress={() => { setSelectedPlayer(item); setStep('slot'); }}
                       >
                         <View style={{ flex: 1 }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(6) }}>
                             <ThemedText style={{ fontWeight: '600' }}>{item.name}</ThemedText>
                             {badge && (
                               <View style={[styles.badge, { backgroundColor: badge.color + '22' }]}>
-                                <Text style={{ color: badge.color, fontSize: 10, fontWeight: '700' }}>{badge.label}</Text>
+                                <Text style={{ color: badge.color, fontSize: ms(10), fontWeight: '700' }}>{badge.label}</Text>
                               </View>
                             )}
                           </View>
@@ -207,11 +209,11 @@ export function ForceRosterMoveModal({ visible, leagueId, teams, onClose }: Prop
                           </ThemedText>
                         </View>
                         <View style={[styles.slotBadge, { backgroundColor: c.cardAlt }]}>
-                          <ThemedText style={{ fontSize: 12, fontWeight: '600' }}>
+                          <ThemedText style={{ fontSize: ms(12), fontWeight: '600' }}>
                             {slotLabel(item.roster_slot)}
                           </ThemedText>
                         </View>
-                        <Ionicons name="chevron-forward" size={18} color={c.secondaryText} style={{ marginLeft: 8 }} />
+                        <Ionicons name="chevron-forward" size={18} color={c.secondaryText} style={{ marginLeft: s(8) }} />
                       </TouchableOpacity>
                     );
                   }}
@@ -262,13 +264,13 @@ export function ForceRosterMoveModal({ visible, leagueId, teams, onClose }: Prop
 
 const styles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: 'flex-end' },
-  content: { borderTopLeftRadius: 14, borderTopRightRadius: 14, padding: 20, paddingBottom: 32, minHeight: '60%', maxHeight: '92%', overflow: 'hidden' as const },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
-  sub: { fontSize: 12, marginTop: 2 },
-  badge: { paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 },
-  slotBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  slotHeader: { fontSize: 13, marginBottom: 12 },
-  empty: { textAlign: 'center', marginTop: 24, fontSize: 14 },
+  content: { borderTopLeftRadius: 14, borderTopRightRadius: 14, padding: s(20), paddingBottom: s(32), minHeight: '60%', maxHeight: '92%', overflow: 'hidden' as const },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: s(16) },
+  row: { flexDirection: 'row', alignItems: 'center', paddingVertical: s(12), borderBottomWidth: StyleSheet.hairlineWidth },
+  sub: { fontSize: ms(12), marginTop: s(2) },
+  badge: { paddingHorizontal: s(5), paddingVertical: s(1), borderRadius: 4 },
+  slotBadge: { paddingHorizontal: s(8), paddingVertical: s(3), borderRadius: 6 },
+  slotHeader: { fontSize: ms(13), marginBottom: s(12) },
+  empty: { textAlign: 'center', marginTop: s(24), fontSize: ms(14) },
   processingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center', borderRadius: 16 },
 });

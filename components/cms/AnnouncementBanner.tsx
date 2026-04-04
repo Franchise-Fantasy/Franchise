@@ -1,9 +1,10 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Ionicons } from '@expo/vector-icons';
 import type { AnnouncementBannerProps } from '@/types/cms';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ms, s } from '@/utils/scale';
 
 const SEVERITY_CONFIG = {
   info: { icon: 'information-circle-outline' as const, colorKey: 'accent' as const },
@@ -67,24 +68,24 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     borderLeftWidth: 4,
-    padding: 14,
+    padding: s(14),
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: s(8),
   },
   title: {
-    fontSize: 14,
+    fontSize: ms(14),
     flex: 1,
   },
   pin: {
-    marginLeft: 4,
+    marginLeft: s(4),
   },
   body: {
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: 6,
-    paddingLeft: 28, // align with title text (icon width + gap)
+    fontSize: ms(13),
+    lineHeight: ms(18),
+    marginTop: s(6),
+    paddingLeft: s(28), // align with title text (icon width + gap)
   },
 });

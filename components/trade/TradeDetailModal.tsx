@@ -1,34 +1,37 @@
-import { capture } from '@/lib/posthog';
+import { DropPickerSection } from '@/components/trade/DropPickerSection';
+import { LeakRumorSheet } from '@/components/trade/LeakRumorSheet';
+import { TradeActionBar } from '@/components/trade/TradeActionBar';
 import { TradeFairnessBar } from '@/components/trade/TradeFairnessBar';
-import { RumorBubble } from '@/components/chat/RumorBubble';
-import { ThemedText } from '@/components/ThemedText';
+import { TradeSideSummary } from '@/components/trade/TradeSideSummary';
+import { TradeStatusTimeline } from '@/components/trade/TradeStatusTimeline';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
-import { useToast } from '@/context/ToastProvider';
-import { RUMOR_TEMPLATES, useCanLeak, useLeakRumor } from '@/hooks/chat/useLeakRumor';
+import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
+import { useTradeDetailActions } from '@/hooks/useTradeDetailActions';
 import { TradeItemRow, TradeProposalRow, useTradeVotes } from '@/hooks/useTrades';
-import { sendNotification } from '@/lib/notifications';
+import { useCanLeak } from '@/hooks/chat/useLeakRumor';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats } from '@/types/player';
-import { estimatePickFpts, formatPickLabel } from '@/types/trade';
+import { estimatePickFpts } from '@/types/trade';
 import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
-import { getPlayerHeadshotUrl } from '@/utils/playerHeadshot';
-import { isOnline } from '@/utils/network';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Image,
+  Animated,
+  Dimensions,
   Modal,
+  Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+
+// ── Helpers ──────────────────────────────────────────────────────────────
 
 function itemKey(item: TradeItemRow): string {
   if (item.player_id) return `p:${item.player_id}:${item.from_team_id}:${item.to_team_id}`;
@@ -48,13 +51,8 @@ function getNewItemKeys(items: TradeItemRow[], originalItems?: TradeItemRow[]): 
   return newKeys;
 }
 
-interface TradeDetailModalProps {
-  proposal: TradeProposalRow;
-  leagueId: string;
-  teamId: string;
-  onClose: () => void;
-  onCounteroffer?: (proposal: TradeProposalRow) => void;
-  onEdit?: (proposal: TradeProposalRow) => void;
+function getStatusLabel(status: string): string {
+  return status.replace(/_/g, ' ');
 }
 
 function getStatusColors(c: typeof Colors['light']): Record<string, string> {
@@ -71,36 +69,125 @@ function getStatusColors(c: typeof Colors['light']): Record<string, string> {
   };
 }
 
+function computeFairness(
+  proposal: TradeProposalRow,
+  playerStats: PlayerSeasonStats[] | undefined,
+  scoringWeights: any[] | undefined,
+): Array<{ teamName: string; netFpts: number }> {
+  if (!scoringWeights) return [];
+
+  const teamNameMap: Record<string, string> = {};
+  proposal.teams.forEach((t) => { teamNameMap[t.team_id] = t.team_name; });
+
+  const playerFptsMap: Record<string, number> = {};
+  if (playerStats) {
+    for (const ps of playerStats) {
+      playerFptsMap[ps.player_id] = calculateAvgFantasyPoints(ps, scoringWeights);
+    }
+  }
+
+  const net: Record<string, number> = {};
+  for (const t of proposal.teams) { net[t.team_id] = 0; }
+
+  for (const item of proposal.items) {
+    let value = 0;
+    if (item.player_id) {
+      value = playerFptsMap[item.player_id] ?? 0;
+    } else if (item.pick_round) {
+      value = estimatePickFpts(item.pick_round);
+    }
+    if (net[item.from_team_id] !== undefined) net[item.from_team_id] -= value;
+    if (net[item.to_team_id] !== undefined) net[item.to_team_id] += value;
+  }
+
+  return Object.entries(net).map(([tid, fpts]) => ({
+    teamName: teamNameMap[tid] ?? 'Unknown',
+    netFpts: fpts,
+  }));
+}
+
+// ── Props ────────────────────────────────────────────────────────────────
+
+interface TradeDetailModalProps {
+  proposal: TradeProposalRow;
+  leagueId: string;
+  teamId: string;
+  onClose: () => void;
+  onCounteroffer?: (proposal: TradeProposalRow) => void;
+  onEdit?: (proposal: TradeProposalRow) => void;
+}
+
+// ── Component ────────────────────────────────────────────────────────────
+
 export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounteroffer, onEdit }: TradeDetailModalProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
-  const queryClient = useQueryClient();
-  const { showToast } = useToast();
-  const [processing, setProcessing] = useState(false);
+
   const [showLeakSheet, setShowLeakSheet] = useState(false);
   const [showDropPicker, setShowDropPicker] = useState(false);
-  const [selectedDropPlayerId, setSelectedDropPlayerId] = useState<string | null>(null);
+  const [selectedDropPlayerIds, setSelectedDropPlayerIds] = useState<string[]>([]);
 
-  // Check if this proposal is part of a counteroffer chain (eligible for leak)
-  const isTerminal = proposal.status === 'completed' || proposal.status === 'rejected' || proposal.status === 'cancelled' || proposal.status === 'vetoed' || proposal.status === 'reversed';
-  const isInCounterofferChain = !isTerminal && (!!proposal.counteroffer_of ||
-    proposal.status === 'pending' || proposal.status === 'accepted');
+  const slideAnim = useRef(new Animated.Value(Dimensions.get('window').height)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 250, useNativeDriver: true }),
+      Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, bounciness: 0, speed: 14 }),
+    ]).start();
+  }, []);
+
+  const handleClose = () => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
+      Animated.timing(slideAnim, { toValue: Dimensions.get('window').height, duration: 200, useNativeDriver: true }),
+    ]).start(() => onClose());
+  };
+
+  // ── Derived state ──
+
+  const teamNameMap: Record<string, string> = {};
+  proposal.teams.forEach((t) => { teamNameMap[t.team_id] = t.team_name; });
+
+  const isTerminal = ['completed', 'rejected', 'cancelled', 'vetoed', 'reversed'].includes(proposal.status);
+  const isCounteroffer = !!proposal.counteroffer_of;
+  const isInCounterofferChain = !isTerminal && (!!proposal.counteroffer_of || proposal.status === 'pending' || proposal.status === 'accepted');
+
+  const myProposalTeam = proposal.teams.find((t) => t.team_id === teamId);
+  const isProposer = proposal.proposed_by_team_id === teamId;
+  const isInvolved = !!myProposalTeam;
+  const myTeamStatus = myProposalTeam?.status;
+
+  const isEditable = proposal.status === 'pending' && isProposer && !!onEdit &&
+    proposal.teams.filter((t) => t.team_id !== teamId).every((t) => t.status === 'pending');
+
+  const myNetGain = proposal.items.reduce((acc, item) => {
+    if (!item.player_id) return acc;
+    if (item.to_team_id === teamId) return acc + 1;
+    if (item.from_team_id === teamId) return acc - 1;
+    return acc;
+  }, 0);
+
+  const needsMyDrop = proposal.status === 'pending_drops' && isInvolved && myNetGain > 0;
+  const newItemKeys = getNewItemKeys(proposal.items, proposal.original_items);
+
+  // ── Data fetching ──
+
   const { data: canLeak } = useCanLeak(
     isInCounterofferChain && proposal.counteroffer_of ? proposal.id : null,
     leagueId,
   );
 
   const { data: votes } = useTradeVotes(
-    proposal.status === 'in_review' ? proposal.id : null
+    proposal.status === 'in_review' ? proposal.id : null,
   );
 
-  // Get league settings for veto info + roster_size
   const { data: leagueSettings } = useQuery({
-    queryKey: ['leagueTradeSettings', leagueId],
+    queryKey: queryKeys.leagueTradeSettings(leagueId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('leagues')
-        .select('trade_veto_type, trade_review_period_hours, trade_votes_to_veto, teams, roster_size')
+        .select('trade_veto_type, trade_review_period_hours, trade_votes_to_veto, teams, roster_size, scoring_type')
         .eq('id', leagueId)
         .single();
       if (error) throw error;
@@ -109,9 +196,8 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
     enabled: !!leagueId,
   });
 
-  // Check if current user is commissioner
   const { data: isCommissioner } = useQuery({
-    queryKey: ['isCommissioner', teamId],
+    queryKey: queryKeys.isCommissioner(teamId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('teams')
@@ -124,12 +210,10 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
     enabled: !!teamId,
   });
 
-  // Fetch player season stats for fairness calculation
-  const playerIds = proposal.items
-    .filter((i) => i.player_id)
-    .map((i) => i.player_id!);
+  const playerIds = proposal.items.filter((i) => i.player_id).map((i) => i.player_id!);
+
   const { data: playerStats } = useQuery({
-    queryKey: ['tradePlayerStats', playerIds],
+    queryKey: queryKeys.tradePlayerStats(playerIds),
     queryFn: async () => {
       if (playerIds.length === 0) return [];
       const { data, error } = await supabase
@@ -144,29 +228,9 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
 
   const { data: scoringWeights } = useLeagueScoring(leagueId);
 
-  const myProposalTeam = proposal.teams.find((t) => t.team_id === teamId);
-  const isProposer = proposal.proposed_by_team_id === teamId;
-  const isInvolved = !!myProposalTeam;
-  const myTeamStatus = myProposalTeam?.status;
-
-  // Trade is editable if proposer and no other team has responded yet
-  const isEditable = proposal.status === 'pending' && isProposer && onEdit &&
-    proposal.teams.filter((t) => t.team_id !== teamId).every((t) => t.status === 'pending');
-
-  // Compute net player gain for my team
-  const myNetGain = proposal.items.reduce((acc, item) => {
-    if (!item.player_id) return acc;
-    if (item.to_team_id === teamId) return acc + 1;
-    if (item.from_team_id === teamId) return acc - 1;
-    return acc;
-  }, 0);
-
-  // Check if my team needs to select a drop (for pending_drops status)
-  const needsMyDrop = proposal.status === 'pending_drops' && isInvolved && myNetGain > 0;
-
-  // Proactively check if accepting would exceed roster limit (shown as warning before user taps Accept)
-  const { data: wouldExceedRoster } = useQuery<boolean>({
-    queryKey: ['tradeRosterCheck', teamId, leagueId, proposal.id],
+  // How many players must this team drop to accommodate the incoming players?
+  const { data: dropsNeeded = 0 } = useQuery<number>({
+    queryKey: queryKeys.tradeRosterCheck(teamId, leagueId, proposal.id),
     queryFn: async () => {
       const rosterSize = leagueSettings?.roster_size ?? 13;
       const [allRes, irRes] = await Promise.all([
@@ -176,16 +240,16 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
           .eq('league_id', leagueId).eq('team_id', teamId).eq('roster_slot', 'IR'),
       ]);
       const activeCount = (allRes.count ?? 0) - (irRes.count ?? 0);
-      return activeCount + myNetGain > rosterSize;
+      return Math.max(0, activeCount + myNetGain - rosterSize);
     },
-    enabled: proposal.status === 'pending' && isInvolved && !isProposer && myNetGain > 0 && !!leagueSettings,
+    enabled: isInvolved && myNetGain > 0 && !!leagueSettings,
     staleTime: 1000 * 30,
   });
+  const wouldExceedRoster = dropsNeeded > 0;
 
-  // Fetch my team's roster for the drop picker
-  const { data: myRoster } = useQuery<(PlayerSeasonStats & { roster_slot: string | null })[]>({
-    queryKey: ['dropPickerRoster', teamId, leagueId],
-    queryFn: async () => {
+  const { data: myRoster } = useQuery({
+    queryKey: queryKeys.dropPickerRoster(teamId, leagueId),
+    queryFn: async (): Promise<(PlayerSeasonStats & { roster_slot: string | null })[]> => {
       const { data: lps, error: lpErr } = await supabase
         .from('league_players')
         .select('player_id, roster_slot')
@@ -200,361 +264,58 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
         .select('*')
         .in('player_id', ids);
       if (error) throw error;
-      // Exclude players being traded away and IR players
       const tradedAwayIds = new Set(
         proposal.items.filter((i) => i.player_id && i.from_team_id === teamId).map((i) => i.player_id!),
       );
       return (data ?? [])
-        .map((p) => ({ ...p, roster_slot: slotMap.get(p.player_id) ?? null }))
-        .filter((p) => !tradedAwayIds.has(p.player_id) && p.roster_slot !== 'IR')
+        .filter((p) => !!p.player_id)
+        .map((p) => ({ ...p, roster_slot: slotMap.get(p.player_id!) ?? null }))
+        .filter((p) => !tradedAwayIds.has(p.player_id!) && p.roster_slot !== 'IR')
         .sort((a, b) => {
-          // Bench first, then others
           const aIsBench = a.roster_slot === 'BE' || a.roster_slot === 'TAXI' ? 0 : 1;
           const bIsBench = b.roster_slot === 'BE' || b.roster_slot === 'TAXI' ? 0 : 1;
           return aIsBench - bIsBench;
-        });
+        }) as unknown as (PlayerSeasonStats & { roster_slot: string | null })[];
     },
     enabled: showDropPicker || needsMyDrop,
   });
 
-  // Fetch drop status for all teams in pending_drops
-  const { data: proposalTeamDrops } = useQuery({
-    queryKey: ['proposalTeamDrops', proposal.id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('trade_proposal_teams')
-        .select('team_id, drop_player_id')
-        .eq('proposal_id', proposal.id);
-      if (error) throw error;
-      return data ?? [];
-    },
-    enabled: proposal.status === 'pending_drops',
+  // ── Actions hook ──
+
+  const actions = useTradeDetailActions({
+    proposal,
+    leagueId,
+    teamId,
+    leagueSettings,
+    myNetGain,
+    selectedDropPlayerIds,
+    onClose,
   });
 
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ['tradeProposals', leagueId] });
-    queryClient.invalidateQueries({ queryKey: ['pendingTradeCount'] });
-    queryClient.invalidateQueries({ queryKey: ['tradeVotes', proposal.id] });
-    queryClient.invalidateQueries({ queryKey: ['tradeBlock', leagueId] });
-  };
+  // ── Computed display data ──
 
-  // Compute fairness
-  const fairness = computeDetailFairness(proposal, playerStats, scoringWeights);
+  const isCategories = leagueSettings?.scoring_type === 'h2h_categories';
 
-  // --- Actions ---
-  const handleAccept = async () => {
-    if (!(await isOnline())) { showToast('error', 'No internet connection'); return; }
-
-    // If my team gains players, check if we'd go over the roster limit
-    if (myNetGain > 0 && !selectedDropPlayerId) {
-      const rosterSize = leagueSettings?.roster_size ?? 13;
-      const [allRes, irRes] = await Promise.all([
-        supabase.from('league_players').select('id', { count: 'exact', head: true })
-          .eq('league_id', leagueId).eq('team_id', teamId),
-        supabase.from('league_players').select('id', { count: 'exact', head: true })
-          .eq('league_id', leagueId).eq('team_id', teamId).eq('roster_slot', 'IR'),
-      ]);
-      const activeCount = (allRes.count ?? 0) - (irRes.count ?? 0);
-      if (activeCount + myNetGain > rosterSize) {
-        setShowDropPicker(true);
-        return;
-      }
+  const playerFptsMap: Record<string, number> = {};
+  const playerHeadshotMap: Record<string, string | null> = {};
+  if (playerStats && scoringWeights && !isCategories) {
+    for (const ps of playerStats) {
+      if (!ps.player_id) continue;
+      playerFptsMap[ps.player_id] = calculateAvgFantasyPoints(ps as PlayerSeasonStats, scoringWeights);
+      playerHeadshotMap[ps.player_id] = ps.external_id_nba ?? null;
     }
-
-    setProcessing(true);
-    try {
-      // Store drop selection if one was made
-      if (selectedDropPlayerId) {
-        await supabase
-          .from('trade_proposal_teams')
-          .update({ drop_player_id: selectedDropPlayerId })
-          .eq('proposal_id', proposal.id)
-          .eq('team_id', teamId);
-      }
-
-      // Update my team's status
-      await supabase
-        .from('trade_proposal_teams')
-        .update({ status: 'accepted', responded_at: new Date().toISOString() })
-        .eq('proposal_id', proposal.id)
-        .eq('team_id', teamId);
-
-      // Check if all teams have now accepted
-      const { data: allTeams } = await supabase
-        .from('trade_proposal_teams')
-        .select('status')
-        .eq('proposal_id', proposal.id);
-
-      const allAccepted = (allTeams ?? []).every((t) => t.status === 'accepted');
-
-      const myTeamName = myProposalTeam?.team_name ?? 'A team';
-      const otherTeamIds = proposal.teams
-        .filter((t) => t.team_id !== teamId)
-        .map((t) => t.team_id);
-
-      if (allAccepted) {
-        const vetoType = leagueSettings?.trade_veto_type ?? 'commissioner';
-        if (vetoType === 'none') {
-          // Mark proposal as accepted, then execute immediately
-          await supabase
-            .from('trade_proposals')
-            .update({ status: 'accepted', accepted_at: new Date().toISOString() })
-            .eq('id', proposal.id);
-          await supabase.functions.invoke('execute-trade', { body: { proposal_id: proposal.id } });
-        } else {
-          // Move to review
-          const reviewHours = leagueSettings?.trade_review_period_hours ?? 24;
-          const expiresAt = new Date(Date.now() + reviewHours * 3600000).toISOString();
-          await supabase
-            .from('trade_proposals')
-            .update({
-              status: 'in_review',
-              accepted_at: new Date().toISOString(),
-              review_expires_at: expiresAt,
-            })
-            .eq('id', proposal.id);
-
-          // Notify league that a trade is in review
-          sendNotification({
-            league_id: leagueId,
-            category: 'trades',
-            title: 'Trade Under Review',
-            body: 'A trade has been accepted and is now under review.',
-            data: { screen: 'trades' },
-          });
-        }
-      } else {
-        // Notify proposer that this team accepted
-        sendNotification({
-          league_id: leagueId,
-          team_ids: [proposal.proposed_by_team_id],
-          category: 'trades',
-          title: 'Trade Accepted',
-          body: `${myTeamName} has accepted your trade proposal.`,
-          data: { screen: 'trades' },
-        });
-      }
-
-      capture('trade_accepted');
-
-      invalidate();
-      onClose();
-    } catch (err: any) {
-      Alert.alert('Error', err.message ?? 'Failed to accept trade');
-    } finally {
-      setProcessing(false);
-    }
-  };
-
-  const handleReject = async () => {
-    if (!(await isOnline())) { showToast('error', 'No internet connection'); return; }
-    setProcessing(true);
-    try {
-      await supabase
-        .from('trade_proposal_teams')
-        .update({ status: 'rejected', responded_at: new Date().toISOString() })
-        .eq('proposal_id', proposal.id)
-        .eq('team_id', teamId);
-
-      await supabase
-        .from('trade_proposals')
-        .update({ status: 'rejected' })
-        .eq('id', proposal.id);
-
-      const myTeamName = myProposalTeam?.team_name ?? 'A team';
-      const otherTeamIds = proposal.teams
-        .filter((t) => t.team_id !== teamId)
-        .map((t) => t.team_id);
-
-      sendNotification({
-        league_id: leagueId,
-        team_ids: otherTeamIds,
-        category: 'trades',
-        title: 'Trade Declined',
-        body: `${myTeamName} has declined the trade proposal.`,
-        data: { screen: 'trades' },
-      });
-
-      capture('trade_rejected');
-
-      invalidate();
-      onClose();
-    } catch (err: any) {
-      Alert.alert('Error', err.message ?? 'Failed to reject trade');
-    } finally {
-      setProcessing(false);
-    }
-  };
-
-  const handleCancel = async () => {
-    if (!(await isOnline())) { showToast('error', 'No internet connection'); return; }
-    setProcessing(true);
-    try {
-      await supabase
-        .from('trade_proposals')
-        .update({ status: 'cancelled' })
-        .eq('id', proposal.id);
-
-      const otherTeamIds = proposal.teams
-        .filter((t) => t.team_id !== teamId)
-        .map((t) => t.team_id);
-
-      sendNotification({
-        league_id: leagueId,
-        team_ids: otherTeamIds,
-        category: 'trades',
-        title: 'Trade Withdrawn',
-        body: 'A trade proposal has been withdrawn.',
-        data: { screen: 'trades' },
-      });
-
-      invalidate();
-      onClose();
-    } catch (err: any) {
-      Alert.alert('Error', err.message ?? 'Failed to cancel trade');
-    } finally {
-      setProcessing(false);
-    }
-  };
-
-  const handleCommissionerVeto = async () => {
-    setProcessing(true);
-    try {
-      await supabase
-        .from('trade_proposals')
-        .update({ status: 'vetoed' })
-        .eq('id', proposal.id);
-
-      const involvedTeamIds = proposal.teams.map((t) => t.team_id);
-      sendNotification({
-        league_id: leagueId,
-        team_ids: involvedTeamIds,
-        category: 'trades',
-        title: 'Trade Vetoed',
-        body: 'The commissioner has vetoed a trade.',
-        data: { screen: 'trades' },
-      });
-
-      invalidate();
-      onClose();
-    } catch (err: any) {
-      Alert.alert('Error', err.message ?? 'Failed to veto trade');
-    } finally {
-      setProcessing(false);
-    }
-  };
-
-  const handleCommissionerApprove = async () => {
-    setProcessing(true);
-    try {
-      await supabase.functions.invoke('execute-trade', { body: { proposal_id: proposal.id } });
-      invalidate();
-      onClose();
-    } catch (err: any) {
-      Alert.alert('Error', err.message ?? 'Failed to approve trade');
-    } finally {
-      setProcessing(false);
-    }
-  };
-
-  const handleVoteToVeto = async () => {
-    setProcessing(true);
-    try {
-      await supabase.from('trade_votes').insert({
-        proposal_id: proposal.id,
-        team_id: teamId,
-        vote: 'veto',
-      });
-
-      // Check if threshold is met
-      const { count } = await supabase
-        .from('trade_votes')
-        .select('id', { count: 'exact', head: true })
-        .eq('proposal_id', proposal.id)
-        .eq('vote', 'veto');
-
-      const threshold = leagueSettings?.trade_votes_to_veto ?? 4;
-      if ((count ?? 0) >= threshold) {
-        await supabase
-          .from('trade_proposals')
-          .update({ status: 'vetoed' })
-          .eq('id', proposal.id);
-
-        const involvedTeamIds = proposal.teams.map((t) => t.team_id);
-        sendNotification({
-          league_id: leagueId,
-          team_ids: involvedTeamIds,
-          category: 'trades',
-          title: 'Trade Vetoed',
-          body: 'The league has voted to veto a trade.',
-          data: { screen: 'trades' },
-        });
-      }
-
-      invalidate();
-      onClose();
-    } catch (err: any) {
-      Alert.alert('Error', err.message ?? 'Failed to submit vote');
-    } finally {
-      setProcessing(false);
-    }
-  };
-
-  // Submit a drop selection for pending_drops status
-  const handleSubmitDrop = async () => {
-    if (!selectedDropPlayerId) return;
-    if (!(await isOnline())) { showToast('error', 'No internet connection'); return; }
-    setProcessing(true);
-    try {
-      await supabase
-        .from('trade_proposal_teams')
-        .update({ drop_player_id: selectedDropPlayerId })
-        .eq('proposal_id', proposal.id)
-        .eq('team_id', teamId);
-
-      // Check if all teams that need drops have now selected one
-      const { data: updatedTeams } = await supabase
-        .from('trade_proposal_teams')
-        .select('team_id, drop_player_id')
-        .eq('proposal_id', proposal.id);
-
-      // Recompute which teams need drops
-      const netByTeam = new Map<string, number>();
-      for (const item of proposal.items) {
-        if (!item.player_id) continue;
-        netByTeam.set(item.from_team_id, (netByTeam.get(item.from_team_id) ?? 0) - 1);
-        netByTeam.set(item.to_team_id, (netByTeam.get(item.to_team_id) ?? 0) + 1);
-      }
-      const teamsNeedingDrops = [...netByTeam.entries()].filter(([, gain]) => gain > 0).map(([tid]) => tid);
-      const allDropsSet = teamsNeedingDrops.every((tid) =>
-        (updatedTeams ?? []).find((t) => t.team_id === tid)?.drop_player_id,
-      );
-
-      if (allDropsSet) {
-        // All drops selected — execute the trade
-        await supabase.functions.invoke('execute-trade', { body: { proposal_id: proposal.id } });
-      }
-
-      invalidate();
-      onClose();
-    } catch (err: any) {
-      Alert.alert('Error', err.message ?? 'Failed to submit roster drop');
-    } finally {
-      setProcessing(false);
-    }
-  };
-
-  // Build team name map
-  const teamNameMap: Record<string, string> = {};
-  proposal.teams.forEach((t) => { teamNameMap[t.team_id] = t.team_name; });
-
-  // Group items by from_team
-  const groupedByFrom: Record<string, typeof proposal.items> = {};
-  for (const item of proposal.items) {
-    const key = item.from_team_id;
-    if (!groupedByFrom[key]) groupedByFrom[key] = [];
-    groupedByFrom[key].push(item);
   }
+
+  // Group items by receiving team
+  const receivedByTeam: Record<string, TradeItemRow[]> = {};
+  for (const t of proposal.teams) { receivedByTeam[t.team_id] = []; }
+  for (const item of proposal.items) {
+    if (receivedByTeam[item.to_team_id]) {
+      receivedByTeam[item.to_team_id].push(item);
+    }
+  }
+
+  const fairness = computeFairness(proposal, playerStats as PlayerSeasonStats[] | undefined, scoringWeights);
 
   // Review countdown
   let reviewCountdown = '';
@@ -563,7 +324,7 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
     if (remaining > 0) {
       const hrs = Math.floor(remaining / 3600000);
       const mins = Math.floor((remaining % 3600000) / 60000);
-      reviewCountdown = `Completes in ${hrs}h ${mins}m`;
+      reviewCountdown = `${hrs}h ${mins}m remaining`;
     } else {
       reviewCountdown = 'Review period expired';
     }
@@ -573,751 +334,372 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
   const hasVoted = (votes ?? []).some((v: any) => v.team_id === teamId);
   const STATUS_COLORS = getStatusColors(c);
   const statusColor = STATUS_COLORS[proposal.status] ?? c.secondaryText;
-  const isCounteroffer = !!proposal.counteroffer_of;
-  const newItemKeys = getNewItemKeys(proposal.items, proposal.original_items);
 
-  // Players available for leak (only actual players, not picks)
   const leakPlayers = proposal.items
     .filter((i) => i.player_id && i.player_name)
     .map((i) => ({ id: i.player_id!, name: i.player_name!, position: i.player_position ?? '' }));
 
+  const teamIds = proposal.teams.map((t) => t.team_id);
+  const isTwoTeam = teamIds.length === 2;
+
+  // ── Render ──
+
   return (
-    <Modal visible animationType="slide" transparent>
+    <Modal visible animationType="none" transparent onRequestClose={handleClose}>
       <View style={styles.overlay}>
-        <View style={[styles.sheet, { backgroundColor: c.background }, showLeakSheet && styles.sheetExpanded]} accessibilityViewIsModal={true}>
-          {/* Header */}
+        <Animated.View style={[styles.scrim, { opacity: fadeAnim }]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} accessibilityRole="button" accessibilityLabel="Close trade details" />
+        </Animated.View>
+        <Animated.View style={[styles.sheet, { backgroundColor: c.background, transform: [{ translateY: slideAnim }] }, showLeakSheet && styles.sheetExpanded]} accessibilityViewIsModal>
+
+          {/* ── Header ── */}
           <View style={[styles.header, { borderBottomColor: c.border }]}>
-            <View>
-              <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.headerTitle}>
-                {showLeakSheet ? 'Leak to League Chat' : 'Trade Details'}
-              </ThemedText>
-              {!showLeakSheet && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-                    <ThemedText style={[styles.statusText, { color: c.statusText }]}>{proposal.status.replace('_', ' ')}</ThemedText>
-                  </View>
-                  {isCounteroffer && (
-                    <View style={[styles.statusBadge, { backgroundColor: c.warning }]}>
-                      <ThemedText style={[styles.statusText, { color: c.statusText }]}>counteroffer</ThemedText>
+            <View style={styles.headerLeft}>
+              {showLeakSheet ? (
+                <TouchableOpacity
+                  onPress={() => setShowLeakSheet(false)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Back to trade details"
+                  hitSlop={12}
+                >
+                  <Ionicons name="arrow-back" size={22} color={c.text} />
+                </TouchableOpacity>
+              ) : null}
+              <View>
+                {showLeakSheet ? (
+                  <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.headerTitle}>
+                    Leak to Chat
+                  </ThemedText>
+                ) : (
+                  <View style={styles.headerTitleRow}>
+                    <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.headerTitle}>
+                      Trade Details
+                    </ThemedText>
+                    <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
+                      <ThemedText style={[styles.statusText, { color: c.statusText }]}>
+                        {getStatusLabel(proposal.status)}
+                      </ThemedText>
                     </View>
-                  )}
-                </View>
-              )}
+                    {isCounteroffer && (
+                      <View style={[styles.statusBadge, { backgroundColor: c.accent }]}>
+                        <ThemedText style={[styles.statusText, { color: c.statusText }]}>counteroffer</ThemedText>
+                      </View>
+                    )}
+                  </View>
+                )}
+              </View>
             </View>
             <TouchableOpacity
-              onPress={() => showLeakSheet ? setShowLeakSheet(false) : onClose()}
+              onPress={handleClose}
               accessibilityRole="button"
-              accessibilityLabel={showLeakSheet ? 'Back to trade details' : 'Close trade details'}
+              accessibilityLabel="Close trade details"
+              hitSlop={12}
+              style={[styles.closeBtn, { backgroundColor: c.cardAlt }]}
             >
-              <ThemedText style={styles.closeText}>{showLeakSheet ? '←' : '✕'}</ThemedText>
+              <Ionicons name="close" size={18} color={c.secondaryText} />
             </TouchableOpacity>
           </View>
 
+          {/* ── Leak sheet ── */}
           {showLeakSheet ? (
-            <LeakRumorInline
+            <LeakRumorSheet
               proposalId={proposal.id}
               leagueId={leagueId}
               teamId={teamId}
               players={leakPlayers}
-              onDone={() => { setShowLeakSheet(false); }}
+              onDone={() => setShowLeakSheet(false)}
             />
           ) : (
-          <ScrollView contentContainerStyle={styles.content}>
-            {/* Trade details by team */}
-            {Object.entries(groupedByFrom).map(([fromTeamId, items]) => (
-              <View key={fromTeamId} style={[styles.section, { borderColor: c.border }]}>
-                <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>
-                  {teamNameMap[fromTeamId] ?? 'Unknown'} sends:
-                </ThemedText>
-                {items.map((item) => {
-                  const isNew = newItemKeys.has(itemKey(item));
-                  return (
-                    <View key={item.id} style={styles.itemRow}>
-                      <ThemedText style={[styles.itemText, { flex: 1 }]}>
-                        {item.player_name
-                          ? `${item.player_name} (${item.player_position})`
-                          : item.pick_swap_season
-                            ? `${formatPickLabel(item.pick_swap_season!, item.pick_swap_round!)} swap — ${teamNameMap[item.to_team_id] ?? '?'} gets better pick`
-                            : item.pick_season
-                              ? `${formatPickLabel(item.pick_season!, item.pick_round!)}${item.protection_threshold ? ` [Top-${item.protection_threshold} protected]` : ''}${item.pick_original_team_name ? ` (via ${item.pick_original_team_name})` : ''}`
-                              : 'Unknown'}
-                        {!item.pick_swap_season && ` → ${teamNameMap[item.to_team_id] ?? 'Unknown'}`}
-                      </ThemedText>
-                      {isNew && (
-                        <View style={[styles.newBadge, { backgroundColor: c.link }]} accessibilityLabel="Newly added in counteroffer">
-                          <Text style={[styles.newBadgeText, { color: c.statusText }]}>NEW</Text>
-                        </View>
-                      )}
-                    </View>
-                  );
-                })}
-              </View>
-            ))}
+            <>
+              <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
-            {/* Fairness */}
-            {fairness.length > 0 && (
-              <View style={styles.fairnessWrap}>
-                <TradeFairnessBar teams={fairness} />
-              </View>
-            )}
+                {/* Status timeline */}
+                <TradeStatusTimeline status={proposal.status} reviewCountdown={reviewCountdown} />
 
-            {/* Review info */}
-            {proposal.status === 'in_review' && (
-              <View style={[styles.reviewInfo, { backgroundColor: c.cardAlt }]}>
-                <ThemedText style={[styles.reviewText, { color: c.secondaryText }]}>
-                  {reviewCountdown}
-                </ThemedText>
-                {leagueSettings?.trade_veto_type === 'league_vote' && (
-                  <ThemedText style={[styles.reviewText, { color: c.secondaryText }]}>
-                    Veto votes: {vetoCount} / {leagueSettings.trade_votes_to_veto} needed
-                  </ThemedText>
-                )}
-              </View>
-            )}
-
-            {/* Roster capacity warning — shown before user taps Accept */}
-            {wouldExceedRoster && !showDropPicker && (
-              <View
-                accessibilityRole="alert"
-                style={[styles.rosterWarning, { backgroundColor: c.warningMuted, borderColor: c.warning }]}
-              >
-                <ThemedText style={{ fontSize: 13, color: c.warning, fontWeight: '600' }}>
-                  Accepting this trade would exceed your roster limit. You'll need to select a player to drop.
-                </ThemedText>
-              </View>
-            )}
-
-            {/* Team acceptance statuses */}
-            {proposal.status === 'pending' && (
-              <View style={[styles.section, { borderColor: c.border }]}>
-                <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>Responses</ThemedText>
-                {proposal.teams.map((t) => (
-                  <View key={t.team_id} style={styles.responseRow}>
-                    <ThemedText>{t.team_name}</ThemedText>
-                    <ThemedText style={{
-                      color: t.status === 'accepted' ? c.success : t.status === 'rejected' ? c.danger : c.warning,
-                      fontWeight: '600',
-                    }}>
-                      {t.status}
+                {/* Veto info */}
+                {proposal.status === 'in_review' && leagueSettings?.trade_veto_type === 'league_vote' && (
+                  <View style={[styles.infoChip, { backgroundColor: c.cardAlt }]}>
+                    <Ionicons name="people" size={14} color={c.secondaryText} />
+                    <ThemedText style={[styles.infoChipText, { color: c.secondaryText }]}>
+                      Veto votes: {vetoCount} / {leagueSettings.trade_votes_to_veto} needed
                     </ThemedText>
                   </View>
-                ))}
-              </View>
-            )}
-
-            {proposal.notes && (
-              <View style={[styles.section, { borderColor: c.border }]}>
-                <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>Note</ThemedText>
-                <ThemedText style={{ color: c.secondaryText }}>{proposal.notes}</ThemedText>
-              </View>
-            )}
-
-            {/* Pending drops — waiting on other teams */}
-            {proposal.status === 'pending_drops' && !needsMyDrop && (
-              <View style={[styles.reviewInfo, { backgroundColor: c.cardAlt }]}>
-                <ThemedText style={[styles.reviewText, { color: c.secondaryText }]}>
-                  Waiting for roster drops before this trade can complete.
-                </ThemedText>
-              </View>
-            )}
-
-            {/* Drop picker — inline for accept flow or pending_drops */}
-            {(showDropPicker || needsMyDrop) && (
-              <View style={[styles.section, { borderColor: c.border }]}>
-                <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>
-                  Select a player to drop
-                </ThemedText>
-                <ThemedText style={[{ color: c.secondaryText, fontSize: 12, marginBottom: 8 }]}>
-                  This trade would put you over the roster limit. Choose a player to release.
-                </ThemedText>
-                {(myRoster ?? []).map((p) => {
-                  const isDropSelected = selectedDropPlayerId === p.player_id;
-                  const headshotUrl = getPlayerHeadshotUrl(p.external_id_nba);
-                  return (
-                    <TouchableOpacity
-                      key={p.player_id}
-                      accessibilityRole="radio"
-                      accessibilityLabel={`${p.name}, ${p.position}${p.roster_slot ? `, ${p.roster_slot}` : ''}`}
-                      accessibilityState={{ selected: isDropSelected }}
-                      style={[
-                        styles.dropRow,
-                        { borderBottomColor: c.border },
-                        isDropSelected && { backgroundColor: c.activeCard },
-                      ]}
-                      onPress={() => setSelectedDropPlayerId(isDropSelected ? null : p.player_id)}
-                    >
-                      <View style={[styles.dropHeadshot, { borderColor: c.border, backgroundColor: c.cardAlt }]}>
-                        {headshotUrl ? (
-                          <Image source={{ uri: headshotUrl }} style={styles.dropHeadshotImg} resizeMode="cover" />
-                        ) : null}
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <ThemedText type="defaultSemiBold" style={{ fontSize: 14 }} numberOfLines={1}>
-                          {p.name}
-                        </ThemedText>
-                        <ThemedText style={[styles.sub, { color: c.secondaryText }]}>
-                          {p.position} · {p.roster_slot ?? 'BE'}
-                        </ThemedText>
-                      </View>
-                      <ThemedText style={[styles.check, { color: c.success }]}>{isDropSelected ? '✓' : ''}</ThemedText>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            )}
-          </ScrollView>
-
-          )}
-
-          {/* Action Buttons */}
-          {!showLeakSheet && (
-          <View style={[styles.actionArea, { borderTopColor: c.border }]}>
-            {processing ? (
-              <ActivityIndicator />
-            ) : (
-              <>
-                {/* Pending: counterparty can accept/reject (or accept & drop if roster is full) */}
-                {proposal.status === 'pending' && isInvolved && !isProposer && myTeamStatus === 'pending' && (
-                  <View style={styles.actionRow}>
-                    {showDropPicker ? (
-                      <TouchableOpacity
-                        accessibilityRole="button"
-                        accessibilityLabel="Accept trade and drop selected player"
-                        style={[styles.actionBtn, { backgroundColor: selectedDropPlayerId ? c.success : c.secondaryText }]}
-                        disabled={!selectedDropPlayerId}
-                        onPress={() => Alert.alert(
-                          'Accept Trade',
-                          'Accept this trade and drop the selected player?',
-                          [
-                            { text: 'Cancel', style: 'cancel' },
-                            { text: 'Accept', onPress: handleAccept },
-                          ],
-                        )}
-                      >
-                        <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Accept & Drop</ThemedText>
-                      </TouchableOpacity>
-                    ) : (
-                      <TouchableOpacity
-                        accessibilityRole="button"
-                        accessibilityLabel="Accept trade"
-                        style={[styles.actionBtn, { backgroundColor: c.success }]}
-                        onPress={() => Alert.alert('Accept Trade', 'Accept this trade?', [
-                          { text: 'Cancel', style: 'cancel' },
-                          { text: 'Accept', onPress: handleAccept },
-                        ])}
-                      >
-                        <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Accept</ThemedText>
-                      </TouchableOpacity>
-                    )}
-                    {onCounteroffer && (
-                      <TouchableOpacity
-                        accessibilityRole="button"
-                        accessibilityLabel="Counteroffer trade"
-                        style={[styles.actionBtn, { backgroundColor: c.warning }]}
-                        onPress={() => onCounteroffer(proposal)}
-                      >
-                        <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Counter</ThemedText>
-                      </TouchableOpacity>
-                    )}
-                    <TouchableOpacity
-                      accessibilityRole="button"
-                      accessibilityLabel="Decline trade"
-                      style={[styles.actionBtn, { backgroundColor: c.danger }]}
-                      onPress={() => Alert.alert('Decline Trade', 'Decline this trade?', [
-                        { text: 'Cancel', style: 'cancel' },
-                        { text: 'Decline', style: 'destructive', onPress: handleReject },
-                      ])}
-                    >
-                      <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Decline</ThemedText>
-                    </TouchableOpacity>
-                  </View>
                 )}
 
-                {/* Pending drops: my team needs to select a drop */}
-                {needsMyDrop && (
-                  <View style={styles.actionRow}>
-                    <TouchableOpacity
-                      accessibilityRole="button"
-                      accessibilityLabel="Confirm player drop to complete trade"
-                      style={[styles.actionBtn, { backgroundColor: selectedDropPlayerId ? c.success : c.secondaryText }]}
-                      disabled={!selectedDropPlayerId}
-                      onPress={() => Alert.alert(
-                        'Confirm Drop',
-                        'Drop the selected player and complete the trade?',
-                        [
-                          { text: 'Cancel', style: 'cancel' },
-                          { text: 'Confirm', onPress: handleSubmitDrop },
-                        ],
-                      )}
-                    >
-                      <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Confirm Drop</ThemedText>
-                    </TouchableOpacity>
-                  </View>
-                )}
-
-                {/* Pending: proposer can edit (if untouched) and cancel, or teams that already accepted can back out */}
-                {proposal.status === 'pending' && isInvolved && (isProposer || myTeamStatus === 'accepted') && (
-                  <View style={styles.actionRow}>
-                    {isEditable && (
-                      <TouchableOpacity
-                        accessibilityRole="button"
-                        accessibilityLabel="Edit trade"
-                        style={[styles.actionBtn, { backgroundColor: c.link }]}
-                        onPress={() => onEdit!(proposal)}
-                      >
-                        <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Edit</ThemedText>
-                      </TouchableOpacity>
-                    )}
-                    <TouchableOpacity
-                      accessibilityRole="button"
-                      accessibilityLabel={isProposer ? 'Cancel trade' : 'Back out of trade'}
-                      style={[styles.actionBtn, { backgroundColor: c.secondaryText }]}
-                      onPress={() => Alert.alert(
-                        isProposer ? 'Cancel Trade' : 'Back Out',
-                        isProposer
-                          ? 'Withdraw this trade proposal?'
-                          : 'Back out and cancel this trade for all parties?',
-                        [
-                          { text: 'No', style: 'cancel' },
-                          { text: isProposer ? 'Withdraw' : 'Back Out', style: 'destructive', onPress: handleCancel },
-                        ]
-                      )}
-                    >
-                      <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>
-                        {isProposer ? 'Cancel Trade' : 'Back Out'}
-                      </ThemedText>
-                    </TouchableOpacity>
-                  </View>
-                )}
-
-                {/* In review: commissioner can always approve/veto regardless of veto type */}
-                {proposal.status === 'in_review' && isCommissioner && (
-                  <View style={styles.actionRow}>
-                    <TouchableOpacity
-                      accessibilityRole="button"
-                      accessibilityLabel="Approve trade"
-                      style={[styles.actionBtn, { backgroundColor: c.success }]}
-                      onPress={() => Alert.alert('Approve Trade', 'Approve and execute this trade now?', [
-                        { text: 'Cancel', style: 'cancel' },
-                        { text: 'Approve', onPress: handleCommissionerApprove },
-                      ])}
-                    >
-                      <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Approve</ThemedText>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      accessibilityRole="button"
-                      accessibilityLabel="Veto trade"
-                      style={[styles.actionBtn, { backgroundColor: c.danger }]}
-                      onPress={() => Alert.alert('Veto Trade', 'Veto this trade?', [
-                        { text: 'Cancel', style: 'cancel' },
-                        { text: 'Veto', style: 'destructive', onPress: handleCommissionerVeto },
-                      ])}
-                    >
-                      <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Veto</ThemedText>
-                    </TouchableOpacity>
-                  </View>
-                )}
-
-                {/* In review: league vote (non-commissioner members) */}
-                {proposal.status === 'in_review' && leagueSettings?.trade_veto_type === 'league_vote' && !isCommissioner && !isInvolved && !hasVoted && (
-                  <View style={styles.actionRow}>
-                    <TouchableOpacity
-                      accessibilityRole="button"
-                      accessibilityLabel="Vote to veto trade"
-                      style={[styles.actionBtn, { backgroundColor: c.danger }]}
-                      onPress={() => Alert.alert('Vote to Veto', 'Cast a veto vote on this trade?', [
-                        { text: 'Cancel', style: 'cancel' },
-                        { text: 'Veto', style: 'destructive', onPress: handleVoteToVeto },
-                      ])}
-                    >
-                      <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Vote to Veto</ThemedText>
-                    </TouchableOpacity>
-                  </View>
-                )}
-
-                {/* Already voted indicator */}
-                {proposal.status === 'in_review' && leagueSettings?.trade_veto_type === 'league_vote' && !isCommissioner && hasVoted && (
-                  <View style={styles.actionRow}>
-                    <View style={[styles.actionBtn, { backgroundColor: c.cardAlt }]} accessibilityLabel="You voted to veto this trade">
-                      <ThemedText style={[styles.votedText, { color: c.secondaryText }]}>You voted to veto</ThemedText>
+                {/* Trade sides — two-column for 2-team, stacked for 3+ */}
+                <View style={isTwoTeam ? styles.twoCol : styles.stacked}>
+                  {proposal.teams.map((t) => (
+                    <View key={t.team_id} style={isTwoTeam ? styles.colHalf : styles.stackedCard}>
+                      <TradeSideSummary
+                        teamId={t.team_id}
+                        teamName={t.team_name}
+                        receivedItems={receivedByTeam[t.team_id] ?? []}
+                        playerFptsMap={playerFptsMap}
+                        playerHeadshotMap={playerHeadshotMap}
+                        newItemKeys={newItemKeys}
+                        itemKeyFn={itemKey}
+                        teamNameMap={teamNameMap}
+                        teamStatus={proposal.status === 'pending' ? t.status : undefined}
+                        isMultiTeam={!isTwoTeam}
+                      />
                     </View>
+                  ))}
+                </View>
+
+                {/* Swap icon between columns for 2-team trades */}
+                {/* (Rendered via negative margin overlay in styles) */}
+
+                {/* Fairness bar */}
+                {!isCategories && fairness.length > 0 && (
+                  <View style={styles.fairnessWrap}>
+                    <TradeFairnessBar teams={fairness} />
                   </View>
                 )}
 
-                {/* Leak button — visible for counteroffer chains */}
-                {canLeak && !isTerminal && isInvolved && proposal.counteroffer_of && leakPlayers.length > 0 && (
-                  <View style={styles.actionRow}>
-                    <TouchableOpacity
-                      accessibilityRole="button"
-                      accessibilityLabel="Leak trade negotiations to league chat"
-                      style={[styles.actionBtn, { backgroundColor: c.warning }]}
-                      onPress={() => setShowLeakSheet(true)}
-                    >
-                      <Text style={[styles.actionBtnText, { color: c.statusText }]}>Leak to Chat</Text>
-                    </TouchableOpacity>
+                {/* Roster capacity warning */}
+                {wouldExceedRoster && !showDropPicker && (
+                  <View
+                    accessibilityRole="alert"
+                    style={[styles.warningBanner, { backgroundColor: c.warningMuted, borderColor: c.warning }]}
+                  >
+                    <Ionicons name="warning" size={16} color={c.warning} />
+                    <ThemedText style={[styles.warningText, { color: c.warning }]}>
+                      Accepting will exceed your roster limit. You'll need to drop a player.
+                    </ThemedText>
                   </View>
                 )}
-              </>
-            )}
-          </View>
+
+                {/* Pending drops — waiting on other teams */}
+                {proposal.status === 'pending_drops' && !needsMyDrop && (
+                  <View style={[styles.infoChip, { backgroundColor: c.cardAlt }]}>
+                    <Ionicons name="hourglass-outline" size={14} color={c.secondaryText} />
+                    <ThemedText style={[styles.infoChipText, { color: c.secondaryText }]}>
+                      Waiting for roster drops before this trade can complete.
+                    </ThemedText>
+                  </View>
+                )}
+
+                {/* Drop picker */}
+                {(showDropPicker || needsMyDrop) && myRoster && Array.isArray(myRoster) && myRoster.length > 0 && (
+                  <DropPickerSection
+                    roster={myRoster}
+                    selectedPlayerIds={selectedDropPlayerIds}
+                    maxSelections={dropsNeeded}
+                    onSelect={setSelectedDropPlayerIds}
+                  />
+                )}
+
+                {/* Trade note */}
+                {proposal.notes && (
+                  <View style={[styles.noteCard, { backgroundColor: c.cardAlt, borderColor: c.border }]}>
+                    <ThemedText style={[styles.noteLabel, { color: c.secondaryText }]}>Note</ThemedText>
+                    <ThemedText style={styles.noteText}>{proposal.notes}</ThemedText>
+                  </View>
+                )}
+
+                {/* Terminal status explanation */}
+                {isTerminal && (
+                  <View style={[styles.terminalBanner, { backgroundColor: statusColor + '18' }]}>
+                    <Ionicons
+                      name={
+                        proposal.status === 'completed' ? 'checkmark-circle'
+                        : proposal.status === 'rejected' ? 'close-circle'
+                        : proposal.status === 'vetoed' ? 'ban'
+                        : 'arrow-undo'
+                      }
+                      size={18}
+                      color={statusColor}
+                    />
+                    <ThemedText style={[styles.terminalText, { color: statusColor }]}>
+                      {proposal.status === 'completed' ? 'This trade has been completed.'
+                       : proposal.status === 'rejected' ? 'This trade was declined.'
+                       : proposal.status === 'vetoed' ? 'This trade was vetoed.'
+                       : proposal.status === 'cancelled' ? 'This trade was withdrawn.'
+                       : 'This trade was reversed.'}
+                    </ThemedText>
+                  </View>
+                )}
+              </ScrollView>
+
+              {/* ── Action bar ── */}
+              <TradeActionBar
+                processing={actions.processing}
+                status={proposal.status}
+                isInvolved={isInvolved}
+                isProposer={isProposer}
+                isEditable={isEditable}
+                isCommissioner={isCommissioner ?? false}
+                myTeamStatus={myTeamStatus}
+                hasVoted={hasVoted}
+                vetoType={leagueSettings?.trade_veto_type}
+                showDropPicker={showDropPicker}
+                dropsReady={selectedDropPlayerIds.length >= dropsNeeded && dropsNeeded > 0}
+                needsMyDrop={needsMyDrop}
+                canLeak={!!(canLeak && !isTerminal && isInvolved && proposal.counteroffer_of && leakPlayers.length > 0)}
+                onAccept={() => actions.handleAccept(() => setShowDropPicker(true))}
+                onReject={actions.handleReject}
+                onCancel={actions.handleCancel}
+                onEdit={onEdit ? () => onEdit(proposal) : undefined}
+                onCounteroffer={onCounteroffer ? () => onCounteroffer(proposal) : undefined}
+                onCommissionerApprove={actions.handleCommissionerApprove}
+                onCommissionerVeto={actions.handleCommissionerVeto}
+                onVoteToVeto={actions.handleVoteToVeto}
+                onSubmitDrop={actions.handleSubmitDrop}
+                onLeakToChat={() => setShowLeakSheet(true)}
+              />
+            </>
           )}
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
 }
 
-function LeakRumorInline({
-  proposalId, leagueId, teamId, players, onDone,
-}: {
-  proposalId: string;
-  leagueId: string;
-  teamId: string;
-  players: Array<{ id: string; name: string; position: string }>;
-  onDone: () => void;
-}) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
-  const { showToast } = useToast();
-  const leak = useLeakRumor();
-  const [selectedPlayer, setSelectedPlayer] = useState<string | null>(null);
-  const [selectedTemplate, setSelectedTemplate] = useState<number>(0);
-
-  const selectedPlayerObj = players.find((p) => p.id === selectedPlayer);
-  const previewText = selectedPlayerObj
-    ? RUMOR_TEMPLATES[selectedTemplate].replace('{player}', selectedPlayerObj.name)
-    : RUMOR_TEMPLATES[selectedTemplate].replace('{player}', '______');
-
-  const handleLeak = async () => {
-    if (!selectedPlayer || !selectedPlayerObj) return;
-    try {
-      await leak.mutateAsync({
-        proposalId,
-        leagueId,
-        teamId,
-        playerId: selectedPlayer,
-        playerName: selectedPlayerObj.name,
-        template: RUMOR_TEMPLATES[selectedTemplate],
-      });
-      showToast('success', 'Rumor leaked to league chat');
-      onDone();
-    } catch (err: any) {
-      const msg = err.message ?? '';
-      if (msg.includes('idx_trade_rumors_manual') || msg.includes('duplicate key') || msg.includes('unique constraint')) {
-        showToast('error', 'This trade negotiation has already been leaked');
-        onDone();
-        return;
-      }
-      showToast('error', msg || 'Failed to leak rumor');
-    }
-  };
-
-  return (
-    <View style={{ flex: 1 }}>
-      <ScrollView contentContainerStyle={styles.leakContent} style={{ flex: 1 }}>
-        <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Select player</ThemedText>
-        <View style={styles.chipRow}>
-          {players.map((p) => (
-            <TouchableOpacity
-              key={p.id}
-              style={[
-                styles.chip,
-                {
-                  backgroundColor: selectedPlayer === p.id ? c.accent : c.cardAlt,
-                  borderColor: selectedPlayer === p.id ? c.accent : c.border,
-                },
-              ]}
-              onPress={() => setSelectedPlayer(p.id)}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: selectedPlayer === p.id }}
-              accessibilityLabel={`${p.name}, ${p.position}`}
-            >
-              <ThemedText
-                style={{ fontSize: 14, fontWeight: '500', color: selectedPlayer === p.id ? c.statusText : c.text }}
-              >
-                {p.name} ({p.position})
-              </ThemedText>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        <ThemedText type="defaultSemiBold" style={[styles.sectionTitle, { marginTop: 16 }]}>
-          Choose message
-        </ThemedText>
-        {RUMOR_TEMPLATES.map((tmpl, i) => {
-          const display = selectedPlayerObj
-            ? tmpl.replace('{player}', selectedPlayerObj.name)
-            : tmpl.replace('{player}', '______');
-          return (
-            <TouchableOpacity
-              key={i}
-              style={[
-                styles.templateRow,
-                {
-                  backgroundColor: selectedTemplate === i ? c.activeCard : c.cardAlt,
-                  borderColor: selectedTemplate === i ? c.activeBorder : c.border,
-                },
-              ]}
-              onPress={() => setSelectedTemplate(i)}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: selectedTemplate === i }}
-              accessibilityLabel={display}
-            >
-              <ThemedText style={{ fontSize: 14, lineHeight: 20, fontStyle: 'italic' }}>
-                &ldquo;{display}&rdquo;
-              </ThemedText>
-            </TouchableOpacity>
-          );
-        })}
-
-        {/* Always show preview to prevent layout jump */}
-        <View style={{ marginTop: 16 }}>
-          <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Preview</ThemedText>
-          <RumorBubble rumorText={previewText} />
-        </View>
-      </ScrollView>
-
-      <View style={[styles.actionArea, styles.leakActionArea, { borderTopColor: c.border }]}>
-        {leak.isPending ? (
-          <ActivityIndicator />
-        ) : (
-          <View style={styles.actionRow}>
-            <TouchableOpacity
-              style={[
-                styles.actionBtn,
-                { backgroundColor: selectedPlayer ? c.warning : c.buttonDisabled },
-              ]}
-              onPress={handleLeak}
-              disabled={!selectedPlayer || leak.isPending}
-              accessibilityRole="button"
-              accessibilityLabel="Leak rumor to league chat"
-              accessibilityState={{ disabled: !selectedPlayer }}
-            >
-              <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Leak to Chat</ThemedText>
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
-    </View>
-  );
-}
-
-function computeDetailFairness(
-  proposal: TradeProposalRow,
-  playerStats: any[] | undefined,
-  scoringWeights: any[] | undefined
-): Array<{ teamName: string; netFpts: number }> {
-  if (!scoringWeights) return [];
-
-  const teamNameMap: Record<string, string> = {};
-  proposal.teams.forEach((t) => { teamNameMap[t.team_id] = t.team_name; });
-
-  const playerFptsMap: Record<string, number> = {};
-  if (playerStats) {
-    for (const ps of playerStats) {
-      playerFptsMap[ps.player_id] = calculateAvgFantasyPoints(ps, scoringWeights);
-    }
-  }
-
-  // Net FPTS per team
-  const net: Record<string, number> = {};
-  for (const t of proposal.teams) {
-    net[t.team_id] = 0;
-  }
-
-  for (const item of proposal.items) {
-    let value = 0;
-    if (item.player_id) {
-      value = playerFptsMap[item.player_id] ?? 0;
-    } else if (item.pick_round) {
-      value = estimatePickFpts(item.pick_round);
-    }
-
-    if (net[item.from_team_id] !== undefined) net[item.from_team_id] -= value;
-    if (net[item.to_team_id] !== undefined) net[item.to_team_id] += value;
-  }
-
-  return Object.entries(net).map(([tid, fpts]) => ({
-    teamName: teamNameMap[tid] ?? 'Unknown',
-    netFpts: fpts,
-  }));
-}
+// ── Styles ──────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     justifyContent: 'flex-end',
   },
+  scrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
   sheet: {
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
-    maxHeight: '85%',
-    paddingBottom: 32,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    maxHeight: '92%',
+    paddingBottom: s(32),
   },
   sheetExpanded: {
     flex: 1,
   },
+
+  // Header
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    padding: 16,
+    padding: s(16),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(10),
+    flex: 1,
+  },
   headerTitle: {
-    fontSize: 18,
-    marginBottom: 6,
+    fontSize: ms(18),
+  },
+  headerTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(8),
   },
   statusBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 4,
+    paddingHorizontal: s(8),
+    paddingVertical: s(3),
+    borderRadius: 5,
   },
   statusText: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: '700',
     textTransform: 'capitalize',
   },
-  closeText: {
-    fontSize: 18,
-    padding: 4,
-  },
-  content: {
-    padding: 16,
-    paddingBottom: 8,
-  },
-  section: {
-    borderWidth: 1,
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 12,
-  },
-  sectionTitle: {
-    fontSize: 14,
-    marginBottom: 6,
-  },
-  itemRow: {
-    flexDirection: 'row',
+  closeBtn: {
+    width: s(30),
+    height: s(30),
+    borderRadius: 15,
     alignItems: 'center',
-    paddingVertical: 3,
-  },
-  itemText: {
-    fontSize: 14,
-  },
-  newBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 3,
-    marginLeft: 8,
-  },
-  newBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  fairnessWrap: {
-    marginBottom: 12,
-  },
-  reviewInfo: {
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-    alignItems: 'center',
-  },
-  reviewText: {
-    fontSize: 13,
-    marginBottom: 4,
-  },
-  responseRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 4,
-  },
-  actionArea: {
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  actionRow: {
-    flexDirection: 'row',
-    gap: 8,
     justifyContent: 'center',
   },
-  actionBtn: {
+
+  // Content
+  content: {
+    padding: s(16),
+    gap: s(14),
+    paddingBottom: s(8),
+  },
+
+  // Two-column layout for 2-team trades
+  twoCol: {
+    flexDirection: 'row',
+    gap: s(10),
+  },
+  colHalf: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
   },
-  actionBtnText: {
-    fontSize: 15,
-    fontWeight: '600',
+
+  // Stacked layout for 3+ team trades
+  stacked: {
+    gap: s(10),
   },
-  votedText: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  chipRow: {
+  stackedCard: {},
+
+  // Info chips
+  infoChip: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    alignItems: 'center',
+    gap: s(6),
+    alignSelf: 'center',
+    paddingHorizontal: s(12),
+    paddingVertical: s(6),
     borderRadius: 8,
-    borderWidth: 1,
   },
-  templateRow: {
-    padding: 12,
+  infoChipText: {
+    fontSize: ms(12),
+    fontWeight: '500',
+  },
+
+  // Fairness
+  fairnessWrap: {},
+
+  // Warning
+  warningBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(8),
+    borderWidth: 1,
     borderRadius: 10,
+    padding: s(12),
+  },
+  warningText: {
+    fontSize: ms(13),
+    fontWeight: '600',
+    flex: 1,
+  },
+
+  // Note
+  noteCard: {
     borderWidth: 1,
-    marginBottom: 8,
+    borderRadius: 10,
+    padding: s(12),
+    gap: s(4),
   },
-  leakContent: {
-    padding: 16,
-    paddingBottom: 24,
+  noteLabel: {
+    fontSize: ms(11),
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
-  leakActionArea: {
-    paddingBottom: 32,
+  noteText: {
+    fontSize: ms(14),
+    lineHeight: ms(20),
   },
-  rosterWarning: {
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 12,
-  },
-  dropRow: {
+
+  // Terminal banner
+  terminalBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: s(8),
+    padding: s(12),
+    borderRadius: 10,
   },
-  dropHeadshot: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: 1,
-    overflow: 'hidden' as const,
-    marginRight: 8,
-  },
-  dropHeadshotImg: {
-    position: 'absolute' as const,
-    bottom: -2,
-    left: 0,
-    right: 0,
-    height: 30,
-  },
-  sub: {
-    fontSize: 11,
-    marginTop: 1,
-  },
-  check: {
-    width: 22,
-    fontSize: 16,
-    fontWeight: '700',
-    textAlign: 'center',
+  terminalText: {
+    fontSize: ms(13),
+    fontWeight: '600',
+    flex: 1,
   },
 });

@@ -1,4 +1,5 @@
 import { StepBasics } from "@/components/create-league/StepBasics";
+import { ms, s } from "@/utils/scale";
 import { StepDraft } from "@/components/create-league/StepDraft";
 import { StepReview } from "@/components/create-league/StepReview";
 import { StepRoster } from "@/components/create-league/StepRoster";
@@ -6,7 +7,7 @@ import { StepScoring } from "@/components/create-league/StepScoring";
 import { StepSeason, computeMaxWeeks, computeSeasonStart } from "@/components/create-league/StepSeason";
 import { StepTrade } from "@/components/create-league/StepTrade";
 import { StepWaivers } from "@/components/create-league/StepWaivers";
-import { ThemedView } from "@/components/ThemedView";
+import { ThemedView } from "@/components/ui/ThemedView";
 import { StepIndicator } from "@/components/ui/StepIndicator";
 import { Colors } from "@/constants/Colors";
 import {
@@ -26,6 +27,7 @@ import {
   TIEBREAKER_TO_DB,
 } from "@/constants/LeagueDefaults";
 import { calcLotteryPoolSize, defaultPlayoffTeams, getPlayoffTeamOptions } from "@/utils/lottery";
+import { containsBlockedContent } from "@/utils/moderation";
 import { sanitizeHandle } from "@/utils/paymentLinks";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { generateDraftPicks, generateFutureDraftPicks } from "@/lib/draft";
@@ -265,6 +267,10 @@ export default function CreateLeague() {
   };
 
   const handleCreateLeague = async () => {
+    if (containsBlockedContent(state.name)) {
+      Alert.alert('Invalid name', 'That league name contains language that isn\u2019t allowed.');
+      return;
+    }
     setLoading(true);
 
     const user = (await supabase.auth.getUser()).data.user;
@@ -619,7 +625,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   cancelText: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: "500",
   },
   content: {
@@ -642,7 +648,7 @@ const styles = StyleSheet.create({
     borderColor: "transparent",
   },
   navBtnText: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: "600",
   },
 });

@@ -1,6 +1,7 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
@@ -42,12 +43,12 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
-    height: 50,
+    paddingHorizontal: s(8),
+    height: s(50),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   side: {
-    width: 70,
+    width: s(70),
     flexDirection: 'row',
     alignItems: 'center',
   },
@@ -56,12 +57,12 @@ const styles = StyleSheet.create({
     overflow: 'visible',
   },
   backText: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: '500',
   },
   title: {
     flex: 1,
     textAlign: 'center',
-    fontSize: 17,
+    fontSize: ms(17),
   },
 });

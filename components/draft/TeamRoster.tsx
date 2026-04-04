@@ -1,4 +1,5 @@
 import { Colors } from "@/constants/Colors";
+import { queryKeys } from "@/constants/queryKeys";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { useLeagueRosterConfig } from "@/hooks/useLeagueRosterConfig";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
@@ -9,6 +10,7 @@ import { formatPosition } from "@/utils/formatting";
 import { getInjuryBadge } from "@/utils/injuryBadge";
 import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
 import { slotLabel } from "@/utils/rosterSlots";
+import { ms, s } from "@/utils/scale";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import {
@@ -21,7 +23,7 @@ import {
   View,
 } from "react-native";
 import { PlayerDetailModal } from "../player/PlayerDetailModal";
-import { ThemedText } from "../ThemedText";
+import { ThemedText } from "../ui/ThemedText";
 
 interface TeamRosterProps {
   teamId: string;
@@ -51,7 +53,7 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
   const { data: rosterPlayers, isLoading: isLoadingPlayers } = useQuery<
     RosterPlayer[]
   >({
-    queryKey: ["teamRoster", teamId],
+    queryKey: queryKeys.teamRoster(teamId),
     queryFn: async () => {
       const { data: leaguePlayers, error: lpError } = await supabase
         .from("league_players")
@@ -291,7 +293,7 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
                 style={{
                   flexDirection: "row",
                   alignItems: "center",
-                  gap: 4,
+                  gap: s(4),
                   flexWrap: "wrap",
                   flexShrink: 1,
                 }}
@@ -423,30 +425,30 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  scrollContent: { paddingBottom: 56 },
+  scrollContent: { paddingBottom: s(56) },
   centered: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 20,
+    padding: s(20),
   },
   positionSummary: {
     flexDirection: "row",
     flexWrap: "wrap",
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 4,
+    paddingHorizontal: s(16),
+    paddingTop: s(12),
+    paddingBottom: s(4),
   },
   positionSummaryText: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: "600",
   },
-  section: { padding: 16, paddingBottom: 0 },
+  section: { padding: s(16), paddingBottom: 0 },
   sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 8,
+    marginBottom: s(8),
   },
   card: {
     borderRadius: 8,
@@ -460,75 +462,75 @@ const styles = StyleSheet.create({
   slotRow: {
     flexDirection: "row",
     alignItems: "center",
-    minHeight: 56,
+    minHeight: s(56),
   },
   slotLabel: {
-    width: 44,
+    width: s(44),
     alignSelf: "stretch",
     justifyContent: "center",
     alignItems: "center",
   },
-  slotLabelText: { fontSize: 11, fontWeight: "700" },
+  slotLabelText: { fontSize: ms(11), fontWeight: "700" },
   slotPlayer: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingVertical: s(6),
+    paddingHorizontal: s(12),
   },
   portraitWrap: {
-    width: 50,
-    height: 50,
-    marginRight: 8,
+    width: s(50),
+    height: s(50),
+    marginRight: s(8),
   },
   headshotCircle: {
-    width: 48,
-    height: 48,
+    width: s(48),
+    height: s(48),
     borderRadius: 25,
     borderWidth: 1.5,
     overflow: "hidden",
   },
   headshotImg: {
     position: "absolute" as const,
-    bottom: -2,
+    bottom: s(-2),
     left: 0,
     right: 0,
-    height: 42,
+    height: s(42),
   },
   teamPill: {
     position: "absolute",
-    bottom: -1,
+    bottom: s(-1),
     alignSelf: "center",
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "rgba(0,0,0,0.75)",
     borderRadius: 8,
-    paddingHorizontal: 3,
+    paddingHorizontal: s(3),
     paddingVertical: 1,
-    gap: 2,
+    gap: s(2),
   },
   teamPillLogo: {
-    width: 9,
-    height: 9,
+    width: s(9),
+    height: s(9),
   },
   teamPillText: {
-    fontSize: 7,
+    fontSize: ms(7),
     fontWeight: "700",
     letterSpacing: 0.3,
   },
-  slotPlayerInfo: { flex: 1, marginRight: 8 },
-  slotPlayerName: { fontSize: 14 },
-  slotPlayerSub: { fontSize: 11, marginTop: 1 },
-  slotFpts: { fontSize: 13, fontWeight: "600" },
-  emptySlotText: { fontSize: 13, fontStyle: "italic" },
-  emptyBench: { padding: 16, alignItems: "center" },
+  slotPlayerInfo: { flex: 1, marginRight: s(8) },
+  slotPlayerName: { fontSize: ms(14) },
+  slotPlayerSub: { fontSize: ms(11), marginTop: 1 },
+  slotFpts: { fontSize: ms(13), fontWeight: "600" },
+  emptySlotText: { fontSize: ms(13), fontStyle: "italic" },
+  emptyBench: { padding: s(16), alignItems: "center" },
   badge: {
-    paddingHorizontal: 4,
+    paddingHorizontal: s(4),
     paddingVertical: 1,
     borderRadius: 3,
   },
   badgeText: {
-    fontSize: 8,
+    fontSize: ms(8),
     fontWeight: "800",
     letterSpacing: 0.5,
   },

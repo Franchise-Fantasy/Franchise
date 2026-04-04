@@ -1,8 +1,9 @@
 import { ChatInput } from '@/components/chat/ChatInput';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { ReactionPicker } from '@/components/chat/ReactionPicker';
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
 import {
   useChatSubscription,
   useMarkRead,
@@ -30,6 +31,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ms, s } from '@/utils/scale';
 import { useSharedValue } from 'react-native-reanimated';
 
 // ─── Helpers ──────────────────────────────────────────────────
@@ -132,7 +134,7 @@ export function DraftChatModal({
 
   // Look up the league conversation
   const { data: conversationId } = useQuery({
-    queryKey: ['leagueConversationId', leagueId],
+    queryKey: queryKeys.leagueConversationId(leagueId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('chat_conversations')
@@ -149,7 +151,7 @@ export function DraftChatModal({
 
   // Team logo map for message avatars
   const { data: teamLogoMap } = useQuery<Record<string, string | null>>({
-    queryKey: ['teamLogos', leagueId],
+    queryKey: queryKeys.teamLogos(leagueId),
     queryFn: async () => {
       const { data } = await supabase
         .from('teams')
@@ -180,7 +182,7 @@ export function DraftChatModal({
   useEffect(() => {
     for (const msg of messages) {
       if (msg.type === 'poll' && msg.poll_question) {
-        queryClient.setQueryData(['poll', msg.content], (prev: any) => {
+        queryClient.setQueryData(queryKeys.poll(msg.content), (prev: any) => {
           if (prev) return prev;
           return {
             id: msg.content,
@@ -428,20 +430,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: s(16),
+    paddingVertical: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   headerSpacer: {
-    width: 36,
+    width: s(36),
   },
   headerTitle: {
-    fontSize: 17,
+    fontSize: ms(17),
     textAlign: 'center',
     flex: 1,
   },
   closeButton: {
-    width: 36,
+    width: s(36),
     alignItems: 'center',
   },
   empty: {
@@ -450,18 +452,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   list: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: s(12),
+    paddingVertical: s(8),
   },
   footerLoader: {
-    paddingVertical: 16,
+    paddingVertical: s(16),
   },
   dateHeader: {
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: s(12),
   },
   dateHeaderText: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '500',
   },
 });

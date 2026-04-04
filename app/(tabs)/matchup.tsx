@@ -1,4 +1,4 @@
-import { ErrorState } from "@/components/ErrorState";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { TeamLogo } from "@/components/team/TeamLogo";
 import { CategoryScoreboard } from "@/components/matchup/CategoryScoreboard";
 import { SkeletonBlock } from "@/components/matchup/MatchupSkeleton";
@@ -14,8 +14,8 @@ import {
 import { WeeklySummaryModal } from "@/components/matchup/WeeklySummaryModal";
 import { FptsBreakdownModal } from "@/components/player/FptsBreakdownModal";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
-import { ThemedText } from "@/components/ThemedText";
-import { ThemedView } from "@/components/ThemedView";
+import { ThemedText } from "@/components/ui/ThemedText";
+import { ThemedView } from "@/components/ui/ThemedView";
 import { Colors } from "@/constants/Colors";
 import { CURRENT_NBA_SEASON } from "@/constants/LeagueDefaults";
 import { useAppState } from "@/context/AppStateProvider";
@@ -51,6 +51,8 @@ import {
 } from "@/utils/nbaLive";
 import { fetchNbaScheduleForDate } from "@/utils/nbaSchedule";
 import { slotLabel } from "@/utils/rosterSlots";
+import { ms, s } from "@/utils/scale";
+import { queryKeys } from "@/constants/queryKeys";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -543,7 +545,7 @@ async function fetchMatchupDataById(
 
 function useWeeks(leagueId: string | null) {
   return useQuery({
-    queryKey: ["leagueSchedule", leagueId],
+    queryKey: queryKeys.leagueSchedule(leagueId!),
     queryFn: () => fetchWeeks(leagueId!),
     enabled: !!leagueId,
     staleTime: 1000 * 60 * 10,
@@ -563,7 +565,7 @@ function useWeekMatchup(
     ) ?? null;
 
   return useQuery({
-    queryKey: ["weekMatchup", leagueId, week?.id, teamId, selectedDate],
+    queryKey: queryKeys.weekMatchup(leagueId!, week?.id, teamId, selectedDate),
     queryFn: () => {
       if (!week || !teamId || !leagueId) return null;
       return fetchWeekMatchupData(
@@ -664,15 +666,31 @@ function MatchupBoard({
         ? round1(rightTeam.dayTotal + rightDayLiveBonus)
         : 0;
 
+  // Merge live in-progress game stats into a team's DB-based teamStats
+  const mergeWithLive = (team: TeamMatchupData): TeamStatTotals => {
+    if (liveMap.size === 0) return team.teamStats;
+    const merged = { ...team.teamStats };
+    for (const p of team.players) {
+      if (p.roster_slot === 'BE' || p.roster_slot === 'IR' || p.roster_slot === 'DROPPED') continue;
+      const live = liveMap.get(p.player_id);
+      if (!live) continue;
+      const gameLog = liveToGameLog(live);
+      for (const [key, val] of Object.entries(gameLog)) {
+        if (val == null) continue;
+        const numVal = typeof val === 'boolean' ? (val ? 1 : 0) : Number(val);
+        merged[key] = (merged[key] ?? 0) + numVal;
+      }
+    }
+    return merged;
+  };
+
   // For category leagues, compute live category comparison
   const categoryComparison =
     isCategories && rightTeam
       ? computeCategoryResults(
-          leftTeam.teamStats,
-          rightTeam.teamStats,
-          scoring
-            .filter((s) => s.is_enabled)
-            .map((s) => ({ stat_name: s.stat_name, inverse: s.inverse })),
+          mergeWithLive(leftTeam),
+          mergeWithLive(rightTeam),
+          scoring.map((s) => ({ stat_name: s.stat_name, inverse: s.inverse ?? false })),
         )
       : null;
 
@@ -849,7 +867,7 @@ function MatchupBoard({
               <Text
                 style={{
                   color: c.secondaryText,
-                  fontSize: 11,
+                  fontSize: ms(11),
                   fontWeight: "700",
                   letterSpacing: 1,
                 }}
@@ -981,7 +999,7 @@ export default function MatchupScreen() {
 
   // Fetch all matchups for the pill bar
   const { data: allMatchups } = useQuery({
-    queryKey: ["weekAllMatchups", currentWeek?.id],
+    queryKey: queryKeys.weekAllMatchups(currentWeek?.id!),
     queryFn: () => fetchAllWeekMatchups(currentWeek!.id),
     enabled: !!currentWeek,
     staleTime: 1000 * 60 * 5,
@@ -1039,7 +1057,7 @@ export default function MatchupScreen() {
 
   // Fetch non-user matchup data when viewing another matchup
   const { data: otherMatchupData, isLoading: otherMatchupLoading } = useQuery({
-    queryKey: ["matchupById", selectedMatchupId, selectedDate],
+    queryKey: queryKeys.matchupById(selectedMatchupId!, selectedDate),
     queryFn: () => {
       if (!selectedMatchupId || !currentWeek || !leagueId || !scoring)
         return null;
@@ -1131,7 +1149,7 @@ export default function MatchupScreen() {
 
   // Future schedule: tricode → matchup string for the selected future date
   const { data: futureSchedule } = useQuery<Map<string, any>>({
-    queryKey: ["futureSchedule", selectedDate],
+    queryKey: queryKeys.futureSchedule(selectedDate),
     queryFn: () => fetchNbaScheduleForDate(selectedDate),
     enabled: isToday || isFutureDate,
     staleTime: 1000 * 60 * 60,
@@ -1155,14 +1173,14 @@ export default function MatchupScreen() {
       if (!wk) continue;
 
       queryClient.prefetchQuery({
-        queryKey: ["weekMatchup", leagueId, wk.id, teamId, day],
+        queryKey: queryKeys.weekMatchup(leagueId!, wk.id, teamId, day),
         queryFn: () => fetchWeekMatchupData(wk, teamId, leagueId, day, scoring),
         staleTime: 1000 * 60 * 2,
       });
 
       if (day >= todayStr) {
         queryClient.prefetchQuery({
-          queryKey: ["futureSchedule", day],
+          queryKey: queryKeys.futureSchedule(day),
           queryFn: () => fetchNbaScheduleForDate(day),
           staleTime: 1000 * 60 * 60,
         });
@@ -1179,7 +1197,7 @@ export default function MatchupScreen() {
   // We get playoff_round from the matchup data. The useWeekMatchup hook fetches from league_matchups
   // but doesn't expose playoff_round directly. Let's fetch seeds based on the week.
   const { data: seedMap } = useQuery({
-    queryKey: ["matchupSeeds", leagueId, currentWeek?.week_number],
+    queryKey: queryKeys.matchupSeeds(leagueId!, currentWeek?.week_number!),
     queryFn: async () => {
       // Find the playoff round: query any matchup in this schedule week
       const { data: matchups } = await supabase
@@ -1202,14 +1220,14 @@ export default function MatchupScreen() {
   const rightTeamId = displayData?.rightTeam?.teamId ?? null;
 
   const { data: leftAdds } = useQuery({
-    queryKey: ["weeklyAdds", leagueId, leftTeamId],
+    queryKey: queryKeys.weeklyAdds(leagueId!, leftTeamId!),
     queryFn: () => fetchWeeklyAdds(leagueId!, leftTeamId!),
     enabled: !!leagueId && !!leftTeamId && weeklyLimit != null,
     staleTime: 1000 * 60 * 2,
   });
 
   const { data: rightAdds } = useQuery({
-    queryKey: ["weeklyAdds", leagueId, rightTeamId],
+    queryKey: queryKeys.weeklyAdds(leagueId!, rightTeamId!),
     queryFn: () => fetchWeeklyAdds(leagueId!, rightTeamId!),
     enabled: !!leagueId && !!rightTeamId && weeklyLimit != null,
     staleTime: 1000 * 60 * 2,
@@ -1726,60 +1744,60 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 24,
+    padding: s(24),
   },
   spinnerWrap: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    paddingVertical: 48,
+    paddingVertical: s(48),
   },
   dayNav: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 10,
+    paddingHorizontal: s(8),
+    paddingVertical: s(10),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  navArrow: { padding: 12 },
-  arrow: { fontSize: 28, lineHeight: 32 },
+  navArrow: { padding: s(12) },
+  arrow: { fontSize: ms(28), lineHeight: ms(32) },
   todayChip: {
     position: "absolute",
     top: 0,
     bottom: 0,
     justifyContent: "center",
-    paddingHorizontal: 4,
+    paddingHorizontal: s(4),
   },
-  todayChipLeft: { left: 50 },
-  todayChipRight: { right: 50 },
-  todayChipText: { fontSize: 11, fontWeight: "600" },
+  todayChipLeft: { left: s(50) },
+  todayChipRight: { right: s(50) },
+  todayChipText: { fontSize: ms(11), fontWeight: "600" },
   dayInfo: { flex: 1, alignItems: "center" },
-  dayLabel: { fontSize: 16 },
-  weekMeta: { fontSize: 11, marginTop: 2 },
-  body: { padding: 6, paddingBottom: 56, flexGrow: 1 },
+  dayLabel: { fontSize: ms(16) },
+  weekMeta: { fontSize: ms(11), marginTop: 2 },
+  body: { padding: s(6), paddingBottom: s(56), flexGrow: 1 },
   pillBar: {
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    paddingBottom: 10,
-    gap: 8,
+    paddingHorizontal: s(12),
+    paddingTop: s(10),
+    paddingBottom: s(10),
+    gap: s(8),
   },
   pill: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingHorizontal: s(14),
+    paddingVertical: s(10),
     borderRadius: 12,
-    gap: 6,
+    gap: s(6),
   },
   pillText: {
-    fontSize: 10,
+    fontSize: ms(10),
     fontWeight: "600",
-    lineHeight: 16,
+    lineHeight: ms(16),
   },
   pillVs: {
-    fontSize: 10,
+    fontSize: ms(10),
     fontWeight: "500",
-    lineHeight: 14,
+    lineHeight: ms(14),
   },
   modalOverlay: {
     flex: 1,
@@ -1795,32 +1813,32 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   scheduleTitle: {
-    fontSize: 16,
-    padding: 16,
-    paddingBottom: 12,
+    fontSize: ms(16),
+    padding: s(16),
+    paddingBottom: s(12),
   },
   scheduleRow: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: s(16),
+    paddingVertical: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  scheduleWeekLabel: { fontSize: 14, fontWeight: "600" },
-  scheduleWeekRange: { fontSize: 12, marginTop: 2 },
+  scheduleWeekLabel: { fontSize: ms(14), fontWeight: "600" },
+  scheduleWeekRange: { fontSize: ms(12), marginTop: 2 },
 });
 
 const colStyles = StyleSheet.create({
-  scoreHeader: { flexDirection: "row", alignItems: "center", marginBottom: 14 },
+  scoreHeader: { flexDirection: "row", alignItems: "center", marginBottom: s(14) },
   scoreCol: { flex: 1 },
-  vsCol: { alignItems: "center" as const, justifyContent: "center" as const, marginHorizontal: 6, marginTop: 14 },
-  vsText: { fontSize: 12, fontWeight: "600" },
-  teamName: { fontWeight: "600", fontSize: 14, marginBottom: 2 },
-  total: { fontSize: 20, fontWeight: "700" },
-  dayTotal: { fontSize: 11, fontWeight: "500", marginTop: 2 },
+  vsCol: { alignItems: "center" as const, justifyContent: "center" as const, marginHorizontal: s(6), marginTop: s(14) },
+  vsText: { fontSize: ms(12), fontWeight: "600" },
+  teamName: { fontWeight: "600", fontSize: ms(14), marginBottom: 2 },
+  total: { fontSize: ms(20), fontWeight: "700" },
+  dayTotal: { fontSize: ms(11), fontWeight: "500", marginTop: 2 },
   acqRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginTop: 14,
-    paddingTop: 10,
+    marginTop: s(14),
+    paddingTop: s(10),
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   acqPill: {
@@ -1828,11 +1846,11 @@ const colStyles = StyleSheet.create({
     alignItems: "center",
   },
   acqText: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: "600",
   },
   summaryBtnText: {
-    fontSize: 10,
+    fontSize: ms(10),
     fontWeight: "600",
     marginTop: 2,
   },

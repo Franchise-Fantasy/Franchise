@@ -1,4 +1,4 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EditBasicsModal } from '@/components/commissioner/EditBasicsModal';
 import { EditRosterModal } from '@/components/commissioner/EditRosterModal';
@@ -20,9 +20,13 @@ import { TransferOwnershipModal } from '@/components/commissioner/TransferOwners
 import { TeamAssigner } from '@/components/import/TeamAssigner';
 import { SeasonHistory } from '@/components/home/SeasonHistory';
 import { LeagueNotificationModal } from '@/components/LeagueNotificationModal';
+import { UpgradeModal } from '@/components/UpgradeModal';
+import { useSubscription } from '@/hooks/useSubscription';
+import { TIER_LABELS, TIER_COLORS } from '@/constants/Subscriptions';
 import { TeamLogo } from '@/components/team/TeamLogo';
 import { useAnnouncements } from '@/hooks/useAnnouncements';
 import { Colors } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
 import { LEAGUE_TYPE_DISPLAY, PLAYER_LOCK_DISPLAY, SEEDING_DISPLAY, TIEBREAKER_DISPLAY, WAIVER_DAY_LABELS } from '@/constants/LeagueDefaults';
 import { useAppState } from '@/context/AppStateProvider';
 import { useSession } from '@/context/AuthProvider';
@@ -45,6 +49,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ms, s } from '@/utils/scale';
 
 // ── Lifecycle helpers ──────────────────────────────────────────────
 
@@ -92,7 +97,7 @@ export default function LeagueInfoScreen() {
   const { data: scoring } = useLeagueScoring(leagueId ?? '');
 
   const { data: draft } = useQuery({
-    queryKey: ['leagueDraft', leagueId],
+    queryKey: queryKeys.leagueDraft(leagueId!),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('drafts')
@@ -139,6 +144,8 @@ export default function LeagueInfoScreen() {
   const [showDivisionsModal, setShowDivisionsModal] = useState(false);
   const [showTransferOwnership, setShowTransferOwnership] = useState(false);
   const [advancingseason, setAdvancingSeason] = useState(false);
+  const [showLeagueUpgrade, setShowLeagueUpgrade] = useState(false);
+  const { leagueTier } = useSubscription();
 
   const handleAdvanceSeason = () => {
     Alert.alert(
@@ -156,7 +163,7 @@ export default function LeagueInfoScreen() {
                 body: { league_id: league!.id },
               });
               if (error) throw error;
-              queryClient.invalidateQueries({ queryKey: ['league', leagueId] });
+              queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId!) });
               Alert.alert('Season Advanced', 'The offseason has begun!');
             } catch (err: any) {
               Alert.alert('Error', err.message ?? 'Failed to advance season');
@@ -217,13 +224,32 @@ export default function LeagueInfoScreen() {
               <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.commAction, { borderBottomWidth: 0 }]}
+              style={[styles.commAction, { borderBottomColor: c.border }]}
               onPress={() => setShowTransferOwnership(true)}
               accessibilityRole="button"
               accessibilityLabel="Transfer Team Ownership"
             >
               <Ionicons name="people" size={18} color={c.text} accessible={false} />
               <ThemedText style={styles.commActionText}>Transfer Team Ownership</ThemedText>
+              <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.commAction, { borderBottomWidth: 0 }]}
+              onPress={() => setShowLeagueUpgrade(true)}
+              accessibilityRole="button"
+              accessibilityLabel={leagueTier ? `League plan: ${TIER_LABELS[leagueTier]}` : 'Upgrade league plan'}
+            >
+              <Ionicons name="diamond" size={18} color={TIER_COLORS.pro} accessible={false} />
+              <View style={{ flex: 1 }}>
+                <ThemedText style={[styles.commActionText, { color: TIER_COLORS.pro }]}>
+                  {leagueTier ? 'Manage League Plan' : 'Upgrade League'}
+                </ThemedText>
+                {leagueTier && (
+                  <ThemedText style={{ fontSize: ms(11), color: c.secondaryText, marginTop: 2 }}>
+                    Currently {TIER_LABELS[leagueTier]}
+                  </ThemedText>
+                )}
+              </View>
               <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
             </TouchableOpacity>
 
@@ -243,7 +269,7 @@ export default function LeagueInfoScreen() {
                   <View style={{ flex: 1 }}>
                     <ThemedText style={[styles.commActionText, { color: c.warning }]}>Advance to Offseason</ThemedText>
                     {!playoffsComplete && (
-                      <ThemedText style={{ fontSize: 11, color: c.secondaryText, marginTop: 2 }}>
+                      <ThemedText style={{ fontSize: ms(11), color: c.secondaryText, marginTop: 2 }}>
                         Playoffs must finish first
                       </ThemedText>
                     )}
@@ -497,7 +523,7 @@ export default function LeagueInfoScreen() {
             accessibilityLabel="Assign teams to divisions"
           >
             <Ionicons name="git-branch-outline" size={20} color={c.accent} accessible={false} />
-            <ThemedText style={{ flex: 1, fontSize: 14 }}>Assign Divisions</ThemedText>
+            <ThemedText style={{ flex: 1, fontSize: ms(14) }}>Assign Divisions</ThemedText>
             <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
           </TouchableOpacity>
         )}
@@ -593,7 +619,7 @@ export default function LeagueInfoScreen() {
           accessibilityLabel="League notification preferences"
         >
           <Ionicons name="notifications-outline" size={20} color={c.accent} accessible={false} />
-          <ThemedText style={{ flex: 1, fontSize: 14 }}>Notification Preferences</ThemedText>
+          <ThemedText style={{ flex: 1, fontSize: ms(14) }}>Notification Preferences</ThemedText>
           <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
         </TouchableOpacity>
 
@@ -772,6 +798,12 @@ export default function LeagueInfoScreen() {
           onClose={() => setShowPaymentLedger(false)}
         />
       )}
+
+      <UpgradeModal
+        visible={showLeagueUpgrade}
+        onClose={() => setShowLeagueUpgrade(false)}
+        leagueMode
+      />
     </SafeAreaView>
   );
 }
@@ -818,8 +850,8 @@ const styles = StyleSheet.create({
   paymentLedgerBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 14,
-    marginBottom: 12,
+    padding: s(14),
+    marginBottom: s(12),
     borderRadius: 10,
     borderWidth: 1,
   },
@@ -827,86 +859,86 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 8,
-    paddingVertical: 12,
+    paddingHorizontal: s(8),
+    paddingVertical: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  backBtn: { width: 70, paddingHorizontal: 8 },
-  backText: { fontSize: 16, fontWeight: '500' },
-  titleText: { fontSize: 16, textAlign: 'center' },
+  backBtn: { width: s(70), paddingHorizontal: s(8) },
+  backText: { fontSize: ms(16), fontWeight: '500' },
+  titleText: { fontSize: ms(16), textAlign: 'center' },
   scroll: { flex: 1 },
-  scrollContent: { padding: 16, paddingBottom: 40 },
+  scrollContent: { padding: s(16), paddingBottom: s(40) },
 
   // Section card
   section: {
     borderWidth: 1,
     borderRadius: 8,
-    padding: 14,
-    marginBottom: 12,
+    padding: s(14),
+    marginBottom: s(12),
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: s(8),
   },
-  sectionTitle: { fontSize: 15 },
+  sectionTitle: { fontSize: ms(15) },
 
   // Rows
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 6,
+    paddingVertical: s(6),
   },
-  rowLabel: { fontSize: 14 },
-  rowValue: { fontSize: 14, fontWeight: '500' },
-  summaryText: { fontSize: 14, lineHeight: 22 },
+  rowLabel: { fontSize: ms(14) },
+  rowValue: { fontSize: ms(14), fontWeight: '500' },
+  summaryText: { fontSize: ms(14), lineHeight: ms(22) },
 
   // Members
   memberRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: s(8),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   commBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
+    paddingHorizontal: s(8),
+    paddingVertical: s(2),
     borderRadius: 8,
     borderWidth: 1,
   },
-  commBadgeText: { fontSize: 11, fontWeight: '600' },
+  commBadgeText: { fontSize: ms(11), fontWeight: '600' },
   tricodeBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    gap: s(3),
+    paddingHorizontal: s(6),
+    paddingVertical: s(2),
     borderRadius: 4,
   },
-  tricodeText: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
+  tricodeText: { fontSize: ms(11), fontWeight: '700', letterSpacing: 0.5 },
 
   // Commissioner actions
   commAction: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
-    gap: 10,
+    gap: s(10),
   },
-  commActionText: { flex: 1, fontSize: 14 },
+  commActionText: { flex: 1, fontSize: ms(14) },
   commGroupLabel: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: '600',
     letterSpacing: 0.5,
     textTransform: 'uppercase',
-    marginTop: 14,
-    marginBottom: 4,
+    marginTop: s(14),
+    marginBottom: s(4),
   },
-  announcementRow: { paddingVertical: 10, paddingHorizontal: 12 },
-  announcementDate: { fontSize: 12, marginBottom: 2 },
-  announcementText: { fontSize: 14 },
+  announcementRow: { paddingVertical: s(10), paddingHorizontal: s(12) },
+  announcementDate: { fontSize: ms(12), marginBottom: s(2) },
+  announcementText: { fontSize: ms(14) },
 
 });

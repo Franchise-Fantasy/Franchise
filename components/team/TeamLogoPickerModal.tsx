@@ -1,8 +1,9 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { TeamLogo } from '@/components/team/TeamLogo';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
@@ -207,66 +208,66 @@ const styles = StyleSheet.create({
   sheet: {
     borderTopLeftRadius: 14,
     borderTopRightRadius: 14,
-    paddingBottom: 40,
+    paddingBottom: s(40),
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
+    padding: s(16),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: ms(18),
   },
   closeText: {
-    fontSize: 20,
-    lineHeight: 24,
-    paddingHorizontal: 4,
+    fontSize: ms(20),
+    lineHeight: ms(24),
+    paddingHorizontal: s(4),
   },
   previewArea: {
     alignItems: 'center',
-    paddingVertical: 24,
-    gap: 8,
+    paddingVertical: s(24),
+    gap: s(8),
   },
   previewCircle: {
-    width: 80,
-    height: 80,
+    width: s(80),
+    height: s(80),
     borderRadius: 40,
     alignItems: 'center',
     justifyContent: 'center',
   },
   previewName: {
-    fontSize: 18,
-    marginTop: 4,
+    fontSize: ms(18),
+    marginTop: s(4),
   },
   uploadingText: {
-    fontSize: 13,
+    fontSize: ms(13),
   },
   buttonArea: {
-    paddingHorizontal: 16,
-    gap: 10,
+    paddingHorizontal: s(16),
+    gap: s(10),
   },
   actionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 14,
+    gap: s(8),
+    paddingVertical: s(14),
     borderRadius: 10,
   },
   actionBtnText: {
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: '600',
   },
   removeBtn: {
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: s(12),
     borderRadius: 10,
     borderWidth: 1,
   },
   removeBtnText: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '600',
   },
 });

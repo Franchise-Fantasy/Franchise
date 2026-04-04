@@ -1,7 +1,8 @@
 import { ManualDraftOrderModal } from '@/components/commissioner/ManualDraftOrderModal';
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { ThemedView } from '@/components/ui/ThemedView';
 import { Colors } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,6 +11,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ms, s } from '@/utils/scale';
 
 interface Draft {
   id: string;
@@ -35,7 +37,7 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
   const c = Colors[scheme];
 
   const { data: draft, isLoading } = useQuery({
-    queryKey: ['activeDraft', leagueId],
+    queryKey: queryKeys.activeDraft(leagueId),
     queryFn: async (): Promise<Draft | null> => {
       const { data, error } = await supabase
         .from('drafts')
@@ -54,7 +56,7 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
 
   // Fetch league's initial_draft_order setting
   const { data: leagueSettings } = useQuery({
-    queryKey: ['leagueDraftOrder', leagueId],
+    queryKey: queryKeys.leagueDraftOrder(leagueId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('leagues')
@@ -69,7 +71,7 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
 
   // Check if draft slots are assigned (for manual order gating)
   const { data: slotsAssigned } = useQuery({
-    queryKey: ['draftSlotsAssigned', draft?.id],
+    queryKey: queryKeys.draftSlotsAssigned(draft?.id ?? ''),
     queryFn: async () => {
       if (!draft?.id) return false;
       const { count, error } = await supabase
@@ -92,9 +94,9 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
   useEffect(() => {
     if (!leagueId) return;
     const channel = supabase
-      .channel(`draft_status_${leagueId}_${Date.now()}`)
+      .channel(`draft_status_${leagueId}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'drafts', filter: `league_id=eq.${leagueId}` },
-        () => { queryClient.invalidateQueries({ queryKey: ['activeDraft', leagueId] }); }
+        () => { queryClient.invalidateQueries({ queryKey: queryKeys.activeDraft(leagueId) }); }
       )
       .subscribe();
     return () => { supabase.removeChannel(channel); };
@@ -126,7 +128,7 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
       return;
     }
 
-    queryClient.invalidateQueries({ queryKey: ['activeDraft', leagueId] });
+    queryClient.invalidateQueries({ queryKey: queryKeys.activeDraft(leagueId) });
     setShowDatePicker(false);
     setSelectedDate(null);
   };
@@ -181,14 +183,14 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
           <ThemedText type="defaultSemiBold">
             {draft.season} {draft.type.charAt(0).toUpperCase() + draft.type.slice(1)} Draft
           </ThemedText>
-          <ThemedText style={{ color: isActive ? c.activeText : c.secondaryText, fontSize: 14, marginTop: 2 }}>
+          <ThemedText style={{ color: isActive ? c.activeText : c.secondaryText, fontSize: ms(14), marginTop: s(2) }}>
             {draft.status === 'unscheduled'
               ? 'Not yet scheduled'
               : `${new Date(draft.draft_date!).toLocaleString([], { year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`}
           </ThemedText>
           {/* Draft order status line */}
           {isInitialDraft && showPreDraft && (
-            <ThemedText style={{ color: c.secondaryText, fontSize: 13, marginTop: 2 }}>
+            <ThemedText style={{ color: c.secondaryText, fontSize: ms(13), marginTop: s(2) }}>
               {isManual
                 ? (slotsAssigned ? 'Draft order set by commissioner' : 'Draft order not yet set')
                 : 'Draft order randomized'}
@@ -229,7 +231,7 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
           visible={showOrderModal}
           onClose={() => {
             setShowOrderModal(false);
-            queryClient.invalidateQueries({ queryKey: ['draftSlotsAssigned', draft.id] });
+            queryClient.invalidateQueries({ queryKey: queryKeys.draftSlotsAssigned(draft.id) });
           }}
           leagueId={leagueId}
           draftId={draft.id}
@@ -291,15 +293,15 @@ const styles = StyleSheet.create({
   section: {
     borderWidth: 1,
     borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 4,
-    marginBottom: 16,
+    paddingHorizontal: s(16),
+    paddingVertical: s(4),
+    marginBottom: s(16),
   },
   draftRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 12,
+    paddingVertical: s(12),
   },
   draftInfo: {
     flex: 1,
@@ -308,14 +310,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
+    gap: s(6),
+    paddingVertical: s(10),
     borderRadius: 8,
-    marginTop: 4,
-    marginBottom: 4,
+    marginTop: s(4),
+    marginBottom: s(4),
   },
   setOrderText: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '600',
   },
   modalOverlay: {
@@ -326,33 +328,33 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     width: '90%',
-    padding: 20,
+    padding: s(20),
     borderRadius: 12,
     alignItems: 'center',
   },
   modalTitle: {
-    marginBottom: 20,
+    marginBottom: s(20),
   },
   buttonContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     width: '100%',
-    marginTop: 20,
-    paddingHorizontal: 20,
+    marginTop: s(20),
+    paddingHorizontal: s(20),
   },
   button: {
-    padding: 12,
+    padding: s(12),
     borderRadius: 6,
-    minWidth: 100,
+    minWidth: s(100),
     alignItems: 'center',
   },
   tapToReschedule: {
-    fontSize: 12,
-    marginTop: 4,
+    fontSize: ms(12),
+    marginTop: s(4),
     fontStyle: 'italic',
   },
   enterDraft: {
     fontWeight: 'bold',
-    fontSize: 14,
+    fontSize: ms(14),
   },
 });

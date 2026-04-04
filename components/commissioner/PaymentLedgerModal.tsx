@@ -1,4 +1,4 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import {
@@ -8,6 +8,7 @@ import {
   useTogglePayment,
 } from '@/hooks/usePaymentLedger';
 import { openPaymentConfirmed } from '@/utils/paymentLinks';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import {
   ActivityIndicator,
@@ -267,7 +268,7 @@ export function PaymentLedgerModal({
           </View>
 
           {isLoading ? (
-            <ActivityIndicator style={{ marginTop: 20 }} />
+            <ActivityIndicator style={{ marginTop: s(20) }} />
           ) : (
             <FlatList
               data={teams}
@@ -286,8 +287,8 @@ const styles = StyleSheet.create({
   content: {
     borderTopLeftRadius: 14,
     borderTopRightRadius: 14,
-    padding: 20,
-    paddingBottom: 32,
+    padding: s(20),
+    paddingBottom: s(32),
     minHeight: '50%',
     maxHeight: '85%',
     overflow: 'hidden' as const,
@@ -296,25 +297,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: s(16),
   },
   summary: {
     borderWidth: 1,
     borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
+    padding: s(12),
+    marginBottom: s(16),
     alignItems: 'center',
   },
-  summaryText: { fontSize: 15 },
+  summaryText: { fontSize: ms(15) },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  subText: { fontSize: 12, marginTop: 2 },
-  actions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  badgeText: { fontSize: 12, fontWeight: '600' },
-  actionBtn: { width: 30, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  subText: { fontSize: ms(12), marginTop: s(2) },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: s(6) },
+  badge: { paddingHorizontal: s(8), paddingVertical: s(3), borderRadius: 6 },
+  badgeText: { fontSize: ms(12), fontWeight: '600' },
+  actionBtn: { width: s(30), height: s(30), borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
 });

@@ -1,8 +1,9 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { SpotlightCardProps } from '@/types/cms';
 import { Image, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ms, s } from '@/utils/scale';
 
 export function SpotlightCard({
   title,
@@ -72,16 +73,16 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: 10,
     borderWidth: 1,
-    padding: 14,
+    padding: s(14),
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: s(10),
   },
   headshot: {
-    width: 56,
-    height: 56,
+    width: s(56),
+    height: s(56),
     borderRadius: 28,
     borderWidth: 1.5,
     overflow: 'hidden',
@@ -91,31 +92,31 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   placeholderText: {
-    fontSize: 22,
+    fontSize: ms(22),
     fontWeight: '700',
   },
   headerText: {
     flex: 1,
   },
   playerName: {
-    fontSize: 16,
+    fontSize: ms(16),
   },
   subtitle: {
-    fontSize: 12,
+    fontSize: ms(12),
     marginTop: 1,
   },
   statPill: {
     borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: s(10),
+    paddingVertical: s(4),
   },
   statText: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '700',
   },
   body: {
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: 10,
+    fontSize: ms(13),
+    lineHeight: ms(18),
+    marginTop: s(10),
   },
 });

@@ -1,7 +1,9 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
+import { ms, s } from '@/utils/scale';
 import { PlayerSeasonStats } from '@/types/player';
 import { getInjuryBadge } from '@/utils/injuryBadge';
 import { Ionicons } from '@expo/vector-icons';
@@ -57,7 +59,7 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
   const { data: teamRoster, isLoading: rosterLoading } = useQuery<
     (PlayerSeasonStats & { roster_slot: string })[]
   >({
-    queryKey: ['commishTeamRoster', selectedTeam?.id, leagueId],
+    queryKey: queryKeys.commishTeamRoster(selectedTeam?.id, leagueId),
     queryFn: async () => {
       const { data: lp, error: lpErr } = await supabase
         .from('league_players')
@@ -82,7 +84,7 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
 
   // Fetch free agents (for add)
   const { data: freeAgents, isLoading: faLoading } = useQuery<PlayerSeasonStats[]>({
-    queryKey: ['commishFreeAgents', leagueId],
+    queryKey: queryKeys.commishFreeAgents(leagueId),
     queryFn: async () => {
       const { data: rostered } = await supabase
         .from('league_players')
@@ -170,7 +172,7 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
             <ThemedText accessibilityRole="header" type="subtitle">
               {step === 'team' ? 'Select Team' : step === 'action' ? selectedTeam?.name : `${action === 'add' ? 'Add' : 'Drop'} Player`}
             </ThemedText>
-            <View style={{ width: 24 }} />
+            <View style={{ width: s(24) }} />
           </View>
 
           {step === 'team' && (
@@ -200,7 +202,7 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
                 onPress={() => { setAction('add'); setStep('player'); }}
               >
                 <Ionicons name="person-add" size={20} color={c.accentText} />
-                <Text style={{ color: c.accentText, fontWeight: '600', marginLeft: 8 }}>Add Player</Text>
+                <Text style={{ color: c.accentText, fontWeight: '600', marginLeft: s(8) }}>Add Player</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 accessibilityRole="button"
@@ -209,7 +211,7 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
                 onPress={() => { setAction('drop'); setStep('player'); }}
               >
                 <Ionicons name="person-remove" size={20} color={c.statusText} />
-                <Text style={{ color: c.statusText, fontWeight: '600', marginLeft: 8 }}>Drop Player</Text>
+                <Text style={{ color: c.statusText, fontWeight: '600', marginLeft: s(8) }}>Drop Player</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -225,7 +227,7 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
                 onChangeText={setSearch}
               />
               {loading ? (
-                <ActivityIndicator style={{ marginTop: 20 }} />
+                <ActivityIndicator style={{ marginTop: s(20) }} />
               ) : filtered.length === 0 ? (
                 <ThemedText style={[styles.empty, { color: c.secondaryText }]}>No players found.</ThemedText>
               ) : (
@@ -243,11 +245,11 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
                         disabled={processing}
                       >
                         <View style={{ flex: 1 }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(6) }}>
                             <ThemedText style={{ fontWeight: '600' }}>{item.name}</ThemedText>
                             {badge && (
                               <View style={[styles.badge, { backgroundColor: badge.color + '22' }]}>
-                                <Text style={{ color: badge.color, fontSize: 10, fontWeight: '700' }}>{badge.label}</Text>
+                                <Text style={{ color: badge.color, fontSize: ms(10), fontWeight: '700' }}>{badge.label}</Text>
                               </View>
                             )}
                           </View>
@@ -280,15 +282,15 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
 
 const styles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: 'flex-end' },
-  content: { borderTopLeftRadius: 14, borderTopRightRadius: 14, padding: 20, paddingBottom: 32, minHeight: '60%', maxHeight: '92%', overflow: 'hidden' as const },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
-  actionButtons: { gap: 12, marginTop: 12 },
-  actionBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, borderRadius: 10 },
-  searchInput: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, marginBottom: 8 },
-  sub: { fontSize: 12, marginTop: 2 },
-  stat: { fontSize: 14, fontWeight: '500', marginLeft: 8 },
-  badge: { paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 },
-  empty: { textAlign: 'center', marginTop: 24, fontSize: 14 },
+  content: { borderTopLeftRadius: 14, borderTopRightRadius: 14, padding: s(20), paddingBottom: s(32), minHeight: '60%', maxHeight: '92%', overflow: 'hidden' as const },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: s(16) },
+  row: { flexDirection: 'row', alignItems: 'center', paddingVertical: s(12), borderBottomWidth: StyleSheet.hairlineWidth },
+  actionButtons: { gap: s(12), marginTop: s(12) },
+  actionBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: s(14), borderRadius: 10 },
+  searchInput: { borderWidth: 1, borderRadius: 8, paddingHorizontal: s(12), paddingVertical: s(10), fontSize: ms(14), marginBottom: s(8) },
+  sub: { fontSize: ms(12), marginTop: s(2) },
+  stat: { fontSize: ms(14), fontWeight: '500', marginLeft: s(8) },
+  badge: { paddingHorizontal: s(5), paddingVertical: 1, borderRadius: 4 },
+  empty: { textAlign: 'center', marginTop: s(24), fontSize: ms(14) },
   processingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center', borderRadius: 16 },
 });

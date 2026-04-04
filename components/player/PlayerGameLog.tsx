@@ -1,4 +1,5 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { ms, s } from "@/utils/scale";
 import { FptsBreakdownModal } from '@/components/player/FptsBreakdownModal';
 import { PlayerGameLog as PlayerGameLogType, ScoringWeight } from '@/types/player';
 import { calculateGameFantasyPoints } from '@/utils/fantasyPoints';
@@ -67,6 +68,7 @@ interface PlayerGameLogProps {
   playerName: string;
   expanded: boolean;
   onExpand: () => void;
+  isCategories?: boolean;
   colors: {
     border: string;
     secondaryText: string;
@@ -85,6 +87,7 @@ export function PlayerGameLog({
   playerName,
   expanded,
   onExpand,
+  isCategories,
   colors: c,
 }: PlayerGameLogProps) {
   const [breakdownData, setBreakdownData] = useState<{ stats: Record<string, number | boolean>; label: string } | null>(null);
@@ -282,8 +285,8 @@ export function PlayerGameLog({
         </View>
       </ScrollView>
 
-      {/* Pinned right: FPTS */}
-      {scoringWeights && (
+      {/* Pinned right: FPTS (hidden for CAT leagues) */}
+      {scoringWeights && !isCategories && (
         <View style={styles.pinnedRight}>
           <View style={[styles.gameRow, styles.gameHeader, { borderBottomColor: c.border }]}>
             <ThemedText style={[styles.gameCell, styles.gameCellFpts, styles.gameHeaderText, { color: c.accent }]}>
@@ -386,13 +389,13 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
   },
   gameHeaderText: {
-    fontSize: 10,
+    fontSize: ms(10),
     fontWeight: '600',
   },
   gameCell: {
     width: 38,
     textAlign: 'center',
-    fontSize: 13,
+    fontSize: ms(13),
     lineHeight: 18,
   },
   gameCellDate: {
@@ -425,7 +428,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   showMoreText: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: '600',
   },
 });

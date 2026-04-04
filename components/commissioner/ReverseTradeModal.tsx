@@ -1,8 +1,9 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { TradeProposalRow, useTradeProposals } from '@/hooks/useTrades';
 import { supabase } from '@/lib/supabase';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -150,7 +151,7 @@ export function ReverseTradeModal({ visible, leagueId, onClose }: Props) {
           ) : (
             <>
               {isLoading ? (
-                <ActivityIndicator style={{ marginTop: 20 }} />
+                <ActivityIndicator style={{ marginTop: s(20) }} />
               ) : completedTrades.length === 0 ? (
                 <ThemedText style={[styles.empty, { color: c.secondaryText }]}>
                   No completed trades to reverse.
@@ -190,15 +191,15 @@ export function ReverseTradeModal({ visible, leagueId, onClose }: Props) {
 
 const styles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: 'flex-end' },
-  content: { borderTopLeftRadius: 14, borderTopRightRadius: 14, padding: 20, paddingBottom: 32, minHeight: '60%', maxHeight: '92%', overflow: 'hidden' as const },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  subtitle: { fontSize: 13, marginBottom: 12 },
-  detailBox: { borderWidth: 1, borderRadius: 8, padding: 12, marginBottom: 12 },
-  itemText: { fontSize: 14, lineHeight: 22 },
-  warning: { fontSize: 12, fontStyle: 'italic', marginBottom: 16 },
-  buttons: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
-  btn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, alignItems: 'center', minWidth: 80 },
-  tradeRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
-  tradeDate: { fontSize: 12, marginTop: 2 },
-  empty: { textAlign: 'center', marginTop: 24, fontSize: 14 },
+  content: { borderTopLeftRadius: 14, borderTopRightRadius: 14, padding: s(20), paddingBottom: s(32), minHeight: '60%', maxHeight: '92%', overflow: 'hidden' as const },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: s(16) },
+  subtitle: { fontSize: ms(13), marginBottom: s(12) },
+  detailBox: { borderWidth: 1, borderRadius: 8, padding: s(12), marginBottom: s(12) },
+  itemText: { fontSize: ms(14), lineHeight: ms(22) },
+  warning: { fontSize: ms(12), fontStyle: 'italic', marginBottom: s(16) },
+  buttons: { flexDirection: 'row', justifyContent: 'flex-end', gap: s(10) },
+  btn: { paddingHorizontal: s(16), paddingVertical: s(10), borderRadius: 8, alignItems: 'center', minWidth: s(80) },
+  tradeRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: s(12), borderBottomWidth: StyleSheet.hairlineWidth },
+  tradeDate: { fontSize: ms(12), marginTop: s(2) },
+  empty: { textAlign: 'center', marginTop: s(24), fontSize: ms(14) },
 });

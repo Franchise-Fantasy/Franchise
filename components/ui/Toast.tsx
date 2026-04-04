@@ -1,5 +1,6 @@
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -75,9 +76,9 @@ const styles = StyleSheet.create({
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginHorizontal: 16,
+    paddingHorizontal: s(14),
+    paddingVertical: s(10),
+    marginHorizontal: s(16),
     borderRadius: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -87,10 +88,10 @@ const styles = StyleSheet.create({
     maxWidth: 500,
     width: '92%',
   },
-  icon: { marginRight: 8 },
+  icon: { marginRight: s(8) },
   text: {
     flex: 1,
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '600',
   },
 });

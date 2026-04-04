@@ -2,7 +2,6 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { notifyLeague } from '../_shared/push.ts';
 import { snapshotBeforeDrop } from '../_shared/snapshotBeforeDrop.ts';
-import { checkPositionLimits } from '../_shared/positionLimits.ts';
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -47,10 +46,10 @@ Deno.serve(async (req: Request) => {
     try {
       let notifBody = '';
 
-      // Fetch league waiver settings for drop/add_drop actions
+      // Fetch league waiver settings for drop actions
       let leagueWaiverType = 'none';
       let leagueWaiverDays = 0;
-      if (txn.action_type === 'drop' || txn.action_type === 'add_drop') {
+      if (txn.action_type === 'drop') {
         const { data: leagueSettings } = await supabase
           .from('leagues')
           .select('waiver_type, waiver_period_days')
@@ -117,168 +116,6 @@ Deno.serve(async (req: Request) => {
         if (!res.ok) throw new Error(result.error ?? 'Trade execution failed');
         notifBody = result.message ?? 'Delayed trade has been processed.';
 
-      } else if (txn.action_type === "add_drop" && txn.target_player_id) {
-        // Snapshot roster slot before dropping so mid-week scoring is preserved
-        await snapshotBeforeDrop(supabase, txn.league_id, txn.team_id, txn.player_id);
-
-        const { error: delError } = await supabase
-          .from("league_players").delete()
-          .eq("league_id", txn.league_id).eq("team_id", txn.team_id).eq("player_id", txn.player_id);
-        if (delError) throw delError;
-
-        // Place dropped player on waivers
-        if (leagueWaiverType !== 'none' && leagueWaiverDays > 0) {
-          const raw = new Date();
-          raw.setDate(raw.getDate() + leagueWaiverDays);
-          const until = new Date(Date.UTC(
-            raw.getUTCFullYear(), raw.getUTCMonth(), raw.getUTCDate(), 6, 0, 0, 0,
-          ));
-          if (raw.getTime() > until.getTime()) until.setUTCDate(until.getUTCDate() + 1);
-
-          await supabase.from('league_waivers').insert({
-            league_id: txn.league_id,
-            player_id: txn.player_id,
-            on_waivers_until: until.toISOString(),
-            dropped_by_team_id: txn.team_id,
-          });
-        }
-
-        const { data: players } = await supabase
-          .from("players").select("id, name, position").in("id", [txn.player_id, txn.target_player_id]);
-        const dropPlayer = players?.find((p: any) => p.id === txn.player_id);
-        const addPlayer = players?.find((p: any) => p.id === txn.target_player_id);
-
-        // Position limit check (after drop, before add)
-        if (addPlayer?.position) {
-          const { data: posLimitsData } = await supabase
-            .from('leagues').select('position_limits').eq('id', txn.league_id).single();
-          const posLimits = posLimitsData?.position_limits as Record<string, number> | null;
-          if (posLimits && Object.keys(posLimits).length > 0) {
-            const { data: rosterForLimits } = await supabase
-              .from('league_players').select('position, roster_slot')
-              .eq('league_id', txn.league_id).eq('team_id', txn.team_id);
-            const violation = checkPositionLimits(posLimits, rosterForLimits ?? [], addPlayer.position);
-            if (violation) {
-              notifBody = `Queued add for ${addPlayer.name ?? 'Unknown'} failed: would exceed the ${violation.position} position limit (${violation.max} max).`;
-              await supabase.from("pending_transactions").update({ status: "completed" }).eq("id", txn.id);
-              processed++;
-              continue;
-            }
-          }
-        }
-
-        notifBody = `Added ${addPlayer?.name ?? 'Unknown'}, dropped ${dropPlayer?.name ?? 'Unknown'} (queued).`;
-
-        const { error: addError } = await supabase.from("league_players").insert({
-          league_id: txn.league_id, player_id: txn.target_player_id, team_id: txn.team_id,
-          acquired_via: "free_agent", acquired_at: new Date().toISOString(),
-          position: addPlayer?.position ?? "Unknown",
-        });
-        if (addError) {
-          if (addError.code === '23505') {
-            notifBody = `Queued add for ${addPlayer?.name ?? 'Unknown'} skipped — player is already rostered.`;
-          } else {
-            throw addError;
-          }
-        } else {
-          // Create daily_lineups entry so slot history is consistent from day one
-          const addedToday = new Date();
-          const addedTodayStr = `${addedToday.getFullYear()}-${String(addedToday.getMonth() + 1).padStart(2, '0')}-${String(addedToday.getDate()).padStart(2, '0')}`;
-          await supabase.from("daily_lineups").upsert({
-            league_id: txn.league_id, team_id: txn.team_id, player_id: txn.target_player_id,
-            lineup_date: addedTodayStr, roster_slot: "BE",
-          }, { onConflict: "team_id,player_id,lineup_date" });
-
-          const { data: leagueTxn, error: txnError } = await supabase
-            .from("league_transactions")
-            .insert({ league_id: txn.league_id, type: "waiver", notes: `Added ${addPlayer?.name ?? "Unknown"} (dropped ${dropPlayer?.name ?? "Unknown"}) (queued)`, team_id: txn.team_id })
-            .select("id").single();
-          if (txnError) throw txnError;
-
-          await supabase.from("league_transaction_items").insert([
-            { transaction_id: leagueTxn.id, player_id: txn.target_player_id, team_to_id: txn.team_id },
-            { transaction_id: leagueTxn.id, player_id: txn.player_id, team_from_id: txn.team_id },
-          ]);
-        }
-
-      } else if (txn.action_type === "add") {
-        // Pure add queued by player lock (daily lock mode)
-        const addPlayerId = txn.target_player_id ?? txn.player_id;
-        const playerName = txn.metadata?.name ?? "Unknown";
-        const position = txn.metadata?.position ?? "Unknown";
-
-        // Check player isn't already owned (may have been claimed via waivers overnight)
-        const { count: alreadyOwned } = await supabase
-          .from("league_players")
-          .select("id", { count: "exact", head: true })
-          .eq("league_id", txn.league_id)
-          .eq("player_id", addPlayerId);
-        if ((alreadyOwned ?? 0) > 0) {
-          notifBody = `Queued add for ${playerName} skipped — player is already rostered.`;
-        } else {
-          // Position limit check before add
-          if (position !== "Unknown") {
-            const { data: posLimitsData } = await supabase
-              .from('leagues').select('position_limits').eq('id', txn.league_id).single();
-            const posLimits = posLimitsData?.position_limits as Record<string, number> | null;
-            if (posLimits && Object.keys(posLimits).length > 0) {
-              const { data: rosterForLimits } = await supabase
-                .from('league_players').select('position, roster_slot')
-                .eq('league_id', txn.league_id).eq('team_id', txn.team_id);
-              const violation = checkPositionLimits(posLimits, rosterForLimits ?? [], position);
-              if (violation) {
-                notifBody = `Queued add for ${playerName} failed: would exceed the ${violation.position} position limit (${violation.max} max).`;
-                await supabase.from("pending_transactions").update({ status: "completed" }).eq("id", txn.id);
-                processed++;
-                continue;
-              }
-            }
-          }
-          const { error: addError } = await supabase.from("league_players").insert({
-            league_id: txn.league_id,
-            player_id: addPlayerId,
-            team_id: txn.team_id,
-            acquired_via: "free_agent",
-            acquired_at: new Date().toISOString(),
-            position,
-            roster_slot: "BE",
-          });
-          if (addError) {
-            if (addError.code === '23505') {
-              notifBody = `Queued add for ${playerName} skipped — player is already rostered.`;
-            } else {
-              throw addError;
-            }
-          } else {
-            // Daily lineup entry so slot history starts from today
-            await supabase.from("daily_lineups").upsert({
-              league_id: txn.league_id,
-              team_id: txn.team_id,
-              player_id: addPlayerId,
-              lineup_date: today,
-              roster_slot: "BE",
-            }, { onConflict: "team_id,player_id,lineup_date" });
-
-            const { data: leagueTxn, error: txnError } = await supabase
-              .from("league_transactions")
-              .insert({
-                league_id: txn.league_id,
-                type: "waiver",
-                notes: `Added ${playerName} from free agency (queued)`,
-                team_id: txn.team_id,
-              })
-              .select("id").single();
-            if (txnError) throw txnError;
-
-            await supabase.from("league_transaction_items").insert({
-              transaction_id: leagueTxn.id,
-              player_id: addPlayerId,
-              team_to_id: txn.team_id,
-            });
-
-            notifBody = `${playerName} has been added (queued).`;
-          }
-        }
       }
 
       await supabase.from("pending_transactions").update({ status: "completed" }).eq("id", txn.id);
@@ -308,8 +145,46 @@ Deno.serve(async (req: Request) => {
     }
   }
 
+  // Process expired trade reviews — execute trades whose review period has passed
+  const now = new Date().toISOString();
+  const { data: expiredReviews } = await supabase
+    .from('trade_proposals')
+    .select('id')
+    .eq('status', 'in_review')
+    .lte('review_expires_at', now);
+
+  let reviewsProcessed = 0;
+  for (const review of expiredReviews ?? []) {
+    try {
+      const res = await fetch(
+        `${Deno.env.get('SUPABASE_URL')}/functions/v1/execute-trade`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+          },
+          body: JSON.stringify({ proposal_id: review.id }),
+        },
+      );
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error ?? 'Trade execution failed');
+      reviewsProcessed++;
+    } catch (err: any) {
+      errors.push(`trade-review ${review.id}: ${err.message}`);
+      console.error(`Failed to process expired trade review ${review.id}:`, err.message);
+    }
+  }
+
   return new Response(
-    JSON.stringify({ ok: true, processed, total: pending?.length ?? 0, errors }),
+    JSON.stringify({
+      ok: true,
+      processed,
+      total: pending?.length ?? 0,
+      expired_reviews: expiredReviews?.length ?? 0,
+      reviews_processed: reviewsProcessed,
+      errors,
+    }),
     { status: 200, headers: { "Content-Type": "application/json" } },
   );
 });

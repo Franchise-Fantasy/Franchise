@@ -1,7 +1,8 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeague } from '@/hooks/useLeague';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import {
   ActivityIndicator,
@@ -38,11 +39,11 @@ export function NewDMPicker({ visible, currentTeamId, onSelect, onClose }: Props
               <Ionicons name="close" size={24} color={c.text} />
             </TouchableOpacity>
             <ThemedText accessibilityRole="header" type="subtitle">New Message</ThemedText>
-            <View style={{ width: 24 }} />
+            <View style={{ width: s(24) }} />
           </View>
 
           {isLoading ? (
-            <ActivityIndicator style={{ marginTop: 20 }} />
+            <ActivityIndicator style={{ marginTop: s(20) }} />
           ) : teams.length === 0 ? (
             <ThemedText style={[styles.empty, { color: c.secondaryText }]}>
               No other teams in this league
@@ -79,8 +80,8 @@ const styles = StyleSheet.create({
   content: {
     borderTopLeftRadius: 14,
     borderTopRightRadius: 14,
-    padding: 20,
-    paddingBottom: 32,
+    padding: s(20),
+    paddingBottom: s(32),
     minHeight: '40%',
     maxHeight: '70%',
     overflow: 'hidden' as const,
@@ -89,22 +90,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: s(16),
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   teamName: {
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: '500',
     flex: 1,
   },
   empty: {
     textAlign: 'center',
-    marginTop: 24,
-    fontSize: 14,
+    marginTop: s(24),
+    fontSize: ms(14),
   },
 });

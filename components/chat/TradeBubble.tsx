@@ -1,7 +1,8 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { TradeSummary } from '@/types/chat';
+import { ms, s } from '@/utils/scale';
 import { useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated, { ZoomIn } from 'react-native-reanimated';
@@ -133,8 +134,8 @@ export function TradeBubble({ tradeSummary }: Props) {
 const styles = StyleSheet.create({
   card: {
     borderRadius: 14,
-    padding: 14,
-    gap: 8,
+    padding: s(14),
+    gap: s(8),
   },
   header: {
     flexDirection: 'row',
@@ -142,44 +143,44 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerText: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '700',
   },
   headerBlockbuster: {
-    fontSize: 15,
+    fontSize: ms(15),
     letterSpacing: 0.5,
   },
   tierBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: s(8),
+    paddingVertical: s(3),
     borderRadius: 4,
   },
   tierBadgeText: {
-    fontSize: 10,
+    fontSize: ms(10),
     fontWeight: '800',
     letterSpacing: 0.5,
   },
   teamSection: {
-    gap: 2,
+    gap: s(2),
   },
   teamLabel: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '600',
-    marginBottom: 2,
+    marginBottom: s(2),
   },
   moveRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    paddingLeft: 4,
-    gap: 6,
+    paddingLeft: s(4),
+    gap: s(6),
   },
   bullet: {
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: ms(14),
+    lineHeight: ms(20),
   },
   moveText: {
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: ms(14),
+    lineHeight: ms(20),
     flex: 1,
   },
 });

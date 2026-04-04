@@ -1,11 +1,13 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
 import { useToast } from '@/context/ToastProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { ms, s } from '@/utils/scale';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -38,7 +40,7 @@ export function ImportedLeagueSection({
 
   // Fetch team claiming status
   const { data: teamStatus } = useQuery({
-    queryKey: ['imported-team-status', leagueId],
+    queryKey: queryKeys.importedTeamStatus(leagueId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('teams')
@@ -85,8 +87,8 @@ export function ImportedLeagueSection({
         .update({ schedule_generated: true })
         .eq('id', leagueId);
 
-      queryClient.invalidateQueries({ queryKey: ['league', leagueId] });
-      queryClient.invalidateQueries({ queryKey: ['imported-team-status', leagueId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.importedTeamStatus(leagueId) });
       showToast('success', 'Schedule generated! Season is ready.');
     } catch (err: any) {
       Alert.alert('Error', err.message ?? 'Failed to generate schedule');
@@ -182,72 +184,72 @@ const styles = StyleSheet.create({
   section: {
     borderWidth: 1,
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
+    padding: s(16),
+    marginBottom: s(16),
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
+    gap: s(8),
+    marginBottom: s(12),
   },
   title: {
-    fontSize: 16,
+    fontSize: ms(16),
   },
   statusRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingVertical: s(10),
+    paddingHorizontal: s(12),
     borderRadius: 8,
     borderWidth: 1,
-    marginBottom: 12,
+    marginBottom: s(12),
   },
   statusLabel: {
-    fontSize: 14,
+    fontSize: ms(14),
   },
   statusValue: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: '700',
   },
   inviteArea: {
-    marginBottom: 12,
+    marginBottom: s(12),
   },
   inviteLabel: {
-    fontSize: 13,
-    lineHeight: 18,
-    marginBottom: 8,
+    fontSize: ms(13),
+    lineHeight: ms(18),
+    marginBottom: s(8),
   },
   codeCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 12,
+    padding: s(12),
     borderRadius: 8,
   },
   code: {
-    fontSize: 20,
+    fontSize: ms(20),
     fontWeight: '700',
     letterSpacing: 3,
     fontFamily: 'monospace',
   },
   codeActions: {
     flexDirection: 'row',
-    gap: 12,
+    gap: s(12),
   },
   generateBtn: {
-    paddingVertical: 14,
+    paddingVertical: s(14),
     borderRadius: 10,
     alignItems: 'center',
   },
   generateBtnText: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: '700',
   },
   hint: {
-    fontSize: 12,
+    fontSize: ms(12),
     textAlign: 'center',
-    marginTop: 8,
+    marginTop: s(8),
   },
 });

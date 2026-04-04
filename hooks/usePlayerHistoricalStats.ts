@@ -1,3 +1,4 @@
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import { useQuery } from '@tanstack/react-query';
 
@@ -23,7 +24,7 @@ export interface HistoricalSeasonStats {
 
 export function usePlayerHistoricalStats(playerId: string | null) {
   return useQuery<HistoricalSeasonStats[]>({
-    queryKey: ['playerHistoricalStats', playerId],
+    queryKey: queryKeys.playerHistoricalStats(playerId!),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('player_historical_stats')

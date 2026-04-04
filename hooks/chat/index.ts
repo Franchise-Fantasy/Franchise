@@ -1,6 +1,6 @@
 export { useChatSubscription } from './useChatSubscription';
 export { useConversations, useTotalUnread } from './useConversations';
-export { useMessages, useSendMessage } from './useMessages';
+export { useMessages, useUnsendMessage, useSendMessage } from './useMessages';
 export { useSendImage } from './useSendImage';
 export { useSendGif } from './useSendGif';
 export { useReactions, useToggleReaction } from './useReactions';

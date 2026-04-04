@@ -1,4 +1,4 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Colors } from '@/constants/Colors';
@@ -11,6 +11,7 @@ import {
 } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { calcLotteryPoolSize, getPlayoffTeamOptions } from '@/utils/lottery';
+import { ms, s } from '@/utils/scale';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useState } from 'react';
 import { StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
@@ -364,80 +365,80 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   heading: {
-    marginBottom: 20,
+    marginBottom: s(20),
   },
   section: {
-    marginBottom: 20,
+    marginBottom: s(20),
   },
   label: {
-    marginBottom: 8,
-    fontSize: 14,
+    marginBottom: s(8),
+    fontSize: ms(14),
     fontWeight: '500',
   },
   hint: {
-    fontSize: 13,
-    marginTop: 6,
+    fontSize: ms(13),
+    marginTop: s(6),
   },
   dateButton: {
     borderWidth: 1,
     borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    marginBottom: 4,
+    paddingVertical: s(12),
+    paddingHorizontal: s(14),
+    marginBottom: s(4),
   },
   dateButtonText: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: '500',
   },
   previewCard: {
     borderWidth: 1,
     borderRadius: 8,
-    padding: 14,
-    marginBottom: 12,
+    padding: s(14),
+    marginBottom: s(12),
   },
   previewTitle: {
-    marginBottom: 12,
+    marginBottom: s(12),
   },
   note: {
-    fontSize: 13,
-    marginBottom: 10,
+    fontSize: ms(13),
+    marginBottom: s(10),
     fontStyle: 'italic',
   },
   previewRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 4,
+    paddingVertical: s(4),
   },
   previewLabel: {
-    fontSize: 14,
+    fontSize: ms(14),
   },
   previewValue: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '600',
   },
   divider: {
     height: StyleSheet.hairlineWidth,
-    marginVertical: 8,
+    marginVertical: s(8),
   },
   divisionNames: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 10,
+    gap: s(10),
+    marginTop: s(10),
   },
   divisionInput: {
     flex: 1,
     borderWidth: 1,
     borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    fontSize: 15,
+    paddingVertical: s(10),
+    paddingHorizontal: s(12),
+    fontSize: ms(15),
   },
   warningBox: {
     borderWidth: 1,
     borderRadius: 8,
-    padding: 12,
+    padding: s(12),
   },
   warningText: {
-    fontSize: 13,
+    fontSize: ms(13),
   },
 });

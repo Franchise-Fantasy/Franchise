@@ -1,11 +1,12 @@
 import { ByTeamTab } from '@/components/draft-hub/ByTeamTab';
 import { ByYearTab } from '@/components/draft-hub/ByYearTab';
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { ms, s } from '@/utils/scale';
 import { useDraftHub } from '@/hooks/useDraftHub';
 import { useLeague } from '@/hooks/useLeague';
 import { useState } from 'react';
@@ -28,7 +29,7 @@ export default function DraftHub() {
       <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
         <PageHeader title="Draft Hub" />
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 }}>
-          <ThemedText style={{ color: c.secondaryText, textAlign: 'center', fontSize: 15 }}>
+          <ThemedText style={{ color: c.secondaryText, textAlign: 'center', fontSize: ms(15) }}>
             Draft Hub is only available for dynasty leagues.
           </ThemedText>
         </View>
@@ -77,13 +78,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 8,
-    paddingVertical: 12,
+    paddingHorizontal: s(8),
+    paddingVertical: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  backBtn: { width: 70, paddingHorizontal: 8 },
-  backText: { fontSize: 16, fontWeight: '500' },
-  title: { fontSize: 16, textAlign: 'center' },
-  tabBar: { paddingHorizontal: 16, paddingVertical: 10 },
+  backBtn: { width: s(70), paddingHorizontal: s(8) },
+  backText: { fontSize: ms(16), fontWeight: '500' },
+  title: { fontSize: ms(16), textAlign: 'center' },
+  tabBar: { paddingHorizontal: s(16), paddingVertical: s(10) },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 });

@@ -1,11 +1,13 @@
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
 import { useSession } from '@/context/AuthProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeague } from '@/hooks/useLeague';
 import { supabase } from '@/lib/supabase';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
+import { queryKeys } from '@/constants/queryKeys';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -46,7 +48,7 @@ export default function LotteryRoomScreen() {
 
   // Fetch existing lottery results (in case lottery already ran)
   const { data: existingResults } = useQuery({
-    queryKey: ['lotteryResults', leagueId, league?.season],
+    queryKey: queryKeys.lotteryResults(leagueId!, league?.season),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('lottery_results')
@@ -160,7 +162,7 @@ export default function LotteryRoomScreen() {
   };
 
   const handleDone = () => {
-    queryClient.invalidateQueries({ queryKey: ['league', leagueId] });
+    queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId!) });
     router.back();
   };
 
@@ -336,92 +338,92 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   header: {
     flexDirection: 'row',
-    padding: 8,
+    padding: s(8),
     borderBottomWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
-    height: 50,
+    height: s(50),
     justifyContent: 'space-between',
   },
   headerText: {
     flex: 1,
     textAlign: 'center',
-    fontSize: 20,
+    fontSize: ms(20),
     fontWeight: '300',
-    marginHorizontal: 40,
+    marginHorizontal: s(40),
   },
-  headerButton: { padding: 8, width: 36, alignItems: 'center' },
-  backButton: { fontSize: 24 },
+  headerButton: { padding: s(8), width: s(36), alignItems: 'center' },
+  backButton: { fontSize: ms(24) },
   body: { flex: 1 },
   preStartContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 32,
+    padding: s(32),
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: ms(14),
     textAlign: 'center',
-    marginBottom: 24,
-    lineHeight: 20,
+    marginBottom: s(24),
+    lineHeight: ms(20),
   },
   actionButton: {
-    paddingHorizontal: 32,
-    paddingVertical: 14,
+    paddingHorizontal: s(32),
+    paddingVertical: s(14),
     borderRadius: 12,
-    minWidth: 200,
+    minWidth: s(200),
     alignItems: 'center',
   },
   actionButtonText: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: '700',
   },
   revealContainer: { flex: 1 },
   slotList: {
     flex: 1,
-    padding: 16,
-    gap: 8,
+    padding: s(16),
+    gap: s(8),
   },
   slot: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
+    padding: s(12),
     borderRadius: 10,
     borderWidth: 1,
-    minHeight: 52,
+    minHeight: s(52),
   },
   pickNumberBadge: {
-    width: 40,
-    height: 32,
+    width: s(40),
+    height: s(32),
     borderRadius: 6,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: s(12),
   },
   pickNumber: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: '800',
   },
   revealedContent: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: s(8),
   },
   teamName: {
-    fontSize: 15,
+    fontSize: ms(15),
     flexShrink: 1,
   },
   drawnBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingHorizontal: s(6),
+    paddingVertical: s(2),
     borderRadius: 4,
   },
   drawnText: {
-    fontSize: 9,
+    fontSize: ms(9),
     fontWeight: '700',
   },
   standing: {
-    fontSize: 11,
+    fontSize: ms(11),
     marginLeft: 'auto',
   },
   hiddenContent: {
@@ -430,7 +432,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   bottomBar: {
-    padding: 16,
+    padding: s(16),
     alignItems: 'center',
   },
 });

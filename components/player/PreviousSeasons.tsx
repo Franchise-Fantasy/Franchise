@@ -1,4 +1,5 @@
-import { ThemedText } from "@/components/ThemedText";
+import { ThemedText } from "@/components/ui/ThemedText";
+import { ms, s } from "@/utils/scale";
 import { StyleSheet, View } from "react-native";
 
 interface HistoricalStat {
@@ -25,9 +26,6 @@ export function PreviousSeasons({
 }: PreviousSeasonsProps) {
   return (
     <View style={styles.section}>
-      <ThemedText type="subtitle" style={styles.sectionTitle}>
-        Previous Seasons
-      </ThemedText>
       <View
         style={[styles.table, { borderColor: c.border }]}
         accessibilityRole="table"
@@ -83,11 +81,8 @@ export function PreviousSeasons({
 
 const styles = StyleSheet.create({
   section: {
-    paddingHorizontal: 16,
-    marginBottom: 8,
-  },
-  sectionTitle: {
-    marginBottom: 8,
+    paddingHorizontal: s(16),
+    marginBottom: s(8),
   },
   table: {
     borderWidth: StyleSheet.hairlineWidth,
@@ -97,17 +92,17 @@ const styles = StyleSheet.create({
   headerRow: {
     flexDirection: "row",
     borderBottomWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 6,
-    paddingHorizontal: 8,
+    paddingVertical: s(6),
+    paddingHorizontal: s(8),
   },
   row: {
     flexDirection: "row",
     borderBottomWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 5,
-    paddingHorizontal: 8,
+    paddingVertical: s(5),
+    paddingHorizontal: s(8),
   },
   cell: {
-    fontSize: 11,
+    fontSize: ms(11),
   },
   cellSeason: {
     flex: 2,

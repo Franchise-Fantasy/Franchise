@@ -4,7 +4,7 @@ import { CreateSurveyModal } from '@/components/chat/CreateSurveyModal';
 import { GifPicker } from '@/components/chat/GifPicker';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { ReactionPicker } from '@/components/chat/ReactionPicker';
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { useAppState } from '@/context/AppStateProvider';
@@ -20,8 +20,10 @@ import {
   useSendMessage,
   useTogglePin,
   useToggleReaction,
+  useUnsendMessage,
 } from '@/hooks/chat';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { PresenceAvatars } from '@/components/chat/PresenceAvatars';
@@ -36,7 +38,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState, type RefObjec
 import {
   ActivityIndicator,
   FlatList,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -44,7 +45,9 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ms, s } from '@/utils/scale';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   type SharedValue,
@@ -218,7 +221,7 @@ export default function ConversationScreen() {
 
   // Fetch conversation metadata to show the right title
   const { data: convMeta, isError: isConvError } = useQuery({
-    queryKey: ['conversationMeta', conversationId],
+    queryKey: queryKeys.conversationMeta(conversationId!),
     queryFn: async () => {
       const { data: conv, error: convErr } = await supabase
         .from('chat_conversations')
@@ -247,7 +250,7 @@ export default function ConversationScreen() {
   });
 
   const { data: myTeamInfo } = useQuery({
-    queryKey: ['myTeamInfo', teamId],
+    queryKey: queryKeys.myTeamInfo(teamId!),
     queryFn: async () => {
       const { data } = await supabase
         .from('teams')
@@ -263,7 +266,7 @@ export default function ConversationScreen() {
   const myTricode = myTeamInfo?.tricode ?? null;
 
   const { data: isCommissioner } = useQuery({
-    queryKey: ['isCommissioner', leagueId],
+    queryKey: queryKeys.isCommissioner(leagueId!),
     queryFn: async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) return false;
@@ -280,7 +283,7 @@ export default function ConversationScreen() {
 
   // Map team_id → logo_key for chat avatars
   const { data: teamLogoMap } = useQuery<Record<string, string | null>>({
-    queryKey: ['teamLogos', leagueId],
+    queryKey: queryKeys.teamLogos(leagueId!),
     queryFn: async () => {
       const { data } = await supabase
         .from('teams')
@@ -305,7 +308,7 @@ export default function ConversationScreen() {
   useFocusEffect(
     useCallback(() => {
       if (conversationId) {
-        queryClient.invalidateQueries({ queryKey: ['messages', conversationId] });
+        queryClient.invalidateQueries({ queryKey: queryKeys.messages(conversationId!) });
       }
     }, [conversationId, queryClient]),
   );
@@ -390,6 +393,7 @@ export default function ConversationScreen() {
   );
 
   const toggleReaction = useToggleReaction(conversationId!);
+  const unsendMessage = useUnsendMessage(conversationId!, leagueId!);
   const togglePin = useTogglePin(conversationId ?? null);
   const { data: pinnedMessages } = usePinnedMessages(conversationId ?? null);
   const pinnedIds = useMemo(() => new Set(pinnedMessages?.map((m) => m.id) ?? []), [pinnedMessages]);
@@ -482,6 +486,12 @@ export default function ConversationScreen() {
     setReactionTargetId(null);
   }, [reactionTargetId, teamId, togglePin, pinnedIds]);
 
+  const handleUnsend = useCallback(() => {
+    if (!reactionTargetId) return;
+    unsendMessage.mutate(reactionTargetId);
+    setReactionTargetId(null);
+  }, [reactionTargetId, unsendMessage]);
+
   const handleItemReactionPress = useCallback(
     (messageId: string, emoji: string) => {
       if (!teamId) return;
@@ -551,7 +561,7 @@ export default function ConversationScreen() {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
         <PageHeader title="Chat" />
-        <ThemedText style={{ textAlign: 'center', marginTop: 40, fontSize: 15, color: c.secondaryText }}>
+        <ThemedText style={{ textAlign: 'center', marginTop: 40, fontSize: ms(15), color: c.secondaryText }}>
           Conversation not found
         </ThemedText>
       </SafeAreaView>
@@ -623,6 +633,8 @@ export default function ConversationScreen() {
                 renderItem={renderItem}
                 inverted
                 contentContainerStyle={styles.list}
+                keyboardDismissMode="interactive"
+                keyboardShouldPersistTaps="handled"
                 onEndReached={onEndReached}
                 onScrollToIndexFailed={handleScrollToIndexFailed}
                 onEndReachedThreshold={0.5}
@@ -661,24 +673,39 @@ export default function ConversationScreen() {
           onClose={() => setReactionTargetId(null)}
           existingReactions={reactionsMap?.[reactionTargetId]}
           extraActions={
-            isCommissioner && isLeagueChat ? (
-              <TouchableOpacity
-                style={[styles.pinAction, { backgroundColor: c.card, borderColor: c.border }]}
-                onPress={handleTogglePin}
-                accessibilityRole="button"
-                accessibilityLabel={pinnedIds.has(reactionTargetId) ? 'Unpin message' : 'Pin message'}
-              >
-                <Ionicons
-                  name={pinnedIds.has(reactionTargetId) ? 'pin-outline' : 'pin'}
-                  size={18}
-                  color={pinnedIds.has(reactionTargetId) ? c.secondaryText : c.accent}
-                  accessible={false}
-                />
-                <ThemedText style={{ fontSize: 15, fontWeight: '600', color: pinnedIds.has(reactionTargetId) ? c.secondaryText : c.accent }}>
-                  {pinnedIds.has(reactionTargetId) ? 'Unpin' : 'Pin'}
-                </ThemedText>
-              </TouchableOpacity>
-            ) : undefined
+            <>
+              {isCommissioner && isLeagueChat && (
+                <TouchableOpacity
+                  style={[styles.pinAction, { backgroundColor: c.card, borderColor: c.border }]}
+                  onPress={handleTogglePin}
+                  accessibilityRole="button"
+                  accessibilityLabel={pinnedIds.has(reactionTargetId) ? 'Unpin message' : 'Pin message'}
+                >
+                  <Ionicons
+                    name={pinnedIds.has(reactionTargetId) ? 'pin-outline' : 'pin'}
+                    size={18}
+                    color={pinnedIds.has(reactionTargetId) ? c.secondaryText : c.accent}
+                    accessible={false}
+                  />
+                  <ThemedText style={{ fontSize: ms(15), fontWeight: '600', color: pinnedIds.has(reactionTargetId) ? c.secondaryText : c.accent }}>
+                    {pinnedIds.has(reactionTargetId) ? 'Unpin' : 'Pin'}
+                  </ThemedText>
+                </TouchableOpacity>
+              )}
+              {messages.find((m) => m.id === reactionTargetId)?.team_id === teamId && (
+                <TouchableOpacity
+                  style={[styles.pinAction, { backgroundColor: c.card, borderColor: c.border }]}
+                  onPress={handleUnsend}
+                  accessibilityRole="button"
+                  accessibilityLabel="Unsend message"
+                >
+                  <Ionicons name="trash-outline" size={18} color={c.danger} accessible={false} />
+                  <ThemedText style={{ fontSize: ms(15), fontWeight: '600', color: c.danger }}>
+                    Unsend
+                  </ThemedText>
+                </TouchableOpacity>
+              )}
+            </>
           }
         />
       )}
@@ -872,23 +899,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   list: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: s(12),
+    paddingVertical: s(8),
   },
   footerLoader: {
-    paddingVertical: 16,
+    paddingVertical: s(16),
   },
   dateHeader: {
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: s(12),
   },
   dateHeaderText: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '500',
   },
   onlineDot: {
-    width: 8,
-    height: 8,
+    width: s(8),
+    height: s(8),
     borderRadius: 4,
   },
   presenceOverlay: {
@@ -898,29 +925,29 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
   presenceModal: {
-    width: 300,
+    width: s(300),
     maxHeight: '70%',
     borderRadius: 12,
-    padding: 16,
+    padding: s(16),
     borderWidth: 1,
   },
   presenceRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 8,
+    gap: s(8),
+    paddingVertical: s(8),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   pinnedBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    gap: s(8),
+    paddingHorizontal: s(14),
+    paddingVertical: s(10),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   pinnedLabel: {
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: '600',
   },
   pinnedSheetBackdrop: {
@@ -931,53 +958,53 @@ const styles = StyleSheet.create({
   pinnedSheet: {
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
-    paddingTop: 12,
-    paddingBottom: 40,
-    paddingHorizontal: 16,
+    paddingTop: s(12),
+    paddingBottom: s(40),
+    paddingHorizontal: s(16),
     maxHeight: '60%',
   },
   pinnedSheetHandle: {
-    width: 40,
-    height: 4,
+    width: s(40),
+    height: s(4),
     borderRadius: 2,
     alignSelf: 'center',
-    marginBottom: 12,
+    marginBottom: s(12),
   },
   pinnedSheetTitle: {
-    fontSize: 17,
+    fontSize: ms(17),
     textAlign: 'center',
-    marginBottom: 12,
+    marginBottom: s(12),
   },
   pinnedItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
-    gap: 12,
+    gap: s(12),
   },
   pinnedItemContent: {
     flex: 1,
-    gap: 2,
+    gap: s(2),
   },
   pinnedItemLabel: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: '700',
   },
   pinnedItemText: {
-    fontSize: 14,
+    fontSize: ms(14),
   },
   pinnedItemDate: {
-    fontSize: 11,
+    fontSize: ms(11),
   },
   pinAction: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    gap: s(8),
+    paddingHorizontal: s(16),
+    paddingVertical: s(12),
     borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
-    marginTop: 8,
+    marginTop: s(8),
     elevation: 6,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },

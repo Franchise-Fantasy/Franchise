@@ -1,11 +1,14 @@
-import { ThemedText } from "@/components/ThemedText";
-import { ThemedView } from "@/components/ThemedView";
+import { ThemedText } from "@/components/ui/ThemedText";
+import { ms, s } from "@/utils/scale";
+import { ThemedView } from "@/components/ui/ThemedView";
 import { TeamLogo } from "@/components/team/TeamLogo";
 import { TeamLogoPickerModal } from "@/components/team/TeamLogoPickerModal";
+import { UpgradeModal } from "@/components/UpgradeModal";
 import { Colors } from "@/constants/Colors";
 import { useAppState } from "@/context/AppStateProvider";
 import { useSession } from "@/context/AuthProvider";
 import { useColorScheme } from "@/hooks/useColorScheme";
+import { containsBlockedContent } from "@/utils/moderation";
 import { useLeague } from "@/hooks/useLeague";
 import {
   getPushPrefs,
@@ -43,13 +46,14 @@ export default function ProfileScreen() {
   const [loading, setLoading] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [showLogoPicker, setShowLogoPicker] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   const userId = session?.user?.id;
   const myTeam = (league?.league_teams ?? []).find((t: any) => t.id === teamId);
   const myLogoKey = myTeam?.logo_key ?? null;
   const myTeamName = myTeam?.name ?? "";
   const myTricode = myTeam?.tricode ?? "";
-  const { tier, individualTier, leagueTier } = useSubscription();
+  const { tier, individualTier, individualPeriod, leagueTier, leaguePeriod } = useSubscription();
 
   function handleEditTeamName() {
     if (!teamId) return;
@@ -61,6 +65,7 @@ export default function ProfileScreen() {
           const name = (value ?? '').trim();
           if (!name) return;
           if (name.length > 30) { Alert.alert('Too long', 'Team name must be 30 characters or fewer.'); return; }
+          if (containsBlockedContent(name)) { Alert.alert('Invalid name', 'That team name contains language that isn\u2019t allowed.'); return; }
           const { error } = await supabase.from('teams').update({ name }).eq('id', teamId);
           if (error) { Alert.alert('Error', error.message); return; }
           queryClient.invalidateQueries({ queryKey: ['league'] });
@@ -253,6 +258,12 @@ export default function ProfileScreen() {
               value={league.private ? "Private" : "Public"}
               c={c}
             />
+            <SettingRow
+              icon="diamond-outline"
+              label="League Plan"
+              value={leagueTier ? `${TIER_LABELS[leagueTier]}${leaguePeriod ? ` (${leaguePeriod})` : ''}` : 'Free'}
+              c={c}
+            />
             {myTeam && (
               <>
                 <TouchableOpacity
@@ -309,41 +320,37 @@ export default function ProfileScreen() {
           <SettingRow
             icon="diamond-outline"
             label="Current Plan"
-            value={TIER_LABELS[tier]}
+            value={`${TIER_LABELS[tier]}${tier !== 'free' && individualPeriod ? ` (${individualPeriod})` : ''}`}
             c={c}
           />
-          {individualTier && (
-            <SettingRow
-              icon="person-outline"
-              label="Individual"
-              value={TIER_LABELS[individualTier]}
-              c={c}
-            />
-          )}
           {leagueTier && (
             <SettingRow
               icon="people-outline"
               label="League Plan"
-              value={TIER_LABELS[leagueTier]}
+              value={`${TIER_LABELS[leagueTier]}${leaguePeriod ? ` (${leaguePeriod})` : ''}`}
               c={c}
             />
           )}
-          {tier === 'free' && (
-            <View
-              style={[styles.actionRow, { borderBottomWidth: 0, opacity: 0.45 }]}
-              accessibilityLabel="Upgrade Plan, coming soon"
-            >
-              <View style={styles.actionLeft}>
-                <Ionicons name="arrow-up-circle-outline" size={20} color={c.secondaryText} accessible={false} />
-                <ThemedText style={[styles.actionLabel, { color: c.secondaryText }]}>
-                  Upgrade Plan
-                </ThemedText>
-              </View>
-              <ThemedText style={{ fontSize: 12, color: c.secondaryText }}>
-                Coming Soon
+          <TouchableOpacity
+            style={[styles.actionRow, { borderBottomWidth: 0 }]}
+            onPress={() => setShowUpgradeModal(true)}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel={tier === 'free' ? 'Upgrade Plan' : 'Manage Plan'}
+          >
+            <View style={styles.actionLeft}>
+              <Ionicons
+                name={tier === 'free' ? "arrow-up-circle-outline" : "settings-outline"}
+                size={20}
+                color={tier === 'free' ? TIER_COLORS.pro : c.secondaryText}
+                accessible={false}
+              />
+              <ThemedText style={styles.actionLabel}>
+                {tier === 'free' ? 'Upgrade Plan' : 'Manage Plan'}
               </ThemedText>
             </View>
-          )}
+            <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
+          </TouchableOpacity>
         </View>
 
         {/* Notifications */}
@@ -527,6 +534,11 @@ export default function ProfileScreen() {
           }}
         />
       )}
+
+      <UpgradeModal
+        visible={showUpgradeModal}
+        onClose={() => setShowUpgradeModal(false)}
+      />
     </ThemedView>
   );
 }
@@ -583,7 +595,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   avatarText: {
-    fontSize: 28,
+    fontSize: ms(28),
     fontWeight: "700",
   },
   avatarEditBadge: {
@@ -608,7 +620,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   badgeText: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: "600",
   },
   section: {
@@ -630,7 +642,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   settingLabel: {
-    fontSize: 15,
+    fontSize: ms(15),
   },
   actionRow: {
     flexDirection: "row",
@@ -646,11 +658,11 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   actionLabel: {
-    fontSize: 16,
+    fontSize: ms(16),
   },
   versionText: {
     textAlign: "center",
-    fontSize: 13,
+    fontSize: ms(13),
     marginTop: 8,
   },
 });

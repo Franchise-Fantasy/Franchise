@@ -1,3 +1,4 @@
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
@@ -30,10 +31,10 @@ export function useLatestAnnouncement(leagueId: string | null) {
           // Update latestAnnouncement directly from payload (avoids an extra fetch)
           const row = payload.new as Announcement;
           if (row) {
-            queryClient.setQueryData(['latestAnnouncement', leagueId], row);
+            queryClient.setQueryData(queryKeys.latestAnnouncement(leagueId!), row);
           }
           // The full list needs a refetch for the team name join
-          queryClient.invalidateQueries({ queryKey: ['announcements', leagueId] });
+          queryClient.invalidateQueries({ queryKey: queryKeys.announcements(leagueId!) });
         },
       )
       .subscribe();
@@ -43,7 +44,7 @@ export function useLatestAnnouncement(leagueId: string | null) {
   }, [leagueId, queryClient]);
 
   return useQuery<Announcement | null>({
-    queryKey: ['latestAnnouncement', leagueId],
+    queryKey: queryKeys.latestAnnouncement(leagueId!),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('commissioner_announcements')
@@ -62,7 +63,7 @@ export function useLatestAnnouncement(leagueId: string | null) {
 
 export function useAnnouncements(leagueId: string | null) {
   return useQuery<Announcement[]>({
-    queryKey: ['announcements', leagueId],
+    queryKey: queryKeys.announcements(leagueId!),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('commissioner_announcements')

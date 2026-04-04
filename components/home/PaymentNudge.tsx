@@ -1,9 +1,10 @@
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { ThemedView } from '@/components/ui/ThemedView';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { PaymentStatus, usePaymentLedger, useSelfReportPayment } from '@/hooks/usePaymentLedger';
 import { openPaymentConfirmed } from '@/utils/paymentLinks';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
@@ -94,7 +95,7 @@ export function PaymentNudge({
       <View style={[styles.card, { backgroundColor: c.cardAlt }]}>
         <View style={styles.info}>
           <Ionicons name="cash-outline" size={20} color={c.warning} accessible={false} />
-          <View style={{ flex: 1, marginLeft: 10 }}>
+          <View style={{ flex: 1, marginLeft: s(10) }}>
             <ThemedText style={styles.title}>
               Buy-In: <Text style={{ fontWeight: '700', color: c.warning }}>${buyInAmount}</Text>
             </ThemedText>
@@ -139,19 +140,19 @@ export function PaymentNudge({
 }
 
 const styles = StyleSheet.create({
-  section: { marginBottom: 16 },
-  card: { borderRadius: 10, padding: 14 },
+  section: { marginBottom: s(16) },
+  card: { borderRadius: 10, padding: s(14) },
   info: { flexDirection: 'row', alignItems: 'center' },
-  title: { fontSize: 15, fontWeight: '600' },
-  subtitle: { fontSize: 13, marginTop: 2 },
-  buttons: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  title: { fontSize: ms(15), fontWeight: '600' },
+  subtitle: { fontSize: ms(13), marginTop: s(2) },
+  buttons: { flexDirection: 'row', gap: s(8), marginTop: s(12) },
   btn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    gap: s(5),
+    paddingHorizontal: s(14),
+    paddingVertical: s(8),
     borderRadius: 8,
   },
-  btnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  btnText: { color: '#fff', fontSize: ms(14), fontWeight: '600' },
 });

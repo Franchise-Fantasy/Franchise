@@ -1,7 +1,8 @@
 import { CompletionTracker } from '@/components/survey/CompletionTracker';
+import { ms, s } from "@/utils/scale";
 import { QuestionInput } from '@/components/survey/QuestionInput';
 import { QuestionResult } from '@/components/survey/QuestionResult';
-import { ThemedText } from '@/components/ThemedText';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Colors } from '@/constants/Colors';
@@ -415,8 +416,8 @@ function ResultsView({
 const styles = StyleSheet.create({
   root: { flex: 1 },
   loader: { marginTop: 40 },
-  errorText: { textAlign: 'center', marginTop: 40, fontSize: 15 },
-  progressText: { fontSize: 13, fontWeight: '600' },
+  errorText: { textAlign: 'center', marginTop: 40, fontSize: ms(15) },
+  progressText: { fontSize: ms(13), fontWeight: '600' },
   // Progress bar
   progressBarBg: { height: 3 },
   progressBarFill: { height: '100%' },
@@ -424,8 +425,8 @@ const styles = StyleSheet.create({
   questionScroll: { flex: 1 },
   questionContent: { padding: 20, paddingBottom: 40 },
   questionHeaderRow: { marginBottom: 8 },
-  questionLabel: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase' },
-  questionPrompt: { fontSize: 18, fontWeight: '600', lineHeight: 26, marginBottom: 20 },
+  questionLabel: { fontSize: ms(12), fontWeight: '700', textTransform: 'uppercase' },
+  questionPrompt: { fontSize: ms(18), fontWeight: '600', lineHeight: 26, marginBottom: 20 },
   inputContainer: { marginBottom: 20 },
   // Nav bar
   navBar: {
@@ -441,7 +442,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
   },
-  navBtnText: { fontSize: 15, fontWeight: '600' },
+  navBtnText: { fontSize: ms(15), fontWeight: '600' },
   dots: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -462,5 +463,5 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 40,
   },
-  lockedText: { fontSize: 15, textAlign: 'center', lineHeight: 22 },
+  lockedText: { fontSize: ms(15), textAlign: 'center', lineHeight: 22 },
 });
