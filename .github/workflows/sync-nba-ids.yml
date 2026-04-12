@@ -24,4 +24,5 @@ jobs:
       - name: Backfill external_id_nba
         env:
           SB_SECRET_KEY: ${{ secrets.SB_SECRET_KEY }}
+          PYTHONUNBUFFERED: "1"
         run: python backend/sync_nba_ids.py

@@ -23,4 +23,5 @@ jobs:
       - name: Sync players from NBA API
         env:
           SB_SECRET_KEY: ${{ secrets.SB_SECRET_KEY }}
+          PYTHONUNBUFFERED: "1"
         run: python backend/sync_players.py
