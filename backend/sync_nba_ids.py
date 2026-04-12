@@ -36,7 +36,7 @@ NBAStatsHTTP.nba_response = None
 CURRENT_SEASON = '2025-26'
 
 SUPABASE_URL = os.environ.get('SUPABASE_URL', 'https://iuqbossmnsezzgocpcbo.supabase.co')
-SUPABASE_KEY = os.environ['SUPABASE_SERVICE_ROLE_KEY']
+SUPABASE_KEY = os.environ['SB_SECRET_KEY']
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 

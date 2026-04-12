@@ -6,7 +6,7 @@ import { checkPositionLimits } from '../_shared/positionLimits.ts';
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  Deno.env.get("SB_SECRET_KEY")!,
 );
 
 // Shared player name cache to avoid repeated lookups

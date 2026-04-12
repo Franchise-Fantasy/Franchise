@@ -67,12 +67,12 @@ Deno.serve(async (req) => {
   try {
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      Deno.env.get('SB_SECRET_KEY') ?? ''
     );
 
     // Detect server-to-server calls (cron / process-pending-transactions)
     const authHeader = req.headers.get('Authorization');
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    const serviceRoleKey = Deno.env.get('SB_SECRET_KEY') ?? '';
     const isServerCall = authHeader === `Bearer ${serviceRoleKey}`;
 
     let user: { id: string } | null = null;
@@ -80,7 +80,7 @@ Deno.serve(async (req) => {
       const token = authHeader?.startsWith('Bearer ') ? authHeader : `Bearer ${authHeader}`;
       const userClient = createClient(
         Deno.env.get('SUPABASE_URL') ?? '',
-        Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+        Deno.env.get('SB_PUBLISHABLE_KEY') ?? '',
         { global: { headers: { Authorization: token ?? '' } } }
       );
       const { data } = await userClient.auth.getUser();

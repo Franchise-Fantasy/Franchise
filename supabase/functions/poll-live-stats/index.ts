@@ -5,7 +5,7 @@ import { pushActivityUpdate } from "../_shared/apns.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  Deno.env.get("SB_SECRET_KEY")!,
 );
 
 function computeDoubles(

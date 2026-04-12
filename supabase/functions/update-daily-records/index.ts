@@ -4,7 +4,7 @@ import { resolveSlot, isActiveSlot } from '../_shared/resolveSlot.ts';
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  Deno.env.get("SB_SECRET_KEY")!,
 );
 
 const STAT_TO_GAME: Record<string, string> = {

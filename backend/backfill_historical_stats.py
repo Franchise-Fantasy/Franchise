@@ -19,9 +19,9 @@ from supabase import create_client
 supabase_url = os.environ.get(
     "SUPABASE_URL", "https://iuqbossmnsezzgocpcbo.supabase.co"
 )
-supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+supabase_key = os.environ.get("SB_SECRET_KEY", "")
 if not supabase_key:
-    raise ValueError("Set SUPABASE_SERVICE_ROLE_KEY env var")
+    raise ValueError("Set SB_SECRET_KEY env var")
 
 supabase = create_client(supabase_url, supabase_key)
 

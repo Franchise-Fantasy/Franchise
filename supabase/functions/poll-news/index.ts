@@ -6,7 +6,7 @@ import { getTokensForUsers, sendPush } from '../_shared/push.ts';
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  Deno.env.get("SB_SECRET_KEY")!,
 );
 
 const jsonHeaders = { ...CORS_HEADERS, 'Content-Type': 'application/json' };

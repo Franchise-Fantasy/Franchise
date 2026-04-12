@@ -7,10 +7,10 @@ from supabase import create_client
 
 # Initialize Supabase client from environment variables
 supabase_url = os.environ.get('SUPABASE_URL', '')
-supabase_key = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
+supabase_key = os.environ.get('SB_SECRET_KEY', '')
 
 if not supabase_url or not supabase_key:
-    raise ValueError("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY environment variables")
+    raise ValueError("Missing SUPABASE_URL or SB_SECRET_KEY environment variables")
 
 supabase = create_client(supabase_url, supabase_key)
 

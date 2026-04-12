@@ -9,7 +9,7 @@ const isClient = typeof window !== "undefined" || Platform.OS !== "web";
 
 export const supabase = createClient<Database>(
   process.env.EXPO_PUBLIC_SUPABASE_URL || "",
-  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || "",
+  process.env.EXPO_PUBLIC_SB_PUBLISHABLE_KEY || "",
   {
     auth: {
       // Only assign AsyncStorage if we are on the client

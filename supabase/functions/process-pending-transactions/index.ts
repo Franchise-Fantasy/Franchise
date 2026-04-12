@@ -5,7 +5,7 @@ import { snapshotBeforeDrop } from '../_shared/snapshotBeforeDrop.ts';
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  Deno.env.get("SB_SECRET_KEY")!,
 );
 
 function toDateStr(d: Date): string {
@@ -107,7 +107,7 @@ Deno.serve(async (req: Request) => {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+              'Authorization': `Bearer ${Deno.env.get('SB_SECRET_KEY')}`,
             },
             body: JSON.stringify({ proposal_id: txn.metadata.proposal_id }),
           },
@@ -162,7 +162,7 @@ Deno.serve(async (req: Request) => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+            'Authorization': `Bearer ${Deno.env.get('SB_SECRET_KEY')}`,
           },
           body: JSON.stringify({ proposal_id: review.id }),
         },

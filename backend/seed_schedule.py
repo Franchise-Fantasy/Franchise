@@ -7,13 +7,14 @@ Usage:
     python seed_schedule.py 2024-25      # seeds a specific season
 """
 
+import os
 import sys
 import time
 from nba_api.stats.endpoints import scheduleleaguev2
 from supabase import create_client
 
 SUPABASE_URL = 'https://iuqbossmnsezzgocpcbo.supabase.co'
-SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml1cWJvc3NtbnNlenpnb2NwY2JvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTI4Nzk5MiwiZXhwIjoyMDg2ODYzOTkyfQ.bqe3N6Q-Mj2BZRAVtUl1lCgzdgTnNu081BMouSJTGig'
+SUPABASE_KEY = os.environ['SB_SECRET_KEY']
 
 NBA_SEASON = sys.argv[1] if len(sys.argv) > 1 else '2025-26'
 

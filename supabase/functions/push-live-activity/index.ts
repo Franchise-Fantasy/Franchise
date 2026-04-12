@@ -4,7 +4,7 @@ import { pushActivityUpdate, type ActivityType } from "../_shared/apns.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  Deno.env.get("SB_SECRET_KEY")!,
 );
 
 /**
@@ -25,7 +25,7 @@ Deno.serve(async (req: Request) => {
   // Only callable from other edge functions (service role) or cron
   const cronSecret = Deno.env.get("CRON_SECRET");
   const authHeader = req.headers.get("Authorization");
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const serviceKey = Deno.env.get("SB_SECRET_KEY");
 
   const isCron = cronSecret && authHeader === `Bearer ${cronSecret}`;
   const isService = serviceKey && authHeader === `Bearer ${serviceKey}`;

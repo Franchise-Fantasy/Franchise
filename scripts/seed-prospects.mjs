@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 const CMA_TOKEN = process.env.CONTFENFUL_MANAGEMENT_TOKEN;
 const SPACE_ID = process.env.EXPO_PUBLIC_CONTENTFUL_SPACE_ID;
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
-const SUPABASE_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+const SUPABASE_KEY = process.env.EXPO_PUBLIC_SB_PUBLISHABLE_KEY;
 
 if (!CMA_TOKEN || !SPACE_ID || !SUPABASE_URL || !SUPABASE_KEY) {
   console.error('Missing env vars. Run with: node --env-file=.env.local scripts/seed-prospects.mjs');

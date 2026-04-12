@@ -5,13 +5,14 @@ Usage:
     python seed_birthdates_fix.py
 """
 
+import os
 import unicodedata
 import time
 import requests
 from supabase import create_client
 
 SUPABASE_URL = 'https://iuqbossmnsezzgocpcbo.supabase.co'
-SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml1cWJvc3NtbnNlenpnb2NwY2JvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTI4Nzk5MiwiZXhwIjoyMDg2ODYzOTkyfQ.bqe3N6Q-Mj2BZRAVtUl1lCgzdgTnNu081BMouSJTGig'
+SUPABASE_KEY = os.environ['SB_SECRET_KEY']
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 

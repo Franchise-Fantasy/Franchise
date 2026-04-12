@@ -1,5 +1,6 @@
 node_modules
 .env.local
+.env*.local
 expo-env.d.ts
 venv
 .vscode
@@ -10,3 +11,15 @@ dist/
 backend/.aging_curve_cache.json
 landing/.next/
 landing/node_modules/
+
+# Signing / secrets — never commit
+credentials/
+credentials.json
+*.p8
+*.p12
+*.pem
+*.key
+*.keystore
+*.jks
+*.mobileprovision
+AuthKey_*

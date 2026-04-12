@@ -21,4 +21,6 @@ jobs:
         run: pip install nba_api supabase pandas
 
       - name: Sync players from NBA API
+        env:
+          SB_SECRET_KEY: ${{ secrets.SB_SECRET_KEY }}
         run: python backend/sync_players.py

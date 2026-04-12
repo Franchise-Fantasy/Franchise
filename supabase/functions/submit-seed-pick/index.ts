@@ -17,14 +17,14 @@ Deno.serve(async (req: Request) => {
   try {
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+      Deno.env.get('SB_SECRET_KEY')!
     );
 
     const authHeader = req.headers.get('Authorization');
     const token = authHeader?.replace('Bearer ', '');
     const userClient = createClient(
       Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_ANON_KEY')!,
+      Deno.env.get('SB_PUBLISHABLE_KEY')!,
       { global: { headers: { Authorization: `Bearer ${token}` } } }
     );
     const { data: { user } } = await userClient.auth.getUser();
@@ -89,7 +89,7 @@ Deno.serve(async (req: Request) => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+          Authorization: `Bearer ${Deno.env.get('SB_SECRET_KEY')}`,
         },
         body: JSON.stringify({ league_id, round, from_seed_picks: true }),
       });

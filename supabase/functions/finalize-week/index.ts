@@ -4,7 +4,7 @@ import { notifyTeams, notifyLeague } from '../_shared/push.ts';
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  Deno.env.get("SB_SECRET_KEY")!,
 );
 
 const STAT_TO_GAME: Record<string, string> = {
@@ -977,7 +977,7 @@ Deno.serve(async (req: Request) => {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+              Authorization: `Bearer ${Deno.env.get('SB_SECRET_KEY')}`,
             },
             body: JSON.stringify({ league_id: lid, round: 1 }),
           });
@@ -1042,7 +1042,7 @@ Deno.serve(async (req: Request) => {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
-                Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+                Authorization: `Bearer ${Deno.env.get('SB_SECRET_KEY')}`,
               },
               body: JSON.stringify({ league_id: lid, round: maxRound + 1 }),
             });

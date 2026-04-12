@@ -119,7 +119,7 @@ Deno.serve(async (req: Request) => {
   try {
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+      Deno.env.get('SB_SECRET_KEY')!
     );
 
     const { league_id, round: requestedRound, from_seed_picks } = await req.json();
@@ -128,13 +128,13 @@ Deno.serve(async (req: Request) => {
     // Allow internal service-role calls (from finalize-week, submit-seed-pick, self-recursive)
     // but require JWT + commissioner check for external calls
     const authHeader = req.headers.get('Authorization');
-    const isServiceRole = authHeader === `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`;
+    const isServiceRole = authHeader === `Bearer ${Deno.env.get('SB_SECRET_KEY')}`;
 
     if (!isServiceRole) {
       if (!authHeader) return json({ error: 'Missing authorization' }, 401);
       const userClient = createClient(
         Deno.env.get('SUPABASE_URL')!,
-        Deno.env.get('SUPABASE_ANON_KEY')!,
+        Deno.env.get('SB_PUBLISHABLE_KEY')!,
         { global: { headers: { Authorization: authHeader.startsWith('Bearer ') ? authHeader : `Bearer ${authHeader}` } } }
       );
       const { data: { user } } = await userClient.auth.getUser();
@@ -687,7 +687,7 @@ Deno.serve(async (req: Request) => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+          Authorization: `Bearer ${Deno.env.get('SB_SECRET_KEY')}`,
         },
         body: nextBody,
       });
