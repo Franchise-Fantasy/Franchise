@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bdlFetch, mapGameStatus, toIsoDuration } from "../_shared/bdl.ts";
+import { pushActivityUpdate } from "../_shared/apns.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -21,6 +22,156 @@ function parseMinutes(min: string | null): number {
   if (!min) return 0;
   const parts = min.split(":");
   return parseInt(parts[0], 10) || 0;
+}
+
+// ── Live Activity dispatch: push player stat lines to active activities ──
+
+async function dispatchPlayerTickerUpdates(
+  liveRows: any[],
+): Promise<void> {
+  if (liveRows.length === 0) return;
+
+  // Check for any active matchup Live Activities
+  const { data: tokens } = await supabase
+    .from('activity_tokens')
+    .select('id, team_id, schedule_id, league_id, matchup_id')
+    .eq('activity_type', 'matchup')
+    .eq('stale', false);
+
+  if (!tokens || tokens.length === 0) return;
+
+  // Build a lookup: player_id → live stat row
+  const liveByPlayer = new Map<string, any>(
+    liveRows.map(r => [r.player_id, r]),
+  );
+
+  // Get unique team IDs from active tokens
+  const teamIds = [...new Set(tokens.map(t => t.team_id))];
+
+  // Fetch rostered players for those teams
+  const { data: rosterPlayers } = await supabase
+    .from('league_players')
+    .select('player_id, team_id, roster_slot, players!inner(first_name, last_name)')
+    .in('team_id', teamIds)
+    .not('roster_slot', 'in', '("BE","IR","TAXI")');
+
+  if (!rosterPlayers || rosterPlayers.length === 0) return;
+
+  // Group roster by team
+  const rosterByTeam = new Map<string, any[]>();
+  for (const rp of rosterPlayers) {
+    const list = rosterByTeam.get(rp.team_id) ?? [];
+    list.push(rp);
+    rosterByTeam.set(rp.team_id, list);
+  }
+
+  // Also need scoring weights per league to compute FPTS
+  const leagueIds = [...new Set(tokens.map(t => t.league_id))];
+  const { data: scoringRows } = await supabase
+    .from('scoring_weights')
+    .select('league_id, stat_name, point_value, is_enabled')
+    .in('league_id', leagueIds);
+
+  const scoringByLeague = new Map<string, any[]>();
+  for (const sw of scoringRows ?? []) {
+    const list = scoringByLeague.get(sw.league_id) ?? [];
+    list.push(sw);
+    scoringByLeague.set(sw.league_id, list);
+  }
+
+  // For each active token, build player stat lines
+  for (const token of tokens) {
+    const roster = rosterByTeam.get(token.team_id) ?? [];
+    const weights = scoringByLeague.get(token.league_id) ?? [];
+
+    // Find rostered players with live stats
+    const playerLines: any[] = [];
+    for (const rp of roster) {
+      const live = liveByPlayer.get(rp.player_id);
+      if (!live || live.game_status < 2) continue; // only live or final games
+
+      const player = (rp as any).players;
+      const firstName = player?.first_name ?? '';
+      const lastName = player?.last_name ?? '';
+      const name = firstName ? `${firstName.charAt(0)}. ${lastName}` : lastName;
+
+      // Compute fantasy points
+      let fpts = 0;
+      for (const w of weights) {
+        if (!w.is_enabled) continue;
+        const gameKey = STAT_TO_GAME[w.stat_name];
+        if (!gameKey) continue;
+        const val = live[gameKey] ?? 0;
+        fpts += val * w.point_value;
+      }
+
+      playerLines.push({
+        name,
+        statLine: `${live.pts}p ${live.reb}r ${live.ast}a`,
+        fantasyPoints: Math.round(fpts * 10) / 10,
+        gameStatus: live.game_status === 3
+          ? 'Final'
+          : live.game_clock
+            ? `${ordinal(live.period)} ${formatClock(live.game_clock)}`
+            : `${ordinal(live.period)}`,
+        isOnCourt: live.oncourt ?? false,
+      });
+    }
+
+    // Sort by FPTS descending, take top 5
+    playerLines.sort((a, b) => b.fantasyPoints - a.fantasyPoints);
+    const top5 = playerLines.slice(0, 5);
+
+    // Find biggest contributor
+    const biggest = top5[0];
+    const biggestContributor = biggest
+      ? `${biggest.name} ${biggest.statLine}`
+      : '';
+
+    // Only push if there are live players to show
+    if (top5.length === 0) continue;
+
+    const contentState = {
+      // Scores are set by get-week-scores; we only update player lines here
+      // ActivityKit merges updates, so we include all fields
+      myScore: 0,
+      opponentScore: 0,
+      scoreGap: 0,
+      biggestContributor,
+      myActivePlayers: playerLines.filter(p => p.gameStatus !== 'Final').length,
+      opponentActivePlayers: 0,
+      players: top5,
+    };
+
+    await pushActivityUpdate(supabase, 'matchup', {
+      schedule_id: token.schedule_id,
+      league_id: token.league_id,
+    }, contentState).catch(() => {});
+  }
+}
+
+// Stat key mapping (matches get-week-scores)
+const STAT_TO_GAME: Record<string, string> = {
+  PTS: "pts", REB: "reb", AST: "ast", STL: "stl", BLK: "blk",
+  TO: "tov", "3PM": "3pm", "3PA": "3pa", FGM: "fgm", FGA: "fga",
+  FTM: "ftm", FTA: "fta", PF: "pf",
+};
+
+function ordinal(period: number): string {
+  if (period === 1) return '1st';
+  if (period === 2) return '2nd';
+  if (period === 3) return '3rd';
+  if (period === 4) return '4th';
+  return `OT${period - 4}`;
+}
+
+function formatClock(isoDuration: string): string {
+  // Parse ISO duration like PT5M23S → "5:23"
+  const match = isoDuration.match(/PT(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?/);
+  if (!match) return isoDuration;
+  const min = match[1] ?? '0';
+  const sec = Math.floor(parseFloat(match[2] ?? '0'));
+  return `${min}:${String(sec).padStart(2, '0')}`;
 }
 
 Deno.serve(async (req: Request) => {
@@ -262,6 +413,11 @@ Deno.serve(async (req: Request) => {
         console.error("players nba_team update error:", error.message);
       }
     }
+
+    // ── Dispatch Live Activity player ticker updates (non-blocking) ──
+    dispatchPlayerTickerUpdates(allLiveRows).catch(err =>
+      console.warn('Live activity ticker dispatch error (non-fatal):', err),
+    );
 
     return new Response(
       JSON.stringify({

@@ -12,6 +12,7 @@ import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { useLockedTradeAssets, usePendingDropPlayerIds } from '@/hooks/useTeamRosterForTrade';
+import { usePostTradeUpdate } from '@/hooks/chat/useTradeChat';
 import { TradeItemRow, TradeProposalRow } from '@/hooks/useTrades';
 import { sendNotification } from '@/lib/notifications';
 import { supabase } from '@/lib/supabase';
@@ -30,7 +31,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useReducer, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Animated,
   Dimensions,
@@ -43,6 +43,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 
 interface PreselectedPlayer {
   player_id: string;
@@ -356,6 +357,7 @@ export function ProposeTradeModal({
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const queryClient = useQueryClient();
+  const postTradeUpdate = usePostTradeUpdate(leagueId);
 
   const [submitting, setSubmitting] = useState(false);
   // Inline picker state: null = show assets, { type, teamId } = show picker inline
@@ -763,6 +765,15 @@ export function ProposeTradeModal({
         trade_teams: state.selectedTeamIds.length,
       });
 
+      // Fire-and-forget: create trade chat and post status update
+      postTradeUpdate.mutate({
+        proposalId: proposal.id,
+        teamIds: allTeamIds,
+        event: isCounteroffer ? 'countered' : 'proposed',
+        teamName: myTeam?.name ?? 'A team',
+        actingTeamId: null,
+      });
+
       onClose();
     } catch (err: any) {
       Alert.alert('Error', err.message ?? 'Failed to propose trade');
@@ -985,7 +996,7 @@ export function ProposeTradeModal({
               {/* Step 1: Asset selection — team cards scroll, fairness pinned below */}
               {state.step === 1 && !seeded && (
                 <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-                  <ActivityIndicator size="large" />
+                  <LogoSpinner />
                 </View>
               )}
               {state.step === 1 && seeded && (
@@ -1359,7 +1370,7 @@ export function ProposeTradeModal({
                     disabled={submitting}
                   >
                     {submitting ? (
-                      <ActivityIndicator size="small" color={c.statusText} />
+                      <LogoSpinner size={18} />
                     ) : (
                       <View style={styles.navBtnInner}>
                         <Ionicons name="send" size={14} color={c.statusText} />

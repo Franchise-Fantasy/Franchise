@@ -10,7 +10,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   FlatList,
   Modal,
@@ -20,6 +19,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 
 interface Props {
   visible: boolean;
@@ -227,7 +227,7 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
                 onChangeText={setSearch}
               />
               {loading ? (
-                <ActivityIndicator style={{ marginTop: s(20) }} />
+                <View style={{ marginTop: s(20) }}><LogoSpinner /></View>
               ) : filtered.length === 0 ? (
                 <ThemedText style={[styles.empty, { color: c.secondaryText }]}>No players found.</ThemedText>
               ) : (
@@ -271,7 +271,7 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
 
           {processing && (
             <View style={styles.processingOverlay}>
-              <ActivityIndicator size="large" />
+              <LogoSpinner />
             </View>
           )}
         </View>

@@ -108,7 +108,7 @@ Deno.serve(async (req: Request) => {
   } catch (err: any) {
     console.error("moderate-messages error:", err);
     return new Response(
-      JSON.stringify({ error: err.message }),
+      JSON.stringify({ error: 'Internal server error' }),
       { status: 500, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
     );
   }

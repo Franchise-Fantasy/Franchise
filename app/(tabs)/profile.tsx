@@ -4,7 +4,7 @@ import { ThemedView } from "@/components/ui/ThemedView";
 import { TeamLogo } from "@/components/team/TeamLogo";
 import { TeamLogoPickerModal } from "@/components/team/TeamLogoPickerModal";
 import { UpgradeModal } from "@/components/UpgradeModal";
-import { Colors } from "@/constants/Colors";
+import { Colors, cardShadow } from "@/constants/Colors";
 import { useAppState } from "@/context/AppStateProvider";
 import { useSession } from "@/context/AuthProvider";
 import { useColorScheme } from "@/hooks/useColorScheme";
@@ -630,6 +630,7 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 2,
     marginBottom: 16,
+    ...cardShadow,
   },
   sectionTitle: {
     marginBottom: 8,

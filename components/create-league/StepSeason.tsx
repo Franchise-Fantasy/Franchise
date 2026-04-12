@@ -1,3 +1,5 @@
+import { AnimatedSection } from '@/components/ui/AnimatedSection';
+import { FormSection } from '@/components/ui/FormSection';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
@@ -137,15 +139,15 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
       <ThemedText accessibilityRole="header" type="subtitle" style={styles.heading}>Season Settings</ThemedText>
 
       {/* League Structure (Divisions) */}
-      <View style={styles.section}>
-        <ThemedText style={styles.label}>League Structure</ThemedText>
+      <FormSection title="League Structure">
+        <ThemedText style={styles.label}>Divisions</ThemedText>
         <SegmentedControl
           options={['No Divisions', '2 Divisions']}
           selectedIndex={state.divisionCount === 2 ? 1 : 0}
           onSelect={(i) => onChange('divisionCount', i === 1 ? 2 : 1)}
           disabled={!canHaveDivisions && state.divisionCount !== 2}
         />
-        {state.divisionCount === 2 && (
+        <AnimatedSection visible={state.divisionCount === 2}>
           <View style={styles.divisionNames}>
             <TextInput
               style={[styles.divisionInput, { borderColor: c.border, backgroundColor: c.input, color: c.text }]}
@@ -166,7 +168,7 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
               accessibilityLabel="Division 2 name"
             />
           </View>
-        )}
+        </AnimatedSection>
         <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
           {state.divisionCount === 2
             ? 'Division winners are guaranteed the top 2 playoff seeds.'
@@ -177,10 +179,10 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
             Divisions require at least 4 teams.
           </ThemedText>
         )}
-      </View>
+      </FormSection>
 
-      {/* Season Start Date */}
-      <View style={styles.section}>
+      {/* Schedule */}
+      <FormSection title="Schedule">
         <ThemedText style={styles.label}>Season Start Date</ThemedText>
         <TouchableOpacity
           onPress={() => setShowDatePicker(true)}
@@ -214,109 +216,109 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
             onChange={handleDateChange}
           />
         )}
-      </View>
 
-      <View style={styles.section}>
-        <NumberStepper
-          label="Regular Season"
-          value={state.regularSeasonWeeks}
-          onValueChange={(v) => onChange('regularSeasonWeeks', v)}
-          min={1}
-          max={maxRegularSeasonWeeks}
-          suffix=" wks"
-        />
-        <NumberStepper
-          label="Playoffs"
-          value={state.playoffWeeks}
-          onValueChange={(v) => onChange('playoffWeeks', v)}
-          min={1}
-          max={maxPlayoffWeeks}
-          suffix=" wks"
-        />
-      </View>
-
-      {state.teams >= 2 && (
-        <View style={styles.section}>
-          <ThemedText style={styles.label}>Playoff Teams</ThemedText>
-          {(() => {
-            const options = getPlayoffTeamOptions(state.playoffWeeks, state.teams);
-            const labels = options.map(String);
-            const selectedIdx = options.indexOf(state.playoffTeams);
-            return (
-              <SegmentedControl
-                options={labels}
-                selectedIndex={selectedIdx === -1 ? labels.length - 1 : selectedIdx}
-                onSelect={(i) => onChange('playoffTeams', options[i])}
-              />
-            );
-          })()}
-          {(() => {
-            const lotteryPool = calcLotteryPoolSize(state.teams, state.playoffTeams);
-            if (lotteryPool > 0) {
-              return (
-                <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
-                  {lotteryPool} non-playoff team{lotteryPool !== 1 ? 's' : ''} in the lottery pool
-                </ThemedText>
-              );
-            }
-            return null;
-          })()}
+        <View style={styles.fieldGap}>
+          <NumberStepper
+            label="Regular Season"
+            value={state.regularSeasonWeeks}
+            onValueChange={(v) => onChange('regularSeasonWeeks', v)}
+            min={1}
+            max={maxRegularSeasonWeeks}
+            suffix=" wks"
+          />
+          <NumberStepper
+            label="Playoffs"
+            value={state.playoffWeeks}
+            onValueChange={(v) => onChange('playoffWeeks', v)}
+            min={1}
+            max={maxPlayoffWeeks}
+            suffix=" wks"
+          />
         </View>
-      )}
+      </FormSection>
 
-      {/* Playoff Seeding Format */}
-      <View style={styles.section}>
-        <ThemedText style={styles.label}>Playoff Seeding Format</ThemedText>
-        <SegmentedControl
-          options={[...PLAYOFF_SEEDING_OPTIONS]}
-          selectedIndex={PLAYOFF_SEEDING_OPTIONS.indexOf(state.playoffSeedingFormat)}
-          onSelect={(i) => {
-            onChange('playoffSeedingFormat', PLAYOFF_SEEDING_OPTIONS[i]);
-            if (PLAYOFF_SEEDING_OPTIONS[i] === 'Fixed Bracket') {
-              onChange('reseedEachRound', false);
-            }
-          }}
-        />
-        <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
-          {state.playoffSeedingFormat === 'Standard'
-            ? 'Highest remaining seed plays lowest remaining seed each round.'
-            : state.playoffSeedingFormat === 'Fixed Bracket'
-              ? 'Traditional bracket halves: 1v8/4v5 one side, 2v7/3v6 the other.'
-              : 'After each round, higher seeds pick their next opponent.'}
-        </ThemedText>
-      </View>
+      {/* Playoffs */}
+      <FormSection title="Playoffs">
+        {state.teams >= 2 && (
+          <>
+            <ThemedText style={styles.label}>Playoff Teams</ThemedText>
+            {(() => {
+              const options = getPlayoffTeamOptions(state.playoffWeeks, state.teams);
+              const labels = options.map(String);
+              const selectedIdx = options.indexOf(state.playoffTeams);
+              return (
+                <SegmentedControl
+                  options={labels}
+                  selectedIndex={selectedIdx === -1 ? labels.length - 1 : selectedIdx}
+                  onSelect={(i) => onChange('playoffTeams', options[i])}
+                />
+              );
+            })()}
+            {(() => {
+              const lotteryPool = calcLotteryPoolSize(state.teams, state.playoffTeams);
+              if (lotteryPool > 0) {
+                return (
+                  <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
+                    {lotteryPool} non-playoff team{lotteryPool !== 1 ? 's' : ''} in the lottery pool
+                  </ThemedText>
+                );
+              }
+              return null;
+            })()}
+          </>
+        )}
 
-      {/* Reseed Toggle — only for Standard */}
-      {state.playoffSeedingFormat === 'Standard' && (
-        <View style={styles.section}>
-          <ThemedText style={styles.label}>Reseed Each Round</ThemedText>
+        <View style={styles.fieldGap}>
+          <ThemedText style={styles.label}>Seeding Format</ThemedText>
           <SegmentedControl
-            options={['Yes', 'No']}
-            selectedIndex={state.reseedEachRound ? 0 : 1}
-            onSelect={(i) => onChange('reseedEachRound', i === 0)}
+            options={[...PLAYOFF_SEEDING_OPTIONS]}
+            selectedIndex={PLAYOFF_SEEDING_OPTIONS.indexOf(state.playoffSeedingFormat)}
+            onSelect={(i) => {
+              onChange('playoffSeedingFormat', PLAYOFF_SEEDING_OPTIONS[i]);
+              if (PLAYOFF_SEEDING_OPTIONS[i] === 'Fixed Bracket') {
+                onChange('reseedEachRound', false);
+              }
+            }}
           />
           <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
-            {state.reseedEachRound
-              ? 'After each round, remaining teams re-ranked so top seed always faces bottom seed.'
-              : 'Bracket positions fixed from initial seeding.'}
+            {state.playoffSeedingFormat === 'Standard'
+              ? 'Highest remaining seed plays lowest remaining seed each round.'
+              : state.playoffSeedingFormat === 'Fixed Bracket'
+                ? 'Traditional bracket halves: 1v8/4v5 one side, 2v7/3v6 the other.'
+                : 'After each round, higher seeds pick their next opponent.'}
           </ThemedText>
         </View>
-      )}
 
-      {/* Tiebreaker Priority */}
-      <View style={styles.section}>
-        <ThemedText style={styles.label}>Tiebreaker Priority</ThemedText>
-        <SegmentedControl
-          options={[...TIEBREAKER_OPTIONS]}
-          selectedIndex={TIEBREAKER_OPTIONS.indexOf(state.tiebreakerPrimary)}
-          onSelect={(i) => onChange('tiebreakerPrimary', TIEBREAKER_OPTIONS[i])}
-        />
-        <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
-          {state.tiebreakerPrimary === 'Head-to-Head'
-            ? 'Tied teams compared by head-to-head record first, then total points scored.'
-            : 'Tied teams compared by total points scored first, then head-to-head record.'}
-        </ThemedText>
-      </View>
+        <AnimatedSection visible={state.playoffSeedingFormat === 'Standard'}>
+          <View style={styles.fieldGap}>
+            <ThemedText style={styles.label}>Reseed Each Round</ThemedText>
+            <SegmentedControl
+              options={['Yes', 'No']}
+              selectedIndex={state.reseedEachRound ? 0 : 1}
+              onSelect={(i) => onChange('reseedEachRound', i === 0)}
+            />
+            <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
+              {state.reseedEachRound
+                ? 'After each round, remaining teams re-ranked so top seed always faces bottom seed.'
+                : 'Bracket positions fixed from initial seeding.'}
+            </ThemedText>
+          </View>
+        </AnimatedSection>
+
+        <View style={styles.fieldGap}>
+          <ThemedText style={styles.label}>Tiebreaker Priority</ThemedText>
+          <SegmentedControl
+            options={[...TIEBREAKER_OPTIONS]}
+            selectedIndex={TIEBREAKER_OPTIONS.indexOf(state.tiebreakerPrimary)}
+            onSelect={(i) => onChange('tiebreakerPrimary', TIEBREAKER_OPTIONS[i])}
+          />
+          <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
+            {state.tiebreakerPrimary === 'Head-to-Head'
+              ? 'Tied teams compared by head-to-head record first, then total points scored.'
+              : 'Tied teams compared by total points scored first, then head-to-head record.'}
+          </ThemedText>
+        </View>
+      </FormSection>
 
       {/* Season preview card */}
       <View style={[styles.previewCard, { backgroundColor: c.card, borderColor: c.border }]}>
@@ -365,10 +367,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   heading: {
-    marginBottom: s(20),
+    marginBottom: s(16),
   },
-  section: {
-    marginBottom: s(20),
+  fieldGap: {
+    marginTop: s(12),
   },
   label: {
     marginBottom: s(8),

@@ -1,5 +1,5 @@
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Colors, cardShadow } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { PlayoffBracketSlot } from '@/types/playoff';
 import { calcRounds } from '@/utils/playoff';
@@ -460,8 +460,9 @@ const styles = StyleSheet.create({
   // ─── Card ───
   card: {
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: 12,
     overflow: 'hidden',
+    ...cardShadow,
   },
   cardDivider: {
     height: StyleSheet.hairlineWidth,
@@ -502,10 +503,11 @@ const styles = StyleSheet.create({
   // ─── Champion ───
   championCard: {
     borderWidth: 2,
-    borderRadius: 10,
-    padding: scale(10),
+    borderRadius: 12,
+    padding: scale(12),
     alignItems: 'center',
-    gap: 2,
+    gap: 4,
+    ...cardShadow,
   },
   championLabel: {
     fontSize: ms(10),

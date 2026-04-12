@@ -12,6 +12,7 @@ import { StandingsSection } from '@/components/home/StandingsSection';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ThemedView } from '@/components/ui/ThemedView';
 import { IconSymbol } from '@/components/ui/IconSymbol';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
 import { useSession } from '@/context/AuthProvider';
@@ -21,7 +22,7 @@ import { useLeague } from '@/hooks/useLeague';
 import { ms, s } from '@/utils/scale';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function HomeScreen() {
@@ -84,7 +85,7 @@ export default function HomeScreen() {
 
       <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent}>
         {isLoading ? (
-          <ActivityIndicator style={{ marginTop: 20 }} />
+          <View style={{ marginTop: 20 }}><LogoSpinner /></View>
         ) : league ? (
           <>
             {league.offseason_step ? (

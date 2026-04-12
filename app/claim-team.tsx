@@ -12,7 +12,6 @@ import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   ScrollView,
   StyleSheet,
@@ -20,6 +19,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface UnclaimedTeam {
@@ -98,7 +98,7 @@ export default function ClaimTeamScreen() {
 
       <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
         {isLoading ? (
-          <ActivityIndicator style={{ marginTop: 32 }} />
+          <View style={{ marginTop: 32 }}><LogoSpinner /></View>
         ) : !teams?.length ? (
           <ThemedText style={[styles.empty, { color: c.secondaryText }]}>
             No unclaimed teams available.
@@ -124,7 +124,7 @@ export default function ClaimTeamScreen() {
                 </View>
               </View>
               {claiming ? (
-                <ActivityIndicator size="small" />
+                <LogoSpinner size={18} />
               ) : (
                 <Ionicons name="chevron-forward" size={20} color={c.secondaryText} accessible={false} />
               )}

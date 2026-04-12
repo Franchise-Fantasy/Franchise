@@ -11,7 +11,6 @@ import { ms, s } from '@/utils/scale';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Modal,
@@ -24,6 +23,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 
 interface EditBasicsModalProps {
   visible: boolean;
@@ -277,7 +277,7 @@ export function EditBasicsModal({ visible, onClose, league, leagueId, canChangeS
               disabled={saving}
             >
               {saving ? (
-                <ActivityIndicator color="#fff" size="small" />
+                <LogoSpinner size={18} />
               ) : (
                 <Text style={[styles.btnText, { color: c.accentText }]}>Save</Text>
               )}

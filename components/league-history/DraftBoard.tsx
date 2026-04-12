@@ -4,7 +4,8 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { useDraftHistory, DraftSummary, DraftHistoryPick } from '@/hooks/useLeagueHistory';
 import { ms, s } from '@/utils/scale';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 
 interface DraftBoardProps {
   leagueId: string;
@@ -51,7 +52,7 @@ export function DraftBoard({ leagueId }: DraftBoardProps) {
     return map;
   }, [data, activeDraft]);
 
-  if (isLoading) return <ActivityIndicator style={{ marginVertical: s(16) }} />;
+  if (isLoading) return <View style={{ marginVertical: s(16) }}><LogoSpinner /></View>;
   if (!data || data.drafts.length === 0) {
     return (
       <ThemedText style={[styles.emptyText, { color: c.secondaryText }]}>

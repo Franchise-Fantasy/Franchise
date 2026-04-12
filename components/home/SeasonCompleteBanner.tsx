@@ -1,5 +1,5 @@
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Colors, cardShadow } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
@@ -8,7 +8,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ms, s } from '@/utils/scale';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Alert, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 
 interface SeasonCompleteBannerProps {
   leagueId: string;
@@ -105,7 +106,7 @@ export function SeasonCompleteBanner({ leagueId, season, playoffTeams, isCommiss
           accessibilityLabel="Start offseason"
         >
           {advancing ? (
-            <ActivityIndicator size="small" color={c.statusText} />
+            <LogoSpinner size={18} />
           ) : (
             <ThemedText style={{ color: c.statusText, fontSize: ms(13), fontWeight: '600' }}>Go</ThemedText>
           )}
@@ -120,10 +121,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: s(12),
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     marginBottom: s(16),
     gap: s(10),
+    ...cardShadow,
   },
   textContainer: {
     flex: 1,

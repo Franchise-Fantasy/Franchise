@@ -672,8 +672,8 @@ Deno.serve(async (req: Request) => {
         await supabase
           .from("league_matchups")
           .update({
-            home_score: scoringType === 'points' ? homeScore : null,
-            away_score: scoringType === 'points' ? awayScore : null,
+            home_score: homeScore,
+            away_score: awayScore,
             home_category_wins: homeCatWins,
             away_category_wins: awayCatWins,
             category_ties: catTies,
@@ -847,7 +847,7 @@ Deno.serve(async (req: Request) => {
       }
       const [{ data: teamRows }, { data: leagueRows }] = await Promise.all([
         supabase.from('teams').select('id, name').in('id', [...allTeamIds]),
-        supabase.from('leagues').select('id, name').in('id', leagueIds),
+        supabase.from('leagues').select('id, name, playoff_teams').in('id', leagueIds),
       ]);
       const teamName = new Map<string, string>(
         (teamRows ?? []).map((t: any) => [t.id, t.name]),
@@ -855,33 +855,89 @@ Deno.serve(async (req: Request) => {
       const leagueName = new Map<string, string>(
         (leagueRows ?? []).map((l: any) => [l.id, l.name]),
       );
+      const leaguePlayoffTeams = new Map<string, number>(
+        (leagueRows ?? []).map((l: any) => [l.id, l.playoff_teams ?? 8]),
+      );
+
+      // Map a playoff round number to a human-readable name
+      function playoffRoundLabel(round: number, totalRounds: number): string {
+        if (round >= totalRounds) return 'Championship';
+        if (round === totalRounds - 1) return 'Semifinals';
+        if (round === totalRounds - 2) return 'Quarterfinals';
+        return `Playoff Round ${round}`;
+      }
 
       await Promise.all(matchupResults.map(async (r) => {
         const homeName = teamName.get(r.homeTeamId) ?? 'Home';
         const awayName = teamName.get(r.awayTeamId) ?? 'Away';
-        const scoreLine = r.scoringType === 'h2h_categories'
-          ? `${homeName} ${r.homeCatWins ?? 0}-${r.awayCatWins ?? 0}${(r.catTies ?? 0) > 0 ? `-${r.catTies}` : ''} ${awayName}`
-          : `${homeName} ${r.homeScore} - ${r.awayScore} ${awayName}`;
         const category = r.isPlayoff ? 'playoffs' : 'matchups';
         const ln = leagueName.get(r.leagueId) ?? 'Your League';
 
-        const homeResult = r.winnerId === r.homeTeamId ? 'You won!' : r.winnerId === r.awayTeamId ? 'You lost.' : 'It\'s a tie.';
-        const awayResult = r.winnerId === r.awayTeamId ? 'You won!' : r.winnerId === r.homeTeamId ? 'You lost.' : 'It\'s a tie.';
+        // Determine result for each side
+        const homeWon = r.winnerId === r.homeTeamId;
+        const awayWon = r.winnerId === r.awayTeamId;
+        const tied = r.winnerId === null;
 
-        const title = r.isPlayoff ? `${ln} — Playoff Matchup Final` : `${ln} — Matchup Final`;
+        if (r.isPlayoff && r.playoffRound != null) {
+          // ── Playoff notification ──
+          const totalRounds = calcRounds(leaguePlayoffTeams.get(r.leagueId) ?? 8);
+          const roundName = playoffRoundLabel(r.playoffRound, totalRounds);
+          const isChampionship = r.playoffRound >= totalRounds;
+          const isSemis = r.playoffRound === totalRounds - 1;
 
-        await Promise.all([
-          notifyTeams(supabase, [r.homeTeamId], category,
-            title,
-            `${scoreLine} — ${homeResult}`,
-            { screen: r.isPlayoff ? 'playoff-bracket' : 'matchup' }
-          ),
-          notifyTeams(supabase, [r.awayTeamId], category,
-            title,
-            `${scoreLine} — ${awayResult}`,
-            { screen: r.isPlayoff ? 'playoff-bracket' : 'matchup' }
-          ),
-        ]);
+          const scoreLine = r.scoringType === 'h2h_categories'
+            ? `${r.homeCatWins ?? 0}-${r.awayCatWins ?? 0}${(r.catTies ?? 0) > 0 ? `-${r.catTies}` : ''}`
+            : `${r.homeScore} - ${r.awayScore}`;
+
+          function buildPlayoffBody(won: boolean, opponentName: string, isTied: boolean): string {
+            if (isTied) return `Tied ${scoreLine} vs ${opponentName}. What a battle.`;
+            if (isChampionship) {
+              return won
+                ? `You beat ${opponentName} ${scoreLine} and won the championship! \uD83C\uDFC6`
+                : `${opponentName} wins ${scoreLine}. Tough loss in the finals.`;
+            }
+            if (won) {
+              const next = isSemis ? 'On to the championship!' : 'You advance!';
+              return `You beat ${opponentName} ${scoreLine}. ${next}`;
+            }
+            return `${opponentName} wins ${scoreLine}. Season over.`;
+          }
+
+          const homeBody = buildPlayoffBody(homeWon, awayName, tied);
+          const awayBody = buildPlayoffBody(awayWon, homeName, tied);
+
+          const icon = isChampionship ? '\uD83C\uDFC6' : '\uD83C\uDFC0';
+          const title = `${icon} ${ln} \u2014 ${roundName}`;
+
+          await Promise.all([
+            notifyTeams(supabase, [r.homeTeamId], category,
+              title, homeBody, { screen: 'playoff-bracket' },
+              undefined, { subtitle: roundName, priority: 'high' }
+            ),
+            notifyTeams(supabase, [r.awayTeamId], category,
+              title, awayBody, { screen: 'playoff-bracket' },
+              undefined, { subtitle: roundName, priority: 'high' }
+            ),
+          ]);
+        } else {
+          // ── Regular-season notification ──
+          const scoreLine = r.scoringType === 'h2h_categories'
+            ? `${homeName} ${r.homeCatWins ?? 0}-${r.awayCatWins ?? 0}${(r.catTies ?? 0) > 0 ? `-${r.catTies}` : ''} ${awayName}`
+            : `${homeName} ${r.homeScore} - ${r.awayScore} ${awayName}`;
+
+          const homeResult = homeWon ? '\uD83D\uDD25 You won!' : awayWon ? 'You lost.' : 'It\'s a tie.';
+          const awayResult = awayWon ? '\uD83D\uDD25 You won!' : homeWon ? 'You lost.' : 'It\'s a tie.';
+          const title = `${ln} \u2014 Matchup Final`;
+
+          await Promise.all([
+            notifyTeams(supabase, [r.homeTeamId], category,
+              title, `${scoreLine} \u2014 ${homeResult}`, { screen: 'matchup' }
+            ),
+            notifyTeams(supabase, [r.awayTeamId], category,
+              title, `${scoreLine} \u2014 ${awayResult}`, { screen: 'matchup' }
+            ),
+          ]);
+        }
       }));
     } catch (notifyErr) {
       console.warn('Matchup notification failed (non-fatal):', notifyErr);
@@ -959,7 +1015,7 @@ Deno.serve(async (req: Request) => {
                 .maybeSingle();
 
               const champMatchup = champBracket?.matchup_id
-                ? playoffFinalized.find(p => p.id === champBracket.matchup_id && p.winner_id)
+                ? playoffFinalized.find(p => p.matchup_id === champBracket.matchup_id && p.winner_id)
                 : playoffFinalized.find(p => p.playoff_round === maxRound && p.winner_id);
 
               if (champMatchup?.winner_id) {
@@ -971,9 +1027,10 @@ Deno.serve(async (req: Request) => {
                 const champName = champTeam?.name ?? 'The champion';
                 const champLn = league?.name ?? 'Your League';
                 await notifyLeague(supabase, lid, 'playoffs',
-                  `${champLn} — Championship Winner!`,
+                  `\uD83C\uDFC6 ${champLn} \u2014 We Have a Champion!`,
                   `${champName} has won the league championship!`,
-                  { screen: 'playoff-bracket' }
+                  { screen: 'playoff-bracket' },
+                  undefined, { subtitle: 'Championship', priority: 'high' }
                 );
               }
             } catch (champErr) {

@@ -7,7 +7,8 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 
 interface LeakRumorSheetProps {
   proposalId: string;
@@ -132,7 +133,7 @@ export function LeakRumorSheet({ proposalId, leagueId, teamId, players, onDone }
       {/* Submit */}
       <View style={[styles.actionArea, { borderTopColor: c.border }]}>
         {leak.isPending ? (
-          <ActivityIndicator />
+          <LogoSpinner size={18} />
         ) : (
           <TouchableOpacity
             style={[

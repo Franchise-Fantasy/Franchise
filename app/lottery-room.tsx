@@ -12,13 +12,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Animated,
   StyleSheet,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface LotteryEntry {
@@ -43,6 +43,7 @@ export default function LotteryRoomScreen() {
   const [isRunning, setIsRunning] = useState(false);
   const [ceremonyStarted, setCeremonyStarted] = useState(false);
   const flipAnims = useRef<Animated.Value[]>([]);
+  const broadcastChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   const totalSlots = lotteryResults?.length ?? 0;
 
@@ -81,7 +82,11 @@ export default function LotteryRoomScreen() {
     }
   }, [lotteryResults?.length]);
 
-  // Realtime broadcast channel for synchronizing reveal across clients
+  // Realtime broadcast channel for synchronizing reveal across clients.
+  // Broadcast channels require a shared deterministic name — all clients must
+  // match so sends reach subscribers. The postgres_changes Date.now() rule
+  // does not apply here. We store the channel in a ref so commissioner sends
+  // reuse it instead of creating orphaned channel instances.
   useEffect(() => {
     if (!leagueId) return;
 
@@ -99,7 +104,12 @@ export default function LotteryRoomScreen() {
       })
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    broadcastChannelRef.current = channel;
+
+    return () => {
+      supabase.removeChannel(channel);
+      broadcastChannelRef.current = null;
+    };
   }, [leagueId]);
 
   const revealSlot = useCallback((revealIndex: number) => {
@@ -126,8 +136,8 @@ export default function LotteryRoomScreen() {
       const results = data.results as LotteryEntry[];
       setLotteryResults(results);
 
-      // Broadcast results to all clients
-      await supabase.channel(`lottery:${leagueId}`).send({
+      // Broadcast results to all clients via the shared channel
+      await broadcastChannelRef.current?.send({
         type: 'broadcast',
         event: 'lottery_results',
         payload: { results },
@@ -141,7 +151,7 @@ export default function LotteryRoomScreen() {
 
   const handleStartCeremony = async () => {
     setCeremonyStarted(true);
-    await supabase.channel(`lottery:${leagueId}`).send({
+    await broadcastChannelRef.current?.send({
       type: 'broadcast',
       event: 'ceremony_start',
       payload: {},
@@ -154,7 +164,7 @@ export default function LotteryRoomScreen() {
     if (nextRevealIndex >= totalSlots) return;
 
     revealSlot(nextRevealIndex);
-    await supabase.channel(`lottery:${leagueId}`).send({
+    await broadcastChannelRef.current?.send({
       type: 'broadcast',
       event: 'reveal_pick',
       payload: { index: nextRevealIndex },
@@ -257,7 +267,7 @@ export default function LotteryRoomScreen() {
                 accessibilityState={{ disabled: isRunning }}
               >
                 {isRunning ? (
-                  <ActivityIndicator color={c.statusText} />
+                  <LogoSpinner size={18} delay={0} />
                 ) : (
                   <ThemedText style={[styles.actionButtonText, { color: c.statusText }]}>Run Lottery</ThemedText>
                 )}

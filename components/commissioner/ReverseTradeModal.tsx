@@ -8,7 +8,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   FlatList,
   Modal,
@@ -17,6 +16,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 
 interface Props {
   visible: boolean;
@@ -143,7 +143,7 @@ export function ReverseTradeModal({ visible, leagueId, onClose }: Props) {
                   disabled={processing}
                 >
                   {processing
-                    ? <ActivityIndicator color={c.statusText} size="small" />
+                    ? <LogoSpinner size={18} />
                     : <Text style={{ color: c.statusText, fontWeight: '600' }}>Reverse Trade</Text>}
                 </TouchableOpacity>
               </View>
@@ -151,7 +151,7 @@ export function ReverseTradeModal({ visible, leagueId, onClose }: Props) {
           ) : (
             <>
               {isLoading ? (
-                <ActivityIndicator style={{ marginTop: s(20) }} />
+                <View style={{ marginTop: s(20) }}><LogoSpinner /></View>
               ) : completedTrades.length === 0 ? (
                 <ThemedText style={[styles.empty, { color: c.secondaryText }]}>
                   No completed trades to reverse.

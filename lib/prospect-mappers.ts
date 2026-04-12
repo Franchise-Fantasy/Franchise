@@ -64,7 +64,7 @@ export function mapProspectProfile(entry: any): ProspectProfileData {
     scoutingReport: richDoc(f.scoutingReport),
     landingSpotAnalysis: richDoc(f.landingSpotAnalysis),
     projectedTeams,
-    youtubeId: f.youtubeId ?? undefined,
+    youtubeId: f.youTubeId ?? undefined,
     hudlUrl: f.hudlUrl ?? undefined,
     xEmbedUrl: f.xEmbedUrl ?? undefined,
   };

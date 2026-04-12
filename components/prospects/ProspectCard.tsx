@@ -1,4 +1,4 @@
-import { Colors } from '@/constants/Colors';
+import { Colors, cardShadow } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
 import type { ProspectCardData } from '@/types/prospect';
@@ -98,6 +98,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: s(9),
+    ...cardShadow,
   },
   rank: {
     fontSize: ms(18),

@@ -12,7 +12,8 @@ export function useProspectBoard(userId: string | undefined) {
         .from('prospect_boards')
         .select('*')
         .eq('user_id', userId!)
-        .order('rank', { ascending: true });
+        .order('rank', { ascending: true })
+        .limit(200);
 
       if (error) throw error;
       return data ?? [];

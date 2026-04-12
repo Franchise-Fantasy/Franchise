@@ -5,6 +5,7 @@ import { corsResponse } from '../_shared/cors.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { snapshotBeforeDrop } from '../_shared/snapshotBeforeDrop.ts';
 import { checkPositionLimitsForRoster } from '../_shared/positionLimits.ts';
+import { fetchIllegalIRPlayers, formatIllegalIRError } from '../_shared/illegalIR.ts';
 
 const ORDINALS = ['1st', '2nd', '3rd', '4th', '5th'];
 function formatPickLabel(season: string, round: number): string {
@@ -454,6 +455,20 @@ Deno.serve(async (req) => {
       throw new Error('Players on IR cannot be traded. Activate them from IR first.');
     }
 
+    // Block trade if either team has a player in an IR slot who is no longer
+    // injured. Delayed cron re-executions bypass (already validated at submission).
+    if (!isServerCall) {
+      const teamsInTrade = [...new Set(playerItems.flatMap((i: any) => [i.from_team_id, i.to_team_id]))];
+      for (const tid of teamsInTrade) {
+        const illegal = await fetchIllegalIRPlayers(supabaseAdmin, proposal.league_id, tid as string);
+        if (illegal.length > 0) {
+          const { data: teamInfo } = await supabaseAdmin.from('teams').select('name').eq('id', tid).single();
+          const who = teamInfo?.name ?? 'A team';
+          throw new Error(`${who} is locked out of roster moves — ${formatIllegalIRError(illegal)}`);
+        }
+      }
+    }
+
     // Find current week start so we can snapshot outgoing players' slots for historical accuracy
     const { data: currentWeek } = await supabaseAdmin
       .from('league_schedule')
@@ -671,6 +686,37 @@ Deno.serve(async (req) => {
           league_id: proposal.league_id,
         });
       }
+
+      // Post "completed" update to the trade negotiation chat (if one exists).
+      // Walk the counteroffer chain to find the root proposal (conversation is linked to root).
+      let rootId = proposal_id;
+      let cur = proposal.counteroffer_of;
+      for (let i = 0; i < 20 && cur; i++) {
+        rootId = cur;
+        const { data: parent } = await supabaseAdmin
+          .from('trade_proposals')
+          .select('counteroffer_of')
+          .eq('id', cur)
+          .single();
+        cur = parent?.counteroffer_of ?? null;
+      }
+
+      const { data: tradeConv } = await supabaseAdmin
+        .from('chat_conversations')
+        .select('id')
+        .eq('trade_proposal_id', rootId)
+        .eq('type', 'trade')
+        .maybeSingle();
+
+      if (tradeConv) {
+        await supabaseAdmin.from('chat_messages').insert({
+          conversation_id: tradeConv.id,
+          team_id: null,
+          content: JSON.stringify({ event: 'completed', team_name: null, proposal_id }),
+          type: 'trade_update',
+          league_id: proposal.league_id,
+        });
+      }
     } catch (summaryErr) {
       console.warn('Trade summary/chat post failed (non-fatal):', summaryErr);
     }
@@ -699,7 +745,7 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error('execute-trade error:', error);
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: 'Internal server error' }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }

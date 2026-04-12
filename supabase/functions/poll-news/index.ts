@@ -136,69 +136,6 @@ function extractReturnEstimate(text: string): string | null {
   return null;
 }
 
-// ── Injury Status Parsing ──────────────────────
-
-// RotoWire titles follow: "Player Name: Status for Day"
-// Patterns checked against the title (after the colon)
-const TITLE_STATUS_PATTERNS: { re: RegExp; status: string }[] = [
-  // OUT
-  { re: /:\s*out\b/i, status: 'OUT' },
-  { re: /:\s*ruled out\b/i, status: 'OUT' },
-  { re: /:\s*will not play\b/i, status: 'OUT' },
-  { re: /:\s*won't play\b/i, status: 'OUT' },
-  { re: /:\s*not playing\b/i, status: 'OUT' },
-  { re: /:\s*sidelined\b/i, status: 'OUT' },
-  { re: /:\s*remains out\b/i, status: 'OUT' },
-  // DOUBT
-  { re: /:\s*doubtful\b/i, status: 'DOUBT' },
-  { re: /:\s*unlikely to play\b/i, status: 'DOUBT' },
-  // QUES
-  { re: /:\s*questionable\b/i, status: 'QUES' },
-  { re: /:\s*game.?time decision\b/i, status: 'QUES' },
-  { re: /:\s*day.?to.?day\b/i, status: 'QUES' },
-  { re: /:\s*iffy\b/i, status: 'QUES' },
-  // PROB
-  { re: /:\s*probable\b/i, status: 'PROB' },
-  { re: /:\s*upgraded to probable\b/i, status: 'PROB' },
-  // Active
-  { re: /:\s*will play\b/i, status: 'active' },
-  { re: /:\s*expected to play\b/i, status: 'active' },
-  { re: /:\s*cleared to play\b/i, status: 'active' },
-  { re: /:\s*available\b/i, status: 'active' },
-  { re: /:\s*back in lineup\b/i, status: 'active' },
-  { re: /:\s*good to go\b/i, status: 'active' },
-  { re: /:\s*not listed on injury report\b/i, status: 'active' },
-  { re: /:\s*starting\b/i, status: 'active' },
-];
-
-// Broader patterns checked against the description as a fallback
-const DESC_STATUS_PATTERNS: { re: RegExp; status: string }[] = [
-  { re: /\bruled out\b/i, status: 'OUT' },
-  { re: /\bwon't play\b/i, status: 'OUT' },
-  { re: /\bwill not play\b/i, status: 'OUT' },
-  { re: /\bnot playing\b/i, status: 'OUT' },
-  { re: /\bsidelined\b/i, status: 'OUT' },
-  { re: /\bis out\b/i, status: 'OUT' },
-  { re: /\bdoubtful\b/i, status: 'DOUBT' },
-  { re: /\bunlikely to play\b/i, status: 'DOUBT' },
-  { re: /\bis questionable\b/i, status: 'QUES' },
-  { re: /\bis probable\b/i, status: 'PROB' },
-  { re: /\bwill play\b/i, status: 'active' },
-  { re: /\bexpected to play\b/i, status: 'active' },
-  { re: /\bcleared to play\b/i, status: 'active' },
-  { re: /\bavailable\b/i, status: 'active' },
-];
-
-function parseStatus(title: string, description: string): string | null {
-  for (const { re, status } of TITLE_STATUS_PATTERNS) {
-    if (re.test(title)) return status;
-  }
-  for (const { re, status } of DESC_STATUS_PATTERNS) {
-    if (re.test(description)) return status;
-  }
-  return null;
-}
-
 // ── Hashing ────────────────────────────────────
 
 async function hashExternalId(source: string, link: string): Promise<string> {
@@ -226,24 +163,40 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    // 1. Fetch RSS feeds in parallel
-    const feedResults = await Promise.allSettled(
-      RSS_FEEDS.map(async ({ url, source }) => {
-        const res = await fetch(url, {
-          headers: { 'User-Agent': 'Franchise-Fantasy-App/1.0' },
-        });
-        if (!res.ok) {
-          console.warn(`Feed ${source} returned ${res.status}`);
-          return [];
-        }
-        const xml = await res.text();
-        return parseRssFeed(xml, source);
-      }),
-    );
-
+    // 1. Fetch RSS feed multiple times over ~45s to work around the 5-item cap.
+    //    RotoWire's feed only holds ~5 items at a time, so a single fetch per
+    //    minute misses articles during busy periods. We poll 4 times (0s, 15s,
+    //    30s, 45s) and deduplicate by link.
+    const POLL_ROUNDS = 4;
+    const POLL_INTERVAL_MS = 15_000;
+    const seenLinks = new Set<string>();
     const allItems: RssItem[] = [];
-    for (const result of feedResults) {
-      if (result.status === 'fulfilled') allItems.push(...result.value);
+
+    for (let round = 0; round < POLL_ROUNDS; round++) {
+      if (round > 0) await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+
+      const feedResults = await Promise.allSettled(
+        RSS_FEEDS.map(async ({ url, source }) => {
+          const res = await fetch(url, {
+            headers: { 'User-Agent': 'Franchise-Fantasy-App/1.0' },
+          });
+          if (!res.ok) {
+            console.warn(`Feed ${source} returned ${res.status} (round ${round})`);
+            return [];
+          }
+          const xml = await res.text();
+          return parseRssFeed(xml, source);
+        }),
+      );
+
+      for (const result of feedResults) {
+        if (result.status !== 'fulfilled') continue;
+        for (const item of result.value) {
+          if (seenLinks.has(item.link)) continue;
+          seenLinks.add(item.link);
+          allItems.push(item);
+        }
+      }
     }
 
     if (allItems.length === 0) {
@@ -252,7 +205,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    console.log(`Fetched ${allItems.length} RSS items`);
+    console.log(`Fetched ${allItems.length} unique RSS items across ${POLL_ROUNDS} rounds`);
 
     // 2. Load all players for name matching
     const { data: allPlayers, error: playerErr } = await supabase
@@ -275,7 +228,6 @@ Deno.serve(async (req: Request) => {
     // 3. Process each article
     let inserted = 0;
     let mentionsInserted = 0;
-    let statusUpdates = 0;
     const newArticlePlayerIds = new Set<string>();
     // Map player name → most recent article title (for single-player notification body)
     const newArticleTitles = new Map<string, string>();
@@ -309,25 +261,11 @@ Deno.serve(async (req: Request) => {
         matchedPlayerIds.push(...playerIds);
       }
 
-      // Update player injury status on every poll (even for duplicate articles)
-      const parsedStatus = parseStatus(item.title, item.description);
-      if (parsedStatus && matchedPlayerIds.length === 1) {
-        const pid = matchedPlayerIds[0];
-        const current = playerById.get(pid);
-        if (current && current.status !== parsedStatus) {
-          const { error: statusErr } = await supabase
-            .from('players')
-            .update({ status: parsedStatus })
-            .eq('id', pid);
-          if (statusErr) {
-            console.warn(`Status update error for ${current.name}:`, statusErr.message);
-          } else {
-            console.log(`Status update: ${current.name} ${current.status} → ${parsedStatus} (via RSS)`);
-            current.status = parsedStatus;
-            statusUpdates++;
-          }
-        }
-      }
+      // NOTE: We no longer update players.status from RSS headlines.
+      // poll-injuries (BDL API + official PDF) is the authoritative source for
+      // injury statuses. RSS headline parsing is too imprecise — e.g. "Herro:
+      // Available Wednesday" can flip a player to 'active' even when they're OUT
+      // today, causing wrong injury notifications.
 
       // Build mentioned players JSONB
       const mentionedPlayers = matchedPlayerIds.map(pid => playerById.get(pid)).filter(Boolean);
@@ -456,7 +394,6 @@ Deno.serve(async (req: Request) => {
       fetched: allItems.length,
       inserted,
       mentionsInserted,
-      statusUpdates,
       notificationsSent,
       totalPlayers: nameToIds.size,
     };

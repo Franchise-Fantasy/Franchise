@@ -1,5 +1,6 @@
 import { capture } from "@/lib/posthog";
 import { ErrorState } from "@/components/ui/ErrorState";
+import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { FptsBreakdownModal } from "@/components/player/FptsBreakdownModal";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import {
@@ -9,6 +10,9 @@ import {
   SlotEntry,
   SlotPickerModal,
 } from "@/components/roster/SlotPickerModal";
+import { MyPicksSection } from "@/components/roster/MyPicksSection";
+import { useRosterShare } from "@/components/roster/useRosterShare";
+import { InfoModal } from "@/components/ui/InfoModal";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
 import { useAppState } from "@/context/AppStateProvider";
@@ -17,6 +21,8 @@ import { useColorScheme } from "@/hooks/useColorScheme";
 import { useLeague } from "@/hooks/useLeague";
 import { useLeagueRosterConfig } from "@/hooks/useLeagueRosterConfig";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
 import { LineupPlayer, optimizeLineup } from "@/utils/autoLineup";
@@ -31,6 +37,8 @@ import {
 import { formatPosition } from "@/utils/formatting";
 import { hasAnyGameStarted, isGameStarted, useTodayGameTimes } from "@/utils/gameStarted";
 import { getInjuryBadge } from "@/utils/injuryBadge";
+import { isIrEligibleStatus } from "@/utils/illegalIR";
+import { useIllegalIR } from "@/hooks/useIllegalIR";
 import {
   formatGameInfo,
   liveToGameLog,
@@ -56,7 +64,6 @@ import {
 import * as Haptics from "expo-haptics";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Animated,
   Easing,
@@ -269,6 +276,10 @@ async function fetchTeamRosterForDate(
     if (stats) {
       return {
         ...stats,
+        // players.status is the canonical injury status (poll-injuries updates
+        // it directly). player_season_stats.status is not kept in sync, so
+        // prefer the fresh value here.
+        status: info?.status ?? stats.status,
         roster_slot: slots.slotMap.get(pid) ?? null,
         nbaTricode: nbaTricodeMap.get(pid) ?? null,
         acquired_at: (() => {
@@ -372,6 +383,9 @@ export default function RosterScreen() {
   const { data: scoringWeights } = useLeagueScoring(leagueId ?? "");
   const { data: league } = useLeague();
   const isCategories = league?.scoring_type === "h2h_categories";
+
+  const { data: illegalIRPlayers } = useIllegalIR(leagueId, teamId);
+  const irLocked = !!illegalIRPlayers && illegalIRPlayers.length > 0;
   const { data: rosterConfig, isLoading: isLoadingConfig } =
     useLeagueRosterConfig(leagueId ?? "");
 
@@ -381,16 +395,35 @@ export default function RosterScreen() {
     queryFn: async () => {
       const { data } = await supabase
         .from("league_schedule")
-        .select("start_date, end_date")
+        .select("start_date, end_date, week_number")
         .eq("league_id", leagueId!)
         .lte("start_date", today)
         .gte("end_date", today)
         .maybeSingle();
-      return data as { start_date: string; end_date: string } | null;
+      return data as { start_date: string; end_date: string; week_number: number } | null;
     },
     enabled: !!leagueId,
     staleTime: 1000 * 60 * 60,
   });
+
+  // First-visit coach mark for tap-to-move interaction
+  const [showMoveHint, setShowMoveHint] = useState(false);
+  useEffect(() => {
+    if (!teamId) return;
+    const key = `rosterTapHint:seen:${teamId}`;
+    AsyncStorage.getItem(key).then((seen) => {
+      if (!seen) setShowMoveHint(true);
+    });
+  }, [teamId]);
+  const dismissMoveHint = () => {
+    setShowMoveHint(false);
+    if (teamId) {
+      AsyncStorage.setItem(`rosterTapHint:seen:${teamId}`, "1").catch(() => {});
+    }
+  };
+
+  // Screenshot / share
+  const { shareRef, isSharing, shareRoster } = useRosterShare();
   // Earliest date this team acquired a player — prevents navigating before the roster existed
   const { data: rosterStartDate } = useQuery({
     queryKey: queryKeys.rosterStartDate(teamId!),
@@ -813,12 +846,37 @@ export default function RosterScreen() {
       return;
     }
 
+    const srcIsIR = sourceSlotPosition === "IR";
+    const srcIsTaxi = sourceSlotPosition === "TAXI";
+    const dstIsIR = destSlotPosition === "IR";
+    const dstIsTaxi = destSlotPosition === "TAXI";
+
+    // ── IR legality checks ──
+    // 1. Can only place a player on IR if they actually qualify for IR.
+    if (dstIsIR && !isIrEligibleStatus(sourcePlayer.status)) {
+      Alert.alert(
+        "IR not allowed",
+        `${sourcePlayer.name} is not injured and can't be placed on IR.`,
+      );
+      return;
+    }
+    // 2. If the team is locked by an illegal-IR player, only allow moves
+    //    that reduce the lockout (moving an illegal-IR player off IR).
+    if (irLocked) {
+      const resolvesLockout =
+        srcIsIR && !dstIsIR && !isIrEligibleStatus(sourcePlayer.status);
+      if (!resolvesLockout) {
+        const names = (illegalIRPlayers ?? []).map((p) => p.name).join(", ");
+        Alert.alert(
+          "Roster locked",
+          `${names} ${illegalIRPlayers!.length > 1 ? "are" : "is"} on IR but no longer injured. Activate them before making other roster moves.`,
+        );
+        return;
+      }
+    }
+
     setIsAssigning(true);
     try {
-      const srcIsIR = sourceSlotPosition === "IR";
-      const srcIsTaxi = sourceSlotPosition === "TAXI";
-      const dstIsIR = destSlotPosition === "IR";
-      const dstIsTaxi = destSlotPosition === "TAXI";
       const isIrTaxiInvolved = srcIsIR || srcIsTaxi || dstIsIR || dstIsTaxi;
 
       const deferred =
@@ -932,6 +990,9 @@ export default function RosterScreen() {
 
       // ── 4. Query invalidation ──
       if (isIrTaxiInvolved) {
+        queryClient.invalidateQueries({
+          queryKey: ["illegal-ir", leagueId, teamId],
+        });
         queryClient.invalidateQueries({
           queryKey: queryKeys.rosterInfo(leagueId, teamId),
         });
@@ -1303,7 +1364,7 @@ export default function RosterScreen() {
   if (isLoading) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
-        <ActivityIndicator style={styles.centered} />
+        <View style={styles.centered}><LogoSpinner delay={0} /></View>
       </SafeAreaView>
     );
   }
@@ -1538,41 +1599,15 @@ export default function RosterScreen() {
               })()}
             </View>
             <View style={styles.slotPlayerInfo}>
-              {/* Line 1: ● Name | badges */}
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 4,
-                  flexWrap: "wrap",
-                  flexShrink: 1,
-                }}
-              >
+              {/* Line 1: Name + injury badge */}
+              <View style={styles.slotLine1}>
                 <ThemedText
                   type="defaultSemiBold"
-                  style={[styles.slotPlayerName]}
+                  style={[styles.slotPlayerName, { flexShrink: 1 }]}
+                  numberOfLines={1}
                 >
                   {slot.player.name}
                 </ThemedText>
-                {matchupDisplay && (
-                  <View
-                    accessible={false}
-                    style={[
-                      styles.matchupChip,
-                      { backgroundColor: c.cardAlt },
-                      isLive && [styles.matchupChipLive, { borderColor: c.success }],
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.matchupChipText,
-                        { color: isLive ? c.success : c.secondaryText },
-                      ]}
-                    >
-                      {matchupDisplay}
-                    </Text>
-                  </View>
-                )}
                 {(() => {
                   const badge = getInjuryBadge(slot.player.status);
                   return badge ? (
@@ -1587,21 +1622,27 @@ export default function RosterScreen() {
                   ) : null;
                 })()}
               </View>
-              {/* Line 2: context-dependent sub-line */}
-              {isFutureDate || (isToday && !isLive && !statLine && matchup) ? (
-                <ThemedText
-                  style={[styles.slotPlayerSub, { color: c.secondaryText }]}
-                  numberOfLines={1}
+              {/* Line 2: matchup chip (or position fallback) */}
+              {matchupDisplay ? (
+                <View
+                  accessible={false}
+                  style={[
+                    styles.matchupChip,
+                    styles.slotMatchupChipStandalone,
+                    { backgroundColor: c.cardAlt },
+                    isLive && [styles.matchupChipLive, { borderColor: c.success }],
+                  ]}
                 >
-                  {formatPosition(slot.player.position)}
-                </ThemedText>
-              ) : gameInfo || statLine ? (
-                <ThemedText
-                  style={[styles.slotPlayerSub, { color: c.secondaryText }]}
-                  numberOfLines={1}
-                >
-                  {[gameInfo, statLine].filter(Boolean).join(" · ")}
-                </ThemedText>
+                  <Text
+                    style={[
+                      styles.matchupChipText,
+                      { color: isLive ? c.success : c.secondaryText },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {matchupDisplay}
+                  </Text>
+                </View>
               ) : (
                 <ThemedText
                   style={[styles.slotPlayerSub, { color: c.secondaryText }]}
@@ -1609,6 +1650,37 @@ export default function RosterScreen() {
                 >
                   {formatPosition(slot.player.position)}
                 </ThemedText>
+              )}
+              {/* Line 3: game status + stat line (split so stats never get chopped) */}
+              {(gameInfo || statLine) && (
+                <View style={styles.slotLine3}>
+                  {gameInfo ? (
+                    <ThemedText
+                      style={[
+                        styles.slotPlayerSub,
+                        { color: c.secondaryText, flexShrink: 0 },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {gameInfo}
+                    </ThemedText>
+                  ) : null}
+                  {statLine ? (
+                    <ThemedText
+                      style={[
+                        styles.slotPlayerSub,
+                        {
+                          color: c.secondaryText,
+                          flex: 1,
+                          marginLeft: gameInfo ? s(6) : 0,
+                        },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {statLine}
+                    </ThemedText>
+                  ) : null}
+                </View>
               )}
             </View>
             {!isCategories &&
@@ -1712,14 +1784,22 @@ export default function RosterScreen() {
               {formatDayLabel(selectedDate)}
             </ThemedText>
           </View>
-          {isPastDate && (
+          {currentWeek && (
+            <ThemedText
+              style={[styles.daySubLabel, { color: c.secondaryText }]}
+            >
+              Week {currentWeek.week_number}
+              {isPastDate ? ' · Past lineup (read-only)' : isToday ? " · Today's lineup" : ''}
+            </ThemedText>
+          )}
+          {!currentWeek && isPastDate && (
             <ThemedText
               style={[styles.daySubLabel, { color: c.secondaryText }]}
             >
               Past lineup (read-only)
             </ThemedText>
           )}
-          {isToday && (
+          {!currentWeek && isToday && (
             <ThemedText
               style={[styles.daySubLabel, { color: c.secondaryText }]}
             >
@@ -1754,7 +1834,32 @@ export default function RosterScreen() {
         )}
       </View>
 
+      {irLocked && (
+        <View
+          style={[
+            styles.irLockBanner,
+            { backgroundColor: c.danger + "20", borderColor: c.danger },
+          ]}
+          accessibilityRole="alert"
+          accessibilityLabel="Roster locked — illegal IR"
+        >
+          <Ionicons name="warning" size={18} color={c.danger} />
+          <ThemedText style={[styles.irLockBannerText, { color: c.text }]}>
+            Roster moves locked —{" "}
+            <ThemedText
+              style={[styles.irLockBannerText, { color: c.text, fontWeight: "700" }]}
+            >
+              {(illegalIRPlayers ?? []).map((p) => p.name).join(", ")}
+            </ThemedText>{" "}
+            {(illegalIRPlayers ?? []).length > 1 ? "are" : "is"} on IR but no longer injured. Activate{" "}
+            {(illegalIRPlayers ?? []).length > 1 ? "them" : "them"} to unlock your roster.
+          </ThemedText>
+        </View>
+      )}
+
       <ScrollView contentContainerStyle={styles.scrollContent}>
+        {/* Share-capturable roster content */}
+        <View ref={shareRef} collapsable={false} style={{ backgroundColor: c.cardAlt }}>
         {/* Starters */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
@@ -1764,6 +1869,15 @@ export default function RosterScreen() {
               <ThemedText type="subtitle" accessibilityRole="header">
                 Starters
               </ThemedText>
+              <TouchableOpacity
+                onPress={() => setShowMoveHint(true)}
+                style={styles.infoButton}
+                accessibilityRole="button"
+                accessibilityLabel="About moving players"
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="information-circle-outline" size={18} color={c.secondaryText} />
+              </TouchableOpacity>
               {canAutoLineup && (
                 <TouchableOpacity
                   onPress={promptAutoLineup}
@@ -1775,40 +1889,53 @@ export default function RosterScreen() {
                   accessibilityHint="Choose to optimize lineup for today or the rest of the week"
                 >
                   {isOptimizing ? (
-                    <ActivityIndicator
-                      size="small"
-                      color={c.statusText}
-                      style={{ height: 14 }}
-                    />
+                    <View style={{ height: 14 }}><LogoSpinner size={18} delay={0} /></View>
                   ) : (
                     <ThemedText style={[styles.autoButtonText, { color: c.statusText }]}>Auto</ThemedText>
                   )}
                 </TouchableOpacity>
               )}
             </View>
-            {!isCategories && starterTotal !== null && (
-              <View
-                style={[
-                  styles.totalBadge,
-                  {
-                    backgroundColor: c.activeCard,
-                    borderColor: c.activeBorder,
-                  },
-                ]}
-                accessibilityLabel={`Fantasy points: ${formatScore(starterTotal)}`}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: s(8) }}>
+              {!isCategories && starterTotal !== null && (
+                <View
+                  style={[
+                    styles.totalBadge,
+                    {
+                      backgroundColor: c.activeCard,
+                      borderColor: c.activeBorder,
+                    },
+                  ]}
+                  accessibilityLabel={`Fantasy points: ${formatScore(starterTotal)}`}
+                >
+                  <ThemedText
+                    style={[styles.totalLabel, { color: c.secondaryText }]}
+                  >
+                    FPTS
+                  </ThemedText>
+                  <ThemedText
+                    style={[styles.totalValue, { color: c.activeText }]}
+                  >
+                    {formatScore(starterTotal)}
+                  </ThemedText>
+                </View>
+              )}
+              <TouchableOpacity
+                onPress={shareRoster}
+                disabled={isSharing}
+                style={styles.shareButton}
+                accessibilityRole="button"
+                accessibilityLabel="Share roster as image"
+                accessibilityState={{ disabled: isSharing }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <ThemedText
-                  style={[styles.totalLabel, { color: c.secondaryText }]}
-                >
-                  FPTS
-                </ThemedText>
-                <ThemedText
-                  style={[styles.totalValue, { color: c.activeText }]}
-                >
-                  {formatScore(starterTotal)}
-                </ThemedText>
-              </View>
-            )}
+                {isSharing ? (
+                  <LogoSpinner size={18} delay={0} />
+                ) : (
+                  <Ionicons name="share-outline" size={18} color={c.secondaryText} />
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
           <View style={[styles.card, { backgroundColor: c.card }]}>
             {starterSlots.map((slot, idx) =>
@@ -1870,7 +1997,23 @@ export default function RosterScreen() {
             </View>
           </View>
         )}
+        </View>
+
+        {/* Draft Picks — outside the share capture, below Taxi */}
+        <MyPicksSection
+          teamId={teamId}
+          leagueId={leagueId}
+          isDynasty={(league?.league_type ?? "dynasty") === "dynasty"}
+        />
       </ScrollView>
+
+      {/* First-visit coach mark for changing lineup slots */}
+      <InfoModal
+        visible={showMoveHint}
+        onClose={dismissMoveHint}
+        title="Changing lineup slots"
+        message="Tap the position label (PG, SG, UTIL, BE, etc.) — or long-press a player — to open the move menu. From there you can swap slots, bench a starter, activate from IR, or move someone to the taxi squad. Tapping the player itself opens their details."
+      />
 
       {/* Slot Picker Modal */}
       {!isPastDate && (
@@ -2001,6 +2144,12 @@ const styles = StyleSheet.create({
     fontSize: ms(11),
     fontWeight: "700",
   },
+  infoButton: {
+    padding: s(2),
+  },
+  shareButton: {
+    padding: s(4),
+  },
   scrollContent: { paddingBottom: s(56) },
   centered: {
     flex: 1,
@@ -2014,6 +2163,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: s(8),
     paddingVertical: s(10),
     borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  irLockBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: s(8),
+    marginHorizontal: s(12),
+    marginTop: s(10),
+    padding: s(10),
+    borderRadius: s(8),
+    borderWidth: 1,
+  },
+  irLockBannerText: {
+    flex: 1,
+    fontSize: ms(13),
+    lineHeight: ms(17),
   },
   navArrow: { padding: s(12) },
   navArrowText: { fontSize: ms(28), lineHeight: ms(32) },
@@ -2132,6 +2296,20 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
   slotPlayerInfo: { flex: 1, marginRight: s(8) },
+  slotLine1: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  slotLine3: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 1,
+  },
+  slotMatchupChipStandalone: {
+    alignSelf: "flex-start",
+    marginTop: 2,
+  },
   slotPlayerName: { fontSize: ms(14) },
   slotPlayerSub: { fontSize: ms(11), marginTop: 1 },
   slotFpts: { fontSize: ms(13), fontWeight: "600" },

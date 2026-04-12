@@ -1,3 +1,5 @@
+import { AnimatedSection } from '@/components/ui/AnimatedSection';
+import { FormSection } from '@/components/ui/FormSection';
 import { ToggleRow } from '@/components/ToggleRow';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
@@ -21,7 +23,7 @@ export function StepTrade({ state, onChange }: StepTradeProps) {
     <View style={styles.container}>
       <ThemedText accessibilityRole="header" type="subtitle" style={styles.heading}>Trade Settings</ThemedText>
 
-      <View style={styles.section}>
+      <FormSection title="Trade Review">
         <ThemedText style={styles.label}>Veto Type</ThemedText>
         <SegmentedControl
           options={TRADE_VETO_OPTIONS}
@@ -35,57 +37,33 @@ export function StepTrade({ state, onChange }: StepTradeProps) {
               ? 'League members can vote to veto. The commissioner can also veto directly.'
               : 'Trades are processed immediately with no review period.'}
         </ThemedText>
-      </View>
 
-      {state.tradeVetoType !== 'None' && (
-        <View style={styles.section}>
-          <NumberStepper
-            label="Review Period (hours)"
-            value={state.tradeReviewPeriodHours}
-            onValueChange={(v) => onChange('tradeReviewPeriodHours', v)}
-            min={1}
-            max={72}
-          />
-        </View>
-      )}
+        <AnimatedSection visible={state.tradeVetoType !== 'None'}>
+          <View style={styles.fieldGap}>
+            <NumberStepper
+              label="Review Period (hours)"
+              value={state.tradeReviewPeriodHours}
+              onValueChange={(v) => onChange('tradeReviewPeriodHours', v)}
+              min={1}
+              max={72}
+            />
+          </View>
+        </AnimatedSection>
 
-      {state.tradeVetoType === 'League Vote' && (
-        <View style={styles.section}>
-          <NumberStepper
-            label="Votes to Veto"
-            value={state.tradeVotesToVeto}
-            onValueChange={(v) => onChange('tradeVotesToVeto', v)}
-            min={1}
-            max={Math.max(state.teams - 1, 1)}
-          />
-        </View>
-      )}
+        <AnimatedSection visible={state.tradeVetoType === 'League Vote'}>
+          <View style={styles.fieldGap}>
+            <NumberStepper
+              label="Votes to Veto"
+              value={state.tradeVotesToVeto}
+              onValueChange={(v) => onChange('tradeVotesToVeto', v)}
+              min={1}
+              max={Math.max(state.teams - 1, 1)}
+            />
+          </View>
+        </AnimatedSection>
+      </FormSection>
 
-      {(state.leagueType ?? 'Dynasty') === 'Dynasty' && (
-        <View style={styles.section}>
-          <ToggleRow
-            icon="shield-checkmark-outline"
-            label="Pick Protections & Swaps"
-            description="Allow draft pick protections and pick swap rights in trades"
-            value={state.pickConditionsEnabled}
-            onToggle={(v) => onChange('pickConditionsEnabled', v)}
-            c={{ border: c.border, accent: c.accent, secondaryText: c.secondaryText }}
-          />
-        </View>
-      )}
-
-      <View style={styles.section}>
-        <ToggleRow
-          icon="megaphone-outline"
-          label="League Intel"
-          description="Automatically announce when multiple teams are bidding or interested in the same player"
-          value={state.autoRumorsEnabled}
-          onToggle={(v) => onChange('autoRumorsEnabled', v)}
-          c={{ border: c.border, accent: c.accent, secondaryText: c.secondaryText }}
-        />
-      </View>
-
-      <View style={styles.section}>
+      <FormSection title="Trade Rules">
         <NumberStepper
           label="Trade Deadline (Week)"
           value={state.tradeDeadlineWeek}
@@ -98,7 +76,31 @@ export function StepTrade({ state, onChange }: StepTradeProps) {
             ? 'No trade deadline — trades allowed all season.'
             : `Trades lock after Week ${state.tradeDeadlineWeek}.`}
         </ThemedText>
-      </View>
+
+        {(state.leagueType ?? 'Dynasty') === 'Dynasty' && (
+          <View style={styles.fieldGap}>
+            <ToggleRow
+              icon="shield-checkmark-outline"
+              label="Pick Protections & Swaps"
+              description="Allow draft pick protections and pick swap rights in trades"
+              value={state.pickConditionsEnabled}
+              onToggle={(v) => onChange('pickConditionsEnabled', v)}
+              c={{ border: c.border, accent: c.accent, secondaryText: c.secondaryText }}
+            />
+          </View>
+        )}
+      </FormSection>
+
+      <FormSection title="Extras">
+        <ToggleRow
+          icon="megaphone-outline"
+          label="League Intel"
+          description="Automatically announce when multiple teams are bidding or interested in the same player"
+          value={state.autoRumorsEnabled}
+          onToggle={(v) => onChange('autoRumorsEnabled', v)}
+          c={{ border: c.border, accent: c.accent, secondaryText: c.secondaryText }}
+        />
+      </FormSection>
     </View>
   );
 }
@@ -108,19 +110,19 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   heading: {
-    marginBottom: s(20),
+    marginBottom: s(16),
   },
   label: {
     marginBottom: s(8),
     fontSize: ms(14),
     fontWeight: '500',
   },
-  section: {
-    marginBottom: s(20),
-  },
   hint: {
     fontSize: ms(13),
     marginTop: s(6),
     lineHeight: ms(18),
+  },
+  fieldGap: {
+    marginTop: s(12),
   },
 });

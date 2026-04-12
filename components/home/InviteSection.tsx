@@ -1,4 +1,4 @@
-import { Colors } from '@/constants/Colors';
+import { Colors, cardShadow } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { generateInviteCode } from '@/utils/inviteCode';
@@ -92,7 +92,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: s(14),
-    borderRadius: 10,
+    borderRadius: 12,
+    ...cardShadow,
   },
   code: {
     fontSize: ms(20),

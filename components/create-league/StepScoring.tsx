@@ -1,3 +1,4 @@
+import { FormSection } from '@/components/ui/FormSection';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
@@ -35,20 +36,22 @@ export function StepScoring({
         Scoring Settings
       </ThemedText>
 
-      <SegmentedControl
-        options={SCORING_TYPE_OPTIONS}
-        selectedIndex={SCORING_TYPE_OPTIONS.indexOf(state.scoringType)}
-        onSelect={(i) => onScoringTypeChange(SCORING_TYPE_OPTIONS[i])}
-      />
+      <FormSection title="Scoring Type">
+        <SegmentedControl
+          options={SCORING_TYPE_OPTIONS}
+          selectedIndex={SCORING_TYPE_OPTIONS.indexOf(state.scoringType)}
+          onSelect={(i) => onScoringTypeChange(SCORING_TYPE_OPTIONS[i])}
+        />
 
-      <ThemedText style={[styles.description, { color: c.secondaryText, marginTop: s(12) }]}>
-        {isCategories
-          ? 'Each stat is a category. Win the majority of categories to win the week.'
-          : 'Adjust point values for each stat category.'}
-      </ThemedText>
+        <ThemedText style={[styles.description, { color: c.secondaryText, marginTop: s(12) }]}>
+          {isCategories
+            ? 'Each stat is a category. Win the majority of categories to win the week.'
+            : 'Adjust point values for each stat category.'}
+        </ThemedText>
+      </FormSection>
 
       {isCategories ? (
-        <>
+        <FormSection title="Categories">
           <ThemedText style={[styles.categoryCount, { color: c.secondaryText }]}>
             {enabledCount} {enabledCount === 1 ? 'category' : 'categories'} active
           </ThemedText>
@@ -85,9 +88,9 @@ export function StepScoring({
           >
             <ThemedText style={{ color: c.accent }}>Reset to Standard 9-Cat</ThemedText>
           </TouchableOpacity>
-        </>
+        </FormSection>
       ) : (
-        <>
+        <FormSection title="Point Values">
           {state.scoring.map((cat, index) => (
             <NumberStepper
               key={cat.stat_name}
@@ -108,7 +111,7 @@ export function StepScoring({
           >
             <ThemedText style={{ color: c.accent }}>Reset to Defaults</ThemedText>
           </TouchableOpacity>
-        </>
+        </FormSection>
       )}
     </View>
   );

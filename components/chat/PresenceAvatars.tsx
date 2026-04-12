@@ -3,7 +3,7 @@ import { Colors } from "@/constants/Colors";
 import type { ReadReceipt } from "@/hooks/chat/useReadReceipts";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { ms, s } from "@/utils/scale";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, TouchableOpacity, View } from "react-native";
 import Animated, {
   Easing,
@@ -83,7 +83,13 @@ export function PresenceAvatars({
     return () => clearTimeout(t);
   }, [onlineTeams.length]);
 
-  const currentLiveIds = new Set(onlineTeams.map((t) => t.team_id));
+  // Stabilize the live-ID set so departure detection doesn't re-run every render
+  const liveIdKey = onlineTeams.map((t) => t.team_id).sort().join(",");
+  const currentLiveIds = useMemo(
+    () => new Set(onlineTeams.map((t) => t.team_id)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [liveIdKey],
+  );
 
   // Append newly joined teams (preserves existing positions)
   for (const t of onlineTeams) {
@@ -228,16 +234,19 @@ function AvatarSlot({
   exiting?: boolean;
   successColor: string;
 }) {
+  const mountIndex = useRef(index);
   const translateX = useSharedValue(60);
   const opacity = useSharedValue(1);
   const translateY = useSharedValue(0);
 
+  // Slide-in only on initial mount — ignore later index changes so
+  // remaining avatars don't replay the entrance animation when others leave.
   useEffect(() => {
     translateX.value = withDelay(
-      index * 60,
+      mountIndex.current * 60,
       withTiming(0, { duration: 200, easing: Easing.out(Easing.quad) }),
     );
-  }, [index, translateX]);
+  }, [translateX]);
 
   // When marked as exiting, play fade + drop in place
   useEffect(() => {

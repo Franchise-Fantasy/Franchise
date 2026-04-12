@@ -1,3 +1,4 @@
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
@@ -9,7 +10,6 @@ import { ms, s } from '@/utils/scale';
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Modal,
   StyleSheet,
@@ -104,7 +104,7 @@ export function SeedPickModal({ visible, onClose, pick, teamMap, season }: Props
 
           {!isOurTurn ? (
             <View style={styles.waitingBox}>
-              <ActivityIndicator style={{ marginBottom: 8 }} />
+              <View style={{ marginBottom: 8 }}><LogoSpinner /></View>
               <ThemedText style={{ color: c.secondaryText, textAlign: 'center' }}>
                 Waiting for higher seeds to pick...
               </ThemedText>
@@ -163,7 +163,7 @@ export function SeedPickModal({ visible, onClose, pick, teamMap, season }: Props
                   ]}
                 >
                   {submitting ? (
-                    <ActivityIndicator color={c.accentText} size="small" />
+                    <LogoSpinner size={18} />
                   ) : (
                     <Text style={[styles.btnText, { color: c.accentText }]}>Confirm</Text>
                   )}

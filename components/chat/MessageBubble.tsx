@@ -2,6 +2,8 @@ import { PollBubble } from "@/components/chat/PollBubble";
 import { RumorBubble } from "@/components/chat/RumorBubble";
 import { SurveyBubble } from "@/components/chat/SurveyBubble";
 import { TradeBubble } from "@/components/chat/TradeBubble";
+import { TradeUpdateBubble } from "@/components/chat/TradeUpdateBubble";
+import type { TradeUpdateContent, TradeUpdateEvent } from "@/types/chat";
 import { TeamLogo } from "@/components/team/TeamLogo";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
@@ -475,6 +477,43 @@ export function MessageBubble({
               />
               <RumorBubble rumorText={rumorText} />
             </TouchableOpacity>
+          </Animated.View>
+          {showSwipeTime && (
+            <Animated.View style={[styles.swipeTime, timeRevealStyle]}>
+              <ThemedText
+                style={[styles.swipeTimeText, { color: c.secondaryText }]}
+              >
+                {timeStr}
+              </ThemedText>
+            </Animated.View>
+          )}
+        </View>
+      </Animated.View>
+    );
+  }
+
+  // Trade update system messages
+  if (message.type === "trade_update") {
+    let event: TradeUpdateEvent = "proposed";
+    let updateTeamName: string | null = null;
+    try {
+      const parsed: TradeUpdateContent = JSON.parse(message.content);
+      event = parsed.event;
+      updateTeamName = parsed.team_name;
+    } catch {
+      // fall back to defaults
+    }
+    return (
+      <Animated.View
+        entering={enterAnim}
+        style={[
+          styles.pollWrapper,
+          isFirstInGroup ? styles.wrapperGroupEnd : styles.wrapperGrouped,
+        ]}
+      >
+        <View style={styles.swipeRow}>
+          <Animated.View style={[{ flex: 1 }, slideStyle]}>
+            <TradeUpdateBubble event={event} teamName={updateTeamName} />
           </Animated.View>
           {showSwipeTime && (
             <Animated.View style={[styles.swipeTime, timeRevealStyle]}>

@@ -1,6 +1,7 @@
 import { sendNotification } from "@/lib/notifications";
 import { supabase } from "@/lib/supabase";
 import { GameTimeMap, hasAnyGameStarted, isGameStarted } from "@/utils/gameStarted";
+import { assertNoIllegalIR } from "@/utils/illegalIR";
 
 /**
  * Insert a free agent into league_players, log the transaction, and notify.
@@ -20,6 +21,9 @@ export async function addFreeAgent(params: {
   gameTimeMap: GameTimeMap;
 }): Promise<{ deferred: boolean }> {
   const { leagueId, teamId, player, playerLockType, gameTimeMap } = params;
+
+  // Block the add if this team has any healthy player parked on IR.
+  await assertNoIllegalIR(leagueId, teamId);
 
   // Determine if the add is locked
   let locked = false;

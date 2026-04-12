@@ -8,13 +8,13 @@ import { formatPickLabel } from '@/types/trade';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import {
-  ActivityIndicator,
   Modal,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 
 interface TradeHistoryModalProps {
   transactionId: string;
@@ -168,7 +168,7 @@ export function TradeHistoryModal({ transactionId, leagueId, onClose }: TradeHis
           </View>
 
           {isLoading ? (
-            <ActivityIndicator style={styles.loader} />
+            <View style={styles.loader}><LogoSpinner /></View>
           ) : !trade ? (
             <View style={styles.emptyWrap}>
               <ThemedText style={{ color: c.secondaryText }}>Trade details not available</ThemedText>

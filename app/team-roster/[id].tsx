@@ -21,8 +21,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { getPlayerHeadshotUrl, getTeamLogoUrl } from '@/utils/playerHeadshot';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import {
-  ActivityIndicator,
   Image,
   ScrollView,
   StyleSheet,
@@ -210,7 +210,9 @@ export default function TeamRosterScreen() {
   if (isLoading) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
-        <ActivityIndicator style={styles.centered} />
+        <View style={styles.centered}>
+          <LogoSpinner />
+        </View>
       </SafeAreaView>
     );
   }

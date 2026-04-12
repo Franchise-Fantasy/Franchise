@@ -1,3 +1,4 @@
+import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
 import { ms, s } from '@/utils/scale';
@@ -15,7 +16,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Modal,
   ScrollView,
@@ -342,7 +342,7 @@ export function UpgradeModal({
               }
             >
               {purchasing === "pro" ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
+                <LogoSpinner size={18} />
               ) : (
                 <Text
                   style={[
@@ -418,7 +418,7 @@ export function UpgradeModal({
               }
             >
               {purchasing === "premium" ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
+                <LogoSpinner size={18} />
               ) : (
                 <Text
                   style={[

@@ -103,30 +103,33 @@ export function TradeBubble({ tradeSummary }: Props) {
         <ThemedText style={[styles.headerText, isBlockbuster && styles.headerBlockbuster]}>
           {config.emoji} {config.label}
         </ThemedText>
-        {tier !== 'minor' && (
-          <View style={[styles.tierBadge, { backgroundColor: isBlockbuster ? c.gold : c.accent }]}>
-            <ThemedText style={[styles.tierBadgeText, { color: c.statusText }]}>{tier.toUpperCase()}</ThemedText>
-          </View>
-        )}
       </View>
 
       {/* Moves grouped by receiving team */}
-      {Object.entries(receiveGroups).map(([teamName, moves]) => (
-        <View key={teamName} style={styles.teamSection}>
-          <ThemedText style={[styles.teamLabel, { color: c.secondaryText }]}>
-            {teamName} receives:
-          </ThemedText>
-          {moves.map((move, i) => (
-            <View key={`${move.asset}-${i}`} style={styles.moveRow}>
-              <ThemedText style={styles.bullet}>•</ThemedText>
-              <ThemedText style={styles.moveText}>
-                {move.asset}
-                {move.protection ? ` (${move.protection})` : ''}
-              </ThemedText>
-            </View>
-          ))}
-        </View>
-      ))}
+      {Object.entries(receiveGroups).map(([teamName, moves]) => {
+        const isMultiTeam = (tradeSummary?.team_count ?? 2) > 2;
+        return (
+          <View key={teamName} style={styles.teamSection}>
+            <ThemedText style={[styles.teamLabel, { color: c.secondaryText }]}>
+              {teamName} receives:
+            </ThemedText>
+            {moves.map((move, i) => (
+              <View key={`${move.asset}-${i}`} style={styles.moveRow}>
+                <ThemedText style={styles.bullet}>•</ThemedText>
+                <ThemedText style={styles.moveText}>
+                  {move.asset}
+                  {move.protection ? ` (${move.protection})` : ''}
+                  {isMultiTeam && move.from_team_name ? (
+                    <ThemedText style={[styles.fromTeam, { color: c.secondaryText }]}>
+                      {' '}(from {move.from_team_name})
+                    </ThemedText>
+                  ) : null}
+                </ThemedText>
+              </View>
+            ))}
+          </View>
+        );
+      })}
     </Wrapper>
   );
 }
@@ -182,5 +185,9 @@ const styles = StyleSheet.create({
     fontSize: ms(14),
     lineHeight: ms(20),
     flex: 1,
+  },
+  fromTeam: {
+    fontSize: ms(12),
+    fontStyle: 'italic',
   },
 });

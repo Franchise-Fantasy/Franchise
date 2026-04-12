@@ -1,5 +1,5 @@
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Colors, cardShadow } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { SpotlightCardProps } from '@/types/cms';
 import { Image, StyleSheet, TouchableOpacity, View } from 'react-native';
@@ -71,9 +71,10 @@ export function SpotlightCard({
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     padding: s(14),
+    ...cardShadow,
   },
   header: {
     flexDirection: 'row',

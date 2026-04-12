@@ -1,3 +1,4 @@
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ToggleRow } from '@/components/ToggleRow';
@@ -11,7 +12,6 @@ import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Modal,
@@ -354,7 +354,7 @@ export function CreatePollModal({
             accessibilityState={{ disabled: !canSubmit }}
           >
             {createPoll.isPending ? (
-              <ActivityIndicator color={c.statusText} size="small" />
+              <LogoSpinner size={18} />
             ) : (
               <Text style={[styles.createBtnText, { color: c.statusText }]}>Create Poll</Text>
             )}
@@ -373,6 +373,11 @@ const styles = StyleSheet.create({
     padding: s(20),
     paddingBottom: s(32),
     maxHeight: '90%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
   },
   header: {
     flexDirection: 'row',
@@ -394,6 +399,11 @@ const styles = StyleSheet.create({
     padding: s(12),
     fontSize: ms(15),
     minHeight: s(60),
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 2,
+    elevation: 1,
   },
   counter: {
     fontSize: ms(11),
@@ -413,6 +423,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: s(12),
     paddingVertical: s(8),
     fontSize: ms(15),
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 2,
+    elevation: 1,
   },
   removeBtn: {
     padding: s(4),

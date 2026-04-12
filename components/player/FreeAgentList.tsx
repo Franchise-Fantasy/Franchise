@@ -1,5 +1,6 @@
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import { PlayerFilterBar } from "@/components/player/PlayerFilterBar";
+import { InfoModal } from "@/components/ui/InfoModal";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
 import { queryKeys } from "@/constants/queryKeys";
@@ -9,6 +10,7 @@ import { TimeRange, usePlayerFilter } from "@/hooks/usePlayerFilter";
 import { useWatchlist } from "@/hooks/useWatchlist";
 import { supabase } from "@/lib/supabase";
 import { addFreeAgent } from "@/utils/addFreeAgent";
+import { assertNoIllegalIR } from "@/utils/illegalIR";
 import { PlayerSeasonStats } from "@/types/player";
 import { toDateStr } from "@/utils/dates";
 import { calculateAvgFantasyPoints } from "@/utils/fantasyPoints";
@@ -206,6 +208,8 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     "claims" | "waivers" | null
   >(null);
 
+  const [infoKey, setInfoKey] = useState<"acq" | "stats" | null>(null);
+
   // FAAB bid modal state
   const [faabModalPlayer, setFaabModalPlayer] =
     useState<PlayerSeasonStats | null>(null);
@@ -232,11 +236,15 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   });
   const isCategories = leagueScoringType === "h2h_categories";
 
-  // Fetch today's NBA schedule for "playing today" indicator
+  // User-selected "playing on date" filter — null means filter is off
+  const [playingOnDate, setPlayingOnDate] = useState<string | null>(null);
+
+  // Fetch NBA schedule for the selected date (defaults to today so row badges still show)
   const todayStr = toDateStr(new Date());
+  const scheduleDate = playingOnDate ?? todayStr;
   const { data: todaySchedule } = useQuery({
-    queryKey: queryKeys.todaySchedule(todayStr),
-    queryFn: () => fetchNbaScheduleForDate(todayStr),
+    queryKey: queryKeys.todaySchedule(scheduleDate),
+    queryFn: () => fetchNbaScheduleForDate(scheduleDate),
     staleTime: 1000 * 60 * 30,
   });
 
@@ -263,7 +271,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   useEffect(() => {
     if (!leagueId) return;
     const channel = supabase
-      .channel(`fa_draft_status_${leagueId}`)
+      .channel(`fa_draft_status_${leagueId}-${Date.now()}`)
       .on(
         "postgres_changes",
         {
@@ -512,13 +520,13 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     return map;
   }, [ownershipRows]);
 
-  // Fetch last 30 days of game logs for FREE AGENTS only (time-range stats + "Minutes Up" filter)
-  const freeAgentIds = useMemo(() => {
-    if (!allPlayers || !rosteredPlayerIds) return [];
-    return allPlayers
-      .filter((p) => !rosteredPlayerIds.has(p.player_id))
-      .map((p) => p.player_id);
-  }, [allPlayers, rosteredPlayerIds]);
+  // Fetch last 30 days of game logs for every player with a season row — powers the time-range
+  // stats and "Minutes Rising" filter. Must include rostered players so they stay visible when
+  // the user toggles off the "free agents only" pill.
+  const allPlayerIds = useMemo(() => {
+    if (!allPlayers) return [];
+    return allPlayers.map((p) => p.player_id);
+  }, [allPlayers]);
   const { data: recentGameLogs } = useQuery({
     queryKey: queryKeys.recentGameLogs(leagueId),
     queryFn: async () => {
@@ -529,8 +537,8 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       // Batch into chunks of 200 IDs to stay within URL length limits
       const CHUNK = 200;
       const allRows: any[] = [];
-      for (let i = 0; i < freeAgentIds.length; i += CHUNK) {
-        const chunk = freeAgentIds.slice(i, i + CHUNK);
+      for (let i = 0; i < allPlayerIds.length; i += CHUNK) {
+        const chunk = allPlayerIds.slice(i, i + CHUNK);
         const { data, error } = await supabase
           .from("player_games")
           .select(
@@ -545,7 +553,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       }
       return allRows;
     },
-    enabled: !!leagueId && freeAgentIds.length > 0,
+    enabled: !!leagueId && allPlayerIds.length > 0,
     staleTime: 1000 * 60 * 15,
   });
 
@@ -685,6 +693,8 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     todaySchedule ?? undefined,
     watchlistedIds,
     rosteredPlayerIds,
+    playingOnDate,
+    setPlayingOnDate,
   );
 
   // Look up original season stats for PlayerDetailModal (avoid passing time-range-adjusted stats)
@@ -759,6 +769,15 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   const handleAddPlayer = async (player: PlayerSeasonStats) => {
     setAddingPlayerId(player.player_id);
     try {
+      // IR lockout preflight — block before even opening the drop picker so
+      // users aren't led through a modal flow only to be rejected at the end.
+      try {
+        await assertNoIllegalIR(leagueId, teamId);
+      } catch (err: any) {
+        Alert.alert("Roster locked", err.message ?? "Roster is locked.");
+        setAddingPlayerId(null);
+        return;
+      }
       // Re-check roster limit and weekly acquisition limit before adding
       const [allRes, irRes, leagueRes] = await Promise.all([
         supabase
@@ -957,6 +976,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   ) => {
     setAddingPlayerId(player.player_id);
     try {
+      await assertNoIllegalIR(leagueId, teamId);
       // Get current waiver priority
       const { data: wp } = await supabase
         .from("waiver_priority")
@@ -1008,6 +1028,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     }
     setAddingPlayerId(player.player_id);
     try {
+      await assertNoIllegalIR(leagueId, teamId);
       const { data: wp } = await supabase
         .from("waiver_priority")
         .select("priority")
@@ -1117,7 +1138,16 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   };
 
   // Handle the add/claim button press
-  const handleButtonPress = (player: PlayerSeasonStats) => {
+  const handleButtonPress = async (player: PlayerSeasonStats) => {
+    // IR lockout preflight — applies to every add/claim/drop-picker entry
+    // point so users aren't led into a modal flow while locked.
+    try {
+      await assertNoIllegalIR(leagueId, teamId);
+    } catch (err: any) {
+      Alert.alert("Roster locked", err.message ?? "Roster is locked.");
+      return;
+    }
+
     const needsClaim = isOnWaivers(player.player_id);
 
     if (!needsClaim) {
@@ -1168,6 +1198,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         style={[
           styles.row,
           { borderBottomColor: c.border },
+          index % 2 === 1 && styles.rowAlt,
           index === (filteredPlayers ?? []).length - 1 && {
             borderBottomWidth: 0,
           },
@@ -1374,12 +1405,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
                       borderColor: weeklyLimitReached ? c.danger : c.link,
                     },
                   ]}
-                  onPress={() =>
-                    Alert.alert(
-                      "Weekly Acquisitions",
-                      "Player pickups used this matchup week. Once the limit is reached, no more free agent adds are allowed until next week.",
-                    )
-                  }
+                  onPress={() => setInfoKey("acq")}
                   accessibilityLabel={`Weekly acquisitions: ${weeklyAddsUsed ?? 0} of ${weeklyLimit} used${weeklyLimitReached ? ", limit reached" : ""}`}
                   accessibilityRole="button"
                 >
@@ -1470,7 +1496,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
                   >
                     {waiverType === "faab"
                       ? `FAAB: $${faabRemaining ?? 0}`
-                      : "Waivers"}
+                      : "Waiver Order"}
                   </Text>
                 </TouchableOpacity>
               )}
@@ -1479,12 +1505,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
           <TouchableOpacity
             style={styles.statInfoBtn}
-            onPress={() =>
-              Alert.alert(
-                "Player Stats",
-                "The numbers shown for each player are:\n\nPTS / REB / AST\n(points, rebounds, assists per game)",
-              )
-            }
+            onPress={() => setInfoKey("stats")}
             accessibilityRole="button"
             accessibilityLabel="What do the stats mean?"
           >
@@ -1781,6 +1802,19 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
           </View>
         </View>
       </Modal>
+
+      <InfoModal
+        visible={infoKey === "acq"}
+        onClose={() => setInfoKey(null)}
+        title="Weekly Acquisitions"
+        message="Player pickups used this matchup week. Once the limit is reached, no more free agent adds are allowed until next week."
+      />
+      <InfoModal
+        visible={infoKey === "stats"}
+        onClose={() => setInfoKey(null)}
+        title="Player Stats"
+        message={"The numbers shown for each player are:\n\nPTS / REB / AST\n(points, rebounds, assists per game)"}
+      />
     </View>
   );
 }
@@ -1800,7 +1834,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: s(8),
-    paddingBottom: s(8),
+    paddingBottom: s(100),
   },
   ribbonRow: {
     flexDirection: "row",
@@ -1817,6 +1851,9 @@ const styles = StyleSheet.create({
     paddingVertical: s(6),
     paddingHorizontal: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  rowAlt: {
+    backgroundColor: "rgba(128, 128, 128, 0.09)",
   },
   portraitWrap: {
     width: s(58),

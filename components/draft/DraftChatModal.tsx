@@ -21,7 +21,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
   Modal,
@@ -30,6 +29,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ms, s } from '@/utils/scale';
 import { useSharedValue } from 'react-native-reanimated';
@@ -366,7 +366,7 @@ export function DraftChatModal({
         >
           {isLoading || !conversationId ? (
             <View style={styles.empty}>
-              <ActivityIndicator />
+              <LogoSpinner />
             </View>
           ) : messages.length === 0 ? (
             <View style={styles.empty}>
@@ -389,7 +389,7 @@ export function DraftChatModal({
               windowSize={7}
               ListFooterComponent={
                 isFetchingNextPage ? (
-                  <ActivityIndicator style={styles.footerLoader} />
+                  <View style={styles.footerLoader}><LogoSpinner size={18} /></View>
                 ) : null
               }
             />

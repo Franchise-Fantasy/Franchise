@@ -69,8 +69,6 @@ export async function moderateImage(
       return { safe: false, reason: "Image moderation unavailable" };
     }
 
-    console.log("Vision SafeSearch result:", JSON.stringify(annotation));
-
     for (const [category, likelihood] of Object.entries(annotation)) {
       if (category === "spoof" || category === "medical") continue;
       const level = LIKELIHOOD_VALUES[likelihood] ?? 0;

@@ -11,7 +11,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   FlatList,
   Modal,
@@ -20,6 +19,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 
 interface Props {
   visible: boolean;
@@ -273,7 +273,7 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
           {/* Step: Pick a pick for protection */}
           {step === 'protection_pick' && (
             picksLoading ? (
-              <View style={styles.loading}><ActivityIndicator size="large" /></View>
+              <View style={styles.loading}><LogoSpinner /></View>
             ) : (
               <FlatList
                 data={allPicks}
@@ -360,7 +360,7 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
                   onPress={handleSetProtection}
                   disabled={processing}
                 >
-                  {processing ? <ActivityIndicator color={c.statusText} /> : (
+                  {processing ? <LogoSpinner size={18} /> : (
                     <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>
                       {selectedPick.protection_threshold ? 'Update Protection' : 'Add Protection'}
                     </ThemedText>
@@ -461,7 +461,7 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
                 onPress={handleCreateSwap}
                 disabled={processing}
               >
-                {processing ? <ActivityIndicator color={c.statusText} /> : (
+                {processing ? <LogoSpinner size={18} /> : (
                   <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Create Swap</ThemedText>
                 )}
               </TouchableOpacity>

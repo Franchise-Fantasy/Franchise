@@ -81,25 +81,22 @@ export function useWeekScores({ leagueId, scheduleId, weekIsLive }: UseWeekScore
     }
 
     const channel = supabase
-      .channel(`week-scores-${scheduleId}`)
+      .channel(`week-scores-${scheduleId}-${Date.now()}`)
       .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'week_scores',
-          filter: `schedule_id=eq.${scheduleId}`,
-        },
+        'broadcast',
+        { event: 'score_update' },
         (payload) => {
-          // Update the cache directly from the realtime payload instead of refetching.
-          // Each payload contains one team's updated score row.
-          const row = payload.new as { team_id: string; score: number } | undefined;
-          if (row?.team_id != null && row?.score != null) {
+          // Broadcast delivers the full score map for this schedule in one message,
+          // avoiding per-row WAL overhead from postgres_changes.
+          const scores = payload.payload?.scores as Record<string, number> | undefined;
+          if (scores) {
             queryClient.setQueryData(
               queryKeys.weekScores(leagueId!, scheduleId!),
               (old: Record<string, number> | undefined) => ({
                 ...old,
-                [row.team_id]: Number(row.score),
+                ...Object.fromEntries(
+                  Object.entries(scores).map(([k, v]) => [k, Number(v)]),
+                ),
               }),
             );
           }

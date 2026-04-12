@@ -1,5 +1,5 @@
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Colors, cardShadow } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Ionicons } from '@expo/vector-icons';
 import type { TipCardProps } from '@/types/cms';
@@ -49,9 +49,10 @@ export function TipCard({ title, body, category, iconName, onPress }: TipCardPro
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     padding: s(12),
+    ...cardShadow,
   },
   row: {
     flexDirection: 'row',

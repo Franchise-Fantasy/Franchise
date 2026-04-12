@@ -1,6 +1,6 @@
 import { capture } from "@/lib/posthog";
 import { ThemedText } from "@/components/ui/ThemedText";
-import { PlayerGameLog } from "@/components/player/PlayerGameLog";
+import { PlayerGameLog, PlayerGameLogHeader } from "@/components/player/PlayerGameLog";
 import { NewsCard } from "@/components/player/NewsCard";
 import { PlayerHistory } from "@/components/player/PlayerHistory";
 import { PlayerInsightsCard } from "@/components/player/PlayerInsights";
@@ -26,6 +26,7 @@ import { isEligibleForSlot } from "@/utils/rosterSlots";
 import { calculateAvgFantasyPoints } from "@/utils/fantasyPoints";
 import { formatPosition } from "@/utils/formatting";
 import { addFreeAgent } from "@/utils/addFreeAgent";
+import { assertNoIllegalIR } from "@/utils/illegalIR";
 import { GameTimeMap, hasAnyGameStarted, isGameStarted, useTodayGameTimes } from "@/utils/gameStarted";
 import { isActiveSlot } from "@/utils/resolveSlot";
 import { ms, s } from '@/utils/scale';
@@ -37,19 +38,21 @@ import {
 } from "@/utils/nbaLive";
 import { isOnline } from "@/utils/network";
 import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
+import { calculateAge } from "@/utils/rosterAge";
 import { isTaxiEligible } from "@/utils/taxiEligibility";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Animated,
   FlatList,
   Image,
   KeyboardAvoidingView,
   Modal,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   PanResponder,
   Platform,
   ScrollView,
@@ -58,6 +61,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { center } from "@shopify/react-native-skia";
+import { LogoSpinner } from "@/components/ui/LogoSpinner";
 
 interface PlayerDetailModalProps {
   player: PlayerSeasonStats | null;
@@ -110,6 +115,20 @@ export function PlayerDetailModal({
   const [tradeBlockNoteInput, setTradeBlockNoteInput] = useState("");
 
   const [gameLogExpanded, setGameLogExpanded] = useState(false);
+
+  // Local in-modal toast — the global ToastProvider renders beneath the Modal
+  // on native, so confirmations triggered inside the modal (e.g. watchlist
+  // toggle) get hidden. This inline pill sits inside the sheet itself.
+  const [inlineToast, setInlineToast] = useState<string | null>(null);
+  const inlineToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showInlineToast = (message: string) => {
+    if (inlineToastTimer.current) clearTimeout(inlineToastTimer.current);
+    setInlineToast(message);
+    inlineToastTimer.current = setTimeout(() => setInlineToast(null), 1800);
+  };
+  useEffect(() => () => {
+    if (inlineToastTimer.current) clearTimeout(inlineToastTimer.current);
+  }, []);
 
   useEffect(() => {
     if (player && startInDropPicker) setShowDropPicker(true);
@@ -449,6 +468,13 @@ export function PlayerDetailModal({
   };
 
   const scrollRef = useRef<ScrollView>(null);
+  // Refs for the game-log header/body horizontal scroll views so we can
+  // keep them in sync while the sticky header is pinned.
+  const gameLogHeaderScrollRef = useRef<ScrollView>(null);
+  const gameLogBodyScrollRef = useRef<ScrollView>(null);
+  const handleGameLogBodyScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    gameLogHeaderScrollRef.current?.scrollTo({ x: e.nativeEvent.contentOffset.x, animated: false });
+  };
 
   // Swipe-to-dismiss gesture
   const translateY = useRef(new Animated.Value(0)).current;
@@ -600,6 +626,15 @@ export function PlayerDetailModal({
       return;
     }
 
+    // IR lockout preflight — block before opening the drop picker or starting
+    // any other flow, so users aren't led into a modal they'll be rejected from.
+    try {
+      await assertNoIllegalIR(leagueId, teamId);
+    } catch (err: any) {
+      Alert.alert("Roster locked", err.message ?? "Roster is locked.");
+      return;
+    }
+
     // If this player requires a waiver claim, delegate to the claim callback
     // or handle natively if no callback provided
     if (needsWaiverClaim) {
@@ -708,6 +743,7 @@ export function PlayerDetailModal({
 
     setIsProcessing(true);
     try {
+      await assertNoIllegalIR(leagueId, teamId);
       // For add-and-drop, check if the dropped player is a starter whose game
       // has started — if so, queue the drop for tomorrow instead of dropping now.
       if (playerToDrop && player && parentGameTimeMap && playerLockType) {
@@ -755,7 +791,7 @@ export function PlayerDetailModal({
             },
             playerLockType,
             gameTimeMap: parentGameTimeMap,
-          });
+              });
 
           const addMsg = deferred
             ? `${player.name} will appear on your roster tomorrow.`
@@ -922,7 +958,7 @@ export function PlayerDetailModal({
           },
           playerLockType: playerLockType ?? null,
           gameTimeMap: parentGameTimeMap ?? gameTimeMap,
-        });
+          });
 
         // Log the drop side of the transaction
         const { data: dropTxn, error: dropTxnError } = await supabase
@@ -1500,6 +1536,7 @@ export function PlayerDetailModal({
     if (!teamId || !player || !leagueId) return;
     setIsProcessing(true);
     try {
+      await assertNoIllegalIR(leagueId, teamId);
       const { data: existing } = await supabase
         .from("pending_transactions")
         .select("id")
@@ -1702,7 +1739,7 @@ export function PlayerDetailModal({
             </View>
 
             {isProcessing ? (
-              <ActivityIndicator style={styles.loading} />
+              <View style={styles.loading}><LogoSpinner /></View>
             ) : (
               <FlatList
                 data={(rosterPlayers ?? []).filter(
@@ -1835,7 +1872,11 @@ export function PlayerDetailModal({
                     </TouchableOpacity>
                   )}
                   <TouchableOpacity
-                    onPress={() => toggleWatchlist(player.player_id)}
+                    onPress={() => {
+                      const wasWatched = isWatchlisted(player.player_id);
+                      toggleWatchlist(player.player_id);
+                      showInlineToast(wasWatched ? 'Removed from watchlist' : 'Added to watchlist');
+                    }}
                     hitSlop={8}
                     style={{ marginLeft: s(6) }}
                     accessibilityRole="button"
@@ -1873,7 +1914,10 @@ export function PlayerDetailModal({
                   <ThemedText
                     style={[styles.subtitle, { color: c.secondaryText }]}
                   >
-                    {player.nba_team} · {formatPosition(player.position)} · {player.games_played}
+                    {player.nba_team} · {formatPosition(player.position)}
+                    {player.birthdate ? ` · ${calculateAge(player.birthdate)}y` : ""}
+                    {" · "}
+                    {player.games_played}
                     {teamGamesPlayed ? `/${teamGamesPlayed}` : ""} GP
                   </ThemedText>
                 </View>
@@ -1930,7 +1974,7 @@ export function PlayerDetailModal({
                               accessibilityLabel={`Activate ${player.name} from IR`}
                             >
                               {isProcessing ? (
-                                <ActivityIndicator size="small" color={c.statusText} />
+                                <LogoSpinner size={18} />
                               ) : (
                                 <ThemedText style={[styles.headerBtnText, { color: c.statusText }]}>
                                   Activate
@@ -1951,7 +1995,7 @@ export function PlayerDetailModal({
                               accessibilityLabel={`Promote ${player.name} from taxi squad`}
                             >
                               {isProcessing ? (
-                                <ActivityIndicator size="small" color={c.statusText} />
+                                <LogoSpinner size={18} />
                               ) : (
                                 <ThemedText style={[styles.headerBtnText, { color: c.statusText }]}>
                                   Promote
@@ -1999,7 +2043,7 @@ export function PlayerDetailModal({
                             disabled={!canTransact}
                           >
                             {isProcessing && playerRosterSlot !== "IR" ? (
-                              <ActivityIndicator size="small" color={c.statusText} />
+                              <LogoSpinner size={18} />
                             ) : (
                               <ThemedText style={[styles.headerBtnText, { color: c.statusText }]}>
                                 Drop
@@ -2056,11 +2100,13 @@ export function PlayerDetailModal({
                           <TouchableOpacity
                             style={[
                               styles.headerBtn,
-                              {
-                                backgroundColor: isOnTradeBlock
-                                  ? c.warning
-                                  : c.secondaryText,
-                              },
+                              isOnTradeBlock
+                                ? { backgroundColor: c.warning }
+                                : {
+                                    backgroundColor: "transparent",
+                                    borderWidth: 1,
+                                    borderColor: c.warning,
+                                  },
                               isProcessing && styles.buttonDisabled,
                             ]}
                             onPress={handleToggleTradeBlock}
@@ -2079,7 +2125,7 @@ export function PlayerDetailModal({
                                   : "megaphone-outline"
                               }
                               size={12}
-                              color={c.statusText}
+                              color={isOnTradeBlock ? c.statusText : c.warning}
                             />
                           </TouchableOpacity>
                         </>
@@ -2102,7 +2148,7 @@ export function PlayerDetailModal({
                           }
                         >
                           {isProcessing ? (
-                            <ActivityIndicator size="small" color={c.statusText} />
+                            <LogoSpinner size={18} />
                           ) : (
                             <ThemedText style={[styles.headerBtnText, { color: c.statusText }]}>
                               {needsWaiverClaim ? "Claim" : "Add"}
@@ -2128,6 +2174,7 @@ export function PlayerDetailModal({
           <ScrollView
             ref={scrollRef}
             contentContainerStyle={styles.scrollContent}
+            stickyHeaderIndices={[6]}
           >
             {/* Stats + Insights (unified block) */}
             <SeasonAverages
@@ -2174,7 +2221,7 @@ export function PlayerDetailModal({
               {[
                 <View key="news" style={{ paddingHorizontal: s(16), gap: s(10) }}>
                   {isLoadingNews ? (
-                    <ActivityIndicator style={{ marginTop: s(20) }} color={c.accent} />
+                    <View style={{ marginTop: s(20) }}><LogoSpinner /></View>
                   ) : playerNews && playerNews.length > 0 ? (
                     playerNews.slice(0, 10).map((article) => (
                       <NewsCard key={article.id} article={article} />
@@ -2233,6 +2280,20 @@ export function PlayerDetailModal({
               </View>
             </View>
 
+            {/* Sticky header: pins to bottom of player header while scrolling;
+                stays horizontally in sync with the body via shared refs. */}
+            <PlayerGameLogHeader
+              scoringWeights={scoringWeights}
+              isCategories={isCategories}
+              headerScrollRef={gameLogHeaderScrollRef}
+              backgroundColor={c.background}
+              colors={{
+                border: c.border,
+                secondaryText: c.secondaryText,
+                accent: c.accent,
+              }}
+            />
+
             <PlayerGameLog
               gameLog={gameLog}
               isLoading={isLoadingGameLog}
@@ -2245,6 +2306,8 @@ export function PlayerDetailModal({
               expanded={gameLogExpanded}
               onExpand={() => setGameLogExpanded(true)}
               isCategories={isCategories}
+              bodyScrollRef={gameLogBodyScrollRef}
+              onBodyScroll={handleGameLogBodyScroll}
               colors={{
                 border: c.border,
                 secondaryText: c.secondaryText,
@@ -2252,6 +2315,29 @@ export function PlayerDetailModal({
               }}
             />
           </ScrollView>
+
+          {/* Inline toast — sits inside the sheet so it isn't hidden by the Modal */}
+          {inlineToast && (
+            <View
+              pointerEvents="none"
+              style={styles.inlineToastWrap}
+              accessibilityRole="alert"
+              accessibilityLiveRegion="assertive"
+              accessibilityLabel={inlineToast}
+            >
+              <View style={[styles.inlineToastPill, { backgroundColor: c.success }]}>
+                <Ionicons
+                  name="checkmark-circle"
+                  size={16}
+                  color={c.statusText}
+                  style={{ marginRight: s(6) }}
+                />
+                <ThemedText style={[styles.inlineToastText, { color: c.statusText }]}>
+                  {inlineToast}
+                </ThemedText>
+              </View>
+            </View>
+          )}
 
           {/* Trade block note prompt — rendered inside the main modal */}
           {tradeBlockPromptVisible && (
@@ -2375,12 +2461,15 @@ const styles = StyleSheet.create({
     left: s(-4),
     paddingHorizontal: s(4),
     paddingVertical: 0,
+    maxHeight: s(16),
     borderRadius: 3,
   },
   injuryChipText: {
     fontSize: ms(8),
     fontWeight: "800" as const,
     letterSpacing: 0.5,
+    position: "relative" as const,
+    top: -4,
   },
   headerHeadshotImg: {
     position: "absolute" as const,
@@ -2503,6 +2592,31 @@ const styles = StyleSheet.create({
     fontSize: ms(14),
     fontWeight: "600",
     marginLeft: s(12),
+  },
+  inlineToastWrap: {
+    position: "absolute" as const,
+    top: s(8),
+    left: 0,
+    right: 0,
+    alignItems: "center" as const,
+    zIndex: 200,
+  },
+  inlineToastPill: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    paddingHorizontal: s(12),
+    paddingVertical: s(8),
+    borderRadius: 999,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 6,
+    maxWidth: "90%",
+  },
+  inlineToastText: {
+    fontSize: ms(13),
+    fontWeight: "600" as const,
   },
   tradeBlockPromptOverlay: {
     ...StyleSheet.absoluteFillObject,

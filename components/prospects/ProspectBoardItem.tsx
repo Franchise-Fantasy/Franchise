@@ -1,9 +1,9 @@
-import { Colors } from '@/constants/Colors';
+import { Colors, cardShadow } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
 import { DynastyScoreBadge } from './DynastyScoreBadge';
 import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface ProspectBoardItemProps {
   name: string;
@@ -16,6 +16,7 @@ interface ProspectBoardItemProps {
   userRank?: number;
   drag: () => void;
   isActive: boolean;
+  onPress?: () => void;
 }
 
 export function ProspectBoardItem({
@@ -27,6 +28,7 @@ export function ProspectBoardItem({
   userRank,
   drag,
   isActive,
+  onPress,
 }: ProspectBoardItemProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
@@ -59,26 +61,35 @@ export function ProspectBoardItem({
         <Ionicons name="reorder-three" size={20} color={c.secondaryText} />
       </View>
 
-      {/* Name & meta */}
-      <View style={styles.info}>
-        <Text style={[styles.name, { color: c.text }]} numberOfLines={1}>
-          {name}
-        </Text>
-        <Text style={[styles.meta, { color: c.secondaryText }]}>
-          {position} · {school}
-        </Text>
-      </View>
-
-      {/* Dynasty score */}
-      {dynastyScore > 0 && <DynastyScoreBadge score={dynastyScore} />}
-
-      {/* Staff comparison badge */}
-      {comparisonIcon && staffRank !== undefined && (
-        <View style={styles.comparison} accessibilityLabel={`Staff rank ${staffRank}`}>
-          <Ionicons name={comparisonIcon as any} size={12} color={comparisonColor} />
-          <Text style={[styles.compText, { color: comparisonColor }]}>#{staffRank}</Text>
+      {/* Tappable area — opens prospect detail */}
+      <TouchableOpacity
+        style={styles.tappable}
+        onPress={onPress}
+        disabled={!onPress}
+        accessibilityRole="button"
+        accessibilityLabel={`View ${name} profile`}
+      >
+        {/* Name & meta */}
+        <View style={styles.info}>
+          <Text style={[styles.name, { color: c.text }]} numberOfLines={1}>
+            {name}
+          </Text>
+          <Text style={[styles.meta, { color: c.secondaryText }]}>
+            {position} · {school}
+          </Text>
         </View>
-      )}
+
+        {/* Dynasty score */}
+        {dynastyScore > 0 && <DynastyScoreBadge score={dynastyScore} />}
+
+        {/* Staff comparison badge */}
+        {comparisonIcon && staffRank !== undefined && (
+          <View style={styles.comparison} accessibilityLabel={`Staff rank ${staffRank}`}>
+            <Ionicons name={comparisonIcon as any} size={12} color={comparisonColor} />
+            <Text style={[styles.compText, { color: comparisonColor }]}>#{staffRank}</Text>
+          </View>
+        )}
+      </TouchableOpacity>
     </View>
   );
 }
@@ -95,9 +106,16 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     gap: s(6),
+    ...cardShadow,
   },
   dragHandle: {
     padding: s(4),
+  },
+  tappable: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(6),
   },
   info: {
     flex: 1,

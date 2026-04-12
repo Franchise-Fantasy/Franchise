@@ -1,3 +1,4 @@
+import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
 import { useColorScheme } from "@/hooks/useColorScheme";
@@ -9,7 +10,6 @@ import { getPlayerHeadshotUrl } from "@/utils/playerHeadshot";
 import { slotLabel } from "@/utils/rosterSlots";
 import { ms, s } from "@/utils/scale";
 import {
-  ActivityIndicator,
   Image,
   Modal,
   ScrollView,
@@ -219,7 +219,7 @@ export function SlotPickerModal({
           </View>
 
           {isAssigning ? (
-            <ActivityIndicator style={{ padding: s(20) }} />
+            <View style={{ padding: s(20) }}><LogoSpinner /></View>
           ) : (
             <ScrollView style={styles.scroll} bounces={false}>
               {/* ─── Player card (occupied) ─── */}

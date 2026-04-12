@@ -1,5 +1,5 @@
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Colors, cardShadow } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { PollCardProps } from '@/types/cms';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
@@ -59,9 +59,10 @@ function formatExpiry(iso: string): string {
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     padding: s(14),
+    ...cardShadow,
   },
   question: {
     fontSize: ms(15),

@@ -1,5 +1,7 @@
 import { ByTeamTab } from '@/components/draft-hub/ByTeamTab';
 import { ByYearTab } from '@/components/draft-hub/ByYearTab';
+import { ProspectsTab } from '@/components/draft-hub/ProspectsTab';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -9,19 +11,22 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
 import { useDraftHub } from '@/hooks/useDraftHub';
 import { useLeague } from '@/hooks/useLeague';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const TABS = ['By Year', 'By Team'] as const;
+const TABS = ['By Year', 'By Team', 'Prospects'] as const;
 
 export default function DraftHub() {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const router = useRouter();
   const { leagueId } = useAppState();
   const { data: league } = useLeague();
+  const { tab: tabParam } = useLocalSearchParams<{ tab?: string }>();
 
-  const [tab, setTab] = useState(0);
+  const [tab, setTab] = useState(tabParam === 'prospects' ? 2 : 0);
   const { data, isLoading } = useDraftHub(leagueId);
 
   if (league && (league.league_type ?? 'dynasty') !== 'dynasty') {
@@ -39,7 +44,20 @@ export default function DraftHub() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
-      <PageHeader title="Draft Hub" />
+      <PageHeader
+        title="Draft Hub"
+        rightAction={
+          tab === 2 ? (
+            <TouchableOpacity
+              onPress={() => router.push('/prospect-board' as any)}
+              accessibilityRole="button"
+              accessibilityLabel="My Board"
+            >
+              <ThemedText style={[styles.boardLink, { color: c.accent }]}>My Board</ThemedText>
+            </TouchableOpacity>
+          ) : undefined
+        }
+      />
 
       {/* Tabs */}
       <View style={styles.tabBar}>
@@ -47,9 +65,11 @@ export default function DraftHub() {
       </View>
 
       {/* Content */}
-      {isLoading || !data ? (
+      {tab === 2 ? (
+        <ProspectsTab />
+      ) : isLoading || !data ? (
         <View style={styles.loading}>
-          <ActivityIndicator size="large" />
+          <LogoSpinner />
         </View>
       ) : tab === 0 ? (
         <ByYearTab
@@ -87,4 +107,8 @@ const styles = StyleSheet.create({
   title: { fontSize: ms(16), textAlign: 'center' },
   tabBar: { paddingHorizontal: s(16), paddingVertical: s(10) },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  boardLink: {
+    fontSize: ms(14),
+    fontWeight: '600',
+  },
 });

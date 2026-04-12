@@ -125,6 +125,6 @@ async function handleChatMessage(
     'chat',
     `${leagueName} — ${isDm ? 'New Message' : 'League Chat'}`,
     `${senderName}: New message`,
-    { screen: 'chat', conversation_id, league_id },
+    { screen: `chat/${conversation_id}`, league_id },
   );
 }

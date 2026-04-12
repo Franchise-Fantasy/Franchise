@@ -10,7 +10,6 @@ import { getPlayoffTeamOptions } from '@/utils/lottery';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Modal,
   ScrollView,
@@ -18,6 +17,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 
 interface EditSeasonSettingsModalProps {
   visible: boolean;
@@ -237,7 +237,7 @@ export function EditSeasonSettingsModal({
               disabled={saving}
             >
               {saving ? (
-                <ActivityIndicator color="#fff" size="small" />
+                <LogoSpinner size={18} />
               ) : (
                 <ThemedText style={[styles.btnText, { color: c.accentText }]}>Save</ThemedText>
               )}

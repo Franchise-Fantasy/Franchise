@@ -10,7 +10,8 @@ import { getInjuryBadge } from '@/utils/injuryBadge';
 import { getPlayerHeadshotUrl, getTeamLogoUrl } from '@/utils/playerHeadshot';
 import { ms, s } from '@/utils/scale';
 import { useCallback } from 'react';
-import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { Ionicons } from '@expo/vector-icons';
 import { QueuedPlayer } from '@/hooks/useDraftQueue';
 
@@ -149,7 +150,7 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
   if (isLoading) {
     return (
       <View style={styles.loading}>
-        <ActivityIndicator />
+        <LogoSpinner />
       </View>
     );
   }

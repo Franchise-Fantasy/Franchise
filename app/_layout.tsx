@@ -92,7 +92,7 @@ import {
   PostHogSurveyProvider,
   usePostHog,
 } from "posthog-react-native";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Alert, AppState } from "react-native";
 
 // Sync React Query's online state with actual device connectivity
@@ -247,47 +247,67 @@ function NotificationAndLinkHandler() {
     }
   }, [loading]);
 
-  // Handle notification taps → navigate + switch context
+  // Track which notification response we've already handled so we don't
+  // double-navigate from both getLastNotificationResponseAsync and the listener.
+  const handledResponseIdRef = useRef<string | null>(null);
+
+  const handleNotificationResponse = useCallback(
+    async (response: Notifications.NotificationResponse) => {
+      const responseId = response.notification.request.identifier;
+      if (handledResponseIdRef.current === responseId) return;
+      handledResponseIdRef.current = responseId;
+
+      const data = response.notification.request.content.data as
+        | Record<string, string>
+        | undefined;
+      if (!data?.screen) return;
+
+      if (data.league_id && session?.user) {
+        const ok = await switchLeagueContext(
+          data.league_id,
+          session.user.id,
+          switchLeague,
+        );
+        if (!ok) return; // user doesn't belong to this league
+      }
+
+      const navigate = () => {
+        if (data.screen === "draft-room" && data.draft_id) {
+          router.navigate(`/draft-room/${data.draft_id}` as any);
+        } else if (data.screen!.startsWith("chat/")) {
+          const conversationId = data.screen!.split("/")[1];
+          if (conversationId) {
+            router.navigate(`/chat/${conversationId}` as any);
+          }
+        } else if (NOTIF_ROUTES[data.screen!]) {
+          router.navigate(NOTIF_ROUTES[data.screen!] as any);
+        }
+      };
+
+      // Defer navigation if AppState hasn't finished loading
+      if (loadingRef.current) {
+        pendingNavRef.current = navigate;
+      } else {
+        navigate();
+      }
+    },
+    [router, session?.user, switchLeague],
+  );
+
+  // Cold-start: check if a notification response launched the app
+  useEffect(() => {
+    Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (response) handleNotificationResponse(response);
+    });
+  }, [handleNotificationResponse]);
+
+  // Handle notification taps while app is running
   useEffect(() => {
     const sub = Notifications.addNotificationResponseReceivedListener(
-      async (response) => {
-        const data = response.notification.request.content.data as
-          | Record<string, string>
-          | undefined;
-        if (!data?.screen) return;
-
-        if (data.league_id && session?.user) {
-          const ok = await switchLeagueContext(
-            data.league_id,
-            session.user.id,
-            switchLeague,
-          );
-          if (!ok) return; // user doesn't belong to this league
-        }
-
-        const navigate = () => {
-          if (data.screen === "draft-room" && data.draft_id) {
-            router.navigate(`/draft-room/${data.draft_id}` as any);
-          } else if (data.screen!.startsWith("chat/")) {
-            const conversationId = data.screen!.split("/")[1];
-            if (conversationId) {
-              router.navigate(`/chat/${conversationId}` as any);
-            }
-          } else if (NOTIF_ROUTES[data.screen!]) {
-            router.navigate(NOTIF_ROUTES[data.screen!] as any);
-          }
-        };
-
-        // Defer navigation if AppState hasn't finished loading
-        if (loadingRef.current) {
-          pendingNavRef.current = navigate;
-        } else {
-          navigate();
-        }
-      },
+      handleNotificationResponse,
     );
     return () => sub.remove();
-  }, [router, session?.user, switchLeague]);
+  }, [handleNotificationResponse]);
 
   // Handle deep link URLs:
   // 1. Password recovery: extract tokens from # fragment before Expo Router strips it
@@ -359,12 +379,15 @@ export default function RootLayout() {
   });
 
   // Check for OTA updates when the app launches (only in TestFlight / production)
+  // Pre-fetches the bundle so "Install" triggers a near-instant reload,
+  // minimizing the splash-screen flash between themes.
   useEffect(() => {
     if (isExpoGo) return;
     (async () => {
       try {
         const update = await Updates.checkForUpdateAsync();
         if (update.isAvailable) {
+          await Updates.fetchUpdateAsync();
           Alert.alert(
             "Update Available",
             "A new version is ready to install.",
@@ -372,10 +395,7 @@ export default function RootLayout() {
               { text: "Later" },
               {
                 text: "Install",
-                onPress: async () => {
-                  await Updates.fetchUpdateAsync();
-                  await Updates.reloadAsync();
-                },
+                onPress: () => Updates.reloadAsync(),
               },
             ],
           );
@@ -444,6 +464,10 @@ export default function RootLayout() {
                       />
                       <Stack.Screen
                         name="survey/[id]"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="standings"
                         options={{ headerShown: false }}
                       />
                       <Stack.Screen

@@ -17,6 +17,7 @@ const ESPN_TRICODE_MAP: Record<string, string> = {
   SAS: 'sa',
   NYK: 'ny',
   BKN: 'bkn',
+  UTA: 'utah',
 };
 
 /**

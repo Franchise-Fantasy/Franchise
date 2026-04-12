@@ -1,5 +1,5 @@
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Colors, cardShadow } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Ionicons } from '@expo/vector-icons';
 import type { AnnouncementBannerProps } from '@/types/cms';
@@ -65,10 +65,11 @@ export function AnnouncementBanner({
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     borderLeftWidth: 4,
     padding: s(14),
+    ...cardShadow,
   },
   header: {
     flexDirection: 'row',

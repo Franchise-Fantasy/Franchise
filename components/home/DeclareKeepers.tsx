@@ -1,6 +1,6 @@
 import { capture } from '@/lib/posthog';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Colors, cardShadow } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
@@ -175,6 +175,8 @@ export function DeclareKeepers({ leagueId, teamId, season, keeperCount, isCommis
 const styles = StyleSheet.create({
   wrapper: {
     marginBottom: s(12),
+    borderRadius: 12,
+    ...cardShadow,
   },
   sectionTitle: {
     fontSize: ms(14),

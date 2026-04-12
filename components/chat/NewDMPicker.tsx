@@ -1,3 +1,4 @@
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -5,7 +6,6 @@ import { useLeague } from '@/hooks/useLeague';
 import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  ActivityIndicator,
   FlatList,
   Modal,
   Pressable,
@@ -43,7 +43,7 @@ export function NewDMPicker({ visible, currentTeamId, onSelect, onClose }: Props
           </View>
 
           {isLoading ? (
-            <ActivityIndicator style={{ marginTop: s(20) }} />
+            <View style={{ marginTop: s(20) }}><LogoSpinner /></View>
           ) : teams.length === 0 ? (
             <ThemedText style={[styles.empty, { color: c.secondaryText }]}>
               No other teams in this league
@@ -58,6 +58,7 @@ export function NewDMPicker({ visible, currentTeamId, onSelect, onClose }: Props
                   accessibilityLabel={`Message ${item.name}`}
                   style={[styles.row, { borderBottomColor: c.border }, index === teams.length - 1 && { borderBottomWidth: 0 }]}
                   onPress={() => onSelect(item.id)}
+                  activeOpacity={0.7}
                 >
                   <ThemedText style={styles.teamName}>{item.name}</ThemedText>
                   <Ionicons name="chevron-forward" size={18} color={c.secondaryText} />
@@ -85,6 +86,11 @@ const styles = StyleSheet.create({
     minHeight: '40%',
     maxHeight: '70%',
     overflow: 'hidden' as const,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
   },
   header: {
     flexDirection: 'row',
@@ -96,7 +102,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: s(12),
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: 1,
   },
   teamName: {
     fontSize: ms(15),

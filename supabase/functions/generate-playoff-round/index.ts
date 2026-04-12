@@ -217,7 +217,7 @@ Deno.serve(async (req: Request) => {
         if (tiebreakerOrder.includes('head_to_head') && h2hMatchups) {
           const wpct = (t: typeof teamList[0]) => {
             const gp = t.wins + t.losses + t.ties;
-            return gp === 0 ? 0 : t.wins / gp;
+            return gp === 0 ? 0 : (t.wins + t.ties * 0.5) / gp;
           };
           const sorted = [...teamList].sort((a, b) => wpct(b) - wpct(a));
           const groups: (typeof teamList)[] = [];

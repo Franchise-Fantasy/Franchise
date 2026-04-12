@@ -6,6 +6,8 @@ import { StepDraft } from '@/components/create-league/StepDraft';
 import { StepSeason, computeMaxWeeks } from '@/components/create-league/StepSeason';
 import { StepTrade } from '@/components/create-league/StepTrade';
 import { StepWaivers } from '@/components/create-league/StepWaivers';
+import { FormSection } from '@/components/ui/FormSection';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ThemedView } from '@/components/ui/ThemedView';
 import { StepIndicator } from '@/components/ui/StepIndicator';
@@ -31,11 +33,12 @@ import { ms, s } from '@/utils/scale';
 import { useToast } from '@/context/ToastProvider';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useCallback, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Platform,
   ScrollView,
   StyleSheet,
@@ -44,6 +47,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
 type ImportSource = 'sleeper' | 'csv' | 'screenshots' | null;
 
@@ -206,6 +210,22 @@ export default function ImportLeague() {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [step, setStep] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
+  const [isAtBottom, setIsAtBottom] = useState(false);
+  const [hasMoreContent, setHasMoreContent] = useState(false);
+
+  // Scroll to top on step change
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+    setIsAtBottom(false);
+    setHasMoreContent(false);
+  }, [step]);
+
+  const handleScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    const distanceFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
+    setIsAtBottom(distanceFromBottom < 20);
+    setHasMoreContent(contentSize.height > layoutMeasurement.height + 20);
+  }, []);
 
   const previewMutation = useSleeperPreview();
   const importMutation = useSleeperImport();
@@ -219,7 +239,6 @@ export default function ImportLeague() {
       const data = await previewMutation.mutateAsync(state.sleeperLeagueId.trim());
       dispatch({ type: 'SET_PREVIEW', data });
       setStep(1);
-      scrollRef.current?.scrollTo({ y: 0, animated: false });
     } catch (err: any) {
       Alert.alert('Failed to fetch league', err.message ?? 'Unknown error');
     }
@@ -435,6 +454,8 @@ export default function ImportLeague() {
           contentContainerStyle={styles.contentInner}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
         >
           {/* Step 0: Enter Sleeper League ID */}
           {step === 0 && (
@@ -446,47 +467,49 @@ export default function ImportLeague() {
                 Enter your Sleeper league ID. You can find it in your league URL on Sleeper.
               </ThemedText>
 
-              <TextInput
-                style={[styles.input, { color: c.text, borderColor: c.border, backgroundColor: c.card }]}
-                placeholder="e.g. 784512345678901234"
-                placeholderTextColor={c.secondaryText}
-                value={state.sleeperLeagueId}
-                onChangeText={(v) => dispatch({ type: 'SET_SLEEPER_ID', value: v })}
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="number-pad"
-                accessibilityLabel="Sleeper league ID"
-              />
+              <FormSection title="League ID">
+                <TextInput
+                  style={[styles.input, { color: c.text, borderColor: c.border, backgroundColor: c.input }]}
+                  placeholder="e.g. 784512345678901234"
+                  placeholderTextColor={c.secondaryText}
+                  value={state.sleeperLeagueId}
+                  onChangeText={(v) => dispatch({ type: 'SET_SLEEPER_ID', value: v })}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="number-pad"
+                  accessibilityLabel="Sleeper league ID"
+                />
 
-              <TouchableOpacity
-                onPress={handleFetch}
-                disabled={previewMutation.isPending || !state.sleeperLeagueId.trim()}
-                style={[
-                  styles.fetchBtn,
-                  {
-                    backgroundColor: state.sleeperLeagueId.trim()
-                      ? c.accent
-                      : c.buttonDisabled,
-                  },
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel="Fetch league from Sleeper"
-                accessibilityState={{ disabled: previewMutation.isPending || !state.sleeperLeagueId.trim() }}
-              >
-                {previewMutation.isPending ? (
-                  <ActivityIndicator color={c.accentText} />
-                ) : (
-                  <Text style={[styles.fetchBtnText, { color: c.accentText }]}>
-                    Fetch League
-                  </Text>
+                <TouchableOpacity
+                  onPress={handleFetch}
+                  disabled={previewMutation.isPending || !state.sleeperLeagueId.trim()}
+                  style={[
+                    styles.fetchBtn,
+                    {
+                      backgroundColor: state.sleeperLeagueId.trim()
+                        ? c.accent
+                        : c.buttonDisabled,
+                    },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Fetch league from Sleeper"
+                  accessibilityState={{ disabled: previewMutation.isPending || !state.sleeperLeagueId.trim() }}
+                >
+                  {previewMutation.isPending ? (
+                    <LogoSpinner size={18} />
+                  ) : (
+                    <Text style={[styles.fetchBtnText, { color: c.accentText }]}>
+                      Fetch League
+                    </Text>
+                  )}
+                </TouchableOpacity>
+
+                {previewMutation.isError && (
+                  <ThemedText style={[styles.errorText, { color: c.danger }]}>
+                    {previewMutation.error?.message}
+                  </ThemedText>
                 )}
-              </TouchableOpacity>
-
-              {previewMutation.isError && (
-                <ThemedText style={[styles.errorText, { color: c.danger }]}>
-                  {previewMutation.error?.message}
-                </ThemedText>
-              )}
+              </FormSection>
             </View>
           )}
 
@@ -522,19 +545,16 @@ export default function ImportLeague() {
                 Roster and scoring were imported from Sleeper. Adjust these settings for your league.
               </ThemedText>
 
-              <View style={styles.settingsSection}>
-                <ThemedText type="defaultSemiBold" style={styles.sectionLabel} accessibilityRole="header">
-                  League Name
-                </ThemedText>
+              <FormSection title="League Name">
                 <TextInput
-                  style={[styles.input, { color: c.text, borderColor: c.border, backgroundColor: c.card }]}
+                  style={[styles.input, { color: c.text, borderColor: c.border, backgroundColor: c.input }]}
                   value={state.wizardState.name}
                   onChangeText={(v) => handleWizardChange('name', v)}
                   placeholder="League name"
                   placeholderTextColor={c.secondaryText}
                   accessibilityLabel="League name"
                 />
-              </View>
+              </FormSection>
 
               <StepTrade state={state.wizardState} onChange={handleWizardChange} />
               <StepWaivers state={state.wizardState} onChange={handleWizardChange} />
@@ -584,7 +604,7 @@ export default function ImportLeague() {
                 accessibilityState={{ disabled: importMutation.isPending }}
               >
                 {importMutation.isPending ? (
-                  <ActivityIndicator color={c.accentText} />
+                  <LogoSpinner size={18} />
                 ) : (
                   <Text style={[styles.importBtnText, { color: c.accentText }]}>
                     Import League
@@ -596,14 +616,25 @@ export default function ImportLeague() {
         </ScrollView>
       </KeyboardAvoidingView>
 
+      {hasMoreContent && !isAtBottom && (
+        <Animated.View
+          entering={FadeIn.duration(200)}
+          exiting={FadeOut.duration(200)}
+          style={[styles.scrollHint, { borderTopColor: c.border }]}
+          pointerEvents="none"
+          accessibilityLabel="Scroll down for more options"
+        >
+          <Text style={[styles.scrollHintText, { color: c.secondaryText }]}>
+            Scroll for more
+          </Text>
+        </Animated.View>
+      )}
+
       {/* Navigation */}
       {step > 0 && step < STEP_LABELS.length - 1 && (
         <View style={styles.navRow}>
           <TouchableOpacity
-            onPress={() => {
-              setStep(s => s - 1);
-              scrollRef.current?.scrollTo({ y: 0, animated: false });
-            }}
+            onPress={() => setStep(s => s - 1)}
             style={[styles.navBtn, { borderColor: c.border }]}
             accessibilityRole="button"
             accessibilityLabel="Back"
@@ -611,10 +642,7 @@ export default function ImportLeague() {
             <Text style={[styles.navBtnText, { color: c.text }]}>Back</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={() => {
-              setStep(s => s + 1);
-              scrollRef.current?.scrollTo({ y: 0, animated: false });
-            }}
+            onPress={() => setStep(s => s + 1)}
             disabled={step === 1 && !canAdvanceFromPlayers}
             style={[
               styles.navBtn,
@@ -635,10 +663,7 @@ export default function ImportLeague() {
       {step === 3 && (
         <View style={styles.navRow}>
           <TouchableOpacity
-            onPress={() => {
-              setStep(s => s - 1);
-              scrollRef.current?.scrollTo({ y: 0, animated: false });
-            }}
+            onPress={() => setStep(s => s - 1)}
             style={[styles.navBtn, { borderColor: c.border }]}
             accessibilityRole="button"
             accessibilityLabel="Back"
@@ -713,12 +738,15 @@ const styles = StyleSheet.create({
     marginVertical: s(16),
     opacity: 0.2,
   },
-  settingsSection: {
-    marginBottom: s(16),
+  scrollHint: {
+    alignItems: 'center',
+    paddingVertical: 6,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
-  sectionLabel: {
-    fontSize: ms(15),
-    marginBottom: s(8),
+  scrollHintText: {
+    fontSize: ms(12),
+    fontWeight: '500',
+    opacity: 0.7,
   },
   summaryCard: {
     borderRadius: 12,

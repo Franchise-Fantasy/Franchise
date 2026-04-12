@@ -17,3 +17,4 @@ export {
   useSubmitSurvey,
   useCreateSurvey,
 } from './useSurveys';
+export { usePostTradeUpdate, useGetTradeConversation } from './useTradeChat';

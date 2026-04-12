@@ -1,3 +1,5 @@
+import { AnimatedSection } from '@/components/ui/AnimatedSection';
+import { FormSection } from '@/components/ui/FormSection';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
@@ -20,58 +22,28 @@ export function StepWaivers({ state, onChange }: StepWaiversProps) {
     <View style={styles.container}>
       <ThemedText accessibilityRole="header" type="subtitle" style={styles.heading}>Waiver Settings</ThemedText>
 
-      <View style={styles.section}>
+      <FormSection title="Waiver Wire">
         <ThemedText style={styles.label}>Waiver Type</ThemedText>
         <SegmentedControl
           options={WAIVER_TYPE_OPTIONS}
           selectedIndex={WAIVER_TYPE_OPTIONS.indexOf(state.waiverType)}
           onSelect={(i) => onChange('waiverType', WAIVER_TYPE_OPTIONS[i])}
         />
-      </View>
 
-      {state.waiverType !== 'None' && (
-        <View style={styles.section}>
-          <NumberStepper
-            label="Waiver Period (days)"
-            value={state.waiverPeriodDays}
-            onValueChange={(v) => onChange('waiverPeriodDays', v)}
-            min={1}
-            max={5}
-          />
-        </View>
-      )}
+        <AnimatedSection visible={state.waiverType !== 'None'}>
+          <View style={styles.fieldGap}>
+            <NumberStepper
+              label="Waiver Period (days)"
+              value={state.waiverPeriodDays}
+              onValueChange={(v) => onChange('waiverPeriodDays', v)}
+              min={1}
+              max={5}
+            />
+          </View>
+        </AnimatedSection>
 
-      <View style={styles.section}>
-        <NumberStepper
-          label="Weekly Add Limit"
-          value={state.weeklyAcquisitionLimit ?? 0}
-          onValueChange={(v) => onChange('weeklyAcquisitionLimit', v === 0 ? null : v)}
-          min={0}
-          max={20}
-          accessibilityLabel="Weekly acquisition limit, 0 means unlimited"
-        />
-        <ThemedText style={[styles.hint]}>
-          {state.weeklyAcquisitionLimit ? `Max ${state.weeklyAcquisitionLimit} adds per week` : 'Unlimited adds per week'}
-        </ThemedText>
-      </View>
-
-      <View style={styles.section}>
-        <ThemedText style={styles.label}>Player Lock</ThemedText>
-        <SegmentedControl
-          options={PLAYER_LOCK_OPTIONS}
-          selectedIndex={PLAYER_LOCK_OPTIONS.indexOf(state.playerLockType)}
-          onSelect={(i) => onChange('playerLockType', PLAYER_LOCK_OPTIONS[i])}
-        />
-        <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
-          {state.playerLockType === 'Daily'
-            ? 'Once the first NBA game starts each day, adds process the next day'
-            : 'Players whose games have started cannot be added or dropped'}
-        </ThemedText>
-      </View>
-
-      {state.waiverType === 'FAAB' && (
-        <>
-          <View style={styles.section}>
+        <AnimatedSection visible={state.waiverType === 'FAAB'}>
+          <View style={styles.fieldGap}>
             <ThemedText style={styles.label}>FAAB Process Day</ThemedText>
             <SegmentedControl
               options={[...WAIVER_DAY_LABELS]}
@@ -80,7 +52,7 @@ export function StepWaivers({ state, onChange }: StepWaiversProps) {
             />
           </View>
 
-          <View style={styles.section}>
+          <View style={styles.fieldGap}>
             <NumberStepper
               label="FAAB Budget ($)"
               value={state.faabBudget}
@@ -90,8 +62,35 @@ export function StepWaivers({ state, onChange }: StepWaiversProps) {
               step={10}
             />
           </View>
-        </>
-      )}
+        </AnimatedSection>
+      </FormSection>
+
+      <FormSection title="Acquisition Rules">
+        <NumberStepper
+          label="Weekly Add Limit"
+          value={state.weeklyAcquisitionLimit ?? 0}
+          onValueChange={(v) => onChange('weeklyAcquisitionLimit', v === 0 ? null : v)}
+          min={0}
+          max={20}
+        />
+        <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
+          {state.weeklyAcquisitionLimit ? `Max ${state.weeklyAcquisitionLimit} adds per week` : 'Unlimited adds per week'}
+        </ThemedText>
+
+        <View style={styles.fieldGap}>
+          <ThemedText style={styles.label}>Player Lock</ThemedText>
+          <SegmentedControl
+            options={PLAYER_LOCK_OPTIONS}
+            selectedIndex={PLAYER_LOCK_OPTIONS.indexOf(state.playerLockType)}
+            onSelect={(i) => onChange('playerLockType', PLAYER_LOCK_OPTIONS[i])}
+          />
+          <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
+            {state.playerLockType === 'Daily'
+              ? 'Once the first NBA game starts each day, adds process the next day'
+              : 'Players whose games have started cannot be added or dropped'}
+          </ThemedText>
+        </View>
+      </FormSection>
     </View>
   );
 }
@@ -101,19 +100,19 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   heading: {
-    marginBottom: s(20),
+    marginBottom: s(16),
   },
   label: {
     marginBottom: s(8),
     fontSize: ms(14),
     fontWeight: '500',
   },
-  section: {
-    marginBottom: s(20),
-  },
   hint: {
-    fontSize: ms(11),
+    fontSize: ms(12),
     marginTop: s(4),
-    opacity: 0.6,
+    opacity: 0.7,
+  },
+  fieldGap: {
+    marginTop: s(12),
   },
 });

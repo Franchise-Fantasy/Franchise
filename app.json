@@ -2,7 +2,7 @@
   "expo": {
     "name": "franchise.v2",
     "slug": "franchise-v2",
-    "version": "1.1.5",
+    "version": "1.1.6",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "franchisev2",
@@ -11,6 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.chewers.franchisev2",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "LSApplicationQueriesSchemes": ["venmo", "cashapp", "paypal"],
@@ -52,6 +53,7 @@
         }
       ],
       "expo-web-browser",
+      "expo-apple-authentication",
       [
         "expo-notifications",
         {

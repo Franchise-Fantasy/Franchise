@@ -1,10 +1,11 @@
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useSurveyCompletionTracker } from '@/hooks/chat/useSurveys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 interface Props {
   surveyId: string;
@@ -17,7 +18,7 @@ export function CompletionTracker({ surveyId, leagueId }: Props) {
   const { data: teams, isLoading } = useSurveyCompletionTracker(surveyId, leagueId);
 
   if (isLoading) {
-    return <ActivityIndicator style={styles.loader} color={c.accent} />;
+    return <View style={styles.loader}><LogoSpinner /></View>;
   }
 
   const submitted = teams?.filter((t) => t.submitted).length ?? 0;

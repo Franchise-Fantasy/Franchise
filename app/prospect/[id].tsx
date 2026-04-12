@@ -11,8 +11,8 @@ import { useProspect } from '@/hooks/useProspect';
 import { scoutingReportPreview } from '@/lib/prospect-mappers';
 import { ms, s } from '@/utils/scale';
 import { useLocalSearchParams } from 'expo-router';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import {
-  ActivityIndicator,
   Image,
   Linking,
   ScrollView,
@@ -39,7 +39,7 @@ export default function ProspectProfileScreen() {
       <SafeAreaView style={[styles.screen, { backgroundColor: c.background }]} edges={['top']}>
         <PageHeader title="Prospect" />
         <View style={styles.center}>
-          <ActivityIndicator color={c.accent} />
+          <LogoSpinner />
         </View>
       </SafeAreaView>
     );

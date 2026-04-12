@@ -3,11 +3,23 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeague } from '@/hooks/useLeague';
 import { useMatchupResult } from '@/hooks/useMatchupResult';
 import { ms, s } from '@/utils/scale';
-import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
+function calcRounds(playoffTeams: number): number {
+  let p = 1;
+  while (p < playoffTeams) p *= 2;
+  return Math.log2(p);
+}
+
+function playoffRoundLabel(round: number, totalRounds: number): string {
+  if (round >= totalRounds) return 'Championship';
+  if (round === totalRounds - 1) return 'Semifinals';
+  if (round === totalRounds - 2) return 'Quarterfinals';
+  return `Playoff Round ${round}`;
+}
 
 const DISMISSED_KEY = '@dismissed_matchup_results';
 
@@ -57,25 +69,40 @@ export function MatchupResultModal() {
     if (!result?.id) return;
     setVisible(false);
     await addDismissedId(result.id);
-    router.push(`/matchup-detail/${result.id}`);
-  }, [result?.id, router]);
+    router.push(result.isPlayoff ? '/playoff-bracket' : `/matchup-detail/${result.id}`);
+  }, [result?.id, result?.isPlayoff, router]);
 
   if (!result) return null;
 
   const isCategory = result.userCatWins != null;
-  const outcomeLabel = result.won ? 'You won!' : result.lost ? 'You lost.' : "It's a tie.";
-  const iconName: keyof typeof Ionicons.glyphMap = result.won
-    ? 'trophy'
+
+  // Playoff context
+  const totalRounds = league?.playoff_teams ? calcRounds(league.playoff_teams) : 3;
+  const isPlayoff = result.isPlayoff;
+  const isChampionship = isPlayoff && result.playoffRound != null && result.playoffRound >= totalRounds;
+  const roundLabel = isPlayoff && result.playoffRound != null
+    ? playoffRoundLabel(result.playoffRound, totalRounds)
+    : null;
+
+  // Emoji + label combos that feel alive
+  const emoji = result.won
+    ? (isChampionship ? '\uD83C\uDFC6' : isPlayoff ? '\uD83D\uDD25' : '\uD83D\uDCAA')
     : result.lost
-      ? 'sad-outline'
-      : 'swap-horizontal';
+      ? (isChampionship ? '\uD83D\uDE14' : isPlayoff ? '\u2744\uFE0F' : '\uD83D\uDCA8')
+      : '\u2696\uFE0F';
+
+  const outcomeLabel = result.won
+    ? (isChampionship ? 'CHAMPION!' : isPlayoff ? 'You advance!' : 'Victory!')
+    : result.lost
+      ? (isChampionship ? 'So close.' : isPlayoff ? 'Eliminated.' : 'Tough break.')
+      : "It's a tie.";
 
   // Outcome-based accent colors
   const accent = result.won
-    ? { bg: c.successMuted, text: c.success, icon: c.success }
+    ? { bg: c.successMuted, text: c.success }
     : result.lost
-      ? { bg: c.dangerMuted, text: c.danger, icon: c.danger }
-      : { bg: c.warningMuted, text: c.warning, icon: c.warning };
+      ? { bg: c.dangerMuted, text: c.danger }
+      : { bg: c.warningMuted, text: c.warning };
 
   return (
     <Modal
@@ -96,17 +123,28 @@ export function MatchupResultModal() {
           onPress={undefined}
           accessibilityRole="none"
         >
-          {/* Icon */}
-          <View style={[styles.iconCircle, { backgroundColor: accent.bg }]}>
-            <Ionicons name={iconName} size={32} color={accent.icon} />
+          {/* Emoji */}
+          <View
+            style={[styles.iconCircle, { backgroundColor: accent.bg }]}
+            accessibilityElementsHidden
+          >
+            <Text style={styles.emoji}>{emoji}</Text>
           </View>
 
           {/* Header */}
+          {roundLabel && (
+            <Text
+              style={[styles.roundLabel, { color: accent.text }]}
+              accessibilityRole="text"
+            >
+              {roundLabel}
+            </Text>
+          )}
           <Text
             style={[styles.header, { color: c.text }]}
             accessibilityRole="header"
           >
-            Week {result.weekNumber} Final
+            {isPlayoff ? `${roundLabel ?? 'Playoff'} Final` : `Week ${result.weekNumber} Final`}
           </Text>
 
           {/* Score */}
@@ -144,9 +182,11 @@ export function MatchupResultModal() {
               style={[styles.button, styles.primaryButton, { backgroundColor: c.accent }]}
               onPress={handleViewMatchup}
               accessibilityRole="button"
-              accessibilityLabel="View matchup details"
+              accessibilityLabel={isPlayoff ? 'View playoff bracket' : 'View matchup details'}
             >
-              <Text style={[styles.primaryButtonText, { color: c.statusText }]}>View Matchup</Text>
+              <Text style={[styles.primaryButtonText, { color: c.statusText }]}>
+                {isPlayoff ? 'View Bracket' : 'View Matchup'}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.button, styles.secondaryButton, { borderColor: c.border }]}
@@ -184,12 +224,23 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   iconCircle: {
-    width: s(64),
-    height: s(64),
-    borderRadius: 32,
+    width: s(72),
+    height: s(72),
+    borderRadius: 36,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: s(16),
+    marginBottom: s(12),
+  },
+  emoji: {
+    fontSize: ms(36),
+    textAlign: 'center',
+  },
+  roundLabel: {
+    fontSize: ms(12),
+    fontWeight: '800',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    marginBottom: s(4),
   },
   header: {
     fontSize: ms(18),

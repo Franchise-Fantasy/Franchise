@@ -1,3 +1,4 @@
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -7,7 +8,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Modal,
   Pressable,
@@ -165,7 +165,7 @@ export function TransferOwnershipModal({ visible, onClose, leagueId, teams }: Tr
               disabled={saving || !selectedTeamId || !email.trim()}
             >
               {saving ? (
-                <ActivityIndicator color="#fff" size="small" />
+                <LogoSpinner size={18} />
               ) : (
                 <ThemedText style={[styles.btnText, { color: '#fff' }]}>Transfer</ThemedText>
               )}

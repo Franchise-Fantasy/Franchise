@@ -35,11 +35,12 @@ Deno.serve(async (req: Request) => {
       throw new Error("league_id, team_id, and image_base64 required");
     }
 
-    // Verify the user owns this team
+    // Verify the user owns this team and it belongs to the target league
     const { data: team } = await supabaseAdmin
       .from("teams")
       .select("id, user_id")
       .eq("id", team_id)
+      .eq("league_id", league_id)
       .single();
     if (!team || team.user_id !== user.id) throw new Error("Not your team");
 
@@ -94,7 +95,7 @@ Deno.serve(async (req: Request) => {
     console.error("upload-chat-media error:", err);
     const status = err.message === "Unauthorized" ? 401 : 500;
     return new Response(
-      JSON.stringify({ error: err.message }),
+      JSON.stringify({ error: 'Internal server error' }),
       { status, headers: { "Content-Type": "application/json" } },
     );
   }

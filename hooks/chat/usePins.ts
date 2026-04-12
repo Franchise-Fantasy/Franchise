@@ -17,7 +17,7 @@ export function usePinnedMessages(conversationId: string | null) {
   useEffect(() => {
     if (!conversationId) return;
     const channel = supabase
-      .channel(`chat_pins_${conversationId}`)
+      .channel(`chat_pins_${conversationId}-${Date.now()}`)
       .on(
         'postgres_changes',
         {

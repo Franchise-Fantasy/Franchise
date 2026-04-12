@@ -42,6 +42,8 @@ interface PushMessage {
   data?: Record<string, unknown>;
   channelId?: string;
   sound?: string;
+  subtitle?: string;
+  priority?: 'default' | 'normal' | 'high';
 }
 
 export async function getTokensForUsers(
@@ -149,6 +151,11 @@ async function cleanDeadTokens(supabase: SupabaseClient, tokens: string[]): Prom
   await supabase.from('push_tokens').delete().in('token', tokens);
 }
 
+export interface NotifyOptions {
+  subtitle?: string;
+  priority?: 'default' | 'normal' | 'high';
+}
+
 export async function notifyTeams(
   supabase: SupabaseClient,
   teamIds: string[],
@@ -157,6 +164,7 @@ export async function notifyTeams(
   body: string,
   data?: Record<string, unknown>,
   excludeUserIds?: string[],
+  opts?: NotifyOptions,
 ): Promise<void> {
   let leagueId = data?.league_id as string | undefined;
   if (!leagueId && teamIds.length > 0) {
@@ -166,7 +174,13 @@ export async function notifyTeams(
   const tokens = await getTokensForTeams(supabase, teamIds, category, excludeUserIds, leagueId);
   if (tokens.length === 0) return;
   const channelId = CHANNEL_MAP[category] ?? category;
-  const dead = await sendPush(tokens.map(to => ({ to, title, body, data: { ...data, league_id: leagueId, channelId }, channelId })));
+  const dead = await sendPush(tokens.map(to => ({
+    to, title, body,
+    data: { ...data, league_id: leagueId, channelId },
+    channelId,
+    ...(opts?.subtitle ? { subtitle: opts.subtitle } : {}),
+    ...(opts?.priority ? { priority: opts.priority } : {}),
+  })));
   await cleanDeadTokens(supabase, dead);
 }
 
@@ -178,10 +192,17 @@ export async function notifyLeague(
   body: string,
   data?: Record<string, unknown>,
   excludeUserIds?: string[],
+  opts?: NotifyOptions,
 ): Promise<void> {
   const tokens = await getTokensForLeague(supabase, leagueId, category, excludeUserIds);
   if (tokens.length === 0) return;
   const channelId = CHANNEL_MAP[category] ?? category;
-  const dead = await sendPush(tokens.map(to => ({ to, title, body, data: { ...data, league_id: leagueId, channelId }, channelId })));
+  const dead = await sendPush(tokens.map(to => ({
+    to, title, body,
+    data: { ...data, league_id: leagueId, channelId },
+    channelId,
+    ...(opts?.subtitle ? { subtitle: opts.subtitle } : {}),
+    ...(opts?.priority ? { priority: opts.priority } : {}),
+  })));
   await cleanDeadTokens(supabase, dead);
 }

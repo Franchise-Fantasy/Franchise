@@ -40,7 +40,7 @@ export function usePollResults(
   useEffect(() => {
     if (!pollId) return;
     const channel = supabase
-      .channel(`poll_votes_${pollId}`)
+      .channel(`poll_votes_${pollId}-${Date.now()}`)
       .on(
         'postgres_changes',
         {

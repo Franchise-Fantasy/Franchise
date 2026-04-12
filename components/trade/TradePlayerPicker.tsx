@@ -10,7 +10,6 @@ import { getInjuryBadge } from '@/utils/injuryBadge';
 import { getPlayerHeadshotUrl, getTeamLogoUrl } from '@/utils/playerHeadshot';
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   Image,
   StyleSheet,
@@ -19,6 +18,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 
 interface TradePlayerPickerProps {
   teamId: string;
@@ -175,7 +175,7 @@ export function TradePlayerPicker({
       />
 
       {isLoading ? (
-        <ActivityIndicator style={styles.loader} />
+        <View style={styles.loader}><LogoSpinner /></View>
       ) : (
         <FlatList
           data={filtered}

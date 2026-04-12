@@ -11,7 +11,6 @@ import { openPaymentConfirmed } from '@/utils/paymentLinks';
 import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  ActivityIndicator,
   Alert,
   FlatList,
   Modal,
@@ -20,6 +19,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 
 interface Props {
   visible: boolean;
@@ -268,7 +268,7 @@ export function PaymentLedgerModal({
           </View>
 
           {isLoading ? (
-            <ActivityIndicator style={{ marginTop: s(20) }} />
+            <View style={{ marginTop: s(20) }}><LogoSpinner /></View>
           ) : (
             <FlatList
               data={teams}

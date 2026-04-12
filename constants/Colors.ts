@@ -30,6 +30,9 @@ export const Colors = {
     goldMuted: "#8B733520",
     statusText: "#FFFFFF",
     link: "#591D28",
+    analyticsAccent: "#8B7335",
+    analyticsBg: "rgba(139,115,53,0.05)",
+    analyticsBorder: "rgba(139,115,53,0.20)",
   },
   dark: {
     text: "#E8E2D8",
@@ -59,5 +62,24 @@ export const Colors = {
     goldMuted: "#9E8A6030",
     statusText: "#FFFFFF",
     link: "#B5A48A",
+    analyticsAccent: "#C4A455",
+    analyticsBg: "rgba(196,164,85,0.06)",
+    analyticsBorder: "rgba(196,164,85,0.15)",
   },
 };
+
+export const cardShadow = {
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.06,
+  shadowRadius: 6,
+  elevation: 2,
+} as const;
+
+export const cardShadowMedium = {
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 3 },
+  shadowOpacity: 0.10,
+  shadowRadius: 10,
+  elevation: 4,
+} as const;

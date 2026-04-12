@@ -1,5 +1,5 @@
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Colors, cardShadow } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { ArticleCardProps } from '@/types/cms';
 import { Image, StyleSheet, TouchableOpacity, View } from 'react-native';
@@ -91,9 +91,10 @@ export function ArticleCard({
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     overflow: 'hidden',
+    ...cardShadow,
   },
   hero: {
     width: '100%',

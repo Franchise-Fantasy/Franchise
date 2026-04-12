@@ -80,6 +80,15 @@ Deno.serve(async (req) => {
       .order('points_for', { ascending: false });
     if (teamsErr || !allTeams) throw new Error('Failed to fetch teams');
 
+    // Re-sort by win percentage DESC (handles ties counting as half-win)
+    allTeams.sort((a, b) => {
+      const gpA = a.wins + a.losses + a.ties;
+      const gpB = b.wins + b.losses + b.ties;
+      const pctA = gpA === 0 ? 0 : (a.wins + a.ties * 0.5) / gpA;
+      const pctB = gpB === 0 ? 0 : (b.wins + b.ties * 0.5) / gpB;
+      return pctB - pctA || b.points_for - a.points_for;
+    });
+
     // ── 2. Determine playoff results from bracket ──
     const { data: bracket } = await supabaseAdmin
       .from('playoff_bracket')
@@ -388,7 +397,7 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error('advance-season error:', error);
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: 'Internal server error' }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }

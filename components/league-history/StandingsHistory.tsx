@@ -1,10 +1,11 @@
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Colors, cardShadow } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useSeasonStandings, TeamSeasonRow } from '@/hooks/useLeagueHistory';
 import { ms, s } from '@/utils/scale';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 
 interface StandingsHistoryProps {
   leagueId: string;
@@ -46,7 +47,7 @@ export function StandingsHistory({ leagueId }: StandingsHistoryProps) {
     return standings.filter((r) => r.season === activeSeason);
   }, [standings, activeSeason]);
 
-  if (isLoading) return <ActivityIndicator style={{ marginVertical: s(16) }} />;
+  if (isLoading) return <View style={{ marginVertical: s(16) }}><LogoSpinner /></View>;
   if (seasons.length === 0) {
     return (
       <ThemedText style={[styles.emptyText, { color: c.secondaryText }]}>
@@ -123,7 +124,7 @@ const styles = StyleSheet.create({
     marginRight: s(8),
   },
   pillText: { fontSize: ms(13), fontWeight: '600' },
-  table: { borderRadius: 8, overflow: 'hidden' },
+  table: { borderRadius: 12, overflow: 'hidden', ...cardShadow },
   tableHeader: {
     flexDirection: 'row',
     alignItems: 'center',

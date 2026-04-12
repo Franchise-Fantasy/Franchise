@@ -8,7 +8,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Modal,
   Pressable,
@@ -17,6 +16,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import DraggableFlatList, {
   RenderItemParams,
   ScaleDecorator,
@@ -185,7 +185,7 @@ export function ManualDraftOrderModal({
 
           {loading ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" />
+              <LogoSpinner />
             </View>
           ) : (
             <GestureHandlerRootView style={styles.listContainer}>
@@ -221,7 +221,7 @@ export function ManualDraftOrderModal({
               disabled={saving || loading}
             >
               {saving ? (
-                <ActivityIndicator color="#fff" size="small" />
+                <LogoSpinner size={18} />
               ) : (
                 <Text style={[styles.btnText, { color: c.accentText }]}>
                   Save Order

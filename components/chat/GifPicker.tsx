@@ -1,3 +1,4 @@
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { GIPHY_API_KEY } from '@/constants/ApiKeys';
 import { Colors } from '@/constants/Colors';
@@ -7,7 +8,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Dimensions,
   FlatList,
   KeyboardAvoidingView,
@@ -177,7 +177,7 @@ export function GifPicker({ visible, onSelect, onClose }: Props) {
           />
 
           {loading && gifs.length === 0 ? (
-            <ActivityIndicator style={styles.loader} />
+            <View style={styles.loader}><LogoSpinner /></View>
           ) : (
             <FlatList
               data={gifs}

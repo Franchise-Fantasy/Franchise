@@ -7,6 +7,7 @@ import { isExpoGo } from "@/utils/buildConfig";
 import { capture } from "@/lib/posthog";
 import { ms, s } from "@/utils/scale";
 import { Ionicons } from "@expo/vector-icons";
+import * as AppleAuthentication from "expo-apple-authentication";
 import * as Crypto from "expo-crypto";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
@@ -83,7 +84,7 @@ export default function Auth() {
       .select("league_id")
       .eq("user_id", data.session.user.id)
       .limit(1)
-      .single();
+      .maybeSingle();
 
     capture('sign_in', { method: 'email' });
     router.replace(team?.league_id ? "/(tabs)" : "/(setup)");
@@ -205,6 +206,63 @@ export default function Auth() {
         // User cancelled or already in progress — do nothing
       } else {
         Alert.alert("Google Sign-In failed", err.message ?? "Unknown error");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function signInWithApple() {
+    setLoading(true);
+    try {
+      // Generate our own nonce so we control both sides (Apple token + Supabase).
+      const rawNonce = Crypto.getRandomValues(new Uint8Array(16))
+        .reduce((s: string, b: number) => s + b.toString(16).padStart(2, "0"), "");
+      const hashedNonce = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        rawNonce,
+      );
+
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+        nonce: hashedNonce,
+      });
+
+      if (!credential.identityToken) {
+        Alert.alert("Apple Sign-In failed", "No identity token returned.");
+        setLoading(false);
+        return;
+      }
+
+      const { data, error } = await supabase.auth.signInWithIdToken({
+        provider: "apple",
+        token: credential.identityToken,
+        nonce: rawNonce,
+      });
+
+      if (error) {
+        Alert.alert("Sign-in error", error.message);
+        setLoading(false);
+        return;
+      }
+
+      const { data: team } = await supabase
+        .from("teams")
+        .select("league_id")
+        .eq("user_id", data.session.user.id)
+        .limit(1)
+        .single();
+
+      capture('sign_in', { method: 'apple' });
+      router.replace(team?.league_id ? "/(tabs)" : "/(setup)");
+    } catch (err: any) {
+      if (err.code === "ERR_REQUEST_CANCELED") {
+        // User cancelled — do nothing
+      } else {
+        Alert.alert("Apple Sign-In failed", err.message ?? "Unknown error");
       }
     } finally {
       setLoading(false);
@@ -489,6 +547,26 @@ export default function Auth() {
                 </ThemedText>
               </TouchableOpacity>
 
+              {/* Apple Sign-In — iOS only (required by App Store guidelines if any other third-party login is offered) */}
+              {Platform.OS === "ios" && (
+                <AppleAuthentication.AppleAuthenticationButton
+                  buttonType={
+                    isSignUp
+                      ? AppleAuthentication.AppleAuthenticationButtonType.SIGN_UP
+                      : AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN
+                  }
+                  buttonStyle={
+                    scheme === "dark"
+                      ? AppleAuthentication.AppleAuthenticationButtonStyle.WHITE
+                      : AppleAuthentication.AppleAuthenticationButtonStyle.BLACK
+                  }
+                  cornerRadius={12}
+                  style={styles.appleButton}
+                  onPress={signInWithApple}
+                  accessibilityLabel="Sign in with Apple"
+                />
+              )}
+
               <ThemedText style={[styles.legalText, { color: c.secondaryText }]}>
                 By creating an account, you agree to our{" "}
                 <ThemedText
@@ -627,6 +705,11 @@ const styles = StyleSheet.create({
   },
   googleIcon: {
     marginRight: s(10),
+  },
+  appleButton: {
+    width: "100%",
+    height: s(48),
+    marginTop: s(12),
   },
   legalText: {
     fontSize: ms(12),

@@ -1,5 +1,6 @@
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Colors, cardShadow } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useWeekScores } from '@/hooks/useWeekScores';
@@ -14,7 +15,6 @@ import { useRouter } from 'expo-router';
 import { toDateStr, parseLocalDate } from '@/utils/dates';
 import { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   ScrollView,
   StyleSheet,
   Text,
@@ -347,7 +347,7 @@ export default function ScoreboardScreen() {
         contentContainerStyle={styles.scrollContent}
       >
         {weeksLoading || isLoading ? (
-          <ActivityIndicator style={styles.loader} />
+          <View style={styles.loader}><LogoSpinner /></View>
         ) : !weeks || weeks.length === 0 ? (
           <View style={styles.emptyState}>
             <ThemedText style={{ color: c.secondaryText }}>
@@ -582,10 +582,11 @@ const styles = StyleSheet.create({
   },
   matchupCard: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 14,
     paddingHorizontal: s(14),
     paddingVertical: s(12),
-    marginBottom: s(10),
+    marginBottom: s(12),
+    ...cardShadow,
   },
   myMatchupCard: {
     borderWidth: 1.5,
@@ -597,14 +598,14 @@ const styles = StyleSheet.create({
   },
   inProgressBadge: {
     alignSelf: 'flex-start',
-    paddingHorizontal: s(6),
-    paddingVertical: s(2),
-    borderRadius: 4,
+    paddingHorizontal: s(8),
+    paddingVertical: s(3),
+    borderRadius: 6,
   },
   inProgressText: {
     fontSize: ms(9),
     fontWeight: '800',
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
   },
   upcomingText: {
     fontSize: ms(11),
@@ -633,6 +634,7 @@ const styles = StyleSheet.create({
   score: {
     fontSize: ms(18),
     fontWeight: '700',
+    fontVariant: ['tabular-nums'] as any,
   },
   divider: {
     height: StyleSheet.hairlineWidth,
@@ -643,10 +645,11 @@ const styles = StyleSheet.create({
   },
   bracketBtn: {
     alignSelf: 'center',
-    paddingVertical: s(10),
-    paddingHorizontal: s(20),
-    borderRadius: 8,
-    marginTop: s(12),
+    paddingVertical: s(12),
+    paddingHorizontal: s(24),
+    borderRadius: 10,
+    marginTop: s(16),
+    ...cardShadow,
   },
   bracketBtnText: {
     fontSize: ms(14),

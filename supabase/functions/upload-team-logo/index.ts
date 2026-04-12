@@ -88,7 +88,7 @@ Deno.serve(async (req: Request) => {
     console.error("upload-team-logo error:", err);
     const status = err.message === "Unauthorized" ? 401 : 500;
     return new Response(
-      JSON.stringify({ error: err.message }),
+      JSON.stringify({ error: 'Internal server error' }),
       { status, headers: { "Content-Type": "application/json" } },
     );
   }

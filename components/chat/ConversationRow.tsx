@@ -1,5 +1,5 @@
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Colors, cardShadow } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { ConversationPreview } from '@/types/chat';
 import { ms, s } from '@/utils/scale';
@@ -36,11 +36,16 @@ export function ConversationRow({ conversation, onPress }: Props) {
   const c = Colors[scheme];
 
   const isLeague = conversation.type === 'league';
-  const name = isLeague ? 'League Chat' : conversation.other_team_name ?? 'DM';
+  const isTrade = conversation.type === 'trade';
+  const name = isLeague
+    ? 'League Chat'
+    : isTrade
+      ? `Trade: ${conversation.other_team_name ?? 'Trade'}`
+      : conversation.other_team_name ?? 'DM';
   const hasUnread = conversation.unread_count > 0;
 
   const preview = conversation.last_message
-    ? conversation.type === 'league' && conversation.last_message_team_name
+    ? (conversation.type === 'league' || conversation.type === 'trade') && conversation.last_message_team_name
       ? `${conversation.last_message_team_name}: ${conversation.last_message}`
       : conversation.last_message
     : 'No messages yet';
@@ -54,7 +59,7 @@ export function ConversationRow({ conversation, onPress }: Props) {
   return (
     <Animated.View style={animStyle}>
       <Pressable
-        style={[styles.row, { backgroundColor: c.card }]}
+        style={[styles.row, { backgroundColor: c.card, borderColor: c.border, ...cardShadow }]}
         onPress={onPress}
         onPressIn={() => { scale.value = withSpring(0.97, { damping: 15, stiffness: 300 }); }}
         onPressOut={() => { scale.value = withSpring(1, { damping: 15, stiffness: 300 }); }}
@@ -63,7 +68,7 @@ export function ConversationRow({ conversation, onPress }: Props) {
       >
         <View style={[styles.iconCircle, { backgroundColor: c.cardAlt }]}>
           <Ionicons
-            name={isLeague ? 'chatbubbles' : 'person'}
+            name={isLeague ? 'chatbubbles' : isTrade ? 'swap-horizontal' : 'person'}
             size={20}
             color={c.accent}
           />
@@ -114,6 +119,10 @@ const styles = StyleSheet.create({
     paddingVertical: s(12),
     paddingHorizontal: s(16),
     gap: s(12),
+    borderRadius: 12,
+    borderWidth: 1,
+    marginHorizontal: s(12),
+    marginVertical: s(4),
   },
   iconCircle: {
     width: s(44),

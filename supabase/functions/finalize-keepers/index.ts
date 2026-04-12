@@ -57,7 +57,7 @@ Deno.serve(async (req) => {
         .from('league_players')
         .delete()
         .eq('league_id', league_id)
-        .not('player_id', 'in', `(${keptPlayerIds.join(',')})`);
+        .not('player_id', 'in', `(${keptPlayerIds.map((id: string) => `"${id}"`).join(',')})`);
     } else {
       // No keepers declared — release everyone
       await supabaseAdmin
@@ -101,7 +101,7 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error('finalize-keepers error:', error);
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: 'Internal server error' }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }

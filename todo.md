@@ -6,8 +6,6 @@
 ## Tier 2 — Analytics/Design-Dependent Premium Features
 
 - [ ] Build Roster Efficiency — needs methodology defined first
-- [ ] Build Luck Index + All-Play Record — needs thresholds defined first
-- [ ] Build Strength of Schedule — needs projection method defined first
 - [ ] Build Contender Score / Dynasty Power Rankings — needs weighting defined first
 - [ ] Build "What If" Trade Simulator — blocked by Contender Score
 - [ ] Build Draft Pick Value Tracker — needs design.
@@ -33,3 +31,5 @@
 - [ ] iPad/Tablet-specific layouts
 - [ ] In-season tournament option
 - [ ] Build League Constitution Builder — structured, searchable, versioned rules doc
+- [ ] Season recap animations
+

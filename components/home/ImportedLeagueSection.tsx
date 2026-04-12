@@ -1,5 +1,5 @@
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Colors, cardShadow } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useToast } from '@/context/ToastProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -10,7 +10,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ms, s } from '@/utils/scale';
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Share,
   StyleSheet,
@@ -18,6 +17,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 
 interface ImportedLeagueSectionProps {
   leagueId: string;
@@ -162,7 +162,7 @@ export function ImportedLeagueSection({
           accessibilityState={{ disabled: generating || !allClaimed }}
         >
           {generating ? (
-            <ActivityIndicator color={c.accentText} />
+            <LogoSpinner size={18} />
           ) : (
             <Text style={[styles.generateBtnText, { color: allClaimed ? c.accentText : c.secondaryText }]}>
               Generate Schedule
@@ -186,6 +186,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: s(16),
     marginBottom: s(16),
+    ...cardShadow,
   },
   headerRow: {
     flexDirection: 'row',

@@ -1,5 +1,5 @@
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { cardShadow, Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
 import type { SurveyQuestionResult } from '@/types/survey';
@@ -249,6 +249,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: s(14),
     gap: s(6),
+    ...cardShadow,
   },
   questionNum: { fontSize: ms(11), fontWeight: '700', textTransform: 'uppercase' },
   prompt: { fontSize: ms(15), fontWeight: '600', lineHeight: ms(20) },

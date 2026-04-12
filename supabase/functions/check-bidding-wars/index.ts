@@ -181,7 +181,7 @@ Deno.serve(async (req) => {
         await notifyLeague(supabaseAdmin, league_id, 'trade_rumors',
           `${ln} — Trade Rumor`,
           `A bidding war may be developing for ${playerName}.`,
-          { screen: 'chat' }
+          { screen: `chat/${leagueChat.id}` }
         ).catch(() => {});
         rumorsPosted.push(`auto:${playerName}`);
       }
@@ -210,7 +210,7 @@ Deno.serve(async (req) => {
           await notifyLeague(supabaseAdmin, league_id, 'trade_rumors',
             `${ln2} — Trade Rumor`,
             `${playerName} is generating significant trade block interest.`,
-            { screen: 'chat' }
+            { screen: `chat/${leagueChat.id}` }
           ).catch(() => {});
           rumorsPosted.push(`auto_block:${playerName}`);
         }
@@ -224,7 +224,7 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error('check-bidding-wars error:', error);
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: 'Internal server error' }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }

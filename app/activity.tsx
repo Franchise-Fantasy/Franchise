@@ -1,13 +1,15 @@
 import { ThemedText } from '@/components/ui/ThemedText';
+import { TeamLogo } from '@/components/team/TeamLogo';
 import { ms, s } from "@/utils/scale";
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Transaction, TransactionItem, useTransactions } from '@/hooks/useTransactions';
 import { formatPickLabelShort } from '@/types/trade';
 import { Ionicons } from '@expo/vector-icons';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { useCallback, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 const FILTER_OPTIONS: { key: string | undefined; label: string }[] = [
@@ -16,6 +18,10 @@ const FILTER_OPTIONS: { key: string | undefined; label: string }[] = [
   { key: 'waiver', label: 'Add/Drop' },
   { key: 'commissioner', label: 'Commissioner' },
 ];
+
+// Waiver amber matches the waiver badge in FreeAgentList so the two screens feel like the same system.
+const WAIVER_COLOR = '#D4A017';
+const WAIVER_BG = '#D4A01720';
 
 function getTransactionIcon(type: string): keyof typeof Ionicons.glyphMap {
   switch (type) {
@@ -41,6 +47,31 @@ function getTransactionLabel(type: string): string {
     default:
       return type.charAt(0).toUpperCase() + type.slice(1);
   }
+}
+
+function getTypeColors(type: string, c: typeof Colors.light): { fg: string; bg: string } {
+  switch (type) {
+    case 'trade':
+      return { fg: c.accent, bg: c.warningMuted };
+    case 'waiver':
+      return { fg: WAIVER_COLOR, bg: WAIVER_BG };
+    case 'commissioner':
+      return { fg: c.danger, bg: c.dangerMuted };
+    default:
+      return { fg: c.secondaryText, bg: c.cardAlt };
+  }
+}
+
+type TeamRef = { name: string; logo_key: string | null };
+
+function getTradeTeams(items: TransactionItem[]): TeamRef[] {
+  const map = new Map<string, TeamRef>();
+  for (const item of items) {
+    for (const team of [item.team_from, item.team_to]) {
+      if (team?.name && !map.has(team.name)) map.set(team.name, team);
+    }
+  }
+  return Array.from(map.values());
 }
 
 function formatItemDescription(item: TransactionItem): string | null {
@@ -109,45 +140,76 @@ export default function Activity() {
     ({ item }: { item: Transaction }) => {
       const icon = getTransactionIcon(item.type);
       const label = getTransactionLabel(item.type);
+      const typeColors = getTypeColors(item.type, c);
       const txnItems = item.league_transaction_items ?? [];
       const isTrade = item.type === 'trade' && txnItems.length > 0;
       const tradeSummary = isTrade ? buildTradeSummary(txnItems) : [];
+      const tradeTeams = isTrade ? getTradeTeams(txnItems) : [];
       const descriptions = isTrade ? [] : txnItems.map(formatItemDescription).filter(Boolean) as string[];
+
+      // Logo cluster: for trades, show every involved team logo; otherwise use the initiator.
+      const headerLogos: TeamRef[] = isTrade
+        ? tradeTeams
+        : item.initiator
+          ? [item.initiator]
+          : [];
 
       return (
         <View
           style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}
           accessibilityLabel={`${label}${item.initiator ? ` by ${item.initiator.name}` : ''}, ${formatDate(item.created_at)}${isTrade ? `, ${tradeSummary.map(g => `${g.team} sends ${g.assets.join(', ')}`).join('; ')}` : descriptions.length > 0 ? `, ${descriptions.join(', ')}` : ''}`}
         >
-          <View style={styles.cardRow}>
-            <View style={[styles.iconCircle, { backgroundColor: c.cardAlt }]}>
-              <Ionicons name={icon} size={18} color={c.accent} accessible={false} />
-            </View>
-            <View style={styles.cardContent}>
-              <View style={styles.cardHeader}>
-                <ThemedText style={styles.typeLabel}>
-                  {label}{item.initiator ? ` · ${item.initiator.name}` : ''}
-                </ThemedText>
+          <View style={[styles.stripe, { backgroundColor: typeColors.fg }]} />
+          <View style={styles.cardInner}>
+            <View style={styles.headerRow}>
+              <View style={styles.logoCluster}>
+                {headerLogos.length > 0 ? (
+                  headerLogos.map((team, idx) => (
+                    <View key={`${team.name}-${idx}`} style={idx > 0 ? styles.logoStacked : undefined}>
+                      <TeamLogo logoKey={team.logo_key} teamName={team.name} size="small" />
+                    </View>
+                  ))
+                ) : (
+                  <View style={[styles.iconCircle, { backgroundColor: typeColors.bg }]}>
+                    <Ionicons name={icon} size={18} color={typeColors.fg} accessible={false} />
+                  </View>
+                )}
+                {!isTrade && item.initiator && (
+                  <ThemedText style={[styles.initiatorName, { color: c.text }]} numberOfLines={1}>
+                    {item.initiator.name}
+                  </ThemedText>
+                )}
+              </View>
+              <View style={styles.headerMeta}>
+                <View style={[styles.typePill, { backgroundColor: typeColors.bg }]}>
+                  <Ionicons name={icon} size={12} color={typeColors.fg} accessible={false} />
+                  <ThemedText style={[styles.typePillText, { color: typeColors.fg }]}>
+                    {label}
+                  </ThemedText>
+                </View>
                 <ThemedText style={[styles.time, { color: c.secondaryText }]}>
                   {formatDate(item.created_at)}
                 </ThemedText>
               </View>
+            </View>
+
+            <View style={styles.body}>
               {isTrade ? (
                 tradeSummary.map((group, gi) => (
                   <View key={gi} style={styles.tradeSummaryGroup}>
                     <ThemedText style={[styles.tradeSummaryTeam, { color: c.text }]} numberOfLines={1}>
-                      {group.team} sends:
+                      {group.team} sends
                     </ThemedText>
                     {group.assets.map((asset, ai) => (
-                      <ThemedText key={ai} style={[styles.notes, { color: c.secondaryText }]} numberOfLines={1}>
-                        {'  •  '}{asset}
+                      <ThemedText key={ai} style={[styles.assetLine, { color: c.text }]} numberOfLines={1}>
+                        •  {asset}
                       </ThemedText>
                     ))}
                   </View>
                 ))
               ) : descriptions.length > 0 ? (
                 descriptions.map((desc, i) => (
-                  <ThemedText key={i} style={[styles.notes, { color: c.secondaryText }]}>
+                  <ThemedText key={i} style={[styles.assetLine, { color: c.text }]}>
                     {desc}
                   </ThemedText>
                 ))
@@ -209,7 +271,7 @@ export default function Activity() {
       </ScrollView>
 
       {isLoading ? (
-        <ActivityIndicator style={styles.loader} />
+        <View style={styles.loader}><LogoSpinner /></View>
       ) : transactions.length === 0 ? (
         <View style={styles.empty}>
           <Ionicons name="document-text-outline" size={40} color={c.secondaryText} accessible={false} />
@@ -228,7 +290,7 @@ export default function Activity() {
           refreshing={refreshing}
           onRefresh={onRefresh}
           ListFooterComponent={
-            isFetchingNextPage ? <ActivityIndicator style={styles.footerLoader} /> : null
+            isFetchingNextPage ? <View style={styles.footerLoader}><LogoSpinner size={18} /></View> : null
           }
         />
       )}
@@ -253,53 +315,91 @@ const styles = StyleSheet.create({
     fontSize: ms(15),
   },
   list: {
-    paddingTop: 8,
     paddingHorizontal: 16,
     paddingBottom: 16,
     gap: 10,
   },
   card: {
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    overflow: 'hidden',
+  },
+  stripe: {
+    width: 4,
+  },
+  cardInner: {
+    flex: 1,
     padding: 12,
   },
-  cardRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  iconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cardContent: {
-    flex: 1,
-  },
-  cardHeader: {
+  headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 8,
   },
-  typeLabel: {
-    fontSize: ms(14),
-    fontWeight: '600',
+  logoCluster: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 1,
+    gap: 8,
+  },
+  logoStacked: {
+    marginLeft: -8,
+  },
+  iconCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  typePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    height: 22,
+    borderRadius: 11,
+  },
+  typePillText: {
+    fontSize: ms(11),
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   time: {
     fontSize: ms(12),
   },
+  initiatorName: {
+    fontSize: ms(14),
+    fontWeight: '700',
+    flexShrink: 1,
+  },
+  body: {
+    marginTop: 6,
+  },
   notes: {
     fontSize: ms(13),
-    marginTop: 4,
     lineHeight: 18,
   },
+  assetLine: {
+    fontSize: ms(13),
+    lineHeight: 19,
+  },
   tradeSummaryGroup: {
-    marginTop: 4,
+    marginTop: 6,
   },
   tradeSummaryTeam: {
     fontSize: ms(12),
-    fontWeight: '600',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: 2,
   },
   footerLoader: {
     paddingVertical: 16,
@@ -309,8 +409,8 @@ const styles = StyleSheet.create({
   },
   filterRow: {
     paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 2,
+    paddingTop: 8,
+    paddingBottom: 8,
     gap: 8,
     alignItems: 'center',
   },

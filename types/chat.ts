@@ -1,8 +1,9 @@
 export interface ChatConversation {
   id: string;
   league_id: string;
-  type: 'league' | 'dm';
+  type: 'league' | 'dm' | 'trade';
   created_at: string;
+  trade_proposal_id?: string | null;
 }
 
 export interface ChatMember {
@@ -14,7 +15,15 @@ export interface ChatMember {
   created_at: string;
 }
 
-export type ChatMessageType = 'text' | 'poll' | 'trade' | 'rumor' | 'survey' | 'image' | 'gif';
+export type ChatMessageType = 'text' | 'poll' | 'trade' | 'rumor' | 'survey' | 'image' | 'gif' | 'trade_update';
+
+export type TradeUpdateEvent = 'proposed' | 'accepted' | 'rejected' | 'countered' | 'completed' | 'vetoed' | 'cancelled';
+
+export interface TradeUpdateContent {
+  event: TradeUpdateEvent;
+  team_name: string | null;
+  proposal_id: string;
+}
 
 export interface TradeSummaryMove {
   asset: string;
@@ -75,7 +84,7 @@ export interface ChatReaction {
 export interface ConversationPreview {
   id: string;
   league_id: string;
-  type: 'league' | 'dm';
+  type: 'league' | 'dm' | 'trade';
   created_at: string;
   last_message: string | null;
   last_message_at: string | null;

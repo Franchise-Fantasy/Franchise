@@ -16,7 +16,7 @@ function useChatMessageSubscription(leagueId: string | null) {
   useEffect(() => {
     if (!leagueId) return;
     const channel = supabase
-      .channel(`chat_messages_${leagueId}`)
+      .channel(`chat_messages_${leagueId}-${Date.now()}`)
       .on(
         'postgres_changes',
         {

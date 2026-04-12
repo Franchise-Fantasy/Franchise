@@ -3,7 +3,8 @@ import { ThemedView } from '@/components/ui/ThemedView';
 import { useLeague } from '@/hooks/useLeague';
 import { useRouter } from 'expo-router';
 import { useEffect } from 'react';
-import { ActivityIndicator, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 
 export default function LoadingScreen() {
   const router = useRouter();
@@ -17,7 +18,7 @@ export default function LoadingScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <ActivityIndicator size="large" />
+      <LogoSpinner delay={0} />
       <ThemedText style={styles.text}>Setting up your league...</ThemedText>
     </ThemedView>
   );

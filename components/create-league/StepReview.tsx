@@ -1,9 +1,10 @@
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { LEAGUE_TYPE_DISPLAY, LeagueWizardState, NBA_POSITIONS, WAIVER_DAY_LABELS } from '@/constants/LeagueDefaults';
 import { taxiExperienceLabel } from '@/utils/taxiEligibility';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { ms, s } from '@/utils/scale';
 
 interface StepReviewProps {
@@ -155,7 +156,7 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
         style={[styles.createBtn, { backgroundColor: loading ? c.buttonDisabled : c.accent }]}
       >
         {loading ? (
-          <ActivityIndicator color={c.accentText} />
+          <LogoSpinner size={18} />
         ) : (
           <Text style={[styles.createBtnText, { color: c.accentText }]}>Create League</Text>
         )}

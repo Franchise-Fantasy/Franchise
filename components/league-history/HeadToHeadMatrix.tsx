@@ -1,16 +1,16 @@
 import { ThemedText } from "@/components/ui/ThemedText";
-import { Colors } from "@/constants/Colors";
+import { Colors, cardShadow } from "@/constants/Colors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { H2HRecord, useHeadToHead } from "@/hooks/useLeagueHistory";
 import { ms, s } from '@/utils/scale';
 import { useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
   View,
 } from "react-native";
+import { LogoSpinner } from "@/components/ui/LogoSpinner";
 
 interface HeadToHeadMatrixProps {
   leagueId: string;
@@ -68,7 +68,7 @@ export function HeadToHeadMatrix({ leagueId }: HeadToHeadMatrixProps) {
     return map;
   }, [pairMatchups]);
 
-  if (isLoading) return <ActivityIndicator style={{ marginVertical: 16 }} />;
+  if (isLoading) return <View style={{ marginVertical: 16 }}><LogoSpinner /></View>;
   if (!data || data.teams.length === 0) {
     return (
       <ThemedText style={[styles.emptyText, { color: c.secondaryText }]}>
@@ -285,9 +285,10 @@ const styles = StyleSheet.create({
   cellDash: { fontSize: ms(14) },
   detailContainer: {
     marginTop: s(16),
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     padding: s(14),
+    ...cardShadow,
   },
   detailHeader: {
     flexDirection: "row",

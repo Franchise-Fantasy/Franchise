@@ -1,3 +1,4 @@
+import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { ms, s } from "@/utils/scale";
 import { ThemedView } from "@/components/ui/ThemedView";
@@ -8,7 +9,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -52,16 +52,32 @@ export default function ResetPasswordScreen() {
     }
 
     setLoading(true);
-    const { error } = await supabase.auth.updateUser({ password });
-    setLoading(false);
+    const { data, error } = await supabase.auth.updateUser({ password });
 
     if (error) {
+      setLoading(false);
       Alert.alert("Error", error.message);
-    } else {
-      Alert.alert("Password updated", "Your password has been reset successfully.", [
-        { text: "OK", onPress: () => router.replace("/auth") },
-      ]);
+      return;
     }
+
+    // User already has a valid session — skip /auth and go straight to the app.
+    // Avoids a racy replace chain that left the tab navigator frozen.
+    const userId = data.user?.id;
+    let destination: "/(tabs)" | "/(setup)" = "/(setup)";
+    if (userId) {
+      const { data: team } = await supabase
+        .from("teams")
+        .select("league_id")
+        .eq("user_id", userId)
+        .limit(1)
+        .single();
+      destination = team?.league_id ? "/(tabs)" : "/(setup)";
+    }
+    setLoading(false);
+
+    Alert.alert("Password updated", "Your password has been reset successfully.", [
+      { text: "OK", onPress: () => router.replace(destination) },
+    ]);
   }
 
   return (
@@ -84,7 +100,7 @@ export default function ResetPasswordScreen() {
           </View>
 
           {!sessionReady ? (
-            <ActivityIndicator style={{ marginTop: 24 }} />
+            <View style={{ marginTop: 24 }}><LogoSpinner /></View>
           ) : (
             <>
               <View

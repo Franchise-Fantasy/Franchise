@@ -22,12 +22,12 @@ import { queryKeys } from '@/constants/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 /** Convert bracket pairings into PlayoffBracketSlot[] for the bracket component. */
@@ -280,7 +280,7 @@ export default function PlayoffBracketScreen() {
 
       {/* Bracket */}
       {bracketLoading ? (
-        <ActivityIndicator style={styles.loader} />
+        <View style={styles.loader}><LogoSpinner /></View>
       ) : (
         <PlayoffBracket
           slots={displaySlots}

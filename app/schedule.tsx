@@ -14,7 +14,6 @@ import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   Modal,
   StyleSheet,
@@ -22,6 +21,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
@@ -352,7 +352,7 @@ export default function ScheduleScreen() {
 
       {/* Schedule list */}
       {isLoading ? (
-        <ActivityIndicator style={styles.loader} />
+        <View style={styles.loader}><LogoSpinner /></View>
       ) : !weeks || weeks.length === 0 ? (
         <View style={styles.emptyState}>
           <ThemedText style={{ color: c.secondaryText }}>

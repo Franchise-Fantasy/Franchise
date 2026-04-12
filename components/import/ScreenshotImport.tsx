@@ -9,6 +9,7 @@ import { StepScoring } from '@/components/create-league/StepScoring';
 import { StepSeason, computeMaxWeeks } from '@/components/create-league/StepSeason';
 import { StepTrade } from '@/components/create-league/StepTrade';
 import { StepWaivers } from '@/components/create-league/StepWaivers';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { StepIndicator } from '@/components/ui/StepIndicator';
 import { Colors } from '@/constants/Colors';
 import { ms, s } from '@/utils/scale';
@@ -42,7 +43,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useCallback, useReducer, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -748,7 +748,7 @@ export function ScreenshotImport() {
                       accessibilityLabel="Extract settings from screenshots"
                     >
                       {extractSettingsMutation.isPending ? (
-                        <ActivityIndicator color={c.accentText} />
+                        <LogoSpinner size={18} />
                       ) : (
                         <Text style={[styles.extractBtnText, { color: c.accentText }]}>
                           Extract Settings
@@ -883,7 +883,7 @@ export function ScreenshotImport() {
                   accessibilityLabel="Extract roster from screenshots"
                 >
                   {extractRosterMutation.isPending ? (
-                    <ActivityIndicator color={c.accentText} />
+                    <LogoSpinner size={18} />
                   ) : (
                     <Text style={[styles.extractBtnText, { color: c.accentText }]}>
                       Extract Roster
@@ -1049,7 +1049,7 @@ export function ScreenshotImport() {
                             accessibilityLabel={`Extract history for season ${state.currentHistoryIndex + 1}`}
                           >
                             {extractHistoryMutation.isPending ? (
-                              <ActivityIndicator color={c.accentText} />
+                              <LogoSpinner size={18} />
                             ) : (
                               <Text style={[styles.extractBtnText, { color: c.accentText }]}>
                                 Extract History
@@ -1211,7 +1211,7 @@ export function ScreenshotImport() {
                 accessibilityState={{ disabled: importMutation.isPending || !state.wizardState.name.trim() }}
               >
                 {importMutation.isPending ? (
-                  <ActivityIndicator color={c.accentText} />
+                  <LogoSpinner size={18} />
                 ) : (
                   <Text style={[styles.importBtnText, { color: c.accentText }]}>
                     Import League

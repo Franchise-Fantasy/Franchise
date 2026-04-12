@@ -13,4 +13,6 @@ Code quality:
 
 Iterations:
 
-- When adding/removing/renaming pages, hooks, edge functions, database tables, RPCs, or real-time subscriptions, update the relevant notes in the Obsidian wiki at `c:/Users/jjspo/OneDrive/Desktop/Franchise Wiki/Franchise Wiki/`. Don't stress about perfection — just keep the affected notes roughly in sync.
+- When adding/removing/renaming pages, hooks, edge functions, database tables, RPCs, or real-time subscriptions, update the relevant notes in the Obsidian wiki at `C:/Users/Joe/Desktop/Franchise Wiki/Franchise Wiki/`. Don't stress about perfection — just keep the affected notes roughly in sync.
+
+- Supabase realtime channel names created inside a `useEffect` MUST include a `-${Date.now()}` (or equivalent unique) suffix. Deterministic names like `` `draft_status_${leagueId}` `` collide when React reconnects passive effects (tab switch, auth transition, concurrent re-render) because `supabase.removeChannel()` is async — the old channel is still in `joined` state when the new effect re-registers `postgres_changes` callbacks, Supabase throws, and Hermes crashes natively. Match the existing convention (see `useAnnouncements.ts`, `useWeekScores.ts`, etc.).

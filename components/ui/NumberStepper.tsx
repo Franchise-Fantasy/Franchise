@@ -2,7 +2,7 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
 import { useState } from 'react';
-import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 interface NumberStepperProps {
   label: string;
@@ -132,13 +132,17 @@ const styles = StyleSheet.create({
   btn: {
     width: s(36),
     height: s(36),
-    borderRadius: 18,
+    borderRadius: s(18),
     alignItems: 'center',
     justifyContent: 'center',
   },
   btnText: {
     fontSize: ms(20),
     fontWeight: '600',
+    lineHeight: ms(20),
+    ...Platform.select({
+      android: { includeFontPadding: false },
+    }),
   },
   value: {
     fontSize: ms(16),

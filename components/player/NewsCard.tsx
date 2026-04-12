@@ -1,5 +1,5 @@
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Colors, cardShadow } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { PlayerNewsArticle } from '@/types/news';
 import { getPlayerHeadshotUrl } from '@/utils/playerHeadshot';
@@ -124,10 +124,11 @@ export function NewsCard({ article, showHeadshots }: NewsCardProps) {
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     padding: s(14),
     gap: s(6),
+    ...cardShadow,
   },
   titleRow: {
     flexDirection: 'row',

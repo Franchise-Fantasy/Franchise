@@ -105,9 +105,9 @@ async function applyInjuries(
     normMap.get(normalizeName(name));
 
   // Cross-reference reported teams with today's schedule to avoid false positives
-  // (spaceless PDF matching can pick up team names that aren't actually playing today)
-  const today = new Date();
-  const todayStr = today.toISOString().slice(0, 10);
+  // (spaceless PDF matching can pick up team names that aren't actually playing today).
+  // Use ET because nba_schedule.game_date is ET-aligned.
+  const todayStr = getEtDateStr(new Date());
   const { data: todayGames } = await supabase
     .from('nba_schedule')
     .select('home_team, away_team')
@@ -171,11 +171,21 @@ async function applyInjuries(
   return { matchedPlayers: matchedPlayerIds.size, statusUpdates: updateCount, playersReset, unmatchedNames, changedPlayerIds, teamsReported: reportedTeams.size };
 }
 
+// nba_schedule.game_date is ET-aligned, so "today" must be computed in ET.
+// Using UTC causes tomorrow's ET games to be mislabeled "Tonight" when the
+// cron runs late evening ET (UTC already rolled past midnight).
+function getEtDateStr(d: Date, offsetDays = 0): string {
+  const et = new Date(d.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  et.setDate(et.getDate() + offsetDays);
+  const y = et.getFullYear();
+  const m = String(et.getMonth() + 1).padStart(2, '0');
+  const day = String(et.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function formatNextGameLabel(gameDate: string, now: Date): string {
-  const todayStr = now.toISOString().slice(0, 10);
-  const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowStr = tomorrow.toISOString().slice(0, 10);
+  const todayStr = getEtDateStr(now);
+  const tomorrowStr = getEtDateStr(now, 1);
 
   if (gameDate === todayStr) return 'Tonight';
   if (gameDate === tomorrowStr) return 'Tomorrow';
@@ -189,7 +199,7 @@ function formatNextGameLabel(gameDate: string, now: Date): string {
 
 async function getNextGameByTeam(nbaTeams: string[]): Promise<Map<string, string>> {
   const now = new Date();
-  const todayStr = now.toISOString().slice(0, 10);
+  const todayStr = getEtDateStr(now);
   const nextGameMap = new Map<string, string>();
   if (nbaTeams.length === 0) return nextGameMap;
 

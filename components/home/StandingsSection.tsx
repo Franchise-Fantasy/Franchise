@@ -1,11 +1,13 @@
 import { supabase } from '@/lib/supabase';
-import { Colors } from '@/constants/Colors';
+import { Colors, cardShadow } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useAppState } from '@/context/AppStateProvider';
+import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { ActivityIndicator, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ms, s } from '@/utils/scale';
 import { ThemedText } from '../ui/ThemedText';
 import { TeamLogo } from '../team/TeamLogo';
@@ -28,9 +30,14 @@ interface Matchup {
   home_team_id: string;
   away_team_id: string | null;
   winner_team_id: string | null;
+  home_score: number;
+  away_score: number;
+  home_category_wins?: number | null;
+  away_category_wins?: number | null;
+  week_number: number;
 }
 
-type PlayoffStatus = 'clinched' | 'eliminated' | null;
+export type PlayoffStatus = 'clinched' | 'eliminated' | null;
 
 /**
  * Resolve standings order using configurable tiebreaker rules.
@@ -45,15 +52,20 @@ function resolveStandings(
 ): (TeamStanding & { rank: number })[] {
   if (teams.length === 0) return [];
 
-  // Sort by wins DESC first
-  const sorted = [...teams].sort((a, b) => b.wins - a.wins);
+  const winPct = (t: TeamStanding) => {
+    const gp = t.wins + t.losses + t.ties;
+    return gp === 0 ? 0 : (t.wins + t.ties * 0.5) / gp;
+  };
 
-  // Group teams by win count
+  // Sort by win percentage DESC first
+  const sorted = [...teams].sort((a, b) => winPct(b) - winPct(a));
+
+  // Group teams by win percentage
   const groups: TeamStanding[][] = [];
   let currentGroup: TeamStanding[] = [sorted[0]];
 
   for (let i = 1; i < sorted.length; i++) {
-    if (sorted[i].wins === sorted[i - 1].wins) {
+    if (Math.abs(winPct(sorted[i]) - winPct(sorted[i - 1])) < 1e-9) {
       currentGroup.push(sorted[i]);
     } else {
       groups.push(currentGroup);
@@ -118,43 +130,49 @@ function resolveStandings(
 /**
  * Compute playoff clinch/elimination status for each team.
  *
- * Clinched: even if team loses all remaining, not enough other teams can
- *   reach team's current win total → team must finish top N.
- * Eliminated: even if team wins all remaining, N or more teams are already
- *   guaranteed to finish above team → team cannot finish top N.
+ * Runs two simulations per team:
+ * - Worst case: team loses all remaining, every other team wins all remaining.
+ *   If team still finishes top N under current tiebreakers, they've clinched.
+ * - Best case: team wins all remaining, every other team loses all remaining.
+ *   If team still misses top N, they're eliminated.
+ *
+ * Sound but not tight — opponents can't all win/lose when they play each other,
+ * so some late clinches may not light up until the math is unambiguous.
  */
-function computePlayoffStatuses(
+export function computePlayoffStatuses(
   standings: (TeamStanding & { rank: number })[],
   remainingGames: Map<string, number>,
   playoffTeams: number,
+  matchups: Matchup[],
+  tiebreakerOrder: string[],
 ): Map<string, PlayoffStatus> {
   const statuses = new Map<string, PlayoffStatus>();
   const totalTeams = standings.length;
   if (playoffTeams <= 0 || playoffTeams >= totalTeams) return statuses;
 
-  const maxWins = standings.map(t => t.wins + (remainingGames.get(t.id) ?? 0));
-
-  for (let i = 0; i < standings.length; i++) {
-    const team = standings[i];
-    const teamMaxWins = maxWins[i];
-    const teamCurrentWins = team.wins;
-
-    // Clinched: count teams that are guaranteed to finish below this team.
-    // A team is guaranteed below if its max possible wins < this team's current wins.
-    const guaranteedBelow = standings.filter(
-      (_, j) => j !== i && maxWins[j] < teamCurrentWins,
-    ).length;
-    if (guaranteedBelow >= totalTeams - playoffTeams) {
+  for (const team of standings) {
+    const worstCase = standings.map(t => {
+      const remaining = remainingGames.get(t.id) ?? 0;
+      return t.id === team.id
+        ? { ...t, losses: t.losses + remaining }
+        : { ...t, wins: t.wins + remaining };
+    });
+    const worstRank = resolveStandings(worstCase, matchups, tiebreakerOrder)
+      .find(t => t.id === team.id)?.rank ?? Infinity;
+    if (worstRank <= playoffTeams) {
       statuses.set(team.id, 'clinched');
       continue;
     }
 
-    // Eliminated: count teams guaranteed to finish above this team.
-    // A team is guaranteed above if its current wins > this team's max possible wins.
-    const guaranteedAbove = standings.filter(
-      (other, j) => j !== i && other.wins > teamMaxWins,
-    ).length;
-    if (guaranteedAbove >= playoffTeams) {
+    const bestCase = standings.map(t => {
+      const remaining = remainingGames.get(t.id) ?? 0;
+      return t.id === team.id
+        ? { ...t, wins: t.wins + remaining }
+        : { ...t, losses: t.losses + remaining };
+    });
+    const bestRank = resolveStandings(bestCase, matchups, tiebreakerOrder)
+      .find(t => t.id === team.id)?.rank ?? Infinity;
+    if (bestRank > playoffTeams) {
       statuses.set(team.id, 'eliminated');
       continue;
     }
@@ -163,6 +181,19 @@ function computePlayoffStatuses(
   }
 
   return statuses;
+}
+
+// Deterministic font size for team names. React Native's adjustsFontSizeToFit
+// is unreliable across platforms, so we pick a size by character count.
+function teamNameFontSize(name: string): number {
+  const len = name.length;
+  if (len <= 12) return ms(13);
+  if (len <= 15) return ms(12);
+  if (len <= 18) return ms(11);
+  if (len <= 21) return ms(10);
+  if (len <= 24) return ms(9);
+  if (len <= 28) return ms(8);
+  return ms(7);
 }
 
 function streakColor(streak: string, c: any): string {
@@ -209,13 +240,13 @@ export function StandingsSection({ leagueId, playoffTeams, scoringType, tiebreak
     enabled: !!leagueId,
   });
 
-  // Fetch finalized regular-season matchups for H2H tiebreaker
+  // Fetch finalized regular-season matchups (H2H tiebreaker + all-play cache for standings detail)
   const { data: matchups } = useQuery({
     queryKey: queryKeys.standingsH2h(leagueId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('league_matchups')
-        .select('home_team_id, away_team_id, winner_team_id')
+        .select('home_team_id, away_team_id, winner_team_id, home_score, away_score, home_category_wins, away_category_wins, category_results, week_number')
         .eq('league_id', leagueId)
         .eq('is_finalized', true)
         .is('playoff_round', null);
@@ -223,7 +254,7 @@ export function StandingsSection({ leagueId, playoffTeams, scoringType, tiebreak
       if (error) throw error;
       return data as Matchup[];
     },
-    enabled: !!leagueId && needsH2H,
+    enabled: !!leagueId,
   });
 
   // Fetch remaining regular-season matchups per team for clinch/elimination
@@ -241,10 +272,9 @@ export function StandingsSection({ leagueId, playoffTeams, scoringType, tiebreak
 
       const counts = new Map<string, number>();
       for (const m of data) {
+        if (!m.away_team_id) continue;
         counts.set(m.home_team_id, (counts.get(m.home_team_id) ?? 0) + 1);
-        if (m.away_team_id) {
-          counts.set(m.away_team_id, (counts.get(m.away_team_id) ?? 0) + 1);
-        }
+        counts.set(m.away_team_id, (counts.get(m.away_team_id) ?? 0) + 1);
       }
       return counts;
     },
@@ -257,7 +287,7 @@ export function StandingsSection({ leagueId, playoffTeams, scoringType, tiebreak
     : undefined;
 
   const playoffStatuses = allStandings && remainingGames && playoffTeams
-    ? computePlayoffStatuses(allStandings, remainingGames, playoffTeams)
+    ? computePlayoffStatuses(allStandings, remainingGames, playoffTeams, matchups ?? [], tiebreakers)
     : null;
 
   const renderHeader = () => (
@@ -283,7 +313,12 @@ export function StandingsSection({ leagueId, playoffTeams, scoringType, tiebreak
       <ThemedText style={[styles.rank, { color: c.secondaryText }]}>{team.rank}</ThemedText>
       <TeamLogo logoKey={team.logo_key} teamName={team.name} tricode={team.tricode ?? undefined} size="small" />
       <View style={styles.teamNameCol}>
-        <ThemedText style={styles.teamName} numberOfLines={1}>{team.name}</ThemedText>
+        <ThemedText
+          style={[styles.teamName, { fontSize: teamNameFontSize(team.name) }]}
+          numberOfLines={1}
+        >
+          {team.name}
+        </ThemedText>
         {playoffStatuses?.get(team.id) === 'clinched' && (
           <ThemedText style={[styles.clinchBadge, { color: c.success }]} accessibilityLabel="Clinched playoff spot">x</ThemedText>
         )}
@@ -324,11 +359,20 @@ export function StandingsSection({ leagueId, playoffTeams, scoringType, tiebreak
   const div2Teams = rawTeams?.filter(t => t.division === 2) ?? [];
 
   return (
-    <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
-      <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Standings</ThemedText>
+    <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border, ...cardShadow }]}>
+      <TouchableOpacity
+        style={styles.sectionHeader}
+        onPress={() => router.push('/standings' as any)}
+        activeOpacity={0.6}
+        accessibilityRole="button"
+        accessibilityLabel="View detailed standings"
+      >
+        <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Standings</ThemedText>
+        <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
+      </TouchableOpacity>
       <View style={styles.standings}>
         {isLoading ? (
-          <ActivityIndicator style={styles.loading} />
+          <View style={styles.loading}><LogoSpinner /></View>
         ) : !rawTeams?.length ? (
           <View style={styles.placeholder}>
             <ThemedText style={[styles.placeholderText, { color: c.secondaryText }]}>
@@ -359,6 +403,12 @@ export function StandingsSection({ leagueId, playoffTeams, scoringType, tiebreak
             ))}
           </>
         ) : null}
+        {!!playoffTeams && allStandings && (
+          <ThemedText style={[styles.footnote, { color: c.secondaryText }]}>
+            <ThemedText style={[styles.clinchBadge, { color: c.success }]}>x</ThemedText> = clinched{' · '}
+            <ThemedText style={[styles.clinchBadge, { color: c.danger }]}>e</ThemedText> = eliminated
+          </ThemedText>
+        )}
       </View>
     </View>
   );
@@ -372,6 +422,11 @@ const styles = StyleSheet.create({
     paddingTop: s(14),
     paddingBottom: s(2),
     marginBottom: s(16),
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   sectionTitle: {
     marginBottom: s(8),
@@ -406,6 +461,12 @@ const styles = StyleSheet.create({
   teamNameCol: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: s(6), marginLeft: s(8) },
   teamName: { flexShrink: 1, fontSize: ms(13) },
   clinchBadge: { fontSize: ms(10), fontWeight: '700', fontStyle: 'italic' },
+  footnote: {
+    fontSize: ms(10),
+    fontStyle: 'italic',
+    textAlign: 'center',
+    paddingVertical: s(6),
+  },
   record: { width: s(48), textAlign: 'center', fontSize: ms(12) },
   pf: { width: s(44), textAlign: 'right', fontSize: ms(11) },
   pa: { width: s(44), textAlign: 'right', fontSize: ms(11) },

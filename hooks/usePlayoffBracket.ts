@@ -63,46 +63,45 @@ export function usePlayoffBracket(season: string) {
   });
 
   // Subscribe to week_scores changes for live score updates
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const channelsRef = useRef<ReturnType<typeof supabase.channel>[]>([]);
   useEffect(() => {
     if (!leagueId || scheduleIds.length === 0) {
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
-      }
+      for (const ch of channelsRef.current) supabase.removeChannel(ch);
+      channelsRef.current = [];
       return;
     }
 
-    const channel = supabase
-      .channel(`playoff-scores-${leagueId}-${season}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'week_scores',
-          filter: `league_id=eq.${leagueId}`,
-        },
-        (payload) => {
-          const row = payload.new as { team_id: string; score: number; schedule_id: string } | undefined;
-          if (row?.team_id != null && row?.score != null && scheduleIds.includes(row.schedule_id)) {
-            queryClient.setQueryData(
-              queryKeys.playoffLiveScores(leagueId!, Number(season), scheduleIds),
-              (old: Record<string, number> | undefined) => ({
-                ...old,
-                [row.team_id]: Number(row.score),
-              }),
-            );
-          }
-        },
-      )
-      .subscribe();
+    // Subscribe to broadcast for each active playoff schedule.
+    // The edge function broadcasts all scores per schedule_id after upsert.
+    const channels = scheduleIds.map((sid) =>
+      supabase
+        .channel(`playoff-scores-${sid}-${Date.now()}`)
+        .on(
+          'broadcast',
+          { event: 'score_update' },
+          (payload) => {
+            const scores = payload.payload?.scores as Record<string, number> | undefined;
+            if (scores) {
+              queryClient.setQueryData(
+                queryKeys.playoffLiveScores(leagueId!, Number(season), scheduleIds),
+                (old: Record<string, number> | undefined) => ({
+                  ...old,
+                  ...Object.fromEntries(
+                    Object.entries(scores).map(([k, v]) => [k, Number(v)]),
+                  ),
+                }),
+              );
+            }
+          },
+        )
+        .subscribe(),
+    );
 
-    channelRef.current = channel;
+    channelsRef.current = channels;
 
     return () => {
-      supabase.removeChannel(channel);
-      channelRef.current = null;
+      for (const ch of channels) supabase.removeChannel(ch);
+      channelsRef.current = [];
     };
   }, [leagueId, season, scheduleIds.join(','), queryClient]);
 
@@ -167,7 +166,7 @@ export function useSeedPicks(season: string, round: number | null, poll = false)
     }
 
     const channel = supabase
-      .channel(`seed-picks-${leagueId}-${season}-${round}`)
+      .channel(`seed-picks-${leagueId}-${season}-${round}-${Date.now()}`)
       .on(
         'postgres_changes',
         {

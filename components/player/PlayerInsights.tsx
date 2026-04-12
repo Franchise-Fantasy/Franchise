@@ -1,6 +1,6 @@
 import { ms, s } from "@/utils/scale";
 import { ThemedText } from "@/components/ui/ThemedText";
-import { Colors } from "@/constants/Colors";
+import { Colors, cardShadow } from "@/constants/Colors";
 import { TREND_COLORS } from "@/constants/StatusColors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { PlayerGameLog, ScoringWeight } from "@/types/player";
@@ -19,7 +19,8 @@ import {
 } from "@/utils/playerInsights";
 import { Ionicons } from "@expo/vector-icons";
 import { useMemo, useState } from "react";
-import { Alert, Pressable, StyleSheet, TouchableOpacity, View } from "react-native";
+import { Pressable, StyleSheet, TouchableOpacity, View } from "react-native";
+import { InfoModal } from "@/components/ui/InfoModal";
 
 interface Props {
   games: PlayerGameLog[] | undefined;
@@ -122,6 +123,7 @@ export function PlayerInsightsCard({
   const [expanded, setExpanded] = useState(false);
   const [catTab, setCatTab] = useState<"strengths" | "trends">("strengths");
   const [showWindowPicker, setShowWindowPicker] = useState(false);
+  const [infoKey, setInfoKey] = useState<"category" | "player" | null>(null);
 
   // --- CAT league branch ---
   if (isCategories) {
@@ -176,20 +178,7 @@ export function PlayerInsightsCard({
             </Pressable>
           ))}
           <TouchableOpacity
-            onPress={() =>
-              Alert.alert(
-                "Category Insights",
-                "Strengths — Per-category consistency, sorted by reliability:\n" +
-                  "• Rock Solid: Very consistent output\n" +
-                  "• Steady: Reliable most nights\n" +
-                  "• Variable: Notable swings\n" +
-                  "• Boom or Bust: Huge range\n\n" +
-                  "↓ — Inverse stat (lower is better, e.g. turnovers).\n\n" +
-                  "Trends — How each category is trending recently vs season average.\n\n" +
-                  "For inverse stats, trend colors are flipped — a downward trend shows green.\n\n" +
-                  "Tap the filter icon to change the recent games window.",
-              )
-            }
+            onPress={() => setInfoKey("category")}
             accessibilityRole="button"
             accessibilityLabel="Category insights info"
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -310,6 +299,23 @@ export function PlayerInsightsCard({
             </View>
           </View>
         )}
+
+        <InfoModal
+          visible={infoKey === "category"}
+          onClose={() => setInfoKey(null)}
+          title="Category Insights"
+          message={
+            "Strengths — Per-category consistency, sorted by reliability:\n" +
+            "• Rock Solid: Very consistent output\n" +
+            "• Steady: Reliable most nights\n" +
+            "• Variable: Notable swings\n" +
+            "• Boom or Bust: Huge range\n\n" +
+            "↓ — Inverse stat (lower is better, e.g. turnovers).\n\n" +
+            "Trends — How each category is trending recently vs season average.\n\n" +
+            "For inverse stats, trend colors are flipped — a downward trend shows green.\n\n" +
+            "Tap the filter icon to change the recent games window."
+          }
+        />
       </View>
     );
   }
@@ -351,25 +357,7 @@ export function PlayerInsightsCard({
           ±{insights.stdDev} FPTS/game
         </ThemedText>
         <TouchableOpacity
-          onPress={() =>
-            Alert.alert(
-              "Player Insights",
-              "Consistency — How predictable this player's scoring is:\n" +
-                "• Rock Solid: Very consistent output\n" +
-                "• Steady: Reliable most nights\n" +
-                "• Variable: Notable swings\n" +
-                "• Boom or Bust: Huge range\n\n" +
-                "± FPTS/game — Standard deviation. Lower = more consistent.\n\n" +
-                "Range Bar — Full scoring range (low to high). Shaded area is 25th–75th percentile. Marker is season average.\n\n" +
-                "Floor / Ceiling — 25th and 75th percentile scoring.\n\n" +
-                "Last X — Recent average. Tap to change the window.\n\n" +
-                "Trend — Recent avg vs season avg relative to variability.\n\n" +
-                "Minutes — Playing time trend over the recent window.\n\n" +
-                "Home / Away — Average FPTS by venue.\n\n" +
-                "Back-to-Back — Performance on 2nd game of B2Bs.\n\n" +
-                "Bounce-Back — Recovery rate after bad games.",
-            )
-          }
+          onPress={() => setInfoKey("player")}
           accessibilityRole="button"
           accessibilityLabel="Player insights info"
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -573,6 +561,28 @@ export function PlayerInsightsCard({
           )}
         </>
       )}
+
+      <InfoModal
+        visible={infoKey === "player"}
+        onClose={() => setInfoKey(null)}
+        title="Player Insights"
+        message={
+          "Consistency — How predictable this player's scoring is:\n" +
+          "• Rock Solid: Very consistent output\n" +
+          "• Steady: Reliable most nights\n" +
+          "• Variable: Notable swings\n" +
+          "• Boom or Bust: Huge range\n\n" +
+          "± FPTS/game — Standard deviation. Lower = more consistent.\n\n" +
+          "Range Bar — Full scoring range (low to high). Shaded area is 25th–75th percentile. Marker is season average.\n\n" +
+          "Floor / Ceiling — 25th and 75th percentile scoring.\n\n" +
+          "Last X — Recent average. Tap to change the window.\n\n" +
+          "Trend — Recent avg vs season avg relative to variability.\n\n" +
+          "Minutes — Playing time trend over the recent window.\n\n" +
+          "Home / Away — Average FPTS by venue.\n\n" +
+          "Back-to-Back — Performance on 2nd game of B2Bs.\n\n" +
+          "Bounce-Back — How often a player scores above their average after a below-average game. Higher = more resilient."
+        }
+      />
     </View>
   );
 }
@@ -782,6 +792,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: s(16),
     marginTop: s(10),
     marginBottom: s(4),
+    borderRadius: 12,
+    ...cardShadow,
   },
   topRow: {
     flexDirection: "row",

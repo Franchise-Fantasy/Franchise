@@ -1,3 +1,4 @@
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
@@ -10,7 +11,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Modal,
   Pressable,
@@ -68,7 +68,7 @@ export function TeamAssigner({ leagueId }: TeamAssignerProps) {
   // Members who joined the league (have a team with user_id set, no sleeper_roster_id = they created their own team via join)
   const availableMembers = allTeams.filter(t => t.user_id !== null && t.sleeper_roster_id === null);
 
-  if (isLoading) return <ActivityIndicator style={{ padding: 16 }} />;
+  if (isLoading) return <View style={{ padding: 16 }}><LogoSpinner /></View>;
   if (unclaimedTeams.length === 0) return null;
 
   const handleAssign = async (importedTeam: ImportedTeam, memberTeam: ImportedTeam) => {
@@ -198,7 +198,7 @@ export function TeamAssigner({ leagueId }: TeamAssignerProps) {
                   >
                     <ThemedText style={styles.memberName}>{member.name}</ThemedText>
                     {assigning ? (
-                      <ActivityIndicator size="small" />
+                      <LogoSpinner size={18} />
                     ) : (
                       <Ionicons name="arrow-forward-circle" size={22} color={c.accent} accessible={false} />
                     )}

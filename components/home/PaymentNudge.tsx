@@ -1,12 +1,11 @@
-import { ThemedText } from '@/components/ui/ThemedText';
-import { ThemedView } from '@/components/ui/ThemedView';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { PaymentStatus, usePaymentLedger, useSelfReportPayment } from '@/hooks/usePaymentLedger';
 import { openPaymentConfirmed } from '@/utils/paymentLinks';
 import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
-import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { Alert, Animated, StyleSheet, Text, TouchableOpacity } from 'react-native';
 
 interface PaymentNudgeProps {
   leagueId: string;
@@ -40,119 +39,141 @@ export function PaymentNudge({
 
   const hasPaymentMethods = !!(venmoUsername || cashappTag || paypalUsername);
 
-  // Don't render while loading (prevents flash when status resolves to confirmed)
+  // Glow animation
+  const glowAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(glowAnim, { toValue: 1, duration: 1400, useNativeDriver: false }),
+        Animated.timing(glowAnim, { toValue: 0, duration: 1400, useNativeDriver: false }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [glowAnim]);
+
+  const borderColor = glowAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [c.warning + '40', c.warning],
+  });
+
+  const shadowOpacity = glowAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.05, 0.25],
+  });
+
   if (isLoading) return null;
-  // Don't render if confirmed or no buy-in configured
   if (status === 'confirmed') return null;
-  // Don't render if no payment methods and not self-reported (nothing to show)
   if (!hasPaymentMethods && status !== 'self_reported') return null;
 
-  function handlePayNow() {
-    const methods: Array<{ text: string; onPress: () => void }> = [];
+  function handlePress() {
+    if (status === 'self_reported') return; // nothing actionable
 
-    if (venmoUsername) {
-      methods.push({
-        text: 'Venmo',
-        onPress: () =>
-          openPaymentConfirmed('venmo', venmoUsername, {
-            amount: buyInAmount,
-            note: `${leagueName} buy-in`,
-          }),
-      });
-    }
-    if (paypalUsername) {
-      methods.push({
-        text: 'PayPal',
-        onPress: () => openPaymentConfirmed('paypal', paypalUsername, { amount: buyInAmount }),
-      });
-    }
-    if (cashappTag) {
-      methods.push({
-        text: 'Cash App',
-        onPress: () => openPaymentConfirmed('cashapp', cashappTag),
-      });
+    const buttons: Array<{ text: string; onPress?: () => void; style?: 'cancel' | 'destructive' }> =
+      [];
+
+    if (hasPaymentMethods) {
+      if (venmoUsername) {
+        buttons.push({
+          text: 'Pay via Venmo',
+          onPress: () =>
+            openPaymentConfirmed('venmo', venmoUsername, {
+              amount: buyInAmount,
+              note: `${leagueName} buy-in`,
+            }),
+        });
+      }
+      if (paypalUsername) {
+        buttons.push({
+          text: 'Pay via PayPal',
+          onPress: () => openPaymentConfirmed('paypal', paypalUsername, { amount: buyInAmount }),
+        });
+      }
+      if (cashappTag) {
+        buttons.push({
+          text: 'Pay via Cash App',
+          onPress: () => openPaymentConfirmed('cashapp', cashappTag),
+        });
+      }
     }
 
-    if (methods.length === 1) {
-      methods[0].onPress();
-    } else {
-      Alert.alert('Pay With', 'Choose a payment method', [
-        ...methods,
-        { text: 'Cancel', style: 'cancel' },
-      ]);
-    }
+    buttons.push({
+      text: 'I Already Paid',
+      onPress: () =>
+        Alert.alert(
+          'Mark as Paid?',
+          'The commissioner will be notified to confirm your payment.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'I Paid', onPress: () => selfReport.mutate({ teamId }) },
+          ],
+        ),
+    });
+
+    buttons.push({ text: 'Cancel', style: 'cancel' });
+
+    Alert.alert(`$${buyInAmount} Buy-In`, 'Choose a payment option', buttons);
   }
 
-  function handleSelfReport() {
-    Alert.alert('Mark as Paid?', 'The commissioner will be notified to confirm your payment.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'I Paid', onPress: () => selfReport.mutate({ teamId }) },
-    ]);
-  }
+  const isPending = status === 'self_reported';
+  const label = isPending
+    ? `$${buyInAmount} buy-in · pending confirmation`
+    : `$${buyInAmount} buy-in · tap to pay`;
 
   return (
-    <ThemedView style={styles.section}>
-      <View style={[styles.card, { backgroundColor: c.cardAlt }]}>
-        <View style={styles.info}>
-          <Ionicons name="cash-outline" size={20} color={c.warning} accessible={false} />
-          <View style={{ flex: 1, marginLeft: s(10) }}>
-            <ThemedText style={styles.title}>
-              Buy-In: <Text style={{ fontWeight: '700', color: c.warning }}>${buyInAmount}</Text>
-            </ThemedText>
-            {status === 'self_reported' ? (
-              <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>
-                Waiting for commissioner to confirm
-              </ThemedText>
-            ) : (
-              <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>
-                Payment not yet received
-              </ThemedText>
-            )}
-          </View>
-        </View>
-
-        {status === 'unpaid' && (
-          <View style={styles.buttons}>
-            {hasPaymentMethods && (
-              <TouchableOpacity
-                accessibilityRole="button"
-                accessibilityLabel="Pay now"
-                style={[styles.btn, { backgroundColor: c.success }]}
-                onPress={handlePayNow}
-              >
-                <Ionicons name="card" size={14} color="#fff" accessible={false} />
-                <Text style={styles.btnText}>Pay Now</Text>
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel="Report that you paid"
-              style={[styles.btn, { backgroundColor: c.warning }]}
-              onPress={handleSelfReport}
-            >
-              <Text style={styles.btnText}>I Paid</Text>
-            </TouchableOpacity>
-          </View>
+    <TouchableOpacity
+      onPress={handlePress}
+      activeOpacity={isPending ? 1 : 0.7}
+      accessibilityRole="button"
+      accessibilityLabel={
+        isPending
+          ? `Buy-in ${buyInAmount} dollars, waiting for commissioner confirmation`
+          : `Pay ${buyInAmount} dollar buy-in`
+      }
+    >
+      <Animated.View
+        style={[
+          styles.pill,
+          {
+            backgroundColor: c.warningMuted,
+            borderColor,
+            shadowColor: c.warning,
+            shadowOpacity,
+          },
+        ]}
+      >
+        <Ionicons
+          name={isPending ? 'time-outline' : 'cash-outline'}
+          size={ms(14)}
+          color={c.warning}
+          accessible={false}
+        />
+        <Text style={[styles.pillText, { color: c.warning }]}>{label}</Text>
+        {!isPending && (
+          <Ionicons name="chevron-forward" size={ms(12)} color={c.warning} accessible={false} />
         )}
-      </View>
-    </ThemedView>
+      </Animated.View>
+    </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
-  section: { marginBottom: s(16) },
-  card: { borderRadius: 10, padding: s(14) },
-  info: { flexDirection: 'row', alignItems: 'center' },
-  title: { fontSize: ms(15), fontWeight: '600' },
-  subtitle: { fontSize: ms(13), marginTop: s(2) },
-  buttons: { flexDirection: 'row', gap: s(8), marginTop: s(12) },
-  btn: {
+  pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: s(5),
+    alignSelf: 'center',
+    gap: s(6),
     paddingHorizontal: s(14),
     paddingVertical: s(8),
-    borderRadius: 8,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    marginBottom: s(12),
+    shadowOffset: { width: 0, height: 0 },
+    shadowRadius: 8,
+    elevation: 3,
   },
-  btnText: { color: '#fff', fontSize: ms(14), fontWeight: '600' },
+  pillText: {
+    fontSize: ms(13),
+    fontWeight: '700',
+  },
 });

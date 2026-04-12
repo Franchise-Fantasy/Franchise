@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { Alert } from 'react-native';
 import { useToast } from '@/context/ToastProvider';
 import { TradeProposalRow } from '@/hooks/useTrades';
+import { usePostTradeUpdate } from '@/hooks/chat/useTradeChat';
 
 interface UseTradeDetailActionsParams {
   proposal: TradeProposalRow;
@@ -36,6 +37,20 @@ export function useTradeDetailActions({
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const [processing, setProcessing] = useState(false);
+  const postTradeUpdate = usePostTradeUpdate(leagueId);
+
+  const allTeamIds = proposal.teams.map((t) => t.team_id);
+
+  /** Fire-and-forget trade chat update */
+  const postUpdate = (event: 'accepted' | 'rejected' | 'cancelled' | 'vetoed', name: string | null) => {
+    postTradeUpdate.mutate({
+      proposalId: proposal.id,
+      teamIds: allTeamIds,
+      event,
+      teamName: name,
+      actingTeamId: null,
+    });
+  };
 
   const myProposalTeam = proposal.teams.find((t) => t.team_id === teamId);
 
@@ -168,6 +183,7 @@ export function useTradeDetailActions({
       }
 
       capture('trade_accepted');
+      postUpdate('accepted', myTeamName);
       invalidate();
       onClose();
     } catch (err: any) {
@@ -207,6 +223,7 @@ export function useTradeDetailActions({
       });
 
       capture('trade_rejected');
+      postUpdate('rejected', myTeamName);
       invalidate();
       onClose();
     } catch (err: any) {
@@ -238,6 +255,7 @@ export function useTradeDetailActions({
         data: { screen: 'trades' },
       });
 
+      postUpdate('cancelled', myProposalTeam?.team_name ?? 'A team');
       invalidate();
       onClose();
     } catch (err: any) {
@@ -265,6 +283,7 @@ export function useTradeDetailActions({
         data: { screen: 'trades' },
       });
 
+      postUpdate('vetoed', 'Commissioner');
       invalidate();
       onClose();
     } catch (err: any) {
@@ -318,6 +337,8 @@ export function useTradeDetailActions({
           body: 'The league has voted to veto a trade.',
           data: { screen: 'trades' },
         });
+
+        postUpdate('vetoed', 'League Vote');
       }
 
       invalidate();

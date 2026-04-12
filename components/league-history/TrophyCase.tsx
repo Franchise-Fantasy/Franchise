@@ -1,10 +1,11 @@
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Colors, cardShadow } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useChampions } from '@/hooks/useLeagueHistory';
 import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 
 interface TrophyCaseProps {
   leagueId: string;
@@ -15,7 +16,7 @@ export function TrophyCase({ leagueId }: TrophyCaseProps) {
   const c = Colors[scheme];
   const { data: champions, isLoading } = useChampions(leagueId);
 
-  if (isLoading) return <ActivityIndicator style={{ marginVertical: 16 }} />;
+  if (isLoading) return <View style={{ marginVertical: 16 }}><LogoSpinner /></View>;
 
   return (
     <View style={[styles.container, { backgroundColor: c.card, borderColor: c.border }]}>
@@ -56,6 +57,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: s(16),
     marginBottom: s(16),
+    ...cardShadow,
   },
   headerRow: {
     flexDirection: 'row',

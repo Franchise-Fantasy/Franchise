@@ -1,4 +1,4 @@
-import { Colors } from '@/constants/Colors';
+import { Colors, cardShadowMedium } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
 import { ms, s } from '@/utils/scale';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -17,7 +17,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useMemo } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '../ui/ThemedText';
 
 export function AnalyticsPreviewCard({ leagueId, scoringType }: { leagueId: string; scoringType?: string }) {
@@ -89,6 +90,7 @@ export function AnalyticsPreviewCard({ leagueId, scoringType }: { leagueId: stri
       style={[styles.card, {
         backgroundColor: isDark ? 'rgba(96,165,250,0.06)' : 'rgba(96,165,250,0.05)',
         borderColor: isDark ? 'rgba(96,165,250,0.15)' : 'rgba(96,165,250,0.2)',
+        ...cardShadowMedium,
       }]}
       onPress={() => router.push('/analytics' as any)}
       activeOpacity={0.7}
@@ -112,7 +114,7 @@ export function AnalyticsPreviewCard({ leagueId, scoringType }: { leagueId: stri
       </View>
 
       {isLoading ? (
-        <ActivityIndicator style={styles.loading} />
+        <View style={styles.loading}><LogoSpinner /></View>
       ) : isCategories && topStrengths.length > 0 ? (
         <>
           {/* CAT strengths / weaknesses */}

@@ -1,4 +1,5 @@
 import { LotteryOddsEditor } from '@/components/create-league/LotteryOddsEditor';
+import { FormSection } from '@/components/ui/FormSection';
 import { ToggleRow } from '@/components/ToggleRow';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
@@ -28,37 +29,37 @@ export function StepDraft({ state, onChange }: StepDraftProps) {
     <View style={styles.container}>
       <ThemedText accessibilityRole="header" type="subtitle" style={styles.heading}>Draft Settings</ThemedText>
 
-      <View style={styles.section}>
+      <FormSection title="Startup Draft">
         <ThemedText style={styles.label}>Draft Type</ThemedText>
         <SegmentedControl
           options={DRAFT_TYPE_OPTIONS}
           selectedIndex={DRAFT_TYPE_OPTIONS.indexOf(state.draftType)}
           onSelect={(i) => onChange('draftType', DRAFT_TYPE_OPTIONS[i])}
         />
-      </View>
 
-      <View style={styles.section}>
-        <ThemedText style={styles.label}>Time Per Pick</ThemedText>
-        <SegmentedControl
-          options={timeLabels}
-          selectedIndex={TIME_PER_PICK_OPTIONS.indexOf(state.timePerPick)}
-          onSelect={(i) => onChange('timePerPick', TIME_PER_PICK_OPTIONS[i])}
-        />
-      </View>
+        <View style={styles.fieldGap}>
+          <ThemedText style={styles.label}>Time Per Pick</ThemedText>
+          <SegmentedControl
+            options={timeLabels}
+            selectedIndex={TIME_PER_PICK_OPTIONS.indexOf(state.timePerPick)}
+            onSelect={(i) => onChange('timePerPick', TIME_PER_PICK_OPTIONS[i])}
+          />
+        </View>
 
-      <View style={styles.section}>
-        <ThemedText style={styles.label}>Draft Order</ThemedText>
-        <SegmentedControl
-          options={[...INITIAL_DRAFT_ORDER_OPTIONS]}
-          selectedIndex={INITIAL_DRAFT_ORDER_OPTIONS.indexOf(state.initialDraftOrder)}
-          onSelect={(i) => onChange('initialDraftOrder', INITIAL_DRAFT_ORDER_OPTIONS[i])}
-        />
-        <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
-          {state.initialDraftOrder === 'Random'
-            ? 'Teams are randomly assigned a draft position when all teams join.'
-            : 'The commissioner will set the draft order before the draft begins.'}
-        </ThemedText>
-      </View>
+        <View style={styles.fieldGap}>
+          <ThemedText style={styles.label}>Draft Order</ThemedText>
+          <SegmentedControl
+            options={[...INITIAL_DRAFT_ORDER_OPTIONS]}
+            selectedIndex={INITIAL_DRAFT_ORDER_OPTIONS.indexOf(state.initialDraftOrder)}
+            onSelect={(i) => onChange('initialDraftOrder', INITIAL_DRAFT_ORDER_OPTIONS[i])}
+          />
+          <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
+            {state.initialDraftOrder === 'Random'
+              ? 'Teams are randomly assigned a draft position when all teams join.'
+              : 'The commissioner will set the draft order before the draft begins.'}
+          </ThemedText>
+        </View>
+      </FormSection>
 
       {isDynasty && (
         <>
@@ -152,7 +153,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   heading: {
-    marginBottom: s(20),
+    marginBottom: s(16),
   },
   label: {
     marginBottom: s(8),
@@ -161,6 +162,9 @@ const styles = StyleSheet.create({
   },
   section: {
     marginBottom: s(20),
+  },
+  fieldGap: {
+    marginTop: s(12),
   },
   hint: {
     fontSize: ms(13),

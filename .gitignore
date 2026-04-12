@@ -8,3 +8,5 @@ venv
 .claude/
 dist/
 backend/.aging_curve_cache.json
+landing/.next/
+landing/node_modules/

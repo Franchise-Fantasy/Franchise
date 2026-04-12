@@ -16,7 +16,6 @@ import { queryKeys } from '@/constants/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   Modal,
   Pressable,
@@ -26,6 +25,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function CmsTestScreen() {
@@ -105,7 +105,7 @@ export default function CmsTestScreen() {
 
       {/* Entries */}
       {isLoading ? (
-        <ActivityIndicator style={styles.loader} color={c.accent} />
+        <View style={styles.loader}><LogoSpinner /></View>
       ) : (
         <FlatList
           data={entriesQuery.data?.items ?? []}

@@ -8,7 +8,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
-const TERMS_OF_SERVICE = `Last updated: February 2026
+const TERMS_OF_SERVICE = `Last updated: April 2026
 
 1. Acceptance of Terms
 
@@ -20,7 +20,7 @@ Franchise is a fantasy basketball application that allows users to create and jo
 
 3. Account Registration
 
-You must provide a valid email address and create a password to use the App. You are responsible for maintaining the security of your account credentials. You must be at least 13 years old to use the App.
+You may create an account using an email address and password, or by signing in with a third-party identity provider such as Google or Apple (Sign in with Apple). If you use Sign in with Apple, you may choose to hide your email address; the App will still function normally with the private relay email Apple provides. You are responsible for maintaining the security of your account and the credentials of any third-party provider used to sign in. You must be at least 13 years old to use the App.
 
 4. User Conduct
 
@@ -55,11 +55,11 @@ We may update these Terms at any time. Continued use of the App after changes co
 
 For questions about these Terms, please contact us through the App.`;
 
-const PRIVACY_POLICY = `Last updated: February 2026
+const PRIVACY_POLICY = `Last updated: April 2026
 
 1. Information We Collect
 
-Account Information: When you create an account, we collect your email address and password (stored securely via Supabase Auth).
+Account Information: When you create an account with email and password, we collect your email address and a password hash (stored securely via Supabase Auth). If you sign in with a third-party identity provider (Google or Apple), we receive a unique user identifier from that provider and your email address (or, in the case of Sign in with Apple, an Apple private relay email if you choose to hide your real address). We never receive or store your Google or Apple account password. On first sign-in with Apple, you may also choose to share your name; if provided, we store it on your account profile.
 
 Usage Data: We collect information about how you use the App, including league participation, roster changes, and trade activity. This data is used to provide the App's core functionality.
 
@@ -68,6 +68,7 @@ Device Information: We may collect device identifiers and push notification toke
 2. How We Use Your Information
 
 • To provide and maintain the App's functionality
+• To authenticate you when you sign in (including via Google or Apple)
 • To send push notifications you've enabled (draft alerts, trade updates, etc.)
 • To display league standings, matchups, and statistics
 • To communicate important account or service updates
@@ -76,6 +77,7 @@ Device Information: We may collect device identifiers and push notification toke
 
 We do not sell your personal information. We share data only with:
 • Supabase (database and authentication provider)
+• Google and Apple (only when you choose to sign in with one of these providers; we exchange authentication tokens with them to verify your identity)
 • Expo (push notification delivery)
 • Other users in your league (team name, roster, trade history — as part of gameplay)
 

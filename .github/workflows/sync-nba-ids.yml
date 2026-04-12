@@ -1,0 +1,27 @@
+name: Sync NBA IDs
+
+on:
+  schedule:
+    # Daily at 7:40 PM UTC — ~30 min after the Supabase sync-players cron (19:07 UTC)
+    # so any new players inserted by the edge function get their NBA IDs the same day.
+    - cron: '40 19 * * *'
+  workflow_dispatch: # Allow manual trigger from GitHub UI
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install nba_api supabase pandas
+
+      - name: Backfill external_id_nba
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python backend/sync_nba_ids.py

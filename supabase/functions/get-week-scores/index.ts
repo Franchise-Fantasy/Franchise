@@ -3,6 +3,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { CORS_HEADERS, corsResponse } from "../_shared/cors.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { bdlFetch } from "../_shared/bdl.ts";
+import { pushActivityUpdate } from "../_shared/apns.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -390,6 +391,13 @@ async function upsertScores(
     .upsert(rows, { onConflict: "league_id,schedule_id,team_id" });
 
   if (error) throw error;
+
+  // Broadcast scores so clients get instant updates without postgres_changes overhead
+  await supabase.channel(`scores:${scheduleId}`).send({
+    type: "broadcast",
+    event: "score_update",
+    payload: { schedule_id: scheduleId, scores },
+  });
 }
 
 // ── Update live category wins on league_matchups ───────────────────────────
@@ -436,6 +444,70 @@ async function hasActiveOrFinishedGames(): Promise<boolean> {
     });
   } catch {
     return true; // On error, assume games are happening
+  }
+}
+
+// ── Live Activity dispatch ──────────────────────────────────────────────────
+
+async function dispatchMatchupActivities(
+  weekResults: Array<{ league_id: string; schedule_id: string; teamScores: Record<string, number> }>,
+): Promise<void> {
+  // Check if any Live Activities are registered before doing work
+  const scheduleIds = weekResults.map(w => w.schedule_id);
+  if (scheduleIds.length === 0) return;
+
+  const { data: tokens } = await supabase
+    .from('activity_tokens')
+    .select('id, team_id, schedule_id, league_id, matchup_id')
+    .eq('activity_type', 'matchup')
+    .eq('stale', false)
+    .in('schedule_id', scheduleIds);
+
+  if (!tokens || tokens.length === 0) return;
+
+  // For each active token, find the matchup and build a content state with scores
+  for (const weekResult of weekResults) {
+    const weekTokens = tokens.filter(t => t.schedule_id === weekResult.schedule_id);
+    if (weekTokens.length === 0) continue;
+
+    // Fetch matchups for this schedule to pair teams
+    const { data: matchups } = await supabase
+      .from('league_matchups')
+      .select('id, home_team_id, away_team_id')
+      .eq('schedule_id', weekResult.schedule_id);
+
+    if (!matchups) continue;
+
+    const matchupMap = new Map(matchups.map(m => [m.id, m]));
+
+    // Build content state per token's matchup
+    for (const token of weekTokens) {
+      const matchup = matchupMap.get(token.matchup_id);
+      if (!matchup) continue;
+
+      const isHome = token.team_id === matchup.home_team_id;
+      const myTeamId = isHome ? matchup.home_team_id : matchup.away_team_id;
+      const oppTeamId = isHome ? matchup.away_team_id : matchup.home_team_id;
+      if (!myTeamId || !oppTeamId) continue;
+
+      const myScore = weekResult.teamScores[myTeamId] ?? 0;
+      const oppScore = weekResult.teamScores[oppTeamId] ?? 0;
+
+      const contentState = {
+        myScore,
+        opponentScore: oppScore,
+        scoreGap: Math.round((myScore - oppScore) * 10) / 10,
+        biggestContributor: '',
+        myActivePlayers: 0,
+        opponentActivePlayers: 0,
+        players: [],
+      };
+
+      await pushActivityUpdate(supabase, 'matchup', {
+        schedule_id: weekResult.schedule_id,
+        league_id: weekResult.league_id,
+      }, contentState).catch(() => {});
+    }
   }
 }
 
@@ -535,6 +607,7 @@ Deno.serve(async (req: Request) => {
           league_id: week.league_id,
           schedule_id: week.id,
           teams: Object.keys(result.teamScores).length,
+          teamScores: result.teamScores,
         };
       }),
     );
@@ -547,6 +620,16 @@ Deno.serve(async (req: Request) => {
         console.error('Failed to compute scores for a league/week:', r.reason);
       }
     }
+
+    // ── Dispatch Live Activity updates (non-blocking) ──
+    // Fire-and-forget: don't let activity push failures slow down the cron
+    dispatchMatchupActivities(results.map(r => ({
+      league_id: r.league_id,
+      schedule_id: r.schedule_id,
+      teamScores: (settled.find(
+        s => s.status === 'fulfilled' && s.value.league_id === r.league_id && s.value.schedule_id === r.schedule_id,
+      ) as PromiseFulfilledResult<any>)?.value?.teamScores ?? {},
+    }))).catch(err => console.warn('Live activity dispatch error (non-fatal):', err));
 
     return new Response(
       JSON.stringify({ ok: true, processed: results.length, results }),

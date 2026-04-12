@@ -1,4 +1,4 @@
-import { Colors } from '@/constants/Colors';
+import { Colors, cardShadow } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useMyPendingTrades } from '@/hooks/useTrades';
@@ -15,7 +15,6 @@ const NAV_ITEMS = [
   { icon: 'calendar', label: 'Schedule', route: '/schedule' },
   { icon: 'trophy.fill', label: 'Playoffs', route: '/playoff-bracket' },
   { icon: 'list.bullet.clipboard', label: 'Draft Hub', route: '/draft-hub' },
-  { icon: 'star.fill', label: 'Prospects', route: '/prospects' },
   { icon: 'newspaper', label: 'News', route: '/news' },
   { icon: 'book.fill', label: 'History', route: '/league-history' },
 ] as const;
@@ -30,12 +29,11 @@ export function QuickNav({ leagueType = 'dynasty' }: { leagueType?: string }) {
 
   const visibleItems = NAV_ITEMS.filter(item => {
     if (!isDynasty && item.route === '/draft-hub') return false;
-    if (!isDynasty && item.route === '/prospects') return false;
     return true;
   });
 
   return (
-    <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
+    <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border, ...cardShadow }]}>
       {/* Header row: title + League Info pill */}
       <View style={styles.headerRow}>
         <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">
@@ -57,8 +55,9 @@ export function QuickNav({ leagueType = 'dynasty' }: { leagueType?: string }) {
         {visibleItems.map(item => (
           <TouchableOpacity
             key={item.route}
-            style={[styles.navItem, { backgroundColor: c.cardAlt }]}
+            style={[styles.navItem, { backgroundColor: c.cardAlt, borderWidth: 1, borderColor: c.border + '60' }]}
             onPress={() => router.push(item.route as any)}
+            activeOpacity={0.65}
             accessibilityRole="button"
             accessibilityLabel={item.route === '/trades' && pendingTradeCount > 0
               ? `${item.label}, ${pendingTradeCount} pending`
@@ -120,6 +119,11 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     padding: s(16),
     borderRadius: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
   },
   label: { marginTop: s(8), fontSize: ms(12) },
   badge: {

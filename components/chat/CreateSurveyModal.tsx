@@ -1,4 +1,5 @@
 import { capture } from '@/lib/posthog';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ToggleRow } from '@/components/ToggleRow';
@@ -13,7 +14,6 @@ import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Modal,
@@ -598,7 +598,7 @@ export function CreateSurveyModal({
             accessibilityState={{ disabled: !canSubmit }}
           >
             {createSurvey.isPending ? (
-              <ActivityIndicator color={c.statusText} size="small" />
+              <LogoSpinner size={18} />
             ) : (
               <Text style={[styles.createBtnText, { color: c.statusText }]}>Create Survey</Text>
             )}
@@ -618,7 +618,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: s(16),
     paddingTop: s(56),
     paddingBottom: s(12),
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: 1,
   },
   scroll: { flex: 1, paddingHorizontal: s(16), paddingTop: s(16) },
   label: { fontSize: ms(14), fontWeight: '600', marginBottom: s(6) },
@@ -627,6 +627,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: s(12),
     fontSize: ms(15),
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 2,
+    elevation: 1,
   },
   multiline: { minHeight: s(60) },
   counter: { fontSize: ms(11), textAlign: 'right', marginTop: s(2) },

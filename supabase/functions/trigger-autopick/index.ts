@@ -78,6 +78,6 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({ message: 'Autopick triggered' }), { status: 200 });
   } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), { status: 400 });
+    return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 400 });
   }
 });

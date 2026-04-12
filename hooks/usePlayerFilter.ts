@@ -3,7 +3,7 @@ import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
 import { getEligiblePositions } from '@/utils/rosterSlots';
 import { useMemo, useState } from 'react';
 
-export type SortKey = 'FPTS' | 'PPG' | 'RPG' | 'APG' | 'SPG' | 'BPG' | 'MPG';
+export type SortKey = 'FPTS' | 'PPG' | 'RPG' | 'APG' | 'SPG' | 'BPG' | 'MPG' | 'FG%' | 'FT%' | 'TO';
 export type TimeRange = 'season' | '7d' | '14d' | '30d' | 'lastSeason';
 
 /** Injury-status visibility filter */
@@ -12,16 +12,24 @@ export type InjuryFilter = 'all' | 'healthy' | 'injured';
 /** Statuses considered "out / unlikely to play" */
 const OUT_STATUSES = new Set(['OUT', 'SUSP', 'DOUBT', 'QUES']);
 
-const SORT_FIELD: Record<Exclude<SortKey, 'FPTS'>, keyof PlayerSeasonStats> = {
+const SORT_FIELD: Record<string, keyof PlayerSeasonStats> = {
   PPG: 'avg_pts',
   RPG: 'avg_reb',
   APG: 'avg_ast',
   SPG: 'avg_stl',
   BPG: 'avg_blk',
   MPG: 'avg_min',
+  TO: 'avg_tov',
 };
 
-const POSITIONS = ['All', 'G', 'F', 'PG', 'SG', 'SF', 'PF', 'C'] as const;
+// FG% and FT% are computed from makes/attempts, not stored directly
+function getComputedSort(p: PlayerSeasonStats, key: SortKey): number {
+  if (key === 'FG%') return p.avg_fga > 0 ? p.avg_fgm / p.avg_fga : 0;
+  if (key === 'FT%') return p.avg_fta > 0 ? p.avg_ftm / p.avg_fta : 0;
+  return 0;
+}
+
+const POSITIONS = ['All', 'PG', 'SG', 'SF', 'PF', 'C', 'G', 'F'] as const;
 export type PositionFilter = (typeof POSITIONS)[number];
 export { POSITIONS };
 
@@ -36,18 +44,21 @@ export function usePlayerFilter(
   scoringWeights?: ScoringWeight[],
   /** Optional set of player IDs whose recent minutes are up vs season avg */
   minutesUpPlayerIds?: Set<string>,
-  /** Optional map of tricode → game info for today's schedule */
-  todaySchedule?: Map<string, string>,
+  /** Optional map of tricode → game info for the currently selected game date */
+  scheduleMap?: Map<string, unknown>,
   /** Optional set of watchlisted player IDs */
   watchlistedIds?: Set<string>,
   /** Optional set of rostered player IDs in this league */
   rosteredPlayerIds?: Set<string>,
+  /** Externally-controlled "playing on date" filter (YYYY-MM-DD, or null for off) */
+  playingOnDate?: string | null,
+  /** Setter for the "playing on date" filter */
+  onPlayingOnDateChange?: (date: string | null) => void,
 ) {
   const [searchText, setSearchText] = useState('');
   const [selectedPosition, setSelectedPosition] = useState<string>('All');
   const [sortBy, setSortBy] = useState<SortKey>('FPTS');
   const [showMinutesUp, setShowMinutesUp] = useState(false);
-  const [showAvailableToday, setShowAvailableToday] = useState(false);
   const [showWatchlistOnly, setShowWatchlistOnly] = useState(false);
   const [showFreeAgentsOnly, setShowFreeAgentsOnly] = useState(true);
   const [injuryFilter, setInjuryFilter] = useState<InjuryFilter>('all');
@@ -83,9 +94,9 @@ export function usePlayerFilter(
       result = result.filter(p => minutesUpPlayerIds.has(p.player_id));
     }
 
-    // Available today: only players whose team has a game today
-    if (showAvailableToday && todaySchedule) {
-      result = result.filter(p => p.nba_team && todaySchedule.has(p.nba_team));
+    // Playing on selected date: only players whose team has a game on that date
+    if (playingOnDate && scheduleMap) {
+      result = result.filter(p => p.nba_team && scheduleMap.has(p.nba_team));
     }
 
     // Free agents only: exclude rostered players (default ON)
@@ -116,13 +127,15 @@ export function usePlayerFilter(
       result = [...result].sort((a, b) =>
         (fptsMap.get(b.player_id) ?? 0) - (fptsMap.get(a.player_id) ?? 0),
       );
+    } else if (sortBy === 'FG%' || sortBy === 'FT%') {
+      result = [...result].sort((a, b) => getComputedSort(b, sortBy) - getComputedSort(a, sortBy));
     } else if (sortBy !== 'FPTS') {
       const field = SORT_FIELD[sortBy];
       result = [...result].sort((a, b) => (b[field] as number) - (a[field] as number));
     }
 
     return result;
-  }, [players, searchText, selectedPosition, sortBy, scoringWeights, showMinutesUp, minutesUpPlayerIds, showAvailableToday, todaySchedule, showWatchlistOnly, watchlistedIds, showFreeAgentsOnly, rosteredPlayerIds, injuryFilter]);
+  }, [players, searchText, selectedPosition, sortBy, scoringWeights, showMinutesUp, minutesUpPlayerIds, playingOnDate, scheduleMap, showWatchlistOnly, watchlistedIds, showFreeAgentsOnly, rosteredPlayerIds, injuryFilter]);
 
   const filterBarProps = {
     searchText,
@@ -134,9 +147,9 @@ export function usePlayerFilter(
     showMinutesUp,
     onMinutesUpChange: setShowMinutesUp,
     hasMinutesData: !!minutesUpPlayerIds,
-    showAvailableToday,
-    onAvailableTodayChange: setShowAvailableToday,
-    hasScheduleData: !!todaySchedule,
+    playingOnDate: playingOnDate ?? null,
+    onPlayingOnDateChange,
+    hasScheduleData: !!onPlayingOnDateChange,
     showWatchlistOnly,
     onWatchlistOnlyChange: setShowWatchlistOnly,
     hasWatchlistData: !!watchlistedIds && watchlistedIds.size > 0,

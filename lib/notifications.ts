@@ -111,7 +111,8 @@ export async function registerPushToken(userId: string): Promise<boolean> {
 
 // Removes the token from Supabase, stopping all push notifications for this user.
 export async function unregisterPushToken(userId: string): Promise<void> {
-  await supabase.from('push_tokens').delete().eq('user_id', userId);
+  const { error } = await supabase.from('push_tokens').delete().eq('user_id', userId);
+  if (error) console.error('Failed to unregister push token:', error.message);
 }
 
 // Returns the user's current notification preferences from Supabase.

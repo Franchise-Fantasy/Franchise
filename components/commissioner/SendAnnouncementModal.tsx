@@ -1,3 +1,4 @@
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -8,7 +9,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Modal,
@@ -118,7 +118,7 @@ export function SendAnnouncementModal({ visible, leagueId, teamId, onClose }: Pr
               disabled={!content.trim() || sending}
             >
               {sending ? (
-                <ActivityIndicator color={c.statusText} size="small" />
+                <LogoSpinner size={18} />
               ) : (
                 <Text style={{ color: c.statusText, fontWeight: '600' }}>Send</Text>
               )}

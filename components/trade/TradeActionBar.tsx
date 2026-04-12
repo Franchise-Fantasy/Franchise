@@ -3,7 +3,8 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
-import { ActivityIndicator, Alert, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Alert, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 
 interface TradeActionBarProps {
   processing: boolean;
@@ -62,7 +63,7 @@ export function TradeActionBar({
   if (processing) {
     return (
       <View style={[styles.bar, { borderTopColor: c.border }]}>
-        <ActivityIndicator />
+        <LogoSpinner size={18} />
       </View>
     );
   }

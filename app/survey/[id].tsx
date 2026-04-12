@@ -2,6 +2,7 @@ import { CompletionTracker } from '@/components/survey/CompletionTracker';
 import { ms, s } from "@/utils/scale";
 import { QuestionInput } from '@/components/survey/QuestionInput';
 import { QuestionResult } from '@/components/survey/QuestionResult';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -21,7 +22,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   ScrollView,
   StyleSheet,
@@ -140,7 +140,7 @@ export default function SurveyScreen() {
     return (
       <SafeAreaView style={[styles.root, { backgroundColor: c.background }]}>
         <PageHeader title="Survey" />
-        <ActivityIndicator style={styles.loader} color={c.accent} />
+        <View style={styles.loader}><LogoSpinner /></View>
       </SafeAreaView>
     );
   }
@@ -300,7 +300,7 @@ export default function SurveyScreen() {
           }}
         >
           {submitMutation.isPending ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
+            <LogoSpinner size={18} />
           ) : isLastQuestion ? (
             <ThemedText
               style={[
@@ -368,7 +368,7 @@ function ResultsView({
   }
 
   if (isLoading) {
-    return <ActivityIndicator style={styles.loader} color={c.accent} />;
+    return <View style={styles.loader}><LogoSpinner /></View>;
   }
 
   return (

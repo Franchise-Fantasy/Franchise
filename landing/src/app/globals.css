@@ -1,0 +1,89 @@
+@import "tailwindcss";
+
+:root {
+  --white: #ffffff;
+  --ecru: #e8e2d6;
+  --cream: #d9cfb0;
+  --hardwood: #c6ab7b;
+  --vintage-gold: #9E8A60;
+  --umber: #b63d25;
+  --merlot: #7e1416;
+  --turf-green: #185f30;
+  --sapphire: #005589;
+  --black: #000000;
+
+  /* Theme tokens — dark by default */
+  --bg: #000000;
+  --bg-raised: #0a0a0a;
+  --bg-card: rgba(255, 255, 255, 0.02);
+  --bg-card-hover: rgba(255, 255, 255, 0.04);
+  --text-primary: #e8e2d6;
+  --text-secondary: rgba(217, 207, 176, 0.45);
+  --text-muted: rgba(217, 207, 176, 0.25);
+  --text-faint: rgba(217, 207, 176, 0.15);
+  --border: rgba(232, 226, 214, 0.06);
+  --border-hover: rgba(158, 138, 96, 0.15);
+  --hero-gradient: radial-gradient(ellipse at 50% 20%, #591D28 0%, #2a0e14 35%, #141010 65%, #000000 100%);
+  --gold-accent-line: #C4A455;
+  --showcase-accent-1: #591D2815;
+  --showcase-accent-2: #9E8A6015;
+  --showcase-accent-3: #591D2815;
+  --import-gradient: radial-gradient(ellipse at 50% 0%, #591D2815 0%, #0a0a0a 60%);
+  --signup-gradient: linear-gradient(180deg, #000 0%, #7e1416 35%, #7e1416 65%, #000 100%);
+  --header-bg: rgba(0, 0, 0, 0.9);
+}
+
+[data-theme="light"] {
+  --bg: #F0EBE2;
+  --bg-raised: #E8E2D6;
+  --bg-card: rgba(0, 0, 0, 0.03);
+  --bg-card-hover: rgba(0, 0, 0, 0.06);
+  --text-primary: #2C1A1E;
+  --text-secondary: #5C4A3D;
+  --text-muted: #8A7A6C;
+  --text-faint: #B5A898;
+  --border: #D9CEB0;
+  --border-hover: #C6AB7B;
+  --hero-gradient: radial-gradient(ellipse at 50% 20%, #2C1A1E 0%, #1A0E11 50%, #0a0608 100%);
+  --gold-accent-line: #8B7335;
+  --showcase-accent-1: #8B733508;
+  --showcase-accent-2: #C6AB7B08;
+  --showcase-accent-3: #8B733508;
+  --import-gradient: radial-gradient(ellipse at 50% 0%, #8B733510 0%, #F0EBE2 60%);
+  --signup-gradient: linear-gradient(180deg, #FAF7F2 0%, #2C1A1E 35%, #2C1A1E 65%, #FAF7F2 100%);
+  --header-bg: rgba(250, 247, 242, 0.92);
+}
+
+@theme inline {
+  --color-ecru: var(--ecru);
+  --color-cream: var(--cream);
+  --color-hardwood: var(--hardwood);
+  --color-vintage-gold: var(--vintage-gold);
+  --color-umber: var(--umber);
+  --color-merlot: var(--merlot);
+  --color-turf-green: var(--turf-green);
+  --color-sapphire: var(--sapphire);
+  --color-bg: var(--bg);
+  --color-bg-raised: var(--bg-raised);
+  --color-bg-card: var(--bg-card);
+  --color-bg-card-hover: var(--bg-card-hover);
+  --color-t-primary: var(--text-primary);
+  --color-t-secondary: var(--text-secondary);
+  --color-t-muted: var(--text-muted);
+  --color-t-faint: var(--text-faint);
+  --color-b: var(--border);
+  --color-b-hover: var(--border-hover);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  transition: background-color 0.3s, color 0.3s;
+}

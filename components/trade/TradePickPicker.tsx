@@ -8,12 +8,12 @@ import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   StyleSheet,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 
 export interface TradablePickRow {
   id: string;
@@ -184,7 +184,7 @@ export function TradePickPicker({
       </View>
 
       {isLoading ? (
-        <ActivityIndicator style={styles.loader} />
+        <View style={styles.loader}><LogoSpinner /></View>
       ) : (picks ?? []).length === 0 ? (
         <View style={styles.empty}>
           <ThemedText style={[styles.emptyText, { color: c.secondaryText }]}>

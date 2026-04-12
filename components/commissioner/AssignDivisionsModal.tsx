@@ -8,7 +8,6 @@ import { TeamLogo } from '@/components/team/TeamLogo';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Modal,
   ScrollView,
@@ -16,6 +15,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 
 interface Team {
   id: string;
@@ -167,7 +167,7 @@ export function AssignDivisionsModal({
               disabled={saving || !isBalanced}
             >
               {saving ? (
-                <ActivityIndicator color={c.statusText} size="small" />
+                <LogoSpinner size={18} />
               ) : (
                 <ThemedText style={[styles.btnText, { color: c.accentText }]}>Save</ThemedText>
               )}

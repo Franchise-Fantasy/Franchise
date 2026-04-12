@@ -1,3 +1,4 @@
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -8,7 +9,6 @@ import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useState } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   StyleSheet,
   Text,
@@ -276,7 +276,7 @@ function UnmatchedRow({
               accessibilityLabel="Create player"
             >
               {searchOrCreate.isPending ? (
-                <ActivityIndicator size="small" color={c.accentText} />
+                <LogoSpinner size={18} />
               ) : (
                 <Text style={[styles.actionBtnText, { color: c.accentText }]}>Create Player</Text>
               )}
@@ -305,7 +305,7 @@ function UnmatchedRow({
             autoFocus
             accessibilityLabel="Search for player"
           />
-          {loading && <ActivityIndicator size="small" style={styles.searchLoading} />}
+          {loading && <View style={styles.searchLoading}><LogoSpinner size={18} /></View>}
           {results.map((r, idx) => (
             <TouchableOpacity
               key={r.id}

@@ -46,7 +46,7 @@ Deno.serve(async (req) => {
   // Validate webhook auth token
   const authHeader = req.headers.get("Authorization");
   const expectedToken = Deno.env.get("REVENUECAT_WEBHOOK_TOKEN");
-  if (expectedToken && authHeader !== `Bearer ${expectedToken}`) {
+  if (!expectedToken || authHeader !== `Bearer ${expectedToken}`) {
     return new Response("Unauthorized", { status: 401 });
   }
 
@@ -80,6 +80,20 @@ Deno.serve(async (req) => {
         JSON.stringify({ error: "Missing app_user_id" }),
         { status: 400, headers: { "Content-Type": "application/json" } },
       );
+    }
+
+    // Idempotency: skip if we've already processed this event
+    if (rcEventId) {
+      const { count } = await supabaseAdmin
+        .from("subscription_events")
+        .select("id", { count: "exact", head: true })
+        .eq("rc_event_id", rcEventId);
+      if (count && count > 0) {
+        return new Response(
+          JSON.stringify({ ok: true, duplicate: true }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
     }
 
     const productInfo = PRODUCT_MAP[productId];
@@ -193,7 +207,7 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error("Webhook error:", error);
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: 'Internal server error' }),
       { status: 500, headers: { "Content-Type": "application/json" } },
     );
   }

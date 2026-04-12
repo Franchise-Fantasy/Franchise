@@ -18,7 +18,7 @@ export function useLatestAnnouncement(leagueId: string | null) {
   useEffect(() => {
     if (!leagueId) return;
     const channel = supabase
-      .channel(`announcements_${leagueId}`)
+      .channel(`announcements_${leagueId}-${Date.now()}`)
       .on(
         'postgres_changes',
         {

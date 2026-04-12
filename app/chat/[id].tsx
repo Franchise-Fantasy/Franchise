@@ -1,3 +1,4 @@
+import { ChatFilterStrip, type ChatFilter } from '@/components/chat/ChatFilterStrip';
 import { ChatInput } from '@/components/chat/ChatInput';
 import { CreatePollModal } from '@/components/chat/CreatePollModal';
 import { CreateSurveyModal } from '@/components/chat/CreateSurveyModal';
@@ -6,6 +7,7 @@ import { MessageBubble } from '@/components/chat/MessageBubble';
 import { ReactionPicker } from '@/components/chat/ReactionPicker';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { useAppState } from '@/context/AppStateProvider';
 import {
@@ -36,7 +38,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   Modal,
   Platform,
@@ -50,6 +51,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ms, s } from '@/utils/scale';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
+  FadeIn,
+  FadeOut,
   type SharedValue,
   useSharedValue,
   withSpring,
@@ -243,6 +246,11 @@ export default function ConversationScreen() {
         .eq('conversation_id', conversationId!)
         .neq('team_id', teamId!);
 
+      if (conv.type === 'trade') {
+        const otherNames = (members ?? []).map((m: any) => m.teams?.name).filter(Boolean).join(', ');
+        return { name: `Trade: ${otherNames || 'Trade'}`, type: conv.type, memberCount: memberCount ?? 0 };
+      }
+
       const otherName = (members?.[0] as any)?.teams?.name ?? 'DM';
       return { name: otherName, type: conv.type, memberCount: memberCount ?? 0 };
     },
@@ -303,6 +311,8 @@ export default function ConversationScreen() {
   const [showCreateSurvey, setShowCreateSurvey] = useState(false);
   const [showPresenceList, setShowPresenceList] = useState(false);
   const [showGifPicker, setShowGifPicker] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<ChatFilter>('all');
+  const [filterExpanded, setFilterExpanded] = useState(false);
 
   // Refresh messages when screen gains focus (catches messages missed by realtime)
   useFocusEffect(
@@ -329,6 +339,47 @@ export default function ConversationScreen() {
     [msgData],
   );
 
+  // Counts per filter category — drives chip visibility and badges
+  const filterCounts = useMemo(() => {
+    const counts: Record<ChatFilter, number> = {
+      all: 0,
+      chat: 0,
+      trade: 0,
+      rumor: 0,
+      poll: 0,
+      survey: 0,
+    };
+    for (const m of messages) {
+      counts.all += 1;
+      if (m.type === 'text' || m.type === 'image' || m.type === 'gif') counts.chat += 1;
+      else if (m.type === 'trade' || m.type === 'trade_update') counts.trade += 1;
+      else if (m.type === 'rumor') counts.rumor += 1;
+      else if (m.type === 'poll') counts.poll += 1;
+      else if (m.type === 'survey') counts.survey += 1;
+    }
+    return counts;
+  }, [messages]);
+
+  const visibleMessages = useMemo(() => {
+    if (activeFilter === 'all') return messages;
+    return messages.filter((m) => {
+      switch (activeFilter) {
+        case 'chat':
+          return m.type === 'text' || m.type === 'image' || m.type === 'gif';
+        case 'trade':
+          return m.type === 'trade' || m.type === 'trade_update';
+        case 'rumor':
+          return m.type === 'rumor';
+        case 'poll':
+          return m.type === 'poll';
+        case 'survey':
+          return m.type === 'survey';
+        default:
+          return true;
+      }
+    });
+  }, [messages, activeFilter]);
+
   // Pre-seed poll cache outside of render
   useEffect(() => {
     for (const msg of messages) {
@@ -349,8 +400,8 @@ export default function ConversationScreen() {
     }
   }, [messages, queryClient]);
 
-  // Pre-compute grouping/display metadata for all messages
-  const messageMeta = useMemo(() => computeMessageMeta(messages), [messages]);
+  // Pre-compute grouping/display metadata for visible (filtered) messages
+  const messageMeta = useMemo(() => computeMessageMeta(visibleMessages), [visibleMessages]);
 
   const visibleMessageIds = useMemo(
     () => messages.filter((m) => !m.id.startsWith('temp-')).map((m) => m.id),
@@ -439,6 +490,8 @@ export default function ConversationScreen() {
   const handleSend = useCallback(
     (text: string) => {
       sendMessage.mutate({ content: text });
+      setActiveFilter('all');
+      setFilterExpanded(false);
     },
     [sendMessage],
   );
@@ -462,6 +515,9 @@ export default function ConversationScreen() {
   );
 
   const scrollToMessage = useCallback((messageId: string) => {
+    // Clear filter so the target is guaranteed to be in the list
+    setActiveFilter('all');
+    setFilterExpanded(false);
     const index = messages.findIndex((m) => m.id === messageId);
     if (index >= 0 && flatListRef.current) {
       flatListRef.current.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
@@ -505,7 +561,10 @@ export default function ConversationScreen() {
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const isLeagueChat = convMeta?.type === 'league';
+  const isTradeChat = convMeta?.type === 'trade';
   const isDM = convMeta?.type === 'dm';
+  // Trade chats show sender names like league chat (multiple participants)
+  const showSenders = isLeagueChat || isTradeChat;
 
   // Shared swipe-to-reveal
   const swipeReveal = useSharedValue(0);
@@ -533,7 +592,7 @@ export default function ConversationScreen() {
           meta={meta}
           isOwn={item.team_id === teamId}
           isDM={isDM ?? false}
-          isLeagueChat={isLeagueChat ?? false}
+          isLeagueChat={showSenders ?? false}
           isCommissioner={isCommissioner ?? false}
           isPinned={pinnedIds.has(item.id)}
           reactions={reactionsMap?.[item.id] ?? emptyReactions}
@@ -548,7 +607,7 @@ export default function ConversationScreen() {
         />
       );
     },
-    [teamId, teamLogoMap, messageMeta, isDM, isLeagueChat, isCommissioner, pinnedIds, reactionsMap, readReceiptsByMessageId, reactionTargetId, swipeReveal, secondaryTextColor, handleLongPress, handleItemReactionPress],
+    [teamId, teamLogoMap, messageMeta, isDM, showSenders, isCommissioner, pinnedIds, reactionsMap, readReceiptsByMessageId, reactionTargetId, swipeReveal, secondaryTextColor, handleLongPress, handleItemReactionPress],
   );
 
   const keyExtractor = useCallback((item: ChatMessage) => item.id, []);
@@ -591,21 +650,59 @@ export default function ConversationScreen() {
         }
       />
 
-      {/* Pinned messages bar — tap to open pinned sheet */}
-      {isLeagueChat && pinnedMessages && pinnedMessages.length > 0 && (
-        <TouchableOpacity
-          style={[styles.pinnedBar, { backgroundColor: c.cardAlt, borderBottomColor: c.border }]}
-          onPress={() => setShowPinnedSheet(true)}
-          activeOpacity={0.7}
-          accessibilityRole="button"
-          accessibilityLabel={`${pinnedMessages.length} pinned message${pinnedMessages.length !== 1 ? 's' : ''}, tap to view`}
-        >
-          <Ionicons name="pin" size={14} color={c.accent} accessible={false} />
-          <ThemedText style={[styles.pinnedLabel, { color: c.accent, flex: 1 }]}>
-            {pinnedMessages.length} Pinned
-          </ThemedText>
-          <Ionicons name="chevron-forward" size={14} color={c.secondaryText} accessible={false} />
-        </TouchableOpacity>
+      {/* Floating pin pill (left) + filter icon (right). Strip expands leftward from the icon */}
+      {isLeagueChat && ((pinnedMessages?.length ?? 0) > 0 || filterCounts.all > 0) && (
+        <View style={styles.utilityRow}>
+          {pinnedMessages && pinnedMessages.length > 0 && (
+            <Animated.View
+              entering={FadeIn.duration(150)}
+              exiting={FadeOut.duration(120)}
+            >
+              <TouchableOpacity
+                style={[styles.pinnedPill, { backgroundColor: c.accent }]}
+                onPress={() => setShowPinnedSheet(true)}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`${pinnedMessages.length} pinned message${pinnedMessages.length !== 1 ? 's' : ''}, tap to view`}
+              >
+                <Ionicons name="pin" size={12} color={c.accentText} accessible={false} />
+                <ThemedText style={[styles.pinnedPillCount, { color: c.accentText }]}>
+                  {pinnedMessages.length}
+                </ThemedText>
+              </TouchableOpacity>
+            </Animated.View>
+          )}
+          <View style={styles.utilitySpacer}>
+            {filterExpanded && (
+              <ChatFilterStrip
+                activeFilter={activeFilter}
+                onFilterChange={setActiveFilter}
+                counts={filterCounts}
+              />
+            )}
+          </View>
+          <TouchableOpacity
+            style={[
+              styles.filterIconButton,
+              {
+                backgroundColor: filterExpanded || activeFilter !== 'all' ? c.accent : c.card,
+                borderColor: filterExpanded || activeFilter !== 'all' ? c.accent : c.border,
+              },
+            ]}
+            onPress={() => setFilterExpanded((prev) => !prev)}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: filterExpanded }}
+            accessibilityLabel={filterExpanded ? 'Close filter options' : 'Filter messages'}
+          >
+            <Ionicons
+              name={filterExpanded ? 'close' : 'funnel-outline'}
+              size={14}
+              color={filterExpanded || activeFilter !== 'all' ? c.accentText : c.secondaryText}
+              accessible={false}
+            />
+          </TouchableOpacity>
+        </View>
       )}
 
       <KeyboardAvoidingView
@@ -615,7 +712,7 @@ export default function ConversationScreen() {
       >
         {isLoading ? (
           <View style={styles.empty}>
-            <ActivityIndicator />
+            <LogoSpinner />
           </View>
         ) : messages.length === 0 ? (
           <View style={styles.empty}>
@@ -623,12 +720,18 @@ export default function ConversationScreen() {
               No messages yet. Say something!
             </ThemedText>
           </View>
+        ) : visibleMessages.length === 0 ? (
+          <View style={styles.empty}>
+            <ThemedText style={{ color: c.secondaryText, textAlign: 'center', paddingHorizontal: s(24) }}>
+              No messages match this filter yet.
+            </ThemedText>
+          </View>
         ) : (
           <GestureDetector gesture={listPanGesture}>
             <Animated.View style={styles.flex}>
               <FlatList
                 ref={flatListRef}
-                data={messages}
+                data={visibleMessages}
                 keyExtractor={keyExtractor}
                 renderItem={renderItem}
                 inverted
@@ -644,7 +747,7 @@ export default function ConversationScreen() {
                 windowSize={7}
                 ListFooterComponent={
                   isFetchingNextPage ? (
-                    <ActivityIndicator style={styles.footerLoader} />
+                    <View style={styles.footerLoader}><LogoSpinner size={18} /></View>
                   ) : null
                 }
               />
@@ -735,6 +838,7 @@ export default function ConversationScreen() {
         onSelect={handleGifSelect}
         onClose={() => setShowGifPicker(false)}
       />
+
 
       <Modal
         visible={showPresenceList}
@@ -938,17 +1042,38 @@ const styles = StyleSheet.create({
     paddingVertical: s(8),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  pinnedBar: {
+  utilityRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: s(8),
-    paddingHorizontal: s(14),
-    paddingVertical: s(10),
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: s(12),
+    paddingTop: s(8),
+    paddingBottom: s(4),
   },
-  pinnedLabel: {
-    fontSize: ms(13),
-    fontWeight: '600',
+  utilitySpacer: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  pinnedPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(4),
+    height: s(26),
+    paddingHorizontal: s(10),
+    borderRadius: s(13),
+  },
+  pinnedPillCount: {
+    fontSize: ms(12),
+    fontWeight: '700',
+  },
+  filterIconButton: {
+    width: s(26),
+    height: s(26),
+    borderRadius: s(13),
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
   },
   pinnedSheetBackdrop: {
     flex: 1,

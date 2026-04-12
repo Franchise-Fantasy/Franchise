@@ -1,6 +1,7 @@
 import { ConversationRow } from '@/components/chat/ConversationRow';
 import { ms, s } from "@/utils/scale";
 import { NewDMPicker } from '@/components/chat/NewDMPicker';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -16,7 +17,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   Image,
   StyleSheet,
@@ -142,7 +142,7 @@ export default function ChatList() {
       />
 
       {isLoading ? (
-        <ActivityIndicator style={styles.loader} />
+        <View style={styles.loader}><LogoSpinner /></View>
       ) : !conversations || conversations.length === 0 ? (
         <View style={styles.empty}>
           <Ionicons name="chatbubbles-outline" size={40} color={c.secondaryText} accessible={false} />
@@ -156,9 +156,6 @@ export default function ChatList() {
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
           contentContainerStyle={styles.list}
-          ItemSeparatorComponent={() => (
-            <View style={[styles.separator, { backgroundColor: c.border }]} />
-          )}
         />
       )}
 
@@ -211,10 +208,6 @@ const styles = StyleSheet.create({
     fontSize: ms(15),
   },
   list: {
-    paddingVertical: 8,
-  },
-  separator: {
-    height: StyleSheet.hairlineWidth,
-    marginLeft: 72, // inset past icon
+    paddingVertical: s(8),
   },
 });

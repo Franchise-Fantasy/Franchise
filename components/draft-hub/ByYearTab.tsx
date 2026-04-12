@@ -509,42 +509,51 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
                 ? (pick.protection_owner_id !== pick.original_team_id)
                 : pick.isTraded;
 
+              const hasProtection = pick.protection_threshold && leagueSettings.pickConditionsEnabled;
+              const hasBadges = hasProtection || pick.wasSwapped || effectiveIsTraded;
+
               return (
                 <View
                   key={pick.id}
                   style={[styles.pickRow, idx < roundPicks.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.border }]}
                 >
-                  <View style={[styles.pickNum, { backgroundColor: c.cardAlt }]}>
-                    <ThemedText style={[styles.pickNumText, { color: c.secondaryText }]}>
-                      {pickPos}
+                  <View style={styles.pickRowLine1}>
+                    <View style={[styles.pickNum, { backgroundColor: c.cardAlt }]}>
+                      <ThemedText style={[styles.pickNumText, { color: c.secondaryText }]}>
+                        {pickPos}
+                      </ThemedText>
+                    </View>
+                    <ThemedText style={styles.pickTeamName} numberOfLines={1}>
+                      {effectiveName}
                     </ThemedText>
                   </View>
-                  <ThemedText style={styles.pickTeamName} numberOfLines={1}>
-                    {effectiveName}
-                  </ThemedText>
-                  {pick.protection_threshold && leagueSettings.pickConditionsEnabled && (
-                    <ProtectionBadge
-                      threshold={pick.protection_threshold}
-                      holds={protHolds}
-                      expanded={expandedProts.has(`pick-${pick.id}`)}
-                      onToggle={() => toggleProt(`pick-${pick.id}`)}
-                      detailText={protHolds
-                        ? `Kept by ${pick.protection_owner_name} · ${pick.current_team_name} misses`
-                        : `→ ${pick.current_team_name}`}
-                      c={c}
-                    />
-                  )}
-                  {pick.wasSwapped && (
-                    <View style={[styles.swapBadge, { backgroundColor: c.link + '20' }]}>
-                      <Ionicons name="swap-horizontal" size={9} color={c.accent} />
-                    </View>
-                  )}
-                  {effectiveIsTraded && (
-                    <View style={styles.tradedInfo}>
-                      <Ionicons name="swap-horizontal" size={14} color={c.secondaryText} />
-                      <ThemedText style={[styles.tradedText, { color: c.secondaryText }]} numberOfLines={1}>
-                        via {pick.original_team_name}
-                      </ThemedText>
+                  {hasBadges && (
+                    <View style={styles.pickRowLine2}>
+                      {hasProtection && (
+                        <ProtectionBadge
+                          threshold={pick.protection_threshold!}
+                          holds={protHolds}
+                          expanded={expandedProts.has(`pick-${pick.id}`)}
+                          onToggle={() => toggleProt(`pick-${pick.id}`)}
+                          detailText={protHolds
+                            ? `Kept by ${pick.protection_owner_name} · ${pick.current_team_name} misses`
+                            : `→ ${pick.current_team_name}`}
+                          c={c}
+                        />
+                      )}
+                      {pick.wasSwapped && (
+                        <View style={[styles.swapBadge, { backgroundColor: c.link + '20' }]}>
+                          <Ionicons name="swap-horizontal" size={9} color={c.accent} />
+                        </View>
+                      )}
+                      {effectiveIsTraded && (
+                        <View style={styles.tradedInfo}>
+                          <Ionicons name="swap-horizontal" size={14} color={c.secondaryText} />
+                          <ThemedText style={[styles.tradedText, { color: c.secondaryText }]} numberOfLines={1}>
+                            via {pick.original_team_name}
+                          </ThemedText>
+                        </View>
+                      )}
                     </View>
                   )}
                 </View>
@@ -640,10 +649,22 @@ const styles = StyleSheet.create({
 
   // Pick rows
   pickRow: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    paddingVertical: s(8),
+    gap: s(6),
+  },
+  pickRowLine1: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: s(8),
     gap: s(10),
+  },
+  pickRowLine2: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: s(8),
+    paddingLeft: s(38), // align under the team name (pickNum width 28 + gap 10)
   },
   pickNum: {
     width: s(28),

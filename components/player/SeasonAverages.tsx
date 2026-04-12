@@ -1,4 +1,5 @@
 import { ThemedText } from "@/components/ui/ThemedText";
+import { cardShadow } from "@/constants/Colors";
 import { PlayerSeasonStats } from "@/types/player";
 import { ms, s } from "@/utils/scale";
 import { StyleSheet, View } from "react-native";
@@ -141,10 +142,11 @@ const styles = StyleSheet.create({
   statsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    borderRadius: 8,
+    borderRadius: 12,
     paddingHorizontal: s(4),
     paddingTop: s(2),
     paddingBottom: s(6),
+    ...cardShadow,
   },
   statBox: {
     width: "20%",

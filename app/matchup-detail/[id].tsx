@@ -6,6 +6,7 @@ import { WeeklySummaryModal } from '@/components/matchup/WeeklySummaryModal';
 import { TeamLogo } from '@/components/team/TeamLogo';
 import { FptsBreakdownModal } from '@/components/player/FptsBreakdownModal';
 import { PlayerDetailModal } from '@/components/player/PlayerDetailModal';
+import { InfoModal } from '@/components/ui/InfoModal';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
@@ -30,7 +31,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useRosterChanges } from '@/hooks/useRosterChanges';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 async function fetchWeeklyAdds(leagueId: string, teamId: string): Promise<number> {
   const now = new Date();
@@ -195,7 +196,7 @@ function buildFromStored(
 
 export default function MatchupDetailScreen() {
   const { id: matchupId } = useLocalSearchParams<{ id: string }>();
-  const { leagueId } = useAppState();
+  const { leagueId, teamId } = useAppState();
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
 
@@ -210,6 +211,7 @@ export default function MatchupDetailScreen() {
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerSeasonStats | null>(null);
   const [fptsBreakdown, setFptsBreakdown] = useState<{ stats: Record<string, number | boolean>; playerName: string; gameLabel: string } | null>(null);
   const [weeklySummaryVisible, setWeeklySummaryVisible] = useState(false);
+  const [acqInfoVisible, setAcqInfoVisible] = useState(false);
 
   // Fetch matchup + week info
   const { data: matchupInfo, isLoading: infoLoading, isError: isInfoError } = useQuery({
@@ -473,7 +475,7 @@ export default function MatchupDetailScreen() {
           </View>
           <View style={styles.navArrow} />
         </View>
-        <ActivityIndicator style={{ marginTop: 40 }} />
+        <View style={{ marginTop: 40 }}><LogoSpinner /></View>
       </SafeAreaView>
     );
   }
@@ -635,12 +637,21 @@ export default function MatchupDetailScreen() {
                   accessibilityLabel={`${teamData.homeTeam.teamName} ${formatScore(homeWeek)} versus ${teamData.awayTeam ? `${teamData.awayTeam.teamName} ${formatScore(awayWeek)}` : 'BYE'}`}
                 >
                   <View style={[colStyles.scoreCol, { alignItems: 'flex-start' }]}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <TouchableOpacity
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                      onPress={() => {
+                        if (teamData.homeTeam.teamId === teamId) router.push('/(tabs)/roster');
+                        else router.push(`/team-roster/${teamData.homeTeam.teamId}` as any);
+                      }}
+                      activeOpacity={0.6}
+                      accessibilityRole="link"
+                      accessibilityLabel={`View ${teamData.homeTeam.teamName} roster`}
+                    >
                       <TeamLogo logoKey={teamData.homeTeam.logoKey} teamName={teamData.homeTeam.teamName} size="small" />
                       <Text style={[colStyles.teamName, { color: c.text }]} numberOfLines={1} accessibilityRole="header">
                         {teamData.homeTeam.teamName}
                       </Text>
-                    </View>
+                    </TouchableOpacity>
                     <Text style={[colStyles.total, { color: c.accent }]}>
                       {formatScore(homeWeek)}
                     </Text>
@@ -658,12 +669,23 @@ export default function MatchupDetailScreen() {
                     <Text style={[colStyles.summaryBtnText, { color: c.accent }]}>Summary</Text>
                   </TouchableOpacity>
                   <View style={[colStyles.scoreCol, { alignItems: 'flex-end' }]}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <TouchableOpacity
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                      onPress={() => {
+                        if (!teamData.awayTeam) return;
+                        if (teamData.awayTeam.teamId === teamId) router.push('/(tabs)/roster');
+                        else router.push(`/team-roster/${teamData.awayTeam.teamId}` as any);
+                      }}
+                      disabled={!teamData.awayTeam}
+                      activeOpacity={0.6}
+                      accessibilityRole="link"
+                      accessibilityLabel={teamData.awayTeam ? `View ${teamData.awayTeam.teamName} roster` : 'BYE'}
+                    >
                       <Text style={[colStyles.teamName, { color: c.text, textAlign: 'right' }]} numberOfLines={1} accessibilityRole="header">
                         {teamData.awayTeam?.teamName ?? 'BYE'}
                       </Text>
                       {teamData.awayTeam && <TeamLogo logoKey={teamData.awayTeam.logoKey} teamName={teamData.awayTeam.teamName} size="small" />}
-                    </View>
+                    </TouchableOpacity>
                     <Text style={[colStyles.total, { color: c.accent }]}>
                       {teamData.awayTeam ? formatScore(awayWeek) : '0.0'}
                     </Text>
@@ -768,7 +790,7 @@ export default function MatchupDetailScreen() {
               >
                 <TouchableOpacity
                   style={colStyles.acqPill}
-                  onPress={() => Alert.alert('Weekly Acquisitions', 'Player pickups used this matchup week. Once the limit is reached, no more free agent adds are allowed until next week.')}
+                  onPress={() => setAcqInfoVisible(true)}
                   accessibilityRole="button"
                   accessibilityLabel="Acquisition info"
                 >
@@ -835,6 +857,13 @@ export default function MatchupDetailScreen() {
           liveMap={rawLiveMap}
         />
       )}
+
+      <InfoModal
+        visible={acqInfoVisible}
+        onClose={() => setAcqInfoVisible(false)}
+        title="Weekly Acquisitions"
+        message="Player pickups used this matchup week. Once the limit is reached, no more free agent adds are allowed until next week."
+      />
     </SafeAreaView>
   );
 }

@@ -38,12 +38,15 @@ import { useRouter } from "expo-router";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import {
   Alert,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 
 // --- Reducer ---
 
@@ -202,6 +205,9 @@ export default function CreateLeague() {
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const hasRestoredRef = useRef(false);
+  const scrollRef = useRef<ScrollView>(null);
+  const [isAtBottom, setIsAtBottom] = useState(false);
+  const [hasMoreContent, setHasMoreContent] = useState(false);
 
   // Restore saved wizard progress on mount
   useEffect(() => {
@@ -246,12 +252,26 @@ export default function CreateLeague() {
     persistWizard(state, step);
   }, [state, step, persistWizard]);
 
+  // Scroll to top when step changes
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+    setIsAtBottom(false);
+    setHasMoreContent(false);
+  }, [step]);
+
   // Track wizard step progression
   useEffect(() => {
     if (step > 0) {
       capture('league_wizard_step', { step, step_label: STEP_LABELS[step] });
     }
   }, [step]);
+
+  const handleScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    const distanceFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
+    setIsAtBottom(distanceFromBottom < 20);
+    setHasMoreContent(contentSize.height > layoutMeasurement.height + 20);
+  }, []);
 
   // Steps: 0=Basics, 1=Roster, 2=Scoring, 3=Trade, 4=Waivers, 5=Season, 6=Draft, 7=Review
   const TOTAL_STEPS = STEP_LABELS.length;
@@ -529,10 +549,13 @@ export default function CreateLeague() {
       <StepIndicator currentStep={step} steps={STEP_LABELS} />
 
       <ScrollView
+        ref={scrollRef}
         style={styles.content}
         contentContainerStyle={styles.contentInner}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
       >
         {step === 0 && <StepBasics state={state} onChange={handleChange} />}
         {step === 1 && (
@@ -573,6 +596,20 @@ export default function CreateLeague() {
           />
         )}
       </ScrollView>
+
+      {hasMoreContent && !isAtBottom && (
+        <Animated.View
+          entering={FadeIn.duration(200)}
+          exiting={FadeOut.duration(200)}
+          style={[styles.scrollHint, { borderTopColor: c.border }]}
+          pointerEvents="none"
+          accessibilityLabel="Scroll down for more options"
+        >
+          <Text style={[styles.scrollHintText, { color: c.secondaryText }]}>
+            Scroll for more
+          </Text>
+        </Animated.View>
+      )}
 
       {step < TOTAL_STEPS - 1 && (
         <View style={styles.navRow}>
@@ -633,6 +670,16 @@ const styles = StyleSheet.create({
   },
   contentInner: {
     paddingBottom: 24,
+  },
+  scrollHint: {
+    alignItems: "center",
+    paddingVertical: 6,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  scrollHintText: {
+    fontSize: ms(12),
+    fontWeight: "500",
+    opacity: 0.7,
   },
   navRow: {
     flexDirection: "row",

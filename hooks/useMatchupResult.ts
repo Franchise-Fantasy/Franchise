@@ -13,6 +13,8 @@ export interface MatchupResult {
   won: boolean;
   lost: boolean;
   tied: boolean;
+  isPlayoff: boolean;
+  playoffRound: number | null;
   /** Only present for category leagues */
   userCatWins?: number;
   opponentCatWins?: number;
@@ -37,7 +39,7 @@ export function useMatchupResult(scoringType: string | null | undefined) {
         .select(`
           id, home_team_id, away_team_id, home_score, away_score,
           winner_team_id, home_category_wins, away_category_wins,
-          category_ties, week_number,
+          category_ties, week_number, playoff_round,
           league_schedule!inner(league_id)
         `)
         .eq('league_schedule.league_id', leagueId)
@@ -78,6 +80,8 @@ export function useMatchupResult(scoringType: string | null | undefined) {
         won: matchup.winner_team_id === teamId,
         lost: matchup.winner_team_id !== null && matchup.winner_team_id !== teamId,
         tied: matchup.winner_team_id === null,
+        isPlayoff: matchup.playoff_round != null,
+        playoffRound: matchup.playoff_round ?? null,
         ...(isCategory && {
           userCatWins: isHome ? matchup.home_category_wins : matchup.away_category_wins,
           opponentCatWins: isHome ? matchup.away_category_wins : matchup.home_category_wins,

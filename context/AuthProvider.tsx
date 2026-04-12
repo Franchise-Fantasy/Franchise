@@ -1,6 +1,5 @@
 import { Session } from '@supabase/supabase-js'
 import React, { createContext, useContext, useEffect, useState } from 'react'
-import { Alert } from 'react-native'
 import { hasBeenAsked, markAsAsked, registerPushToken, refreshPushToken } from '../lib/notifications'
 // RevenueCat init is lazy — triggered when UpgradeModal opens, not on startup
 // import { initPurchases, logoutPurchases } from '../lib/purchases'
@@ -19,24 +18,8 @@ export function useAuthInitialized() {
 
 async function promptNotificationsIfNeeded(userId: string) {
   if (await hasBeenAsked()) return;
-  Alert.alert(
-    'Stay in the Loop',
-    'Get notified about draft picks, trades, matchup results, and more.',
-    [
-      {
-        text: 'Enable',
-        onPress: async () => {
-          await registerPushToken(userId);
-          await markAsAsked();
-        },
-      },
-      {
-        text: 'Not Now',
-        style: 'cancel',
-        onPress: markAsAsked,
-      },
-    ]
-  );
+  await registerPushToken(userId);
+  await markAsAsked();
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {

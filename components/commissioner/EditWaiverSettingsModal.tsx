@@ -9,7 +9,6 @@ import { ms, s } from '@/utils/scale';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Modal,
   Pressable,
@@ -19,6 +18,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 
 const WAIVER_DISPLAY: Record<string, string> = { standard: 'Standard', faab: 'FAAB', none: 'None' };
 const WAIVER_TO_DB: Record<string, string> = { Standard: 'standard', FAAB: 'faab', None: 'none' };
@@ -183,7 +183,7 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
               disabled={saving}
             >
               {saving ? (
-                <ActivityIndicator color="#fff" size="small" />
+                <LogoSpinner size={18} />
               ) : (
                 <Text style={[styles.btnText, { color: c.accentText }]}>Save</Text>
               )}

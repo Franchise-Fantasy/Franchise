@@ -8,7 +8,6 @@ import { ms, s } from '@/utils/scale';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Modal,
   Pressable,
@@ -20,6 +19,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 
 function statLabel(stat: string): string {
   return DEFAULT_SCORING.find((s) => s.stat_name === stat)?.label
@@ -167,7 +167,7 @@ export function EditScoringModal({ visible, onClose, leagueId, scoring, scoringT
               disabled={saving}
             >
               {saving ? (
-                <ActivityIndicator color="#fff" size="small" />
+                <LogoSpinner size={18} />
               ) : (
                 <Text style={[styles.btnText, { color: c.accentText }]}>Save</Text>
               )}

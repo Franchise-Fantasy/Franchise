@@ -8,8 +8,6 @@ async function scheduleAutodraft(draft_id: string, pick_number: number, time_lim
   const token = Deno.env.get('QSTASH_TOKEN')?.trim();
   const autodraftUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/autodraft`;
 
-  console.log('Publishing to:', `https://qstash.upstash.io/v2/publish/${autodraftUrl}`);
-
   const res = await fetch(`https://qstash-us-east-1.upstash.io/v2/publish/${autodraftUrl}`, {
     method: 'POST',
     headers: {
@@ -20,9 +18,7 @@ async function scheduleAutodraft(draft_id: string, pick_number: number, time_lim
     body: JSON.stringify({ draft_id, pick_number }),
   });
 
-  console.log('sending to qstash')
   const responseText = await res.text();
-  console.log('QStash status:', res.status, '| body:', responseText);
 
   if (!res.ok) throw new Error(`QStash error ${res.status}: ${responseText}`);
   return responseText;
@@ -137,7 +133,7 @@ Deno.serve(async (req) => {
     });
   } catch (error) {
     console.error('start-draft error:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
+    return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500,
       headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
     });

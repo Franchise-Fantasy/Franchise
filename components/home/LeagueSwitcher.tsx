@@ -11,7 +11,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import React from "react";
 import {
-  ActivityIndicator,
   Modal,
   Pressable,
   ScrollView,
@@ -20,6 +19,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ms, s } from '@/utils/scale';
 
 interface UserLeague {
@@ -139,7 +139,7 @@ export function LeagueSwitcher({ visible, onClose }: LeagueSwitcherProps) {
           accessibilityRole="menu"
         >
           {loading ? (
-            <ActivityIndicator style={styles.loader} />
+            <View style={styles.loader}><LogoSpinner /></View>
           ) : leagues.length === 0 ? (
             <ThemedText
               style={[styles.emptyText, { color: c.secondaryText }]}
@@ -306,6 +306,7 @@ const styles = StyleSheet.create({
     paddingVertical: s(12),
     paddingHorizontal: s(12),
     borderRadius: 10,
+    marginVertical: s(2),
   },
   leagueInfo: {
     flex: 1,
@@ -329,9 +330,9 @@ const styles = StyleSheet.create({
     gap: s(6),
   },
   divider: {
-    height: StyleSheet.hairlineWidth,
+    height: 1,
     marginHorizontal: s(4),
-    marginVertical: s(4),
+    marginVertical: s(6),
   },
   actionRow: {
     flexDirection: "row",

@@ -13,8 +13,8 @@ export interface TransactionItem {
   team_to_id: string | null;
   player: { name: string; position: string; nba_team: string } | null;
   draft_pick: { season: string; round: number } | null;
-  team_from: { name: string } | null;
-  team_to: { name: string } | null;
+  team_from: { name: string; logo_key: string | null } | null;
+  team_to: { name: string; logo_key: string | null } | null;
 }
 
 export interface Transaction {
@@ -24,7 +24,7 @@ export interface Transaction {
   notes: string | null;
   created_at: string;
   team_id: string | null;
-  initiator: { name: string } | null;
+  initiator: { name: string; logo_key: string | null } | null;
   league_transaction_items: TransactionItem[];
 }
 
@@ -41,13 +41,13 @@ export function useTransactions(typeFilter?: string) {
         .from('league_transactions')
         .select(`
           id, league_id, type, notes, created_at, team_id,
-          initiator:teams!league_transactions_team_id_fkey ( name ),
+          initiator:teams!league_transactions_team_id_fkey ( name, logo_key ),
           league_transaction_items (
             id, player_id, draft_pick_id, team_from_id, team_to_id,
             player:players ( name, position, nba_team ),
             draft_pick:draft_picks ( season, round ),
-            team_from:teams!league_transaction_items_team_from_id_fkey ( name ),
-            team_to:teams!league_transaction_items_team_to_id_fkey ( name )
+            team_from:teams!league_transaction_items_team_from_id_fkey ( name, logo_key ),
+            team_to:teams!league_transaction_items_team_to_id_fkey ( name, logo_key )
           )
         `)
         .eq('league_id', leagueId!)

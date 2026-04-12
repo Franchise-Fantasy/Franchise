@@ -153,60 +153,30 @@ Deno.serve(async (req)=>{
       }
     }
 
-    const timestamp = new Date().toISOString();
     const isRookieDraft = draft.type === 'rookie';
-
-    const { error: updatePickError } = await supabaseAdmin.from('draft_picks').update({
-      player_id,
-      selected_at: timestamp
-    }).eq('draft_id', draft_id).eq('pick_number', draft.current_pick_number);
-    if (updatePickError) throw updatePickError;
-
     const rosterSlot = await findBestSlot(supabaseAdmin, league_id, currentPick.current_team_id, player_position);
 
-    const { error: insertPlayerError } = await supabaseAdmin.from('league_players').insert({
-      league_id,
-      player_id,
-      team_id: currentPick.current_team_id,
-      acquired_via: isRookieDraft ? 'rookie_draft' : 'draft',
-      acquired_at: timestamp,
-      position: player_position,
-      roster_slot: rosterSlot,
+    // Execute all mutations atomically via RPC
+    const { data: pickResult, error: rpcError } = await supabaseAdmin.rpc('execute_draft_pick', {
+      p_draft_id: draft_id,
+      p_pick_number: draft.current_pick_number,
+      p_player_id: player_id,
+      p_league_id: league_id,
+      p_team_id: currentPick.current_team_id,
+      p_roster_slot: rosterSlot,
+      p_player_position: player_position,
+      p_is_rookie_draft: isRookieDraft,
     });
-    if (insertPlayerError) {
+    if (rpcError) {
       // Unique constraint means another pick claimed this player first
-      if (insertPlayerError.code === '23505') {
+      if (rpcError.code === '23505') {
         throw new Error('This player was just drafted by another team.');
       }
-      throw insertPlayerError;
+      throw rpcError;
     }
 
-    // Remove drafted player from all teams' queues in this draft
-    await supabaseAdmin.from('draft_queue')
-      .delete()
-      .eq('draft_id', draft_id)
-      .eq('player_id', player_id);
-
-    const nextPickNumber = draft.current_pick_number + 1;
-    const totalPicks = draft.rounds * draft.picks_per_round;
-    const isDraftComplete = nextPickNumber > totalPicks;
-
-    const draftUpdate: Record<string, unknown> = {
-      current_pick_number: nextPickNumber,
-      current_pick_timestamp: timestamp,
-    };
-    if (isDraftComplete) draftUpdate.status = 'complete';
-
-    const { error: advanceDraftError } = await supabaseAdmin.from('drafts').update(draftUpdate).eq('id', draft_id);
-    if (advanceDraftError) throw advanceDraftError;
-
-    // When rookie draft completes, update offseason step
-    if (isDraftComplete && isRookieDraft) {
-      await supabaseAdmin
-        .from('leagues')
-        .update({ offseason_step: 'rookie_draft_complete' })
-        .eq('id', league_id);
-    }
+    const isDraftComplete = pickResult.is_complete;
+    const nextPickNumber = pickResult.next_pick_number;
 
     if (!isDraftComplete) {
       try {

@@ -81,7 +81,7 @@ export const AppStateProvider = ({ children }: { children: React.ReactNode }) =>
         .select('id, league_id')
         .eq('user_id', session.user.id)
         .limit(1)
-        .single();
+        .maybeSingle();
 
       setState({
         teamId: data?.id ?? null,

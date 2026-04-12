@@ -1,3 +1,4 @@
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { containsBlockedContent } from '@/utils/moderation';
@@ -5,7 +6,7 @@ import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActionSheetIOS, ActivityIndicator, Platform, StyleSheet, TextInput, View } from 'react-native';
+import { ActionSheetIOS, Platform, StyleSheet, TextInput, View } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -135,7 +136,7 @@ export function ChatInput({ conversationId, onSend, sending, isCommissioner, isL
     <View style={[styles.container, { borderTopColor: c.border }]}>
       {isUploading ? (
         <View style={styles.attachBtn}>
-          <ActivityIndicator size="small" color={c.accent} />
+          <LogoSpinner size={18} />
         </View>
       ) : (
         <TouchableOpacity
@@ -190,7 +191,12 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     padding: s(8),
     gap: s(8),
-    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 2,
   },
   input: {
     flex: 1,

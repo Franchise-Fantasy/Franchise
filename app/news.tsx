@@ -1,6 +1,7 @@
 import { NewsCard } from '@/components/player/NewsCard';
 import { ms, s } from "@/utils/scale";
 import { ThemedText } from '@/components/ui/ThemedText';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
@@ -12,10 +13,10 @@ import { queryKeys } from '@/constants/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   RefreshControl,
   StyleSheet,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -34,6 +35,7 @@ export default function NewsScreen() {
   const c = Colors[scheme];
   const { leagueId, teamId } = useAppState();
   const [filter, setFilter] = useState<FilterMode>('team');
+  const [searchText, setSearchText] = useState('');
 
   // Fetch player IDs for user's team
   const { data: myPlayerIds = [] } = useQuery<string[]>({
@@ -107,6 +109,17 @@ export default function NewsScreen() {
   const newsMode = filter === 'all' ? 'all' as const : 'filtered' as const;
   const newsQuery = useTeamNews(activePlayerIds, newsMode);
 
+  // Client-side text search across article titles and mentioned player names
+  const filteredNews = useMemo(() => {
+    const articles = newsQuery.data ?? [];
+    if (!searchText.trim()) return articles;
+    const q = searchText.trim().toLowerCase();
+    return articles.filter(a =>
+      a.title.toLowerCase().includes(q) ||
+      a.mentioned_players?.some(p => p.name.toLowerCase().includes(q)),
+    );
+  }, [newsQuery.data, searchText]);
+
   const emptyMessages: Record<FilterMode, string> = {
     team: 'No recent news for your rostered players',
     matchup: 'No recent news for matchup players',
@@ -116,6 +129,21 @@ export default function NewsScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
       <PageHeader title="Player News" />
+
+      {/* Search bar */}
+      <View style={[styles.searchRow, { borderColor: c.border }]}>
+        <TextInput
+          style={[styles.searchInput, { color: c.text, borderColor: c.border, backgroundColor: c.card }]}
+          placeholder="Search player or team news..."
+          placeholderTextColor={c.secondaryText}
+          value={searchText}
+          onChangeText={setSearchText}
+          autoCorrect={false}
+          autoCapitalize="none"
+          clearButtonMode="while-editing"
+          accessibilityLabel="Search news"
+        />
+      </View>
 
       {/* Filter chips */}
       <View style={styles.filterRow}>
@@ -140,10 +168,10 @@ export default function NewsScreen() {
 
       {/* News list */}
       {newsQuery.isLoading ? (
-        <ActivityIndicator style={styles.loader} color={c.accent} />
+        <View style={styles.loader}><LogoSpinner /></View>
       ) : (
         <FlatList
-          data={newsQuery.data ?? []}
+          data={filteredNews}
           keyExtractor={(item: PlayerNewsArticle) => item.id}
           renderItem={({ item }) => <NewsCard article={item} showHeadshots />}
           refreshControl={
@@ -167,6 +195,17 @@ export default function NewsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  searchRow: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  searchInput: {
+    fontSize: ms(14),
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
   filterRow: {
     flexDirection: 'row',
     gap: 8,

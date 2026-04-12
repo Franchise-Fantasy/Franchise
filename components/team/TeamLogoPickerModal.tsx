@@ -8,7 +8,6 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Image,
   Modal,
@@ -16,6 +15,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 
 interface TeamLogoPickerModalProps {
   visible: boolean;
@@ -123,25 +123,21 @@ export function TeamLogoPickerModal({
     <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.overlay}>
         <View style={[styles.sheet, { backgroundColor: c.background }]}>
-          {/* Header */}
-          <View style={[styles.header, { borderBottomColor: c.border }]}>
-            <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.headerTitle}>
-              Team Logo
-            </ThemedText>
-            <TouchableOpacity
-              onPress={onClose}
-              accessibilityRole="button"
-              accessibilityLabel="Close logo picker"
-            >
-              <ThemedText style={styles.closeText}>✕</ThemedText>
-            </TouchableOpacity>
-          </View>
+          {/* Close button */}
+          <TouchableOpacity
+            style={styles.closeBtn}
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="Close logo picker"
+          >
+            <ThemedText style={styles.closeText}>✕</ThemedText>
+          </TouchableOpacity>
 
           {/* Preview */}
           <View style={styles.previewArea}>
             {uploading ? (
               <View style={[styles.previewCircle, { backgroundColor: c.cardAlt }]}>
-                <ActivityIndicator size="large" />
+                <LogoSpinner />
               </View>
             ) : preview ? (
               <Image source={{ uri: preview }} style={styles.previewCircle} />
@@ -210,20 +206,16 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 14,
     paddingBottom: s(40),
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: s(16),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  headerTitle: {
-    fontSize: ms(18),
+  closeBtn: {
+    position: 'absolute',
+    top: s(12),
+    right: s(12),
+    zIndex: 1,
+    padding: s(4),
   },
   closeText: {
     fontSize: ms(20),
     lineHeight: ms(24),
-    paddingHorizontal: s(4),
   },
   previewArea: {
     alignItems: 'center',

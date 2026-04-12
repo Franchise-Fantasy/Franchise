@@ -1,3 +1,5 @@
+import { AnimatedSection } from "@/components/ui/AnimatedSection";
+import { FormSection } from "@/components/ui/FormSection";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { NumberStepper } from "@/components/ui/NumberStepper";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
@@ -22,42 +24,46 @@ export function StepBasics({ state, onChange }: StepBasicsProps) {
         League Basics
       </ThemedText>
 
-      <View style={styles.section}>
-        <ThemedText style={styles.label}>League Type</ThemedText>
-        <SegmentedControl
-          options={[...LEAGUE_TYPE_OPTIONS]}
-          selectedIndex={LEAGUE_TYPE_OPTIONS.indexOf(state.leagueType ?? 'Dynasty')}
-          onSelect={(i) => onChange("leagueType", LEAGUE_TYPE_OPTIONS[i])}
-          accessibilityLabel="Select league type"
+      {/* Required fields first */}
+      <FormSection title="League Identity">
+        <ThemedText style={styles.label}>League Name</ThemedText>
+        <TextInput
+          accessibilityLabel="League name"
+          style={[
+            styles.input,
+            { borderColor: c.border, backgroundColor: c.input, color: c.text },
+          ]}
+          placeholder="Enter league name"
+          placeholderTextColor={c.secondaryText}
+          value={state.name}
+          onChangeText={(text) => onChange("name", text)}
         />
-      </View>
 
-      {state.leagueType === 'Keeper' && (
-        <View style={styles.section}>
-          <NumberStepper
-            label="Keepers Per Team"
-            value={state.keeperCount ?? 5}
-            onValueChange={(v) => onChange("keeperCount", v)}
-            min={1}
-            max={20}
+        <View style={styles.fieldGap}>
+          <ThemedText style={styles.label}>League Type</ThemedText>
+          <SegmentedControl
+            options={[...LEAGUE_TYPE_OPTIONS]}
+            selectedIndex={LEAGUE_TYPE_OPTIONS.indexOf(state.leagueType ?? 'Dynasty')}
+            onSelect={(i) => onChange("leagueType", LEAGUE_TYPE_OPTIONS[i])}
+            accessibilityLabel="Select league type"
           />
         </View>
-      )}
 
-      <ThemedText style={styles.label}>League Name</ThemedText>
-      <TextInput
-        accessibilityLabel="League name"
-        style={[
-          styles.input,
-          { borderColor: c.border, backgroundColor: c.input, color: c.text },
-        ]}
-        placeholder="Enter league name"
-        placeholderTextColor={c.secondaryText}
-        value={state.name}
-        onChangeText={(text) => onChange("name", text)}
-      />
+        <AnimatedSection visible={state.leagueType === 'Keeper'}>
+          <View style={styles.fieldGap}>
+            <NumberStepper
+              label="Keepers Per Team"
+              value={state.keeperCount ?? 5}
+              onValueChange={(v) => onChange("keeperCount", v)}
+              min={1}
+              max={20}
+            />
+          </View>
+        </AnimatedSection>
+      </FormSection>
 
-      <View style={styles.section}>
+      {/* League structure */}
+      <FormSection title="League Setup">
         <NumberStepper
           label="Number of Teams"
           value={state.teams}
@@ -65,18 +71,19 @@ export function StepBasics({ state, onChange }: StepBasicsProps) {
           min={1}
           max={20}
         />
-      </View>
 
-      <View style={styles.section}>
-        <ThemedText style={styles.label}>League Visibility</ThemedText>
-        <SegmentedControl
-          options={["Public", "Private"]}
-          selectedIndex={state.isPrivate ? 1 : 0}
-          onSelect={(i) => onChange("isPrivate", i === 1)}
-        />
-      </View>
+        <View style={styles.fieldGap}>
+          <ThemedText style={styles.label}>League Visibility</ThemedText>
+          <SegmentedControl
+            options={["Public", "Private"]}
+            selectedIndex={state.isPrivate ? 1 : 0}
+            onSelect={(i) => onChange("isPrivate", i === 1)}
+          />
+        </View>
+      </FormSection>
 
-      <View style={styles.section}>
+      {/* Optional buy-in */}
+      <FormSection title="Buy-In">
         <NumberStepper
           label="Buy-In ($)"
           value={state.buyIn}
@@ -85,58 +92,58 @@ export function StepBasics({ state, onChange }: StepBasicsProps) {
           max={1000}
           step={5}
         />
-      </View>
 
-      {state.buyIn > 0 && (
-        <View style={styles.section}>
-          <ThemedText style={styles.label}>Payment Methods</ThemedText>
+        <AnimatedSection visible={state.buyIn > 0}>
+          <View style={styles.fieldGap}>
+            <ThemedText style={styles.label}>Payment Methods</ThemedText>
 
-          <ThemedText style={styles.fieldLabel}>Venmo</ThemedText>
-          <TextInput
-            accessibilityLabel="Venmo username"
-            style={[
-              styles.input,
-              { borderColor: c.border, backgroundColor: c.input, color: c.text },
-            ]}
-            placeholder="username (no @)"
-            placeholderTextColor={c.secondaryText}
-            value={state.venmoUsername}
-            onChangeText={(text) => onChange("venmoUsername", text)}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
+            <ThemedText style={styles.fieldLabel}>Venmo</ThemedText>
+            <TextInput
+              accessibilityLabel="Venmo username"
+              style={[
+                styles.input,
+                { borderColor: c.border, backgroundColor: c.input, color: c.text },
+              ]}
+              placeholder="username (no @)"
+              placeholderTextColor={c.secondaryText}
+              value={state.venmoUsername}
+              onChangeText={(text) => onChange("venmoUsername", text)}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
 
-          <ThemedText style={styles.fieldLabel}>Cash App</ThemedText>
-          <TextInput
-            accessibilityLabel="Cash App tag"
-            style={[
-              styles.input,
-              { borderColor: c.border, backgroundColor: c.input, color: c.text },
-            ]}
-            placeholder="cashtag (no $)"
-            placeholderTextColor={c.secondaryText}
-            value={state.cashappTag}
-            onChangeText={(text) => onChange("cashappTag", text)}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
+            <ThemedText style={styles.fieldLabel}>Cash App</ThemedText>
+            <TextInput
+              accessibilityLabel="Cash App tag"
+              style={[
+                styles.input,
+                { borderColor: c.border, backgroundColor: c.input, color: c.text },
+              ]}
+              placeholder="cashtag (no $)"
+              placeholderTextColor={c.secondaryText}
+              value={state.cashappTag}
+              onChangeText={(text) => onChange("cashappTag", text)}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
 
-          <ThemedText style={styles.fieldLabel}>PayPal</ThemedText>
-          <TextInput
-            accessibilityLabel="PayPal username"
-            style={[
-              styles.input,
-              { borderColor: c.border, backgroundColor: c.input, color: c.text },
-            ]}
-            placeholder="username"
-            placeholderTextColor={c.secondaryText}
-            value={state.paypalUsername}
-            onChangeText={(text) => onChange("paypalUsername", text)}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-        </View>
-      )}
+            <ThemedText style={styles.fieldLabel}>PayPal</ThemedText>
+            <TextInput
+              accessibilityLabel="PayPal username"
+              style={[
+                styles.input,
+                { borderColor: c.border, backgroundColor: c.input, color: c.text },
+              ]}
+              placeholder="username"
+              placeholderTextColor={c.secondaryText}
+              value={state.paypalUsername}
+              onChangeText={(text) => onChange("paypalUsername", text)}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+        </AnimatedSection>
+      </FormSection>
     </View>
   );
 }
@@ -146,7 +153,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   heading: {
-    marginBottom: s(20),
+    marginBottom: s(16),
   },
   label: {
     marginBottom: s(8),
@@ -158,14 +165,14 @@ const styles = StyleSheet.create({
     padding: s(12),
     borderRadius: 6,
     fontSize: ms(16),
-    marginBottom: s(16),
+    marginBottom: s(12),
   },
   fieldLabel: {
     marginBottom: s(4),
     fontSize: ms(13),
     fontWeight: "500",
   },
-  section: {
-    marginTop: s(8),
+  fieldGap: {
+    marginTop: s(12),
   },
 });

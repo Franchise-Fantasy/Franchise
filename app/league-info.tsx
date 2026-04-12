@@ -41,13 +41,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ms, s } from '@/utils/scale';
 
@@ -182,7 +182,7 @@ export default function LeagueInfoScreen() {
   if (leagueLoading || !league) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
-        <ActivityIndicator style={{ marginTop: 60 }} />
+        <View style={{ marginTop: 60 }}><LogoSpinner delay={0} /></View>
       </SafeAreaView>
     );
   }
@@ -275,7 +275,7 @@ export default function LeagueInfoScreen() {
                     )}
                   </View>
                   {advancingseason ? (
-                    <ActivityIndicator size="small" color={c.warning} />
+                    <LogoSpinner size={18} delay={0} />
                   ) : (
                     <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
                   )}

@@ -1,12 +1,13 @@
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Colors, cardShadow } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { ms, s } from '@/utils/scale';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Alert, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 
 interface SeasonSectionProps {
   leagueId: string;
@@ -80,7 +81,7 @@ export function SeasonSection({ leagueId, isCommissioner }: SeasonSectionProps) 
           style={[styles.btn, { backgroundColor: generating ? c.buttonDisabled : c.accent }]}
         >
           {generating ? (
-            <ActivityIndicator color={c.accentText} />
+            <LogoSpinner size={18} />
           ) : (
             <ThemedText style={[styles.btnText, { color: c.accentText }]}>
               Generate Schedule &amp; Start Season
@@ -100,8 +101,9 @@ const styles = StyleSheet.create({
   section: {
     marginBottom: s(16),
     padding: s(16),
-    borderRadius: 8,
+    borderRadius: 12,
     gap: s(10),
+    ...cardShadow,
   },
   title: {
     fontSize: ms(16),

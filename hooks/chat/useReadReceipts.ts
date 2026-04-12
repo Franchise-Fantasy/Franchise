@@ -67,6 +67,9 @@ export function useReadReceipts(
   useEffect(() => {
     if (!conversationId || !myTeamId || !myTeamName) return;
 
+    // Presence channels require a shared deterministic name (no Date.now() suffix)
+    // so all clients can see each other. The postgres_changes Date.now() rule
+    // does not apply here — presence routing depends on matching names.
     const ch = supabase.channel(`chat_presence_${conversationId}`, {
       config: { presence: { key: myTeamId } },
     });

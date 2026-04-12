@@ -1,5 +1,7 @@
 import { CatAnalytics } from "@/components/analytics/CatAnalytics";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
+import { InfoModal } from "@/components/ui/InfoModal";
+import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Colors } from "@/constants/Colors";
@@ -41,10 +43,8 @@ import {
 import { scaleLinear } from "d3-scale";
 import { useCallback, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   GestureResponderEvent,
   LayoutChangeEvent,
-  Modal,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -313,7 +313,7 @@ export default function AnalyticsScreen() {
       <View style={styles.content}>
         {isCategories ? (
           isLoading ? (
-            <ActivityIndicator style={styles.loading} />
+            <View style={styles.loading}><LogoSpinner /></View>
           ) : allPlayers && allPlayers.length > 0 ? (
             <CatAnalytics
               allPlayers={allPlayers as any}
@@ -329,7 +329,7 @@ export default function AnalyticsScreen() {
             </View>
           )
         ) : isLoading ? (
-          <ActivityIndicator style={styles.loading} />
+          <View style={styles.loading}><LogoSpinner /></View>
         ) : !profile || profile.totalWithAge < 3 ? (
           <View style={styles.emptyState}>
             <ThemedText style={{ color: c.secondaryText }}>
@@ -966,89 +966,57 @@ export default function AnalyticsScreen() {
       </View>
 
       {/* ── Info Modal ── */}
-      <Modal
+      <InfoModal
         visible={infoModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setInfoModalVisible(false)}
+        onClose={() => setInfoModalVisible(false)}
+        title="How to Read This Chart"
       >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setInfoModalVisible(false)}
-        >
-          <View
-            style={[
-              styles.modalCard,
-              {
-                backgroundColor: isDark ? "#1C1C1E" : "#FFFFFF",
-                borderColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)",
-              },
-            ]}
-            onStartShouldSetResponder={() => true}
-          >
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: c.text }]}>
-                How to Read This Chart
-              </Text>
-              <TouchableOpacity
-                onPress={() => setInfoModalVisible(false)}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                accessibilityRole="button"
-                accessibilityLabel="Close info"
-              >
-                <Ionicons name="close" size={20} color={c.secondaryText} />
-              </TouchableOpacity>
-            </View>
+        <Text style={[styles.modalText, { color: c.secondaryText }]}>
+          Each dot is a player on your roster, plotted by age (x-axis) and
+          average fantasy points per game (y-axis). Tap any dot to see player
+          details.
+        </Text>
 
-            <Text style={[styles.modalText, { color: c.secondaryText }]}>
-              Each dot is a player on your roster, plotted by age (x-axis) and
-              average fantasy points per game (y-axis). Tap any dot to see player
-              details.
-            </Text>
+        <View style={styles.modalSwatchRow}>
+          <View style={[styles.modalSwatch, { backgroundColor: BUCKET_COLORS.rising }]} />
+          <Text style={[styles.modalSwatchLabel, { color: c.secondaryText }]}>
+            {"Rising (<25)"}
+          </Text>
+          <View style={[styles.modalSwatch, { backgroundColor: BUCKET_COLORS.prime, marginLeft: 12 }]} />
+          <Text style={[styles.modalSwatchLabel, { color: c.secondaryText }]}>
+            Prime (25–30)
+          </Text>
+          <View style={[styles.modalSwatch, { backgroundColor: BUCKET_COLORS.vet, marginLeft: 12 }]} />
+          <Text style={[styles.modalSwatchLabel, { color: c.secondaryText }]}>
+            Veteran (31+)
+          </Text>
+        </View>
 
-            <View style={styles.modalSwatchRow}>
-              <View style={[styles.modalSwatch, { backgroundColor: BUCKET_COLORS.rising }]} />
-              <Text style={[styles.modalSwatchLabel, { color: c.secondaryText }]}>
-                {"Rising (<25)"}
-              </Text>
-              <View style={[styles.modalSwatch, { backgroundColor: BUCKET_COLORS.prime, marginLeft: 12 }]} />
-              <Text style={[styles.modalSwatchLabel, { color: c.secondaryText }]}>
-                Prime (25–30)
-              </Text>
-              <View style={[styles.modalSwatch, { backgroundColor: BUCKET_COLORS.vet, marginLeft: 12 }]} />
-              <Text style={[styles.modalSwatchLabel, { color: c.secondaryText }]}>
-                Veteran (31+)
-              </Text>
-            </View>
+        <Text style={[styles.modalText, { color: c.secondaryText }]}>
+          The dashed line shows your roster's weighted age — the average age
+          weighted by each player's fantasy output. The shaded zone highlights
+          prime years (25–29).
+        </Text>
 
-            <Text style={[styles.modalText, { color: c.secondaryText }]}>
-              The dashed line shows your roster's weighted age — the average age
-              weighted by each player's fantasy output. The shaded zone highlights
-              prime years (25–29).
-            </Text>
+        <Text style={[styles.modalText, { color: c.secondaryText }]}>
+          If weighted age is lower than roster age, your production skews
+          young — a prime window may be ahead. If higher, your best output
+          comes from older players — a win-now window.
+        </Text>
 
-            <Text style={[styles.modalText, { color: c.secondaryText }]}>
-              If weighted age is lower than roster age, your production skews
-              young — a prime window may be ahead. If higher, your best output
-              comes from older players — a win-now window.
-            </Text>
-
-            <Text style={[styles.modalText, { color: c.secondaryText, fontWeight: "600" }]}>
-              Aging Curve
-            </Text>
-            <Text style={[styles.modalText, { color: c.secondaryText }]}>
-              The line shows expected production at each age for
-              fantasy-relevant players, based on 20+ years of NBA data
-              filtered to your league's roster depth. Players above the line
-              are outperforming for their age; below means they may be
-              developing or declining. The shaded band shows the typical
-              range (25th–75th percentile). Use the position pills to
-              compare — PGs tend to age more gracefully than SGs.
-            </Text>
-          </View>
-        </TouchableOpacity>
-      </Modal>
+        <Text style={[styles.modalText, { color: c.secondaryText, fontWeight: "600" }]}>
+          Aging Curve
+        </Text>
+        <Text style={[styles.modalText, { color: c.secondaryText }]}>
+          The line shows expected production at each age for
+          fantasy-relevant players, based on 20+ years of NBA data
+          filtered to your league's roster depth. Players above the line
+          are outperforming for their age; below means they may be
+          developing or declining. The shaded band shows the typical
+          range (25th–75th percentile). Use the position pills to
+          compare — PGs tend to age more gracefully than SGs.
+        </Text>
+      </InfoModal>
 
       <PlayerDetailModal
         player={modalPlayer}
@@ -1182,31 +1150,7 @@ const styles = StyleSheet.create({
     padding: s(4),
   },
 
-  // Info modal
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: s(24),
-  },
-  modalCard: {
-    borderWidth: 1,
-    borderRadius: 16,
-    padding: s(20),
-    width: "100%",
-    maxWidth: s(360),
-  },
-  modalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: s(14),
-  },
-  modalTitle: {
-    fontSize: ms(16),
-    fontWeight: "700",
-  },
+  // Info modal content (rendered inside shared InfoModal)
   modalText: {
     fontSize: ms(13),
     lineHeight: ms(19),

@@ -6,7 +6,8 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { PlayerHistoryEvent, usePlayerHistory } from '@/hooks/usePlayerHistory';
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
-import { ActivityIndicator, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 
 function getEventIcon(event: PlayerHistoryEvent): keyof typeof Ionicons.glyphMap {
   switch (event.type) {
@@ -69,7 +70,7 @@ export function PlayerHistory({ playerId, leagueId }: PlayerHistoryProps) {
       )}
 
       {isLoading ? (
-        <ActivityIndicator style={styles.loader} />
+        <View style={styles.loader}><LogoSpinner /></View>
       ) : !hasEvents ? (
         <ThemedText
           style={[styles.emptyText, { color: c.secondaryText }]}

@@ -1,5 +1,5 @@
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { cardShadow, Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { TradeItemRow, TradeProposalRow } from '@/hooks/useTrades';
 import { formatPickLabel } from '@/types/trade';
@@ -170,14 +170,10 @@ function buildTradeReceiveSummary(
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 10,
+    borderRadius: 12,
     padding: s(14),
     marginBottom: s(10),
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
+    ...cardShadow,
   },
   statusRow: {
     flexDirection: 'row',

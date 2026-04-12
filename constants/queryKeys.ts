@@ -35,6 +35,8 @@ export const queryKeys = {
   standingsH2h: (leagueId: string) => ["standings-h2h", leagueId] as const,
   remainingGames: (leagueId: string) =>
     ["remaining-games", leagueId] as const,
+  futureMatchups: (leagueId: string) =>
+    ["future-matchups", leagueId] as const,
   seasonStatus: (leagueId: string) => ["seasonStatus", leagueId] as const,
   seasonHistory: (leagueId: string) => ["seasonHistory", leagueId] as const,
   championshipCheck: (leagueId: string, season: number) =>
@@ -249,6 +251,8 @@ export const queryKeys = {
   leagueConversationId: (leagueId: string) =>
     ["leagueConversationId", leagueId] as const,
   canLeak: (proposalId: string) => ["canLeak", proposalId] as const,
+  tradeConversation: (proposalId: string) =>
+    ["tradeConversation", proposalId] as const,
 
   // ── Polls / Surveys ──────────────────────────────────────
   poll: (pollId: string) => ["poll", pollId] as const,

@@ -1,7 +1,7 @@
 import { DeclareKeepers } from '@/components/home/DeclareKeepers';
 import { DraftSection } from '@/components/home/DraftSection';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Colors, cardShadow } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
@@ -10,7 +10,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Alert, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 
 interface OffseasonDashboardProps {
   leagueId: string;
@@ -416,7 +417,7 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator color={c.statusText} size="small" />
+                <LogoSpinner size={18} />
               ) : (
                 <>
                   <Ionicons name="people" size={18} color={c.statusText} />
@@ -443,7 +444,7 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator color={c.statusText} size="small" />
+                <LogoSpinner size={18} />
               ) : (
                 <>
                   <Ionicons name="bookmark" size={18} color={c.statusText} />
@@ -464,7 +465,7 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator color={c.statusText} size="small" />
+                <LogoSpinner size={18} />
               ) : (
                 <>
                   <Ionicons name="people" size={18} color={c.statusText} />
@@ -485,7 +486,7 @@ export function OffseasonDashboard({ leagueId, teamId, offseasonStep, isCommissi
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator color={c.statusText} size="small" />
+                <LogoSpinner size={18} />
               ) : (
                 <>
                   <Ionicons name="play" size={18} color={c.statusText} />
@@ -587,6 +588,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: s(16),
     marginBottom: s(16),
+    ...cardShadow,
   },
   championBanner: {
     flexDirection: 'row',

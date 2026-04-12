@@ -14,7 +14,6 @@ import { ms, s } from "@/utils/scale";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import {
-  ActivityIndicator,
   Image,
   ScrollView,
   StyleSheet,
@@ -24,6 +23,7 @@ import {
 } from "react-native";
 import { PlayerDetailModal } from "../player/PlayerDetailModal";
 import { ThemedText } from "../ui/ThemedText";
+import { LogoSpinner } from "@/components/ui/LogoSpinner";
 
 interface TeamRosterProps {
   teamId: string;
@@ -174,7 +174,7 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
   if (isLoading) {
     return (
       <View style={[styles.container, { backgroundColor: c.cardAlt }]}>
-        <ActivityIndicator style={styles.centered} />
+        <View style={styles.centered}><LogoSpinner /></View>
       </View>
     );
   }

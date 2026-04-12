@@ -17,7 +17,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   FlatList,
   Image,
   StyleSheet,
@@ -25,6 +24,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { ms, s } from "@/utils/scale";
 
 interface AvailablePlayersProps {
@@ -461,7 +461,7 @@ export function AvailablePlayers({
   if (isLoading) {
     return (
       <View style={styles.loading}>
-        <ActivityIndicator />
+        <LogoSpinner />
       </View>
     );
   }

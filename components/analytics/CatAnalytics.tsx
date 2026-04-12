@@ -6,6 +6,7 @@
  */
 
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
+import { InfoModal } from "@/components/ui/InfoModal";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
 import { useColorScheme } from "@/hooks/useColorScheme";
@@ -44,7 +45,6 @@ import {
 import { scaleLinear } from "d3-scale";
 import { useCallback, useMemo, useState } from "react";
 import {
-  Alert,
   GestureResponderEvent,
   LayoutChangeEvent,
   ScrollView,
@@ -103,6 +103,7 @@ export function CatAnalytics({
   );
   const [chartWidth, setChartWidth] = useState(0);
   const [selectedDot, setSelectedDot] = useState<CatScatterPoint | null>(null);
+  const [infoVisible, setInfoVisible] = useState(false);
   const [modalPlayer, setModalPlayer] = useState<PlayerSeasonStats | null>(
     null
   );
@@ -180,48 +181,7 @@ export function CatAnalytics({
           );
         })}
         <TouchableOpacity
-          onPress={() => {
-            const info: Record<Section, { title: string; msg: string }> = {
-              radar: {
-                title: "Category Radar",
-                msg:
-                  "The radar chart shows how your team compares to the league average across all 9 categories.\n\n" +
-                  "Blue = your team, gray = league average. The further out a point, the better you are in that category relative to the league.\n\n" +
-                  "For turnovers (TO ↓), the chart is flipped — further out means fewer turnovers, which is better.\n\n" +
-                  "LEAGUE STANDING\n" +
-                  "Below the radar is your league standing per category, using labels from Elite to Punt.\n\n" +
-                  "HOW IT WORKS\n" +
-                  "We compare your team's total output in each category against every other team in the league using z-scores — a stat that measures how far above or below the league average you are.\n\n" +
-                  "• Elite (+1.5 or more) — Dominant, top of the league\n" +
-                  "• Strong (+0.75 to +1.5) — Well above average\n" +
-                  "• Above Avg (+0.25 to +0.75) — Slight edge\n" +
-                  "• Average (−0.25 to +0.25) — Middle of the pack\n" +
-                  "• Below Avg (−0.75 to −0.25) — Slight disadvantage\n" +
-                  "• Weak (−1.5 to −0.75) — Well below average\n" +
-                  "• Punt (below −1.5) — Consider punting this category",
-              },
-              scatter: {
-                title: "Age vs Production",
-                msg:
-                  "Each dot is a player on your roster, colored by age tier:\n\n" +
-                  "• Green = Rising (under 25)\n" +
-                  "• Blue = Prime (25–30)\n" +
-                  "• Orange = Veteran (31+)\n\n" +
-                  "Use the stat picker to view individual categories (PTS, REB, etc.) or 'ALL' for a combined score.\n\n" +
-                  "The 'ALL' composite works by z-scoring each player's stats against your roster — measuring how many standard deviations above or below the team average they are in each category — then summing across all 9. A higher number means the player contributes more across the board.\n\n" +
-                  "The shaded zone highlights prime years (25–30). Tap any dot to see player details.",
-              },
-              tiers: {
-                title: "Age Breakdown",
-                msg:
-                  "This shows what share of your team's production in each category comes from Rising, Prime, and Veteran players.\n\n" +
-                  "For counting stats (PTS, REB, etc.), the values are summed per-game averages. For percentage stats (FG%, FT%), the values are volume-weighted team rates.\n\n" +
-                  "If one age group dominates a category, you may be vulnerable to age-related decline (veterans) or inconsistency (rising players).",
-              },
-            };
-            const { title, msg } = info[section];
-            Alert.alert(title, msg);
-          }}
+          onPress={() => setInfoVisible(true)}
           accessibilityRole="button"
           accessibilityLabel={`Info about ${section} section`}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -264,6 +224,46 @@ export function CatAnalytics({
       {section === "tiers" && (
         <TiersSection data={ageTiers} colors={c} isDark={isDark} />
       )}
+
+      <InfoModal
+        visible={infoVisible}
+        onClose={() => setInfoVisible(false)}
+        title={
+          section === "radar"
+            ? "Category Radar"
+            : section === "scatter"
+              ? "Age vs Production"
+              : "Age Breakdown"
+        }
+        message={
+          section === "radar"
+            ? "The radar chart shows how your team compares to the league average across all 9 categories.\n\n" +
+              "Blue = your team, gray = league average. The further out a point, the better you are in that category relative to the league.\n\n" +
+              "For turnovers (TO ↓), the chart is flipped — further out means fewer turnovers, which is better.\n\n" +
+              "LEAGUE STANDING\n" +
+              "Below the radar is your league standing per category, using labels from Elite to Punt.\n\n" +
+              "HOW IT WORKS\n" +
+              "We compare your team's total output in each category against every other team in the league using z-scores — a stat that measures how far above or below the league average you are.\n\n" +
+              "• Elite (+1.5 or more) — Dominant, top of the league\n" +
+              "• Strong (+0.75 to +1.5) — Well above average\n" +
+              "• Above Avg (+0.25 to +0.75) — Slight edge\n" +
+              "• Average (−0.25 to +0.25) — Middle of the pack\n" +
+              "• Below Avg (−0.75 to −0.25) — Slight disadvantage\n" +
+              "• Weak (−1.5 to −0.75) — Well below average\n" +
+              "• Punt (below −1.5) — Consider punting this category"
+            : section === "scatter"
+              ? "Each dot is a player on your roster, colored by age tier:\n\n" +
+                "• Green = Rising (under 25)\n" +
+                "• Blue = Prime (25–30)\n" +
+                "• Orange = Veteran (31+)\n\n" +
+                "Use the stat picker to view individual categories (PTS, REB, etc.) or 'ALL' for a combined score.\n\n" +
+                "The 'ALL' composite works by z-scoring each player's stats against your roster — measuring how many standard deviations above or below the team average they are in each category — then summing across all 9. A higher number means the player contributes more across the board.\n\n" +
+                "The shaded zone highlights prime years (25–30). Tap any dot to see player details."
+              : "This shows what share of your team's production in each category comes from Rising, Prime, and Veteran players.\n\n" +
+                "For counting stats (PTS, REB, etc.), the values are summed per-game averages. For percentage stats (FG%, FT%), the values are volume-weighted team rates.\n\n" +
+                "If one age group dominates a category, you may be vulnerable to age-related decline (veterans) or inconsistency (rising players)."
+        }
+      />
 
       <PlayerDetailModal
         player={modalPlayer}

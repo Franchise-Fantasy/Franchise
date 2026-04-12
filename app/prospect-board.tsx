@@ -1,5 +1,6 @@
 import { ProspectBoardItem } from '@/components/prospects/ProspectBoardItem';
 import { PremiumGate } from '@/components/PremiumGate';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
@@ -8,9 +9,9 @@ import { useProspectBoard, useReorderBoard, useRemoveFromBoard } from '@/hooks/u
 import { useProspects } from '@/hooks/useProspects';
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { ms, s } from '@/utils/scale';
+import { useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   ScrollView,
   StyleSheet,
   Text,
@@ -41,6 +42,7 @@ interface BoardEntry {
 export default function ProspectBoardScreen() {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const router = useRouter();
   const session = useSession();
   const userId = session?.user?.id;
 
@@ -105,6 +107,12 @@ export default function ProspectBoardScreen() {
               userRank={index + 1}
               drag={drag}
               isActive={isActive}
+              onPress={() =>
+                router.push({
+                  pathname: '/prospect/[id]' as any,
+                  params: { id: item.playerId },
+                })
+              }
             />
           </View>
         </View>
@@ -167,7 +175,7 @@ export default function ProspectBoardScreen() {
 
         {boardLoading ? (
           <View style={styles.center}>
-            <ActivityIndicator color={c.accent} />
+            <LogoSpinner />
           </View>
         ) : boardEntries.length === 0 ? (
           <View style={styles.center}>

@@ -19,12 +19,12 @@ export default function FreeAgentsScreen() {
             Join a league to browse players.
           </ThemedText>
         </View>
-      </SafeAreaView>
+      </SafeAreaView> 
     );
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]} edges={['top', 'left', 'right']}>
       <FreeAgentList leagueId={leagueId} teamId={teamId} />
     </SafeAreaView>
   );

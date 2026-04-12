@@ -3,6 +3,7 @@ import { ProposeTradeModal } from "@/components/trade/ProposeTradeModal";
 import { TradeBlockSheet } from "@/components/trade/TradeBlockSheet";
 import { TradeCard } from "@/components/trade/TradeCard";
 import { TradeDetailModal } from "@/components/trade/TradeDetailModal";
+import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Colors } from "@/constants/Colors";
@@ -22,7 +23,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -239,7 +239,7 @@ export default function Trades() {
       >
         {/* Trade list */}
         {isLoading ? (
-          <ActivityIndicator style={styles.loader} />
+          <View style={styles.loader}><LogoSpinner /></View>
         ) : filtered.length === 0 ? (
           <View style={styles.empty}>
             <ThemedText style={[styles.emptyText, { color: c.secondaryText }]}>

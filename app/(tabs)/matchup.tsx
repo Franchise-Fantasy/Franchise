@@ -1,3 +1,5 @@
+import { useLiveActivity } from "@/hooks/useLiveActivity";
+import { useSession } from "@/context/AuthProvider";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { TeamLogo } from "@/components/team/TeamLogo";
 import { CategoryScoreboard } from "@/components/matchup/CategoryScoreboard";
@@ -14,9 +16,10 @@ import {
 import { WeeklySummaryModal } from "@/components/matchup/WeeklySummaryModal";
 import { FptsBreakdownModal } from "@/components/player/FptsBreakdownModal";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
+import { InfoModal } from "@/components/ui/InfoModal";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { ThemedView } from "@/components/ui/ThemedView";
-import { Colors } from "@/constants/Colors";
+import { Colors, cardShadow } from "@/constants/Colors";
 import { CURRENT_NBA_SEASON } from "@/constants/LeagueDefaults";
 import { useAppState } from "@/context/AppStateProvider";
 import { useColorScheme } from "@/hooks/useColorScheme";
@@ -42,6 +45,7 @@ import {
   toDateStr,
   useToday,
 } from "@/utils/dates";
+import { useRouter } from "expo-router";
 import { calculateGameFantasyPoints, formatScore } from "@/utils/fantasyPoints";
 import { fetchTeamData } from "@/utils/fetchTeamData";
 import {
@@ -60,7 +64,6 @@ import {
   Modal,
   ScrollView,
   StyleSheet,
-  Alert,
   Text,
   TouchableOpacity,
   View,
@@ -606,7 +609,10 @@ function MatchupBoard({
   onPlayerPress,
   onFptsPress,
   onSummaryPress,
+  onGoLive,
+  liveActivityActive,
   scoringType,
+  onTeamPress,
 }: {
   leftTeam: TeamMatchupData;
   rightTeam: TeamMatchupData | null;
@@ -629,7 +635,10 @@ function MatchupBoard({
     gameLabel: string,
   ) => void;
   onSummaryPress?: () => void;
+  onGoLive?: () => void;
+  liveActivityActive?: boolean;
   scoringType?: string;
+  onTeamPress?: (teamId: string) => void;
 }) {
   const isCategories = scoringType === "h2h_categories";
 
@@ -701,7 +710,7 @@ function MatchupBoard({
     <View>
       {/* Score header */}
       {isCategories && categoryComparison ? (
-        <View style={{ marginBottom: 14 }}>
+        <View style={[colStyles.scoreCard, { backgroundColor: c.card, borderColor: c.border }]}>
           <CategoryScoreboard
             results={categoryComparison.results}
             homeWins={categoryComparison.homeWins}
@@ -717,16 +726,27 @@ function MatchupBoard({
         </View>
       ) : (
         <View
+          style={[colStyles.scoreCard, { backgroundColor: c.card, borderColor: c.border }]}
+        >
+        <View
           style={colStyles.scoreHeader}
           accessibilityRole="summary"
           accessibilityLabel={`${leftTeam.teamName} ${formatScore(leftWeek)} versus ${rightTeam ? `${rightTeam.teamName} ${formatScore(rightWeek)}` : "BYE"}`}
         >
           <View style={[colStyles.scoreCol, { alignItems: "flex-start" }]}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <TouchableOpacity
+              style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+              onPress={() => onTeamPress?.(leftTeam.teamId)}
+              activeOpacity={0.6}
+              accessibilityRole="link"
+              accessibilityLabel={`View ${leftTeam.teamName} roster`}
+            >
               <TeamLogo logoKey={leftTeam.logoKey} teamName={leftTeam.teamName} size="small" />
               <Text
-                style={[colStyles.teamName, { color: c.text }]}
+                style={[colStyles.teamName, { color: c.text, flexShrink: 1 }]}
                 numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.75}
                 accessibilityRole="header"
               >
                 {seedMap?.has(leftTeam.teamId)
@@ -734,7 +754,7 @@ function MatchupBoard({
                   : ""}
                 {leftTeam.teamName}
               </Text>
-            </View>
+            </TouchableOpacity>
             <Text style={[colStyles.total, { color: c.accent }]}>
               {formatScore(leftWeek)}
             </Text>
@@ -764,13 +784,22 @@ function MatchupBoard({
             )}
           </TouchableOpacity>
           <View style={[colStyles.scoreCol, { alignItems: "flex-end" }]}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <TouchableOpacity
+              style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+              onPress={() => rightTeam && onTeamPress?.(rightTeam.teamId)}
+              disabled={!rightTeam}
+              activeOpacity={0.6}
+              accessibilityRole="link"
+              accessibilityLabel={rightTeam ? `View ${rightTeam.teamName} roster` : "BYE"}
+            >
               <Text
                 style={[
                   colStyles.teamName,
-                  { color: c.text, textAlign: "right" },
+                  { color: c.text, textAlign: "right", flexShrink: 1 },
                 ]}
                 numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.75}
                 accessibilityRole="header"
               >
                 {rightTeam
@@ -778,7 +807,7 @@ function MatchupBoard({
                   : "BYE"}
               </Text>
               {rightTeam && <TeamLogo logoKey={rightTeam.logoKey} teamName={rightTeam.teamName} size="small" />}
-            </View>
+            </TouchableOpacity>
             <Text style={[colStyles.total, { color: c.accent }]}>
               {formatScore(rightWeek)}
             </Text>
@@ -788,6 +817,24 @@ function MatchupBoard({
               </Text>
             )}
           </View>
+        </View>
+
+        {onGoLive && (
+          <TouchableOpacity
+            style={[
+              colStyles.goLiveBtn,
+              liveActivityActive && { backgroundColor: c.secondaryText },
+            ]}
+            onPress={onGoLive}
+            accessibilityRole="button"
+            accessibilityLabel={liveActivityActive ? "Stop Live Activity" : "Start Live Activity on Dynamic Island"}
+          >
+            <View style={colStyles.goLiveDot} />
+            <Text style={colStyles.goLiveBtnText}>
+              {liveActivityActive ? "Live" : "Go Live"}
+            </Text>
+          </TouchableOpacity>
+        )}
         </View>
       )}
 
@@ -855,25 +902,17 @@ function MatchupBoard({
         if (leftBench.length === 0 && rightBench.length === 0) return null;
         const maxBench = Math.max(leftBench.length, rightBench.length);
         return (
-          <View style={{ marginTop: 12 }}>
+          <View style={{ marginTop: s(16) }}>
             <View
-              style={{
-                alignItems: "center",
-                paddingVertical: 6,
-                borderBottomWidth: StyleSheet.hairlineWidth,
-                borderBottomColor: c.border,
-              }}
+              style={[colStyles.benchHeader, { borderBottomColor: c.border }]}
             >
+              <View style={[colStyles.benchLine, { backgroundColor: c.border }]} />
               <Text
-                style={{
-                  color: c.secondaryText,
-                  fontSize: ms(11),
-                  fontWeight: "700",
-                  letterSpacing: 1,
-                }}
+                style={[colStyles.benchLabel, { color: c.secondaryText }]}
               >
                 BENCH
               </Text>
+              <View style={[colStyles.benchLine, { backgroundColor: c.border }]} />
             </View>
             {Array.from({ length: maxBench }).map((_, i) => (
               <View
@@ -935,6 +974,7 @@ function MatchupBoard({
 
 export default function MatchupScreen() {
   const { leagueId, teamId } = useAppState();
+  const router = useRouter();
   const scheme = useColorScheme() ?? "light";
   const c = Colors[scheme];
 
@@ -947,6 +987,7 @@ export default function MatchupScreen() {
   const today = useToday();
   const [selectedDate, setSelectedDate] = useState<string>(today);
   const [scheduleVisible, setScheduleVisible] = useState(false);
+  const [acqInfoVisible, setAcqInfoVisible] = useState(false);
   const [selectedPlayer, setSelectedPlayer] =
     useState<PlayerSeasonStats | null>(null);
   const [selectedMatchupId, setSelectedMatchupId] = useState<string | null>(
@@ -961,6 +1002,16 @@ export default function MatchupScreen() {
   const [weeklySummaryVisible, setWeeklySummaryVisible] = useState(false);
   const pillScrollRef = useRef<ScrollView>(null);
 
+  // Live Activity (Dynamic Island)
+  const session = useSession();
+  const {
+    isSupported: liveActivitySupported,
+    startMatchupActivity,
+    endActivity,
+    activeActivityId,
+  } = useLiveActivity(session?.user?.id);
+  const [liveActivityId, setLiveActivityId] = useState<string | null>(null);
+
   const handlePlayerPress = async (playerId: string) => {
     const { data } = await supabase
       .from("player_season_stats")
@@ -968,6 +1019,46 @@ export default function MatchupScreen() {
       .eq("player_id", playerId)
       .maybeSingle();
     if (data) setSelectedPlayer(data as PlayerSeasonStats);
+  };
+
+  const handleGoLive = async () => {
+    if (!displayData || !teamId || !leagueId || !currentWeek || !isViewingOwnMatchup) return;
+
+    // Toggle off if already active
+    if (liveActivityId) {
+      await endActivity(liveActivityId);
+      setLiveActivityId(null);
+      return;
+    }
+
+    const leftScore = weekScores?.[displayData.leftTeam.teamId] ?? displayData.leftTeam.weekTotal;
+    const rightScore = displayData.rightTeam
+      ? (weekScores?.[displayData.rightTeam.teamId] ?? displayData.rightTeam.weekTotal)
+      : 0;
+
+    const result = await startMatchupActivity({
+      myTeamName: displayData.leftTeam.teamName,
+      opponentTeamName: displayData.rightTeam?.teamName ?? "BYE",
+      myTeamTricode: displayData.leftTeam.teamName.substring(0, 3).toUpperCase(),
+      opponentTeamTricode: displayData.rightTeam
+        ? displayData.rightTeam.teamName.substring(0, 3).toUpperCase()
+        : "BYE",
+      matchupId: userMatchupId!,
+      leagueId,
+      scheduleId: currentWeek.id,
+      teamId,
+      initialState: {
+        myScore: leftScore,
+        opponentScore: rightScore,
+        scoreGap: leftScore - rightScore,
+        biggestContributor: "",
+        myActivePlayers: 0,
+        opponentActivePlayers: 0,
+        players: [],
+      },
+    });
+
+    if (result) setLiveActivityId(result.activityId);
   };
 
   // Reset to today when switching leagues so stale data doesn't linger
@@ -1292,7 +1383,7 @@ export default function MatchupScreen() {
           </View>
         </View>
         <View style={styles.spinnerWrap}>
-          <LogoSpinner />
+          <LogoSpinner delay={0} />
         </View>
       </SafeAreaView>
     );
@@ -1492,7 +1583,7 @@ export default function MatchupScreen() {
       {/* Matchup body */}
       {displayLoading && (
         <View style={styles.spinnerWrap}>
-          <LogoSpinner />
+          <LogoSpinner delay={0} />
         </View>
       )}
 
@@ -1567,7 +1658,17 @@ export default function MatchupScreen() {
                 setFptsBreakdown({ stats, playerName: name, gameLabel: label })
               }
               onSummaryPress={() => setWeeklySummaryVisible(true)}
+              onGoLive={
+                liveActivitySupported && isViewingOwnMatchup && weekIsLive
+                  ? handleGoLive
+                  : undefined
+              }
+              liveActivityActive={!!liveActivityId}
               scoringType={league?.scoring_type}
+              onTeamPress={(id) => {
+                if (id === teamId) router.push('/(tabs)/roster');
+                else router.push(`/team-roster/${id}` as any);
+              }}
             />
 
             {/* Weekly acquisition limits */}
@@ -1581,7 +1682,7 @@ export default function MatchupScreen() {
               >
                 <TouchableOpacity
                   style={colStyles.acqPill}
-                  onPress={() => Alert.alert('Weekly Acquisitions', 'Player pickups used this matchup week. Once the limit is reached, no more free agent adds are allowed until next week.')}
+                  onPress={() => setAcqInfoVisible(true)}
                   accessibilityRole="button"
                   accessibilityLabel="Acquisition info"
                 >
@@ -1732,6 +1833,13 @@ export default function MatchupScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      <InfoModal
+        visible={acqInfoVisible}
+        onClose={() => setAcqInfoVisible(false)}
+        title="Weekly Acquisitions"
+        message="Player pickups used this matchup week. Once the limit is reached, no more free agent adds are allowed until next week."
+      />
     </SafeAreaView>
   );
 }
@@ -1827,7 +1935,17 @@ const styles = StyleSheet.create({
 });
 
 const colStyles = StyleSheet.create({
-  scoreHeader: { flexDirection: "row", alignItems: "center", marginBottom: s(14) },
+  scoreCard: {
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: s(14),
+    paddingTop: s(12),
+    paddingBottom: s(10),
+    marginHorizontal: s(6),
+    marginBottom: s(14),
+    ...cardShadow,
+  },
+  scoreHeader: { flexDirection: "row", alignItems: "center" },
   scoreCol: { flex: 1 },
   vsCol: { alignItems: "center" as const, justifyContent: "center" as const, marginHorizontal: s(6), marginTop: s(14) },
   vsText: { fontSize: ms(12), fontWeight: "600" },
@@ -1853,5 +1971,44 @@ const colStyles = StyleSheet.create({
     fontSize: ms(10),
     fontWeight: "600",
     marginTop: 2,
+  },
+  benchHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: s(8),
+    gap: s(10),
+  },
+  benchLine: {
+    flex: 1,
+    height: 1,
+    opacity: 0.4,
+  },
+  benchLabel: {
+    fontSize: ms(10),
+    fontWeight: "700",
+    letterSpacing: 1.5,
+  },
+  goLiveBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "center",
+    paddingHorizontal: s(12),
+    paddingVertical: s(5),
+    borderRadius: 20,
+    backgroundColor: "#1B3D2F",
+    marginTop: s(8),
+    gap: 5,
+  },
+  goLiveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#FF3B30",
+  },
+  goLiveBtnText: {
+    color: "#fff",
+    fontSize: ms(11),
+    fontWeight: "700",
   },
 });

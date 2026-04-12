@@ -612,7 +612,7 @@ export const pStyles = StyleSheet.create({
   },
   name: { fontSize: ms(12), fontWeight: "500" },
   meta: { fontSize: ms(10) },
-  pts: { fontSize: ms(13), fontWeight: "700" },
+  pts: { fontSize: ms(15), fontWeight: "700" },
   matchupChip: { paddingHorizontal: s(4), paddingVertical: 1, borderRadius: 3 },
   matchupChipLive: { borderWidth: 1 },
   matchupChipText: { fontSize: ms(9), fontWeight: "600" },

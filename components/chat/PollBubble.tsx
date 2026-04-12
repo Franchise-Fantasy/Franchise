@@ -1,3 +1,4 @@
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useClosePoll, usePoll, usePollResults, useVotePoll } from '@/hooks/chat';
@@ -7,7 +8,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   StyleSheet,
   TouchableOpacity,
@@ -294,7 +294,7 @@ export const PollBubble = React.memo(function PollBubble({ pollId, teamId, isCom
           accessibilityState={{ disabled: selected.length === 0 || voteMutation.isPending }}
         >
           {voteMutation.isPending ? (
-            <ActivityIndicator size="small" color={c.statusText} />
+            <LogoSpinner size={18} />
           ) : (
             <ThemedText style={[styles.voteBtnText, { color: c.statusText }]}>Vote</ThemedText>
           )}

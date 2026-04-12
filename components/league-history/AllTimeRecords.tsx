@@ -1,11 +1,12 @@
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Colors, cardShadow } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useAllTimeRecords } from '@/hooks/useLeagueHistory';
 import { Ionicons } from '@expo/vector-icons';
 import { ms, s } from '@/utils/scale';
 import { useState } from 'react';
-import { ActivityIndicator, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 
 interface AllTimeRecordsProps {
   leagueId: string;
@@ -17,7 +18,7 @@ export function AllTimeRecords({ leagueId }: AllTimeRecordsProps) {
   const { data: records, isLoading } = useAllTimeRecords(leagueId);
   const [expanded, setExpanded] = useState(false);
 
-  if (isLoading) return <ActivityIndicator style={{ marginVertical: 16 }} />;
+  if (isLoading) return <View style={{ marginVertical: 16 }}><LogoSpinner /></View>;
   if (!records || records.length === 0) return null;
 
   return (
@@ -69,6 +70,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: s(16),
     marginBottom: s(16),
+    ...cardShadow,
   },
   header: {
     flexDirection: 'row',

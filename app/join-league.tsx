@@ -1,3 +1,5 @@
+import { FormSection } from '@/components/ui/FormSection';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ms, s } from "@/utils/scale";
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -10,7 +12,6 @@ import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   ScrollView,
   StyleSheet,
@@ -182,14 +183,18 @@ export default function JoinLeagueScreen() {
     }
   };
 
+  const slotsAvailable = (league: League) => league.teams - (league.current_teams ?? 0);
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
       <PageHeader title="Join a League" />
 
       <ScrollView style={styles.content} keyboardShouldPersistTaps="handled">
         {/* Invite code section */}
-        <View style={[styles.codeSection, { backgroundColor: c.card, borderColor: c.border }]}>
-          <ThemedText type="subtitle" accessibilityRole="header">Have an invite code?</ThemedText>
+        <FormSection title="Invite Code">
+          <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
+            Enter the code your commissioner shared with you.
+          </ThemedText>
           <View style={styles.codeInputRow}>
             <TextInput
               style={[styles.codeInput, { borderColor: c.border, backgroundColor: c.input, color: c.text }]}
@@ -205,7 +210,7 @@ export default function JoinLeagueScreen() {
               accessibilityHint="Enter the invite code to join a private league"
             />
             <TouchableOpacity
-              style={[styles.joinBtn, { backgroundColor: code.trim().length > 0 ? c.accent : c.border }]}
+              style={[styles.joinBtn, { backgroundColor: code.trim().length > 0 ? c.accent : c.buttonDisabled }]}
               onPress={handleJoinByCode}
               disabled={!code.trim() || joining}
               accessibilityRole="button"
@@ -217,7 +222,7 @@ export default function JoinLeagueScreen() {
               </Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </FormSection>
 
         {/* Divider */}
         <View style={styles.dividerRow}>
@@ -230,7 +235,7 @@ export default function JoinLeagueScreen() {
         <ThemedText type="subtitle" style={styles.publicTitle} accessibilityRole="header">Public Leagues</ThemedText>
 
         {isLoading ? (
-          <ActivityIndicator style={styles.loading} />
+          <View style={styles.loading}><LogoSpinner /></View>
         ) : !leagues?.length ? (
           <View style={styles.emptyState}>
             <Ionicons name="people-outline" size={40} color={c.secondaryText} accessible={false} />
@@ -248,10 +253,23 @@ export default function JoinLeagueScreen() {
               accessibilityLabel={`${league.name}, ${league.current_teams ?? 0} of ${league.teams} teams`}
               accessibilityHint="Join this league"
             >
-              <ThemedText type="subtitle">{league.name}</ThemedText>
-              <ThemedText style={[styles.leagueInfo, { color: c.secondaryText }]}>
-                Teams: {league.current_teams ?? 0}/{league.teams}
-              </ThemedText>
+              <View style={styles.leagueCardTop}>
+                <ThemedText type="defaultSemiBold" style={styles.leagueName}>{league.name}</ThemedText>
+                <Ionicons name="chevron-forward" size={18} color={c.secondaryText} accessible={false} />
+              </View>
+              <View style={styles.leagueCardMeta}>
+                <View style={styles.leagueMetaItem}>
+                  <Ionicons name="people-outline" size={14} color={c.secondaryText} accessible={false} />
+                  <ThemedText style={[styles.leagueInfo, { color: c.secondaryText }]}>
+                    {league.current_teams ?? 0}/{league.teams} teams
+                  </ThemedText>
+                </View>
+                <View style={[styles.slotsBadge, { backgroundColor: c.accent + '18' }]}>
+                  <ThemedText style={[styles.slotsText, { color: c.accent }]}>
+                    {slotsAvailable(league)} {slotsAvailable(league) === 1 ? 'spot' : 'spots'} open
+                  </ThemedText>
+                </View>
+              </View>
             </TouchableOpacity>
           ))
         )}
@@ -266,25 +284,24 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 16,
+    paddingHorizontal: s(16),
+    paddingTop: s(16),
+    paddingBottom: s(16),
   },
-  codeSection: {
-    padding: 16,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
+  hint: {
+    fontSize: ms(13),
+    marginBottom: s(10),
+    lineHeight: ms(18),
   },
   codeInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    marginTop: 12,
+    gap: s(10),
   },
   codeInput: {
     flex: 1,
     borderWidth: 1,
-    padding: 12,
+    padding: s(12),
     borderRadius: 8,
     fontSize: ms(18),
     fontWeight: '600',
@@ -292,8 +309,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   joinBtn: {
-    paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingHorizontal: s(20),
+    paddingVertical: s(12),
     borderRadius: 8,
   },
   joinBtnText: {
@@ -303,35 +320,65 @@ const styles = StyleSheet.create({
   dividerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 16,
+    marginVertical: s(16),
   },
   dividerLine: {
     flex: 1,
     height: StyleSheet.hairlineWidth,
   },
   dividerText: {
-    marginHorizontal: 12,
+    marginHorizontal: s(12),
     fontSize: ms(13),
     fontWeight: '600',
   },
   publicTitle: {
-    marginBottom: 12,
+    marginBottom: s(12),
   },
-  loading: { marginTop: 20 },
+  loading: { marginTop: s(20) },
   emptyState: {
-    paddingVertical: 40,
+    paddingVertical: s(40),
     alignItems: 'center',
-    gap: 12,
+    gap: s(12),
   },
   emptyText: {
     fontSize: ms(15),
   },
   leagueCard: {
-    padding: 16,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    marginBottom: 10,
+    padding: s(14),
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: s(10),
   },
-  leagueInfo: { marginTop: 4, fontSize: ms(14) },
+  leagueCardTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  leagueName: {
+    fontSize: ms(16),
+    flex: 1,
+  },
+  leagueCardMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: s(8),
+  },
+  leagueMetaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(4),
+  },
+  leagueInfo: {
+    fontSize: ms(13),
+  },
+  slotsBadge: {
+    paddingHorizontal: s(8),
+    paddingVertical: s(3),
+    borderRadius: 10,
+  },
+  slotsText: {
+    fontSize: ms(12),
+    fontWeight: '600',
+  },
 });
-

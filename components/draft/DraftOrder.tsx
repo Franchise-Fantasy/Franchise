@@ -7,7 +7,8 @@ import { DraftState, Pick } from "@/types/draft";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, AppState, StyleSheet, View } from "react-native";
+import { AppState, StyleSheet, View } from "react-native";
+import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { ms, s } from "@/utils/scale";
 import Animated, {
   runOnJS,
@@ -232,7 +233,7 @@ export function DraftOrder({
   useEffect(() => {
     // Single channel for draft state + picks + presence (saves one connection)
     const draftChannel = supabase
-      .channel(`draft_room_${draftId}`)
+      .channel(`draft_room_${draftId}-${Date.now()}`)
       .on(
         "postgres_changes",
         {
@@ -363,7 +364,7 @@ export function DraftOrder({
   if (isLoading) {
     return (
       <ThemedView style={styles.container}>
-        <ActivityIndicator />
+        <LogoSpinner />
       </ThemedView>
     );
   }

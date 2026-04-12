@@ -3,8 +3,8 @@ import { ms, s } from "@/utils/scale";
 import { FptsBreakdownModal } from '@/components/player/FptsBreakdownModal';
 import { PlayerGameLog as PlayerGameLogType, ScoringWeight } from '@/types/player';
 import { calculateGameFantasyPoints } from '@/utils/fantasyPoints';
-import { useState } from 'react';
-import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { useState, type RefObject } from 'react';
+import { NativeScrollEvent, NativeSyntheticEvent, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 // Returns the Monday (start of week) for a given YYYY-MM-DD date string
 function getWeekMonday(dateStr: string): string {
@@ -69,11 +69,82 @@ interface PlayerGameLogProps {
   expanded: boolean;
   onExpand: () => void;
   isCategories?: boolean;
+  bodyScrollRef?: RefObject<ScrollView | null>;
+  onBodyScroll?: (e: NativeSyntheticEvent<NativeScrollEvent>) => void;
   colors: {
     border: string;
     secondaryText: string;
     accent: string;
   };
+}
+
+interface PlayerGameLogHeaderProps {
+  scoringWeights: ScoringWeight[] | undefined;
+  isCategories?: boolean;
+  headerScrollRef?: RefObject<ScrollView | null>;
+  backgroundColor: string;
+  colors: {
+    border: string;
+    secondaryText: string;
+    accent: string;
+  };
+}
+
+// Column-label row for the game log. Rendered as a sticky header in the
+// parent ScrollView so the stat key stays visible while scrolling.
+// Its horizontal ScrollView is driven externally via `headerScrollRef`
+// so it stays in sync with the body's horizontal scroll.
+export function PlayerGameLogHeader({
+  scoringWeights,
+  isCategories,
+  headerScrollRef,
+  backgroundColor,
+  colors: c,
+}: PlayerGameLogHeaderProps) {
+  return (
+    <View
+      style={[styles.gameLogContainer, styles.stickyHeaderWrap, { backgroundColor, borderBottomColor: c.border }]}
+      accessibilityLabel="Game log column headers"
+    >
+      <View style={styles.pinnedLeft}>
+        <View style={[styles.gameRow, styles.gameHeader, styles.stickyHeaderRow]}>
+          <ThemedText style={[styles.gameCell, styles.gameCellDate, styles.gameHeaderText, { color: c.secondaryText }]}>
+            DATE
+          </ThemedText>
+          <ThemedText style={[styles.gameCell, styles.gameCellMatchup, styles.gameHeaderText, { color: c.secondaryText }]}>
+            OPP
+          </ThemedText>
+        </View>
+      </View>
+      <ScrollView
+        horizontal
+        ref={headerScrollRef}
+        scrollEnabled={false}
+        showsHorizontalScrollIndicator={false}
+        style={styles.scrollableStats}
+      >
+        <View style={[styles.gameRow, styles.gameHeader, styles.stickyHeaderRow]}>
+          {statColumns.map((col) => (
+            <ThemedText
+              key={col}
+              style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}
+            >
+              {col}
+            </ThemedText>
+          ))}
+        </View>
+      </ScrollView>
+      {scoringWeights && !isCategories && (
+        <View style={styles.pinnedRight}>
+          <View style={[styles.gameRow, styles.gameHeader, styles.stickyHeaderRow]}>
+            <ThemedText style={[styles.gameCell, styles.gameCellFpts, styles.gameHeaderText, { color: c.accent }]}>
+              FPTS
+            </ThemedText>
+          </View>
+        </View>
+      )}
+    </View>
+  );
 }
 
 export function PlayerGameLog({
@@ -88,6 +159,8 @@ export function PlayerGameLog({
   expanded,
   onExpand,
   isCategories,
+  bodyScrollRef,
+  onBodyScroll,
   colors: c,
 }: PlayerGameLogProps) {
   const [breakdownData, setBreakdownData] = useState<{ stats: Record<string, number | boolean>; label: string } | null>(null);
@@ -136,7 +209,7 @@ export function PlayerGameLog({
   const historyItems = (gameLog ?? []).filter(
     (item) => !(showLiveRow && liveDate && item.game_date === liveDate),
   );
-  const PREVIEW_COUNT = 3;
+  const PREVIEW_COUNT = 4;
   const visibleHistory = expanded ? historyItems : historyItems.slice(0, PREVIEW_COUNT);
   const hasMore = !expanded && historyItems.length > PREVIEW_COUNT;
   for (const item of visibleHistory) {
@@ -157,10 +230,6 @@ export function PlayerGameLog({
     return (
       <View accessibilityLabel="Loading game log" style={styles.gameLogContainer}>
         <View style={styles.pinnedLeft}>
-          <View style={[styles.gameRow, styles.gameHeader, { borderBottomColor: c.border }]}>
-            <ThemedText style={[styles.gameCell, styles.gameCellDate, styles.gameHeaderText, { color: c.secondaryText }]}>DATE</ThemedText>
-            <ThemedText style={[styles.gameCell, styles.gameCellMatchup, styles.gameHeaderText, { color: c.secondaryText }]}>OPP</ThemedText>
-          </View>
           {Array.from({ length: 12 }).map((_, i) => (
             <View key={i} style={[styles.gameRow, { borderBottomColor: c.border }]}>
               <View style={[styles.skeletonBlock, styles.gameCellDate, { backgroundColor: c.border }]} />
@@ -169,11 +238,6 @@ export function PlayerGameLog({
           ))}
         </View>
         <View style={styles.scrollableStats}>
-          <View style={[styles.gameRow, styles.gameHeader, { borderBottomColor: c.border }]}>
-            {statColumns.map((col) => (
-              <ThemedText key={col} style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}>{col}</ThemedText>
-            ))}
-          </View>
           {Array.from({ length: 12 }).map((_, i) => (
             <View key={i} style={[styles.gameRow, { borderBottomColor: c.border }]}>
               {statColumns.map((col) => (
@@ -182,11 +246,8 @@ export function PlayerGameLog({
             </View>
           ))}
         </View>
-        {scoringWeights && (
+        {scoringWeights && !isCategories && (
           <View style={styles.pinnedRight}>
-            <View style={[styles.gameRow, styles.gameHeader, { borderBottomColor: c.border }]}>
-              <ThemedText style={[styles.gameCell, styles.gameCellFpts, styles.gameHeaderText, { color: c.accent }]}>FPTS</ThemedText>
-            </View>
             {Array.from({ length: 12 }).map((_, i) => (
               <View key={i} style={[styles.gameRow, { borderBottomColor: c.border }]}>
                 <View style={[styles.skeletonBlock, { width: 44, backgroundColor: c.border }]} />
@@ -202,21 +263,13 @@ export function PlayerGameLog({
   return (
     <View>
     <View style={styles.gameLogContainer}>
-      {/* Pinned left: DATE + OPP */}
+      {/* Pinned left: DATE + OPP (header row rendered separately as sticky) */}
       <View style={styles.pinnedLeft}>
-        <View style={[styles.gameRow, styles.gameHeader, { borderBottomColor: c.border }]}>
-          <ThemedText style={[styles.gameCell, styles.gameCellDate, styles.gameHeaderText, { color: c.secondaryText }]}>
-            DATE
-          </ThemedText>
-          <ThemedText style={[styles.gameCell, styles.gameCellMatchup, styles.gameHeaderText, { color: c.secondaryText }]}>
-            OPP
-          </ThemedText>
-        </View>
         {combinedRows.map((row, idx) => {
           const isUpcoming = row.kind === 'upcoming';
           const isLiveRow = row.kind === 'live';
           return (
-            <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, isLiveRow && styles.gameRowLive, isUpcoming && styles.gameCellDNP, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
+            <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, idx % 2 === 1 && styles.gameRowAlt, isLiveRow && styles.gameRowLive, isUpcoming && styles.gameCellDNP, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
               <ThemedText style={[styles.gameCell, styles.gameCellDate, { color: c.secondaryText }]} numberOfLines={1}>
                 {row.kind === 'history' ? formatGameDate(row.item.game_date) : row.date}
               </ThemedText>
@@ -230,23 +283,20 @@ export function PlayerGameLog({
         })}
       </View>
 
-      {/* Scrollable middle: all stat columns scroll as one */}
-      <ScrollView horizontal showsHorizontalScrollIndicator style={styles.scrollableStats}>
+      {/* Scrollable middle: all stat columns scroll as one (header is sticky, rendered by parent) */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator
+        ref={bodyScrollRef}
+        onScroll={onBodyScroll}
+        scrollEventThrottle={16}
+        style={styles.scrollableStats}
+      >
         <View>
-          <View style={[styles.gameRow, styles.gameHeader, { borderBottomColor: c.border }]}>
-            {statColumns.map((col) => (
-              <ThemedText
-                key={col}
-                style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}
-              >
-                {col}
-              </ThemedText>
-            ))}
-          </View>
           {combinedRows.map((row, idx) => {
             if (row.kind === 'upcoming') {
               return (
-                <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, styles.gameCellDNP, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
+                <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, idx % 2 === 1 && styles.gameRowAlt, styles.gameCellDNP, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
                   {statColumns.map((col) => (
                     <ThemedText key={col} style={[styles.gameCell, styles.gameCellDNP]}>—</ThemedText>
                   ))}
@@ -255,7 +305,7 @@ export function PlayerGameLog({
             }
             if (row.kind === 'live') {
               return (
-                <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, styles.gameRowLive, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
+                <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, idx % 2 === 1 && styles.gameRowAlt, styles.gameRowLive, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
                   {statColumns.map((col) => {
                     const statKey = col === 'TO' ? 'tov' : col === '3PM' ? '3pm' : col === '3PA' ? '3pa' : col.toLowerCase();
                     const val = (row.stats as any)[statKey];
@@ -270,7 +320,7 @@ export function PlayerGameLog({
             }
             const isDNP = row.item.min === 0;
             return (
-              <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
+              <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, idx % 2 === 1 && styles.gameRowAlt, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
                 {statColumns.map((col) => (
                   <ThemedText
                     key={col}
@@ -285,18 +335,13 @@ export function PlayerGameLog({
         </View>
       </ScrollView>
 
-      {/* Pinned right: FPTS (hidden for CAT leagues) */}
+      {/* Pinned right: FPTS (hidden for CAT leagues; header rendered separately as sticky) */}
       {scoringWeights && !isCategories && (
         <View style={styles.pinnedRight}>
-          <View style={[styles.gameRow, styles.gameHeader, { borderBottomColor: c.border }]}>
-            <ThemedText style={[styles.gameCell, styles.gameCellFpts, styles.gameHeaderText, { color: c.accent }]}>
-              FPTS
-            </ThemedText>
-          </View>
           {combinedRows.map((row, idx) => {
             if (row.kind === 'upcoming') {
               return (
-                <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, styles.gameCellDNP, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
+                <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, idx % 2 === 1 && styles.gameRowAlt, styles.gameCellDNP, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
                   <ThemedText style={[styles.gameCell, styles.gameCellFpts, styles.gameCellDNP]}>—</ThemedText>
                 </View>
               );
@@ -304,7 +349,7 @@ export function PlayerGameLog({
             if (row.kind === 'live') {
               const fpts = calculateGameFantasyPoints(row.stats as any, scoringWeights);
               return (
-                <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, styles.gameRowLive, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
+                <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, idx % 2 === 1 && styles.gameRowAlt, styles.gameRowLive, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
                   <TouchableOpacity
                     onPress={() => setBreakdownData({ stats: row.stats as Record<string, number | boolean>, label: `${row.date} ${row.opp}` })}
                     accessibilityRole="button"
@@ -320,7 +365,7 @@ export function PlayerGameLog({
             const isDNP = row.item.min === 0;
             const fpts = calculateGameFantasyPoints(row.item, scoringWeights);
             return (
-              <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
+              <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, idx % 2 === 1 && styles.gameRowAlt, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
                 <TouchableOpacity
                   onPress={() => setBreakdownData({ stats: row.item as any, label: `${formatGameDate(row.item.game_date)} ${row.item.matchup?.replace(/^vs\s*/i, '') ?? ''}` })}
                   accessibilityRole="button"
@@ -368,6 +413,12 @@ const styles = StyleSheet.create({
   gameLogContainer: {
     flexDirection: 'row',
   },
+  stickyHeaderWrap: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  stickyHeaderRow: {
+    borderBottomWidth: 0,
+  },
   pinnedLeft: {
     flexShrink: 0,
   },
@@ -411,6 +462,9 @@ const styles = StyleSheet.create({
   },
   gameCellDNP: {
     opacity: 0.35,
+  },
+  gameRowAlt: {
+    backgroundColor: 'rgba(128, 128, 128, 0.09)',
   },
   gameRowLive: {
     backgroundColor: 'rgba(59, 130, 246, 0.08)',

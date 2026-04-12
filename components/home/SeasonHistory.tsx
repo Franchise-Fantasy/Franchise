@@ -1,5 +1,5 @@
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Colors, cardShadow } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
@@ -123,6 +123,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: s(16),
     marginBottom: s(16),
+    ...cardShadow,
   },
   title: {
     fontSize: ms(16),

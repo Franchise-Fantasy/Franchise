@@ -16,7 +16,7 @@ export function useRosterChanges(leagueId: string | null) {
     if (!leagueId) return;
 
     const channel = supabase
-      .channel(`roster-changes-${leagueId}`)
+      .channel(`roster-changes-${leagueId}-${Date.now()}`)
       .on(
         'postgres_changes',
         {

@@ -258,11 +258,13 @@ export function useAllTimeRecords(leagueId: string | null) {
 
         if (bestBlowoutMargin > 0) {
           const sched = scheduleMap.get(blowoutScheduleId);
+          const loserName = teamNameMap.get(blowoutLoserId) ?? '?';
+          const schedPart = sched ? ` • Week ${sched.week_number}, ${sched.season}` : '';
           records.push({
             label: 'Biggest Blowout',
             value: `+${bestBlowoutMargin.toFixed(1)}`,
-            teamName: `${teamNameMap.get(blowoutWinnerId) ?? '?'} over ${teamNameMap.get(blowoutLoserId) ?? '?'}`,
-            detail: sched ? `Week ${sched.week_number}, ${sched.season}` : '',
+            teamName: teamNameMap.get(blowoutWinnerId) ?? '?',
+            detail: `over ${loserName}${schedPart}`,
           });
         }
       }

@@ -15,7 +15,7 @@ export function useChatSubscription(conversationId: string | null) {
   useEffect(() => {
     if (!conversationId) return;
     const channel = supabase
-      .channel(`chat_sub_${conversationId}`)
+      .channel(`chat_sub_${conversationId}-${Date.now()}`)
       .on(
         'postgres_changes',
         {

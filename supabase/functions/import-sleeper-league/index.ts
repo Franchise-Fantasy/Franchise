@@ -22,7 +22,9 @@ const MAX_HISTORY_SEASONS = 5;
 // --- Sleeper API helpers ---
 
 async function sleeperGet(path: string) {
-  const res = await fetch(`${SLEEPER_BASE}${path}`);
+  const res = await fetch(`${SLEEPER_BASE}${path}`, {
+    signal: AbortSignal.timeout(10_000),
+  });
   if (!res.ok) throw new Error(`Sleeper API error: ${res.status} ${path}`);
   return res.json();
 }

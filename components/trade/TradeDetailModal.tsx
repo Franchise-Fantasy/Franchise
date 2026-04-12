@@ -12,6 +12,7 @@ import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { useTradeDetailActions } from '@/hooks/useTradeDetailActions';
 import { TradeItemRow, TradeProposalRow, useTradeVotes } from '@/hooks/useTrades';
 import { useCanLeak } from '@/hooks/chat/useLeakRumor';
+import { useGetTradeConversation } from '@/hooks/chat/useTradeChat';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats } from '@/types/player';
 import { estimatePickFpts } from '@/types/trade';
@@ -19,6 +20,7 @@ import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
 import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
+import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   Animated,
@@ -123,6 +125,7 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
 
+  const router = useRouter();
   const [showLeakSheet, setShowLeakSheet] = useState(false);
   const [showDropPicker, setShowDropPicker] = useState(false);
   const [selectedDropPlayerIds, setSelectedDropPlayerIds] = useState<string[]>([]);
@@ -342,6 +345,19 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
   const teamIds = proposal.teams.map((t) => t.team_id);
   const isTwoTeam = teamIds.length === 2;
 
+  const getTradeChat = useGetTradeConversation(leagueId);
+  const handleOpenChat = () => {
+    getTradeChat.mutate(
+      { proposalId: proposal.id, teamIds },
+      {
+        onSuccess: (conversationId) => {
+          handleClose();
+          setTimeout(() => router.push(`/chat/${conversationId}`), 300);
+        },
+      },
+    );
+  };
+
   // ── Render ──
 
   return (
@@ -389,15 +405,29 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
                 )}
               </View>
             </View>
-            <TouchableOpacity
-              onPress={handleClose}
-              accessibilityRole="button"
-              accessibilityLabel="Close trade details"
-              hitSlop={12}
-              style={[styles.closeBtn, { backgroundColor: c.cardAlt }]}
-            >
-              <Ionicons name="close" size={18} color={c.secondaryText} />
-            </TouchableOpacity>
+            <View style={styles.headerRight}>
+              {!showLeakSheet && isInvolved && (
+                <TouchableOpacity
+                  onPress={handleOpenChat}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open trade chat"
+                  hitSlop={12}
+                  style={[styles.chatBtn, { backgroundColor: c.accent }]}
+                >
+                  <Ionicons name="chatbubble-ellipses" size={15} color={c.statusText} />
+                  <ThemedText style={[styles.chatBtnLabel, { color: c.statusText }]}>Chat</ThemedText>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                onPress={handleClose}
+                accessibilityRole="button"
+                accessibilityLabel="Close trade details"
+                hitSlop={12}
+                style={[styles.closeBtn, { backgroundColor: c.cardAlt }]}
+              >
+                <Ionicons name="close" size={18} color={c.secondaryText} />
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* ── Leak sheet ── */}
@@ -607,6 +637,23 @@ const styles = StyleSheet.create({
     fontSize: ms(11),
     fontWeight: '700',
     textTransform: 'capitalize',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(8),
+  },
+  chatBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(4),
+    paddingHorizontal: s(10),
+    paddingVertical: s(6),
+    borderRadius: 8,
+  },
+  chatBtnLabel: {
+    fontSize: ms(13),
+    fontWeight: '600',
   },
   closeBtn: {
     width: s(30),
