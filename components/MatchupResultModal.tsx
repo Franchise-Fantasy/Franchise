@@ -19,7 +19,7 @@ function playoffRoundLabel(round: number, totalRounds: number): string {
   if (round === totalRounds - 1) return 'Semifinals';
   if (round === totalRounds - 2) return 'Quarterfinals';
   return `Playoff Round ${round}`;
-}
+} 
 
 const DISMISSED_KEY = '@dismissed_matchup_results';
 

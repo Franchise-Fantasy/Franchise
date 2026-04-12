@@ -331,7 +331,12 @@
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); active=[p for p in d.values\\(\\) if p.get\\('sport'\\)=='nba' and p.get\\('active'\\) and p.get\\('team'\\)]; print\\('total active:', len\\(active\\)\\); print\\('with stats_id:', sum\\(1 for p in active if p.get\\('stats_id'\\)\\)\\); print\\('with swish_id:', sum\\(1 for p in active if p.get\\('swish_id'\\)\\)\\); print\\('with espn_id:', sum\\(1 for p in active if p.get\\('espn_id'\\)\\)\\); print\\('\\\\\\\\nfirst active sample:'\\); import json as j; print\\(j.dumps\\({k:v for k,v in active[0].items\\(\\) if v is not None}, indent=2\\)\\)\")",
       "Bash(sort -t: -k2 -rn)",
       "Bash(awk '/SECURITY DEFINER/ {getline; if \\(!/SET search_path/\\) print FILENAME\": Missing SET search_path after SECURITY DEFINER\"}' /c/Users/Joe/OneDrive/Desktop/franchise.v2/supabase/migrations/*.sql)",
-      "Bash(awk '/SECURITY DEFINER/ {getline; if \\(!/SET search_path/\\) print FILENAME}' /c/Users/Joe/OneDrive/Desktop/franchise.v2/supabase/migrations/*.sql)"
+      "Bash(awk '/SECURITY DEFINER/ {getline; if \\(!/SET search_path/\\) print FILENAME}' /c/Users/Joe/OneDrive/Desktop/franchise.v2/supabase/migrations/*.sql)",
+      "Bash(xargs -0 grep -l \"SUPABASE_SERVICE_ROLE_KEY\")",
+      "Bash(xargs -0 grep -l \"SUPABASE_ANON_KEY\")",
+      "Bash(supabase --version)",
+      "Bash(supabase projects:*)",
+      "Bash(gh auth:*)"
     ],
     "additionalDirectories": [
       "c:\\Users\\jjspo\\OneDrive\\Desktop\\Franchise Wiki\\Franchise Wiki\\Pages",
