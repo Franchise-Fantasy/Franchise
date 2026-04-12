@@ -27,15 +27,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
-    // Get the initial session — only after this resolves do we know auth state for sure
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setInitialized(true);
-      if (session?.user) {
-        promptNotificationsIfNeeded(session.user.id);
-        refreshPushToken(session.user.id);
-      }
-    });
+    // Get the initial session — only after this resolves do we know auth state for sure.
+    // If the stored refresh token is stale (e.g. after a long absence or backend rotation),
+    // supabase-js throws AuthApiError. Treat that as "no session" and clear local storage so
+    // the user can sign in fresh — never leave the app stuck on a loading screen.
+    supabase.auth
+      .getSession()
+      .then(({ data: { session } }) => {
+        setSession(session);
+        setInitialized(true);
+        if (session?.user) {
+          promptNotificationsIfNeeded(session.user.id);
+          refreshPushToken(session.user.id);
+        }
+      })
+      .catch(async (err) => {
+        console.warn('Initial getSession failed, clearing stored session:', err);
+        await supabase.auth.signOut().catch(() => {});
+        setSession(null);
+        setInitialized(true);
+      });
 
     // Listen for changes
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, newSession) => {
