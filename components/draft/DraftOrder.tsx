@@ -66,19 +66,18 @@ export function DraftOrder({
   const flashOpacity = useSharedValue(0);
 
   // NEW: Fetch the main draft state for the timer
-  const { data: draftState, isLoading: isLoadingDraftState } =
-    useQuery<DraftState>({
-      queryKey: queryKeys.draftState(draftId),
-      queryFn: async () => {
-        const { data, error } = await supabase
-          .from("drafts")
-          .select("*")
-          .eq("id", draftId)
-          .single();
-        if (error) throw error;
-        return data;
-      },
-    });
+  const { data: draftState, isLoading: isLoadingDraftState } = useQuery({
+    queryKey: queryKeys.draftState(draftId),
+    queryFn: async (): Promise<DraftState> => {
+      const { data, error } = await supabase
+        .from("drafts")
+        .select("*")
+        .eq("id", draftId)
+        .single();
+      if (error) throw error;
+      return data as unknown as DraftState;
+    },
+  });
 
   const [currentPickTimestamp, setCurrentPickTimestamp] = useState<
     string | undefined

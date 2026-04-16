@@ -336,7 +336,18 @@
       "Bash(xargs -0 grep -l \"SUPABASE_ANON_KEY\")",
       "Bash(supabase --version)",
       "Bash(supabase projects:*)",
-      "Bash(gh auth:*)"
+      "Bash(gh auth:*)",
+      "Bash(node --env-file=.env.local scripts/seed-demo-account.mjs)",
+      "Bash(supabase functions:*)",
+      "Bash(cat \"/c/Users/Joe/OneDrive/Desktop/franchise.v2/supabase/migrations\"/*.sql)",
+      "Bash(awk -F: '{s+=$2} END {print s}')",
+      "Bash(node -e 'const fs=require\\('\\\\''fs'\\\\''\\);const data=JSON.parse\\(fs.readFileSync\\(process.argv[1],'\\\\''utf8'\\\\''\\)\\);fs.writeFileSync\\(process.argv[2],data[0].text\\);console.log\\('\\\\''wrote'\\\\'',data[0].text.length,'\\\\''chars'\\\\''\\);' C:/Users/Joe/.claude/projects/c--Users-Joe-OneDrive-Desktop-franchise-v2/d3e8bdd5-1277-4a1d-b5d4-eb95591a4d69/tool-results/mcp-claude_ai_Supabase-generate_typescript_types-1776285489133.txt c:/Users/Joe/OneDrive/Desktop/franchise.v2/types/database.types.ts)",
+      "Bash(node -e 'const fs=require\\('\\\\''fs'\\\\''\\);const outer=JSON.parse\\(fs.readFileSync\\(process.argv[1],'\\\\''utf8'\\\\''\\)\\);const inner=JSON.parse\\(outer[0].text\\);fs.writeFileSync\\(process.argv[2],inner.types\\);console.log\\('\\\\''wrote'\\\\'',inner.types.length,'\\\\''chars'\\\\''\\);' C:/Users/Joe/.claude/projects/c--Users-Joe-OneDrive-Desktop-franchise-v2/d3e8bdd5-1277-4a1d-b5d4-eb95591a4d69/tool-results/mcp-claude_ai_Supabase-generate_typescript_types-1776285489133.txt c:/Users/Joe/OneDrive/Desktop/franchise.v2/types/database.types.ts)",
+      "Bash(tee /tmp/tsc-output.txt)",
+      "Bash(awk -F'\\(' '{print $1}')",
+      "Bash(awk -F: '$1>1174 {print $1; exit}')",
+      "Bash(awk 'NR==1174,/^  };$/' \"c:/Users/Joe/OneDrive/Desktop/franchise.v2/components/player/FreeAgentList.tsx\")",
+      "mcp__claude_ai_Supabase__get_project"
     ],
     "additionalDirectories": [
       "c:\\Users\\jjspo\\OneDrive\\Desktop\\Franchise Wiki\\Franchise Wiki\\Pages",

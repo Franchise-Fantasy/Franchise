@@ -19,16 +19,16 @@ export interface PaymentRow {
 }
 
 export function usePaymentLedger(leagueId: string | null, season: string | null) {
-  return useQuery<PaymentRow[]>({
+  return useQuery({
     queryKey: queryKeys.paymentLedger(leagueId!, Number(season!)),
-    queryFn: async () => {
+    queryFn: async (): Promise<PaymentRow[]> => {
       const { data, error } = await supabase
         .from('league_payments')
         .select('*')
         .eq('league_id', leagueId!)
         .eq('season', season!);
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as PaymentRow[];
     },
     enabled: !!leagueId && !!season,
     staleTime: 1000 * 60 * 5,

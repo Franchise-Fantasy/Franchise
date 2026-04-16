@@ -47,7 +47,9 @@ export function ByTeamTab({ picks, swaps, teams, validSeasons, pickConditionsEna
         .filter((s) => (seasonMap[s]?.length ?? 0) > 0 || (swapMap[s]?.length ?? 0) > 0)
         .map((season) => ({
           season,
-          picks: (seasonMap[season] ?? []).sort((a, b) => a.round - b.round),
+          picks: (seasonMap[season] ?? []).sort((a, b) =>
+            a.round !== b.round ? a.round - b.round : a.display_slot - b.display_slot
+          ),
           swaps: swapMap[season] ?? [],
         }));
 
@@ -100,7 +102,7 @@ export function ByTeamTab({ picks, swaps, teams, validSeasons, pickConditionsEna
                     <View key={pick.id} style={[styles.pickRow, { borderBottomColor: c.border }, idx === seasonPicks.length - 1 && { borderBottomWidth: 0 }]}>
                       <View style={styles.pickInfo}>
                         <ThemedText style={{ fontSize: ms(13) }}>
-                          Round {pick.round}
+                          Round {pick.round} · Pick {pick.display_slot}
                         </ThemedText>
                         {pick.protection_threshold && pickConditionsEnabled && (
                           <View style={[styles.protBadge, { backgroundColor: c.goldMuted }]}>

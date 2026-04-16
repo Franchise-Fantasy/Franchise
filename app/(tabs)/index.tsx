@@ -6,6 +6,7 @@ import { InviteSection } from '@/components/home/InviteSection';
 import { PaymentNudge } from '@/components/home/PaymentNudge';
 import { LeagueSwitcher } from '@/components/home/LeagueSwitcher';
 import { OffseasonDashboard } from '@/components/home/OffseasonDashboard';
+import { OffseasonLotteryOrder } from '@/components/home/OffseasonLotteryOrder';
 import { QuickNav } from '@/components/home/QuickNav';
 import { SeasonCompleteBanner } from '@/components/home/SeasonCompleteBanner';
 import { StandingsSection } from '@/components/home/StandingsSection';
@@ -144,11 +145,19 @@ export default function HomeScreen() {
               </>
             )}
             {!league.offseason_step && (
-              <>
-                <AnalyticsPreviewCard leagueId={league.id} scoringType={league.scoring_type} />
-                <QuickNav leagueType={league.league_type ?? 'dynasty'} />
-                <StandingsSection leagueId={league.id} playoffTeams={league.playoff_teams} scoringType={league.scoring_type} tiebreakerOrder={league.tiebreaker_order} divisionCount={league.division_count} division1Name={league.division_1_name} division2Name={league.division_2_name} />
-              </>
+              <AnalyticsPreviewCard leagueId={league.id} scoringType={league.scoring_type} />
+            )}
+            <QuickNav leagueType={league.league_type ?? 'dynasty'} />
+            {league.offseason_step ? (
+              <OffseasonLotteryOrder
+                leagueId={league.id}
+                playoffTeams={league.playoff_teams ?? 0}
+                lotteryOdds={(league.lottery_odds as number[] | null) ?? null}
+                rookieDraftOrder={league.rookie_draft_order ?? 'reverse_record'}
+                offseasonStep={league.offseason_step}
+              />
+            ) : (
+              <StandingsSection leagueId={league.id} playoffTeams={league.playoff_teams} scoringType={league.scoring_type} tiebreakerOrder={league.tiebreaker_order} divisionCount={league.division_count} division1Name={league.division_1_name} division2Name={league.division_2_name} />
             )}
           </>
         ) : isError ? (

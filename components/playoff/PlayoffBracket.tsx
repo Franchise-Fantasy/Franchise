@@ -166,20 +166,6 @@ function MatchupCard({
   return <View accessibilityLabel={accessibilityLabel}>{cardContent}</View>;
 }
 
-function ChampionBanner({ name, c, width }: { name: string; c: any; width: number }) {
-  return (
-    <View
-      style={[styles.championCard, { borderColor: c.accent, backgroundColor: c.accent + '12', width }]}
-      accessibilityLabel={`Champion: ${name}`}
-      accessibilityRole="header"
-    >
-      <Ionicons name="trophy" size={18} color={c.accent} />
-      <ThemedText style={[styles.championLabel, { color: c.accent }]}>Champion</ThemedText>
-      <ThemedText style={[styles.championName, { color: c.accent }]}>{name}</ThemedText>
-    </View>
-  );
-}
-
 // ─── Main component ─────────────────────────────────────────────────────────
 
 export function PlayoffBracket({ slots, teamMap, playoffTeams }: Props) {
@@ -215,7 +201,6 @@ export function PlayoffBracket({ slots, teamMap, playoffTeams }: Props) {
   // Find champion
   const finalSlot = byRound.get(totalRounds)?.[0] ?? null;
   const championId = finalSlot?.winner_id ?? null;
-  const championName = championId ? teamMap.get(championId) ?? 'Unknown' : null;
 
   // Smart default scroll: latest active round
   const defaultRound = useMemo(() => {
@@ -252,7 +237,7 @@ export function PlayoffBracket({ slots, teamMap, playoffTeams }: Props) {
 
   // Total canvas dimensions
   const bracketContentH = round1Count * CARD_HEIGHT + (round1Count - 1) * CARD_GAP;
-  const extraBelow = (championName ? 90 : 0) + (thirdPlaceSlots.length > 0 ? 100 : 0);
+  const extraBelow = thirdPlaceSlots.length > 0 ? 100 : 0;
   const canvasH = LABEL_H + bracketContentH + extraBelow + 24;
   const canvasW = colWidth * totalRounds - CONNECTOR_W + 32; // last round has no connector
 
@@ -376,19 +361,9 @@ export function PlayoffBracket({ slots, teamMap, playoffTeams }: Props) {
       }
     }
 
-    // Champion banner below finals
-    if (isLast && championName && roundSlots.length > 0) {
-      const y = LABEL_H + cardTop(r, 0) + CARD_HEIGHT + 14;
-      elements.push(
-        <View key="champion" style={{ position: 'absolute', left: x, top: y }}>
-          <ChampionBanner name={championName} c={c} width={cardWidth} />
-        </View>,
-      );
-    }
-
-    // 3rd place game below champion/finals
+    // 3rd place game below finals
     if (isLast && thirdPlaceSlots.length > 0) {
-      const y = LABEL_H + cardTop(r, 0) + CARD_HEIGHT + (championName ? 106 : 14);
+      const y = LABEL_H + cardTop(r, 0) + CARD_HEIGHT + 14;
       elements.push(
         <View key="3rd-label" style={{ position: 'absolute', left: x, top: y, width: cardWidth }}>
           <View style={styles.thirdPlaceDivider} accessibilityRole="header">

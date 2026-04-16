@@ -58,8 +58,8 @@ Deno.serve(async (req) => {
     if (!bracketCheck || bracketCheck.length === 0) {
       throw new Error('Cannot advance season: no playoff bracket found. Playoffs must be completed first.');
     }
-    const maxRound = bracketCheck[0].round;
-    const finalRoundEntries = bracketCheck.filter(e => e.round === maxRound);
+    const finalRound = bracketCheck[0].round;
+    const finalRoundEntries = bracketCheck.filter(e => e.round === finalRound);
     const championshipEntry = finalRoundEntries.find(e => !e.is_bye && !e.is_third_place);
     if (!championshipEntry) {
       throw new Error('Cannot advance season: no championship matchup found in the final round.');
@@ -286,6 +286,9 @@ Deno.serve(async (req) => {
           }
           await supabaseAdmin.from('draft_picks').insert(newPicks);
         } else {
+          // Slot order is determined by the ORIGINATING team's standing —
+          // current_team_id may be a trade partner and would yield the wrong
+          // slot for any traded pick.
           for (let pos = 0; pos < reversedTeams.length; pos++) {
             const team = reversedTeams[pos];
             for (let round = 1; round <= rounds; round++) {
@@ -298,7 +301,7 @@ Deno.serve(async (req) => {
                 .eq('league_id', league_id)
                 .eq('season', newSeason)
                 .eq('round', round)
-                .eq('current_team_id', team.id)
+                .eq('original_team_id', team.id)
                 .is('draft_id', null);
             }
           }
@@ -370,11 +373,12 @@ Deno.serve(async (req) => {
     if (leagueUpdateErr) throw new Error(`Failed to update league: ${leagueUpdateErr.message}`);
 
     // ── 14. Notify league ──
+    const champName = championId
+      ? allTeams.find(t => t.id === championId)?.name ?? 'The champion'
+      : 'No champion';
+    const ln = league.name ?? 'Your League';
+
     try {
-      const champName = championId
-        ? allTeams.find(t => t.id === championId)?.name ?? 'The champion'
-        : 'No champion';
-      const ln = league.name ?? 'Your League';
       await notifyLeague(supabaseAdmin, league_id, 'league_activity',
         `${ln} — Season Over — Offseason Begins!`,
         `${champName} won the ${currentSeason} championship. The offseason is now underway.`,
@@ -382,6 +386,30 @@ Deno.serve(async (req) => {
       );
     } catch (notifyErr) {
       console.warn('Push notification failed (non-fatal):', notifyErr);
+    }
+
+    // ── 15. Post announcement to league chat ──
+    try {
+      const { data: leagueChat } = await supabaseAdmin
+        .from('chat_conversations')
+        .select('id')
+        .eq('league_id', league_id)
+        .eq('type', 'league')
+        .single();
+      if (leagueChat) {
+        const chatBody = championId
+          ? `🏆 ${champName} won the ${currentSeason} championship! The offseason has begun.`
+          : `The ${currentSeason} season is over. The offseason has begun.`;
+        await supabaseAdmin.from('chat_messages').insert({
+          conversation_id: leagueChat.id,
+          team_id: championId ?? null,
+          content: chatBody,
+          type: 'text',
+          league_id,
+        });
+      }
+    } catch (chatErr) {
+      console.warn('Chat announcement failed (non-fatal):', chatErr);
     }
 
     return new Response(
@@ -396,8 +424,9 @@ Deno.serve(async (req) => {
     );
   } catch (error) {
     console.error('advance-season error:', error);
+    const message = error instanceof Error ? error.message : 'Internal server error';
     return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
+      JSON.stringify({ error: message }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }

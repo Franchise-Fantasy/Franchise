@@ -26,8 +26,19 @@ Deno.serve(async (req) => {
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'manage-subscription');
     if (rateLimited) return rateLimited;
 
-    // Admin check via env var
-    const adminIds = (Deno.env.get('ADMIN_USER_IDS') ?? '').split(',').map(s => s.trim());
+    // Admin check via env var. Loud failure if misconfigured so we don't
+    // silently grant/deny access due to a typo or empty env var.
+    const rawAdminIds = Deno.env.get('ADMIN_USER_IDS');
+    if (!rawAdminIds) {
+      throw new Error('ADMIN_USER_IDS env var is missing — refusing to process.');
+    }
+    const adminIds = rawAdminIds
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (adminIds.length === 0) {
+      throw new Error('ADMIN_USER_IDS parsed to empty list — refusing to process.');
+    }
     if (!adminIds.includes(user.id)) {
       throw new Error('Only admins can manage subscriptions.');
     }

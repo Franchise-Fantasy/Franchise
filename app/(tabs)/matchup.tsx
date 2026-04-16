@@ -198,7 +198,7 @@ async function fetchMatchupForWeek(
     .or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
     .maybeSingle();
   if (error) throw error;
-  return data;
+  return data as Matchup | null;
 }
 
 async function fetchTeamInfo(teamId: string): Promise<{ name: string; logoKey: string | null }> {
@@ -461,7 +461,7 @@ async function fetchMatchupDataById(
 
   if (useStored) {
     const homeResult = buildFromStored(
-      matchup.home_player_scores!,
+      matchup.home_player_scores as unknown as StoredPlayerScore[],
       selectedDate,
       scoring,
     );
@@ -480,7 +480,7 @@ async function fetchMatchupDataById(
     let awayTeam: TeamMatchupData | null = null;
     if (matchup.away_team_id && awayInfo && matchup.away_player_scores) {
       const awayResult = buildFromStored(
-        matchup.away_player_scores,
+        matchup.away_player_scores as unknown as StoredPlayerScore[],
         selectedDate,
         scoring,
       );
@@ -568,7 +568,7 @@ function useWeekMatchup(
     ) ?? null;
 
   return useQuery({
-    queryKey: queryKeys.weekMatchup(leagueId!, week?.id, teamId, selectedDate),
+    queryKey: queryKeys.weekMatchup(leagueId!, week?.id, teamId ?? undefined, selectedDate),
     queryFn: () => {
       if (!week || !teamId || !leagueId) return null;
       return fetchWeekMatchupData(

@@ -216,16 +216,16 @@ export default function PlayoffBracketScreen() {
     if (hasRealBracket || !teamsData || !leagueId || playoffTeams < 2) return null;
 
     const sorted = [...teamsData].sort((a, b) => {
-      const gpa = a.wins + a.losses + a.ties;
-      const gpb = b.wins + b.losses + b.ties;
-      const pctA = gpa === 0 ? 0 : a.wins / gpa;
-      const pctB = gpb === 0 ? 0 : b.wins / gpb;
+      const gpa = (a.wins ?? 0) + (a.losses ?? 0) + (a.ties ?? 0);
+      const gpb = (b.wins ?? 0) + (b.losses ?? 0) + (b.ties ?? 0);
+      const pctA = gpa === 0 ? 0 : (a.wins ?? 0) / gpa;
+      const pctB = gpb === 0 ? 0 : (b.wins ?? 0) / gpb;
       if (pctB !== pctA) return pctB - pctA;
       return parseFloat(String(b.points_for)) - parseFloat(String(a.points_for));
     });
 
     const seeds = seedTeams(
-      sorted.map((t) => ({ id: t.id, wins: t.wins, points_for: parseFloat(String(t.points_for)) })),
+      sorted.map((t) => ({ id: t.id, wins: t.wins ?? 0, points_for: parseFloat(String(t.points_for)) })),
       Math.min(playoffTeams, sorted.length),
     );
 

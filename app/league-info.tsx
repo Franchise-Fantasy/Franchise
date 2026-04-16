@@ -113,7 +113,7 @@ export default function LeagueInfoScreen() {
   });
 
   const isCommissioner = !!(session?.user?.id && league?.created_by === session.user.id);
-  const lifecycle = getLifecycle(draft?.status, league?.schedule_generated ?? false, league?.offseason_step ?? null);
+  const lifecycle = getLifecycle(draft?.status ?? undefined, league?.schedule_generated ?? false, league?.offseason_step ?? null);
   const { data: announcements } = useAnnouncements(leagueId ?? null);
   const { data: bracket } = usePlayoffBracket(league?.season ?? '');
 
@@ -349,7 +349,7 @@ export default function LeagueInfoScreen() {
           <Row label="Buy-In" value={league.buy_in_amount ? `$${league.buy_in_amount}` : 'Free'} c={c} />
           {league.venmo_username && (
             isCommissioner ? (
-              <TouchableOpacity onPress={() => openPaymentConfirmed('venmo', league.venmo_username, { amount: league.buy_in_amount ?? undefined, note: `${league.name} buy-in` })} accessibilityRole="button" accessibilityLabel="Test Venmo link">
+              <TouchableOpacity onPress={() => openPaymentConfirmed('venmo', league.venmo_username!, { amount: league.buy_in_amount ?? undefined, note: `${league.name} buy-in` })} accessibilityRole="button" accessibilityLabel="Test Venmo link">
                 <Row label="Venmo" value={`@${league.venmo_username}  ↗`} c={c} />
               </TouchableOpacity>
             ) : (
@@ -358,7 +358,7 @@ export default function LeagueInfoScreen() {
           )}
           {league.cashapp_tag && (
             isCommissioner ? (
-              <TouchableOpacity onPress={() => openPaymentConfirmed('cashapp', league.cashapp_tag)} accessibilityRole="button" accessibilityLabel="Test Cash App link">
+              <TouchableOpacity onPress={() => openPaymentConfirmed('cashapp', league.cashapp_tag!)} accessibilityRole="button" accessibilityLabel="Test Cash App link">
                 <Row label="Cash App" value={`$${league.cashapp_tag}  ↗`} c={c} />
               </TouchableOpacity>
             ) : (
@@ -367,7 +367,7 @@ export default function LeagueInfoScreen() {
           )}
           {league.paypal_username && (
             isCommissioner ? (
-              <TouchableOpacity onPress={() => openPaymentConfirmed('paypal', league.paypal_username, { amount: league.buy_in_amount ?? undefined })} accessibilityRole="button" accessibilityLabel="Test PayPal link">
+              <TouchableOpacity onPress={() => openPaymentConfirmed('paypal', league.paypal_username!, { amount: league.buy_in_amount ?? undefined })} accessibilityRole="button" accessibilityLabel="Test PayPal link">
                 <Row label="PayPal" value={`${league.paypal_username}  ↗`} c={c} />
               </TouchableOpacity>
             ) : (
@@ -432,7 +432,7 @@ export default function LeagueInfoScreen() {
         <SectionCard title="Draft Settings" c={c} editable={sectionEditable('draft', lifecycle, isCommissioner)} onEdit={() => setShowDraftModal(true)}>
           <Row label="Type" value={draft ? DRAFT_TYPE_DISPLAY(draft.draft_type ?? 'snake') : '-'} c={c} />
           <Row label="Time Per Pick" value={draft ? `${draft.time_limit ?? 90}s` : '-'} c={c} />
-          <Row label="Status" value={draft ? (draft.status.charAt(0).toUpperCase() + draft.status.slice(1).replace('_', ' ')) : '-'} c={c} />
+          <Row label="Status" value={draft?.status ? (draft.status.charAt(0).toUpperCase() + draft.status.slice(1).replace('_', ' ')) : '-'} c={c} />
           {(league.league_type ?? 'dynasty') === 'dynasty' && (
             <>
               <Row label="Future Draft Years" value={String(league.max_future_seasons ?? '-')} c={c} />

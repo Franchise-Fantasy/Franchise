@@ -7,6 +7,7 @@ function makePick(overrides: Partial<DraftHubPick> = {}): DraftHubPick {
     season: '2025-26',
     round: 1,
     slot_number: null,
+    display_slot: 1,
     current_team_id: 'teamA',
     original_team_id: 'teamA',
     current_team_name: 'Team A',

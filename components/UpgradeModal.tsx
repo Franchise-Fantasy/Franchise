@@ -67,7 +67,12 @@ export function UpgradeModal({
   const c = Colors[scheme];
   const isDark = scheme === "dark";
   const queryClient = useQueryClient();
-  const { tier: currentTier } = useSubscription();
+  const { individualTier, leagueTier } = useSubscription();
+  // Scope "current plan" to the subscription type the modal is showing.
+  // Personal Pro must NOT mark the League Pro card as owned, and vice versa.
+  const currentTier: SubscriptionTier = leagueMode
+    ? (leagueTier ?? "free")
+    : (individualTier ?? "free");
   const session = useSession();
 
   const [packages, setPackages] = useState<PurchasesPackage[]>([]);
@@ -169,14 +174,10 @@ export function UpgradeModal({
     }
   }
 
-  const proPrice = proPackage?.product?.priceString;
-  const premiumPrice = premiumPackage?.product?.priceString;
-
-
-  // Fallback prices when RevenueCat isn't configured yet
-  const proDisplay = proPrice ?? (annual ? "$34.99/yr" : "$4.99/mo");
-  const premiumDisplay =
-    premiumPrice ?? (annual ? "$59.99/yr" : "$9.99/mo");
+  // Only show real store prices. Showing placeholder prices that later "change"
+  // when offerings load confuses users and looks like a bait-and-switch.
+  const proDisplay = proPackage?.product?.priceString ?? null;
+  const premiumDisplay = premiumPackage?.product?.priceString ?? null;
 
   const leagueLabel = leagueMode ? "League " : "";
 
@@ -303,9 +304,13 @@ export function UpgradeModal({
                   The Analyst
                 </Text>
               </View>
-              <Text style={[styles.planPrice, { color: c.text }]}>
-                {proDisplay}
-              </Text>
+              {proDisplay ? (
+                <Text style={[styles.planPrice, { color: c.text }]}>
+                  {proDisplay}
+                </Text>
+              ) : (
+                <View style={[styles.pricePlaceholder, { backgroundColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)" }]} />
+              )}
             </View>
 
             {PRO_FEATURES.map((feature) => (
@@ -329,19 +334,22 @@ export function UpgradeModal({
                   backgroundColor: currentTier === "pro"
                     ? isDark ? "rgba(0,122,255,0.15)" : "rgba(0,122,255,0.1)"
                     : TIER_COLORS.pro,
+                  opacity: (!proPackage && currentTier !== "pro") ? 0.6 : 1,
                 },
               ]}
               onPress={() => currentTier === "pro" ? handleManage() : handlePurchase("pro")}
-              disabled={!!purchasing}
+              disabled={!!purchasing || loadingOfferings || (!proPackage && currentTier !== "pro")}
               activeOpacity={0.7}
               accessibilityRole="button"
               accessibilityLabel={
                 currentTier === "pro"
                   ? "Current plan: Pro. Tap to manage."
-                  : `Upgrade to ${leagueLabel}Pro for ${proDisplay}`
+                  : proDisplay
+                    ? `Upgrade to ${leagueLabel}Pro for ${proDisplay}`
+                    : `Loading ${leagueLabel}Pro pricing`
               }
             >
-              {purchasing === "pro" ? (
+              {purchasing === "pro" || (loadingOfferings && currentTier !== "pro") ? (
                 <LogoSpinner size={18} />
               ) : (
                 <Text
@@ -379,9 +387,13 @@ export function UpgradeModal({
                   The Edge
                 </Text>
               </View>
-              <Text style={[styles.planPrice, { color: c.text }]}>
-                {premiumDisplay}
-              </Text>
+              {premiumDisplay ? (
+                <Text style={[styles.planPrice, { color: c.text }]}>
+                  {premiumDisplay}
+                </Text>
+              ) : (
+                <View style={[styles.pricePlaceholder, { backgroundColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)" }]} />
+              )}
             </View>
 
             {PREMIUM_FEATURES.map((feature) => (
@@ -405,19 +417,22 @@ export function UpgradeModal({
                   backgroundColor: currentTier === "premium"
                     ? isDark ? "rgba(255,184,0,0.15)" : "rgba(255,184,0,0.1)"
                     : TIER_COLORS.premium,
+                  opacity: (!premiumPackage && currentTier !== "premium") ? 0.6 : 1,
                 },
               ]}
               onPress={() => currentTier === "premium" ? handleManage() : handlePurchase("premium")}
-              disabled={!!purchasing}
+              disabled={!!purchasing || loadingOfferings || (!premiumPackage && currentTier !== "premium")}
               activeOpacity={0.7}
               accessibilityRole="button"
               accessibilityLabel={
                 currentTier === "premium"
                   ? "Current plan: Premium. Tap to manage."
-                  : `Upgrade to ${leagueLabel}Premium for ${premiumDisplay}`
+                  : premiumDisplay
+                    ? `Upgrade to ${leagueLabel}Premium for ${premiumDisplay}`
+                    : `Loading ${leagueLabel}Premium pricing`
               }
             >
-              {purchasing === "premium" ? (
+              {purchasing === "premium" || (loadingOfferings && currentTier !== "premium") ? (
                 <LogoSpinner size={18} />
               ) : (
                 <Text
@@ -533,6 +548,12 @@ const styles = StyleSheet.create({
   planPrice: {
     fontSize: ms(18),
     fontWeight: "700",
+  },
+  pricePlaceholder: {
+    width: s(72),
+    height: ms(18),
+    borderRadius: 4,
+    marginTop: s(2),
   },
   featureRow: {
     flexDirection: "row",

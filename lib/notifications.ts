@@ -3,6 +3,7 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
+import type { Json } from '@/types/database.types';
 
 const EAS_PROJECT_ID = 'bc023770-8f00-49df-9fa0-0afdd24f6a44';
 const ASKED_KEY = '@notifications_asked';
@@ -98,11 +99,15 @@ export async function registerPushToken(userId: string): Promise<boolean> {
     }
   }
 
-  const { data: tokenData } = await Notifications.getExpoPushTokenAsync({ projectId: EAS_PROJECT_ID });
+  const tokenResult = await Notifications.getExpoPushTokenAsync({ projectId: EAS_PROJECT_ID });
   const { error } = await supabase
     .from('push_tokens')
     .upsert(
-      { user_id: userId, token: tokenData, preferences: DEFAULT_PREFERENCES },
+      {
+        user_id: userId,
+        token: tokenResult.data,
+        preferences: DEFAULT_PREFERENCES as unknown as Json,
+      },
       { onConflict: 'user_id' },
     );
 
@@ -127,7 +132,7 @@ export async function getPushPrefs(
 
   return {
     enabled: !!data?.token,
-    preferences: data?.preferences ?? DEFAULT_PREFERENCES,
+    preferences: (data?.preferences as PushPreferences | null) ?? DEFAULT_PREFERENCES,
     muteAll: data?.mute_all ?? false,
   };
 }
@@ -253,11 +258,12 @@ export async function updatePreferences(
     .eq('user_id', userId)
     .maybeSingle();
 
-  const current: PushPreferences = data?.preferences ?? DEFAULT_PREFERENCES;
+  const current: PushPreferences =
+    (data?.preferences as PushPreferences | null) ?? DEFAULT_PREFERENCES;
   const merged = { ...current, ...patch };
 
   await supabase
     .from('push_tokens')
-    .update({ preferences: merged })
+    .update({ preferences: merged as unknown as Json })
     .eq('user_id', userId);
 }

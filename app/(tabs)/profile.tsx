@@ -105,9 +105,17 @@ export default function ProfileScreen() {
 
   useEffect(() => {
     if (!userId) return;
-    getPushPrefs(userId).then(({ enabled }) => {
-      setNotificationsEnabled(enabled);
-    });
+    let cancelled = false;
+    getPushPrefs(userId)
+      .then(({ enabled }) => {
+        if (!cancelled) setNotificationsEnabled(enabled);
+      })
+      .catch((err) => {
+        console.warn("getPushPrefs failed", err);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [userId]);
 
   async function handleNotificationsToggle(value: boolean) {

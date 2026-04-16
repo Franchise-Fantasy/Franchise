@@ -21,8 +21,10 @@ export function useTodayGameTimes(enabled: boolean): GameTimeMap {
         .not('game_time_utc', 'is', null);
       const map = new Map<string, string>();
       for (const game of data ?? []) {
-        map.set(game.home_team, game.game_time_utc);
-        map.set(game.away_team, game.game_time_utc);
+        if (game.game_time_utc) {
+          map.set(game.home_team, game.game_time_utc);
+          map.set(game.away_team, game.game_time_utc);
+        }
       }
       return map;
     },

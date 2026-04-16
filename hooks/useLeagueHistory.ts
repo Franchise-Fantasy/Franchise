@@ -137,27 +137,28 @@ export function useSeasonStandings(leagueId: string | null) {
 
 /** Fetches all finalized matchups across all seasons for the league */
 async function fetchAllMatchups(leagueId: string) {
-  // Step 1: get all schedule entries for this league
-  const { data: schedules, error: schedErr } = await supabase
-    .from('league_schedule')
-    .select('id, season, week_number')
-    .eq('league_id', leagueId)
-    .order('week_number', { ascending: true });
-  if (schedErr) throw schedErr;
-  if (!schedules || schedules.length === 0) return { schedules: [], matchups: [] };
+  // Both tables have league_id, so we can fetch them in parallel.
+  const [schedRes, matchRes] = await Promise.all([
+    supabase
+      .from('league_schedule')
+      .select('id, season, week_number')
+      .eq('league_id', leagueId)
+      .order('week_number', { ascending: true }),
+    supabase
+      .from('league_matchups')
+      .select('id, schedule_id, home_team_id, away_team_id, home_score, away_score, winner_team_id, is_finalized, playoff_round')
+      .eq('league_id', leagueId)
+      .eq('is_finalized', true)
+      .limit(2000),
+  ]);
+  if (schedRes.error) throw schedRes.error;
+  if (matchRes.error) throw matchRes.error;
 
-  const scheduleIds = schedules.map((s) => s.id);
+  const schedules = schedRes.data ?? [];
+  if (schedules.length === 0) return { schedules: [], matchups: [] };
   const scheduleMap = new Map(schedules.map((s) => [s.id, s]));
 
-  // Step 2: fetch all finalized matchups
-  const { data: matchups, error: matchErr } = await supabase
-    .from('league_matchups')
-    .select('id, schedule_id, home_team_id, away_team_id, home_score, away_score, winner_team_id, is_finalized, playoff_round')
-    .in('schedule_id', scheduleIds)
-    .eq('is_finalized', true);
-  if (matchErr) throw matchErr;
-
-  return { schedules, matchups: matchups ?? [], scheduleMap };
+  return { schedules, matchups: matchRes.data ?? [], scheduleMap };
 }
 
 export function useAllTimeRecords(leagueId: string | null) {

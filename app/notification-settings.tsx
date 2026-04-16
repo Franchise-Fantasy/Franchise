@@ -37,11 +37,20 @@ export default function NotificationSettingsScreen() {
 
   useEffect(() => {
     if (!userId) return;
-    getPushPrefs(userId).then(({ preferences, muteAll: muted }) => {
-      setPrefs(preferences);
-      setMuteAllState(muted);
-      setLoaded(true);
-    });
+    let cancelled = false;
+    getPushPrefs(userId)
+      .then(({ preferences, muteAll: muted }) => {
+        if (cancelled) return;
+        setPrefs(preferences);
+        setMuteAllState(muted);
+        setLoaded(true);
+      })
+      .catch((err) => {
+        console.warn("getPushPrefs failed", err);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [userId]);
 
   function handleMuteAll(value: boolean) {

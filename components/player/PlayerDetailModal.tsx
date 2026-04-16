@@ -581,6 +581,9 @@ export function PlayerDetailModal({
     queryClient.invalidateQueries({
       queryKey: queryKeys.weeklyAdds(leagueId, teamId!),
     });
+    queryClient.invalidateQueries({
+      queryKey: ["illegal-ir", leagueId, teamId],
+    });
     onRosterChange?.();
   };
 

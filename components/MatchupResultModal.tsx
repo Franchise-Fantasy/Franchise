@@ -14,12 +14,13 @@ function calcRounds(playoffTeams: number): number {
   return Math.log2(p);
 }
 
-function playoffRoundLabel(round: number, totalRounds: number): string {
+function playoffRoundLabel(round: number, totalRounds: number, isThirdPlace: boolean): string {
+  if (isThirdPlace) return '3rd Place Game';
   if (round >= totalRounds) return 'Championship';
   if (round === totalRounds - 1) return 'Semifinals';
   if (round === totalRounds - 2) return 'Quarterfinals';
   return `Playoff Round ${round}`;
-} 
+}
 
 const DISMISSED_KEY = '@dismissed_matchup_results';
 
@@ -79,22 +80,23 @@ export function MatchupResultModal() {
   // Playoff context
   const totalRounds = league?.playoff_teams ? calcRounds(league.playoff_teams) : 3;
   const isPlayoff = result.isPlayoff;
-  const isChampionship = isPlayoff && result.playoffRound != null && result.playoffRound >= totalRounds;
+  const isThirdPlace = result.isThirdPlace;
+  const isChampionship = isPlayoff && !isThirdPlace && result.playoffRound != null && result.playoffRound >= totalRounds;
   const roundLabel = isPlayoff && result.playoffRound != null
-    ? playoffRoundLabel(result.playoffRound, totalRounds)
+    ? playoffRoundLabel(result.playoffRound, totalRounds, isThirdPlace)
     : null;
 
   // Emoji + label combos that feel alive
   const emoji = result.won
-    ? (isChampionship ? '\uD83C\uDFC6' : isPlayoff ? '\uD83D\uDD25' : '\uD83D\uDCAA')
+    ? (isChampionship ? '\uD83C\uDFC6' : isThirdPlace ? '\uD83E\uDD49' : isPlayoff ? '\uD83D\uDD25' : '\uD83D\uDCAA')
     : result.lost
-      ? (isChampionship ? '\uD83D\uDE14' : isPlayoff ? '\u2744\uFE0F' : '\uD83D\uDCA8')
+      ? (isChampionship ? '\uD83D\uDE14' : isThirdPlace ? '\uD83D\uDCA8' : isPlayoff ? '\u2744\uFE0F' : '\uD83D\uDCA8')
       : '\u2696\uFE0F';
 
   const outcomeLabel = result.won
-    ? (isChampionship ? 'CHAMPION!' : isPlayoff ? 'You advance!' : 'Victory!')
+    ? (isChampionship ? 'CHAMPION!' : isThirdPlace ? '3rd Place!' : isPlayoff ? 'You advance!' : 'Victory!')
     : result.lost
-      ? (isChampionship ? 'So close.' : isPlayoff ? 'Eliminated.' : 'Tough break.')
+      ? (isChampionship ? 'So close.' : isThirdPlace ? '4th Place.' : isPlayoff ? 'Eliminated.' : 'Tough break.')
       : "It's a tie.";
 
   // Outcome-based accent colors

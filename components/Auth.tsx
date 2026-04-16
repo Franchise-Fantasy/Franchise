@@ -23,11 +23,35 @@ import {
   View,
 } from "react-native";
 
+// Grace period before disconnecting Realtime when backgrounded.
+// Short enough to free the connection quickly, long enough to avoid
+// churn on quick app switches (multitask swipe, notification peek).
+let realtimeDisconnectTimer: ReturnType<typeof setTimeout> | null = null;
+const REALTIME_GRACE_MS = 15_000;
+
 AppState.addEventListener("change", (state) => {
   if (state === "active") {
     supabase.auth.startAutoRefresh();
+
+    // Cancel any pending disconnect and reconnect immediately
+    if (realtimeDisconnectTimer) {
+      clearTimeout(realtimeDisconnectTimer);
+      realtimeDisconnectTimer = null;
+    }
+    // Reconnect — channels will automatically rejoin
+    if (!supabase.realtime.isConnected()) {
+      supabase.realtime.connect();
+    }
   } else {
     supabase.auth.stopAutoRefresh();
+
+    // Disconnect Realtime after grace period to free the concurrent connection slot
+    if (!realtimeDisconnectTimer) {
+      realtimeDisconnectTimer = setTimeout(() => {
+        realtimeDisconnectTimer = null;
+        supabase.realtime.disconnect();
+      }, REALTIME_GRACE_MS);
+    }
   }
 });
 

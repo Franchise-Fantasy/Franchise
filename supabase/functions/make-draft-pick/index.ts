@@ -5,7 +5,11 @@ import { corsResponse } from '../_shared/cors.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { checkPositionLimits } from '../_shared/positionLimits.ts';
 
-// Position eligibility (mirrors utils/rosterSlots.ts)
+// Position eligibility.
+// ⚠️ KEEP IN SYNC with utils/rosterSlots.ts and
+//    supabase/functions/autodraft/index.ts.
+// Deno edge functions can't import from the RN utils folder, so this is
+// duplicated. Update all three together or drafting will desync.
 const POSITION_SPECTRUM = ['PG', 'SG', 'SF', 'PF', 'C'];
 const SLOT_ELIGIBLE_POSITIONS: Record<string, string[]> = {
   PG: ['PG'], SG: ['SG'], SF: ['SF'], PF: ['PF'], C: ['C'],

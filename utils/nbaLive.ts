@@ -72,6 +72,13 @@ export function formatGameInfo(live: LivePlayerStats): string {
 // Performs an initial fetch then polls every 30s (matching the cron cadence).
 // Tracks the current date so stale data from a previous day is cleared
 // when the app resumes from background after midnight.
+// Adaptive polling intervals:
+// - 30s when any game is live (game_status === 2) — real-time feel
+// - 5 min when data exists but all games are final — just checking for stragglers
+// - 5 min when no data at all — waiting for games to start / offseason
+const POLL_LIVE = 30_000;
+const POLL_IDLE = 5 * 60_000;
+
 export function useLivePlayerStats(
   playerIds: string[],
   enabled: boolean
@@ -79,6 +86,8 @@ export function useLivePlayerStats(
   const [liveMap, setLiveMap] = useState<Map<string, LivePlayerStats>>(new Map());
   const dateRef = useRef<string>(toDateStr(new Date()));
   const appActiveRef = useRef<boolean>(AppState.currentState === 'active');
+  const hasLiveGameRef = useRef<boolean>(false);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Track date changes + app active state to skip polling when backgrounded
   useEffect(() => {
@@ -96,21 +105,40 @@ export function useLivePlayerStats(
     return () => sub.remove();
   }, []);
 
+  const reschedule = useCallback((hasLive: boolean) => {
+    const desired = hasLive ? POLL_LIVE : POLL_IDLE;
+    const changed = hasLiveGameRef.current !== hasLive;
+    hasLiveGameRef.current = hasLive;
+
+    // Only restart the interval when the tier actually changes
+    if (changed && intervalRef.current !== null) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = setInterval(() => {
+        if (appActiveRef.current) fetchStats(playerIdsRef.current);
+      }, desired);
+    }
+  }, []);
+
+  // Keep a ref to playerIds so the interval callback always has the latest list
+  const playerIdsRef = useRef<string[]>(playerIds);
+  playerIdsRef.current = playerIds;
+
   const fetchStats = useCallback(async (ids: string[]) => {
     const today = toDateStr(new Date());
     const yesterday = addDays(today, -1);
     dateRef.current = today;
 
+    const liveCols = 'player_id, game_id, game_date, game_status, period, game_clock, matchup, home_score, away_score, oncourt, pts, reb, ast, blk, stl, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf';
     const [todayRes, yesterdayRes] = await Promise.all([
       supabase
         .from('live_player_stats')
-        .select('*')
+        .select(liveCols)
         .in('player_id', ids)
         .eq('game_date', today)
         .gte('game_status', 2),
       supabase
         .from('live_player_stats')
-        .select('*')
+        .select(liveCols)
         .in('player_id', ids)
         .eq('game_date', yesterday)
         .gte('game_status', 2),
@@ -121,8 +149,13 @@ export function useLivePlayerStats(
       ...((todayRes.data ?? []) as LivePlayerStats[]),
       ...((yesterdayRes.data ?? []) as LivePlayerStats[]),
     ];
-    setLiveMap(buildMap(rows));
-  }, []);
+    const map = buildMap(rows);
+    setLiveMap(map);
+
+    // Adapt polling speed: 30s when any game is in progress, 5min otherwise
+    const anyLive = [...map.values()].some((s) => s.game_status === 2);
+    reschedule(anyLive);
+  }, [reschedule]);
 
   useEffect(() => {
     if (!enabled || playerIds.length === 0) {
@@ -133,12 +166,16 @@ export function useLivePlayerStats(
     // Initial fetch
     fetchStats(playerIds);
 
-    // Poll every 30s to match the cron update cadence; skip when app is backgrounded
-    const interval = setInterval(() => {
+    // Start polling — defaults to idle speed; fetchStats will speed up if games are live
+    hasLiveGameRef.current = false;
+    intervalRef.current = setInterval(() => {
       if (appActiveRef.current) fetchStats(playerIds);
-    }, 30_000);
+    }, POLL_IDLE);
 
-    return () => clearInterval(interval);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, playerIds.join(','), fetchStats]);
 

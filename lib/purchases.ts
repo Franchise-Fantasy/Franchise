@@ -29,12 +29,11 @@ export async function initPurchases(userId: string): Promise<void> {
     const apiKey = Platform.OS === "ios" ? API_KEY_IOS : API_KEY_ANDROID;
     if (!apiKey) return;
 
-    Purchases.configure({ apiKey, appUserID: userId });
-
     if (__DEV__) {
       Purchases.setLogLevel(LOG_LEVEL.DEBUG);
     }
 
+    await Purchases.configure({ apiKey, appUserID: userId });
     isConfigured = true;
   } catch (e) {
     console.warn("RevenueCat init skipped:", e);
@@ -48,8 +47,7 @@ export async function getOfferings(): Promise<PurchasesOffering | null> {
     const offerings = await Purchases.getOfferings();
     return offerings.current ?? null;
   } catch (e: any) {
-    const { Alert } = require("react-native");
-    Alert.alert("RC Offerings Error", JSON.stringify({ message: e?.message, code: e?.code, underlyingError: e?.underlyingErrorMessage }, null, 2));
+    console.warn("RevenueCat getOfferings failed:", e?.message, e?.code, e?.underlyingErrorMessage);
     return null;
   }
 }

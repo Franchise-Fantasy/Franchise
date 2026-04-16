@@ -234,7 +234,7 @@ export default function MatchupDetailScreen() {
       const { data: teams } = await supabase
         .from('teams')
         .select('id, name, logo_key')
-        .in('id', [matchup.home_team_id, matchup.away_team_id].filter(Boolean));
+        .in('id', [matchup.home_team_id, matchup.away_team_id].filter((id): id is string => id != null));
 
       const teamMap = new Map((teams ?? []).map((t: any) => [t.id, { name: t.name, logoKey: t.logo_key ?? null }]));
 
@@ -285,7 +285,7 @@ export default function MatchupDetailScreen() {
       const useStored = matchup.is_finalized && matchup.home_player_scores;
 
       if (useStored) {
-        const homeResult = buildFromStored(matchup.home_player_scores, effectiveDate, scoring);
+        const homeResult = buildFromStored(matchup.home_player_scores as unknown as StoredPlayerScore[], effectiveDate, scoring);
         const homeTeam: TeamMatchupData = {
           teamId: matchup.home_team_id,
           teamName: homeName,
@@ -298,7 +298,7 @@ export default function MatchupDetailScreen() {
 
         let awayTeam: TeamMatchupData | null = null;
         if (matchup.away_team_id && awayName && matchup.away_player_scores) {
-          const awayResult = buildFromStored(matchup.away_player_scores, effectiveDate, scoring);
+          const awayResult = buildFromStored(matchup.away_player_scores as unknown as StoredPlayerScore[], effectiveDate, scoring);
           awayTeam = {
             teamId: matchup.away_team_id,
             teamName: awayName,

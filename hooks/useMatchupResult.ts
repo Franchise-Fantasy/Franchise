@@ -15,6 +15,7 @@ export interface MatchupResult {
   tied: boolean;
   isPlayoff: boolean;
   playoffRound: number | null;
+  isThirdPlace: boolean;
   /** Only present for category leagues */
   userCatWins?: number;
   opponentCatWins?: number;
@@ -28,9 +29,9 @@ export interface MatchupResult {
 export function useMatchupResult(scoringType: string | null | undefined) {
   const { leagueId, teamId } = useAppState();
 
-  return useQuery<MatchupResult | null>({
+  return useQuery({
     queryKey: queryKeys.matchupResult(leagueId!, teamId!),
-    queryFn: async () => {
+    queryFn: async (): Promise<MatchupResult | null> => {
       if (!leagueId || !teamId) return null;
 
       // Fetch the most recent finalized matchup for this team, scoped to league via schedule
@@ -70,7 +71,18 @@ export function useMatchupResult(scoringType: string | null | undefined) {
 
       const isCategory = scoringType === 'category';
 
-      return {
+      // Detect 3rd place game so the result modal doesn't mislabel it as championship
+      let isThirdPlace = false;
+      if (matchup.playoff_round != null) {
+        const { data: bracketRow } = await supabase
+          .from('playoff_bracket')
+          .select('is_third_place')
+          .eq('matchup_id', matchup.id)
+          .maybeSingle();
+        isThirdPlace = bracketRow?.is_third_place ?? false;
+      }
+
+      const base: MatchupResult = {
         id: matchup.id,
         weekNumber: matchup.week_number,
         userTeamName: userTeam?.name ?? 'Your Team',
@@ -82,12 +94,14 @@ export function useMatchupResult(scoringType: string | null | undefined) {
         tied: matchup.winner_team_id === null,
         isPlayoff: matchup.playoff_round != null,
         playoffRound: matchup.playoff_round ?? null,
-        ...(isCategory && {
-          userCatWins: isHome ? matchup.home_category_wins : matchup.away_category_wins,
-          opponentCatWins: isHome ? matchup.away_category_wins : matchup.home_category_wins,
-          catTies: matchup.category_ties,
-        }),
+        isThirdPlace,
       };
+      if (isCategory) {
+        base.userCatWins = (isHome ? matchup.home_category_wins : matchup.away_category_wins) ?? 0;
+        base.opponentCatWins = (isHome ? matchup.away_category_wins : matchup.home_category_wins) ?? 0;
+        base.catTies = matchup.category_ties ?? 0;
+      }
+      return base;
     },
     enabled: !!leagueId && !!teamId,
     staleTime: 1000 * 60 * 5,

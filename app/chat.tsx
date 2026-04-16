@@ -47,8 +47,8 @@ export default function ChatList() {
       queryFn: async () => {
         const { data } = await supabase.rpc('get_messages_page', {
           p_conversation_id: leagueChat.id,
-          p_cursor: null,
-          p_cursor_id: null,
+          p_cursor: undefined,
+          p_cursor_id: undefined,
           p_limit: 30,
         });
         return (data ?? []) as unknown as ChatMessage[];

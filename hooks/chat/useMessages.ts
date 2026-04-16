@@ -1,10 +1,11 @@
 import { queryKeys } from '@/constants/queryKeys';
 import { globalToastRef } from '@/context/ToastProvider';
 import { sendNotification } from '@/lib/notifications';
-import { capture } from '@/lib/posthog';
+import { capture, posthog } from '@/lib/posthog';
 import { supabase } from '@/lib/supabase';
 import type { ChatMessage, ChatMessageType } from '@/types/chat';
 import {
+  type InfiniteData,
   useInfiniteQuery,
   useMutation,
   useQueryClient,
@@ -17,6 +18,8 @@ interface Cursor {
   cursorId: string | null;
 }
 
+type MessagesCache = InfiniteData<ChatMessage[], Cursor>;
+
 // ─── Messages (infinite scroll, cursor-based) ───────────────
 // Realtime subscription is handled by useChatSubscription (one channel
 // for both messages + reactions), called from the chat screen.
@@ -27,12 +30,12 @@ export function useMessages(conversationId: string | null) {
     queryFn: async ({ pageParam }: { pageParam: Cursor }) => {
       const { data, error } = await supabase.rpc('get_messages_page', {
         p_conversation_id: conversationId!,
-        p_cursor: pageParam.cursor,
-        p_cursor_id: pageParam.cursorId,
+        p_cursor: pageParam.cursor ?? undefined,
+        p_cursor_id: pageParam.cursorId ?? undefined,
         p_limit: PAGE_SIZE,
       });
       if (error) throw error;
-      return (data ?? []) as ChatMessage[];
+      return (data ?? []) as unknown as ChatMessage[];
     },
     initialPageParam: { cursor: null, cursorId: null } as Cursor,
     getNextPageParam: (lastPage) => {
@@ -68,13 +71,13 @@ export function useUnsendMessage(conversationId: string, leagueId: string) {
       });
       const previous = queryClient.getQueryData(queryKeys.messages(conversationId));
 
-      queryClient.setQueryData(
+      queryClient.setQueryData<MessagesCache>(
         queryKeys.messages(conversationId),
-        (old: any) => {
+        (old) => {
           if (!old) return old;
           return {
             ...old,
-            pages: old.pages.map((page: ChatMessage[]) =>
+            pages: old.pages.map((page) =>
               page.filter((m) => m.id !== messageId),
             ),
           };
@@ -90,6 +93,11 @@ export function useUnsendMessage(conversationId: string, leagueId: string) {
         );
       }
       console.error('Unsend message error:', err);
+      posthog.capture('$exception', {
+        $exception_message: err instanceof Error ? err.message : String(err),
+        $exception_type: 'ChatUnsendError',
+        source: 'useUnsendMessage',
+      });
       globalToastRef.current?.('error', 'Failed to unsend message');
     },
     onSettled: () => {
@@ -133,12 +141,13 @@ export function useSendMessage(
       if (error) throw error;
 
       // Fire-and-forget push notification to other members
-      supabase
-        .from('chat_members')
-        .select('team_id')
-        .eq('conversation_id', conversationId)
-        .neq('team_id', teamId)
-        .then(({ data: members }) => {
+      Promise.resolve(
+        supabase
+          .from('chat_members')
+          .select('team_id')
+          .eq('conversation_id', conversationId)
+          .neq('team_id', teamId),
+      ).then(({ data: members }) => {
           if (!members || members.length === 0) return;
           const otherTeamIds = members.map((m) => m.team_id);
           const preview =
@@ -158,7 +167,15 @@ export function useSendMessage(
             data: { screen: `chat/${conversationId}` },
           });
         })
-        .catch((err: any) => console.warn('Chat push notification failed:', err?.message ?? err));
+        .catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          console.warn('Chat push notification failed:', message);
+          posthog.capture('$exception', {
+            $exception_message: message,
+            $exception_type: 'ChatPushNotifyError',
+            source: 'useSendMessage.fanout',
+          });
+        });
 
       return data;
     },
@@ -178,10 +195,15 @@ export function useSendMessage(
         created_at: new Date().toISOString(),
       };
 
-      queryClient.setQueryData(
+      queryClient.setQueryData<MessagesCache>(
         queryKeys.messages(conversationId),
-        (old: any) => {
-          if (!old) return { pages: [[optimistic]], pageParams: [{ cursor: null, cursorId: null }] };
+        (old) => {
+          if (!old) {
+            return {
+              pages: [[optimistic]],
+              pageParams: [{ cursor: null, cursorId: null }],
+            };
+          }
           const pages = [...old.pages];
           pages[0] = [optimistic, ...pages[0]];
           return { ...old, pages };
@@ -196,8 +218,14 @@ export function useSendMessage(
           context.previous,
         );
       }
+      const errMessage = err instanceof Error ? err.message : String(err);
       console.error('Send message error:', err);
-      globalToastRef.current?.('error', `Message failed to send: ${(err as any)?.message ?? err}`);
+      posthog.capture('$exception', {
+        $exception_message: errMessage,
+        $exception_type: 'ChatSendError',
+        source: 'useSendMessage',
+      });
+      globalToastRef.current?.('error', `Message failed to send: ${errMessage}`);
     },
     onSuccess: (_data, { type = 'text' }) => {
       capture('chat_message_sent', { type });

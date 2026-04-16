@@ -64,6 +64,7 @@ Notifications.setNotificationHandler({
 });
 
 import { AnnouncementBanner } from "@/components/AnnouncementBanner";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { MatchupResultModal } from "@/components/MatchupResultModal";
 import { OfflineBanner } from "@/components/OfflineBanner";
 import { AppStateProvider, useAppState } from "@/context/AppStateProvider";
@@ -296,9 +297,13 @@ function NotificationAndLinkHandler() {
 
   // Cold-start: check if a notification response launched the app
   useEffect(() => {
-    Notifications.getLastNotificationResponseAsync().then((response) => {
-      if (response) handleNotificationResponse(response);
-    });
+    Notifications.getLastNotificationResponseAsync()
+      .then((response) => {
+        if (response) handleNotificationResponse(response);
+      })
+      .catch((err) => {
+        console.warn("getLastNotificationResponseAsync failed", err);
+      });
   }, [handleNotificationResponse]);
 
   // Handle notification taps while app is running
@@ -330,10 +335,16 @@ function NotificationAndLinkHandler() {
               })
               .then(({ error }) => {
                 if (error) {
-                  Alert.alert("Session error", error.message);
+                  Alert.alert(
+                    "Session error",
+                    error.message ?? "Could not restore session.",
+                  );
                 } else {
                   router.replace("/reset-password");
                 }
+              })
+              .catch((err) => {
+                console.warn("setSession (recovery) failed", err);
               });
             return;
           }
@@ -360,9 +371,13 @@ function NotificationAndLinkHandler() {
     }
 
     // URL that launched the app (cold start)
-    Linking.getInitialURL().then((url) => {
-      if (url) handleUrl({ url });
-    });
+    Linking.getInitialURL()
+      .then((url) => {
+        if (url) handleUrl({ url });
+      })
+      .catch((err) => {
+        console.warn("Linking.getInitialURL failed", err);
+      });
 
     // URLs received while the app is already open
     const sub = Linking.addEventListener("url", handleUrl);
@@ -432,6 +447,7 @@ export default function RootLayout() {
                     <OfflineBanner />
                     <AnnouncementBanner />
                     <MatchupResultModal />
+                    <ErrorBoundary>
                     <Stack
                       screenOptions={{
                         contentStyle: {
@@ -580,6 +596,7 @@ export default function RootLayout() {
                       />
                       <Stack.Screen name="+not-found" />
                     </Stack>
+                    </ErrorBoundary>
                   </AppStateProvider>
                   <StatusBar style="auto" />
                 </AuthProvider>

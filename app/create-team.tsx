@@ -14,7 +14,9 @@ import { supabase } from '../lib/supabase';
 
 export default function CreateTeam() {
   const router = useRouter()
-  const { leagueId, isCommissioner } = useLocalSearchParams()
+  const params = useLocalSearchParams()
+  const leagueId = String(params.leagueId ?? '')
+  const isCommissioner = String(params.isCommissioner ?? 'false')
   const [teamName, setTeamName] = useState('')
   const [tricode, setTricode] = useState('')
   const [loading, setLoading] = useState(false)
@@ -82,11 +84,11 @@ export default function CreateTeam() {
         faab_remaining: league.faab_budget ?? 100,
       });
 
-      switchLeague(leagueId as string, teamData.id);
+      switchLeague(leagueId, teamData.id);
       router.replace('/(tabs)');
 
       if (league && league.current_teams === league.teams) {
-        checkAndAssignDraftSlots(leagueId as string).catch(console.error);
+        checkAndAssignDraftSlots(leagueId).catch(console.error);
 
         // Auto-assign divisions when league is full
         if (league.division_count === 2) {

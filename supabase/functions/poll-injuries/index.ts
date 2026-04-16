@@ -215,8 +215,15 @@ async function getNextGameByTeam(nbaTeams: string[]): Promise<Map<string, string
     .limit(100);
 
   for (const game of upcoming ?? []) {
-    // Skip games that have already tipped off today (in-progress)
-    if (game.game_time_utc && new Date(game.game_time_utc) <= now) continue;
+    // Skip today's games we can't prove are still upcoming. If game_time_utc
+    // is set, use it; if it's missing, assume today's game already tipped
+    // (better to label a back-to-back's second night "Tomorrow" than to
+    // mislabel a concluded game "Tonight" when the schedule row hasn't
+    // flipped to status='final' yet).
+    if (game.game_date === todayStr) {
+      const tipoff = game.game_time_utc ? new Date(game.game_time_utc) : null;
+      if (!tipoff || tipoff <= now) continue;
+    }
 
     for (const team of [game.home_team, game.away_team]) {
       if (!nextGameMap.has(team)) {

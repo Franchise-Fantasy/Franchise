@@ -82,11 +82,12 @@ export default function LotteryRoomScreen() {
     }
   }, [lotteryResults?.length]);
 
-  // Realtime broadcast channel for synchronizing reveal across clients.
-  // Broadcast channels require a shared deterministic name — all clients must
-  // match so sends reach subscribers. The postgres_changes Date.now() rule
-  // does not apply here. We store the channel in a ref so commissioner sends
-  // reuse it instead of creating orphaned channel instances.
+  // Realtime BROADCAST channel for synchronizing reveal across clients.
+  // ⚠️ DO NOT add a `-${Date.now()}` suffix here. Broadcast channels require a
+  // shared deterministic name — every client must match so sends reach
+  // subscribers. The Hermes-crash rule in CLAUDE.md applies ONLY to
+  // `postgres_changes` channels, not broadcast channels. Channel is stored in
+  // a ref so commissioner sends reuse it instead of creating orphans.
   useEffect(() => {
     if (!leagueId) return;
 

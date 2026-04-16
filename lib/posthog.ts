@@ -33,5 +33,5 @@ export function capture(
   properties?: Record<string, unknown>,
 ) {
   if (_isAdmin) return;
-  posthog.capture(event, properties);
+  posthog.capture(event, properties as Record<string, string | number | boolean | null> | undefined);
 }

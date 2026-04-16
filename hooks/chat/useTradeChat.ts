@@ -37,8 +37,8 @@ export function usePostTradeUpdate(leagueId: string) {
           p_proposal_id: proposalId,
           p_team_ids: teamIds,
           p_event: event,
-          p_team_name: teamName,
-          p_acting_team_id: actingTeamId,
+          p_team_name: teamName ?? undefined,
+          p_acting_team_id: actingTeamId ?? undefined,
         },
       );
       if (error) throw error;

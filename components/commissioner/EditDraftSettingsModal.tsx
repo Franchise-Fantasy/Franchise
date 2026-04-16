@@ -41,7 +41,7 @@ interface EditDraftSettingsModalProps {
   onClose: () => void;
   league: any;
   leagueId: string;
-  draft: { id: string; draft_type: string; time_limit: number; status: string } | null;
+  draft: { id: string; draft_type: string; time_limit: number; status: string | null } | null;
   teamCount: number;
 }
 

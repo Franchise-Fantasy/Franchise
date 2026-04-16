@@ -46,6 +46,13 @@ export async function getUserTier(
 
 /**
  * Asserts the user has at least the required tier. Throws if insufficient.
+ *
+ * STATUS (2026-04-15): Currently unused — every premium feature in
+ * constants/Subscriptions.ts is a client-side computation (analytics,
+ * prospects, draft tools) that does NOT hit an edge function. This helper
+ * exists for the first time a premium operation moves server-side. When
+ * you add such a function, call `await requireTier(supabase, user.id,
+ * 'pro' | 'premium', leagueId)` immediately after verifying the JWT.
  */
 export async function requireTier(
   supabase: SupabaseClient,

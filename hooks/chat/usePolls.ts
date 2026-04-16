@@ -73,8 +73,9 @@ export function usePollResults(
         .rpc('get_poll_results', { p_poll_id: pollId });
       if (aggError) throw aggError;
 
-      const totalVotes: number = agg?.total_votes ?? 0;
-      const optionCounts: number[] = agg?.option_counts ?? [];
+      const aggResult = agg as { total_votes?: number; option_counts?: number[] } | null;
+      const totalVotes: number = aggResult?.total_votes ?? 0;
+      const optionCounts: number[] = aggResult?.option_counts ?? [];
 
       // Get own vote
       const { data: myVoteRows } = await supabase
@@ -83,7 +84,7 @@ export function usePollResults(
         .eq('poll_id', pollId)
         .eq('team_id', teamId)
         .limit(1);
-      const myVote: number[] | null = myVoteRows?.[0]?.selections ?? null;
+      const myVote: number[] | null = (myVoteRows?.[0]?.selections as number[] | null) ?? null;
 
       // For non-anonymous polls, get voter names per option
       let votersByOption: string[][] | undefined;

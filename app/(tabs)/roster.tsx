@@ -411,9 +411,17 @@ export default function RosterScreen() {
   useEffect(() => {
     if (!teamId) return;
     const key = `rosterTapHint:seen:${teamId}`;
-    AsyncStorage.getItem(key).then((seen) => {
-      if (!seen) setShowMoveHint(true);
-    });
+    let cancelled = false;
+    AsyncStorage.getItem(key)
+      .then((seen) => {
+        if (!cancelled && !seen) setShowMoveHint(true);
+      })
+      .catch((err) => {
+        console.warn("rosterTapHint read failed", err);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [teamId]);
   const dismissMoveHint = () => {
     setShowMoveHint(false);
@@ -819,8 +827,8 @@ export default function RosterScreen() {
   ) => {
     const { error } = await supabase.from("daily_lineups").upsert(
       {
-        league_id: leagueId,
-        team_id: teamId,
+        league_id: leagueId!,
+        team_id: teamId!,
         player_id: playerId,
         lineup_date: dateOverride ?? selectedDate,
         roster_slot: slot,

@@ -1,5 +1,6 @@
 import { useAppState } from '@/context/AppStateProvider';
 import { queryKeys } from '@/constants/queryKeys';
+import { posthog } from '@/lib/posthog';
 import { supabase } from '@/lib/supabase';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
@@ -25,19 +26,28 @@ export function useMarkRead(
     lastMarkedRef.current = newestMessageId;
 
     // Persist to DB
-    supabase
-      .from('chat_members')
-      .update({
-        last_read_at: new Date().toISOString(),
-        last_read_message_id: newestMessageId,
-      })
-      .eq('conversation_id', conversationId)
-      .eq('team_id', teamId)
-      .then(() => {
+    Promise.resolve(
+      supabase
+        .from('chat_members')
+        .update({
+          last_read_at: new Date().toISOString(),
+          last_read_message_id: newestMessageId,
+        })
+        .eq('conversation_id', conversationId)
+        .eq('team_id', teamId),
+    ).then(() => {
         queryClient.invalidateQueries({ queryKey: queryKeys.conversations(leagueId!) });
         queryClient.invalidateQueries({ queryKey: queryKeys.chatUnread(leagueId!) });
       })
-      .catch((err: any) => console.warn('useMarkRead update failed:', err?.message ?? err));
+      .catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn('useMarkRead update failed:', message);
+        posthog.capture('$exception', {
+          $exception_message: message,
+          $exception_type: 'ChatMarkReadError',
+          source: 'useMarkRead',
+        });
+      });
 
     // Broadcast via presence channel for instant updates
     onReadUpdate?.(newestMessageId);

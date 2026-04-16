@@ -51,7 +51,7 @@ export function useTradeProposals(leagueId: string | null) {
       // Fetch proposals
       const { data: proposals, error } = await supabase
         .from('trade_proposals')
-        .select('*')
+        .select('id, league_id, proposed_by_team_id, status, proposed_at, accepted_at, review_expires_at, completed_at, transaction_id, notes, counteroffer_of')
         .eq('league_id', leagueId!)
         .order('proposed_at', { ascending: false })
         .limit(200);
@@ -173,7 +173,7 @@ export function useTradeProposals(leagueId: string | null) {
         }));
     },
     enabled: !!leagueId,
-    staleTime: 30_000,
+    staleTime: 1000 * 60 * 2,
   });
 }
 
@@ -200,13 +200,21 @@ export function useTeamTradablePicks(teamId: string | null, leagueId: string | n
   return useQuery({
     queryKey: queryKeys.tradablePicks(teamId!, leagueId!, draftPickTradingEnabled),
     queryFn: async () => {
-      // Get max_future_seasons from league
+      // Get max_future_seasons + offseason state from league
       const { data: league, error: leagueError } = await supabase
         .from('leagues')
-        .select('max_future_seasons')
+        .select('max_future_seasons, offseason_step, lottery_status')
         .eq('id', leagueId!)
         .single();
       if (leagueError) throw leagueError;
+
+      const offseasonStep = league?.offseason_step as string | null;
+      const lotteryComplete =
+        league?.lottery_status === 'complete' ||
+        offseasonStep === 'lottery_complete' ||
+        offseasonStep === 'rookie_draft_pending' ||
+        offseasonStep === 'rookie_draft_complete' ||
+        offseasonStep === 'ready_for_new_season';
 
       const maxFuture = league?.max_future_seasons ?? 3;
       // Parse current season start year (e.g., '2025-26' -> 2025)
@@ -225,7 +233,7 @@ export function useTeamTradablePicks(teamId: string | null, leagueId: string | n
       // Join drafts(type) to distinguish initial vs rookie draft picks
       const { data: picks, error: picksError } = await supabase
         .from('draft_picks')
-        .select('id, season, round, pick_number, current_team_id, original_team_id, player_id, league_id, drafts(type)')
+        .select('id, season, round, pick_number, slot_number, current_team_id, original_team_id, player_id, league_id, drafts(type)')
         .eq('current_team_id', teamId!)
         .eq('league_id', leagueId!)
         .is('player_id', null)
@@ -235,17 +243,48 @@ export function useTeamTradablePicks(teamId: string | null, leagueId: string | n
       if (picksError) throw picksError;
 
       // Resolve original team names
-      const origIds = [...new Set((picks ?? []).map((p) => p.original_team_id).filter(Boolean))];
+      const origIds = [...new Set((picks ?? []).map((p) => p.original_team_id).filter((id): id is string => id != null))];
       let nameMap: Record<string, string> = {};
       if (origIds.length > 0) {
         const { data: teams } = await supabase.from('teams').select('id, name').in('id', origIds);
         if (teams) nameMap = Object.fromEntries(teams.map((t) => [t.id, t.name]));
       }
 
-      const results = (picks ?? []).map((p) => ({
-        ...p,
-        original_team_name: nameMap[p.original_team_id] ?? 'Unknown',
-      }));
+      // Derive a reverse-standings index from the most recent archived
+      // team_seasons rows so we can compute display_slot for picks whose
+      // stored slot_number is stale or unset. Only meaningful when there's
+      // actual archived data — otherwise we leave display_slot null rather
+      // than inventing a position.
+      const reverseStandingIndex: Record<string, number> = {};
+      let hasStandings = false;
+      const { data: archived } = await supabase
+        .from('team_seasons')
+        .select('team_id, final_standing, season')
+        .eq('league_id', leagueId!)
+        .order('season', { ascending: false });
+      if (archived && archived.length > 0) {
+        const latestSeason = archived[0].season;
+        const latestRows = archived
+          .filter((r) => r.season === latestSeason)
+          .sort((a, b) => (b.final_standing ?? 0) - (a.final_standing ?? 0)); // worst first
+        latestRows.forEach((r, i) => { reverseStandingIndex[r.team_id] = i; });
+        hasStandings = latestRows.length > 0;
+      }
+
+      const results = (picks ?? []).map((p) => {
+        const origId = p.original_team_id ?? '';
+        let displaySlot: number | null = null;
+        if (lotteryComplete && p.slot_number != null) {
+          displaySlot = p.slot_number;
+        } else if (hasStandings && reverseStandingIndex[origId] != null) {
+          displaySlot = reverseStandingIndex[origId] + 1;
+        }
+        return {
+          ...p,
+          original_team_name: nameMap[origId] ?? 'Unknown',
+          display_slot: displaySlot,
+        };
+      });
 
       // When draft pick trading is disabled, exclude initial draft picks only
       // Rookie draft picks (type='rookie') and future picks (no draft) remain tradeable
@@ -276,7 +315,7 @@ export function useMyPendingTrades(teamId: string | null, leagueId: string | nul
           .from('trade_proposal_teams')
           .select('id, trade_proposals!inner(id)', { count: 'exact', head: true })
           .eq('team_id', teamId!)
-          .eq('drop_player_ids', '{}')
+          .eq('drop_player_ids', '{}' as any)
           .eq('trade_proposals.league_id', leagueId!)
           .eq('trade_proposals.status', 'pending_drops'),
       ]);

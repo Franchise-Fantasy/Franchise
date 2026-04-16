@@ -85,7 +85,7 @@ function MCInput({
   value: number[] | null;
   onChange: (val: number[]) => void;
   multi: boolean;
-  c: ReturnType<typeof Colors['light' & 'dark']>;
+  c: typeof Colors.light;
 }) {
   const selected = value ?? [];
 

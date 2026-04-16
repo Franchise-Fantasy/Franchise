@@ -240,15 +240,11 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
     return map;
   }, [displayPicks]);
 
-  // Sort picks within each round — post-lottery uses slot_number (actual lottery
-  // results), pre-lottery uses reverse standings order
+  // Sort picks within each round by display_slot — this is the same value
+  // shown in the pick circle, so ordering and label always match.
   const roundGroups = useMemo(() => {
-    const standingOrder: Record<string, number> = {};
-    reversedStandings.forEach((t, i) => { standingOrder[t.id] = i; });
-
-    const picksToUse = displayPicks;
     const groups: Record<number, DraftHubPick[]> = {};
-    for (const pick of picksToUse) {
+    for (const pick of displayPicks) {
       if (!groups[pick.round]) groups[pick.round] = [];
       groups[pick.round].push(pick);
     }
@@ -256,13 +252,9 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
       .sort(([a], [b]) => Number(a) - Number(b))
       .map(([round, roundPicks]) => ({
         round: Number(round),
-        picks: roundPicks.sort((a, b) =>
-          leagueSettings.lotteryComplete
-            ? (a.slot_number ?? 99) - (b.slot_number ?? 99)
-            : (standingOrder[a.original_team_id] ?? 99) - (standingOrder[b.original_team_id] ?? 99)
-        ),
+        picks: roundPicks.sort((a, b) => a.display_slot - b.display_slot),
       }));
-  }, [displayPicks, reversedStandings, leagueSettings.lotteryComplete]);
+  }, [displayPicks]);
 
   const handleSimulate = () => {
     if (lotteryPoolSize === 0 || !leagueSettings.leagueFull) return;
@@ -293,8 +285,10 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
         })}
       </ScrollView>
 
-      {/* Lottery odds + simulation (upcoming season only) */}
-      {isUpcomingSeason && lotteryPoolSize > 0 && (
+      {/* Lottery odds / standings + simulation (upcoming season only).
+          Stays visible through lottery and rookie draft; only hides once the
+          rookie draft is complete. Sim button hides after the lottery runs. */}
+      {isUpcomingSeason && lotteryPoolSize > 0 && !leagueSettings.rookieDraftComplete && (
         <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
           <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.cardTitle}>
             Lottery Odds
@@ -457,28 +451,30 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
             });
           })()}
 
-          {/* Simulate / Clear buttons */}
-          <View style={styles.simButtonRow}>
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel={simResult ? 'Simulate again' : 'Simulate lottery'}
-              accessibilityState={{ disabled: !leagueSettings.leagueFull }}
-              accessibilityHint={!leagueSettings.leagueFull ? 'All teams must join before simulating' : undefined}
-              disabled={!leagueSettings.leagueFull}
-              style={[styles.simButton, { backgroundColor: c.accent, opacity: leagueSettings.leagueFull ? 1 : 0.4 }]}
-              onPress={handleSimulate}
-            >
-              <Ionicons name="shuffle" size={18} color={c.accentText} accessible={false} />
-              <ThemedText style={[styles.simButtonText, { color: c.accentText }]}>
-                {simResult ? 'Simulate Again' : 'Simulate Lottery'}
-              </ThemedText>
-            </TouchableOpacity>
-            {simResult && (
-              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Clear simulation" style={[styles.clearButton, { borderColor: c.border }]} onPress={() => setSimResult(null)}>
-                <ThemedText style={[styles.simButtonText, { color: c.text }]}>Clear</ThemedText>
+          {/* Simulate / Clear buttons — hidden once the lottery has been run */}
+          {!leagueSettings.lotteryComplete && (
+            <View style={styles.simButtonRow}>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel={simResult ? 'Simulate again' : 'Simulate lottery'}
+                accessibilityState={{ disabled: !leagueSettings.leagueFull }}
+                accessibilityHint={!leagueSettings.leagueFull ? 'All teams must join before simulating' : undefined}
+                disabled={!leagueSettings.leagueFull}
+                style={[styles.simButton, { backgroundColor: c.accent, opacity: leagueSettings.leagueFull ? 1 : 0.4 }]}
+                onPress={handleSimulate}
+              >
+                <Ionicons name="shuffle" size={18} color={c.accentText} accessible={false} />
+                <ThemedText style={[styles.simButtonText, { color: c.accentText }]}>
+                  {simResult ? 'Simulate Again' : 'Simulate Lottery'}
+                </ThemedText>
               </TouchableOpacity>
-            )}
-          </View>
+              {simResult && (
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel="Clear simulation" style={[styles.clearButton, { borderColor: c.border }]} onPress={() => setSimResult(null)}>
+                  <ThemedText style={[styles.simButtonText, { color: c.text }]}>Clear</ThemedText>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
         </View>
       )}
 
@@ -496,7 +492,7 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
               Round {round}
             </ThemedText>
             {roundPicks.map((pick, idx) => {
-              const pickPos = leagueSettings.lotteryComplete ? (pick.slot_number ?? idx + 1) : idx + 1;
+              const pickPos = pick.display_slot;
               const protHolds = pick.protection_threshold && leagueSettings.pickConditionsEnabled
                 ? pickPos <= pick.protection_threshold
                 : false;

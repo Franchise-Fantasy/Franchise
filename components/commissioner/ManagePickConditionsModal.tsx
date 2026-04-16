@@ -282,12 +282,12 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
                 renderItem={({ item, index }) => (
                   <TouchableOpacity
                     accessibilityRole="button"
-                    accessibilityLabel={`${formatPickLabel(item.season, item.round)}, Owner: ${teamNameMap[item.current_team_id] ?? 'Unknown'}${item.protection_threshold ? `, Top-${item.protection_threshold} protected` : ''}`}
+                    accessibilityLabel={`${formatPickLabel(item.season, item.round)}, Owner: ${teamNameMap[item.current_team_id ?? ''] ?? 'Unknown'}${item.protection_threshold ? `, Top-${item.protection_threshold} protected` : ''}`}
                     style={[styles.pickRow, { borderBottomColor: c.border }, index === (allPicks ?? []).length - 1 && { borderBottomWidth: 0 }]}
                     onPress={() => {
                       setSelectedPick(item);
                       setProtThreshold(item.protection_threshold ?? 3);
-                      setProtOwnerId(item.protection_owner_id ?? item.current_team_id);
+                      setProtOwnerId(item.protection_owner_id ?? item.current_team_id ?? '');
                       setStep('protection_edit');
                     }}
                   >
@@ -296,7 +296,7 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
                         {formatPickLabel(item.season, item.round)}
                       </ThemedText>
                       <ThemedText style={[styles.pickSub, { color: c.secondaryText }]}>
-                        Owner: {teamNameMap[item.current_team_id] ?? '?'} · via {teamNameMap[item.original_team_id] ?? '?'}
+                        Owner: {teamNameMap[item.current_team_id ?? ''] ?? '?'} · via {teamNameMap[item.original_team_id ?? ''] ?? '?'}
                       </ThemedText>
                     </View>
                     {item.protection_threshold && (

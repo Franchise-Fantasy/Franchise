@@ -109,7 +109,10 @@ Deno.serve(async (req) => {
       ...playoffTeamsPicks.map(t => t.id),
     ];
 
-    // Reorder draft picks for ALL teams
+    // Reorder draft picks for ALL teams. Slot/pick number is determined by
+    // the ORIGINATING team (whose standing/lottery position produced the slot),
+    // NOT by who currently owns the pick — otherwise traded picks get stamped
+    // with the wrong slot (the new owner's standing instead of the original's).
     for (let pos = 0; pos < fullDraftOrder.length; pos++) {
       const teamId = fullDraftOrder[pos];
       for (let round = 1; round <= (league.rookie_draft_rounds ?? 2); round++) {
@@ -117,7 +120,7 @@ Deno.serve(async (req) => {
           pick_number: (round - 1) * fullDraftOrder.length + (pos + 1),
           slot_number: pos + 1,
         }).eq('league_id', league_id).eq('season', season).eq('round', round)
-          .eq('current_team_id', teamId).is('draft_id', null);
+          .eq('original_team_id', teamId).is('draft_id', null);
       }
     }
 

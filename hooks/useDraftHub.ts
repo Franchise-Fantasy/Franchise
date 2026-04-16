@@ -8,6 +8,10 @@ export interface DraftHubPick {
   season: string;
   round: number;
   slot_number: number | null;
+  /** Position within the round to DISPLAY. Derived from archived standings
+   *  pre-lottery, or from slot_number post-lottery. Always trust this over
+   *  the raw slot_number field for UI — the DB value can be stale. */
+  display_slot: number;
   current_team_id: string;
   original_team_id: string;
   current_team_name: string;
@@ -49,6 +53,8 @@ export interface DraftHubLeagueSettings {
   pickConditionsEnabled: boolean;
   leagueFull: boolean;
   lotteryComplete: boolean;
+  rookieDraftComplete: boolean;
+  inOffseason: boolean;
 }
 
 export interface DraftHubData {
@@ -60,15 +66,27 @@ export interface DraftHubData {
 }
 
 export function useDraftHub(leagueId: string | null) {
-  return useQuery<DraftHubData>({
+  return useQuery({
     queryKey: queryKeys.draftHub(leagueId!),
-    queryFn: async () => {
+    queryFn: async (): Promise<DraftHubData> => {
       const { data: league, error: leagueError } = await supabase
         .from('leagues')
-        .select('max_future_seasons, playoff_teams, lottery_draws, lottery_odds, rookie_draft_rounds, season, pick_conditions_enabled, teams, current_teams, lottery_status')
+        .select('max_future_seasons, playoff_teams, lottery_draws, lottery_odds, rookie_draft_rounds, season, pick_conditions_enabled, teams, current_teams, lottery_status, offseason_step')
         .eq('id', leagueId!)
         .single();
       if (leagueError) throw leagueError;
+
+      const offseasonStep = league?.offseason_step as string | null;
+      const inOffseason = offseasonStep != null;
+      const lotteryComplete =
+        league?.lottery_status === 'complete' ||
+        offseasonStep === 'lottery_complete' ||
+        offseasonStep === 'rookie_draft_pending' ||
+        offseasonStep === 'rookie_draft_complete' ||
+        offseasonStep === 'ready_for_new_season';
+      const rookieDraftComplete =
+        offseasonStep === 'rookie_draft_complete' ||
+        offseasonStep === 'ready_for_new_season';
 
       const maxFuture = league?.max_future_seasons ?? 3;
       const currentStartYear = parseInt(CURRENT_NBA_SEASON.split('-')[0], 10);
@@ -104,7 +122,7 @@ export function useDraftHub(leagueId: string | null) {
         .eq('resolved', false);
       if (swapsError) throw swapsError;
 
-      const { data: teams, error: teamsError } = await supabase
+      const { data: liveTeams, error: teamsError } = await supabase
         .from('teams')
         .select('id, name, tricode, wins, losses, points_for')
         .eq('league_id', leagueId!)
@@ -112,25 +130,85 @@ export function useDraftHub(leagueId: string | null) {
         .order('points_for', { ascending: false });
       if (teamsError) throw teamsError;
 
+      // During offseason the live teams table has been reset to 0-0, so the
+      // "standings" it returns are meaningless. Overlay records from the most
+      // recent archived team_seasons rows so the draft hub shows the standings
+      // that the lottery / draft order is derived from.
+      let teams = liveTeams ?? [];
+      if (inOffseason && !rookieDraftComplete && teams.length > 0) {
+        const { data: archived } = await supabase
+          .from('team_seasons')
+          .select('team_id, wins, losses, points_for, final_standing, season')
+          .eq('league_id', leagueId!)
+          .order('season', { ascending: false });
+        if (archived && archived.length > 0) {
+          const latestSeason = archived[0].season;
+          const latestRows = archived.filter((r) => r.season === latestSeason);
+          const statMap = new Map(latestRows.map((r) => [r.team_id, r]));
+          teams = teams
+            .map((t) => {
+              const archivedStats = statMap.get(t.id);
+              return archivedStats
+                ? {
+                    ...t,
+                    wins: archivedStats.wins ?? 0,
+                    losses: archivedStats.losses ?? 0,
+                    points_for: Number(archivedStats.points_for ?? 0),
+                    _finalStanding: archivedStats.final_standing ?? null,
+                  }
+                : { ...t, _finalStanding: null };
+            })
+            .sort((a: any, b: any) => {
+              if (a._finalStanding != null && b._finalStanding != null) {
+                return a._finalStanding - b._finalStanding;
+              }
+              if (b.wins !== a.wins) return b.wins - a.wins;
+              return b.points_for - a.points_for;
+            })
+            .map(({ _finalStanding, ...rest }: any) => rest);
+        }
+      }
+
       const nameMap: Record<string, string> = {};
       for (const t of teams ?? []) {
         nameMap[t.id] = t.name;
       }
 
-      const mappedPicks: DraftHubPick[] = (picks ?? []).map((p) => ({
-        id: p.id,
-        season: p.season,
-        round: p.round,
-        slot_number: p.slot_number,
-        current_team_id: p.current_team_id,
-        original_team_id: p.original_team_id,
-        current_team_name: nameMap[p.current_team_id] ?? 'Unknown',
-        original_team_name: nameMap[p.original_team_id] ?? 'Unknown',
-        isTraded: p.current_team_id !== p.original_team_id,
-        protection_threshold: p.protection_threshold ?? null,
-        protection_owner_id: p.protection_owner_id ?? null,
-        protection_owner_name: p.protection_owner_id ? (nameMap[p.protection_owner_id] ?? null) : null,
-      }));
+      // Reverse-standings index: worst team → 0, next-worst → 1, ...
+      // Keys off `teams` which is already sorted best-first (by archived
+      // final_standing during offseason, by live record otherwise).
+      const reverseStandingIndex: Record<string, number> = {};
+      for (let i = 0; i < teams.length; i++) {
+        reverseStandingIndex[teams[i].id] = teams.length - 1 - i;
+      }
+
+      const mappedPicks: DraftHubPick[] = (picks ?? []).map((p) => {
+        const currentId = p.current_team_id ?? '';
+        const originalId = p.original_team_id ?? '';
+        // Pre-lottery: derive slot from the ORIGINATING team's reverse
+        // standings position. Post-lottery: trust the stored slot_number
+        // (it reflects the actual lottery draw result).
+        const derivedFromStandings = (reverseStandingIndex[originalId] ?? 0) + 1;
+        const displaySlot = lotteryComplete
+          ? (p.slot_number ?? derivedFromStandings)
+          : derivedFromStandings;
+
+        return {
+          id: p.id,
+          season: p.season,
+          round: p.round,
+          slot_number: p.slot_number,
+          display_slot: displaySlot,
+          current_team_id: currentId,
+          original_team_id: originalId,
+          current_team_name: nameMap[currentId] ?? 'Unknown',
+          original_team_name: nameMap[originalId] ?? 'Unknown',
+          isTraded: currentId !== originalId,
+          protection_threshold: p.protection_threshold ?? null,
+          protection_owner_id: p.protection_owner_id ?? null,
+          protection_owner_name: p.protection_owner_id ? (nameMap[p.protection_owner_id] ?? null) : null,
+        };
+      });
 
       const mappedSwaps: DraftHubSwap[] = (swapRows ?? []).map((s) => ({
         id: s.id,
@@ -150,11 +228,13 @@ export function useDraftHub(leagueId: string | null) {
         leagueSettings: {
           playoffTeams: league?.playoff_teams ?? 4,
           lotteryDraws: league?.lottery_draws ?? 4,
-          lotteryOdds: league?.lottery_odds ?? null,
+          lotteryOdds: (league?.lottery_odds as number[] | null) ?? null,
           rookieDraftRounds: league?.rookie_draft_rounds ?? 2,
           pickConditionsEnabled: league?.pick_conditions_enabled ?? false,
           leagueFull: (league?.current_teams ?? 0) >= (league?.teams ?? 0),
-          lotteryComplete: league?.lottery_status === 'complete',
+          lotteryComplete,
+          rookieDraftComplete,
+          inOffseason,
         },
       };
     },

@@ -1,6 +1,12 @@
 // Position spectrum: PG → SG → SF → PF → C
 // A player spanning two positions is eligible for everything in between.
 // e.g. SF-PG covers PG, SG, SF.
+//
+// ⚠️ KEEP IN SYNC with:
+//   - supabase/functions/make-draft-pick/index.ts
+//   - supabase/functions/autodraft/index.ts
+// Deno edge functions can't import RN utils, so SLOT_ELIGIBLE_POSITIONS and
+// POSITION_SPECTRUM are duplicated there. Update all three together.
 
 const POSITION_SPECTRUM: string[] = ['PG', 'SG', 'SF', 'PF', 'C'];
 

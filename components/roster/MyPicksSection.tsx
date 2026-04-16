@@ -61,7 +61,7 @@ export function MyPicksSection({ teamId, leagueId, isDynasty }: MyPicksSectionPr
       {expanded && (
         <View style={[styles.card, { backgroundColor: c.card }]}>
           {picks.map((pick) => {
-            const label = formatPickLabel(pick.season, pick.round);
+            const label = formatPickLabel(pick.season, pick.round, (pick as any).display_slot);
             const via =
               pick.original_team_name && pick.original_team_id !== teamId
                 ? `via ${pick.original_team_name}`

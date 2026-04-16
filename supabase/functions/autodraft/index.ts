@@ -4,7 +4,11 @@ import { Receiver } from 'https://esm.sh/@upstash/qstash';
 import { notifyTeams, notifyLeague } from '../_shared/push.ts';
 import { checkPositionLimits } from '../_shared/positionLimits.ts';
 
-// Position eligibility (mirrors utils/rosterSlots.ts)
+// Position eligibility.
+// ⚠️ KEEP IN SYNC with utils/rosterSlots.ts and
+//    supabase/functions/make-draft-pick/index.ts.
+// Deno edge functions can't import from the RN utils folder, so this is
+// duplicated. Update all three together or drafting will desync.
 const POSITION_SPECTRUM = ['PG', 'SG', 'SF', 'PF', 'C'];
 const SLOT_ELIGIBLE_POSITIONS: Record<string, string[]> = {
   PG: ['PG'], SG: ['SG'], SF: ['SF'], PF: ['PF'], C: ['C'],

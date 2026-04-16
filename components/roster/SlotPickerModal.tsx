@@ -42,7 +42,7 @@ export interface DestinationSlot {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-function getActionMeta(c: ReturnType<typeof Colors['light' & 'dark']>): Record<
+function getActionMeta(c: typeof Colors.light): Record<
   QuickAction,
   { label: string; deferredLabel?: string; color: string }
 > {
