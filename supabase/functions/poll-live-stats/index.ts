@@ -213,6 +213,9 @@ Deno.serve(async (req: Request) => {
 
     const allGames: any[] = gamesData?.data ?? [];
     const activeGames = allGames.filter((g: any) => {
+      // Fantasy season is regular-season only; playoff stats must NOT land in
+      // player_games / live_player_stats (would pollute season totals).
+      if (g.postseason) return false;
       const s = mapGameStatus(g.status ?? "");
       return s === 2 || s === 3;
     });

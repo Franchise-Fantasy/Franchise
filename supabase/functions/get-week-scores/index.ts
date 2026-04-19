@@ -578,16 +578,8 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // ── Skip if no NBA games are active or recently finished ──
-    const gamesActive = await hasActiveOrFinishedGames();
-    if (!gamesActive) {
-      return new Response(
-        JSON.stringify({ ok: true, skipped: true, reason: "no active/finished games" }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
-    }
-
-    // ── Compute scores for all live weeks ──
+    // ── Skip if no live fantasy weeks — cheap local-DB check, avoids the
+    //    BDL call entirely during offseason and between-week gaps. ──
     const today = toDateStr(new Date());
 
     const { data: liveWeeks, error: weekErr } = await supabase
@@ -597,6 +589,22 @@ Deno.serve(async (req: Request) => {
       .gte("end_date", today);
 
     if (weekErr) throw weekErr;
+
+    if (!liveWeeks || liveWeeks.length === 0) {
+      return new Response(
+        JSON.stringify({ ok: true, skipped: true, reason: "no live weeks" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    // ── Skip if no NBA games are active or recently finished ──
+    const gamesActive = await hasActiveOrFinishedGames();
+    if (!gamesActive) {
+      return new Response(
+        JSON.stringify({ ok: true, skipped: true, reason: "no active/finished games" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
 
     const settled = await Promise.allSettled(
       (liveWeeks ?? []).map(async (week) => {
