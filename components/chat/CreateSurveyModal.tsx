@@ -14,10 +14,10 @@ import {
   View,
 } from 'react-native';
 
-import { ToggleRow } from '@/components/ToggleRow';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
+import { ToggleRow } from '@/components/ui/ToggleRow';
 import { Colors } from '@/constants/Colors';
 import { useToast } from '@/context/ToastProvider';
 import { useCreateSurvey } from '@/hooks/chat/useSurveys';

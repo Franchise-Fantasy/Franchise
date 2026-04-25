@@ -1,12 +1,12 @@
 import { StyleSheet, View } from 'react-native';
 
 import { LotteryOddsEditor } from '@/components/create-league/LotteryOddsEditor';
-import { ToggleRow } from '@/components/ToggleRow';
 import { FieldGroup } from '@/components/ui/FieldGroup';
 import { FormSection } from '@/components/ui/FormSection';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
+import { ToggleRow } from '@/components/ui/ToggleRow';
 import { Colors } from '@/constants/Colors';
 import {
   DRAFT_TYPE_OPTIONS,

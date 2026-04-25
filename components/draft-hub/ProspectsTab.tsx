@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native';
 
-import { PremiumGate } from '@/components/PremiumGate';
+import { PremiumGate } from '@/components/account/PremiumGate';
 import { ProspectCard } from '@/components/prospects/ProspectCard';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';

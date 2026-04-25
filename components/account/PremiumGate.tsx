@@ -2,8 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
+import { UpgradeModal } from '@/components/account/UpgradeModal';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { UpgradeModal } from '@/components/UpgradeModal';
 import { Colors } from '@/constants/Colors';
 import {
   SubscriptionTier,

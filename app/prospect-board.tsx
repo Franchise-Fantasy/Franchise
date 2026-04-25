@@ -10,7 +10,7 @@ import {
 import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flatlist';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { PremiumGate } from '@/components/PremiumGate';
+import { PremiumGate } from '@/components/account/PremiumGate';
 import { ProspectBoardItem } from '@/components/prospects/ProspectBoardItem';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';

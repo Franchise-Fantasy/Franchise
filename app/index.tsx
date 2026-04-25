@@ -2,7 +2,7 @@ import { usePathname, useRouter } from 'expo-router';
 import { useEffect } from 'react';
 import { View } from 'react-native';
 
-import Auth from '@/components/Auth';
+import Auth from '@/components/account/Auth';
 import { useAppState } from '@/context/AppStateProvider';
 import { useSession } from '@/context/AuthProvider';
 

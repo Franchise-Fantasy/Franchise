@@ -10,6 +10,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { UpgradeModal } from '@/components/account/UpgradeModal';
+import { LeagueNotificationModal } from '@/components/banners/LeagueNotificationModal';
 import { AssignDivisionsModal } from '@/components/commissioner/AssignDivisionsModal';
 import { EditBasicsModal } from '@/components/commissioner/EditBasicsModal';
 import { EditDraftSettingsModal } from '@/components/commissioner/EditDraftSettingsModal';
@@ -27,7 +29,6 @@ import { SendAnnouncementModal } from '@/components/commissioner/SendAnnouncemen
 import { TransferOwnershipModal } from '@/components/commissioner/TransferOwnershipModal';
 import { SeasonHistory } from '@/components/home/SeasonHistory';
 import { TeamAssigner } from '@/components/import/TeamAssigner';
-import { LeagueNotificationModal } from '@/components/LeagueNotificationModal';
 import { TeamLogo } from '@/components/team/TeamLogo';
 import { Badge } from '@/components/ui/Badge';
 import { ListRow } from '@/components/ui/ListRow';
@@ -35,7 +36,6 @@ import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Section } from '@/components/ui/Section';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { UpgradeModal } from '@/components/UpgradeModal';
 import { Colors } from '@/constants/Colors';
 import { LEAGUE_TYPE_DISPLAY, PLAYER_LOCK_DISPLAY, SEEDING_DISPLAY, TIEBREAKER_DISPLAY, WAIVER_DAY_LABELS } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';

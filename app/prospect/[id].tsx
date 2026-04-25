@@ -11,8 +11,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { PremiumGate } from '@/components/account/PremiumGate';
 import { RichTextRenderer } from '@/components/cms/RichTextRenderer';
-import { PremiumGate } from '@/components/PremiumGate';
 import { DynastyScoreBadge } from '@/components/prospects/DynastyScoreBadge';
 import { LandingSpotBar } from '@/components/prospects/LandingSpotBar';
 import { ProspectNewsSection } from '@/components/prospects/ProspectNewsSection';

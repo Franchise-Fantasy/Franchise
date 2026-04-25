@@ -39,10 +39,10 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import "react-native-reanimated";
 
-import { AnnouncementBanner } from "@/components/AnnouncementBanner";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { MatchupResultModal } from "@/components/MatchupResultModal";
-import { OfflineBanner } from "@/components/OfflineBanner";
+import { AnnouncementBanner } from "@/components/banners/AnnouncementBanner";
+import { MatchupResultModal } from "@/components/banners/MatchupResultModal";
+import { OfflineBanner } from "@/components/banners/OfflineBanner";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { Colors } from "@/constants/Colors";
 import { AppStateProvider, useAppState } from "@/context/AppStateProvider";
 import {

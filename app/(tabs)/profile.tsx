@@ -15,11 +15,11 @@ import {
   View,
 } from "react-native";
 
+import { UpgradeModal } from "@/components/account/UpgradeModal";
 import { TeamLogo } from "@/components/team/TeamLogo";
 import { TeamLogoPickerModal } from "@/components/team/TeamLogoPickerModal";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { ThemedView } from "@/components/ui/ThemedView";
-import { UpgradeModal } from "@/components/UpgradeModal";
 import { Colors, cardShadow } from "@/constants/Colors";
 import { TIER_LABELS, TIER_COLORS } from "@/constants/Subscriptions";
 import { useAppState } from "@/context/AppStateProvider";

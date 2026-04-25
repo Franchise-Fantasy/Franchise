@@ -11,11 +11,11 @@ import {
   View,
 } from 'react-native';
 
-import { ToggleRow } from '@/components/ToggleRow';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
+import { ToggleRow } from '@/components/ui/ToggleRow';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';

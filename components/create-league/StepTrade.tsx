@@ -1,11 +1,11 @@
 import { StyleSheet, View } from 'react-native';
 
-import { ToggleRow } from '@/components/ToggleRow';
 import { AnimatedSection } from '@/components/ui/AnimatedSection';
 import { FieldGroup } from '@/components/ui/FieldGroup';
 import { FormSection } from '@/components/ui/FormSection';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
+import { ToggleRow } from '@/components/ui/ToggleRow';
 import { Colors } from '@/constants/Colors';
 import { LeagueWizardState, TRADE_VETO_OPTIONS } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
