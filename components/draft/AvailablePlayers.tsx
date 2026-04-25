@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 import {
   FlatList,
@@ -50,7 +50,6 @@ export function AvailablePlayers({
 }: AvailablePlayersProps) {
   const scheme = useColorScheme() ?? "light";
   const c = Colors[scheme];
-  const queryClient = useQueryClient();
   const isMyTurn = currentPick?.current_team_id === teamId;
   const sport = useActiveLeagueSport(leagueId);
   const [selectedPlayer, setSelectedPlayer] =

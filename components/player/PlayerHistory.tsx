@@ -8,7 +8,7 @@ import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { PlayerHistoryEvent, usePlayerHistory } from '@/hooks/usePlayerHistory';
-import { ms, s } from "@/utils/scale";
+import { ms } from "@/utils/scale";
 
 function getEventIcon(event: PlayerHistoryEvent): keyof typeof Ionicons.glyphMap {
   switch (event.type) {

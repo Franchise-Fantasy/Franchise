@@ -69,7 +69,7 @@ export function DraftOrder({
   const flashOpacity = useSharedValue(0);
 
   // NEW: Fetch the main draft state for the timer
-  const { data: draftState, isLoading: isLoadingDraftState } = useQuery({
+  const { data: draftState } = useQuery({
     queryKey: queryKeys.draftState(draftId),
     queryFn: async (): Promise<DraftState> => {
       const { data, error } = await supabase
@@ -331,8 +331,6 @@ export function DraftOrder({
 
   // Find the index of the first unmade pick
   const currentPickIndex = picks.findIndex((pick) => !pick.player_id);
-  const currentPick = picks[currentPickIndex];
-  const isMyTurn = currentPick?.current_team_id === teamId;
 
   // Spring-scroll so the just-picked card is leftmost (current pick visible beside it)
   useEffect(() => {

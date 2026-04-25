@@ -11,7 +11,7 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Transaction, TransactionItem, useTransactions } from '@/hooks/useTransactions';
 import { formatPickLabelShort } from '@/types/trade';
-import { ms, s } from "@/utils/scale";
+import { ms } from "@/utils/scale";
 
 const FILTER_OPTIONS: { key: string | undefined; label: string }[] = [
   { key: undefined, label: 'All' },

@@ -6,13 +6,10 @@ import { HapticTab } from '@/components/ui/HapticTab';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import TabBarBackground from '@/components/ui/TabBarBackground';
 import { Colors } from '@/constants/Colors';
-import { useAppState } from '@/context/AppStateProvider'; // Assuming this is the correct import path
 import { useColorScheme } from '@/hooks/useColorScheme';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
-  const {leagueId}  = useAppState();
-
 
   return (
     <Tabs

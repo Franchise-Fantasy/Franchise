@@ -20,7 +20,7 @@ import { CURRENT_NBA_SEASON, CURRENT_WNBA_SEASON } from '@/constants/LeagueDefau
 import { useSession } from '@/context/AuthProvider';
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { useProspectBoard, useReorderBoard, useRemoveFromBoard } from '@/hooks/useProspectBoard';
+import { useProspectBoard, useReorderBoard } from '@/hooks/useProspectBoard';
 import { useProspects } from '@/hooks/useProspects';
 import { useSubscription } from '@/hooks/useSubscription';
 import { ms, s } from '@/utils/scale';
@@ -64,7 +64,6 @@ export default function ProspectBoardScreen() {
   const { data: boardRows, isLoading: boardLoading } = useProspectBoard(userId, hasAccess);
   const { data: allProspects } = useProspects(draftYear, hasAccess);
   const { mutate: reorder } = useReorderBoard(userId);
-  const { mutate: removeFromBoard } = useRemoveFromBoard(userId);
 
   // Build staff ranking map from Contentful dynasty scores
   const staffRankMap = useMemo(() => {

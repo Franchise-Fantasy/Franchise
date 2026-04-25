@@ -147,7 +147,7 @@ export function EditBasicsModal({ visible, onClose, league, leagueId, canChangeS
             league.max_future_seasons,
           );
         }
-      } catch (err: any) {
+      } catch {
         setSaving(false);
         Alert.alert('Warning', 'League size updated but draft picks may need manual regeneration.');
         queryClient.invalidateQueries({ queryKey: ['league', leagueId] });

@@ -29,7 +29,6 @@ import {
   STEP_LABELS,
   STORAGE_KEY,
   type PersistedState,
-  type ScreenshotImportState,
 } from '@/components/import/screenshot/state';
 import { StepConfig } from '@/components/import/screenshot/StepConfig';
 import { StepHistory } from '@/components/import/screenshot/StepHistory';

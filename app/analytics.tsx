@@ -4,10 +4,8 @@ import {
   Circle,
   DashPathEffect,
   Group,
-  Path as SkiaPath,
   Rect,
   Line as SkiaLine,
-  Skia,
   vec,
 } from "@shopify/react-native-skia";
 import { scaleLinear } from "d3-scale";
@@ -34,9 +32,6 @@ import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { ThemedText } from "@/components/ui/ThemedText";
 import {
-  AGING_CURVES,
-  getTierForLeague,
-  statLineToFpts,
   type PositionCurve,
 } from "@/constants/agingCurves";
 import { Colors } from "@/constants/Colors";
@@ -188,91 +183,6 @@ export default function AnalyticsScreen() {
       return key === selectedCurve;
     });
   }, [scatterData, selectedCurve]);
-
-  // Pick the right tier based on league size
-  const tierKey = useMemo(() => {
-    if (!comparison) return "100"; // sensible default
-    const totalTeams = comparison.totalTeams;
-    // Estimate roster size from rostered players per team
-    const playersPerTeam = allPlayers?.length
-      ? Math.round(allPlayers.length / totalTeams)
-      : 13;
-    return getTierForLeague(totalTeams, playersPerTeam);
-  }, [comparison, allPlayers]);
-
-  // Build Skia paths for the aging curve overlay + confidence band.
-  // Converts tier stat lines to FPTS using the league's scoring weights,
-  // so the curve is league-scoring-specific and depth-appropriate.
-  const { curvePath, bandPath } = useMemo(() => {
-    if (!xScale || !yScale || !weights?.length)
-      return { curvePath: null, bandPath: null };
-
-    const tier = AGING_CURVES.tiers?.[tierKey];
-    if (!tier) return { curvePath: null, bandPath: null };
-
-    const statLines = tier.statLines?.[selectedCurve];
-    if (!statLines || Object.keys(statLines).length < 2)
-      return { curvePath: null, bandPath: null };
-
-    const [domainMin, domainMax] = xScale.domain();
-    const minAge = Math.ceil(domainMin);
-    const maxAge = Math.floor(domainMax);
-
-    // Convert stat lines to FPTS at each age
-    const fptsByAge: Record<number, number> = {};
-    for (let age = minAge; age <= maxAge; age++) {
-      const sl = statLines[String(age)];
-      if (!sl) continue;
-      fptsByAge[age] = statLineToFpts(sl, weights);
-    }
-
-    // Median line
-    const line = Skia.Path.Make();
-    let lineStarted = false;
-    for (let age = minAge; age <= maxAge; age++) {
-      const v = fptsByAge[age];
-      if (v == null) continue;
-      const x = xScale(age);
-      const y = Math.max(0, Math.min(plotH, yScale(v)));
-      if (!lineStarted) { line.moveTo(x, y); lineStarted = true; }
-      else line.lineTo(x, y);
-    }
-
-    // Confidence band (p25 to p75)
-    const slP25 = tier.statLinesP25?.[selectedCurve];
-    const slP75 = tier.statLinesP75?.[selectedCurve];
-    let band: ReturnType<typeof Skia.Path.Make> | null = null;
-
-    if (slP25 && slP75 && Object.keys(slP25).length > 2) {
-      band = Skia.Path.Make();
-      const hiPoints: { x: number; y: number }[] = [];
-      const loPoints: { x: number; y: number }[] = [];
-
-      for (let age = minAge; age <= maxAge; age++) {
-        const lo = slP25[String(age)];
-        const hi = slP75[String(age)];
-        if (!lo || !hi) continue;
-        const loFpts = statLineToFpts(lo, weights);
-        const hiFpts = statLineToFpts(hi, weights);
-        hiPoints.push({ x: xScale(age), y: Math.max(0, Math.min(plotH, yScale(hiFpts))) });
-        loPoints.push({ x: xScale(age), y: Math.max(0, Math.min(plotH, yScale(loFpts))) });
-      }
-
-      if (hiPoints.length > 1) {
-        band.moveTo(hiPoints[0].x, hiPoints[0].y);
-        for (let i = 1; i < hiPoints.length; i++) band.lineTo(hiPoints[i].x, hiPoints[i].y);
-        for (let i = loPoints.length - 1; i >= 0; i--) band.lineTo(loPoints[i].x, loPoints[i].y);
-        band.close();
-      } else {
-        band = null;
-      }
-    }
-
-    return {
-      curvePath: lineStarted ? line : null,
-      bandPath: band,
-    };
-  }, [xScale, yScale, selectedCurve, plotH, tierKey, weights]);
 
   // Handle dot taps via responder on an overlay View
   const handleTap = useCallback(

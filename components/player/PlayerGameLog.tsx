@@ -4,7 +4,7 @@ import { NativeScrollEvent, NativeSyntheticEvent, ScrollView, StyleSheet, Toucha
 import { FptsBreakdownModal } from '@/components/player/FptsBreakdownModal';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { PlayerGameLog as PlayerGameLogType, ScoringWeight } from '@/types/player';
-import { ms, s } from "@/utils/scale";
+import { ms } from "@/utils/scale";
 import { calculateGameFantasyPoints } from '@/utils/scoring/fantasyPoints';
 
 

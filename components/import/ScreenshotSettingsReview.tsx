@@ -1,9 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback } from 'react';
 import {
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';

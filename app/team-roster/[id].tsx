@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import {
   Image,
@@ -21,10 +21,10 @@ import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { useLeagueRosterConfig, RosterConfigSlot } from '@/hooks/useLeagueRosterConfig';
+import { useLeagueRosterConfig } from '@/hooks/useLeagueRosterConfig';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { supabase } from '@/lib/supabase';
-import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
+import { PlayerSeasonStats } from '@/types/player';
 import { toDateStr } from '@/utils/dates';
 import { formatPosition } from '@/utils/formatting';
 import { getInjuryBadge } from '@/utils/nba/injuryBadge';
@@ -50,7 +50,6 @@ interface SlotEntry {
 
 export default function TeamRosterScreen() {
   const { id: viewTeamId } = useLocalSearchParams<{ id: string }>();
-  const router = useRouter();
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const { leagueId, teamId: myTeamId } = useAppState();

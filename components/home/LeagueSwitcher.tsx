@@ -16,7 +16,7 @@ import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { SportBadge } from "@/components/ui/SportBadge";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { Brand, Colors, cardShadow } from "@/constants/Colors";
-import { LEAGUE_TYPE_DISPLAY, SPORT_DISPLAY, type Sport } from "@/constants/LeagueDefaults";
+import { LEAGUE_TYPE_DISPLAY, type Sport } from "@/constants/LeagueDefaults";
 import { queryKeys } from "@/constants/queryKeys";
 import { useAppState } from "@/context/AppStateProvider";
 import { useSession } from "@/context/AuthProvider";

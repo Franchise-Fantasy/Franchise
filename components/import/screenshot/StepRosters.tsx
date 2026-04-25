@@ -6,11 +6,9 @@ import { TeamRosterReview } from '@/components/import/TeamRosterReview';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { BrandTextInput } from '@/components/ui/BrandTextInput';
 import { FormSection } from '@/components/ui/FormSection';
-import { Section } from '@/components/ui/Section';
-import { ThemedText } from '@/components/ui/ThemedText';
 import { Brand, Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { ms, s } from '@/utils/scale';
+import { s } from '@/utils/scale';
 
 import type { Action, TeamRosterData } from './state';
 

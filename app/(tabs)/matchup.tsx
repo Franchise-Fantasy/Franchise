@@ -1011,7 +1011,6 @@ export default function MatchupScreen() {
     isSupported: liveActivitySupported,
     startMatchupActivity,
     endActivity,
-    activeActivityId,
   } = useLiveActivity(session?.user?.id);
   const [liveActivityId, setLiveActivityId] = useState<string | null>(null);
 
@@ -1282,14 +1281,6 @@ export default function MatchupScreen() {
     }
   }, [selectedDate, weeks, teamId, leagueId, scoring, sport]);
 
-  // Playoff seeds for current round
-  const playoffRound = currentWeek?.is_playoff
-    ? (matchupData as any)?.week?.is_playoff
-      ? null
-      : null // need the matchup's playoff_round
-    : null;
-  // We get playoff_round from the matchup data. The useWeekMatchup hook fetches from league_matchups
-  // but doesn't expose playoff_round directly. Let's fetch seeds based on the week.
   const { data: seedMap } = useQuery({
     queryKey: queryKeys.matchupSeeds(leagueId!, currentWeek?.week_number!),
     queryFn: async () => {

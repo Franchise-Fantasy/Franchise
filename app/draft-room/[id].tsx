@@ -68,7 +68,6 @@ export default function DraftRoomScreen() {
   // Derive convenience accessors from the init RPC
   const draftData = initData ? { league_id: initData.draft.league_id, type: initData.draft.type } : undefined;
   const teamData = initData?.team ? { ...initData.team, isCommissioner: initData.team.is_commissioner } : undefined;
-  const isLoadingTeam = !initData;
   const isRookieDraft = draftData?.type === 'rookie';
   const draftPickTradingEnabled = initData?.draft_pick_trading_enabled ?? false;
 

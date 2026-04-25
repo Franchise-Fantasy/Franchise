@@ -42,7 +42,6 @@ export function SeasonSection({ leagueId, isCommissioner }: SeasonSectionProps) 
   const handleGenerateSchedule = async () => {
     setGenerating(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
       const res = await supabase.functions.invoke('generate-schedule', {
         body: { league_id: leagueId },
       });

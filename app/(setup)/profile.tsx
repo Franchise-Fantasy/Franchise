@@ -17,7 +17,7 @@ import { Colors } from "@/constants/Colors";
 import { useSession } from "@/context/AuthProvider";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { supabase } from "@/lib/supabase";
-import { ms, s } from "@/utils/scale";
+import { ms } from "@/utils/scale";
 
 export default function SetupProfileScreen() {
   const session = useSession();

@@ -185,12 +185,6 @@ export function computePlayoffStatuses(
   return statuses;
 }
 
-function streakColor(streak: string, c: any): string {
-  if (streak.startsWith('W')) return c.success;
-  if (streak.startsWith('L')) return c.danger;
-  return c.secondaryText;
-}
-
 const DEFAULT_TIEBREAKER = ['head_to_head', 'points_for'];
 
 interface StandingsProps {
@@ -210,7 +204,6 @@ export function StandingsSection({ leagueId, playoffTeams, scoringType, tiebreak
   const { teamId } = useAppState();
 
   const tiebreakers = tiebreakerOrder ?? DEFAULT_TIEBREAKER;
-  const needsH2H = tiebreakers.includes('head_to_head');
   const hasDivisions = divisionCount === 2;
 
   const { data: rawTeams, isLoading } = useQuery({

@@ -27,7 +27,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { mapEntry } from '@/lib/cms-mappers';
 import { contentful } from '@/lib/contentful';
 import type { CmsMappedEntry } from '@/types/cms';
-import { ms, s } from "@/utils/scale";
+import { ms } from "@/utils/scale";
 
 export default function CmsTestScreen() {
   const scheme = useColorScheme() ?? 'light';

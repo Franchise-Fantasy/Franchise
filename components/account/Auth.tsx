@@ -156,7 +156,7 @@ export default function Auth() {
       return;
     }
     setLoading(true);
-    const { data, error } = await supabase.auth.verifyOtp({
+    const { error } = await supabase.auth.verifyOtp({
       email,
       token: otpToken.trim(),
       type: "signup",

@@ -16,7 +16,6 @@ import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
-import { useAppState } from '@/context/AppStateProvider';
 import { useToast } from '@/context/ToastProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
@@ -31,12 +30,6 @@ interface ImportedTeam {
   name: string;
   user_id: string | null;
   sleeper_roster_id: number | null;
-}
-
-interface LeagueMember {
-  id: string;
-  name: string;
-  user_id: string;
 }
 
 export function TeamAssigner({ leagueId }: TeamAssignerProps) {
@@ -65,7 +58,6 @@ export function TeamAssigner({ leagueId }: TeamAssignerProps) {
 
   const allTeams = data ?? [];
   const unclaimedTeams = allTeams.filter(t => t.sleeper_roster_id !== null && t.user_id === null);
-  const claimedTeams = allTeams.filter(t => t.user_id !== null);
   // Members who joined the league (have a team with user_id set, no sleeper_roster_id = they created their own team via join)
   const availableMembers = allTeams.filter(t => t.user_id !== null && t.sleeper_roster_id === null);
 

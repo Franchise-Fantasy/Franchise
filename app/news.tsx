@@ -18,10 +18,11 @@ import { Colors } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { useLeague } from '@/hooks/useLeague';
 import { useTeamNews } from '@/hooks/useTeamNews';
 import { supabase } from '@/lib/supabase';
 import type { PlayerNewsArticle } from '@/types/news';
-import { ms, s } from "@/utils/scale";
+import { ms } from "@/utils/scale";
 
 type FilterMode = 'team' | 'matchup' | 'all';
 
@@ -109,8 +110,9 @@ export default function NewsScreen() {
     return [];
   }, [filter, myPlayerIds, matchupPlayerIds]);
 
+  const { data: league } = useLeague();
   const newsMode = filter === 'all' ? 'all' as const : 'filtered' as const;
-  const newsQuery = useTeamNews(activePlayerIds, newsMode);
+  const newsQuery = useTeamNews(activePlayerIds, newsMode, league?.sport as 'nba' | 'wnba' | undefined);
 
   // Client-side text search across article titles and mentioned player names
   const filteredNews = useMemo(() => {

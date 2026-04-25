@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useQuery } from "@tanstack/react-query";
+import { useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   RefreshControl,
@@ -31,14 +31,13 @@ import {
   useTradeProposals,
 } from "@/hooks/useTrades";
 import { supabase } from "@/lib/supabase";
-import { ms, s } from "@/utils/scale";
+import { ms } from "@/utils/scale";
 
 const TABS = ["Active", "History"];
 const ACTIVE_STATUSES = ["pending", "accepted", "in_review"];
 const HISTORY_STATUSES = ["completed", "rejected", "cancelled", "vetoed"];
 
 export default function Trades() {
-  const router = useRouter();
   const params = useLocalSearchParams<{
     proposeTeamId?: string;
     proposePlayerId?: string;
@@ -50,7 +49,6 @@ export default function Trades() {
   const scheme = useColorScheme() ?? "light";
   const c = Colors[scheme];
   const { leagueId, teamId } = useAppState();
-  const queryClient = useQueryClient();
 
   const [tab, setTab] = useState(0);
   const [showPropose, setShowPropose] = useState(false);

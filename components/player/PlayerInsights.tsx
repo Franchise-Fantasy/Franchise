@@ -56,13 +56,6 @@ const TREND_CONFIG: Record<
   frigid: { label: "Frigid", color: TREND_COLORS.frigid, icon: "▼▼" },
 };
 
-const CONSISTENCY_RANK: Record<ConsistencyLabel, number> = {
-  "Rock Solid": 0,
-  Steady: 1,
-  Variable: 2,
-  "Boom or Bust": 3,
-};
-
 const PCT_STATS = new Set(["FG%", "FT%"]);
 
 function formatCatValue(stat_name: string, value: number): string {
@@ -584,31 +577,6 @@ export function PlayerInsightsCard({
           "Bounce-Back — How often a player scores above their average after a below-average game. Higher = more resilient."
         }
       />
-    </View>
-  );
-}
-
-function StatCell({
-  label,
-  value,
-  valueColor,
-  secondaryText,
-  accessibilityLabel,
-}: {
-  label: string;
-  value: string;
-  valueColor?: string;
-  secondaryText: string;
-  accessibilityLabel: string;
-}) {
-  return (
-    <View style={styles.stat} accessibilityLabel={accessibilityLabel}>
-      <ThemedText style={[styles.statLabel, { color: secondaryText }]}>
-        {label}
-      </ThemedText>
-      <ThemedText style={[styles.statValue, valueColor ? { color: valueColor } : undefined]}>
-        {value}
-      </ThemedText>
     </View>
   );
 }

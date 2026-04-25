@@ -121,7 +121,6 @@ export const PollBubble = React.memo(function PollBubble({ pollId, teamId, isCom
   }
 
   const maxCount = Math.max(1, ...results.optionCounts);
-  const teamCount = results.totalVotes; // used in participation label
 
   return (
     <View

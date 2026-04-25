@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
@@ -29,14 +29,13 @@ import {
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeague } from '@/hooks/useLeague';
 import type { SurveyAnswerValue } from '@/types/survey';
-import { ms, s } from "@/utils/scale";
+import { ms } from "@/utils/scale";
 
 const RESULTS_TABS = ['Results', 'Completion'] as const;
 
 export default function SurveyScreen() {
   const { id, tab } = useLocalSearchParams<{ id: string; tab?: string }>();
   const surveyId = id!;
-  const router = useRouter();
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const { teamId, leagueId } = useAppState();

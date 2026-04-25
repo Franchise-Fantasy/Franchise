@@ -9,7 +9,6 @@ import { ToggleRow } from '@/components/ui/ToggleRow';
 import { Colors } from '@/constants/Colors';
 import { LeagueWizardState, TRADE_VETO_OPTIONS } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { s } from '@/utils/scale';
 
 interface StepTradeProps {
   state: LeagueWizardState;

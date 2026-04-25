@@ -29,7 +29,7 @@ import {
   nextPowerOf2,
   seedTeams,
 } from '@/utils/league/playoff';
-import { ms, s } from "@/utils/scale";
+import { ms } from "@/utils/scale";
 
 /** Convert bracket pairings into PlayoffBracketSlot[] for the bracket component. */
 function pairingsToSlots(

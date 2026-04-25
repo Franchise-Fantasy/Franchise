@@ -14,14 +14,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { ThemedView } from '@/components/ui/ThemedView';
 import { Colors } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
 import { useToast } from '@/context/ToastProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
-import { ms, s } from "@/utils/scale";
+import { ms } from "@/utils/scale";
 
 interface UnclaimedTeam {
   id: string;

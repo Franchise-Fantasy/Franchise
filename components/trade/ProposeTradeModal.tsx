@@ -41,7 +41,6 @@ import {
   TradeBuilderTeam,
   estimatePickFpts,
   formatPickLabel,
-  formatProtection,
 } from '@/types/trade';
 import { ms, s } from '@/utils/scale';
 import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
@@ -154,8 +153,6 @@ function reducer(state: TradeState, action: TradeAction): TradeState {
       return { ...state, builderTeams, selectedTeamIds };
     }
     case 'SEED_COUNTEROFFER': {
-      // Build team map from proposal teams
-      const teamMap = new Map(action.teams.map((t) => [t.team_id, t.team_name]));
       const selectedTeamIds = action.teams
         .filter((t) => t.team_id !== action.myTeamId)
         .map((t) => t.team_id);

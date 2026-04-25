@@ -17,7 +17,7 @@ import { ThemedView } from "@/components/ui/ThemedView";
 import { Colors } from "@/constants/Colors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { supabase } from "@/lib/supabase";
-import { ms, s } from "@/utils/scale";
+import { ms } from "@/utils/scale";
 
 export default function ResetPasswordScreen() {
   const scheme = useColorScheme() ?? "light";

@@ -15,7 +15,7 @@ import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { formatPickLabel } from '@/types/trade';
-import { ms, s } from "@/utils/scale";
+import { ms } from "@/utils/scale";
 
 interface TradeHistoryModalProps {
   transactionId: string;

@@ -121,7 +121,7 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
   });
 
   // Fetch existing swaps
-  const { data: existingSwaps, isLoading: swapsLoading } = useQuery({
+  const { data: existingSwaps } = useQuery({
     queryKey: queryKeys.commishSwaps(leagueId),
     queryFn: async () => {
       const { data, error } = await supabase

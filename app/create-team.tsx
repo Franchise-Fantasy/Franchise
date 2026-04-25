@@ -1,4 +1,3 @@
-import { useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Alert, Button, Keyboard, StyleSheet, TextInput, TouchableWithoutFeedback } from 'react-native';
@@ -10,7 +9,7 @@ import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { checkAndAssignDraftSlots } from '@/lib/draft';
 import { containsBlockedContent } from '@/utils/moderation';
-import { ms, s } from "@/utils/scale";
+import { ms } from "@/utils/scale";
 
 import { supabase } from '../lib/supabase';
 
@@ -22,7 +21,6 @@ export default function CreateTeam() {
   const [teamName, setTeamName] = useState('')
   const [tricode, setTricode] = useState('')
   const [loading, setLoading] = useState(false)
-  const queryClient = useQueryClient();
   const { switchLeague } = useAppState();
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
@@ -65,7 +63,7 @@ export default function CreateTeam() {
 
       if (teamError) throw teamError;
 
-      const { data: incrementResult, error: incrementError } = await supabase
+      const { error: incrementError } = await supabase
         .rpc('increment_team_count', { league_id: leagueId });
 
       if (incrementError) throw incrementError;

@@ -16,7 +16,6 @@ import {
 } from "react-native";
 
 import { UpgradeModal } from "@/components/account/UpgradeModal";
-import { TeamLogo } from "@/components/team/TeamLogo";
 import { TeamLogoPickerModal } from "@/components/team/TeamLogoPickerModal";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { ThemedView } from "@/components/ui/ThemedView";
@@ -34,14 +33,14 @@ import {
 } from "@/lib/notifications";
 import { supabase } from "@/lib/supabase";
 import { containsBlockedContent } from "@/utils/moderation";
-import { ms, s } from "@/utils/scale";
+import { ms } from "@/utils/scale";
 
 export default function ProfileScreen() {
   const session = useSession();
   const router = useRouter();
   const scheme = useColorScheme() ?? "light";
   const c = Colors[scheme];
-  const { teamId, leagueId } = useAppState();
+  const { teamId } = useAppState();
   const { data: league } = useLeague();
   const queryClient = useQueryClient();
   const [loading, setLoading] = useState(false);
@@ -54,7 +53,7 @@ export default function ProfileScreen() {
   const myLogoKey = myTeam?.logo_key ?? null;
   const myTeamName = myTeam?.name ?? "";
   const myTricode = myTeam?.tricode ?? "";
-  const { tier, individualTier, individualPeriod, leagueTier, leaguePeriod } = useSubscription();
+  const { tier, individualPeriod, leagueTier, leaguePeriod } = useSubscription();
 
   function handleEditTeamName() {
     if (!teamId) return;

@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -20,11 +19,10 @@ import {
   setMuteAll,
   updatePreferences,
 } from "@/lib/notifications";
-import { ms, s } from "@/utils/scale";
+import { ms } from "@/utils/scale";
 
 export default function NotificationSettingsScreen() {
   const session = useSession();
-  const router = useRouter();
   const scheme = useColorScheme() ?? "light";
   const c = Colors[scheme];
   const userId = session?.user?.id;

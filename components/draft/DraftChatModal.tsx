@@ -29,7 +29,6 @@ import {
   useSendMessage,
   useToggleReaction,
 } from '@/hooks/chat';
-import type { ReadReceipt } from '@/hooks/chat/useReadReceipts';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import type { ChatMessage, ReactionGroup } from '@/types/chat';
@@ -225,7 +224,7 @@ export function DraftChatModal({
   const newestMessage = messages.length > 0 ? messages[0] : null;
   const newestMessageId = newestMessage?.id ?? null;
   const newestMessageCreatedAt = newestMessage?.created_at ?? null;
-  const { receipts: readReceipts, updateReadPosition } = useReadReceipts(
+  const { updateReadPosition } = useReadReceipts(
     visible ? conversationId ?? null : null,
     teamId,
     teamName,
@@ -238,32 +237,6 @@ export function DraftChatModal({
     newestMessageCreatedAt,
     updateReadPosition,
   );
-
-  const readReceiptsByMessageId = useMemo(() => {
-    if (!teamId || messages.length === 0 || readReceipts.length === 0) return {};
-
-    const idxById = new Map<string, number>();
-    for (let i = 0; i < messages.length; i++) {
-      idxById.set(messages[i].id, i);
-    }
-
-    const map: Record<string, typeof readReceipts> = {};
-    for (const r of readReceipts) {
-      if (!r.last_read_message_id) continue;
-      const readIdx = idxById.get(r.last_read_message_id);
-      if (readIdx === undefined) continue;
-
-      for (let i = readIdx; i < messages.length; i++) {
-        if (messages[i].team_id === teamId) {
-          const msgId = messages[i].id;
-          if (!map[msgId]) map[msgId] = [];
-          map[msgId].push(r);
-          break;
-        }
-      }
-    }
-    return map;
-  }, [readReceipts, messages, teamId]);
 
   const [reactionTargetId, setReactionTargetId] = useState<string | null>(null);
   const swipeReveal = useSharedValue(0);

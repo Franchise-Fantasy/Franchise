@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useLocalSearchParams, useRouter , useFocusEffect } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   Modal,
@@ -218,7 +218,6 @@ const ChatItem = React.memo(function ChatItem({
 
 export default function ConversationScreen() {
   const { id: conversationId } = useLocalSearchParams<{ id: string }>();
-  const router = useRouter();
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const { teamId, leagueId } = useAppState();
