@@ -2,6 +2,9 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { normalizeName } from '../_shared/normalize.ts';
+import { createLogger } from '../_shared/log.ts';
+
+const log = createLogger('import-screenshot-league');
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -99,7 +102,7 @@ async function matchPlayers(
 ): Promise<{ matched: any[]; unmatched: any[] }> {
   const { data: ourPlayers } = await supabaseAdmin
     .from('players')
-    .select('id, name, nba_team, position');
+    .select('id, name, pro_team, position');
 
   const byNameOnly = new Map<string, any[]>();
   // Index by last name for abbreviated first-name matching (e.g. "S. Henderson")
@@ -135,7 +138,7 @@ async function matchPlayers(
         roster_slot: ep.roster_slot,
         matched_player_id: nameHits[0].id,
         matched_name: nameHits[0].name,
-        matched_team: nameHits[0].nba_team,
+        matched_team: nameHits[0].pro_team,
         matched_position: nameHits[0].position,
         confidence: 'high',
       });
@@ -155,7 +158,7 @@ async function matchPlayers(
           roster_slot: ep.roster_slot,
           matched_player_id: posMatch.id,
           matched_name: posMatch.name,
-          matched_team: posMatch.nba_team,
+          matched_team: posMatch.pro_team,
           matched_position: posMatch.position,
           confidence: 'medium',
         });
@@ -183,7 +186,7 @@ async function matchPlayers(
             roster_slot: ep.roster_slot,
             matched_player_id: initialMatches[0].id,
             matched_name: initialMatches[0].name,
-            matched_team: initialMatches[0].nba_team,
+            matched_team: initialMatches[0].pro_team,
             matched_position: initialMatches[0].position,
             confidence: 'medium',
           });
@@ -202,7 +205,7 @@ async function matchPlayers(
               roster_slot: ep.roster_slot,
               matched_player_id: posMatch.id,
               matched_name: posMatch.name,
-              matched_team: posMatch.nba_team,
+              matched_team: posMatch.pro_team,
               matched_position: posMatch.position,
               confidence: 'medium',
             });
@@ -387,7 +390,10 @@ async function handleExtractHistory(
   body: { images: Array<{ base64: string; media_type: string }> },
 ) {
   const { images } = body;
-  console.log(`extract_history: images=${images?.length ?? 'undefined'}, types=${images?.map(i => i.media_type).join(',')}`);
+  log.info('extract_history called', {
+    image_count: images?.length ?? 0,
+    media_types: images?.map((i) => i.media_type) ?? [],
+  });
   if (!images?.length) throw new Error('At least one image is required');
   if (images.length > 3) throw new Error('Maximum 3 images for history');
 
@@ -412,10 +418,12 @@ Extract the season identifier if visible (e.g. "2024-25", "2023-24").`;
 
   try {
     const result = await callClaudeVision(images, prompt, [HISTORY_TOOL]);
-    console.log(`extract_history result: ${JSON.stringify(result)?.substring(0, 500)}`);
+    log.info('extract_history result', {
+      result_preview: JSON.stringify(result)?.substring(0, 500),
+    });
     return jsonResponse(result);
   } catch (err) {
-    console.error(`extract_history Claude error: ${err.message}`);
+    log.error('extract_history Claude error', err);
     throw err;
   }
 }
@@ -432,7 +440,7 @@ async function handleSearchOrCreatePlayer(
   // Broad search: try exact normalized match, then ilike
   const { data: exactHits } = await supabaseAdmin
     .from('players')
-    .select('id, name, nba_team, position')
+    .select('id, name, pro_team, position')
     .ilike('name', `%${norm.split(' ').join('%')}%`)
     .limit(5);
 
@@ -446,10 +454,10 @@ async function handleSearchOrCreatePlayer(
     .insert({
       name: name.trim(),
       position: position ?? null,
-      nba_team: null,
+      pro_team: null,
       status: 'active',
     })
-    .select('id, name, nba_team, position')
+    .select('id, name, pro_team, position')
     .single();
 
   if (error) throw new Error(`Failed to create player: ${error.message}`);
@@ -530,8 +538,12 @@ async function handleExecute(
     throw new Error('league_name and teams are required');
   }
 
-  // Debug: log what history data arrived
-  console.log(`Execute: league="${league_name}", teams=${teams.length}, history=${JSON.stringify(history?.length ?? 'undefined')}, historyData=${JSON.stringify(history ?? null)?.substring(0, 500)}`);
+  log.info('execute_import called', {
+    league_name,
+    team_count: teams.length,
+    history_count: history?.length ?? 0,
+    history_preview: history ? JSON.stringify(history).substring(0, 500) : null,
+  });
 
   // Compute roster size (exclude IR and TAXI from draft rounds)
   const rosterSize = roster_slots.reduce(
@@ -756,11 +768,15 @@ async function handleExecute(
 
   if (waiverRows.length > 0) {
     const { error } = await supabaseAdmin.from('waiver_priority').insert(waiverRows);
-    if (error) console.warn('Failed to insert waiver priority:', error.message);
+    if (error) log.warn('Failed to insert waiver priority', { error: error.message });
   }
 
   // 8. Insert historical seasons (fuzzy match history team names to created teams)
-  console.log(`History check: history=${!!history}, length=${history?.length ?? 0}, teamNameToId keys=[${Array.from(teamNameToId.keys()).join(', ')}]`);
+  log.info('History check', {
+    has_history: !!history,
+    history_length: history?.length ?? 0,
+    created_team_names: Array.from(teamNameToId.keys()),
+  });
   if (history?.length) {
     // Build normalized lookup for fuzzy matching
     const createdTeamNames = Array.from(teamNameToId.entries());
@@ -804,7 +820,7 @@ async function handleExecute(
       for (const ht of hs.teams) {
         const teamId = fuzzyMatchTeam(ht.team_name);
         if (!teamId) {
-          console.warn(`History: could not match team "${ht.team_name}" to any created team`);
+          log.warn('History: could not match team to any created team', { team_name: ht.team_name });
           continue;
         }
 
@@ -823,13 +839,15 @@ async function handleExecute(
       }
     }
 
-    console.log(`History: built ${teamSeasonRows.length} team_season rows to insert`);
+    log.info('History: built team_season rows', { row_count: teamSeasonRows.length });
     for (let i = 0; i < teamSeasonRows.length; i += 100) {
       const chunk = teamSeasonRows.slice(i, i + 100);
-      console.log(`Inserting team_seasons chunk: ${JSON.stringify(chunk)}`);
       const { error } = await supabaseAdmin.from('team_seasons').insert(chunk);
-      if (error) console.warn('Failed to insert team_seasons:', error.message);
-      else console.log(`Successfully inserted ${chunk.length} team_season rows`);
+      if (error) {
+        log.warn('Failed to insert team_seasons chunk', { error: error.message, chunk_size: chunk.length });
+      } else {
+        log.info('Inserted team_season chunk', { chunk_size: chunk.length });
+      }
     }
   }
 
@@ -875,15 +893,13 @@ Deno.serve(async (req) => {
     try {
       body = await req.json();
     } catch (parseErr) {
-      console.error('Body parse error:', parseErr.message);
+      log.error('Body parse error', parseErr);
       return jsonResponse({ error: 'Invalid or oversized request body' }, 400);
     }
 
     const { action } = body;
 
-    // Log request metadata for debugging
-    const imageCount = body.images?.length ?? 0;
-    console.log(`Action: ${action}, images: ${imageCount}`);
+    log.info('Request received', { action, image_count: body.images?.length ?? 0 });
 
     switch (action) {
       case 'extract_roster':
@@ -904,7 +920,8 @@ Deno.serve(async (req) => {
         return jsonResponse({ error: 'Invalid action' }, 400);
     }
   } catch (error) {
-    console.error('import-screenshot-league error:', error.message, error.stack);
-    return jsonResponse({ error: error.message }, 500);
+    log.error('Unhandled error in import-screenshot-league', error);
+    const message = error instanceof Error ? error.message : String(error);
+    return jsonResponse({ error: message }, 500);
   }
 });

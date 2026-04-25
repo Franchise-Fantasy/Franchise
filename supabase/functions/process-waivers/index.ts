@@ -1,8 +1,11 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { notifyTeams, notifyLeague } from '../_shared/push.ts';
 import { snapshotBeforeDrop } from '../_shared/snapshotBeforeDrop.ts';
 import { checkPositionLimits } from '../_shared/positionLimits.ts';
+import { createLogger } from '../_shared/log.ts';
+
+const log = createLogger('process-waivers');
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -123,7 +126,7 @@ Deno.serve(async (req: Request) => {
                   `You claimed ${playerName(claim.player_id)} off waivers!`,
                   { screen: 'roster' }
                 );
-              } catch (err) { console.warn('Notification failed (non-fatal):', err); }
+              } catch (err) { log.warn('Notification failed (non-fatal)', { error: String(err) }); }
 
               await supabase.from('waiver_claims')
                 .update({ status: 'failed', processed_at: now.toISOString() })
@@ -140,7 +143,7 @@ Deno.serve(async (req: Request) => {
                     'Your waiver claim was not awarded.',
                     { screen: 'free-agents' }
                   );
-                } catch (err) { console.warn('Notification failed (non-fatal):', err); }
+                } catch (err) { log.warn('Notification failed (non-fatal)', { error: String(err) }); }
               }
 
               processed++;
@@ -161,7 +164,7 @@ Deno.serve(async (req: Request) => {
                   await notifyTeams(supabase, [claim.team_id], 'waivers',
                     `${ln} — Waiver Claim Failed`, msg, { screen: 'free-agents' }
                   );
-                } catch (err) { console.warn('Notification failed (non-fatal):', err); }
+                } catch (err) { log.warn('Notification failed (non-fatal)', { error: String(err) }); }
                 failed++;
               }
               // 'already_owned' — skip silently, next claim may still succeed
@@ -237,7 +240,7 @@ Deno.serve(async (req: Request) => {
                 'Your bid was not the highest.',
                 { screen: 'free-agents' }
               );
-            } catch (err) { console.warn('Notification failed (non-fatal):', err); }
+            } catch (err) { log.warn('Notification failed (non-fatal)', { error: String(err) }); }
             failed++;
             continue;
           }
@@ -269,7 +272,7 @@ Deno.serve(async (req: Request) => {
                   faabBody,
                   { screen: 'activity' }
                 );
-              } catch (err) { console.warn('Notification failed (non-fatal):', err); }
+              } catch (err) { log.warn('Notification failed (non-fatal)', { error: String(err) }); }
 
               processed++;
             } else if (result.reason === 'roster_full' || result.reason === 'drop_player_unavailable' || result.reason === 'position_limit') {
@@ -286,7 +289,7 @@ Deno.serve(async (req: Request) => {
                 await notifyTeams(supabase, [claim.team_id], 'waivers',
                   `${ln} — FAAB Bid Failed`, msg, { screen: 'free-agents' }
                 );
-              } catch (err) { console.warn('Notification failed (non-fatal):', err); }
+              } catch (err) { log.warn('Notification failed (non-fatal)', { error: String(err) }); }
               failed++;
             }
           } catch (err: any) {

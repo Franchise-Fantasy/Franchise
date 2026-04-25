@@ -1,7 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "jsr:@supabase/supabase-js@2";
-import { bdlFetch, mapGameStatus, toIsoDuration } from "../_shared/bdl.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { bdlFetch, mapGameStatus, toIsoDuration, type Sport } from "../_shared/bdl.ts";
 import { pushActivityUpdate } from "../_shared/apns.ts";
+import { createLogger } from "../_shared/log.ts";
+
+const log = createLogger("poll-live-stats");
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -185,37 +188,46 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  // Sport from request body. Defaults to 'nba' so legacy cron entries keep working.
+  let sport: Sport = 'nba';
   try {
-    // Skip during 3–10am ET when no NBA games are running
+    const body = await req.json();
+    if (body?.sport === 'wnba') sport = 'wnba';
+  } catch {
+    // No body / not JSON — default sport stays 'nba'.
+  }
+
+  try {
+    // Skip during 3–10am ET when no NBA or WNBA games are running.
+    // (WNBA games typically end by 11pm ET; West Coast NBA games can run past midnight.)
     const nowET = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
     const hour = nowET.getHours();
     if (hour >= 3 && hour < 10) {
       return new Response(
-        JSON.stringify({ ok: true, skipped: true, reason: "off-hours (3-10am ET)" }),
+        JSON.stringify({ ok: true, sport, skipped: true, reason: "off-hours (3-10am ET)" }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     }
 
-    // Use ET date since NBA games are scheduled in Eastern time.
+    // Use ET date since both leagues' games are scheduled in Eastern time.
     // Between midnight–3am ET, also check yesterday since West Coast games
     // (10pm ET tip) can run past midnight.
     const gameDate = nowET.toISOString().slice(0, 10);
     const yesterdayET = new Date(nowET.getTime() - 86_400_000).toISOString().slice(0, 10);
     const datesToCheck = hour < 3 ? [gameDate, yesterdayET] : [gameDate];
 
-    // Parallel BDL calls for each date
+    // Parallel BDL calls for each date (sport-namespaced).
     const [gamesResults, statsResults] = await Promise.all([
-      Promise.all(datesToCheck.map(d => bdlFetch("/games", { "dates[]": d }))),
-      Promise.all(datesToCheck.map(d => bdlFetch("/stats", { "dates[]": d, per_page: "100" }))),
+      Promise.all(datesToCheck.map(d => bdlFetch(sport, "/games", { "dates[]": d }))),
+      Promise.all(datesToCheck.map(d => bdlFetch(sport, "/stats", { "dates[]": d, per_page: "100" }))),
     ]);
     const gamesData = { data: gamesResults.flatMap((r: any) => r?.data ?? []) };
     const statsData = { data: statsResults.flatMap((r: any) => r?.data ?? []), meta: statsResults[0]?.meta };
 
     const allGames: any[] = gamesData?.data ?? [];
     const activeGames = allGames.filter((g: any) => {
-      // Fantasy season is regular-season only; playoff stats must NOT land in
-      // player_games / live_player_stats (would pollute season totals).
-      if (g.postseason) return false;
+      // Playoff games flow into live_player_stats for the live UI, but are
+      // excluded from the player_games write below so season totals stay clean.
       const s = mapGameStatus(g.status ?? "");
       return s === 2 || s === 3;
     });
@@ -239,7 +251,7 @@ Deno.serve(async (req: Request) => {
       const initialIdx = datesToCheck.indexOf(d);
       let cursor = statsResults[initialIdx]?.meta?.next_cursor;
       while (cursor) {
-        const page = await bdlFetch("/stats", {
+        const page = await bdlFetch(sport, "/stats", {
           "dates[]": d,
           per_page: "100",
           cursor: String(cursor),
@@ -265,14 +277,17 @@ Deno.serve(async (req: Request) => {
       if (s.player?.id) allBdlIds.add(s.player.id);
     }
 
-    // Look up internal player IDs by external_id_bdl
+    // Look up internal player IDs by external_id_bdl, scoped to this sport
+    // (BDL uses separate ID namespaces per sport — same numeric ID can mean
+    // a different player in NBA vs WNBA).
     const { data: playerRows, error: playerErr } = await supabase
       .from("players")
       .select("id, external_id_bdl")
+      .eq("sport", sport)
       .in("external_id_bdl", [...allBdlIds]);
 
     if (playerErr) {
-      console.error("Player lookup error:", playerErr.message);
+      log.error("Player lookup error", playerErr);
       return new Response(JSON.stringify({ error: playerErr.message }), { status: 500 });
     }
 
@@ -282,7 +297,7 @@ Deno.serve(async (req: Request) => {
 
     const missingBdlIds = [...allBdlIds].filter(id => !bdlIdToPlayerId.has(id));
     if (missingBdlIds.length > 0) {
-      console.warn(`Players not in DB (BDL IDs): ${missingBdlIds.join(', ')}`);
+      log.warn("Players not in DB", { missing_bdl_ids: missingBdlIds });
     }
 
     // Fetch previous minutes for oncourt derivation (both dates when checking yesterday too)
@@ -347,6 +362,7 @@ Deno.serve(async (req: Request) => {
         player_id: playerId,
         game_id: gameId,
         game_date: actualGameDate,
+        sport,
         game_status: gameStatus,
         period,
         game_clock: gameClock,
@@ -359,14 +375,15 @@ Deno.serve(async (req: Request) => {
         updated_at: new Date().toISOString(),
       });
 
-      allTeamUpdates.push({ id: playerId, nba_team: ownTricode });
+      allTeamUpdates.push({ id: playerId, pro_team: ownTricode });
 
-      if (gameStatus === 3) {
+      if (gameStatus === 3 && !game.postseason) {
         const { double_double, triple_double } = computeDoubles({ pts, reb, ast, stl, blk });
         allGameRows.push({
           player_id: playerId,
           game_id: gameId,
           game_date: actualGameDate,
+          sport,
           matchup,
           min: currentMin,
           pts, reb, ast, blk, stl, tov, fgm, fga,
@@ -380,7 +397,7 @@ Deno.serve(async (req: Request) => {
     let totalLiveRows = 0;
     let totalGameRows = 0;
 
-    const upsertPromises: Promise<void>[] = [];
+    const upsertPromises: PromiseLike<void>[] = [];
 
     if (allLiveRows.length > 0) {
       upsertPromises.push(
@@ -388,7 +405,7 @@ Deno.serve(async (req: Request) => {
           .from("live_player_stats")
           .upsert(allLiveRows, { onConflict: "player_id,game_date" })
           .then(({ error }) => {
-            if (error) console.error("live_player_stats batch upsert error:", error.message);
+            if (error) log.error("live_player_stats batch upsert error", error);
             else totalLiveRows = allLiveRows.length;
           }),
       );
@@ -400,7 +417,7 @@ Deno.serve(async (req: Request) => {
           .from("player_games")
           .upsert(allGameRows, { onConflict: "player_id,game_id", ignoreDuplicates: false })
           .then(({ error }) => {
-            if (error) console.error("player_games batch upsert error:", error.message);
+            if (error) log.error("player_games batch upsert error", error);
             else totalGameRows = allGameRows.length;
           }),
       );
@@ -413,18 +430,19 @@ Deno.serve(async (req: Request) => {
         .from("players")
         .upsert(allTeamUpdates, { onConflict: "id" });
       if (error) {
-        console.error("players nba_team update error:", error.message);
+        log.error("players pro_team update error", error);
       }
     }
 
     // ── Dispatch Live Activity player ticker updates (non-blocking) ──
-    dispatchPlayerTickerUpdates(allLiveRows).catch(err =>
-      console.warn('Live activity ticker dispatch error (non-fatal):', err),
+    dispatchPlayerTickerUpdates(allLiveRows).catch((err) =>
+      log.warn('Live activity ticker dispatch error (non-fatal)', { error: String(err) }),
     );
 
     return new Response(
       JSON.stringify({
         ok: true,
+        sport,
         gameDate,
         activeGames: activeGames.length,
         matchedPlayers: bdlIdToPlayerId.size,
@@ -433,9 +451,10 @@ Deno.serve(async (req: Request) => {
       }),
       { status: 200, headers: { "Content-Type": "application/json" } },
     );
-  } catch (err: any) {
-    console.error("Unhandled error in poll-live-stats:", err?.message ?? err);
-    return new Response(JSON.stringify({ error: err?.message ?? String(err) }), {
+  } catch (err) {
+    log.error("Unhandled error in poll-live-stats", err);
+    const message = err instanceof Error ? err.message : String(err);
+    return new Response(JSON.stringify({ error: message }), {
       status: 500,
     });
   }

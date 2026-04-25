@@ -1,8 +1,12 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { notifyTeams, notifyLeague } from '../_shared/push.ts';
+import { createLogger } from '../_shared/log.ts';
+import type { Database } from '../../../types/database.types.ts';
 
-const supabase = createClient(
+const log = createLogger('finalize-week');
+
+const supabase = createClient<Database>(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SB_SECRET_KEY")!,
 );
@@ -43,9 +47,9 @@ interface PlayerGameEntry {
 interface PlayerScoreEntry {
   player_id: string;
   name: string;
-  position: string;
-  nba_team: string;
-  external_id_nba: number | null;
+  position: string | null;
+  pro_team: string | null;
+  external_id_nba: string | null;
   roster_slot: string;
   week_points: number;
   games: PlayerGameEntry[];
@@ -174,16 +178,16 @@ async function fetchTeamRosterAndGames(
     .eq("team_id", teamId)
     .eq("league_id", leagueId);
 
-  const currentPlayerIds = new Set((leaguePlayers ?? []).map((lp: any) => lp.player_id));
+  const currentPlayerIds = new Set((leaguePlayers ?? []).map((lp) => lp.player_id));
   const defaultSlotMap = new Map<string, string>(
-    (leaguePlayers ?? []).map((lp: any) => [lp.player_id, lp.roster_slot ?? "BE"]),
+    (leaguePlayers ?? []).map((lp) => [lp.player_id, lp.roster_slot ?? "BE"]),
   );
 
   const acquiredDateMap = new Map<string, string>();
   for (const lp of leaguePlayers ?? []) {
-    if ((lp as any).acquired_at) {
-      const d = new Date((lp as any).acquired_at);
-      acquiredDateMap.set((lp as any).player_id, `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
+    if (lp.acquired_at) {
+      const d = new Date(lp.acquired_at);
+      acquiredDateMap.set(lp.player_id, `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
     }
   }
 
@@ -228,20 +232,20 @@ async function fetchTeamRosterAndGames(
       .lte("game_date", endDate),
     supabase
       .from("players")
-      .select("id, name, position, nba_team, external_id_nba")
+      .select("id, name, position, pro_team, external_id_nba")
       .in("id", allPlayerIds.length > 0 ? allPlayerIds : ["__none__"]),
   ]);
 
-  const playerInfo = new Map<string, { name: string; position: string; nba_team: string; external_id_nba: number | null }>();
+  const playerInfo = new Map<string, { name: string; position: string | null; pro_team: string | null; external_id_nba: string | null }>();
   for (const p of playerInfoRows ?? []) {
-    playerInfo.set(p.id, { name: p.name, position: p.position, nba_team: p.nba_team, external_id_nba: p.external_id_nba });
+    playerInfo.set(p.id, { name: p.name, position: p.position, pro_team: p.pro_team, external_id_nba: p.external_id_nba });
   }
 
   // Build drop-date map for players no longer on the team
   const dropDateMap = new Map<string, string>();
   for (const pid of droppedPlayerIds) {
     const entries = dailyByPlayer.get(pid) ?? [];
-    const droppedEntry = entries.find((e: any) => e.roster_slot === "DROPPED");
+    const droppedEntry = entries.find((e) => e.roster_slot === "DROPPED");
     if (droppedEntry) dropDateMap.set(pid, droppedEntry.lineup_date);
   }
 
@@ -269,6 +273,7 @@ async function computeTeamScore(
   const playerWeekPoints = new Map<string, number>();
 
   for (const game of gameLogs) {
+    if (!game.game_date) continue;
     const slot = resolveSlotForGame(
       dailyByPlayer.get(game.player_id) ?? [],
       game.game_date,
@@ -310,7 +315,7 @@ async function computeTeamScore(
       player_id: pid,
       name: info?.name ?? "Unknown",
       position: info?.position ?? "—",
-      nba_team: info?.nba_team ?? "—",
+      pro_team: info?.pro_team ?? "—",
       external_id_nba: info?.external_id_nba ?? null,
       roster_slot: defaultSlotMap.get(pid) ?? "BE",
       week_points: Math.round((playerWeekPoints.get(pid) ?? 0) * 100) / 100,
@@ -339,6 +344,7 @@ async function computeTeamCategoryStats(
   const playerGamesMap = new Map<string, PlayerGameEntry[]>();
 
   for (const game of gameLogs) {
+    if (!game.game_date) continue;
     const slot = resolveSlotForGame(
       dailyByPlayer.get(game.player_id) ?? [],
       game.game_date,
@@ -375,7 +381,7 @@ async function computeTeamCategoryStats(
       player_id: pid,
       name: info?.name ?? "Unknown",
       position: info?.position ?? "—",
-      nba_team: info?.nba_team ?? "—",
+      pro_team: info?.pro_team ?? "—",
       external_id_nba: info?.external_id_nba ?? null,
       roster_slot: defaultSlotMap.get(pid) ?? "BE",
       week_points: 0,
@@ -401,10 +407,10 @@ async function computeStreak(
 
   if (!matchups || matchups.length === 0) return "";
 
-  const real = matchups.filter((m: any) => m.away_team_id !== null);
+  const real = matchups.filter((m) => m.away_team_id !== null);
   if (real.length === 0) return "";
 
-  function getResult(m: any): "W" | "L" | "T" {
+  function getResult(m: typeof real[number]): "W" | "L" | "T" {
     if (m.winner_team_id === null) return "T";
     return m.winner_team_id === teamId ? "W" : "L";
   }
@@ -524,8 +530,8 @@ Deno.serve(async (req: Request) => {
         }));
       }
 
-      await supabase.from("league_matchups").update({ stats_flushed: true }).in("id", orphaned.map((m: any) => m.id));
-      console.log(`Recovery: flushed stats for ${orphaned.length} orphaned matchups.`);
+      await supabase.from("league_matchups").update({ stats_flushed: true }).in("id", orphaned.map((m) => m.id));
+      log.info('Recovery: flushed stats for orphaned matchups', { orphaned_count: orphaned.length });
     }
 
     const today = new Date().toISOString().split("T")[0];
@@ -549,8 +555,8 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const scheduleIds = pendingWeeks.map((w: any) => w.id);
-    const scheduleMap = new Map(pendingWeeks.map((w: any) => [w.id, w]));
+    const scheduleIds = pendingWeeks.map((w) => w.id);
+    const scheduleMap = new Map(pendingWeeks.map((w) => [w.id, w]));
 
     // Atomically claim unfinalized matchups by setting is_finalized=true upfront.
     // If two invocations run concurrently, only one will get rows back (the other
@@ -576,7 +582,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const leagueIds = [...new Set(unfinalizedMatchups.map((m: any) => m.league_id))];
+    const leagueIds = [...new Set(unfinalizedMatchups.map((m) => m.league_id))];
     const scoringByLeague = new Map<string, ScoringWeight[]>();
     const scoringTypeByLeague = new Map<string, string>();
 
@@ -677,9 +683,9 @@ Deno.serve(async (req: Request) => {
             home_category_wins: homeCatWins,
             away_category_wins: awayCatWins,
             category_ties: catTies,
-            category_results: catResults,
-            home_player_scores: homePlayerScores,
-            away_player_scores: awayPlayerScores,
+            category_results: catResults as unknown as Database['public']['Tables']['league_matchups']['Update']['category_results'],
+            home_player_scores: homePlayerScores as unknown as Database['public']['Tables']['league_matchups']['Update']['home_player_scores'],
+            away_player_scores: awayPlayerScores as unknown as Database['public']['Tables']['league_matchups']['Update']['away_player_scores'],
             winner_team_id: winnerId,
           })
           .eq("id", matchup.id);
@@ -765,7 +771,7 @@ Deno.serve(async (req: Request) => {
 
     for (const r of settled) {
       if (r.status === 'rejected') {
-        console.error('Failed to finalize a matchup:', r.reason);
+        log.error('Failed to finalize a matchup', r.reason);
         continue;
       }
       const result = r.value;
@@ -808,7 +814,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // Mark stats as flushed so a crash-recovery re-run won't double-count
-    const matchupIds = unfinalizedMatchups.map((m: any) => m.id);
+    const matchupIds = unfinalizedMatchups.map((m) => m.id);
     if (matchupIds.length > 0) {
       await supabase.from("league_matchups").update({ stats_flushed: true }).in("id", matchupIds);
     }
@@ -850,13 +856,13 @@ Deno.serve(async (req: Request) => {
         supabase.from('leagues').select('id, name, playoff_teams').in('id', leagueIds),
       ]);
       const teamName = new Map<string, string>(
-        (teamRows ?? []).map((t: any) => [t.id, t.name]),
+        (teamRows ?? []).map((t) => [t.id, t.name]),
       );
       const leagueName = new Map<string, string>(
-        (leagueRows ?? []).map((l: any) => [l.id, l.name]),
+        (leagueRows ?? []).map((l) => [l.id, l.name]),
       );
       const leaguePlayoffTeams = new Map<string, number>(
-        (leagueRows ?? []).map((l: any) => [l.id, l.playoff_teams ?? 8]),
+        (leagueRows ?? []).map((l) => [l.id, l.playoff_teams ?? 8]),
       );
 
       // Map a playoff round number to a human-readable name
@@ -940,7 +946,7 @@ Deno.serve(async (req: Request) => {
         }
       }));
     } catch (notifyErr) {
-      console.warn('Matchup notification failed (non-fatal):', notifyErr);
+      log.warn('Matchup notification failed (non-fatal)', { error: String(notifyErr) });
     }
 
     // ── Post-processing: detect playoff transitions ──
@@ -994,7 +1000,7 @@ Deno.serve(async (req: Request) => {
           .eq('league_id', lid)
           .eq('playoff_round', maxRound);
 
-        const allRoundDone = roundMatchups && roundMatchups.every((m: any) => m.is_finalized);
+        const allRoundDone = roundMatchups && roundMatchups.every((m) => m.is_finalized);
 
         if (allRoundDone) {
           const totalRounds = calcRounds(league.playoff_teams ?? 8);
@@ -1034,7 +1040,7 @@ Deno.serve(async (req: Request) => {
                 );
               }
             } catch (champErr) {
-              console.warn('Championship notification failed (non-fatal):', champErr);
+              log.warn('Championship notification failed (non-fatal)', { error: String(champErr) });
             }
           } else {
             const url = `${Deno.env.get('SUPABASE_URL')}/functions/v1/generate-playoff-round`;
@@ -1060,10 +1066,11 @@ Deno.serve(async (req: Request) => {
       }),
       { status: 200, headers: { "Content-Type": "application/json" } },
     );
-  } catch (err: any) {
-    console.error("Unhandled error in finalize-week:", err?.message ?? err);
+  } catch (err) {
+    log.error('Unhandled error in finalize-week', err);
+    const message = err instanceof Error ? err.message : String(err);
     return new Response(
-      JSON.stringify({ error: err?.message ?? String(err) }),
+      JSON.stringify({ error: message }),
       { status: 500, headers: { "Content-Type": "application/json" } },
     );
   }

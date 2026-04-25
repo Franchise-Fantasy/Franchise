@@ -1,5 +1,5 @@
 import { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { SignJWT, importPKCS8 } from 'https://deno.land/x/jose@v5.2.2/index.ts';
+import { SignJWT, importPKCS8, type KeyLike } from 'https://deno.land/x/jose@v5.2.2/index.ts';
 
 // ── APNs HTTP/2 Push for Live Activities ────────────────────────────────────
 // Separate from the Expo Push pipeline (_shared/push.ts).
@@ -11,7 +11,7 @@ type ActivityType = 'matchup' | 'auction_draft';
 interface APNsConfig {
   keyId: string;
   teamId: string;
-  privateKey: CryptoKey;
+  privateKey: KeyLike | Uint8Array;
   topic: string;
   isProduction: boolean;
 }
@@ -35,14 +35,15 @@ async function getConfig(): Promise<APNsConfig> {
   const pemContents = atob(keyP8);
   const privateKey = await importPKCS8(pemContents, 'ES256');
 
-  cachedConfig = {
+  const config: APNsConfig = {
     keyId,
     teamId,
     privateKey,
     topic: 'com.chewers.franchisev2.push-type.liveactivity',
     isProduction: isProd,
   };
-  return cachedConfig;
+  cachedConfig = config;
+  return config;
 }
 
 async function getJwt(config: APNsConfig): Promise<string> {

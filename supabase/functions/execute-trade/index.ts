@@ -3,9 +3,12 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { notifyTeams } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
-import { snapshotBeforeDrop } from '../_shared/snapshotBeforeDrop.ts';
 import { checkPositionLimitsForRoster } from '../_shared/positionLimits.ts';
 import { fetchIllegalIRPlayers, formatIllegalIRError } from '../_shared/illegalIR.ts';
+import { createLogger } from '../_shared/log.ts';
+import type { Database } from '../../../types/database.types.ts';
+
+const log = createLogger('execute-trade');
 
 const ORDINALS = ['1st', '2nd', '3rd', '4th', '5th'];
 function formatPickLabel(season: string, round: number): string {
@@ -65,7 +68,7 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return corsResponse();
 
   try {
-    const supabaseAdmin = createClient(
+    const supabaseAdmin = createClient<Database>(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SB_SECRET_KEY') ?? ''
     );
@@ -252,6 +255,11 @@ Deno.serve(async (req) => {
 
     // Roster capacity check — ensure no team exceeds roster_size after the trade
     const rosterSize = league?.roster_size ?? 13;
+    const waiverType = league?.waiver_type ?? 'none';
+    const waiverDays = league?.waiver_period_days ?? 2;
+    const dropsPayload: Array<{ team_id: string; player_id: string; waiver_until: string | null }> = [];
+    const dropsByTeam = new Map<string, string[]>();
+
     if (playerItems.length > 0) {
       const netPlayersByTeam = new Map<string, number>();
       for (const item of playerItems) {
@@ -259,21 +267,62 @@ Deno.serve(async (req) => {
         netPlayersByTeam.set(item.to_team_id, (netPlayersByTeam.get(item.to_team_id) ?? 0) + 1);
       }
 
-      // Fetch drop selections from trade_proposal_teams
+      // Fetch drop selections and filter out stale ones. A drop is stale when
+      // the selected player is no longer on the team — typically because the
+      // manager dropped that player independently (e.g. to clear a waiver
+      // claim) between selecting drops and the trade re-executing. A stale
+      // drop is moot: the roster slot is already freed, so we silently skip
+      // it instead of failing the trade, and let the capacity check below
+      // decide whether the team still owes a drop.
       const { data: proposalTeams } = await supabaseAdmin
         .from('trade_proposal_teams')
         .select('team_id, drop_player_ids')
         .eq('proposal_id', proposal_id);
-      const dropsByTeam = new Map<string, string[]>(
-        (proposalTeams ?? [])
-          .filter((t: any) => t.drop_player_ids && t.drop_player_ids.length > 0)
-          .map((t: any) => [t.team_id, t.drop_player_ids as string[]]),
-      );
+
+      const rawDrops: Array<{ team_id: string; player_id: string }> = [];
+      for (const t of proposalTeams ?? []) {
+        for (const pid of ((t.drop_player_ids as string[] | null) ?? [])) {
+          rawDrops.push({ team_id: t.team_id, player_id: pid });
+        }
+      }
+
+      if (rawDrops.length > 0) {
+        const pids = rawDrops.map((d) => d.player_id);
+        const { data: dropOwnership } = await supabaseAdmin
+          .from('league_players')
+          .select('player_id, team_id')
+          .eq('league_id', proposal.league_id)
+          .in('player_id', pids);
+        const ownerByPid = new Map((dropOwnership ?? []).map((r) => [r.player_id, r.team_id]));
+        for (const d of rawDrops) {
+          if (ownerByPid.get(d.player_id) === d.team_id) {
+            const arr = dropsByTeam.get(d.team_id) ?? [];
+            arr.push(d.player_id);
+            dropsByTeam.set(d.team_id, arr);
+          }
+        }
+
+        // Clean up any stale drop ids on trade_proposal_teams so the UI and
+        // any follow-up re-prompt show an accurate picture. Only update rows
+        // that actually changed.
+        for (const t of proposalTeams ?? []) {
+          const original = (t.drop_player_ids as string[] | null) ?? [];
+          if (original.length === 0) continue;
+          const kept = dropsByTeam.get(t.team_id) ?? [];
+          if (kept.length !== original.length) {
+            await supabaseAdmin
+              .from('trade_proposal_teams')
+              .update({ drop_player_ids: kept })
+              .eq('proposal_id', proposal_id)
+              .eq('team_id', t.team_id);
+          }
+        }
+      }
 
       const teamsNeedingDrops: string[] = [];
       for (const [tid, netGain] of netPlayersByTeam) {
         if (netGain <= 0) continue;
-        // Each selected drop offsets one gained player
+        // Each selected (still-valid) drop offsets one gained player
         const dropOffset = dropsByTeam.get(tid)?.length ?? 0;
         const effectiveGain = netGain - dropOffset;
         if (effectiveGain <= 0) continue;
@@ -301,7 +350,7 @@ Deno.serve(async (req) => {
           .from('teams')
           .select('id, name')
           .in('id', teamsNeedingDrops);
-        const names = (teamNames ?? []).map((t: any) => t.name).join(', ');
+        const names = (teamNames ?? []).map((t) => t.name).join(', ');
 
         await notifyTeams(supabaseAdmin, teamsNeedingDrops, 'trades',
           'Roster Move Required',
@@ -315,35 +364,22 @@ Deno.serve(async (req) => {
         );
       }
 
-      // Process approved drops before the trade transfers
-      const waiverType = league?.waiver_type ?? 'none';
-      const waiverDays = league?.waiver_period_days ?? 2;
-      for (const [tid, dropPlayerIds] of dropsByTeam) {
-        for (const dropPlayerId of dropPlayerIds) {
-          await snapshotBeforeDrop(supabaseAdmin, proposal.league_id, tid, dropPlayerId);
-          await supabaseAdmin
-            .from('league_players')
-            .delete()
-            .eq('league_id', proposal.league_id)
-            .eq('team_id', tid)
-            .eq('player_id', dropPlayerId);
-
-          // Place dropped player on waivers so they don't become an instant free agent
-          if (waiverType !== 'none' && waiverDays > 0) {
-            const raw = new Date();
-            raw.setDate(raw.getDate() + waiverDays);
-            const until = new Date(Date.UTC(
-              raw.getUTCFullYear(), raw.getUTCMonth(), raw.getUTCDate(), 6, 0, 0, 0,
-            ));
-            if (raw.getTime() > until.getTime()) until.setUTCDate(until.getUTCDate() + 1);
-
-            await supabaseAdmin.from('league_waivers').insert({
-              league_id: proposal.league_id,
-              player_id: dropPlayerId,
-              on_waivers_until: until.toISOString(),
-              dropped_by_team_id: tid,
-            });
-          }
+      // Build the drops payload for the atomic RPC from the validated drops.
+      // Lineup/waiver side-effects happen inside execute_trade_transfers, so
+      // they commit or roll back together with the player transfers.
+      let waiverUntil: string | null = null;
+      if (waiverType !== 'none' && waiverDays > 0) {
+        const raw = new Date();
+        raw.setDate(raw.getDate() + waiverDays);
+        const until = new Date(Date.UTC(
+          raw.getUTCFullYear(), raw.getUTCMonth(), raw.getUTCDate(), 6, 0, 0, 0,
+        ));
+        if (raw.getTime() > until.getTime()) until.setUTCDate(until.getUTCDate() + 1);
+        waiverUntil = until.toISOString();
+      }
+      for (const [tid, pids] of dropsByTeam) {
+        for (const pid of pids) {
+          dropsPayload.push({ team_id: tid, player_id: pid, waiver_until: waiverUntil });
         }
       }
     }
@@ -352,6 +388,11 @@ Deno.serve(async (req) => {
     const positionLimits = league?.position_limits as Record<string, number> | null;
     if (positionLimits && Object.keys(positionLimits).length > 0 && playerItems.length > 0) {
       const affectedTeamIdsForLimits = [...new Set(playerItems.map((i: any) => i.to_team_id))];
+      const dropsByTeamMap = new Map<string, Set<string>>();
+      for (const d of dropsPayload) {
+        if (!dropsByTeamMap.has(d.team_id)) dropsByTeamMap.set(d.team_id, new Set());
+        dropsByTeamMap.get(d.team_id)!.add(d.player_id);
+      }
 
       // Parallel position limit checks for all affected teams
       const limitResults = await Promise.all(
@@ -365,6 +406,7 @@ Deno.serve(async (req) => {
           const outgoingIds = new Set(
             playerItems.filter((i: any) => i.from_team_id === tid).map((i: any) => i.player_id),
           );
+          const droppedIds = dropsByTeamMap.get(tid) ?? new Set<string>();
           const incomingIds = playerItems
             .filter((i: any) => i.to_team_id === tid)
             .map((i: any) => i.player_id);
@@ -373,10 +415,12 @@ Deno.serve(async (req) => {
             .from('players')
             .select('id, position')
             .in('id', incomingIds);
-          const incomingPosMap = new Map((incomingPlayers ?? []).map((p: any) => [p.id, p.position]));
+          const incomingPosMap = new Map((incomingPlayers ?? []).map((p) => [p.id, p.position]));
 
           const postTradeRoster = [
-            ...(currentRoster ?? []).filter((p: any) => !outgoingIds.has(p.player_id)),
+            ...(currentRoster ?? [])
+              .filter((p) => !outgoingIds.has(p.player_id) && !droppedIds.has(p.player_id))
+              .map((p) => ({ position: p.position, roster_slot: p.roster_slot ?? undefined })),
             ...incomingIds.map((pid: string) => ({
               position: incomingPosMap.get(pid) ?? 'UTIL',
               roster_slot: 'BE',
@@ -402,14 +446,17 @@ Deno.serve(async (req) => {
     const todayDate = timestamp.slice(0, 10); // YYYY-MM-DD
     const swapItems = items.filter((i: any) => i.pick_swap_season != null);
 
-    // Snapshot pre-trade rosters into daily_lineups so historical views are preserved
+    // Snapshot pre-trade rosters into daily_lineups so historical views are preserved.
+    // Use allSettled so a single team's snapshot failure doesn't abort the rest, but
+    // surface any failure so callers know the snapshot set is incomplete.
     const affectedTeamIds = [...new Set(playerItems.flatMap((i: any) => [i.from_team_id, i.to_team_id]))];
-    await Promise.all(affectedTeamIds.map(async (tid) => {
-      const { data: roster } = await supabaseAdmin
+    const snapshotResults = await Promise.allSettled(affectedTeamIds.map(async (tid) => {
+      const { data: roster, error: rosterErr } = await supabaseAdmin
         .from('league_players')
         .select('player_id, roster_slot')
         .eq('league_id', proposal.league_id)
         .eq('team_id', tid);
+      if (rosterErr) throw rosterErr;
       if (roster && roster.length > 0) {
         const rows = roster.map((r: any) => ({
           league_id: proposal.league_id,
@@ -418,11 +465,23 @@ Deno.serve(async (req) => {
           lineup_date: todayDate,
           roster_slot: r.roster_slot ?? 'BE',
         }));
-        await supabaseAdmin
+        const { error: upsertErr } = await supabaseAdmin
           .from('daily_lineups')
           .upsert(rows, { onConflict: 'team_id,player_id,lineup_date', ignoreDuplicates: true });
+        if (upsertErr) throw upsertErr;
       }
     }));
+    const snapshotFailures = snapshotResults
+      .map((r, i) => ({ r, tid: affectedTeamIds[i] }))
+      .filter(({ r }) => r.status === 'rejected');
+    if (snapshotFailures.length > 0) {
+      log.error('daily_lineups snapshot failed for teams', undefined, {
+        failures: snapshotFailures.map((f) => ({
+          team_id: f.tid,
+          reason: String((f.r as PromiseRejectedResult).reason),
+        })),
+      });
+    }
 
     // Pre-compute taxi counts per receiving team for taxi-to-taxi trades
     const taxiCountByTeam = new Map<string, number>();
@@ -443,11 +502,11 @@ Deno.serve(async (req) => {
     const [slotRes, draftYearRes] = await Promise.all([
       supabaseAdmin.from('league_players').select('player_id, roster_slot')
         .eq('league_id', proposal.league_id).in('player_id', tradedPlayerIds),
-      supabaseAdmin.from('players').select('id, nba_draft_year')
+      supabaseAdmin.from('players').select('id, draft_year')
         .in('id', tradedPlayerIds),
     ]);
-    const currentSlotMap = new Map((slotRes.data ?? []).map((r: any) => [r.player_id, r.roster_slot]));
-    const draftYearMap = new Map((draftYearRes.data ?? []).map((p: any) => [p.id, p.nba_draft_year]));
+    const currentSlotMap = new Map((slotRes.data ?? []).map((r) => [r.player_id, r.roster_slot]));
+    const draftYearMap = new Map((draftYearRes.data ?? []).map((p) => [p.id, p.draft_year]));
 
     // Block trading players currently on IR
     const irPlayers = tradedPlayerIds.filter((pid: string) => currentSlotMap.get(pid) === 'IR');
@@ -457,10 +516,13 @@ Deno.serve(async (req) => {
 
     // Block trade if either team has a player in an IR slot who is no longer
     // injured. Delayed cron re-executions bypass (already validated at submission).
+    // If the team is dropping an illegal-IR player as part of this trade, treat
+    // that player as exempt — the trade itself resolves the lockout.
     if (!isServerCall) {
       const teamsInTrade = [...new Set(playerItems.flatMap((i: any) => [i.from_team_id, i.to_team_id]))];
       for (const tid of teamsInTrade) {
-        const illegal = await fetchIllegalIRPlayers(supabaseAdmin, proposal.league_id, tid as string);
+        const exempt = dropsByTeam.get(tid as string) ?? [];
+        const illegal = await fetchIllegalIRPlayers(supabaseAdmin, proposal.league_id, tid as string, exempt);
         if (illegal.length > 0) {
           const { data: teamInfo } = await supabaseAdmin.from('teams').select('name').eq('id', tid).single();
           const who = teamInfo?.name ?? 'A team';
@@ -484,8 +546,10 @@ Deno.serve(async (req) => {
       .select('player_id, team_id')
       .eq('league_id', proposal.league_id)
       .in('player_id', tradedPlayerIds);
-    const ownershipMap = new Map((currentOwnership ?? []).map((r: any) => [r.player_id, r.team_id]));
+    const ownershipMap = new Map((currentOwnership ?? []).map((r) => [r.player_id, r.team_id]));
     for (const item of playerItems) {
+      // playerItems was filtered for non-null player_id above; the supabase row type still surfaces it as nullable.
+      if (item.player_id == null) continue;
       if (ownershipMap.get(item.player_id) !== item.from_team_id) {
         throw new Error('A traded player is no longer on the expected roster. The trade cannot be completed.');
       }
@@ -547,13 +611,13 @@ Deno.serve(async (req) => {
     ]);
 
     const playerNameMap: Record<string, string> = Object.fromEntries(
-      (playerNameRes.data ?? []).map((p: any) => [p.id, p.name]),
+      (playerNameRes.data ?? []).map((p) => [p.id, p.name]),
     );
     const pickInfoMap: Record<string, string> = Object.fromEntries(
-      (pickInfoRes.data ?? []).map((p: any) => [p.id, formatPickLabel(p.season, p.round)]),
+      (pickInfoRes.data ?? []).map((p) => [p.id, formatPickLabel(p.season, p.round)]),
     );
     const teamNameMap: Record<string, string> = Object.fromEntries(
-      (teamNameRes.data ?? []).map((t: any) => [t.id, t.name]),
+      (teamNameRes.data ?? []).map((t) => [t.id, t.name]),
     );
 
     const notesParts = items.map((item: any) => {
@@ -580,11 +644,15 @@ Deno.serve(async (req) => {
       p_proposed_by: proposal.proposed_by_team_id,
       p_timestamp: timestamp,
       p_today: todayDate,
-      p_week_start: currentWeek?.start_date ?? null,
+      // The RPC declares p_week_start as nullable `date` in Postgres but the generated TS
+       // type says `string` (non-nullable). null is the correct value when there's no current
+       // week — empty string would throw "invalid input syntax for type date".
+      p_week_start: (currentWeek?.start_date ?? null) as unknown as string,
       p_player_moves: playerMoves,
       p_pick_moves: pickMoves,
       p_pick_swaps: pickSwaps,
       p_notes: notes,
+      p_drops: dropsPayload,
     });
     if (rpcError) throw new Error(`Trade execution failed: ${rpcError.message}`);
 
@@ -599,7 +667,7 @@ Deno.serve(async (req) => {
         .order('avg_pts', { ascending: false })
         .limit(150);
 
-      const rankedFpts = (allPlayerStats ?? []).map((p: any) => p.avg_pts as number);
+      const rankedFpts = (allPlayerStats ?? []).map((p) => p.avg_pts ?? 0);
       const leagueFptsThresholds = {
         top10: rankedFpts[9] ?? Infinity,
         top30: rankedFpts[29] ?? Infinity,
@@ -608,6 +676,7 @@ Deno.serve(async (req) => {
 
       const playerFptsMap: Record<string, number> = {};
       for (const ps of allPlayerStats ?? []) {
+        if (!ps.player_id || ps.avg_pts == null) continue;
         playerFptsMap[ps.player_id] = ps.avg_pts;
       }
 
@@ -718,7 +787,7 @@ Deno.serve(async (req) => {
         });
       }
     } catch (summaryErr) {
-      console.warn('Trade summary/chat post failed (non-fatal):', summaryErr);
+      log.warn('Trade summary/chat post failed (non-fatal)', { error: String(summaryErr) });
     }
 
     // Notify all teams involved in the trade with hype-tiered messaging
@@ -735,7 +804,7 @@ Deno.serve(async (req) => {
         { screen: 'trades', proposal_id }
       );
     } catch (notifyErr) {
-      console.warn('Push notification failed (non-fatal):', notifyErr);
+      log.warn('Push notification failed (non-fatal)', { error: String(notifyErr) });
     }
 
     return new Response(
@@ -743,9 +812,10 @@ Deno.serve(async (req) => {
       { status: 200, headers: { 'Content-Type': 'application/json' } }
     );
   } catch (error) {
-    console.error('execute-trade error:', error);
+    log.error('Unhandled error in execute-trade', error);
+    const msg = error instanceof Error ? error.message : String(error);
     return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
+      JSON.stringify({ error: msg }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }
