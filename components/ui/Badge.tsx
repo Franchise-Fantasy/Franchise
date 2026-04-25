@@ -4,6 +4,7 @@ import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { Brand, Colors } from '@/constants/Colors';
 import { useColors } from '@/hooks/useColors';
 import { ms, s } from '@/utils/scale';
+
 import { ThemedText } from './ThemedText';
 
 export type BadgeVariant =

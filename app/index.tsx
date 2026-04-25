@@ -1,9 +1,10 @@
-import Auth from '@/components/Auth';
-import { useAppState } from '@/context/AppStateProvider';
-import { useSession } from '@/context/AuthProvider';
 import { usePathname, useRouter } from 'expo-router';
 import { useEffect } from 'react';
 import { View } from 'react-native';
+
+import Auth from '@/components/Auth';
+import { useAppState } from '@/context/AppStateProvider';
+import { useSession } from '@/context/AuthProvider';
 
 export default function IndexScreen() {
   const session = useSession();

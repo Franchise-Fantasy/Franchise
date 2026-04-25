@@ -1,9 +1,11 @@
-import { useAppState } from '@/context/AppStateProvider';
-import { queryKeys } from '@/constants/queryKeys';
-import { supabase } from '@/lib/supabase';
-import type { ConversationPreview } from '@/types/chat';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
+
+import { queryKeys } from '@/constants/queryKeys';
+import { useAppState } from '@/context/AppStateProvider';
+import { supabase } from '@/lib/supabase';
+import type { ConversationPreview } from '@/types/chat';
+
 
 // ─── Shared realtime subscription for chat_messages ─────────
 // Both useConversations and useTotalUnread need to know about new

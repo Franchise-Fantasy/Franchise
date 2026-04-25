@@ -1,7 +1,8 @@
+import { useQuery } from '@tanstack/react-query';
+
 import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import type { PlayerNewsArticle } from '@/types/news';
-import { useQuery } from '@tanstack/react-query';
 
 /** Fetch news articles mentioning a specific player. */
 export function usePlayerNews(playerId: string | undefined) {

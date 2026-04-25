@@ -8,13 +8,14 @@
  * 4. Copies Swift source files into the extension
  * 5. Registers the native module bridge in the main app target
  */
+const fs = require('fs');
+const path = require('path');
+
 const {
   withInfoPlist,
   withXcodeProject,
   withEntitlementsPlist,
 } = require('@expo/config-plugins');
-const fs = require('fs');
-const path = require('path');
 
 const WIDGET_BUNDLE_ID = 'com.chewers.franchisev2.LiveActivity';
 const APP_GROUP = 'group.com.chewers.franchisev2';

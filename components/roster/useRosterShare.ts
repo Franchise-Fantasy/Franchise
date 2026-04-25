@@ -1,7 +1,7 @@
+import * as Sharing from 'expo-sharing';
 import { useRef, useState } from 'react';
 import { Alert, View } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
-import * as Sharing from 'expo-sharing';
 
 /**
  * Hook for capturing the roster as a shareable image.

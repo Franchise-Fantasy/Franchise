@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
-import { queryKeys } from '@/constants/queryKeys';
 import { useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
+
+import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 
 /**

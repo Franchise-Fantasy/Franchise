@@ -1,12 +1,13 @@
-import { queryKeys } from '@/constants/queryKeys';
-import { supabase } from '@/lib/supabase';
-import type { ChatMessage } from '@/types/chat';
 import {
   useMutation,
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
 import { useEffect } from 'react';
+
+import { queryKeys } from '@/constants/queryKeys';
+import { supabase } from '@/lib/supabase';
+import type { ChatMessage } from '@/types/chat';
 
 // ─── Fetch pinned messages for a conversation ────────────────
 

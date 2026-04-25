@@ -4,6 +4,7 @@ import { StyleSheet, TouchableOpacity, View, type StyleProp, type ViewStyle } fr
 import { Colors, cardShadow } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
+
 import { ThemedText } from './ThemedText';
 
 type Props = {

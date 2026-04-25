@@ -1,16 +1,3 @@
-import { ThemedText } from '@/components/ui/ThemedText';
-import { ToggleRow } from '@/components/ToggleRow';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { ms, s } from '@/utils/scale';
-import {
-  getLeagueNotifPrefs,
-  getPushPrefs,
-  PushPreferences,
-  DEFAULT_PREFERENCES,
-  updateLeagueNotifPrefs,
-  resetLeagueNotifPref,
-} from '@/lib/notifications';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState, useCallback } from 'react';
 import {
@@ -21,6 +8,20 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { ToggleRow } from '@/components/ToggleRow';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import {
+  getLeagueNotifPrefs,
+  getPushPrefs,
+  PushPreferences,
+  DEFAULT_PREFERENCES,
+  updateLeagueNotifPrefs,
+  resetLeagueNotifPref,
+} from '@/lib/notifications';
+import { ms, s } from '@/utils/scale';
 
 interface Props {
   visible: boolean;

@@ -1,15 +1,3 @@
-import { NewsCard } from '@/components/player/NewsCard';
-import { ms, s } from "@/utils/scale";
-import { ThemedText } from '@/components/ui/ThemedText';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
-import { PageHeader } from '@/components/ui/PageHeader';
-import { Colors } from '@/constants/Colors';
-import { useAppState } from '@/context/AppStateProvider';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { useTeamNews } from '@/hooks/useTeamNews';
-import { supabase } from '@/lib/supabase';
-import type { PlayerNewsArticle } from '@/types/news';
-import { queryKeys } from '@/constants/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { useCallback, useMemo, useState } from 'react';
 import {
@@ -21,6 +9,19 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { NewsCard } from '@/components/player/NewsCard';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
+import { useAppState } from '@/context/AppStateProvider';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { useTeamNews } from '@/hooks/useTeamNews';
+import { supabase } from '@/lib/supabase';
+import type { PlayerNewsArticle } from '@/types/news';
+import { ms, s } from "@/utils/scale";
 
 type FilterMode = 'team' | 'matchup' | 'all';
 

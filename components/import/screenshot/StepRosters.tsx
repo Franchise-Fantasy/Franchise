@@ -1,3 +1,8 @@
+import type { UseMutationResult } from '@tanstack/react-query';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
+
+import { ScreenshotCapture } from '@/components/import/ScreenshotCapture';
+import { TeamRosterReview } from '@/components/import/TeamRosterReview';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { BrandTextInput } from '@/components/ui/BrandTextInput';
 import { FormSection } from '@/components/ui/FormSection';
@@ -5,12 +10,8 @@ import { Section } from '@/components/ui/Section';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Brand, Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import type { UseMutationResult } from '@tanstack/react-query';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { ms, s } from '@/utils/scale';
 
-import { ScreenshotCapture } from '@/components/import/ScreenshotCapture';
-import { TeamRosterReview } from '@/components/import/TeamRosterReview';
 import type { Action, TeamRosterData } from './state';
 
 interface StepRostersProps {

@@ -1,5 +1,5 @@
-import { calculateAvgFantasyPoints, calculateGameFantasyPoints } from '@/utils/fantasyPoints';
 import { PlayerSeasonStats, PlayerGameLog, ScoringWeight } from '@/types/player';
+import { calculateAvgFantasyPoints, calculateGameFantasyPoints } from '@/utils/fantasyPoints';
 
 // Helper to build a minimal PlayerSeasonStats with defaults
 function makePlayer(overrides: Partial<PlayerSeasonStats> = {}): PlayerSeasonStats {

@@ -12,6 +12,7 @@ import {
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
+
 import { ThemedText } from './ThemedText';
 
 type Props = Omit<TextInputProps, 'style'> & {

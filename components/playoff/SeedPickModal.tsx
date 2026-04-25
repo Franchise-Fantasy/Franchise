@@ -1,12 +1,3 @@
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
-import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { useAppState } from '@/context/AppStateProvider';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { useSeedPicks } from '@/hooks/usePlayoffBracket';
-import { supabase } from '@/lib/supabase';
-import { PlayoffSeedPick } from '@/types/playoff';
-import { ms, s } from '@/utils/scale';
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
@@ -17,6 +8,16 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { useAppState } from '@/context/AppStateProvider';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { useSeedPicks } from '@/hooks/usePlayoffBracket';
+import { supabase } from '@/lib/supabase';
+import { PlayoffSeedPick } from '@/types/playoff';
+import { ms, s } from '@/utils/scale';
 
 interface Props {
   visible: boolean;

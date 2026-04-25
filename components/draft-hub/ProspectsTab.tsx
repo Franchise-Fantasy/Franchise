@@ -1,17 +1,5 @@
-import { ProspectCard } from '@/components/prospects/ProspectCard';
-import { PremiumGate } from '@/components/PremiumGate';
-import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { useProspects } from '@/hooks/useProspects';
-import { useAddToBoard, useProspectBoard } from '@/hooks/useProspectBoard';
-import { useSession } from '@/context/AuthProvider';
-import { useSubscription } from '@/hooks/useSubscription';
-import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
-import { ms, s } from '@/utils/scale';
 import { useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import type { ProspectCardData } from '@/types/prospect';
 import {
   FlatList,
   RefreshControl,
@@ -20,7 +8,21 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
+import { PremiumGate } from '@/components/PremiumGate';
+import { ProspectCard } from '@/components/prospects/ProspectCard';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
+import { useSession } from '@/context/AuthProvider';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { useAddToBoard, useProspectBoard } from '@/hooks/useProspectBoard';
+import { useProspects } from '@/hooks/useProspects';
+import { useSubscription } from '@/hooks/useSubscription';
+import type { ProspectCardData } from '@/types/prospect';
+import { ms, s } from '@/utils/scale';
+
 
 const nextDraftYear = parseInt(CURRENT_NBA_SEASON.split('-')[1]!, 10) + 2000;
 const DRAFT_YEARS = [

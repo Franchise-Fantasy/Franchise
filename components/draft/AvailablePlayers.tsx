@@ -1,19 +1,3 @@
-import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
-import { PlayerFilterBar } from "@/components/player/PlayerFilterBar";
-import { ThemedText } from "@/components/ui/ThemedText";
-import { Colors } from "@/constants/Colors";
-import { queryKeys } from "@/constants/queryKeys";
-import { useColorScheme } from "@/hooks/useColorScheme";
-import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
-import { useDraftPlayer } from "@/hooks/useDraftPlayer";
-import { useLeagueScoring } from "@/hooks/useLeagueScoring";
-import { TimeRange, usePlayerFilter } from "@/hooks/usePlayerFilter";
-import { supabase } from "@/lib/supabase";
-import { PlayerSeasonStats } from "@/types/player";
-import { calculateAvgFantasyPoints } from "@/utils/fantasyPoints";
-import { formatPosition } from "@/utils/formatting";
-import { getInjuryBadge } from "@/utils/injuryBadge";
-import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
@@ -25,7 +9,24 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+
+import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
+import { PlayerFilterBar } from "@/components/player/PlayerFilterBar";
 import { LogoSpinner } from "@/components/ui/LogoSpinner";
+import { ThemedText } from "@/components/ui/ThemedText";
+import { Colors } from "@/constants/Colors";
+import { queryKeys } from "@/constants/queryKeys";
+import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import { useDraftPlayer } from "@/hooks/useDraftPlayer";
+import { useLeagueScoring } from "@/hooks/useLeagueScoring";
+import { TimeRange, usePlayerFilter } from "@/hooks/usePlayerFilter";
+import { supabase } from "@/lib/supabase";
+import { PlayerSeasonStats } from "@/types/player";
+import { calculateAvgFantasyPoints } from "@/utils/fantasyPoints";
+import { formatPosition } from "@/utils/formatting";
+import { getInjuryBadge } from "@/utils/injuryBadge";
+import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
 import { ms, s } from "@/utils/scale";
 
 interface AvailablePlayersProps {

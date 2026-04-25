@@ -1,33 +1,3 @@
-import { CatAnalytics } from "@/components/analytics/CatAnalytics";
-import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
-import { InfoModal } from "@/components/ui/InfoModal";
-import { LogoSpinner } from "@/components/ui/LogoSpinner";
-import { ThemedText } from "@/components/ui/ThemedText";
-import { PageHeader } from "@/components/ui/PageHeader";
-import { Colors } from "@/constants/Colors";
-import { PlayerSeasonStats } from "@/types/player";
-import { useAppState } from "@/context/AppStateProvider";
-import { useColorScheme } from "@/hooks/useColorScheme";
-import { useLeague } from "@/hooks/useLeague";
-import { useLeagueScoring } from "@/hooks/useLeagueScoring";
-import { useLeagueRosterStats } from "@/hooks/useLeagueRosterStats";
-import {
-  AgeFptsPoint,
-  BUCKET_COLORS,
-  PEAK_YEARS,
-  ageBucket,
-  buildLeagueComparison,
-  buildScatterData,
-  calculateRosterAgeProfile,
-  getInsightText,
-} from "@/utils/rosterAge";
-import {
-  AGING_CURVES,
-  getTierForLeague,
-  statLineToFpts,
-  type PositionCurve,
-} from "@/constants/agingCurves";
-import { getPositionCurveKey } from "@/utils/agingCurve";
 import { Ionicons } from "@expo/vector-icons";
 import {
   Canvas,
@@ -56,6 +26,37 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
+
+import { CatAnalytics } from "@/components/analytics/CatAnalytics";
+import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
+import { InfoModal } from "@/components/ui/InfoModal";
+import { LogoSpinner } from "@/components/ui/LogoSpinner";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { ThemedText } from "@/components/ui/ThemedText";
+import {
+  AGING_CURVES,
+  getTierForLeague,
+  statLineToFpts,
+  type PositionCurve,
+} from "@/constants/agingCurves";
+import { Colors } from "@/constants/Colors";
+import { useAppState } from "@/context/AppStateProvider";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import { useLeague } from "@/hooks/useLeague";
+import { useLeagueRosterStats } from "@/hooks/useLeagueRosterStats";
+import { useLeagueScoring } from "@/hooks/useLeagueScoring";
+import { PlayerSeasonStats } from "@/types/player";
+import { getPositionCurveKey } from "@/utils/agingCurve";
+import {
+  AgeFptsPoint,
+  BUCKET_COLORS,
+  PEAK_YEARS,
+  ageBucket,
+  buildLeagueComparison,
+  buildScatterData,
+  calculateRosterAgeProfile,
+  getInsightText,
+} from "@/utils/rosterAge";
 import { ms, s } from "@/utils/scale";
 
 // ─── Chart layout ────────────────────────────────────────────────────────────

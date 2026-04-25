@@ -1,6 +1,3 @@
-import { Colors } from "@/constants/Colors";
-import { ThemedText } from "@/components/ui/ThemedText";
-import { useColorScheme } from "@/hooks/useColorScheme";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useRef, useState } from "react";
 import {
@@ -13,6 +10,10 @@ import {
   View,
   ViewStyle,
 } from "react-native";
+
+import { ThemedText } from "@/components/ui/ThemedText";
+import { Colors } from "@/constants/Colors";
+import { useColorScheme } from "@/hooks/useColorScheme";
 
 if (
   Platform.OS === "android" &&

@@ -1,5 +1,6 @@
-import { supabase } from '@/lib/supabase';
 import { useMutation } from '@tanstack/react-query';
+
+import { supabase } from '@/lib/supabase';
 
 // --- Types ---
 
@@ -40,7 +41,7 @@ export interface SettingsExtractionResult {
   team_count: number | null;
   scoring_type: string | null;
   scoring_values: Record<string, number> | null;
-  roster_positions: Array<{ position: string; count: number }> | null;
+  roster_positions: { position: string; count: number }[] | null;
 }
 
 export interface HistoryTeam {
@@ -60,11 +61,11 @@ export interface HistoryExtractionResult {
 
 export interface ScreenshotTeamData {
   team_name: string;
-  players: Array<{
+  players: {
     player_id: string;
     position: string;
     roster_slot: string | null;
-  }>;
+  }[];
 }
 
 export interface ScreenshotImportResult {
@@ -210,7 +211,7 @@ export function useScreenshotImport() {
 
 export interface SearchOrCreateResult {
   created: boolean;
-  players: Array<{ id: string; name: string; pro_team: string | null; position: string | null }>;
+  players: { id: string; name: string; pro_team: string | null; position: string | null }[];
 }
 
 export function useSearchOrCreatePlayer() {

@@ -1,4 +1,5 @@
 import PostHog from "posthog-react-native";
+
 import { isExpoGo } from "@/utils/buildConfig";
 
 export const posthog = new PostHog(

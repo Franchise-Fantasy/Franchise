@@ -1,9 +1,10 @@
+import { useState } from 'react';
+import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { generateDefaultOdds, normalizeOdds } from '@/utils/lottery';
-import { useState } from 'react';
-import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { ms, s } from '@/utils/scale';
 
 interface LotteryOddsEditorProps {

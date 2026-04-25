@@ -1,5 +1,7 @@
-import { useAuthInitialized, useSession } from '@/context/AuthProvider';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+
+import { useAuthInitialized, useSession } from '@/context/AuthProvider';
+
 import { supabase } from '../lib/supabase';
 
 interface AppState {

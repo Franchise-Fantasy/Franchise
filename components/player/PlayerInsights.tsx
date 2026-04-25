@@ -1,4 +1,8 @@
-import { ms, s } from "@/utils/scale";
+import { Ionicons } from "@expo/vector-icons";
+import { useMemo, useState } from "react";
+import { Pressable, StyleSheet, TouchableOpacity, View } from "react-native";
+
+import { InfoModal } from "@/components/ui/InfoModal";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors, cardShadow } from "@/constants/Colors";
 import { TREND_COLORS } from "@/constants/StatusColors";
@@ -17,10 +21,7 @@ import {
   SplitComparison,
   TrendDirection,
 } from "@/utils/playerInsights";
-import { Ionicons } from "@expo/vector-icons";
-import { useMemo, useState } from "react";
-import { Pressable, StyleSheet, TouchableOpacity, View } from "react-native";
-import { InfoModal } from "@/components/ui/InfoModal";
+import { ms, s } from "@/utils/scale";
 
 interface Props {
   games: PlayerGameLog[] | undefined;

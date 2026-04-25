@@ -1,20 +1,21 @@
-import { ByTeamTab } from '@/components/draft-hub/ByTeamTab';
-import { ByYearTab } from '@/components/draft-hub/ByYearTab';
-import { ProspectsTab } from '@/components/draft-hub/ProspectsTab';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
-import { ThemedText } from '@/components/ui/ThemedText';
-import { SegmentedControl } from '@/components/ui/SegmentedControl';
-import { PageHeader } from '@/components/ui/PageHeader';
-import { Colors } from '@/constants/Colors';
-import { useAppState } from '@/context/AppStateProvider';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { ms, s } from '@/utils/scale';
-import { useDraftHub } from '@/hooks/useDraftHub';
-import { useLeague } from '@/hooks/useLeague';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { ByTeamTab } from '@/components/draft-hub/ByTeamTab';
+import { ByYearTab } from '@/components/draft-hub/ByYearTab';
+import { ProspectsTab } from '@/components/draft-hub/ProspectsTab';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { SegmentedControl } from '@/components/ui/SegmentedControl';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { useAppState } from '@/context/AppStateProvider';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { useDraftHub } from '@/hooks/useDraftHub';
+import { useLeague } from '@/hooks/useLeague';
+import { ms, s } from '@/utils/scale';
 
 const TABS = ['By Year', 'By Team', 'Prospects'] as const;
 

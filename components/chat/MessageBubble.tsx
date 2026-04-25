@@ -1,20 +1,8 @@
-import { PollBubble } from "@/components/chat/PollBubble";
-import { RumorBubble } from "@/components/chat/RumorBubble";
-import { SurveyBubble } from "@/components/chat/SurveyBubble";
-import { TradeBubble } from "@/components/chat/TradeBubble";
-import { TradeUpdateBubble } from "@/components/chat/TradeUpdateBubble";
-import type { TradeUpdateContent, TradeUpdateEvent } from "@/types/chat";
-import { TeamLogo } from "@/components/team/TeamLogo";
-import { ThemedText } from "@/components/ui/ThemedText";
-import { Colors } from "@/constants/Colors";
-import { useColorScheme } from "@/hooks/useColorScheme";
-import type { ChatMessage, ReactionGroup } from "@/types/chat";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import { useEffect, useMemo } from "react";
 import { StyleSheet, TouchableOpacity, View } from "react-native";
-import { ms, s } from "@/utils/scale";
 import Animated, {
   FadeInUp,
   ZoomIn,
@@ -24,6 +12,19 @@ import Animated, {
   withSpring,
   type SharedValue,
 } from "react-native-reanimated";
+
+import { PollBubble } from "@/components/chat/PollBubble";
+import { RumorBubble } from "@/components/chat/RumorBubble";
+import { SurveyBubble } from "@/components/chat/SurveyBubble";
+import { TradeBubble } from "@/components/chat/TradeBubble";
+import { TradeUpdateBubble } from "@/components/chat/TradeUpdateBubble";
+import { TeamLogo } from "@/components/team/TeamLogo";
+import { ThemedText } from "@/components/ui/ThemedText";
+import { Colors } from "@/constants/Colors";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import type { TradeUpdateContent, TradeUpdateEvent , ChatMessage, ReactionGroup } from "@/types/chat";
+import { ms, s } from "@/utils/scale";
+
 
 function formatTime(dateStr: string): string {
   const d = new Date(dateStr);

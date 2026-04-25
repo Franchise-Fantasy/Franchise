@@ -1,7 +1,8 @@
+import { useQuery } from '@tanstack/react-query';
+
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
-import { useQuery } from '@tanstack/react-query';
 
 export interface DraftHubPick {
   id: string;

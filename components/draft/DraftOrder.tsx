@@ -1,15 +1,7 @@
-import { Colors } from "@/constants/Colors";
-import { queryKeys } from "@/constants/queryKeys";
-import { useColorScheme } from "@/hooks/useColorScheme";
-import { useDraftTimer } from "@/hooks/useDraftTimer";
-import { supabase } from "@/lib/supabase";
-import { DraftState, Pick } from "@/types/draft";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, StyleSheet, View } from "react-native";
-import { LogoSpinner } from "@/components/ui/LogoSpinner";
-import { ms, s } from "@/utils/scale";
 import Animated, {
   runOnJS,
   scrollTo,
@@ -22,6 +14,17 @@ import Animated, {
   withSpring,
   withTiming,
 } from "react-native-reanimated";
+
+import { LogoSpinner } from "@/components/ui/LogoSpinner";
+import { Colors } from "@/constants/Colors";
+import { queryKeys } from "@/constants/queryKeys";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import { useDraftTimer } from "@/hooks/useDraftTimer";
+import { supabase } from "@/lib/supabase";
+import { DraftState, Pick } from "@/types/draft";
+import { ms, s } from "@/utils/scale";
+
+
 import { ThemedText } from "../ui/ThemedText";
 import { ThemedView } from "../ui/ThemedView";
 

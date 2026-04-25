@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
+
 import { Colors, SPORT_THEMES } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
+import { useColorScheme } from '@/hooks/useColorScheme';
 
 /**
  * Returns the active palette for the current color scheme + active league

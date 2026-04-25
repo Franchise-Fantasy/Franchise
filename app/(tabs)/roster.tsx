@@ -1,62 +1,5 @@
-import { capture } from "@/lib/posthog";
-import { ErrorState } from "@/components/ui/ErrorState";
-import { LogoSpinner } from "@/components/ui/LogoSpinner";
-import { FptsBreakdownModal } from "@/components/player/FptsBreakdownModal";
-import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
-import {
-  DestinationSlot,
-  QuickAction,
-  RosterPlayer,
-  SlotEntry,
-  SlotPickerModal,
-} from "@/components/roster/SlotPickerModal";
-import { MyPicksSection } from "@/components/roster/MyPicksSection";
-import { useRosterShare } from "@/components/roster/useRosterShare";
-import { InfoModal } from "@/components/ui/InfoModal";
-import { ThemedText } from "@/components/ui/ThemedText";
-import { Colors } from "@/constants/Colors";
-import { useAppState } from "@/context/AppStateProvider";
-import { useToast } from "@/context/ToastProvider";
-import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
-import { useColorScheme } from "@/hooks/useColorScheme";
-import { useLeague } from "@/hooks/useLeague";
-import { useLeagueRosterConfig } from "@/hooks/useLeagueRosterConfig";
-import { useLeagueScoring } from "@/hooks/useLeagueScoring";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
-import { supabase } from "@/lib/supabase";
-import { PlayerSeasonStats } from "@/types/player";
-import { LineupPlayer, optimizeLineup } from "@/utils/autoLineup";
-import { fetchTeamSlots } from "@/utils/fetchTeamSlots";
-import { useRosterChanges } from "@/hooks/useRosterChanges";
-import { addDays, formatDayLabel, toDateStr, useToday } from "@/utils/dates";
-import {
-  calculateAvgFantasyPoints,
-  calculateGameFantasyPoints,
-  formatScore,
-} from "@/utils/fantasyPoints";
-import { formatPosition } from "@/utils/formatting";
-import { hasAnyGameStarted, isGameStarted, useTodayGameTimes } from "@/utils/gameStarted";
-import { getInjuryBadge } from "@/utils/injuryBadge";
-import { isIrEligibleStatus } from "@/utils/illegalIR";
-import { useIllegalIR } from "@/hooks/useIllegalIR";
-import {
-  formatGameInfo,
-  liveToGameLog,
-  useLivePlayerStats,
-} from "@/utils/nbaLive";
-import {
-  fetchNbaScheduleForDate,
-  formatGameTime,
-  ScheduleEntry,
-} from "@/utils/nbaSchedule";
-import { buildCompositeScatter } from "@/utils/categoryAnalytics";
-import { isOnline } from "@/utils/network";
-import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
-import { isEligibleForSlot, slotLabel } from "@/utils/rosterSlots";
-import { ms, s } from "@/utils/scale";
-import { isTaxiEligible } from "@/utils/taxiEligibility";
-import { queryKeys } from "@/constants/queryKeys";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   keepPreviousData,
   useQuery,
@@ -77,8 +20,67 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import type { PlayerGameLog } from "@/types/player";
 import { SafeAreaView } from "react-native-safe-area-context";
+
+import { FptsBreakdownModal } from "@/components/player/FptsBreakdownModal";
+import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
+import { MyPicksSection } from "@/components/roster/MyPicksSection";
+import {
+  DestinationSlot,
+  QuickAction,
+  RosterPlayer,
+  SlotEntry,
+  SlotPickerModal,
+} from "@/components/roster/SlotPickerModal";
+import { useRosterShare } from "@/components/roster/useRosterShare";
+import { ErrorState } from "@/components/ui/ErrorState";
+import { InfoModal } from "@/components/ui/InfoModal";
+import { LogoSpinner } from "@/components/ui/LogoSpinner";
+import { ThemedText } from "@/components/ui/ThemedText";
+import { Colors } from "@/constants/Colors";
+import { queryKeys } from "@/constants/queryKeys";
+import { useAppState } from "@/context/AppStateProvider";
+import { useToast } from "@/context/ToastProvider";
+import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import { useIllegalIR } from "@/hooks/useIllegalIR";
+import { useLeague } from "@/hooks/useLeague";
+import { useLeagueRosterConfig } from "@/hooks/useLeagueRosterConfig";
+import { useLeagueScoring } from "@/hooks/useLeagueScoring";
+import { useRosterChanges } from "@/hooks/useRosterChanges";
+import { capture } from "@/lib/posthog";
+import { supabase } from "@/lib/supabase";
+import { PlayerSeasonStats } from "@/types/player";
+import type { PlayerGameLog } from "@/types/player";
+import { LineupPlayer, optimizeLineup } from "@/utils/autoLineup";
+import { buildCompositeScatter } from "@/utils/categoryAnalytics";
+import { addDays, formatDayLabel, toDateStr, useToday } from "@/utils/dates";
+import {
+  calculateAvgFantasyPoints,
+  calculateGameFantasyPoints,
+  formatScore,
+} from "@/utils/fantasyPoints";
+import { fetchTeamSlots } from "@/utils/fetchTeamSlots";
+import { formatPosition } from "@/utils/formatting";
+import { hasAnyGameStarted, isGameStarted, useTodayGameTimes } from "@/utils/gameStarted";
+import { isIrEligibleStatus } from "@/utils/illegalIR";
+import { getInjuryBadge } from "@/utils/injuryBadge";
+import {
+  formatGameInfo,
+  liveToGameLog,
+  useLivePlayerStats,
+} from "@/utils/nbaLive";
+import {
+  fetchNbaScheduleForDate,
+  formatGameTime,
+  ScheduleEntry,
+} from "@/utils/nbaSchedule";
+import { isOnline } from "@/utils/network";
+import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
+import { isEligibleForSlot, slotLabel } from "@/utils/rosterSlots";
+import { ms, s } from "@/utils/scale";
+import { isTaxiEligible } from "@/utils/taxiEligibility";
+
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

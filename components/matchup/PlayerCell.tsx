@@ -1,4 +1,15 @@
+import React, { useEffect, useRef } from "react";
+import {
+  Animated,
+  Image,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+
 import { Colors } from "@/constants/Colors";
+import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { ScoringWeight } from "@/types/player";
 import { calculateGameFantasyPoints, formatScore } from "@/utils/fantasyPoints";
@@ -11,16 +22,7 @@ import {
 import { formatGameTime, ScheduleEntry } from "@/utils/nbaSchedule";
 import { getPlayerHeadshotUrl } from "@/utils/playerHeadshot";
 import { ms, s } from "@/utils/scale";
-import React, { useEffect, useRef } from "react";
-import {
-  Animated,
-  Image,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
-import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
+
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

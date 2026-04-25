@@ -1,13 +1,3 @@
-import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { ms, s } from '@/utils/scale';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { useLeagueScoring } from '@/hooks/useLeagueScoring';
-import { TradeRosterPlayer, useTeamRosterForTrade } from '@/hooks/useTeamRosterForTrade';
-import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
-import { formatPosition } from '@/utils/formatting';
-import { getInjuryBadge } from '@/utils/injuryBadge';
-import { getPlayerHeadshotUrl, getTeamLogoUrl } from '@/utils/playerHeadshot';
 import { useState } from 'react';
 import {
   FlatList,
@@ -18,8 +8,19 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { useLeagueScoring } from '@/hooks/useLeagueScoring';
+import { TradeRosterPlayer, useTeamRosterForTrade } from '@/hooks/useTeamRosterForTrade';
+import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
+import { formatPosition } from '@/utils/formatting';
+import { getInjuryBadge } from '@/utils/injuryBadge';
+import { getPlayerHeadshotUrl, getTeamLogoUrl } from '@/utils/playerHeadshot';
+import { ms, s } from '@/utils/scale';
 
 interface TradePlayerPickerProps {
   teamId: string;

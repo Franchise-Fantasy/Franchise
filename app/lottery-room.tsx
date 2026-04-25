@@ -1,14 +1,4 @@
-import { IconSymbol } from '@/components/ui/IconSymbol';
-import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors, Fonts } from '@/constants/Colors';
-import { useAppState } from '@/context/AppStateProvider';
-import { useSession } from '@/context/AuthProvider';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { useLeague } from '@/hooks/useLeague';
-import { supabase } from '@/lib/supabase';
-import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
-import { queryKeys } from '@/constants/queryKeys';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -19,8 +9,22 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { IconSymbol } from '@/components/ui/IconSymbol';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors, Fonts } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
+import { useAppState } from '@/context/AppStateProvider';
+import { useSession } from '@/context/AuthProvider';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { useLeague } from '@/hooks/useLeague';
+import { supabase } from '@/lib/supabase';
+import { ms, s } from '@/utils/scale';
+
+
+
 
 interface LotteryEntry {
   team_id: string;

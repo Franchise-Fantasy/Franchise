@@ -1,8 +1,9 @@
+import { useQuery } from '@tanstack/react-query';
+
 import { queryKeys } from '@/constants/queryKeys';
+import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats } from '@/types/player';
-import { useQuery } from '@tanstack/react-query';
-import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 
 export function usePlayerSeasonStats(excludePlayerIds?: string[]) {
   const sport = useActiveLeagueSport();

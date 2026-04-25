@@ -1,6 +1,6 @@
+import { Image } from 'expo-image';
 import { useEffect, useRef, type ReactNode } from 'react';
 import { Animated, StyleSheet, TouchableOpacity, View } from 'react-native';
-import { Image } from 'expo-image';
 
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { ThemedText } from '@/components/ui/ThemedText';

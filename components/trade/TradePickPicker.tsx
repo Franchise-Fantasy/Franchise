@@ -1,10 +1,3 @@
-import { ThemedText } from '@/components/ui/ThemedText';
-import { NumberStepper } from '@/components/ui/NumberStepper';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { useTeamTradablePicks } from '@/hooks/useTrades';
-import { formatPickLabel } from '@/types/trade';
-import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import {
@@ -13,7 +6,17 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { NumberStepper } from '@/components/ui/NumberStepper';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { useTeamTradablePicks } from '@/hooks/useTrades';
+import { formatPickLabel } from '@/types/trade';
+import { ms, s } from '@/utils/scale';
+
+
 
 export interface TradablePickRow {
   id: string;

@@ -1,13 +1,4 @@
-import { ThemedText } from '@/components/ui/ThemedText';
-import { ms, s } from "@/utils/scale";
-import { ThemedView } from '@/components/ui/ThemedView';
-import { Colors } from '@/constants/Colors';
-import { useAppState } from '@/context/AppStateProvider';
-import { useToast } from '@/context/ToastProvider';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
-import { queryKeys } from '@/constants/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -19,8 +10,18 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { ThemedView } from '@/components/ui/ThemedView';
+import { Colors } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
+import { useAppState } from '@/context/AppStateProvider';
+import { useToast } from '@/context/ToastProvider';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { supabase } from '@/lib/supabase';
+import { ms, s } from "@/utils/scale";
 
 interface UnclaimedTeam {
   id: string;

@@ -1,12 +1,15 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useQueryClient } from '@tanstack/react-query';
+import * as Clipboard from 'expo-clipboard';
+import { Alert, Share, StyleSheet, TouchableOpacity, View } from 'react-native';
+
 import { Colors, cardShadow } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { generateInviteCode } from '@/utils/inviteCode';
-import { Ionicons } from '@expo/vector-icons';
-import * as Clipboard from 'expo-clipboard';
-import { useQueryClient } from '@tanstack/react-query';
 import { ms, s } from '@/utils/scale';
-import { Alert, Share, StyleSheet, TouchableOpacity, View } from 'react-native';
+
+
 import { ThemedText } from '../ui/ThemedText';
 import { ThemedView } from '../ui/ThemedView';
 

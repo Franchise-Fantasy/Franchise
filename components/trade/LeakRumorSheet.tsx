@@ -1,20 +1,22 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useState } from 'react';
+import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+
 import { RumorBubble } from '@/components/chat/RumorBubble';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useToast } from '@/context/ToastProvider';
 import { RUMOR_TEMPLATES, useLeakRumor } from '@/hooks/chat/useLeakRumor';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
-import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
-import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
+
 
 interface LeakRumorSheetProps {
   proposalId: string;
   leagueId: string;
   teamId: string;
-  players: Array<{ id: string; name: string; position: string }>;
+  players: { id: string; name: string; position: string }[];
   onDone: () => void;
 }
 

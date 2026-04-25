@@ -1,4 +1,5 @@
 import { Alert } from "react-native";
+
 import { supabase } from "@/lib/supabase";
 
 // Injury statuses that allow a player to remain on IR.

@@ -1,10 +1,12 @@
+import { Ionicons } from '@expo/vector-icons';
+import { StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
+
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { SurveyAnswerValue, SurveyQuestion } from '@/types/survey';
 import { ms, s } from '@/utils/scale';
-import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
+
 import { RankedChoiceInput } from './RankedChoiceInput';
 
 interface Props {

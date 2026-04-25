@@ -1,7 +1,8 @@
+import { StyleSheet, Text, View } from 'react-native';
+
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
-import { StyleSheet, Text, View } from 'react-native';
 
 interface DynastyScoreBadgeProps {
   score: number;

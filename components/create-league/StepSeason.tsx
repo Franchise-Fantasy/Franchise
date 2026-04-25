@@ -1,12 +1,19 @@
+import DateTimePicker, {
+  DateTimePickerAndroid,
+  DateTimePickerEvent,
+} from '@react-native-community/datetimepicker';
+import { useState } from 'react';
+import { Modal, Platform, Pressable, StyleSheet, TouchableOpacity, View } from 'react-native';
+
 import { AnimatedSection } from '@/components/ui/AnimatedSection';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { BrandTextInput } from '@/components/ui/BrandTextInput';
 import { FieldGroup } from '@/components/ui/FieldGroup';
 import { FormSection } from '@/components/ui/FormSection';
-import { Section } from '@/components/ui/Section';
-import { ThemedText } from '@/components/ui/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
+import { Section } from '@/components/ui/Section';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import {
   CURRENT_NBA_SEASON,
@@ -18,12 +25,6 @@ import {
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { calcLotteryPoolSize, getPlayoffTeamOptions } from '@/utils/lottery';
 import { ms, s } from '@/utils/scale';
-import DateTimePicker, {
-  DateTimePickerAndroid,
-  DateTimePickerEvent,
-} from '@react-native-community/datetimepicker';
-import { useState } from 'react';
-import { Modal, Platform, Pressable, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 interface StepSeasonProps {
   state: LeagueWizardState;

@@ -1,12 +1,13 @@
-import { IconSymbol } from "@/components/ui/IconSymbol";
-import { ThemedText } from "@/components/ui/ThemedText";
-import { ms, s } from "@/utils/scale";
-import { Colors, Fonts } from "@/constants/Colors";
-import { useColorScheme } from "@/hooks/useColorScheme";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+
+import { IconSymbol } from "@/components/ui/IconSymbol";
+import { ThemedText } from "@/components/ui/ThemedText";
+import { Colors, Fonts } from "@/constants/Colors";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import { ms, s } from "@/utils/scale";
 
 const TERMS_OF_SERVICE = `Last updated: April 2026
 

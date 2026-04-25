@@ -1,27 +1,6 @@
-import { PlayerDetailModal } from '@/components/player/PlayerDetailModal';
-import { ProposeTradeModal } from '@/components/trade/ProposeTradeModal';
-import { ThemedText } from '@/components/ui/ThemedText';
-import { PageHeader } from '@/components/ui/PageHeader';
-import { Colors } from '@/constants/Colors';
-import { useAppState } from '@/context/AppStateProvider';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { ms, s } from '@/utils/scale';
-import { useLeagueRosterConfig, RosterConfigSlot } from '@/hooks/useLeagueRosterConfig';
-import { useLeagueScoring } from '@/hooks/useLeagueScoring';
-import { supabase } from '@/lib/supabase';
-import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
-import { toDateStr } from '@/utils/dates';
-import { fetchTeamSlots } from '@/utils/fetchTeamSlots';
-import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
-import { formatPosition } from '@/utils/formatting';
-import { getInjuryBadge } from '@/utils/injuryBadge';
-import { slotLabel } from '@/utils/rosterSlots';
-import { queryKeys } from '@/constants/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { getPlayerHeadshotUrl, getTeamLogoUrl } from '@/utils/playerHeadshot';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import {
   Image,
   ScrollView,
@@ -31,7 +10,29 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { PlayerDetailModal } from '@/components/player/PlayerDetailModal';
+import { ProposeTradeModal } from '@/components/trade/ProposeTradeModal';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
+import { useAppState } from '@/context/AppStateProvider';
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { useLeagueRosterConfig, RosterConfigSlot } from '@/hooks/useLeagueRosterConfig';
+import { useLeagueScoring } from '@/hooks/useLeagueScoring';
+import { supabase } from '@/lib/supabase';
+import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
+import { toDateStr } from '@/utils/dates';
+import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
+import { fetchTeamSlots } from '@/utils/fetchTeamSlots';
+import { formatPosition } from '@/utils/formatting';
+import { getInjuryBadge } from '@/utils/injuryBadge';
+import { getPlayerHeadshotUrl, getTeamLogoUrl } from '@/utils/playerHeadshot';
+import { slotLabel } from '@/utils/rosterSlots';
+import { ms, s } from '@/utils/scale';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

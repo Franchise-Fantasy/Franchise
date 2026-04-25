@@ -1,6 +1,7 @@
+import { StyleSheet, View } from "react-native";
+
 import { ThemedText } from "@/components/ui/ThemedText";
 import { ms, s } from "@/utils/scale";
-import { StyleSheet, View } from "react-native";
 
 interface HistoricalStat {
   season: string;

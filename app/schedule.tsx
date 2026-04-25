@@ -1,20 +1,6 @@
-import { Badge } from '@/components/ui/Badge';
-import { ListRow } from '@/components/ui/ListRow';
-import { ThemedText } from '@/components/ui/ThemedText';
-import { PageHeader } from '@/components/ui/PageHeader';
-import { Brand, Colors } from '@/constants/Colors';
-import { useAppState } from '@/context/AppStateProvider';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { useLeague } from '@/hooks/useLeague';
-import { supabase } from '@/lib/supabase';
-import { toDateStr, parseLocalDate } from '@/utils/dates';
-import { formatScore } from '@/utils/fantasyPoints';
-import { calcRounds } from '@/utils/playoff';
-import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
-import { queryKeys } from '@/constants/queryKeys';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRouter } from 'expo-router';
+import { useRouter , useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
@@ -23,9 +9,26 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from 'expo-router';
+
+import { Badge } from '@/components/ui/Badge';
+import { ListRow } from '@/components/ui/ListRow';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Brand, Colors } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
+import { useAppState } from '@/context/AppStateProvider';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { useLeague } from '@/hooks/useLeague';
+import { supabase } from '@/lib/supabase';
+import { toDateStr, parseLocalDate } from '@/utils/dates';
+import { formatScore } from '@/utils/fantasyPoints';
+import { calcRounds } from '@/utils/playoff';
+import { ms, s } from '@/utils/scale';
+
+
+
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

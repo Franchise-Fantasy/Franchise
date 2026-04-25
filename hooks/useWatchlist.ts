@@ -1,8 +1,9 @@
-import { queryKeys } from '@/constants/queryKeys';
-import { supabase } from '@/lib/supabase';
-import { useSession } from '@/context/AuthProvider';
-import { useCallback, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useMemo } from 'react';
+
+import { queryKeys } from '@/constants/queryKeys';
+import { useSession } from '@/context/AuthProvider';
+import { supabase } from '@/lib/supabase';
 
 export function useWatchlist() {
   const session = useSession();

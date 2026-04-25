@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createClient } from "@supabase/supabase-js";
 import { Platform } from "react-native";
+
 import { Database } from "../types/database.types";
 
 // Check if we are running in a 'browser' or 'mobile' environment

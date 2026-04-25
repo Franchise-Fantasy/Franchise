@@ -1,8 +1,3 @@
-import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { TradeBlockPlayer, TradeBlockTeamGroup, useToggleTradeBlockInterest } from '@/hooks/useTrades';
-import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -16,6 +11,12 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { TradeBlockPlayer, TradeBlockTeamGroup, useToggleTradeBlockInterest } from '@/hooks/useTrades';
+import { ms, s } from '@/utils/scale';
 
 interface TradeBlockSheetProps {
   visible: boolean;

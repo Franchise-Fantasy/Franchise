@@ -1,8 +1,3 @@
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { ms, s } from '@/utils/scale';
-import { ScoringWeight } from '@/types/player';
-import { getFantasyPointsBreakdown, formatScore } from '@/utils/fantasyPoints';
 import {
   Modal,
   ScrollView,
@@ -11,6 +6,12 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { ScoringWeight } from '@/types/player';
+import { getFantasyPointsBreakdown, formatScore } from '@/utils/fantasyPoints';
+import { ms, s } from '@/utils/scale';
 
 interface FptsBreakdownModalProps {
   visible: boolean;

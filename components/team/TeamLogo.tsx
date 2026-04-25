@@ -1,6 +1,7 @@
+import { Image, View, StyleSheet, Text } from 'react-native';
+
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { Image, View, StyleSheet, Text } from 'react-native';
 
 interface TeamLogoProps {
   /** URL to a remote logo image, or null/undefined for initials fallback */

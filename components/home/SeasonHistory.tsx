@@ -1,11 +1,12 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useQuery } from '@tanstack/react-query';
+import { StyleSheet, View } from 'react-native';
+
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors, cardShadow } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
-import { Ionicons } from '@expo/vector-icons';
-import { useQuery } from '@tanstack/react-query';
-import { StyleSheet, View } from 'react-native';
 import { ms, s } from '@/utils/scale';
 
 interface SeasonHistoryProps {

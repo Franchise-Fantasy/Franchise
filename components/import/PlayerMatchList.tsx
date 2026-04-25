@@ -1,3 +1,13 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useCallback, useState } from 'react';
+import {
+  FlatList,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+
 import { Badge } from '@/components/ui/Badge';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { BrandTextInput } from '@/components/ui/BrandTextInput';
@@ -8,16 +18,8 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { SleeperPlayerMatch, SleeperUnmatched } from '@/hooks/useImportSleeper';
 import { supabase } from '@/lib/supabase';
-import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useState } from 'react';
 import { ms, s } from '@/utils/scale';
-import {
-  FlatList,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+
 
 interface PlayerMatchListProps {
   matched: SleeperPlayerMatch[];
@@ -136,7 +138,7 @@ function UnmatchedRow({
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<
-    Array<{ id: string; name: string; pro_team: string | null; position: string | null }>
+    { id: string; name: string; pro_team: string | null; position: string | null }[]
   >([]);
   const [loading, setLoading] = useState(false);
   const [resolved, setResolved] = useState(false);

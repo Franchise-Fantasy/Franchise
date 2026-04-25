@@ -1,18 +1,3 @@
-import { AnnouncementBanner } from '@/components/cms/AnnouncementBanner';
-import { ms, s } from "@/utils/scale";
-import { ArticleCard } from '@/components/cms/ArticleCard';
-import { PollCard } from '@/components/cms/PollCard';
-import { RichTextRenderer } from '@/components/cms/RichTextRenderer';
-import { SpotlightCard } from '@/components/cms/SpotlightCard';
-import { TipCard } from '@/components/cms/TipCard';
-import { ThemedText } from '@/components/ui/ThemedText';
-import { PageHeader } from '@/components/ui/PageHeader';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { contentful } from '@/lib/contentful';
-import { mapEntry } from '@/lib/cms-mappers';
-import type { CmsMappedEntry } from '@/types/cms';
-import { queryKeys } from '@/constants/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
@@ -25,8 +10,24 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { AnnouncementBanner } from '@/components/cms/AnnouncementBanner';
+import { ArticleCard } from '@/components/cms/ArticleCard';
+import { PollCard } from '@/components/cms/PollCard';
+import { RichTextRenderer } from '@/components/cms/RichTextRenderer';
+import { SpotlightCard } from '@/components/cms/SpotlightCard';
+import { TipCard } from '@/components/cms/TipCard';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { mapEntry } from '@/lib/cms-mappers';
+import { contentful } from '@/lib/contentful';
+import type { CmsMappedEntry } from '@/types/cms';
+import { ms, s } from "@/utils/scale";
 
 export default function CmsTestScreen() {
   const scheme = useColorScheme() ?? 'light';

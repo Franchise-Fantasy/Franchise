@@ -1,4 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
+
 import { adminClient } from './clients';
 import { BOT_COUNT, BOT_EMAIL, BOT_PASSWORD, BOT_TEAM_NAME } from './config';
 
@@ -8,13 +9,13 @@ const LIFECYCLE_SEASON = '2026-27';
 
 // Four test teams, seeded so teams 1-2 make the playoffs (best records) and
 // teams 3-4 miss them (worst records → Dynasty lottery pool).
-export const LIFECYCLE_STANDINGS: Array<{
+export const LIFECYCLE_STANDINGS: {
   botIndex: number;
   wins: number;
   losses: number;
   points_for: number;
   points_against: number;
-}> = [
+}[] = [
   { botIndex: 1, wins: 4, losses: 0, points_for: 520, points_against: 410 },
   { botIndex: 2, wins: 3, losses: 1, points_for: 490, points_against: 430 },
   { botIndex: 3, wins: 1, losses: 3, points_for: 420, points_against: 470 },
@@ -29,7 +30,7 @@ export interface LifecycleBootstrap {
   commissionerUserId: string;
   type: LeagueType;
   // Teams sorted ascending by botIndex (team for bot1 first, etc.)
-  teams: Array<{ id: string; name: string; userId: string; botIndex: number }>;
+  teams: { id: string; name: string; userId: string; botIndex: number }[];
   // Deterministic canonical player IDs, 2 per team, in the same order as `teams`.
   canonicalPlayerIds: string[][];
 }
@@ -67,7 +68,7 @@ async function ensureBot(admin: SupabaseClient, email: string): Promise<string> 
 async function pickLifecyclePlayers(
   admin: SupabaseClient,
   count: number,
-): Promise<Array<{ id: string; position: string }>> {
+): Promise<{ id: string; position: string }[]> {
   const today = new Date().toISOString().slice(0, 10);
   const { data: live } = await admin
     .from('live_player_stats')

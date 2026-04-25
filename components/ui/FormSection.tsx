@@ -2,6 +2,7 @@ import { ReactNode } from 'react';
 import { StyleSheet } from 'react-native';
 
 import { s } from '@/utils/scale';
+
 import { Section } from './Section';
 
 interface FormSectionProps {

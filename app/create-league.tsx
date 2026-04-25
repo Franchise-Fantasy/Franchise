@@ -1,5 +1,20 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useRouter } from "expo-router";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import {
+  Alert,
+  KeyboardAvoidingView,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
+
 import { StepBasics } from "@/components/create-league/StepBasics";
-import { ms, s } from "@/utils/scale";
 import { StepDraft } from "@/components/create-league/StepDraft";
 import { StepReview } from "@/components/create-league/StepReview";
 import { StepRoster } from "@/components/create-league/StepRoster";
@@ -8,8 +23,8 @@ import { StepSeason, computeMaxWeeks, computeSeasonStart } from "@/components/cr
 import { StepTrade } from "@/components/create-league/StepTrade";
 import { StepWaivers } from "@/components/create-league/StepWaivers";
 import { BrandButton } from "@/components/ui/BrandButton";
-import { ThemedView } from "@/components/ui/ThemedView";
 import { StepIndicator } from "@/components/ui/StepIndicator";
+import { ThemedView } from "@/components/ui/ThemedView";
 import { Colors } from "@/constants/Colors";
 import {
   CURRENT_NBA_SEASON,
@@ -28,28 +43,14 @@ import {
   STEP_LABELS,
   TIEBREAKER_TO_DB,
 } from "@/constants/LeagueDefaults";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import { generateDraftPicks, generateFutureDraftPicks } from "@/lib/draft";
+import { capture } from "@/lib/posthog";
+import { supabase } from "@/lib/supabase";
 import { calcLotteryPoolSize, defaultPlayoffTeams, getPlayoffTeamOptions } from "@/utils/lottery";
 import { containsBlockedContent } from "@/utils/moderation";
 import { sanitizeHandle } from "@/utils/paymentLinks";
-import { useColorScheme } from "@/hooks/useColorScheme";
-import { generateDraftPicks, generateFutureDraftPicks } from "@/lib/draft";
-import { supabase } from "@/lib/supabase";
-import { capture } from "@/lib/posthog";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useRouter } from "expo-router";
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import {
-  Alert,
-  KeyboardAvoidingView,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
+import { ms, s } from "@/utils/scale";
 
 // --- Reducer ---
 

@@ -1,9 +1,3 @@
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
-import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { useLeague } from '@/hooks/useLeague';
-import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import {
   FlatList,
@@ -13,6 +7,13 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { useLeague } from '@/hooks/useLeague';
+import { ms, s } from '@/utils/scale';
 
 interface Props {
   visible: boolean;

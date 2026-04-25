@@ -1,16 +1,3 @@
-import { Badge } from '@/components/ui/Badge';
-import { BrandButton } from '@/components/ui/BrandButton';
-import { BrandTextInput } from '@/components/ui/BrandTextInput';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
-import { Section } from '@/components/ui/Section';
-import { SegmentedControl } from '@/components/ui/SegmentedControl';
-import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { ms, s } from '@/utils/scale';
-import type { ScreenshotPlayerMatch, ScreenshotUnmatched } from '@/hooks/useImportScreenshot';
-import { useSearchOrCreatePlayer } from '@/hooks/useImportScreenshot';
-import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useState } from 'react';
 import {
@@ -20,6 +7,20 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
+import { Badge } from '@/components/ui/Badge';
+import { BrandButton } from '@/components/ui/BrandButton';
+import { BrandTextInput } from '@/components/ui/BrandTextInput';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { Section } from '@/components/ui/Section';
+import { SegmentedControl } from '@/components/ui/SegmentedControl';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import type { ScreenshotPlayerMatch, ScreenshotUnmatched } from '@/hooks/useImportScreenshot';
+import { useSearchOrCreatePlayer } from '@/hooks/useImportScreenshot';
+import { supabase } from '@/lib/supabase';
+import { ms, s } from '@/utils/scale';
 
 interface TeamRosterReviewProps {
   teamName: string;
@@ -145,7 +146,7 @@ function UnmatchedRow({
   const [addName, setAddName] = useState('');
   const [addPosition, setAddPosition] = useState<string>(player.position ?? 'PG');
   const [results, setResults] = useState<
-    Array<{ id: string; name: string; pro_team: string | null; position: string | null }>
+    { id: string; name: string; pro_team: string | null; position: string | null }[]
   >([]);
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);

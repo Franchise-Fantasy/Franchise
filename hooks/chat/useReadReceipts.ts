@@ -1,6 +1,7 @@
-import { supabase } from '@/lib/supabase';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
+
+import { supabase } from '@/lib/supabase';
 
 export interface ReadReceipt {
   team_id: string;

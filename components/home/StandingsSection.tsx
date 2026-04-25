@@ -1,16 +1,18 @@
-import { supabase } from '@/lib/supabase';
-import { Colors, cardShadow } from '@/constants/Colors';
-import { queryKeys } from '@/constants/queryKeys';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { useAppState } from '@/context/AppStateProvider';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
+
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { Colors, cardShadow } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
+import { useAppState } from '@/context/AppStateProvider';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { supabase } from '@/lib/supabase';
 import { ms, s } from '@/utils/scale';
-import { ThemedText } from '../ui/ThemedText';
+
 import { TeamLogo } from '../team/TeamLogo';
+import { ThemedText } from '../ui/ThemedText';
 
 interface TeamStanding {
   id: string;

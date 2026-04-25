@@ -1,6 +1,7 @@
+import { useQuery } from '@tanstack/react-query';
+
 import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
-import { useQuery } from '@tanstack/react-query';
 
 export interface PlayerHistoryEvent {
   id: string;

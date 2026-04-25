@@ -1,15 +1,3 @@
-import { capture } from '@/lib/posthog';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
-import { SegmentedControl } from '@/components/ui/SegmentedControl';
-import { ThemedText } from '@/components/ui/ThemedText';
-import { ToggleRow } from '@/components/ToggleRow';
-import { Colors } from '@/constants/Colors';
-import { useToast } from '@/context/ToastProvider';
-import { useCreateSurvey } from '@/hooks/chat/useSurveys';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { containsBlockedContent } from '@/utils/moderation';
-import { ms, s } from '@/utils/scale';
-import type { SurveyQuestionType } from '@/types/survey';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useState } from 'react';
@@ -25,6 +13,20 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
+import { ToggleRow } from '@/components/ToggleRow';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { SegmentedControl } from '@/components/ui/SegmentedControl';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { useToast } from '@/context/ToastProvider';
+import { useCreateSurvey } from '@/hooks/chat/useSurveys';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { capture } from '@/lib/posthog';
+import type { SurveyQuestionType } from '@/types/survey';
+import { containsBlockedContent } from '@/utils/moderation';
+import { ms, s } from '@/utils/scale';
+
 
 const PRESETS = [
   { label: '24 hours', hours: 24 },

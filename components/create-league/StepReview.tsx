@@ -1,13 +1,14 @@
 import React from 'react';
+import { StyleSheet, View } from 'react-native';
+
 import { BrandButton } from '@/components/ui/BrandButton';
 import { Section } from '@/components/ui/Section';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { LeagueWizardState, NBA_POSITIONS, SPORT_DISPLAY, WAIVER_DAY_LABELS } from '@/constants/LeagueDefaults';
-import { taxiExperienceLabel } from '@/utils/taxiEligibility';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { StyleSheet, View } from 'react-native';
 import { ms, s } from '@/utils/scale';
+import { taxiExperienceLabel } from '@/utils/taxiEligibility';
 
 interface StepReviewProps {
   state: LeagueWizardState;

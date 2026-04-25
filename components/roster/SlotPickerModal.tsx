@@ -1,14 +1,3 @@
-import { LogoSpinner } from "@/components/ui/LogoSpinner";
-import { ThemedText } from "@/components/ui/ThemedText";
-import { Colors } from "@/constants/Colors";
-import { useColorScheme } from "@/hooks/useColorScheme";
-import { PlayerSeasonStats } from "@/types/player";
-import { formatPosition } from "@/utils/formatting";
-import { getInjuryBadge } from "@/utils/injuryBadge";
-import { formatGameTime, ScheduleEntry } from "@/utils/nbaSchedule";
-import { getPlayerHeadshotUrl } from "@/utils/playerHeadshot";
-import { slotLabel } from "@/utils/rosterSlots";
-import { ms, s } from "@/utils/scale";
 import { useCallback, useMemo } from "react";
 import {
   Image,
@@ -19,7 +8,20 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+
+import { LogoSpinner } from "@/components/ui/LogoSpinner";
+import { ThemedText } from "@/components/ui/ThemedText";
+import { Colors } from "@/constants/Colors";
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import { PlayerSeasonStats } from "@/types/player";
+import { formatPosition } from "@/utils/formatting";
+import { getInjuryBadge } from "@/utils/injuryBadge";
+import { formatGameTime, ScheduleEntry } from "@/utils/nbaSchedule";
+import { getPlayerHeadshotUrl } from "@/utils/playerHeadshot";
+import { slotLabel } from "@/utils/rosterSlots";
+import { ms, s } from "@/utils/scale";
+
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

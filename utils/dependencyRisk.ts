@@ -14,9 +14,9 @@
  * distribution rather than hardcoded percentages.
  */
 
-import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
-import type { PlayerSeasonStats, ScoringWeight } from '@/types/player';
 import type { LeaguePlayerWithTeam } from '@/hooks/useLeagueRosterStats';
+import type { PlayerSeasonStats, ScoringWeight } from '@/types/player';
+import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
 
 export interface DependencyResult {
   teamId: string;

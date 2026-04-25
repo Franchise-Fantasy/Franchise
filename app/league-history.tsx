@@ -1,3 +1,7 @@
+import { useState } from 'react';
+import { ScrollView, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
 import { AllTimeRecords } from '@/components/league-history/AllTimeRecords';
 import { BracketHistory } from '@/components/league-history/BracketHistory';
 import { DraftBoard } from '@/components/league-history/DraftBoard';
@@ -14,9 +18,6 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { useBracketHistory, useDraftHistory, useHeadToHead, useSeasonStandings } from '@/hooks/useLeagueHistory';
 import { useTradeProposals } from '@/hooks/useTrades';
 import { s } from '@/utils/scale';
-import { useState } from 'react';
-import { ScrollView, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 // Segmented switcher lenses for the league history page. "Standings"
 // trims from "Standings History", "H2H" is the universal shorthand for

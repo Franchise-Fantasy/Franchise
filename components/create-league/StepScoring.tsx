@@ -1,12 +1,13 @@
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
+
 import { BrandButton } from '@/components/ui/BrandButton';
 import { FormSection } from '@/components/ui/FormSection';
-import { ThemedText } from '@/components/ui/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Brand, Colors, Fonts } from '@/constants/Colors';
 import { LeagueWizardState, SCORING_TYPE_OPTIONS, ScoringTypeOption } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { ms, s } from '@/utils/scale';
 
 interface StepScoringProps {

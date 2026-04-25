@@ -1,7 +1,8 @@
-import { ThemedText } from '@/components/ui/ThemedText';
-import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, Switch, View } from 'react-native';
+
+import { ThemedText } from '@/components/ui/ThemedText';
+import { ms, s } from '@/utils/scale';
 
 interface ToggleRowProps {
   icon: keyof typeof Ionicons.glyphMap;

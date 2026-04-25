@@ -1,23 +1,3 @@
-import { DropPickerSection } from '@/components/trade/DropPickerSection';
-import { LeakRumorSheet } from '@/components/trade/LeakRumorSheet';
-import { TradeActionBar } from '@/components/trade/TradeActionBar';
-import { TradeFairnessBar } from '@/components/trade/TradeFairnessBar';
-import { TradeSideSummary } from '@/components/trade/TradeSideSummary';
-import { TradeStatusTimeline } from '@/components/trade/TradeStatusTimeline';
-import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { queryKeys } from '@/constants/queryKeys';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { useLeagueScoring } from '@/hooks/useLeagueScoring';
-import { useTradeDetailActions } from '@/hooks/useTradeDetailActions';
-import { TradeItemRow, TradeProposalRow, useTradeVotes } from '@/hooks/useTrades';
-import { useCanLeak } from '@/hooks/chat/useLeakRumor';
-import { useGetTradeConversation } from '@/hooks/chat/useTradeChat';
-import { supabase } from '@/lib/supabase';
-import { PlayerSeasonStats } from '@/types/player';
-import { estimatePickFpts } from '@/types/trade';
-import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
-import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
@@ -32,6 +12,27 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
+import { DropPickerSection } from '@/components/trade/DropPickerSection';
+import { LeakRumorSheet } from '@/components/trade/LeakRumorSheet';
+import { TradeActionBar } from '@/components/trade/TradeActionBar';
+import { TradeFairnessBar } from '@/components/trade/TradeFairnessBar';
+import { TradeSideSummary } from '@/components/trade/TradeSideSummary';
+import { TradeStatusTimeline } from '@/components/trade/TradeStatusTimeline';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
+import { useCanLeak } from '@/hooks/chat/useLeakRumor';
+import { useGetTradeConversation } from '@/hooks/chat/useTradeChat';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { useLeagueScoring } from '@/hooks/useLeagueScoring';
+import { useTradeDetailActions } from '@/hooks/useTradeDetailActions';
+import { TradeItemRow, TradeProposalRow, useTradeVotes } from '@/hooks/useTrades';
+import { supabase } from '@/lib/supabase';
+import { PlayerSeasonStats } from '@/types/player';
+import { estimatePickFpts } from '@/types/trade';
+import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
+import { ms, s } from '@/utils/scale';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -75,7 +76,7 @@ function computeFairness(
   proposal: TradeProposalRow,
   playerStats: PlayerSeasonStats[] | undefined,
   scoringWeights: any[] | undefined,
-): Array<{ teamName: string; netFpts: number }> {
+): { teamName: string; netFpts: number }[] {
   if (!scoringWeights) return [];
 
   const teamNameMap: Record<string, string> = {};

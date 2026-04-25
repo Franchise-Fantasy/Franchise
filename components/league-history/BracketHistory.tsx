@@ -1,13 +1,14 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
 import { TeamLogo } from '@/components/team/TeamLogo';
-import { ThemedText } from '@/components/ui/ThemedText';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Brand, Colors, Fonts } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { BracketSlotHistory, useBracketHistory } from '@/hooks/useLeagueHistory';
 import { ms, s } from '@/utils/scale';
-import { Ionicons } from '@expo/vector-icons';
-import { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface BracketHistoryProps {
   leagueId: string;

@@ -1,11 +1,12 @@
+import { Ionicons } from '@expo/vector-icons';
+import { StyleSheet, View } from 'react-native';
+
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useSurveyCompletionTracker } from '@/hooks/chat/useSurveys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
-import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, View } from 'react-native';
 
 interface Props {
   surveyId: string;

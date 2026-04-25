@@ -1,18 +1,5 @@
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
-import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors, cardShadow } from '@/constants/Colors';
-import { useAppState } from '@/context/AppStateProvider';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { useWeekScores } from '@/hooks/useWeekScores';
-import { supabase } from '@/lib/supabase';
-import { formatScore } from '@/utils/fantasyPoints';
-import { ms, s } from '@/utils/scale';
-import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
-import { useLeague } from '@/hooks/useLeague';
-import { queryKeys } from '@/constants/queryKeys';
-import { useQuery } from '@tanstack/react-query';
-import { useRouter } from 'expo-router';
-import { toDateStr, parseLocalDate } from '@/utils/dates';
+import { useQuery , useQueryClient } from '@tanstack/react-query';
+import { useRouter , useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ScrollView,
@@ -22,9 +9,24 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from 'expo-router';
-import { useQueryClient } from '@tanstack/react-query';
+
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors, cardShadow } from '@/constants/Colors';
+import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
+import { queryKeys } from '@/constants/queryKeys';
+import { useAppState } from '@/context/AppStateProvider';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { useLeague } from '@/hooks/useLeague';
+import { useWeekScores } from '@/hooks/useWeekScores';
+import { supabase } from '@/lib/supabase';
+import { toDateStr, parseLocalDate } from '@/utils/dates';
+import { formatScore } from '@/utils/fantasyPoints';
+import { ms, s } from '@/utils/scale';
+
+
+
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

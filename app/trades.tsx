@@ -1,24 +1,4 @@
-import { ThemedText } from "@/components/ui/ThemedText";
-import { ProposeTradeModal } from "@/components/trade/ProposeTradeModal";
-import { TradeBlockSheet } from "@/components/trade/TradeBlockSheet";
-import { TradeCard } from "@/components/trade/TradeCard";
-import { TradeDetailModal } from "@/components/trade/TradeDetailModal";
-import { LogoSpinner } from "@/components/ui/LogoSpinner";
-import { PageHeader } from "@/components/ui/PageHeader";
-import { SegmentedControl } from "@/components/ui/SegmentedControl";
-import { Colors } from "@/constants/Colors";
-import { useAppState } from "@/context/AppStateProvider";
-import { useColorScheme } from "@/hooks/useColorScheme";
-import {
-  TradeBlockPlayer,
-  TradeProposalRow,
-  useTradeBlock,
-  useTradeProposals,
-} from "@/hooks/useTrades";
-import { supabase } from "@/lib/supabase";
-import { ms, s } from "@/utils/scale";
 import { Ionicons } from "@expo/vector-icons";
-import { queryKeys } from "@/constants/queryKeys";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -31,6 +11,27 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+
+import { ProposeTradeModal } from "@/components/trade/ProposeTradeModal";
+import { TradeBlockSheet } from "@/components/trade/TradeBlockSheet";
+import { TradeCard } from "@/components/trade/TradeCard";
+import { TradeDetailModal } from "@/components/trade/TradeDetailModal";
+import { LogoSpinner } from "@/components/ui/LogoSpinner";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { ThemedText } from "@/components/ui/ThemedText";
+import { Colors } from "@/constants/Colors";
+import { queryKeys } from "@/constants/queryKeys";
+import { useAppState } from "@/context/AppStateProvider";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import {
+  TradeBlockPlayer,
+  TradeProposalRow,
+  useTradeBlock,
+  useTradeProposals,
+} from "@/hooks/useTrades";
+import { supabase } from "@/lib/supabase";
+import { ms, s } from "@/utils/scale";
 
 const TABS = ["Active", "History"];
 const ACTIVE_STATUSES = ["pending", "accepted", "in_review"];

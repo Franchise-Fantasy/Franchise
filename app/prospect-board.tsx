@@ -1,16 +1,3 @@
-import { ProspectBoardItem } from '@/components/prospects/ProspectBoardItem';
-import { PremiumGate } from '@/components/PremiumGate';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
-import { PageHeader } from '@/components/ui/PageHeader';
-import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { useProspectBoard, useReorderBoard, useRemoveFromBoard } from '@/hooks/useProspectBoard';
-import { useProspects } from '@/hooks/useProspects';
-import { useSubscription } from '@/hooks/useSubscription';
-import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
-import { CURRENT_NBA_SEASON, CURRENT_WNBA_SEASON } from '@/constants/LeagueDefaults';
-import { ms, s } from '@/utils/scale';
 import { useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import {
@@ -20,9 +7,25 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flatlist';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { PremiumGate } from '@/components/PremiumGate';
+import { ProspectBoardItem } from '@/components/prospects/ProspectBoardItem';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { CURRENT_NBA_SEASON, CURRENT_WNBA_SEASON } from '@/constants/LeagueDefaults';
 import { useSession } from '@/context/AuthProvider';
+import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { useProspectBoard, useReorderBoard, useRemoveFromBoard } from '@/hooks/useProspectBoard';
+import { useProspects } from '@/hooks/useProspects';
+import { useSubscription } from '@/hooks/useSubscription';
+import { ms, s } from '@/utils/scale';
+
+
 
 // NBA seasons are dash-formatted ("2025-26"); the next draft year is the
 // trailing 2-digit fragment, prefixed with "20". WNBA is single-year ("2026")

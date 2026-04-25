@@ -1,11 +1,13 @@
-import { ThemedText } from '@/components/ui/ThemedText';
+import { useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Brand, Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { DraftHistoryPick, DraftSummary, useDraftHistory } from '@/hooks/useLeagueHistory';
 import { ms, s } from '@/utils/scale';
-import { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+
 
 interface DraftBoardProps {
   leagueId: string;

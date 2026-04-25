@@ -1,3 +1,9 @@
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
+
 import { queryKeys } from '@/constants/queryKeys';
 import { capture } from '@/lib/posthog';
 import { supabase } from '@/lib/supabase';
@@ -8,11 +14,6 @@ import type {
   SurveyQuestion,
   SurveyQuestionResult,
 } from '@/types/survey';
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from '@tanstack/react-query';
 
 // ─── Fetch survey + questions ─────────────────────────────────
 

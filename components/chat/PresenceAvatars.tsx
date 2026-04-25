@@ -1,8 +1,3 @@
-import { TeamLogo } from "@/components/team/TeamLogo";
-import { Colors } from "@/constants/Colors";
-import type { ReadReceipt } from "@/hooks/chat/useReadReceipts";
-import { useColorScheme } from "@/hooks/useColorScheme";
-import { ms, s } from "@/utils/scale";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, TouchableOpacity, View } from "react-native";
 import Animated, {
@@ -14,6 +9,12 @@ import Animated, {
   withDelay,
   withTiming,
 } from "react-native-reanimated";
+
+import { TeamLogo } from "@/components/team/TeamLogo";
+import { Colors } from "@/constants/Colors";
+import type { ReadReceipt } from "@/hooks/chat/useReadReceipts";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import { ms, s } from "@/utils/scale";
 
 interface PresenceAvatarsProps {
   /** Online teams (excluding self) */

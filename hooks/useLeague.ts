@@ -1,7 +1,9 @@
-import { useAppState } from '@/context/AppStateProvider';
-import { queryKeys } from '@/constants/queryKeys';
-import { supabase } from '@/lib/supabase';
 import { useQuery } from '@tanstack/react-query';
+
+import { queryKeys } from '@/constants/queryKeys';
+import { useAppState } from '@/context/AppStateProvider';
+import { supabase } from '@/lib/supabase';
+
 
 export function useLeague() {
   const { leagueId } = useAppState();

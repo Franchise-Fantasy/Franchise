@@ -1,11 +1,12 @@
-import { ThemedText } from "@/components/ui/ThemedText";
-import { Colors } from "@/constants/Colors";
-import { useColorScheme } from "@/hooks/useColorScheme";
-import { ms, s } from "@/utils/scale";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useMemo } from "react";
 import { ScrollView, StyleSheet, TouchableOpacity } from "react-native";
 import Animated, { SlideInRight, SlideOutRight } from "react-native-reanimated";
+
+import { ThemedText } from "@/components/ui/ThemedText";
+import { Colors } from "@/constants/Colors";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import { ms, s } from "@/utils/scale";
 
 export type ChatFilter = "all" | "chat" | "trade" | "rumor" | "poll" | "survey";
 

@@ -1,10 +1,11 @@
-import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import type { ReadReceipt } from '@/hooks/chat/useReadReceipts';
-import { ms, s } from '@/utils/scale';
 import { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
+
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import type { ReadReceipt } from '@/hooks/chat/useReadReceipts';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { ms, s } from '@/utils/scale';
 
 interface Props {
   /** DM = single "Seen", group = tricode badges */

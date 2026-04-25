@@ -1,9 +1,3 @@
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
-import { ThemedText } from '@/components/ui/ThemedText';
-import { GIPHY_API_KEY } from '@/constants/ApiKeys';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -19,6 +13,13 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { GIPHY_API_KEY } from '@/constants/ApiKeys';
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { ms, s } from '@/utils/scale';
 
 const GIPHY_BASE = 'https://api.giphy.com/v1/gifs';
 const NUM_COLUMNS = 3;

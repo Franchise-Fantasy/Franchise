@@ -1,3 +1,6 @@
+import { useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+
 import { TradeCard } from '@/components/trade/TradeCard';
 import { TradeDetailModal } from '@/components/trade/TradeDetailModal';
 import { ThemedText } from '@/components/ui/ThemedText';
@@ -6,8 +9,6 @@ import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { TradeProposalRow, useTradeProposals } from '@/hooks/useTrades';
 import { ms, s } from '@/utils/scale';
-import { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 interface TradeHistoryProps {
   leagueId: string;

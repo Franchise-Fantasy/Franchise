@@ -1,7 +1,8 @@
-import { supabase } from '@/lib/supabase';
-import { addDays, toDateStr } from '@/utils/dates';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
+
+import { supabase } from '@/lib/supabase';
+import { addDays, toDateStr } from '@/utils/dates';
 
 export interface LivePlayerStats {
   player_id: string;

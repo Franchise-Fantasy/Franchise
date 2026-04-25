@@ -1,3 +1,6 @@
+import { useRouter } from 'expo-router';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
+
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { SportBadge } from '@/components/ui/SportBadge';
 import { ThemedText } from '@/components/ui/ThemedText';
@@ -5,8 +8,6 @@ import { Fonts } from '@/constants/Colors';
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useColors } from '@/hooks/useColors';
 import { ms, s } from '@/utils/scale';
-import { useRouter } from 'expo-router';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
 interface PageHeaderProps {
   title: string;

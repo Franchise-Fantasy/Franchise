@@ -1,10 +1,12 @@
-import { Colors, cardShadow } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { ms, s } from '@/utils/scale';
-import { DynastyScoreBadge } from './DynastyScoreBadge';
 import { Ionicons } from '@expo/vector-icons';
 import { memo, useCallback } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
+import { Colors, cardShadow } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { ms, s } from '@/utils/scale';
+
+import { DynastyScoreBadge } from './DynastyScoreBadge';
 
 interface ProspectBoardItemProps {
   playerId: string;

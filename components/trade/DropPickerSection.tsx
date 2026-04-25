@@ -1,12 +1,14 @@
+import { Ionicons } from '@expo/vector-icons';
+import { Image, StyleSheet, TouchableOpacity, View } from 'react-native';
+
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
+import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { PlayerSeasonStats } from '@/types/player';
 import { getPlayerHeadshotUrl } from '@/utils/playerHeadshot';
 import { ms, s } from '@/utils/scale';
-import { Ionicons } from '@expo/vector-icons';
-import { Image, StyleSheet, TouchableOpacity, View } from 'react-native';
-import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
+
 
 interface DropPickerSectionProps {
   roster: (PlayerSeasonStats & { roster_slot: string | null })[];

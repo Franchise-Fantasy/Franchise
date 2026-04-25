@@ -1,10 +1,3 @@
-import { ThemedText } from "@/components/ui/ThemedText";
-import { ms, s } from "@/utils/scale";
-import { ThemedView } from "@/components/ui/ThemedView";
-import { Colors } from "@/constants/Colors";
-import { useSession } from "@/context/AuthProvider";
-import { useColorScheme } from "@/hooks/useColorScheme";
-import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
@@ -17,6 +10,14 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+
+import { ThemedText } from "@/components/ui/ThemedText";
+import { ThemedView } from "@/components/ui/ThemedView";
+import { Colors } from "@/constants/Colors";
+import { useSession } from "@/context/AuthProvider";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import { supabase } from "@/lib/supabase";
+import { ms, s } from "@/utils/scale";
 
 export default function SetupProfileScreen() {
   const session = useSession();

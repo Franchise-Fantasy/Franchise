@@ -1,10 +1,11 @@
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
 import { ThemedText } from '@/components/ui/ThemedText';
 import { cardShadow, Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { TradeItemRow, TradeProposalRow } from '@/hooks/useTrades';
 import { formatPickLabel } from '@/types/trade';
 import { ms, s } from '@/utils/scale';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 /** Returns a set of item keys that are new in the counteroffer vs the original */
 function getNewItemKeys(items: TradeItemRow[], originalItems?: TradeItemRow[]): Set<string> {

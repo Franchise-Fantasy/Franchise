@@ -1,13 +1,3 @@
-import { Badge } from "@/components/ui/Badge";
-import { SportBadge } from "@/components/ui/SportBadge";
-import { ThemedText } from "@/components/ui/ThemedText";
-import { Brand, Colors, cardShadow } from "@/constants/Colors";
-import { queryKeys } from "@/constants/queryKeys";
-import { LEAGUE_TYPE_DISPLAY, SPORT_DISPLAY, type Sport } from "@/constants/LeagueDefaults";
-import { useAppState } from "@/context/AppStateProvider";
-import { useSession } from "@/context/AuthProvider";
-import { useColorScheme } from "@/hooks/useColorScheme";
-import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
@@ -20,7 +10,18 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+
+import { Badge } from "@/components/ui/Badge";
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { SportBadge } from "@/components/ui/SportBadge";
+import { ThemedText } from "@/components/ui/ThemedText";
+import { Brand, Colors, cardShadow } from "@/constants/Colors";
+import { LEAGUE_TYPE_DISPLAY, SPORT_DISPLAY, type Sport } from "@/constants/LeagueDefaults";
+import { queryKeys } from "@/constants/queryKeys";
+import { useAppState } from "@/context/AppStateProvider";
+import { useSession } from "@/context/AuthProvider";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import { supabase } from "@/lib/supabase";
 import { ms, s } from '@/utils/scale';
 
 interface UserLeague {

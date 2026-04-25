@@ -1,7 +1,8 @@
+import { useQuery } from '@tanstack/react-query';
+
+import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { supabase } from '@/lib/supabase';
 import { toDateStr } from '@/utils/dates';
-import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
-import { useQuery } from '@tanstack/react-query';
 
 export type GameTimeMap = Map<string, string>;
 

@@ -1,7 +1,8 @@
+import { useQuery } from '@tanstack/react-query';
+
 import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import type { ProspectNewsItem } from '@/types/prospect';
-import { useQuery } from '@tanstack/react-query';
 
 /** Fetch news articles mentioning a specific prospect. */
 export function useProspectNews(playerId: string | undefined) {

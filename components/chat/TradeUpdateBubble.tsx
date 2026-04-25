@@ -1,9 +1,10 @@
+import { Pressable, StyleSheet, View } from 'react-native';
+
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { TradeUpdateEvent } from '@/types/chat';
 import { ms, s } from '@/utils/scale';
-import { Pressable, StyleSheet, View } from 'react-native';
 
 const EVENT_CONFIG: Record<TradeUpdateEvent, { icon: string; label: string; color: string }> = {
   proposed:  { icon: '📨', label: 'proposed a trade',  color: '#3B82F6' },

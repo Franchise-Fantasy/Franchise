@@ -1,8 +1,3 @@
-import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import type { ReactionGroup } from '@/types/chat';
-import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import {
@@ -13,6 +8,12 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import type { ReactionGroup } from '@/types/chat';
+import { ms, s } from '@/utils/scale';
 
 const QUICK_REACTIONS = ['\u{1F44D}', '\u{2764}\u{FE0F}', '\u{1F602}', '\u{1F62E}', '\u{1F622}', '\u{1F525}'];
 

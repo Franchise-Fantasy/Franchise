@@ -5,9 +5,10 @@
  * Fixes: "Starting from Xcode 14, resource bundles are signed by default,
  * which requires setting the development team for each resource bundle target."
  */
-const { withDangerousMod } = require('@expo/config-plugins');
 const fs = require('fs');
 const path = require('path');
+
+const { withDangerousMod } = require('@expo/config-plugins');
 
 const POST_INSTALL_SNIPPET = `
     # Disable code signing for all CocoaPods resource bundle targets (Xcode 14+)

@@ -1,27 +1,3 @@
-import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
-import { PlayerFilterBar } from "@/components/player/PlayerFilterBar";
-import { InfoModal } from "@/components/ui/InfoModal";
-import { ThemedText } from "@/components/ui/ThemedText";
-import { Colors } from "@/constants/Colors";
-import { queryKeys } from "@/constants/queryKeys";
-import { useColorScheme } from "@/hooks/useColorScheme";
-import { useLeagueScoring } from "@/hooks/useLeagueScoring";
-import { TimeRange, usePlayerFilter } from "@/hooks/usePlayerFilter";
-import { useWatchlist } from "@/hooks/useWatchlist";
-import { supabase } from "@/lib/supabase";
-import { addFreeAgent } from "@/utils/addFreeAgent";
-import { guardIllegalIR } from "@/utils/illegalIR";
-import { PlayerSeasonStats } from "@/types/player";
-import { toDateStr } from "@/utils/dates";
-import { calculateAvgFantasyPoints } from "@/utils/fantasyPoints";
-import { formatPosition } from "@/utils/formatting";
-import { getInjuryBadge } from "@/utils/injuryBadge";
-import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
-import { useTodayGameTimes } from "@/utils/gameStarted";
-import { checkPositionLimits } from "@/utils/positionLimits";
-import { fetchNbaScheduleForDate } from "@/utils/nbaSchedule";
-import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
-import { ms, s } from "@/utils/scale";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -38,6 +14,31 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+
+import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
+import { PlayerFilterBar } from "@/components/player/PlayerFilterBar";
+import { InfoModal } from "@/components/ui/InfoModal";
+import { ThemedText } from "@/components/ui/ThemedText";
+import { Colors } from "@/constants/Colors";
+import { queryKeys } from "@/constants/queryKeys";
+import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import { useLeagueScoring } from "@/hooks/useLeagueScoring";
+import { TimeRange, usePlayerFilter } from "@/hooks/usePlayerFilter";
+import { useWatchlist } from "@/hooks/useWatchlist";
+import { supabase } from "@/lib/supabase";
+import { PlayerSeasonStats } from "@/types/player";
+import { addFreeAgent } from "@/utils/addFreeAgent";
+import { toDateStr } from "@/utils/dates";
+import { calculateAvgFantasyPoints } from "@/utils/fantasyPoints";
+import { formatPosition } from "@/utils/formatting";
+import { useTodayGameTimes } from "@/utils/gameStarted";
+import { guardIllegalIR } from "@/utils/illegalIR";
+import { getInjuryBadge } from "@/utils/injuryBadge";
+import { fetchNbaScheduleForDate } from "@/utils/nbaSchedule";
+import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
+import { checkPositionLimits } from "@/utils/positionLimits";
+import { ms, s } from "@/utils/scale";
 
 const SKELETON_COUNT = 8;
 

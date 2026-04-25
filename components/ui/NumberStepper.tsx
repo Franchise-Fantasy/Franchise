@@ -1,6 +1,3 @@
-import { Colors, Fonts } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { ms, s } from '@/utils/scale';
 import { useState } from 'react';
 import {
   Platform,
@@ -10,6 +7,11 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
+import { Colors, Fonts } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { ms, s } from '@/utils/scale';
+
 import { ThemedText } from './ThemedText';
 
 interface NumberStepperProps {

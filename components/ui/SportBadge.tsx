@@ -1,9 +1,10 @@
 import React from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors, Fonts, SPORT_THEMES } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
 import { SPORT_DISPLAY, type Sport } from '@/constants/LeagueDefaults';
+import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
 
 interface Props {

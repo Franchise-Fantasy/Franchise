@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
+
+import type { Sport } from '@/constants/LeagueDefaults';
 import { useAppState } from '@/context/AppStateProvider';
 import { supabase } from '@/lib/supabase';
-import type { Sport } from '@/constants/LeagueDefaults';
 
 /**
  * Resolves the sport for the active league. Sport is immutable post-creation,

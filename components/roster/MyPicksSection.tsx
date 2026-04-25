@@ -1,3 +1,8 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { useState } from 'react';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
+
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
@@ -5,10 +10,6 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { useTeamTradablePicks } from '@/hooks/useTrades';
 import { formatPickLabel } from '@/types/trade';
 import { ms, s } from '@/utils/scale';
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
 interface MyPicksSectionProps {
   teamId: string | null;

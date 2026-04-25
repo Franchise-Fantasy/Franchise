@@ -1,8 +1,3 @@
-import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors, cardShadow } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import type { ConversationPreview } from '@/types/chat';
-import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, View } from 'react-native';
 import Animated, {
@@ -10,6 +5,12 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from 'react-native-reanimated';
+
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors, cardShadow } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import type { ConversationPreview } from '@/types/chat';
+import { ms, s } from '@/utils/scale';
 
 function formatTime(dateStr: string): string {
   const d = new Date(dateStr);

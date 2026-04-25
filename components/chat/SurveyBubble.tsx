@@ -1,13 +1,14 @@
-import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { useSurvey, useSurveyResponseCount, useSurveyStatus } from '@/hooks/chat/useSurveys';
-import { useLeague } from '@/hooks/useLeague';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
+
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { useSurvey, useSurveyResponseCount, useSurveyStatus } from '@/hooks/chat/useSurveys';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { useLeague } from '@/hooks/useLeague';
+import { ms, s } from '@/utils/scale';
 
 interface Props {
   surveyId: string;

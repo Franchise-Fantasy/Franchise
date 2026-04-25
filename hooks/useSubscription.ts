@@ -1,5 +1,5 @@
-import { useAppState } from '@/context/AppStateProvider';
-import { useSession } from '@/context/AuthProvider';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+
 import { queryKeys } from '@/constants/queryKeys';
 import {
   SubscriptionTier,
@@ -7,8 +7,10 @@ import {
   hasAccess,
   featureTier,
 } from '@/constants/Subscriptions';
+import { useAppState } from '@/context/AppStateProvider';
+import { useSession } from '@/context/AuthProvider';
 import { supabase } from '@/lib/supabase';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+
 
 /**
  * After a purchase, the RevenueCat webhook writes `user_subscriptions` /

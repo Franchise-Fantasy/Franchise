@@ -1,13 +1,3 @@
-import { ThemedText } from '@/components/ui/ThemedText';
-import { NumberStepper } from '@/components/ui/NumberStepper';
-import { SegmentedControl } from '@/components/ui/SegmentedControl';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { generateDraftPicks, generateFutureDraftPicks } from '@/lib/draft';
-import { supabase } from '@/lib/supabase';
-import { containsBlockedContent } from '@/utils/moderation';
-import { sanitizeHandle } from '@/utils/paymentLinks';
-import { ms, s } from '@/utils/scale';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
@@ -23,7 +13,20 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { NumberStepper } from '@/components/ui/NumberStepper';
+import { SegmentedControl } from '@/components/ui/SegmentedControl';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { generateDraftPicks, generateFutureDraftPicks } from '@/lib/draft';
+import { supabase } from '@/lib/supabase';
+import { containsBlockedContent } from '@/utils/moderation';
+import { sanitizeHandle } from '@/utils/paymentLinks';
+import { ms, s } from '@/utils/scale';
+
+
 
 interface EditBasicsModalProps {
   visible: boolean;

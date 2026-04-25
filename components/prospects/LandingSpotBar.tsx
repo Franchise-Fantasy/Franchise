@@ -1,8 +1,9 @@
+import { StyleSheet, Text, View, type DimensionValue } from 'react-native';
+
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { ms, s } from '@/utils/scale';
 import type { LandingSpot } from '@/types/prospect';
-import { StyleSheet, Text, View, type DimensionValue } from 'react-native';
+import { ms, s } from '@/utils/scale';
 
 interface LandingSpotBarProps {
   spot: LandingSpot;

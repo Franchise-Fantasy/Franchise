@@ -1,38 +1,4 @@
-import {
-  deserializeState,
-  initialState,
-  reducer,
-  serializeState,
-  STEP_LABELS,
-  STORAGE_KEY,
-  type PersistedState,
-  type ScreenshotImportState,
-} from '@/components/import/screenshot/state';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { StepBasics } from '@/components/create-league/StepBasics';
-import { StepConfig } from '@/components/import/screenshot/StepConfig';
-import { StepHistory } from '@/components/import/screenshot/StepHistory';
-import { StepRosters } from '@/components/import/screenshot/StepRosters';
-import { StepSettings } from '@/components/import/screenshot/StepSettings';
-import { StepReview } from '@/components/import/screenshot/StepReview';
-import { BrandButton } from '@/components/ui/BrandButton';
-import { ThemedView } from '@/components/ui/ThemedView';
-import { StepIndicator } from '@/components/ui/StepIndicator';
-import { Colors } from '@/constants/Colors';
-import { ms, s } from '@/utils/scale';
-import {
-  LEAGUE_TYPE_TO_DB,
-  SEEDING_TO_DB,
-  type LeagueWizardState,
-} from '@/constants/LeagueDefaults';
-import { useToast } from '@/context/ToastProvider';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import {
-  useExtractHistory,
-  useExtractRoster,
-  useExtractSettings,
-  useScreenshotImport,
-} from '@/hooks/useImportScreenshot';
 import { useRouter } from 'expo-router';
 import {
   useCallback,
@@ -53,6 +19,42 @@ import {
   View,
 } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
+
+import { StepBasics } from '@/components/create-league/StepBasics';
+import {
+  deserializeState,
+  initialState,
+  reducer,
+  serializeState,
+  STEP_LABELS,
+  STORAGE_KEY,
+  type PersistedState,
+  type ScreenshotImportState,
+} from '@/components/import/screenshot/state';
+import { StepConfig } from '@/components/import/screenshot/StepConfig';
+import { StepHistory } from '@/components/import/screenshot/StepHistory';
+import { StepReview } from '@/components/import/screenshot/StepReview';
+import { StepRosters } from '@/components/import/screenshot/StepRosters';
+import { StepSettings } from '@/components/import/screenshot/StepSettings';
+import { BrandButton } from '@/components/ui/BrandButton';
+import { StepIndicator } from '@/components/ui/StepIndicator';
+import { ThemedView } from '@/components/ui/ThemedView';
+import { Colors } from '@/constants/Colors';
+import {
+  LEAGUE_TYPE_TO_DB,
+  SEEDING_TO_DB,
+  type LeagueWizardState,
+} from '@/constants/LeagueDefaults';
+import { useToast } from '@/context/ToastProvider';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import {
+  useExtractHistory,
+  useExtractRoster,
+  useExtractSettings,
+  useScreenshotImport,
+} from '@/hooks/useImportScreenshot';
+import { ms, s } from '@/utils/scale';
+
 
 // --- Component ---
 
@@ -324,7 +326,7 @@ export function ScreenshotImport() {
     const teamsPayload = state.teams
       .filter((team) => team.extracted && (team.matched.length + team.resolvedMappings.size > 0))
       .map((team) => {
-        const players: Array<{ player_id: string; position: string; roster_slot: string | null }> = [];
+        const players: { player_id: string; position: string; roster_slot: string | null }[] = [];
 
         for (const m of team.matched) {
           players.push({

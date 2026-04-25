@@ -1,7 +1,8 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+
 import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import type { ProspectBoardRow } from '@/types/prospect';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 /** Fetch the current user's prospect board, ordered by rank. */
 export function useProspectBoard(userId: string | undefined, enabled: boolean = true) {

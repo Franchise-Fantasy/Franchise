@@ -1,13 +1,3 @@
-import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { queryKeys } from '@/constants/queryKeys';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { supabase } from '@/lib/supabase';
-import { PlayerSeasonStats } from '@/types/player';
-import { getInjuryBadge } from '@/utils/injuryBadge';
-import { isEligibleForSlot, slotLabel } from '@/utils/rosterSlots';
-import { useLeagueRosterConfig } from '@/hooks/useLeagueRosterConfig';
-import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -20,12 +10,24 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { useLeagueRosterConfig } from '@/hooks/useLeagueRosterConfig';
+import { supabase } from '@/lib/supabase';
+import { PlayerSeasonStats } from '@/types/player';
+import { getInjuryBadge } from '@/utils/injuryBadge';
+import { isEligibleForSlot, slotLabel } from '@/utils/rosterSlots';
+import { ms, s } from '@/utils/scale';
+
 
 interface Props {
   visible: boolean;
   leagueId: string;
-  teams: Array<{ id: string; name: string }>;
+  teams: { id: string; name: string }[];
   onClose: () => void;
 }
 

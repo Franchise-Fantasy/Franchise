@@ -1,7 +1,8 @@
+import { useQuery } from '@tanstack/react-query';
+
 import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats } from '@/types/player';
-import { useQuery } from '@tanstack/react-query';
 
 export function useTeamRosterStats(leagueId: string, teamId: string) {
   return useQuery<PlayerSeasonStats[]>({

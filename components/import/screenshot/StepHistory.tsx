@@ -1,3 +1,7 @@
+import type { UseMutationResult } from '@tanstack/react-query';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
+import { ScreenshotCapture } from '@/components/import/ScreenshotCapture';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { FormSection } from '@/components/ui/FormSection';
 import { NumberStepper } from '@/components/ui/NumberStepper';
@@ -5,11 +9,8 @@ import { Section } from '@/components/ui/Section';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Brand, Colors, Fonts } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import type { UseMutationResult } from '@tanstack/react-query';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { ms, s } from '@/utils/scale';
 
-import { ScreenshotCapture } from '@/components/import/ScreenshotCapture';
 import type { Action, HistorySeasonData } from './state';
 
 interface StepHistoryProps {

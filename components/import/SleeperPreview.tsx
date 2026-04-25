@@ -1,10 +1,11 @@
+import { Ionicons } from '@expo/vector-icons';
+import { StyleSheet, View } from 'react-native';
+
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { SleeperPreviewResult } from '@/hooks/useImportSleeper';
 import { ms, s } from '@/utils/scale';
-import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, View } from 'react-native';
 
 interface SleeperPreviewProps {
   data: SleeperPreviewResult;

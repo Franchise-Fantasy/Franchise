@@ -1,8 +1,3 @@
-import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import type { SettingsExtractionResult } from '@/hooks/useImportScreenshot';
-import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback } from 'react';
 import {
@@ -13,10 +8,16 @@ import {
   View,
 } from 'react-native';
 
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import type { SettingsExtractionResult } from '@/hooks/useImportScreenshot';
+import { ms, s } from '@/utils/scale';
+
 interface ScreenshotSettingsReviewProps {
   extracted: SettingsExtractionResult;
   onAcceptScoring: (scoring: Record<string, number>) => void;
-  onAcceptRosterPositions: (positions: Array<{ position: string; count: number }>) => void;
+  onAcceptRosterPositions: (positions: { position: string; count: number }[]) => void;
   onAcceptLeagueName: (name: string) => void;
   onAcceptTeamCount: (count: number) => void;
 }

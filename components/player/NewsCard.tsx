@@ -1,12 +1,14 @@
+import { memo } from 'react';
+import { Image, Linking, StyleSheet, TouchableOpacity, View } from 'react-native';
+
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors, cardShadow } from '@/constants/Colors';
+import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { PlayerNewsArticle } from '@/types/news';
 import { getPlayerHeadshotUrl } from '@/utils/playerHeadshot';
 import { ms, s } from '@/utils/scale';
-import { memo } from 'react';
-import { Image, Linking, StyleSheet, TouchableOpacity, View } from 'react-native';
-import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
+
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();

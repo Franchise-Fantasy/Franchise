@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+
 import { SUPABASE_URL, PUBLISHABLE_KEY, SECRET_KEY, BOT_EMAIL, BOT_PASSWORD } from './config';
 
 export function adminClient(): SupabaseClient {

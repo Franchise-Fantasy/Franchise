@@ -1,10 +1,3 @@
-import { ThemedText } from '@/components/ui/ThemedText';
-import { ms, s } from "@/utils/scale";
-import { Colors } from '@/constants/Colors';
-import { queryKeys } from '@/constants/queryKeys';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { supabase } from '@/lib/supabase';
-import { formatPickLabel } from '@/types/trade';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -14,7 +7,15 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { supabase } from '@/lib/supabase';
+import { formatPickLabel } from '@/types/trade';
+import { ms, s } from "@/utils/scale";
 
 interface TradeHistoryModalProps {
   transactionId: string;

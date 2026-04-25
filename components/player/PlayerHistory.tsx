@@ -1,13 +1,14 @@
-import { ThemedText } from '@/components/ui/ThemedText';
-import { ms, s } from "@/utils/scale";
-import { TradeHistoryModal } from '@/components/player/TradeHistoryModal';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { PlayerHistoryEvent, usePlayerHistory } from '@/hooks/usePlayerHistory';
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
+
+import { TradeHistoryModal } from '@/components/player/TradeHistoryModal';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { PlayerHistoryEvent, usePlayerHistory } from '@/hooks/usePlayerHistory';
+import { ms, s } from "@/utils/scale";
 
 function getEventIcon(event: PlayerHistoryEvent): keyof typeof Ionicons.glyphMap {
   switch (event.type) {

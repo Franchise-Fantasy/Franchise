@@ -1,10 +1,11 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useEffect } from 'react';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
+
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
-import { Ionicons } from '@expo/vector-icons';
-import { useEffect } from 'react';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
 interface Props {
   options: string[];

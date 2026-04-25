@@ -1,10 +1,3 @@
-import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors, cardShadow } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { PlayoffBracketSlot } from '@/types/playoff';
-import { calcRounds } from '@/utils/playoff';
-import { formatScore } from '@/utils/fantasyPoints';
-import { ms, s as scale } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useMemo, useRef } from 'react';
@@ -15,6 +8,14 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
+
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors, cardShadow } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { PlayoffBracketSlot } from '@/types/playoff';
+import { formatScore } from '@/utils/fantasyPoints';
+import { calcRounds } from '@/utils/playoff';
+import { ms, s as scale } from '@/utils/scale';
 
 // ─── Layout constants ───────────────────────────────────────────────────────
 

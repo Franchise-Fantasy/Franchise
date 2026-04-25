@@ -1,11 +1,12 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useEffect, useRef } from 'react';
+import { Alert, Animated, StyleSheet, Text, TouchableOpacity } from 'react-native';
+
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { PaymentStatus, usePaymentLedger, useSelfReportPayment } from '@/hooks/usePaymentLedger';
 import { openPaymentConfirmed } from '@/utils/paymentLinks';
 import { ms, s } from '@/utils/scale';
-import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useRef } from 'react';
-import { Alert, Animated, StyleSheet, Text, TouchableOpacity } from 'react-native';
 
 interface PaymentNudgeProps {
   leagueId: string;
@@ -69,7 +70,7 @@ export function PaymentNudge({
   function handlePress() {
     if (status === 'self_reported') return; // nothing actionable
 
-    const buttons: Array<{ text: string; onPress?: () => void; style?: 'cancel' | 'destructive' }> =
+    const buttons: { text: string; onPress?: () => void; style?: 'cancel' | 'destructive' }[] =
       [];
 
     if (hasPaymentMethods) {

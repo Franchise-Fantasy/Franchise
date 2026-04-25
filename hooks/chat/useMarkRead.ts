@@ -1,9 +1,11 @@
-import { useAppState } from '@/context/AppStateProvider';
-import { queryKeys } from '@/constants/queryKeys';
-import { posthog } from '@/lib/posthog';
-import { supabase } from '@/lib/supabase';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
+
+import { queryKeys } from '@/constants/queryKeys';
+import { useAppState } from '@/context/AppStateProvider';
+import { posthog } from '@/lib/posthog';
+import { supabase } from '@/lib/supabase';
+
 
 // ─── Mark read ───────────────────────────────────────────────
 

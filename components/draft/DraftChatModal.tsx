@@ -1,6 +1,22 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  FlatList,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useSharedValue } from 'react-native-reanimated';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
 import { ChatInput } from '@/components/chat/ChatInput';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { ReactionPicker } from '@/components/chat/ReactionPicker';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
@@ -17,22 +33,8 @@ import type { ReadReceipt } from '@/hooks/chat/useReadReceipts';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import type { ChatMessage, ReactionGroup } from '@/types/chat';
-import { Ionicons } from '@expo/vector-icons';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  FlatList,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  StyleSheet,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { ms, s } from '@/utils/scale';
-import { useSharedValue } from 'react-native-reanimated';
+
 
 // ─── Helpers ──────────────────────────────────────────────────
 

@@ -1,31 +1,3 @@
-import { AnalyticsPreviewCard } from '@/components/home/AnalyticsPreviewCard';
-import { DeclareKeepers } from '@/components/home/DeclareKeepers';
-import { ErrorState } from '@/components/ui/ErrorState';
-import { HomeHero, type HomeHeroVariant, type PaymentBadge } from '@/components/home/HomeHero';
-import { LeagueSwitcher } from '@/components/home/LeagueSwitcher';
-import { OffseasonLotteryOrder } from '@/components/home/OffseasonLotteryOrder';
-import { QuickNav } from '@/components/home/QuickNav';
-import { StandingsSection } from '@/components/home/StandingsSection';
-import { ThemedText } from '@/components/ui/ThemedText';
-import { ThemedView } from '@/components/ui/ThemedView';
-import { IconSymbol } from '@/components/ui/IconSymbol';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
-import { Colors, Fonts } from '@/constants/Colors';
-import { queryKeys } from '@/constants/queryKeys';
-import { useAppState } from '@/context/AppStateProvider';
-import { useSession } from '@/context/AuthProvider';
-import { useTotalUnread } from '@/hooks/chat';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { useLeague } from '@/hooks/useLeague';
-import { useOffseasonActions } from '@/hooks/useOffseasonActions';
-import { usePaymentLedger, useSelfReportPayment } from '@/hooks/usePaymentLedger';
-import { usePlayoffBracket } from '@/hooks/usePlayoffBracket';
-import { calcRounds } from '@/utils/playoff';
-import { supabase } from '@/lib/supabase';
-import { markSplashReady } from '@/lib/splashReady';
-import { isIrEligibleStatus } from '@/utils/illegalIR';
-import { openPaymentConfirmed } from '@/utils/paymentLinks';
-import { ms, s } from '@/utils/scale';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Clipboard from 'expo-clipboard';
@@ -42,6 +14,35 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { AnalyticsPreviewCard } from '@/components/home/AnalyticsPreviewCard';
+import { DeclareKeepers } from '@/components/home/DeclareKeepers';
+import { HomeHero, type HomeHeroVariant, type PaymentBadge } from '@/components/home/HomeHero';
+import { LeagueSwitcher } from '@/components/home/LeagueSwitcher';
+import { OffseasonLotteryOrder } from '@/components/home/OffseasonLotteryOrder';
+import { QuickNav } from '@/components/home/QuickNav';
+import { StandingsSection } from '@/components/home/StandingsSection';
+import { ErrorState } from '@/components/ui/ErrorState';
+import { IconSymbol } from '@/components/ui/IconSymbol';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { ThemedView } from '@/components/ui/ThemedView';
+import { Colors, Fonts } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
+import { useAppState } from '@/context/AppStateProvider';
+import { useSession } from '@/context/AuthProvider';
+import { useTotalUnread } from '@/hooks/chat';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { useLeague } from '@/hooks/useLeague';
+import { useOffseasonActions } from '@/hooks/useOffseasonActions';
+import { usePaymentLedger, useSelfReportPayment } from '@/hooks/usePaymentLedger';
+import { usePlayoffBracket } from '@/hooks/usePlayoffBracket';
+import { markSplashReady } from '@/lib/splashReady';
+import { supabase } from '@/lib/supabase';
+import { isIrEligibleStatus } from '@/utils/illegalIR';
+import { openPaymentConfirmed } from '@/utils/paymentLinks';
+import { calcRounds } from '@/utils/playoff';
+import { ms, s } from '@/utils/scale';
 
 type HomeDraft = {
   id: string;
@@ -280,11 +281,11 @@ export default function HomeScreen() {
       ]);
       if (!teams || !rows) return { overageCount: 0, myOverBy: 0 };
       const counts = new Map<string, number>();
-      for (const p of rows as Array<{
+      for (const p of rows as {
         team_id: string;
         roster_slot: string | null;
         players: { status: string | null } | { status: string | null }[] | null;
-      }>) {
+      }[]) {
         const playerRow = Array.isArray(p.players) ? p.players[0] : p.players;
         const status = playerRow?.status ?? null;
         if (p.roster_slot === 'IR' && isIrEligibleStatus(status)) continue;
@@ -313,14 +314,14 @@ export default function HomeScreen() {
 
   const myTeam = useMemo(() => {
     if (!league || !teamId) return null;
-    const teams = (league.league_teams as Array<{
+    const teams = (league.league_teams as {
       id: string;
       name: string;
       tricode: string | null;
       wins: number | null;
       losses: number | null;
       ties: number | null;
-    }>) ?? [];
+    }[]) ?? [];
     return teams.find((t) => t.id === teamId) ?? null;
   }, [league, teamId]);
 
@@ -408,11 +409,11 @@ export default function HomeScreen() {
       // finalize-week) since it's available before advance-season runs
       // and records champion_team_id on the league.
       let championName: string | null = null;
-      const teamsArr = (league.league_teams ?? []) as Array<{
+      const teamsArr = (league.league_teams ?? []) as {
         id: string;
         name: string;
         tricode: string | null;
-      }>;
+      }[];
       let championId: string | null = null;
       if (bracket && bracket.length > 0) {
         const totalRounds = calcRounds(league.playoff_teams ?? 8);
@@ -688,11 +689,11 @@ export default function HomeScreen() {
       paymentLedger?.find((p) => p.team_id === teamId)?.status ?? 'unpaid';
     if (status === 'self_reported') return;
 
-    const buttons: Array<{
+    const buttons: {
       text: string;
       onPress?: () => void;
       style?: 'cancel' | 'destructive';
-    }> = [];
+    }[] = [];
     if (league.venmo_username) {
       buttons.push({
         text: 'Pay via Venmo',

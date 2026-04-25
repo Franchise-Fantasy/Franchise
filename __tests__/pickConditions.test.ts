@@ -1,5 +1,5 @@
-import { resolveProtections, resolveSwaps } from '@/utils/pickConditions';
 import { DraftHubPick, DraftHubSwap } from '@/hooks/useDraftHub';
+import { resolveProtections, resolveSwaps } from '@/utils/pickConditions';
 
 function makePick(overrides: Partial<DraftHubPick> = {}): DraftHubPick {
   return {

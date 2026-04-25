@@ -1,10 +1,3 @@
-import { LogoSpinner } from "@/components/ui/LogoSpinner";
-import { ThemedText } from "@/components/ui/ThemedText";
-import { ms, s } from "@/utils/scale";
-import { ThemedView } from "@/components/ui/ThemedView";
-import { Colors } from "@/constants/Colors";
-import { useColorScheme } from "@/hooks/useColorScheme";
-import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
@@ -17,6 +10,14 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+
+import { LogoSpinner } from "@/components/ui/LogoSpinner";
+import { ThemedText } from "@/components/ui/ThemedText";
+import { ThemedView } from "@/components/ui/ThemedView";
+import { Colors } from "@/constants/Colors";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import { supabase } from "@/lib/supabase";
+import { ms, s } from "@/utils/scale";
 
 export default function ResetPasswordScreen() {
   const scheme = useColorScheme() ?? "light";

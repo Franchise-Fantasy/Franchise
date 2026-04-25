@@ -1,8 +1,9 @@
-import { queryKeys } from '@/constants/queryKeys';
-import { supabase } from '@/lib/supabase';
-import { sendNotification } from '@/lib/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
+import { queryKeys } from '@/constants/queryKeys';
+import { sendNotification } from '@/lib/notifications';
+import { supabase } from '@/lib/supabase';
 
 export interface TradeItemRow {
   id: string;
@@ -33,13 +34,13 @@ export interface TradeProposalRow {
   transaction_id: string | null;
   notes: string | null;
   counteroffer_of: string | null;
-  teams: Array<{
+  teams: {
     id: string;
     team_id: string;
     status: string;
     team_name: string;
     drop_player_ids: string[];
-  }>;
+  }[];
   items: TradeItemRow[];
   /** Items from the original proposal this counters — used for "NEW" badges */
   original_items?: TradeItemRow[];

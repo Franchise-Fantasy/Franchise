@@ -1,5 +1,5 @@
-import { supabase } from '@/lib/supabase';
 import type { Sport } from '@/constants/LeagueDefaults';
+import { supabase } from '@/lib/supabase';
 
 export type ScheduleEntry = { matchup: string; gameTimeUtc: string | null };
 

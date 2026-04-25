@@ -4,12 +4,13 @@
  *  Other URLs → thumbnail with play overlay → open in browser.
  * ────────────────────────────────────────────── */
 
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo } from 'react';
 import { Linking, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { WebView } from 'react-native-webview';
+
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
 
 interface Props {
   url: string;

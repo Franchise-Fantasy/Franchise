@@ -1,11 +1,3 @@
-import { ThemedText } from '@/components/ui/ThemedText';
-import { ToggleRow } from '@/components/ToggleRow';
-import { NumberStepper } from '@/components/ui/NumberStepper';
-import { SegmentedControl } from '@/components/ui/SegmentedControl';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { supabase } from '@/lib/supabase';
-import { ms, s } from '@/utils/scale';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
@@ -18,7 +10,16 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
+import { ToggleRow } from '@/components/ToggleRow';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { NumberStepper } from '@/components/ui/NumberStepper';
+import { SegmentedControl } from '@/components/ui/SegmentedControl';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { supabase } from '@/lib/supabase';
+import { ms, s } from '@/utils/scale';
 
 const VETO_OPTIONS = ['Commissioner', 'League Vote', 'None'] as const;
 

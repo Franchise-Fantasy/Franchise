@@ -1,8 +1,13 @@
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import { useEffect, useState } from "react";
+import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+
 import { LeagueNotificationModal } from "@/components/LeagueNotificationModal";
-import { ms, s } from "@/utils/scale";
-import { ThemedText } from "@/components/ui/ThemedText";
 import { ToggleRow } from "@/components/ToggleRow";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
 import { useAppState } from "@/context/AppStateProvider";
 import { useSession } from "@/context/AuthProvider";
@@ -15,11 +20,7 @@ import {
   setMuteAll,
   updatePreferences,
 } from "@/lib/notifications";
-import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
-import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { ms, s } from "@/utils/scale";
 
 export default function NotificationSettingsScreen() {
   const session = useSession();

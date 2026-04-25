@@ -1,14 +1,15 @@
-import { useAppState } from '@/context/AppStateProvider';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { useLatestAnnouncement } from '@/hooks/useAnnouncements';
-import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { Colors } from '@/constants/Colors';
+import { useAppState } from '@/context/AppStateProvider';
+import { useLatestAnnouncement } from '@/hooks/useAnnouncements';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { ms, s } from '@/utils/scale';
 
 const DISMISSED_KEY = '@dismissed_announcements';
 

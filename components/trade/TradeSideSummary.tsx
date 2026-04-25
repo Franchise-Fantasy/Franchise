@@ -1,11 +1,12 @@
+import { Ionicons } from '@expo/vector-icons';
+import { StyleSheet, View } from 'react-native';
+
 import { TradeAssetRow } from '@/components/trade/TradeAssetRow';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { TradeItemRow } from '@/hooks/useTrades';
 import { ms, s } from '@/utils/scale';
-import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, View } from 'react-native';
 
 interface TradeSideSummaryProps {
   teamId: string;

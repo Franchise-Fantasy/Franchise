@@ -1,12 +1,14 @@
+import { useQuery } from '@tanstack/react-query';
+
+import { SPORT_DISPLAY } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
+import { useAppState } from '@/context/AppStateProvider';
+import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { contentful } from '@/lib/contentful';
 import { mapProspectCard } from '@/lib/prospect-mappers';
 import { supabase } from '@/lib/supabase';
-import { useAppState } from '@/context/AppStateProvider';
-import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
-import { SPORT_DISPLAY } from '@/constants/LeagueDefaults';
 import type { ProspectCardData } from '@/types/prospect';
-import { useQuery } from '@tanstack/react-query';
+
 
 /**
  * Fetch prospect list from Contentful for a given draft year.

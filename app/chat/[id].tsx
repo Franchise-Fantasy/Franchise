@@ -1,14 +1,42 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useLocalSearchParams, useRouter , useFocusEffect } from 'expo-router';
+import React, { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import {
+  FlatList,
+  Modal,
+  Platform,
+  Pressable,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
+import Animated, {
+  FadeIn,
+  FadeOut,
+  type SharedValue,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
 import { ChatFilterStrip, type ChatFilter } from '@/components/chat/ChatFilterStrip';
 import { ChatInput } from '@/components/chat/ChatInput';
 import { CreatePollModal } from '@/components/chat/CreatePollModal';
 import { CreateSurveyModal } from '@/components/chat/CreateSurveyModal';
 import { GifPicker } from '@/components/chat/GifPicker';
 import { MessageBubble } from '@/components/chat/MessageBubble';
+import { PresenceAvatars } from '@/components/chat/PresenceAvatars';
 import { ReactionPicker } from '@/components/chat/ReactionPicker';
-import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { ReadReceiptIndicator } from '@/components/chat/ReadReceiptIndicator';
+import { TeamLogo } from '@/components/team/TeamLogo';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
 import {
   useChatSubscription,
@@ -24,39 +52,12 @@ import {
   useToggleReaction,
   useUnsendMessage,
 } from '@/hooks/chat';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { queryKeys } from '@/constants/queryKeys';
-import { supabase } from '@/lib/supabase';
-import { Ionicons } from '@expo/vector-icons';
-import { PresenceAvatars } from '@/components/chat/PresenceAvatars';
-import { ReadReceiptIndicator } from '@/components/chat/ReadReceiptIndicator';
-import type { ChatMessage, ReactionGroup } from '@/types/chat';
-import { TeamLogo } from '@/components/team/TeamLogo';
 import type { ReadReceipt } from '@/hooks/chat/useReadReceipts';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useFocusEffect } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
-import {
-  FlatList,
-  Modal,
-  Platform,
-  Pressable,
-  StyleSheet,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { supabase } from '@/lib/supabase';
+import type { ChatMessage, ReactionGroup } from '@/types/chat';
 import { ms, s } from '@/utils/scale';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, {
-  FadeIn,
-  FadeOut,
-  type SharedValue,
-  useSharedValue,
-  withSpring,
-} from 'react-native-reanimated';
+
 
 // ─── Helpers ──────────────────────────────────────────────────
 

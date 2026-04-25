@@ -1,7 +1,8 @@
-import { queryKeys } from '@/constants/queryKeys';
-import { supabase } from '@/lib/supabase';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
+
+import { queryKeys } from '@/constants/queryKeys';
+import { supabase } from '@/lib/supabase';
 
 export interface Announcement {
   id: string;

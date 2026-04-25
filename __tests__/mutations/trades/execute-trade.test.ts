@@ -1,4 +1,5 @@
 import { bootstrapTestLeague, BootstrapResult } from '../helpers/bootstrap';
+import { resetTrades, restorePlayerOwnership } from '../helpers/cleanup';
 import { adminClient, signInAsBot, serverInvoke } from '../helpers/clients';
 import {
   createAcceptedOneForOneTrade,
@@ -6,7 +7,6 @@ import {
   restoreCanonicalRosters,
   getCanonicalRosterPlayerIds,
 } from '../helpers/seed';
-import { resetTrades, restorePlayerOwnership } from '../helpers/cleanup';
 
 const TIMEOUT = 30_000;
 

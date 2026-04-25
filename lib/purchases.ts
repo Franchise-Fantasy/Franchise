@@ -1,9 +1,10 @@
+import { Platform } from "react-native";
 import Purchases, {
   LOG_LEVEL,
   PurchasesOffering,
   PurchasesPackage,
 } from "react-native-purchases";
-import { Platform } from "react-native";
+
 import { supabase } from "@/lib/supabase";
 
 const API_KEY_IOS = process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY ?? "";

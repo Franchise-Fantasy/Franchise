@@ -1,9 +1,10 @@
+import { Ionicons } from '@expo/vector-icons';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
+
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors, cardShadow } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { Ionicons } from '@expo/vector-icons';
 import type { AnnouncementBannerProps } from '@/types/cms';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { ms, s } from '@/utils/scale';
 
 const SEVERITY_CONFIG = {

@@ -1,11 +1,12 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useMemo, useState } from 'react';
+import { FlatList, StyleSheet, TouchableOpacity, View } from 'react-native';
+
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { DraftHubPick, DraftHubSwap, DraftHubTeam } from '@/hooks/useDraftHub';
 import { ms, s } from '@/utils/scale';
-import { Ionicons } from '@expo/vector-icons';
-import { useMemo, useState } from 'react';
-import { FlatList, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 interface ByTeamTabProps {
   picks: DraftHubPick[];

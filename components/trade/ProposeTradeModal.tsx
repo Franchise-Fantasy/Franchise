@@ -1,32 +1,3 @@
-import { capture } from '@/lib/posthog';
-import { TradeFairnessBar } from '@/components/trade/TradeFairnessBar';
-import { TradeSideSummary } from '@/components/trade/TradeSideSummary';
-import { TradePickPicker } from '@/components/trade/TradePickPicker';
-import { TradePlayerPicker } from '@/components/trade/TradePlayerPicker';
-import { TradeSwapPicker } from '@/components/trade/TradeSwapPicker';
-import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { ms, s } from '@/utils/scale';
-import { queryKeys } from '@/constants/queryKeys';
-import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { useLeagueScoring } from '@/hooks/useLeagueScoring';
-import { useLockedTradeAssets, usePendingDropPlayerIds } from '@/hooks/useTeamRosterForTrade';
-import { usePostTradeUpdate } from '@/hooks/chat/useTradeChat';
-import { TradeItemRow, TradeProposalRow } from '@/hooks/useTrades';
-import { sendNotification } from '@/lib/notifications';
-import { supabase } from '@/lib/supabase';
-import { PlayerSeasonStats } from '@/types/player';
-import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
-import {
-  TradeBuilderPick,
-  TradeBuilderPlayer,
-  TradeBuilderSwap,
-  TradeBuilderTeam,
-  estimatePickFpts,
-  formatPickLabel,
-  formatProtection,
-} from '@/types/trade';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useReducer, useRef, useState } from 'react';
@@ -43,7 +14,37 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
+import { TradeFairnessBar } from '@/components/trade/TradeFairnessBar';
+import { TradePickPicker } from '@/components/trade/TradePickPicker';
+import { TradePlayerPicker } from '@/components/trade/TradePlayerPicker';
+import { TradeSideSummary } from '@/components/trade/TradeSideSummary';
+import { TradeSwapPicker } from '@/components/trade/TradeSwapPicker';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
+import { queryKeys } from '@/constants/queryKeys';
+import { usePostTradeUpdate } from '@/hooks/chat/useTradeChat';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { useLeagueScoring } from '@/hooks/useLeagueScoring';
+import { useLockedTradeAssets, usePendingDropPlayerIds } from '@/hooks/useTeamRosterForTrade';
+import { TradeItemRow, TradeProposalRow } from '@/hooks/useTrades';
+import { sendNotification } from '@/lib/notifications';
+import { capture } from '@/lib/posthog';
+import { supabase } from '@/lib/supabase';
+import { PlayerSeasonStats } from '@/types/player';
+import {
+  TradeBuilderPick,
+  TradeBuilderPlayer,
+  TradeBuilderSwap,
+  TradeBuilderTeam,
+  estimatePickFpts,
+  formatPickLabel,
+  formatProtection,
+} from '@/types/trade';
+import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
+import { ms, s } from '@/utils/scale';
 
 interface PreselectedPlayer {
   player_id: string;
@@ -606,7 +607,7 @@ export function ProposeTradeModal({
     }
     setSubmitting(true);
     try {
-      const items: Array<{
+      const items: {
         player_id: string | null;
         draft_pick_id: string | null;
         from_team_id: string;
@@ -614,7 +615,7 @@ export function ProposeTradeModal({
         protection_threshold?: number | null;
         pick_swap_season?: string | null;
         pick_swap_round?: number | null;
-      }> = [];
+      }[] = [];
 
       if (isSimpleTrade) {
         // 2-team trade: my sends go to other team, their sends go to me
@@ -1395,7 +1396,7 @@ function computeFairness(
   builderTeams: TradeBuilderTeam[],
   myTeamId: string,
   isSimple: boolean
-): Array<{ teamName: string; netFpts: number }> {
+): { teamName: string; netFpts: number }[] {
   if (isSimple) {
     // 2-team: straightforward swap
     return builderTeams.map((bt) => {

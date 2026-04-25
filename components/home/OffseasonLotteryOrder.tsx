@@ -1,16 +1,18 @@
-import { ThemedText } from '@/components/ui/ThemedText';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { Ionicons } from '@expo/vector-icons';
+import { useQuery } from '@tanstack/react-query';
+import { useRouter } from 'expo-router';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
+
 import { TeamLogo } from '@/components/team/TeamLogo';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors, cardShadow } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/lottery';
 import { ms, s } from '@/utils/scale';
-import { Ionicons } from '@expo/vector-icons';
-import { useQuery } from '@tanstack/react-query';
-import { useRouter } from 'expo-router';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
+
 
 interface Props {
   leagueId: string;

@@ -1,30 +1,3 @@
-import { TeamLogo } from '@/components/team/TeamLogo';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
-import { PageHeader } from '@/components/ui/PageHeader';
-import { BrandSegmented } from '@/components/ui/BrandSegmented';
-import { Badge } from '@/components/ui/Badge';
-import { ListRow } from '@/components/ui/ListRow';
-import { Section } from '@/components/ui/Section';
-import { StatTile } from '@/components/ui/StatTile';
-import { ThemedText } from '@/components/ui/ThemedText';
-import { Brand, Colors, Fonts } from '@/constants/Colors';
-import { queryKeys } from '@/constants/queryKeys';
-import { useAppState } from '@/context/AppStateProvider';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { useLeague } from '@/hooks/useLeague';
-import { useLeagueRosterStats } from '@/hooks/useLeagueRosterStats';
-import { useLeagueScoring } from '@/hooks/useLeagueScoring';
-import { supabase } from '@/lib/supabase';
-import { ms, s } from '@/utils/scale';
-import {
-  computeAllPlayRecords,
-  type AllPlayResult,
-  type MatchupRow,
-  type ScoringCategory,
-} from '@/utils/allPlayRecord';
-import { computeDependencyRisk, computeDependencyThresholds, type DependencyResult } from '@/utils/dependencyRisk';
-import { computePlayoffStatuses } from '@/components/home/StandingsSection';
-import { computeStrengthOfSchedule, type SoSResult } from '@/utils/strengthOfSchedule';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
@@ -37,6 +10,35 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { computePlayoffStatuses } from '@/components/home/StandingsSection';
+import { TeamLogo } from '@/components/team/TeamLogo';
+import { Badge } from '@/components/ui/Badge';
+import { BrandSegmented } from '@/components/ui/BrandSegmented';
+import { ListRow } from '@/components/ui/ListRow';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Section } from '@/components/ui/Section';
+import { StatTile } from '@/components/ui/StatTile';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Brand, Colors, Fonts } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
+import { useAppState } from '@/context/AppStateProvider';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { useLeague } from '@/hooks/useLeague';
+import { useLeagueRosterStats } from '@/hooks/useLeagueRosterStats';
+import { useLeagueScoring } from '@/hooks/useLeagueScoring';
+import { supabase } from '@/lib/supabase';
+import {
+  computeAllPlayRecords,
+  type AllPlayResult,
+  type MatchupRow,
+  type ScoringCategory,
+} from '@/utils/allPlayRecord';
+import { computeDependencyRisk, computeDependencyThresholds, type DependencyResult } from '@/utils/dependencyRisk';
+import { ms, s } from '@/utils/scale';
+import { computeStrengthOfSchedule, type SoSResult } from '@/utils/strengthOfSchedule';
+
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

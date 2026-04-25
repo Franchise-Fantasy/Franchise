@@ -1,10 +1,3 @@
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { ms, s } from '@/utils/scale';
-import { ScoringWeight } from '@/types/player';
-import { calculateGameFantasyPoints, STAT_TO_GAME, formatScore } from '@/utils/fantasyPoints';
-import { RosterPlayer, round1 } from '@/components/matchup/PlayerCell';
-import { LivePlayerStats, liveToGameLog } from '@/utils/nbaLive';
 import {
   Dimensions,
   Modal,
@@ -15,6 +8,15 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
+import { RosterPlayer, round1 } from '@/components/matchup/PlayerCell';
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { ScoringWeight } from '@/types/player';
+import { calculateGameFantasyPoints, STAT_TO_GAME, formatScore } from '@/utils/fantasyPoints';
+import { LivePlayerStats, liveToGameLog } from '@/utils/nbaLive';
+import { ms, s } from '@/utils/scale';
+
 
 interface TeamData {
   teamName: string;

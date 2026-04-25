@@ -1,3 +1,5 @@
+import { StyleSheet, View } from "react-native";
+
 import { AnimatedSection } from "@/components/ui/AnimatedSection";
 import { BrandTextInput } from "@/components/ui/BrandTextInput";
 import { FieldGroup } from "@/components/ui/FieldGroup";
@@ -11,7 +13,6 @@ import {
   SPORT_DISPLAY,
   SPORT_TO_DB,
 } from "@/constants/LeagueDefaults";
-import { StyleSheet, View } from "react-native";
 import { s } from "@/utils/scale";
 
 interface StepBasicsProps {

@@ -1,11 +1,13 @@
-import { Colors, cardShadow } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { ms, s } from '@/utils/scale';
-import type { ProspectCardData } from '@/types/prospect';
-import { DynastyScoreBadge } from './DynastyScoreBadge';
+import { Ionicons } from '@expo/vector-icons';
 import { memo, useMemo } from 'react';
 import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+
+import { Colors, cardShadow } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import type { ProspectCardData } from '@/types/prospect';
+import { ms, s } from '@/utils/scale';
+
+import { DynastyScoreBadge } from './DynastyScoreBadge';
 
 interface ProspectCardProps {
   prospect: ProspectCardData;

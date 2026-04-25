@@ -1,12 +1,13 @@
-import { capture } from '@/lib/posthog';
+import { Ionicons } from '@expo/vector-icons';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Alert, StyleSheet, TouchableOpacity, View } from 'react-native';
+
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors, cardShadow } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { capture } from '@/lib/posthog';
 import { supabase } from '@/lib/supabase';
-import { Ionicons } from '@expo/vector-icons';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { ms, s } from '@/utils/scale';
 
 interface DeclareKeepersProps {

@@ -1,16 +1,17 @@
-import { ThemedText } from '@/components/ui/ThemedText';
+import { Ionicons } from '@expo/vector-icons';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
 import { TeamLogo } from '@/components/team/TeamLogo';
-import { ms, s } from "@/utils/scale";
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Transaction, TransactionItem, useTransactions } from '@/hooks/useTransactions';
 import { formatPickLabelShort } from '@/types/trade';
-import { Ionicons } from '@expo/vector-icons';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
-import { PageHeader } from '@/components/ui/PageHeader';
-import { useCallback, useMemo, useRef, useState } from 'react';
-import { FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ms, s } from "@/utils/scale";
 
 const FILTER_OPTIONS: { key: string | undefined; label: string }[] = [
   { key: undefined, label: 'All' },

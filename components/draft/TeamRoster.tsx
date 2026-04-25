@@ -1,5 +1,18 @@
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import {
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+
+import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { Colors } from "@/constants/Colors";
 import { queryKeys } from "@/constants/queryKeys";
+import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { useLeagueRosterConfig } from "@/hooks/useLeagueRosterConfig";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
@@ -11,20 +24,10 @@ import { getInjuryBadge } from "@/utils/injuryBadge";
 import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
 import { slotLabel } from "@/utils/rosterSlots";
 import { ms, s } from "@/utils/scale";
-import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
-import {
-  Image,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+
 import { PlayerDetailModal } from "../player/PlayerDetailModal";
 import { ThemedText } from "../ui/ThemedText";
-import { LogoSpinner } from "@/components/ui/LogoSpinner";
-import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
+
 
 interface TeamRosterProps {
   teamId: string;

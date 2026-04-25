@@ -1,48 +1,5 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { capture } from '@/lib/posthog';
-import { PlayerMatchList } from '@/components/import/PlayerMatchList';
-import { ScreenshotImport } from '@/components/import/ScreenshotImport';
-import { StepBasics } from '@/components/create-league/StepBasics';
-import { StepDraft } from '@/components/create-league/StepDraft';
-import { StepReview } from '@/components/create-league/StepReview';
-import { StepRoster } from '@/components/create-league/StepRoster';
-import { StepScoring } from '@/components/create-league/StepScoring';
-import {
-  StepSeason,
-  computeMaxWeeks,
-  computeSeasonStart,
-} from '@/components/create-league/StepSeason';
-import { StepTrade } from '@/components/create-league/StepTrade';
-import { StepWaivers } from '@/components/create-league/StepWaivers';
-import { BrandButton } from '@/components/ui/BrandButton';
-import { BrandTextInput } from '@/components/ui/BrandTextInput';
-import { FormSection } from '@/components/ui/FormSection';
-import { ListRow } from '@/components/ui/ListRow';
-import { Section } from '@/components/ui/Section';
-import { ThemedText } from '@/components/ui/ThemedText';
-import { ThemedView } from '@/components/ui/ThemedView';
-import { StepIndicator } from '@/components/ui/StepIndicator';
-import { Brand, Colors, Fonts } from '@/constants/Colors';
-import {
-  CURRENT_NBA_SEASON,
-  DEFAULT_CATEGORIES,
-  DEFAULT_ROSTER_SLOTS,
-  DEFAULT_SCORING,
-  type LeagueWizardState,
-  SEEDING_TO_DB,
-  type ScoringTypeOption,
-} from '@/constants/LeagueDefaults';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import {
-  useSleeperImport,
-  useSleeperPreview,
-  type SleeperPreviewResult,
-} from '@/hooks/useImportSleeper';
-import { calcLotteryPoolSize, getPlayoffTeamOptions } from '@/utils/lottery';
-import { mapSleeperPositions, mapSleeperScoring } from '@/utils/sleeperMapping';
-import { ms, s } from '@/utils/scale';
-import { useToast } from '@/context/ToastProvider';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import {
@@ -57,6 +14,50 @@ import {
   View,
 } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
+
+import { StepBasics } from '@/components/create-league/StepBasics';
+import { StepDraft } from '@/components/create-league/StepDraft';
+import { StepReview } from '@/components/create-league/StepReview';
+import { StepRoster } from '@/components/create-league/StepRoster';
+import { StepScoring } from '@/components/create-league/StepScoring';
+import {
+  StepSeason,
+  computeMaxWeeks,
+  computeSeasonStart,
+} from '@/components/create-league/StepSeason';
+import { StepTrade } from '@/components/create-league/StepTrade';
+import { StepWaivers } from '@/components/create-league/StepWaivers';
+import { PlayerMatchList } from '@/components/import/PlayerMatchList';
+import { ScreenshotImport } from '@/components/import/ScreenshotImport';
+import { BrandButton } from '@/components/ui/BrandButton';
+import { BrandTextInput } from '@/components/ui/BrandTextInput';
+import { FormSection } from '@/components/ui/FormSection';
+import { ListRow } from '@/components/ui/ListRow';
+import { Section } from '@/components/ui/Section';
+import { StepIndicator } from '@/components/ui/StepIndicator';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { ThemedView } from '@/components/ui/ThemedView';
+import { Brand, Colors, Fonts } from '@/constants/Colors';
+import {
+  CURRENT_NBA_SEASON,
+  DEFAULT_CATEGORIES,
+  DEFAULT_ROSTER_SLOTS,
+  DEFAULT_SCORING,
+  type LeagueWizardState,
+  SEEDING_TO_DB,
+  type ScoringTypeOption,
+} from '@/constants/LeagueDefaults';
+import { useToast } from '@/context/ToastProvider';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import {
+  useSleeperImport,
+  useSleeperPreview,
+  type SleeperPreviewResult,
+} from '@/hooks/useImportSleeper';
+import { capture } from '@/lib/posthog';
+import { calcLotteryPoolSize, getPlayoffTeamOptions } from '@/utils/lottery';
+import { ms, s } from '@/utils/scale';
+import { mapSleeperPositions, mapSleeperScoring } from '@/utils/sleeperMapping';
 
 type ImportSource = 'sleeper' | 'screenshots' | null;
 
@@ -118,7 +119,7 @@ const SLEEPER_STORAGE_KEY = '@sleeper_import_wizard';
 interface PersistedSleeperState {
   sleeperLeagueId: string;
   previewData: SleeperPreviewResult | null;
-  resolvedMappings: Array<[string, { player_id: string; name: string; position: string }]>;
+  resolvedMappings: [string, { player_id: string; name: string; position: string }][];
   skippedPlayers: string[];
   wizardState: LeagueWizardState;
   step: number;
@@ -468,7 +469,7 @@ export default function ImportLeague() {
 
     const ws = state.wizardState;
 
-    const playerMappings: Array<{ sleeper_id: string; player_id: string; position: string }> = [];
+    const playerMappings: { sleeper_id: string; player_id: string; position: string }[] = [];
 
     for (const m of state.previewData.player_matches) {
       if (m.matched_player_id) {

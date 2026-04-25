@@ -1,15 +1,16 @@
-import { queryKeys } from '@/constants/queryKeys';
-import { globalToastRef } from '@/context/ToastProvider';
-import { sendNotification } from '@/lib/notifications';
-import { capture, posthog } from '@/lib/posthog';
-import { supabase } from '@/lib/supabase';
-import type { ChatMessage, ChatMessageType } from '@/types/chat';
 import {
   type InfiniteData,
   useInfiniteQuery,
   useMutation,
   useQueryClient,
 } from '@tanstack/react-query';
+
+import { queryKeys } from '@/constants/queryKeys';
+import { globalToastRef } from '@/context/ToastProvider';
+import { sendNotification } from '@/lib/notifications';
+import { capture, posthog } from '@/lib/posthog';
+import { supabase } from '@/lib/supabase';
+import type { ChatMessage, ChatMessageType } from '@/types/chat';
 
 const PAGE_SIZE = 30;
 

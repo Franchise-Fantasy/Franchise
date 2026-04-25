@@ -1,11 +1,3 @@
-import { ThemedText } from "@/components/ui/ThemedText";
-import { ThemedView } from "@/components/ui/ThemedView";
-import { Colors } from "@/constants/Colors";
-import { useColorScheme } from "@/hooks/useColorScheme";
-import { supabase } from "@/lib/supabase";
-import { isExpoGo } from "@/utils/buildConfig";
-import { capture } from "@/lib/posthog";
-import { ms, s } from "@/utils/scale";
 import { Ionicons } from "@expo/vector-icons";
 import * as AppleAuthentication from "expo-apple-authentication";
 import * as Crypto from "expo-crypto";
@@ -23,6 +15,15 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+
+import { ThemedText } from "@/components/ui/ThemedText";
+import { ThemedView } from "@/components/ui/ThemedView";
+import { Colors } from "@/constants/Colors";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import { capture } from "@/lib/posthog";
+import { supabase } from "@/lib/supabase";
+import { isExpoGo } from "@/utils/buildConfig";
+import { ms, s } from "@/utils/scale";
 
 const COLOR_PATCH = require("@/assets/images/emproidered_patch_color.png");
 

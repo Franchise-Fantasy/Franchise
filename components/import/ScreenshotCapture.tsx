@@ -1,9 +1,3 @@
-import { BrandButton } from '@/components/ui/BrandButton';
-import { ThemedText } from '@/components/ui/ThemedText';
-import { Brand, Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import type { ImageData } from '@/hooks/useImportScreenshot';
-import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useCallback } from 'react';
@@ -14,6 +8,13 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
+import { BrandButton } from '@/components/ui/BrandButton';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Brand, Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import type { ImageData } from '@/hooks/useImportScreenshot';
+import { ms, s } from '@/utils/scale';
 
 interface ScreenshotCaptureProps {
   images: ImageData[];

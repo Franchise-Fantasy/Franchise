@@ -1,12 +1,14 @@
+import { useRouter } from 'expo-router';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
 import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useMyPendingTrades } from '@/hooks/useTrades';
 import { ms, s } from '@/utils/scale';
-import { useRouter } from 'expo-router';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { ThemedText } from '../ui/ThemedText';
+
 import { IconSymbol } from '../ui/IconSymbol';
+import { ThemedText } from '../ui/ThemedText';
 
 type NavItem = {
   icon: Parameters<typeof IconSymbol>[0]['name'];

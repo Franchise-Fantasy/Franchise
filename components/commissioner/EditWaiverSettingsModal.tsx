@@ -1,11 +1,3 @@
-import { ThemedText } from '@/components/ui/ThemedText';
-import { NumberStepper } from '@/components/ui/NumberStepper';
-import { SegmentedControl } from '@/components/ui/SegmentedControl';
-import { Colors } from '@/constants/Colors';
-import { PLAYER_LOCK_DISPLAY, PLAYER_LOCK_OPTIONS, PLAYER_LOCK_TO_DB, WAIVER_DAY_LABELS, WAIVER_TYPE_OPTIONS } from '@/constants/LeagueDefaults';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { supabase } from '@/lib/supabase';
-import { ms, s } from '@/utils/scale';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
@@ -18,7 +10,18 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { NumberStepper } from '@/components/ui/NumberStepper';
+import { SegmentedControl } from '@/components/ui/SegmentedControl';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { PLAYER_LOCK_DISPLAY, PLAYER_LOCK_OPTIONS, PLAYER_LOCK_TO_DB, WAIVER_DAY_LABELS, WAIVER_TYPE_OPTIONS } from '@/constants/LeagueDefaults';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { supabase } from '@/lib/supabase';
+import { ms, s } from '@/utils/scale';
+
+
 
 const WAIVER_DISPLAY: Record<string, string> = { standard: 'Standard', faab: 'FAAB', none: 'None' };
 const WAIVER_TO_DB: Record<string, string> = { Standard: 'standard', FAAB: 'faab', None: 'none' };

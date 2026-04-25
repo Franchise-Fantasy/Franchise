@@ -1,7 +1,8 @@
-import { queryKeys } from '@/constants/queryKeys';
-import { supabase } from '@/lib/supabase';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
+
+import { queryKeys } from '@/constants/queryKeys';
+import { supabase } from '@/lib/supabase';
 
 /**
  * Single realtime channel per conversation that handles both message INSERTs

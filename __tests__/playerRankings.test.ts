@@ -1,7 +1,7 @@
-jest.mock('@/lib/supabase', () => ({ supabase: {} }));
-
 import { computeRankings } from '@/hooks/usePlayerRankings';
 import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
+
+jest.mock('@/lib/supabase', () => ({ supabase: {} }));
 
 function makePlayer(overrides: Partial<PlayerSeasonStats> = {}): PlayerSeasonStats {
   return {

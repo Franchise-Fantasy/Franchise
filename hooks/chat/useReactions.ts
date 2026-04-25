@@ -1,12 +1,13 @@
-import { queryKeys } from '@/constants/queryKeys';
-import { supabase } from '@/lib/supabase';
-import type { ReactionGroup } from '@/types/chat';
 import {
   keepPreviousData,
   useMutation,
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
+
+import { queryKeys } from '@/constants/queryKeys';
+import { supabase } from '@/lib/supabase';
+import type { ReactionGroup } from '@/types/chat';
 
 // ─── Reactions ───────────────────────────────────────────────
 // Realtime subscription is handled by useChatSubscription (one channel

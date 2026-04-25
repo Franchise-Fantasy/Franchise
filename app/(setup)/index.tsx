@@ -1,12 +1,13 @@
-import { BrandWordmark } from "@/components/ui/BrandWordmark";
-import { ThemedText } from "@/components/ui/ThemedText";
-import { ms, s } from "@/utils/scale";
-import { ThemedView } from "@/components/ui/ThemedView";
-import { Colors } from "@/constants/Colors";
-import { useColorScheme } from "@/hooks/useColorScheme";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+
+import { BrandWordmark } from "@/components/ui/BrandWordmark";
+import { ThemedText } from "@/components/ui/ThemedText";
+import { ThemedView } from "@/components/ui/ThemedView";
+import { Colors } from "@/constants/Colors";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import { ms, s } from "@/utils/scale";
 
 export default function SetupHome() {
   const router = useRouter();

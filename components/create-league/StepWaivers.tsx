@@ -1,10 +1,11 @@
+import { StyleSheet, View } from 'react-native';
+
 import { AnimatedSection } from '@/components/ui/AnimatedSection';
 import { FieldGroup } from '@/components/ui/FieldGroup';
 import { FormSection } from '@/components/ui/FormSection';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { LeagueWizardState, PLAYER_LOCK_OPTIONS, WAIVER_DAY_LABELS, WAIVER_TYPE_OPTIONS } from '@/constants/LeagueDefaults';
-import { StyleSheet, View } from 'react-native';
 import { s } from '@/utils/scale';
 
 interface StepWaiversProps {

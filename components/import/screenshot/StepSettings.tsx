@@ -1,19 +1,20 @@
+import { Ionicons } from '@expo/vector-icons';
+import type { UseMutationResult } from '@tanstack/react-query';
+import { StyleSheet, View } from 'react-native';
+
+import { StepRoster } from '@/components/create-league/StepRoster';
+import { StepScoring } from '@/components/create-league/StepScoring';
+import { ScreenshotCapture } from '@/components/import/ScreenshotCapture';
+import { ScreenshotSettingsReview } from '@/components/import/ScreenshotSettingsReview';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { ListRow } from '@/components/ui/ListRow';
 import { Section } from '@/components/ui/Section';
-import { StepRoster } from '@/components/create-league/StepRoster';
-import { StepScoring } from '@/components/create-league/StepScoring';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Brand, Colors } from '@/constants/Colors';
 import { type LeagueWizardState } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { Ionicons } from '@expo/vector-icons';
-import type { UseMutationResult } from '@tanstack/react-query';
-import { StyleSheet, View } from 'react-native';
 import { ms, s } from '@/utils/scale';
 
-import { ScreenshotCapture } from '@/components/import/ScreenshotCapture';
-import { ScreenshotSettingsReview } from '@/components/import/ScreenshotSettingsReview';
 import type { Action, ScreenshotImportState } from './state';
 
 interface StepSettingsProps {

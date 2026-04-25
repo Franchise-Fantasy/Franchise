@@ -1,7 +1,8 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+
 import { queryKeys } from '@/constants/queryKeys';
 import { sendNotification } from '@/lib/notifications';
 import { supabase } from '@/lib/supabase';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 const RUMOR_TEMPLATES = [
   'League sources report discussions involving {player} are heating up',

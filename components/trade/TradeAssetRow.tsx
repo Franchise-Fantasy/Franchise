@@ -1,14 +1,16 @@
+import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
+import { Image, StyleSheet, Text, View } from 'react-native';
+
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
+import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { TradeItemRow } from '@/hooks/useTrades';
 import { formatPickLabel } from '@/types/trade';
 import { getPlayerHeadshotUrl } from '@/utils/playerHeadshot';
 import { ms, s } from '@/utils/scale';
-import { Ionicons } from '@expo/vector-icons';
-import { Image, StyleSheet, Text, View } from 'react-native';
-import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
+
 
 interface TradeAssetRowProps {
   item: TradeItemRow;

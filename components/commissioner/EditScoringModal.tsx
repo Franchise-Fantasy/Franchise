@@ -1,10 +1,3 @@
-import { ThemedText } from '@/components/ui/ThemedText';
-import { NumberStepper } from '@/components/ui/NumberStepper';
-import { Colors } from '@/constants/Colors';
-import { DEFAULT_CATEGORIES, DEFAULT_SCORING } from '@/constants/LeagueDefaults';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { supabase } from '@/lib/supabase';
-import { ms, s } from '@/utils/scale';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
@@ -19,7 +12,17 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { NumberStepper } from '@/components/ui/NumberStepper';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { DEFAULT_CATEGORIES, DEFAULT_SCORING } from '@/constants/LeagueDefaults';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { supabase } from '@/lib/supabase';
+import { ms, s } from '@/utils/scale';
+
+
 
 function statLabel(stat: string): string {
   return DEFAULT_SCORING.find((s) => s.stat_name === stat)?.label

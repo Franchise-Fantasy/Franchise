@@ -1,11 +1,12 @@
+import { useMemo } from 'react';
+import { StyleSheet, View } from 'react-native';
+import Animated, { ZoomIn } from 'react-native-reanimated';
+
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { TradeSummary } from '@/types/chat';
 import { ms, s } from '@/utils/scale';
-import { useMemo } from 'react';
-import { StyleSheet, View } from 'react-native';
-import Animated, { ZoomIn } from 'react-native-reanimated';
 
 interface Props {
   tradeSummary?: TradeSummary;

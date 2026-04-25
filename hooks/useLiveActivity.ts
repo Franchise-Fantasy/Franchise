@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { NativeModules, NativeEventEmitter, Platform, AppState, Alert, Linking } from 'react-native';
+
 import { supabase } from '../lib/supabase';
 
 const { FranchiseLiveActivityModule } = NativeModules;
@@ -35,13 +36,13 @@ interface MatchupActivityParams {
     biggestContributor: string;
     myActivePlayers: number;
     opponentActivePlayers: number;
-    players: Array<{
+    players: {
       name: string;
       statLine: string;
       fantasyPoints: number;
       gameStatus: string;
       isOnCourt: boolean;
-    }>;
+    }[];
   };
 }
 

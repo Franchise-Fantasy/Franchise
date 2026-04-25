@@ -1,17 +1,5 @@
-import { DynastyScoreBadge } from '@/components/prospects/DynastyScoreBadge';
-import { LandingSpotBar } from '@/components/prospects/LandingSpotBar';
-import { ProspectNewsSection } from '@/components/prospects/ProspectNewsSection';
-import { PremiumGate } from '@/components/PremiumGate';
-import { RichTextRenderer } from '@/components/cms/RichTextRenderer';
-import { PageHeader } from '@/components/ui/PageHeader';
-import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { useProspect } from '@/hooks/useProspect';
-import { scoutingReportPreview } from '@/lib/prospect-mappers';
-import { ms, s } from '@/utils/scale';
+import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import {
   Image,
   Linking,
@@ -22,8 +10,22 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+
+import { RichTextRenderer } from '@/components/cms/RichTextRenderer';
+import { PremiumGate } from '@/components/PremiumGate';
+import { DynastyScoreBadge } from '@/components/prospects/DynastyScoreBadge';
+import { LandingSpotBar } from '@/components/prospects/LandingSpotBar';
+import { ProspectNewsSection } from '@/components/prospects/ProspectNewsSection';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { useProspect } from '@/hooks/useProspect';
 import { useSubscription } from '@/hooks/useSubscription';
+import { scoutingReportPreview } from '@/lib/prospect-mappers';
+import { ms, s } from '@/utils/scale';
+
 
 export default function ProspectProfileScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();

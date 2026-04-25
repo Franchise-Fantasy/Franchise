@@ -5,13 +5,14 @@
  *  hyperlinks, embedded assets, horizontal rules.
  * ────────────────────────────────────────────── */
 
+import React from 'react';
+import { Image, Linking, StyleSheet, Text, View } from 'react-native';
+
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { RichTextDocument, RichTextNode } from '@/types/cms';
 import { ms, s } from '@/utils/scale';
-import React from 'react';
-import { Image, Linking, StyleSheet, Text, View } from 'react-native';
 
 interface Props {
   document: RichTextDocument;

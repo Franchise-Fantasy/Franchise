@@ -1,5 +1,6 @@
-const jwt = require('jsonwebtoken');
 const fs = require('fs');
+
+const jwt = require('jsonwebtoken');
 
 const TEAM_ID = ' 9G67H3M2C7';
 const CLIENT_ID = 'com.chewers.franchisev2.signin';

@@ -1,8 +1,9 @@
+import { Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useProspectNews } from '@/hooks/useProspectNews';
 import { ms, s } from '@/utils/scale';
-import { Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface ProspectNewsSectionProps {
   playerId: string;

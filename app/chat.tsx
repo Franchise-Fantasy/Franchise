@@ -1,18 +1,4 @@
-import { ConversationRow } from '@/components/chat/ConversationRow';
-import { ms, s } from "@/utils/scale";
-import { NewDMPicker } from '@/components/chat/NewDMPicker';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
-import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { PageHeader } from '@/components/ui/PageHeader';
-import { useAppState } from '@/context/AppStateProvider';
-import { useConversations, useCreateDM } from '@/hooks/chat';
-import { readReceiptSeedKey, fetchReadReceiptSeed } from '@/hooks/chat/useReadReceipts';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { supabase } from '@/lib/supabase';
-import type { ChatMessage, ConversationPreview } from '@/types/chat';
 import { Ionicons } from '@expo/vector-icons';
-import { queryKeys } from '@/constants/queryKeys';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -25,6 +11,21 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { ConversationRow } from '@/components/chat/ConversationRow';
+import { NewDMPicker } from '@/components/chat/NewDMPicker';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
+import { useAppState } from '@/context/AppStateProvider';
+import { useConversations, useCreateDM } from '@/hooks/chat';
+import { readReceiptSeedKey, fetchReadReceiptSeed } from '@/hooks/chat/useReadReceipts';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { supabase } from '@/lib/supabase';
+import type { ChatMessage, ConversationPreview } from '@/types/chat';
+import { ms, s } from "@/utils/scale";
 
 export default function ChatList() {
   const router = useRouter();

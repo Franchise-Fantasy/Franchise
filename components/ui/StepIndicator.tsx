@@ -1,8 +1,9 @@
+import { StyleSheet, View } from 'react-native';
+
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Brand, Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
-import { StyleSheet, View } from 'react-native';
 
 interface StepIndicatorProps {
   currentStep: number;

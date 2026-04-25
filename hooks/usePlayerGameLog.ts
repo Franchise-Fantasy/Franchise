@@ -1,8 +1,9 @@
+import { useQuery } from '@tanstack/react-query';
+
 import { queryKeys } from '@/constants/queryKeys';
+import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { supabase } from '@/lib/supabase';
 import { PlayerGameLog } from '@/types/player';
-import { useQuery } from '@tanstack/react-query';
-import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 
 // Per-sport game-log cap. Future sports default to a generous limit until
 // wired up.

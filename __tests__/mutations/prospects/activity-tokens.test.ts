@@ -1,5 +1,5 @@
-import { adminClient, signInAsBot } from '../helpers/clients';
 import { bootstrapTestLeague, BootstrapResult } from '../helpers/bootstrap';
+import { adminClient, signInAsBot } from '../helpers/clients';
 
 const TIMEOUT = 30_000;
 

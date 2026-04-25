@@ -5,31 +5,6 @@
  *   3. Age Tiers: Per-category production breakdown by Rising/Prime/Vet
  */
 
-import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
-import { InfoModal } from "@/components/ui/InfoModal";
-import { ThemedText } from "@/components/ui/ThemedText";
-import { Colors } from "@/constants/Colors";
-import { useColorScheme } from "@/hooks/useColorScheme";
-import { PlayerSeasonStats } from "@/types/player";
-import {
-  AgeTierBreakdown,
-  buildAgeTierBreakdown,
-  buildCompositeScatter,
-  buildCatScatterData,
-  buildRadarData,
-  CatName,
-  CAT_ORDER,
-  CatScatterPoint,
-  computeTeamCategoryAvgs,
-  computeTeamZScores,
-  RadarPoint,
-} from "@/utils/categoryAnalytics";
-import {
-  ageBucket,
-  BUCKET_COLORS,
-  PEAK_YEARS,
-} from "@/utils/rosterAge";
-import { ms, s } from "@/utils/scale";
 import { Ionicons } from "@expo/vector-icons";
 import {
   Canvas,
@@ -58,6 +33,32 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
+
+import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
+import { InfoModal } from "@/components/ui/InfoModal";
+import { ThemedText } from "@/components/ui/ThemedText";
+import { Colors } from "@/constants/Colors";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import { PlayerSeasonStats } from "@/types/player";
+import {
+  AgeTierBreakdown,
+  buildAgeTierBreakdown,
+  buildCompositeScatter,
+  buildCatScatterData,
+  buildRadarData,
+  CatName,
+  CAT_ORDER,
+  CatScatterPoint,
+  computeTeamCategoryAvgs,
+  computeTeamZScores,
+  RadarPoint,
+} from "@/utils/categoryAnalytics";
+import {
+  ageBucket,
+  BUCKET_COLORS,
+  PEAK_YEARS,
+} from "@/utils/rosterAge";
+import { ms, s } from "@/utils/scale";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 

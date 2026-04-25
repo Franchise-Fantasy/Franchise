@@ -1,5 +1,7 @@
+import { AGE_BUCKET_COLORS } from '@/constants/StatusColors';
 import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
 import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
+
 
 // Age bucket boundaries
 const RISING_MAX = 25;
@@ -35,8 +37,6 @@ export interface LeagueAgeComparison {
   totalTeams: number;
   allProfiles: TeamAgeProfile[];
 }
-
-import { AGE_BUCKET_COLORS } from '@/constants/StatusColors';
 
 export const BUCKET_COLORS = AGE_BUCKET_COLORS;
 

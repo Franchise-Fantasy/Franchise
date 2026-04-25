@@ -1,14 +1,15 @@
-import { queryKeys } from '@/constants/queryKeys';
-import { capture } from '@/lib/posthog';
-import { sendNotification } from '@/lib/notifications';
-import { supabase } from '@/lib/supabase';
-import { isOnline } from '@/utils/network';
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Alert } from 'react-native';
+
+import { queryKeys } from '@/constants/queryKeys';
 import { useToast } from '@/context/ToastProvider';
-import { TradeProposalRow } from '@/hooks/useTrades';
 import { usePostTradeUpdate } from '@/hooks/chat/useTradeChat';
+import { TradeProposalRow } from '@/hooks/useTrades';
+import { sendNotification } from '@/lib/notifications';
+import { capture } from '@/lib/posthog';
+import { supabase } from '@/lib/supabase';
+import { isOnline } from '@/utils/network';
 
 interface UseTradeDetailActionsParams {
   proposal: TradeProposalRow;

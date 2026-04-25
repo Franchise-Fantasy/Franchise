@@ -1,9 +1,20 @@
+import { useQuery } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
+import {
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
 import { PlayoffBracket } from '@/components/playoff/PlayoffBracket';
-import { ms, s } from "@/utils/scale";
 import { SeedPickModal } from '@/components/playoff/SeedPickModal';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Colors } from '@/constants/Colors';
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
+import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeague } from '@/hooks/useLeague';
@@ -18,17 +29,7 @@ import {
   nextPowerOf2,
   seedTeams,
 } from '@/utils/playoff';
-import { queryKeys } from '@/constants/queryKeys';
-import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
-import {
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ms, s } from "@/utils/scale";
 
 /** Convert bracket pairings into PlayoffBracketSlot[] for the bracket component. */
 function pairingsToSlots(

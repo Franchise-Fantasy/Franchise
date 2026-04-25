@@ -1,10 +1,12 @@
-import { ThemedText } from '@/components/ui/ThemedText';
+import { StyleSheet, View } from 'react-native';
+
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors, cardShadow } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useAllTimeRecords } from '@/hooks/useLeagueHistory';
 import { ms, s } from '@/utils/scale';
-import { StyleSheet, View } from 'react-native';
+
 
 interface AllTimeRecordsProps {
   leagueId: string;

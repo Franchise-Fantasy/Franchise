@@ -1,9 +1,10 @@
+import { useQuery } from '@tanstack/react-query';
+
 import { queryKeys } from '@/constants/queryKeys';
 import { contentful } from '@/lib/contentful';
 import { mapProspectProfile } from '@/lib/prospect-mappers';
 import { supabase } from '@/lib/supabase';
 import type { ProspectProfileData } from '@/types/prospect';
-import { useQuery } from '@tanstack/react-query';
 
 /**
  * Fetch a single prospect's full profile from Contentful.

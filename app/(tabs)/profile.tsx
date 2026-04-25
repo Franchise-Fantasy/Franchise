@@ -1,23 +1,3 @@
-import { ThemedText } from "@/components/ui/ThemedText";
-import { ms, s } from "@/utils/scale";
-import { ThemedView } from "@/components/ui/ThemedView";
-import { TeamLogo } from "@/components/team/TeamLogo";
-import { TeamLogoPickerModal } from "@/components/team/TeamLogoPickerModal";
-import { UpgradeModal } from "@/components/UpgradeModal";
-import { Colors, cardShadow } from "@/constants/Colors";
-import { useAppState } from "@/context/AppStateProvider";
-import { useSession } from "@/context/AuthProvider";
-import { useColorScheme } from "@/hooks/useColorScheme";
-import { containsBlockedContent } from "@/utils/moderation";
-import { useLeague } from "@/hooks/useLeague";
-import {
-  getPushPrefs,
-  registerPushToken,
-  unregisterPushToken,
-} from "@/lib/notifications";
-import { useSubscription } from "@/hooks/useSubscription";
-import { TIER_LABELS, TIER_COLORS } from "@/constants/Subscriptions";
-import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useQueryClient } from "@tanstack/react-query";
@@ -34,6 +14,27 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+
+import { TeamLogo } from "@/components/team/TeamLogo";
+import { TeamLogoPickerModal } from "@/components/team/TeamLogoPickerModal";
+import { ThemedText } from "@/components/ui/ThemedText";
+import { ThemedView } from "@/components/ui/ThemedView";
+import { UpgradeModal } from "@/components/UpgradeModal";
+import { Colors, cardShadow } from "@/constants/Colors";
+import { TIER_LABELS, TIER_COLORS } from "@/constants/Subscriptions";
+import { useAppState } from "@/context/AppStateProvider";
+import { useSession } from "@/context/AuthProvider";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import { useLeague } from "@/hooks/useLeague";
+import { useSubscription } from "@/hooks/useSubscription";
+import {
+  getPushPrefs,
+  registerPushToken,
+  unregisterPushToken,
+} from "@/lib/notifications";
+import { supabase } from "@/lib/supabase";
+import { containsBlockedContent } from "@/utils/moderation";
+import { ms, s } from "@/utils/scale";
 
 export default function ProfileScreen() {
   const session = useSession();

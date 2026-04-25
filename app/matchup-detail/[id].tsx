@@ -1,38 +1,40 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useQuery } from '@tanstack/react-query';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useState } from 'react';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
 import { CategoryScoreboard } from '@/components/matchup/CategoryScoreboard';
-import { ms, s } from "@/utils/scale";
 import { PlayerCell, pStyles, RosterPlayer, DisplayMode, round1, buildStatLine } from '@/components/matchup/PlayerCell';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { WeeklySummaryModal } from '@/components/matchup/WeeklySummaryModal';
-import { TeamLogo } from '@/components/team/TeamLogo';
 import { FptsBreakdownModal } from '@/components/player/FptsBreakdownModal';
 import { PlayerDetailModal } from '@/components/player/PlayerDetailModal';
+import { TeamLogo } from '@/components/team/TeamLogo';
 import { InfoModal } from '@/components/ui/InfoModal';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
+import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeague } from '@/hooks/useLeague';
-import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { useLeagueRosterConfig, RosterConfigSlot } from '@/hooks/useLeagueRosterConfig';
+import { useLeagueScoring } from '@/hooks/useLeagueScoring';
+import { useRosterChanges } from '@/hooks/useRosterChanges';
 import { useWeekScores } from '@/hooks/useWeekScores';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
 import { aggregateTeamStats, computeCategoryResults, TeamStatTotals } from '@/utils/categoryScoring';
+import { parseLocalDate, addDays, formatDayLabel, useToday } from '@/utils/dates';
+import { calculateGameFantasyPoints, formatScore } from '@/utils/fantasyPoints';
 import { fetchTeamData } from '@/utils/fetchTeamData';
 import { liveToGameLog, LivePlayerStats, useLivePlayerStats } from '@/utils/nbaLive';
-import { parseLocalDate, addDays, formatDayLabel, useToday } from '@/utils/dates';
-import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { fetchNbaScheduleForDate } from '@/utils/nbaSchedule';
-import { calculateGameFantasyPoints, formatScore } from '@/utils/fantasyPoints';
 import { calcRounds } from '@/utils/playoff';
 import { slotLabel } from '@/utils/rosterSlots';
-import { queryKeys } from '@/constants/queryKeys';
-import { useQuery } from '@tanstack/react-query';
-import { useRosterChanges } from '@/hooks/useRosterChanges';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ms, s } from "@/utils/scale";
 
 async function fetchWeeklyAdds(leagueId: string, teamId: string): Promise<number> {
   const now = new Date();
@@ -53,7 +55,6 @@ async function fetchWeeklyAdds(leagueId: string, teamId: string): Promise<number
   if (error) throw error;
   return count ?? 0;
 }
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 function getPlayoffRoundLabel(round: number, totalRounds: number, isThirdPlace: boolean): string {
   if (isThirdPlace) return '3rd Place Game';
@@ -128,13 +129,13 @@ interface StoredPlayerScore {
   external_id_nba: number | null;
   roster_slot: string;
   week_points: number;
-  games: Array<{
+  games: {
     date: string;
     slot: string;
     fpts: number;
     stats: Record<string, any>;
     matchup: string | null;
-  }>;
+  }[];
 }
 
 function buildFromStored(

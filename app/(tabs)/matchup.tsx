@@ -1,10 +1,19 @@
-import { useLiveActivity } from "@/hooks/useLiveActivity";
-import { useSession } from "@/context/AuthProvider";
-import { ErrorState } from "@/components/ui/ErrorState";
-import { TeamLogo } from "@/components/team/TeamLogo";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "expo-router";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  FlatList,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+
 import { CategoryScoreboard } from "@/components/matchup/CategoryScoreboard";
 import { SkeletonBlock } from "@/components/matchup/MatchupSkeleton";
-import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import {
   buildStatLine,
   DisplayMode,
@@ -16,20 +25,27 @@ import {
 import { WeeklySummaryModal } from "@/components/matchup/WeeklySummaryModal";
 import { FptsBreakdownModal } from "@/components/player/FptsBreakdownModal";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
+import { TeamLogo } from "@/components/team/TeamLogo";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { InfoModal } from "@/components/ui/InfoModal";
+import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { ThemedView } from "@/components/ui/ThemedView";
 import { Colors, cardShadow } from "@/constants/Colors";
 import { CURRENT_NBA_SEASON } from "@/constants/LeagueDefaults";
+import { queryKeys } from "@/constants/queryKeys";
 import { useAppState } from "@/context/AppStateProvider";
+import { useSession } from "@/context/AuthProvider";
+import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { useLeague } from "@/hooks/useLeague";
-import { useRosterChanges } from "@/hooks/useRosterChanges";
 import {
   RosterConfigSlot,
   useLeagueRosterConfig,
 } from "@/hooks/useLeagueRosterConfig";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
+import { useLiveActivity } from "@/hooks/useLiveActivity";
+import { useRosterChanges } from "@/hooks/useRosterChanges";
 import { useWeekScores } from "@/hooks/useWeekScores";
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats, ScoringWeight } from "@/types/player";
@@ -45,7 +61,6 @@ import {
   toDateStr,
   useToday,
 } from "@/utils/dates";
-import { useRouter } from "expo-router";
 import { calculateGameFantasyPoints, formatScore } from "@/utils/fantasyPoints";
 import { fetchTeamData } from "@/utils/fetchTeamData";
 import {
@@ -53,23 +68,10 @@ import {
   liveToGameLog,
   useLivePlayerStats,
 } from "@/utils/nbaLive";
-import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { fetchNbaScheduleForDate } from "@/utils/nbaSchedule";
 import { slotLabel } from "@/utils/rosterSlots";
 import { ms, s } from "@/utils/scale";
-import { queryKeys } from "@/constants/queryKeys";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  FlatList,
-  Modal,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -101,13 +103,13 @@ interface StoredPlayerScore {
   external_id_nba: number | null;
   roster_slot: string;
   week_points: number;
-  games: Array<{
+  games: {
     date: string;
     slot: string;
     fpts: number;
     stats: Record<string, any>;
     matchup: string | null;
-  }>;
+  }[];
 }
 
 interface TeamMatchupData {

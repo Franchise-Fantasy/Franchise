@@ -6,6 +6,7 @@
 
 import type { RichTextDocument } from '@/types/cms';
 import type { LandingSpot, ProspectCardData, ProspectProfileData } from '@/types/prospect';
+
 import { extractText } from './cms-mappers';
 
 /** Normalise a Contentful asset URL (protocol-relative → https). */

@@ -1,10 +1,3 @@
-import { ThemedText } from '@/components/ui/ThemedText';
-import { SegmentedControl } from '@/components/ui/SegmentedControl';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { supabase } from '@/lib/supabase';
-import { ms, s } from '@/utils/scale';
-import { TeamLogo } from '@/components/team/TeamLogo';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
@@ -15,7 +8,17 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
+import { TeamLogo } from '@/components/team/TeamLogo';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { SegmentedControl } from '@/components/ui/SegmentedControl';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { supabase } from '@/lib/supabase';
+import { ms, s } from '@/utils/scale';
+
+
 
 interface Team {
   id: string;

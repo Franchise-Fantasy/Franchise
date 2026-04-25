@@ -1,13 +1,14 @@
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
+import { ToggleRow } from '@/components/ToggleRow';
 import { AnimatedSection } from '@/components/ui/AnimatedSection';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { FormSection } from '@/components/ui/FormSection';
-import { ToggleRow } from '@/components/ToggleRow';
-import { ThemedText } from '@/components/ui/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors, Fonts } from '@/constants/Colors';
 import { LeagueWizardState, NBA_POSITIONS, NbaPosition, PositionLimits, TAXI_EXPERIENCE_OPTIONS } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { ms, s } from '@/utils/scale';
 
 interface StepRosterProps {

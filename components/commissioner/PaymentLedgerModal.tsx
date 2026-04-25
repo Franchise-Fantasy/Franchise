@@ -1,3 +1,15 @@
+import { Ionicons } from '@expo/vector-icons';
+import {
+  Alert,
+  FlatList,
+  Modal,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -9,17 +21,7 @@ import {
 } from '@/hooks/usePaymentLedger';
 import { openPaymentConfirmed } from '@/utils/paymentLinks';
 import { ms, s } from '@/utils/scale';
-import { Ionicons } from '@expo/vector-icons';
-import {
-  Alert,
-  FlatList,
-  Modal,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
+
 
 interface Props {
   visible: boolean;
@@ -30,7 +32,7 @@ interface Props {
   venmoUsername: string | null;
   cashappTag: string | null;
   paypalUsername: string | null;
-  teams: Array<{ id: string; name: string }>;
+  teams: { id: string; name: string }[];
   myTeamId?: string;
   isCommissioner: boolean;
   onClose: () => void;
@@ -72,7 +74,7 @@ export function PaymentLedgerModal({
   }
 
   function handlePayNow() {
-    const methods: Array<{ text: string; onPress: () => void }> = [];
+    const methods: { text: string; onPress: () => void }[] = [];
 
     if (venmoUsername) {
       methods.push({

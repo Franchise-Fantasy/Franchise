@@ -1,7 +1,8 @@
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { capture, posthog } from "@/lib/posthog";
+
 import { Colors } from "@/constants/Colors";
+import { capture, posthog } from "@/lib/posthog";
 
 type Props = {
   children: React.ReactNode;

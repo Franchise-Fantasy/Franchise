@@ -1,12 +1,13 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { DraftHubPick, DraftHubLeagueSettings, DraftHubSwap, DraftHubTeam } from '@/hooks/useDraftHub';
 import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/lottery';
 import { ms, s } from '@/utils/scale';
-import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 interface SimulationEntry {
   team_id: string;

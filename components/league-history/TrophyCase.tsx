@@ -1,11 +1,13 @@
-import { ThemedText } from '@/components/ui/ThemedText';
+import { Ionicons } from '@expo/vector-icons';
+import { StyleSheet, View } from 'react-native';
+
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Brand, Colors, cardShadow } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useChampions } from '@/hooks/useLeagueHistory';
 import { ms, s } from '@/utils/scale';
-import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, View } from 'react-native';
+
 
 interface TrophyCaseProps {
   leagueId: string;

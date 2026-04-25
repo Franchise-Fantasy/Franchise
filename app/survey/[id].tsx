@@ -1,11 +1,22 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
+import {
+  Alert,
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
 import { CompletionTracker } from '@/components/survey/CompletionTracker';
-import { ms, s } from "@/utils/scale";
 import { QuestionInput } from '@/components/survey/QuestionInput';
 import { QuestionResult } from '@/components/survey/QuestionResult';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
-import { ThemedText } from '@/components/ui/ThemedText';
-import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { SegmentedControl } from '@/components/ui/SegmentedControl';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
 import { useSession } from '@/context/AuthProvider';
@@ -18,17 +29,7 @@ import {
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeague } from '@/hooks/useLeague';
 import type { SurveyAnswerValue } from '@/types/survey';
-import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
-import {
-  Alert,
-  ScrollView,
-  StyleSheet,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ms, s } from "@/utils/scale";
 
 const RESULTS_TABS = ['Results', 'Completion'] as const;
 

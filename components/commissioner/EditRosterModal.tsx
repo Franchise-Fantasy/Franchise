@@ -1,10 +1,3 @@
-import { ThemedText } from '@/components/ui/ThemedText';
-import { NumberStepper } from '@/components/ui/NumberStepper';
-import { Colors } from '@/constants/Colors';
-import { DEFAULT_ROSTER_SLOTS, NBA_POSITIONS, NbaPosition } from '@/constants/LeagueDefaults';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { supabase } from '@/lib/supabase';
-import { ms, s } from '@/utils/scale';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
@@ -18,7 +11,17 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { NumberStepper } from '@/components/ui/NumberStepper';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { DEFAULT_ROSTER_SLOTS, NBA_POSITIONS, NbaPosition } from '@/constants/LeagueDefaults';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { supabase } from '@/lib/supabase';
+import { ms, s } from '@/utils/scale';
+
+
 
 function positionLabel(pos: string): string {
   return DEFAULT_ROSTER_SLOTS.find((s) => s.position === pos)?.label ?? pos;

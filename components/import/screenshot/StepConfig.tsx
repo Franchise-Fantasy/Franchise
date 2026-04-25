@@ -1,9 +1,10 @@
+import { StyleSheet, View } from 'react-native';
+
 import { StepDraft } from '@/components/create-league/StepDraft';
 import { StepSeason } from '@/components/create-league/StepSeason';
 import { StepTrade } from '@/components/create-league/StepTrade';
 import { StepWaivers } from '@/components/create-league/StepWaivers';
 import { type LeagueWizardState } from '@/constants/LeagueDefaults';
-import { StyleSheet, View } from 'react-native';
 
 interface StepConfigProps {
   state: LeagueWizardState;

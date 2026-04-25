@@ -1,3 +1,4 @@
+import { computeMaxWeeks } from '@/components/create-league/StepSeason';
 import {
   CURRENT_NBA_SEASON,
   DEFAULT_CATEGORIES,
@@ -12,7 +13,6 @@ import type {
   ScreenshotUnmatched,
   SettingsExtractionResult,
 } from '@/hooks/useImportScreenshot';
-import { computeMaxWeeks } from '@/components/create-league/StepSeason';
 
 /**
  * State + reducer + initial values for the Screenshot Import flow.
@@ -76,7 +76,7 @@ export type Action =
   | { type: 'SET_SETTINGS_EXTRACTED'; data: SettingsExtractionResult }
   | { type: 'SET_SETTINGS_MODE'; mode: 'choose' | 'screenshot' | 'manual' }
   | { type: 'APPLY_EXTRACTED_SCORING'; scoring: Record<string, number> }
-  | { type: 'APPLY_EXTRACTED_ROSTER_POSITIONS'; positions: Array<{ position: string; count: number }> }
+  | { type: 'APPLY_EXTRACTED_ROSTER_POSITIONS'; positions: { position: string; count: number }[] }
   | { type: 'SET_HISTORY_SEASON_COUNT'; count: number }
   | { type: 'SET_HISTORY_IMAGES'; seasonIndex: number; images: ImageData[] }
   | { type: 'SET_HISTORY_EXTRACTED'; seasonIndex: number; data: HistoryExtractionResult }
@@ -335,7 +335,7 @@ interface PersistedTeam {
   team_name: string;
   matched: TeamRosterData['matched'];
   unmatched: TeamRosterData['unmatched'];
-  resolvedMappings: Array<[number, { player_id: string; name: string; position: string }]>;
+  resolvedMappings: [number, { player_id: string; name: string; position: string }][];
   skippedPlayers: number[];
   extracted: boolean;
 }

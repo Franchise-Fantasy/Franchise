@@ -1,12 +1,3 @@
-import { ThemedText } from '@/components/ui/ThemedText';
-import { NumberStepper } from '@/components/ui/NumberStepper';
-import { Colors } from '@/constants/Colors';
-import { queryKeys } from '@/constants/queryKeys';
-import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { ms, s } from '@/utils/scale';
-import { supabase } from '@/lib/supabase';
-import { formatPickLabel } from '@/types/trade';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -19,12 +10,24 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { NumberStepper } from '@/components/ui/NumberStepper';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
+import { queryKeys } from '@/constants/queryKeys';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { supabase } from '@/lib/supabase';
+import { formatPickLabel } from '@/types/trade';
+import { ms, s } from '@/utils/scale';
+
+
 
 interface Props {
   visible: boolean;
   leagueId: string;
-  teams: Array<{ id: string; name: string }>;
+  teams: { id: string; name: string }[];
   onClose: () => void;
 }
 

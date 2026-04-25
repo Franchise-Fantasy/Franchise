@@ -1,6 +1,7 @@
+import { useQuery } from '@tanstack/react-query';
+
 import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
-import { useQuery } from '@tanstack/react-query';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -56,9 +57,9 @@ export interface ScheduleRow {
 }
 
 export interface H2HData {
-  teams: Array<{ id: string; name: string; tricode: string | null }>;
+  teams: { id: string; name: string; tricode: string | null }[];
   records: Record<string, H2HRecord>; // key: `${teamA}_${teamB}`
-  matchups: Array<MatchupRow & { season: string; week_number: number }>;
+  matchups: (MatchupRow & { season: string; week_number: number })[];
 }
 
 export interface DraftSummary {

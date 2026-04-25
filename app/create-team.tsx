@@ -1,15 +1,17 @@
+import { useQueryClient } from '@tanstack/react-query';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useState } from 'react';
+import { Alert, Button, Keyboard, StyleSheet, TextInput, TouchableWithoutFeedback } from 'react-native';
+
 import { ThemedText } from '@/components/ui/ThemedText';
-import { ms, s } from "@/utils/scale";
 import { ThemedView } from '@/components/ui/ThemedView';
 import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { checkAndAssignDraftSlots } from '@/lib/draft';
 import { containsBlockedContent } from '@/utils/moderation';
-import { useQueryClient } from '@tanstack/react-query';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Alert, Button, Keyboard, StyleSheet, TextInput, TouchableWithoutFeedback } from 'react-native';
+import { ms, s } from "@/utils/scale";
+
 import { supabase } from '../lib/supabase';
 
 export default function CreateTeam() {

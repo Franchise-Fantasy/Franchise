@@ -1,7 +1,8 @@
+import { useQuery } from "@tanstack/react-query";
+import { PurchasesPackage } from "react-native-purchases";
+
 import { queryKeys } from "@/constants/queryKeys";
 import { getOfferings } from "@/lib/purchases";
-import { PurchasesPackage } from "react-native-purchases";
-import { useQuery } from "@tanstack/react-query";
 
 interface GroupedOfferings {
   /** All packages in the current offering */

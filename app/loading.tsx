@@ -1,10 +1,11 @@
-import { ThemedText } from '@/components/ui/ThemedText';
-import { ThemedView } from '@/components/ui/ThemedView';
-import { useLeague } from '@/hooks/useLeague';
 import { useRouter } from 'expo-router';
 import { useEffect } from 'react';
 import { StyleSheet } from 'react-native';
+
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { ThemedView } from '@/components/ui/ThemedView';
+import { useLeague } from '@/hooks/useLeague';
 
 export default function LoadingScreen() {
   const router = useRouter();

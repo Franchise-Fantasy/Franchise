@@ -1,14 +1,16 @@
+import { ReactNode } from "react";
+import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+
 import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
+import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { PlayerSeasonStats } from "@/types/player";
 import { formatPosition } from "@/utils/formatting";
 import { getInjuryBadge } from "@/utils/injuryBadge";
 import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
 import { ms, s } from "@/utils/scale";
-import { ReactNode } from "react";
-import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
+
 
 interface PlayerCardProps {
   player: PlayerSeasonStats;

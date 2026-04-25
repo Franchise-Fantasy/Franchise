@@ -1,10 +1,11 @@
+import { Ionicons } from '@expo/vector-icons';
+import { StyleSheet, View } from 'react-native';
+
 import { ThemedText } from '@/components/ui/ThemedText';
 import { cardShadow, Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { ms, s } from '@/utils/scale';
 import type { SurveyQuestionResult } from '@/types/survey';
-import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, View } from 'react-native';
+import { ms, s } from '@/utils/scale';
 
 interface Props {
   result: SurveyQuestionResult;

@@ -1,48 +1,7 @@
-import { capture } from "@/lib/posthog";
-import { ThemedText } from "@/components/ui/ThemedText";
-import { PlayerGameLog, PlayerGameLogHeader } from "@/components/player/PlayerGameLog";
-import { NewsCard } from "@/components/player/NewsCard";
-import { PlayerHistory } from "@/components/player/PlayerHistory";
-import { PlayerInsightsCard } from "@/components/player/PlayerInsights";
-import { PreviousSeasons } from "@/components/player/PreviousSeasons";
-import { SeasonAverages } from "@/components/player/SeasonAverages";
-import { HorizontalPager } from "@/components/ui/HorizontalPager";
-import { Colors } from "@/constants/Colors";
-import { queryKeys } from "@/constants/queryKeys";
-import { CURRENT_NBA_SEASON } from "@/constants/LeagueDefaults";
-import { useToast } from "@/context/ToastProvider";
-import { useColorScheme } from "@/hooks/useColorScheme";
-import { useLeagueScoring } from "@/hooks/useLeagueScoring";
-import { usePlayerGameLog } from "@/hooks/usePlayerGameLog";
-import { usePlayerNews } from "@/hooks/usePlayerNews";
-import { usePlayerRankings } from "@/hooks/usePlayerRankings";
-import { usePlayerHistoricalStats } from "@/hooks/usePlayerHistoricalStats";
-import { useWatchlist } from "@/hooks/useWatchlist";
-import { sendNotification } from "@/lib/notifications";
-import { supabase } from "@/lib/supabase";
-import { PlayerSeasonStats } from "@/types/player";
-import { toDateStr } from "@/utils/dates";
-import { isEligibleForSlot } from "@/utils/rosterSlots";
-import { calculateAvgFantasyPoints } from "@/utils/fantasyPoints";
-import { formatPosition } from "@/utils/formatting";
-import { addFreeAgent } from "@/utils/addFreeAgent";
-import { guardIllegalIR } from "@/utils/illegalIR";
-import { GameTimeMap, hasAnyGameStarted, isGameStarted, useTodayGameTimes } from "@/utils/gameStarted";
-import { isActiveSlot } from "@/utils/resolveSlot";
-import { ms, s } from '@/utils/scale';
-import { getInjuryBadge } from "@/utils/injuryBadge";
-import {
-  formatGameInfo,
-  liveToGameLog,
-  useLivePlayerStats,
-} from "@/utils/nbaLive";
-import { isOnline } from "@/utils/network";
-import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
-import { calculateAge } from "@/utils/rosterAge";
-import { isTaxiEligible } from "@/utils/taxiEligibility";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { center } from "@shopify/react-native-skia";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -61,9 +20,51 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { center } from "@shopify/react-native-skia";
+
+import { NewsCard } from "@/components/player/NewsCard";
+import { PlayerGameLog, PlayerGameLogHeader } from "@/components/player/PlayerGameLog";
+import { PlayerHistory } from "@/components/player/PlayerHistory";
+import { PlayerInsightsCard } from "@/components/player/PlayerInsights";
+import { PreviousSeasons } from "@/components/player/PreviousSeasons";
+import { SeasonAverages } from "@/components/player/SeasonAverages";
+import { HorizontalPager } from "@/components/ui/HorizontalPager";
 import { LogoSpinner } from "@/components/ui/LogoSpinner";
+import { ThemedText } from "@/components/ui/ThemedText";
+import { Colors } from "@/constants/Colors";
+import { CURRENT_NBA_SEASON } from "@/constants/LeagueDefaults";
+import { queryKeys } from "@/constants/queryKeys";
+import { useToast } from "@/context/ToastProvider";
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import { useLeagueScoring } from "@/hooks/useLeagueScoring";
+import { usePlayerGameLog } from "@/hooks/usePlayerGameLog";
+import { usePlayerHistoricalStats } from "@/hooks/usePlayerHistoricalStats";
+import { usePlayerNews } from "@/hooks/usePlayerNews";
+import { usePlayerRankings } from "@/hooks/usePlayerRankings";
+import { useWatchlist } from "@/hooks/useWatchlist";
+import { sendNotification } from "@/lib/notifications";
+import { capture } from "@/lib/posthog";
+import { supabase } from "@/lib/supabase";
+import { PlayerSeasonStats } from "@/types/player";
+import { addFreeAgent } from "@/utils/addFreeAgent";
+import { toDateStr } from "@/utils/dates";
+import { calculateAvgFantasyPoints } from "@/utils/fantasyPoints";
+import { formatPosition } from "@/utils/formatting";
+import { GameTimeMap, hasAnyGameStarted, isGameStarted, useTodayGameTimes } from "@/utils/gameStarted";
+import { guardIllegalIR } from "@/utils/illegalIR";
+import { getInjuryBadge } from "@/utils/injuryBadge";
+import {
+  formatGameInfo,
+  liveToGameLog,
+  useLivePlayerStats,
+} from "@/utils/nbaLive";
+import { isOnline } from "@/utils/network";
+import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
+import { isActiveSlot } from "@/utils/resolveSlot";
+import { calculateAge } from "@/utils/rosterAge";
+import { isEligibleForSlot } from "@/utils/rosterSlots";
+import { ms, s } from '@/utils/scale';
+import { isTaxiEligible } from "@/utils/taxiEligibility";
 
 interface PlayerDetailModalProps {
   player: PlayerSeasonStats | null;

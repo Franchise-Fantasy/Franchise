@@ -1,8 +1,9 @@
+import { StyleSheet, View } from "react-native";
+
 import { ThemedText } from "@/components/ui/ThemedText";
 import { cardShadow } from "@/constants/Colors";
 import { PlayerSeasonStats } from "@/types/player";
 import { ms, s } from "@/utils/scale";
-import { StyleSheet, View } from "react-native";
 
 interface SeasonAveragesProps {
   player: PlayerSeasonStats;

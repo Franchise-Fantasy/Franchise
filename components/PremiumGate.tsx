@@ -1,3 +1,7 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useState } from 'react';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
+
 import { ThemedText } from '@/components/ui/ThemedText';
 import { UpgradeModal } from '@/components/UpgradeModal';
 import { Colors } from '@/constants/Colors';
@@ -7,12 +11,9 @@ import {
   TIER_COLORS,
   featureTier,
 } from '@/constants/Subscriptions';
-import { useSubscription } from '@/hooks/useSubscription';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { useSubscription } from '@/hooks/useSubscription';
 import { ms, s } from '@/utils/scale';
-import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
 interface PremiumGateProps {
   /** Feature key from FEATURE_TIERS */

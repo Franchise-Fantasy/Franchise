@@ -1,7 +1,9 @@
-import { useAppState } from '@/context/AppStateProvider';
-import { queryKeys } from '@/constants/queryKeys';
-import { supabase } from '@/lib/supabase';
 import { useInfiniteQuery } from '@tanstack/react-query';
+
+import { queryKeys } from '@/constants/queryKeys';
+import { useAppState } from '@/context/AppStateProvider';
+import { supabase } from '@/lib/supabase';
+
 
 const PAGE_SIZE = 20;
 

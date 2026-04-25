@@ -1,20 +1,21 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useCallback } from 'react';
+import { FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
+import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useDraftPlayer } from '@/hooks/useDraftPlayer';
-import { useDraftQueue } from '@/hooks/useDraftQueue';
+import { useDraftQueue , QueuedPlayer } from '@/hooks/useDraftQueue';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
 import { formatPosition } from '@/utils/formatting';
 import { getInjuryBadge } from '@/utils/injuryBadge';
 import { getPlayerHeadshotUrl, getTeamLogoUrl } from '@/utils/playerHeadshot';
 import { ms, s } from '@/utils/scale';
-import { useCallback } from 'react';
-import { FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
-import { Ionicons } from '@expo/vector-icons';
-import { QueuedPlayer } from '@/hooks/useDraftQueue';
-import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
+
 
 interface DraftQueueProps {
   draftId: string;

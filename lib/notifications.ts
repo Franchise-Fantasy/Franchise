@@ -1,9 +1,12 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from './supabase';
+
 import type { Json } from '@/types/database.types';
+
+import { supabase } from './supabase';
+
 
 const EAS_PROJECT_ID = 'bc023770-8f00-49df-9fa0-0afdd24f6a44';
 const ASKED_KEY = '@notifications_asked';

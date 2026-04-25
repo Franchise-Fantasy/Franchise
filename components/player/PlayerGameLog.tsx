@@ -1,10 +1,12 @@
-import { ThemedText } from '@/components/ui/ThemedText';
-import { ms, s } from "@/utils/scale";
-import { FptsBreakdownModal } from '@/components/player/FptsBreakdownModal';
-import { PlayerGameLog as PlayerGameLogType, ScoringWeight } from '@/types/player';
-import { calculateGameFantasyPoints } from '@/utils/fantasyPoints';
 import { useState, type RefObject } from 'react';
 import { NativeScrollEvent, NativeSyntheticEvent, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+
+import { FptsBreakdownModal } from '@/components/player/FptsBreakdownModal';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { PlayerGameLog as PlayerGameLogType, ScoringWeight } from '@/types/player';
+import { calculateGameFantasyPoints } from '@/utils/fantasyPoints';
+import { ms, s } from "@/utils/scale";
+
 
 // Returns the Monday (start of week) for a given YYYY-MM-DD date string
 function getWeekMonday(dateStr: string): string {

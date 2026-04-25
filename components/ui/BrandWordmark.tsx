@@ -1,8 +1,9 @@
 import { Image } from 'react-native';
+
 import { useColorScheme } from '@/hooks/useColorScheme';
 
-const UMBER = require('@/assets/images/Wordmark_Umber.png');
 const GOLD = require('@/assets/images/Wordmark_Gold.png');
+const UMBER = require('@/assets/images/Wordmark_Umber.png');
 
 interface BrandWordmarkProps {
   width?: number;

@@ -1,10 +1,3 @@
-import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
-import { ms, s } from '@/utils/scale';
-import { InjuryFilter, POSITIONS, SortKey, TimeRange } from '@/hooks/usePlayerFilter';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { toDateStr } from '@/utils/dates';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { ReactNode, useRef, useState } from 'react';
@@ -19,6 +12,14 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors } from '@/constants/Colors';
+import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { InjuryFilter, POSITIONS, SortKey, TimeRange } from '@/hooks/usePlayerFilter';
+import { toDateStr } from '@/utils/dates';
+import { ms, s } from '@/utils/scale';
 
 const SORT_OPTIONS: SortKey[] = ['FPTS', 'PPG', 'RPG', 'APG', 'SPG', 'BPG', 'MPG', 'FG%', 'FT%', 'TO'];
 const INJURY_OPTIONS: { key: InjuryFilter; label: string; icon: string }[] = [

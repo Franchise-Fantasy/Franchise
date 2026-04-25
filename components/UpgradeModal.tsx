@@ -1,26 +1,5 @@
-import { LogoSpinner } from "@/components/ui/LogoSpinner";
-import { ThemedText } from "@/components/ui/ThemedText";
-import { Colors } from "@/constants/Colors";
-import { ms, s } from '@/utils/scale';
-import {
-  SubscriptionTier,
-  TIER_COLORS,
-  TIER_LABELS,
-  TIER_RANK,
-} from "@/constants/Subscriptions";
-import { useColorScheme } from "@/hooks/useColorScheme";
-import {
-  purchasePackage,
-  restorePurchases,
-  syncSubscriptionFromRC,
-} from "@/lib/purchases";
-import Purchases from "react-native-purchases";
-import { useAppState } from "@/context/AppStateProvider";
-import { useSession } from "@/context/AuthProvider";
-import { useSubscription, waitForSubscriptionChange } from "@/hooks/useSubscription";
-import { useOfferings } from "@/hooks/useOfferings";
-import { useQueryClient } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
+import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import {
   Alert,
@@ -31,6 +10,29 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import Purchases from "react-native-purchases";
+
+import { LogoSpinner } from "@/components/ui/LogoSpinner";
+import { ThemedText } from "@/components/ui/ThemedText";
+import { Colors } from "@/constants/Colors";
+import {
+  SubscriptionTier,
+  TIER_COLORS,
+  TIER_LABELS,
+  TIER_RANK,
+} from "@/constants/Subscriptions";
+import { useAppState } from "@/context/AppStateProvider";
+import { useSession } from "@/context/AuthProvider";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import { useOfferings } from "@/hooks/useOfferings";
+import { useSubscription, waitForSubscriptionChange } from "@/hooks/useSubscription";
+import {
+  purchasePackage,
+  restorePurchases,
+  syncSubscriptionFromRC,
+} from "@/lib/purchases";
+import { ms, s } from '@/utils/scale';
+
 
 interface UpgradeModalProps {
   visible: boolean;

@@ -1,23 +1,25 @@
+import { useRouter } from 'expo-router';
+import { useMemo } from 'react';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
+
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { Brand, Colors, cardShadow } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
-import { ms, s } from '@/utils/scale';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { useLeagueRosterStats } from '@/hooks/useLeagueRosterStats';
-import {
-  buildLeagueComparison,
-  calculateRosterAgeProfile,
-} from '@/utils/rosterAge';
+import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import {
   computeTeamCategoryAvgs,
   computeTeamZScores,
 } from '@/utils/categoryAnalytics';
-import { useRouter } from 'expo-router';
-import { useMemo } from 'react';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
-import { ThemedText } from '../ui/ThemedText';
+import {
+  buildLeagueComparison,
+  calculateRosterAgeProfile,
+} from '@/utils/rosterAge';
+import { ms, s } from '@/utils/scale';
+
 import { IconSymbol } from '../ui/IconSymbol';
+import { ThemedText } from '../ui/ThemedText';
 
 /**
  * Analytics preview — one solid card matching the rest of the home

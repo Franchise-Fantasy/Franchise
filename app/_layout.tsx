@@ -1,28 +1,61 @@
-import {
-  DarkTheme,
-  DefaultTheme,
-  ThemeProvider,
-} from "@react-navigation/native";
-import { useFonts } from "expo-font";
 import { AlfaSlabOne_400Regular } from "@expo-google-fonts/alfa-slab-one";
-import {
-  Oswald_500Medium,
-  Oswald_700Bold,
-} from "@expo-google-fonts/oswald";
 import {
   Inter_400Regular,
   Inter_500Medium,
   Inter_700Bold,
 } from "@expo-google-fonts/inter";
+import {
+  Oswald_500Medium,
+  Oswald_700Bold,
+} from "@expo-google-fonts/oswald";
+import NetInfo from "@react-native-community/netinfo";
+import {
+  DarkTheme,
+  DefaultTheme,
+  ThemeProvider,
+} from "@react-navigation/native";
+import {
+  focusManager,
+  MutationCache,
+  onlineManager,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
+import { useFonts } from "expo-font";
+import * as Linking from "expo-linking";
 import * as Notifications from "expo-notifications";
-import { Stack } from "expo-router";
+import { Stack , usePathname, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as Updates from "expo-updates";
+import {
+  PostHogProvider,
+  PostHogSurveyProvider,
+  usePostHog,
+} from "posthog-react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Alert, Animated, AppState, Image, StyleSheet } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import "react-native-reanimated";
 
+import { AnnouncementBanner } from "@/components/AnnouncementBanner";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { MatchupResultModal } from "@/components/MatchupResultModal";
+import { OfflineBanner } from "@/components/OfflineBanner";
+import { Colors } from "@/constants/Colors";
+import { AppStateProvider, useAppState } from "@/context/AppStateProvider";
+import {
+  AuthProvider,
+  useAuthInitialized,
+  useSession,
+} from "@/context/AuthProvider";
+import { globalToastRef, ToastProvider } from "@/context/ToastProvider";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import { isDraftRoomOpen } from "@/lib/activeScreen";
+import { posthog, setPostHogAdmin } from "@/lib/posthog";
+import { registerSplashReadyHandler } from "@/lib/splashReady";
+import { supabase } from "@/lib/supabase";
 import { isExpoGo } from "@/utils/buildConfig";
 
 // Keep the native splash screen visible until we explicitly hide it.
@@ -39,9 +72,6 @@ if (!isExpoGo) {
     // Sentry native module not available — skip silently
   }
 }
-
-// Show foreground alerts for high-priority channels; suppress others.
-import { isDraftRoomOpen } from "@/lib/activeScreen";
 
 const FOREGROUND_CHANNELS = ["draft", "trades", "playoffs", "commissioner"];
 
@@ -72,40 +102,6 @@ Notifications.setNotificationHandler({
     };
   },
 });
-
-import { AnnouncementBanner } from "@/components/AnnouncementBanner";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { MatchupResultModal } from "@/components/MatchupResultModal";
-import { OfflineBanner } from "@/components/OfflineBanner";
-import { AppStateProvider, useAppState } from "@/context/AppStateProvider";
-import {
-  AuthProvider,
-  useAuthInitialized,
-  useSession,
-} from "@/context/AuthProvider";
-import { globalToastRef, ToastProvider } from "@/context/ToastProvider";
-import { Colors } from "@/constants/Colors";
-import { useColorScheme } from "@/hooks/useColorScheme";
-import { posthog, setPostHogAdmin } from "@/lib/posthog";
-import { supabase } from "@/lib/supabase";
-import NetInfo from "@react-native-community/netinfo";
-import {
-  focusManager,
-  MutationCache,
-  onlineManager,
-  QueryClient,
-  QueryClientProvider,
-} from "@tanstack/react-query";
-import * as Linking from "expo-linking";
-import { usePathname, useRouter } from "expo-router";
-import {
-  PostHogProvider,
-  PostHogSurveyProvider,
-  usePostHog,
-} from "posthog-react-native";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { registerSplashReadyHandler } from "@/lib/splashReady";
-import { Alert, Animated, AppState, Image, StyleSheet } from "react-native";
 
 // Sync React Query's online state with actual device connectivity
 onlineManager.setEventListener((setOnline) => {

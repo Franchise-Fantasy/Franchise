@@ -1,10 +1,12 @@
+import { StyleSheet, View } from 'react-native';
+
 import { LotteryOddsEditor } from '@/components/create-league/LotteryOddsEditor';
+import { ToggleRow } from '@/components/ToggleRow';
 import { FieldGroup } from '@/components/ui/FieldGroup';
 import { FormSection } from '@/components/ui/FormSection';
-import { ToggleRow } from '@/components/ToggleRow';
-import { ThemedText } from '@/components/ui/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import {
   DRAFT_TYPE_OPTIONS,
@@ -15,7 +17,6 @@ import {
 } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/lottery';
-import { StyleSheet, View } from 'react-native';
 import { ms, s } from '@/utils/scale';
 
 interface StepDraftProps {
