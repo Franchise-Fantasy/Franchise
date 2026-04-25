@@ -9,14 +9,10 @@ import * as Haptics from "expo-haptics";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
-  Animated,
-  Easing,
   Image,
   ScrollView,
   StyleSheet,
-  type StyleProp,
   Text,
-  type TextStyle,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -24,7 +20,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { FptsBreakdownModal } from "@/components/player/FptsBreakdownModal";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
+import { AnimatedFpts } from "@/components/roster/AnimatedFpts";
+import { DayNavBar } from "@/components/roster/DayNavBar";
+import { IrLockBanner } from "@/components/roster/IrLockBanner";
 import { MyPicksSection } from "@/components/roster/MyPicksSection";
+import { rosterStyles as styles } from "@/components/roster/rosterStyles";
 import {
   DestinationSlot,
   QuickAction,
@@ -73,7 +73,7 @@ import { fetchTeamSlots } from "@/utils/roster/fetchTeamSlots";
 import { isIrEligibleStatus } from "@/utils/roster/illegalIR";
 import { isEligibleForSlot, slotLabel } from "@/utils/roster/rosterSlots";
 import { isTaxiEligible } from "@/utils/roster/taxiEligibility";
-import { ms, s } from "@/utils/scale";
+import { s } from "@/utils/scale";
 import { buildCompositeScatter } from "@/utils/scoring/categoryAnalytics";
 import {
   calculateAvgFantasyPoints,
@@ -138,69 +138,6 @@ function dayToStatRecord(g: DayGameStats): Record<string, number | boolean> {
     double_double: g.double_double,
     triple_double: g.triple_double,
   };
-}
-
-// ─── Animated FPTS number ────────────────────────────────────────────────────
-// Pops (scale 1 → 1.35 → 1) whenever value changes.
-
-function AnimatedFpts({
-  value,
-  accentColor,
-  dimColor,
-  textStyle,
-  animate = false,
-  projected = false,
-}: {
-  value: number | null;
-  accentColor: string;
-  dimColor: string;
-  textStyle: StyleProp<TextStyle>;
-  animate?: boolean;
-  projected?: boolean;
-}) {
-  const translateY = useRef(new Animated.Value(0)).current;
-  const prev = useRef<number | null | undefined>(undefined);
-  const wasAnimating = useRef(false);
-
-  useEffect(() => {
-    if (
-      animate &&
-      wasAnimating.current &&
-      prev.current !== undefined &&
-      value !== prev.current
-    ) {
-      const goingUp = (value ?? 0) > (prev.current ?? 0);
-      translateY.setValue(goingUp ? 14 : -14);
-      Animated.timing(translateY, {
-        toValue: 0,
-        duration: 500,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start();
-    }
-    prev.current = value;
-    wasAnimating.current = animate;
-  }, [value, animate]);
-
-  return (
-    <View style={{ overflow: "hidden", height: 18, justifyContent: "center" }}>
-      <Animated.Text
-        style={[
-          textStyle,
-          {
-            transform: [{ translateY }],
-            color: value !== null ? accentColor : dimColor,
-          },
-        ]}
-      >
-        {value !== null
-          ? projected
-            ? value.toFixed(1)
-            : formatScore(value)
-          : "—"}
-      </Animated.Text>
-    </View>
-  );
 }
 
 // ─── Data fetching ────────────────────────────────────────────────────────────
@@ -1795,96 +1732,33 @@ export default function RosterScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
-      {/* Day navigation */}
-      <View style={[styles.dayNav, { borderBottomColor: c.border }]}>
-        <TouchableOpacity
-          onPress={() => canGoBack && setSelectedDate(addDays(selectedDate, -1))}
-          disabled={!canGoBack}
-          style={[styles.navArrow, !canGoBack && { opacity: 0.3 }]}
-          accessibilityRole="button"
-          accessibilityLabel="Previous day"
-          accessibilityState={{ disabled: !canGoBack }}
-        >
-          <Text style={[styles.navArrowText, { color: c.text }]}>‹</Text>
-        </TouchableOpacity>
-
-        <View style={styles.dayInfo}>
-          <View>
-            <ThemedText type="defaultSemiBold" style={styles.dayLabel}>
-              {formatDayLabel(selectedDate)}
-            </ThemedText>
-          </View>
-          {currentWeek && (
-            <ThemedText
-              style={[styles.daySubLabel, { color: c.secondaryText }]}
-            >
-              Week {currentWeek.week_number}
-              {isPastDate ? ' · Past lineup (read-only)' : isToday ? " · Today's lineup" : ''}
-            </ThemedText>
-          )}
-          {!currentWeek && isPastDate && (
-            <ThemedText
-              style={[styles.daySubLabel, { color: c.secondaryText }]}
-            >
-              Past lineup (read-only)
-            </ThemedText>
-          )}
-          {!currentWeek && isToday && (
-            <ThemedText
-              style={[styles.daySubLabel, { color: c.secondaryText }]}
-            >
-              Today's lineup
-            </ThemedText>
-          )}
-        </View>
-
-        <TouchableOpacity
-          onPress={() => setSelectedDate(addDays(selectedDate, 1))}
-          style={styles.navArrow}
-          accessibilityRole="button"
-          accessibilityLabel="Next day"
-        >
-          <Text style={[styles.navArrowText, { color: c.text }]}>›</Text>
-        </TouchableOpacity>
-
-        {selectedDate !== today && (
-          <TouchableOpacity
-            onPress={() => setSelectedDate(today)}
-            style={[
-              styles.todayChip,
-              isFutureDate ? styles.todayChipLeft : styles.todayChipRight,
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="Go to today"
-          >
-            <ThemedText style={[styles.todayChipText, { color: c.accent }]}>
-              Today
-            </ThemedText>
-          </TouchableOpacity>
-        )}
-      </View>
+      <DayNavBar
+        selectedDate={selectedDate}
+        today={today}
+        canGoBack={canGoBack}
+        isFutureDate={isFutureDate}
+        isPastDate={isPastDate}
+        isToday={isToday}
+        currentWeek={currentWeek}
+        dayLabel={formatDayLabel(selectedDate)}
+        colors={{
+          border: c.border,
+          text: c.text,
+          secondaryText: c.secondaryText,
+          accent: c.accent,
+        }}
+        onPrevDay={() =>
+          canGoBack && setSelectedDate(addDays(selectedDate, -1))
+        }
+        onNextDay={() => setSelectedDate(addDays(selectedDate, 1))}
+        onGoToToday={() => setSelectedDate(today)}
+      />
 
       {irLocked && (
-        <View
-          style={[
-            styles.irLockBanner,
-            { backgroundColor: c.danger + "20", borderColor: c.danger },
-          ]}
-          accessibilityRole="alert"
-          accessibilityLabel="Roster locked — illegal IR"
-        >
-          <Ionicons name="warning" size={18} color={c.danger} />
-          <ThemedText style={[styles.irLockBannerText, { color: c.text }]}>
-            Roster moves locked —{" "}
-            <ThemedText
-              style={[styles.irLockBannerText, { color: c.text, fontWeight: "700" }]}
-            >
-              {(illegalIRPlayers ?? []).map((p) => p.name).join(", ")}
-            </ThemedText>{" "}
-            {(illegalIRPlayers ?? []).length > 1 ? "are" : "is"} on IR but no longer injured. Activate{" "}
-            {(illegalIRPlayers ?? []).length > 1 ? "them" : "them"} to unlock your roster.
-          </ThemedText>
-        </View>
+        <IrLockBanner
+          players={illegalIRPlayers ?? []}
+          colors={{ danger: c.danger, text: c.text }}
+        />
       )}
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -2161,211 +2035,3 @@ export default function RosterScreen() {
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  autoButton: {
-    paddingHorizontal: s(10),
-    paddingVertical: s(4),
-    borderRadius: 6,
-  },
-  autoButtonText: {
-    fontSize: ms(11),
-    fontWeight: "700",
-  },
-  infoButton: {
-    padding: s(2),
-  },
-  shareButton: {
-    padding: s(4),
-  },
-  scrollContent: { paddingBottom: s(56) },
-  centered: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: s(20),
-  },
-  dayNav: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: s(8),
-    paddingVertical: s(10),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  irLockBanner: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: s(8),
-    marginHorizontal: s(12),
-    marginTop: s(10),
-    padding: s(10),
-    borderRadius: s(8),
-    borderWidth: 1,
-  },
-  irLockBannerText: {
-    flex: 1,
-    fontSize: ms(13),
-    lineHeight: ms(17),
-  },
-  navArrow: { padding: s(12) },
-  navArrowText: { fontSize: ms(28), lineHeight: ms(32) },
-  todayChip: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    justifyContent: "center",
-    paddingHorizontal: s(4),
-  },
-  todayChipLeft: { left: s(50) },
-  todayChipRight: { right: s(50) },
-  dayInfo: { flex: 1, alignItems: "center" },
-  dayLabel: { fontSize: ms(16) },
-  daySubLabel: { fontSize: ms(11), marginTop: 2 },
-  section: { padding: s(16), paddingBottom: 0 },
-  sectionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: s(8),
-  },
-  totalBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: s(8),
-    paddingVertical: s(3),
-    borderRadius: 6,
-    borderWidth: 1,
-    gap: s(5),
-  },
-  totalLabel: { fontSize: ms(10), fontWeight: "600" },
-  totalValue: {
-    fontSize: ms(16),
-    fontWeight: "700",
-    minWidth: s(44),
-    textAlign: "right",
-  },
-  emptyBench: { padding: s(16), alignItems: "center" },
-  card: {
-    borderRadius: 8,
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  slotRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    minHeight: s(56),
-  },
-  slotLabel: {
-    width: s(44),
-    alignSelf: "stretch",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  slotLabelText: { fontSize: ms(11), fontWeight: "700" },
-  slotPlayer: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: s(6),
-    paddingHorizontal: s(12),
-  },
-  rosterPortraitWrap: {
-    width: s(50),
-    height: s(50),
-    marginRight: s(8),
-    alignItems: "center",
-  },
-  onCourtDot: {
-    position: "absolute" as const,
-    top: s(6),
-    left: s(6),
-    width: s(8),
-    height: s(8),
-    borderRadius: 4,
-    zIndex: 2,
-  },
-  rosterHeadshotCircle: {
-    width: s(48),
-    height: s(48),
-    borderRadius: 25,
-    borderWidth: 1.5,
-    overflow: "hidden" as const,
-  },
-  rosterHeadshotImg: {
-    position: "absolute" as const,
-    bottom: -2,
-    left: 0,
-    right: 0,
-    height: s(42),
-  },
-  rosterTeamPill: {
-    position: "absolute",
-    bottom: -1,
-    alignSelf: "center",
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.75)",
-    borderRadius: 8,
-    paddingHorizontal: s(3),
-    paddingVertical: 1,
-    gap: 2,
-  },
-  rosterTeamPillLogo: {
-    width: s(9),
-    height: s(9),
-  },
-  rosterTeamPillText: {
-    fontSize: ms(7),
-    fontWeight: "700",
-    letterSpacing: 0.3,
-  },
-  slotPlayerInfo: { flex: 1, marginRight: s(8) },
-  slotLine1: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  slotLine3: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 3,
-  },
-  slotMatchupRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 4,
-  },
-  slotPlayerName: { fontSize: ms(14), lineHeight: ms(18) },
-  slotPlayerSub: { fontSize: ms(11), lineHeight: ms(15) },
-  slotFpts: { fontSize: ms(13), fontWeight: "600" },
-  emptySlotText: { fontSize: ms(13), fontStyle: "italic" },
-  todayChipText: { fontSize: ms(11), fontWeight: "600" },
-  matchupChip: {
-    paddingHorizontal: s(4),
-    paddingVertical: 1,
-    borderRadius: 3,
-  },
-  matchupChipLive: {
-    borderWidth: 1,
-  },
-  matchupChipText: {
-    fontSize: ms(9),
-    fontWeight: "600" as const,
-  },
-  liveBadge: {
-    paddingHorizontal: s(4),
-    paddingVertical: 1,
-    borderRadius: 3,
-  },
-  liveText: {
-    fontSize: ms(8),
-    fontWeight: "800",
-    letterSpacing: 0.5,
-  },
-});
