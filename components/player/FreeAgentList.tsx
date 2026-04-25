@@ -1,20 +1,23 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
-  Animated,
   FlatList,
   Image,
-  Modal,
   ScrollView,
-  StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
 
+import { FaabBidModal } from "@/components/player/FaabBidModal";
+import {
+  FadeInImage,
+  SKELETON_COUNT,
+  SkeletonRibbon,
+  SkeletonRow,
+} from "@/components/player/FreeAgentListSkeletons";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import { PlayerFilterBar } from "@/components/player/PlayerFilterBar";
 import { InfoModal } from "@/components/ui/InfoModal";
@@ -37,161 +40,11 @@ import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/nba/playerHeadshot
 import { addFreeAgent } from "@/utils/roster/addFreeAgent";
 import { guardIllegalIR } from "@/utils/roster/illegalIR";
 import { checkPositionLimits } from "@/utils/roster/positionLimits";
-import { ms, s } from "@/utils/scale";
+import { ms } from "@/utils/scale";
 import { calculateAvgFantasyPoints } from "@/utils/scoring/fantasyPoints";
 
-const SKELETON_COUNT = 8;
+import { freeAgentListStyles as styles } from "./freeAgentListStyles";
 
-function SkeletonRow({ color, index }: { color: string; index: number }) {
-  const pulse = useRef(new Animated.Value(0.3)).current;
-
-  useEffect(() => {
-    const anim = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, {
-          toValue: 1,
-          duration: 800,
-          useNativeDriver: true,
-          delay: index * 60,
-        }),
-        Animated.timing(pulse, {
-          toValue: 0.3,
-          duration: 800,
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-    anim.start();
-    return () => anim.stop();
-  }, []);
-
-  return (
-    <View style={[styles.row, { borderBottomColor: color }]}>
-      <Animated.View
-        style={[
-          styles.headshotCircle,
-          {
-            backgroundColor: color,
-            opacity: pulse,
-            marginRight: 10,
-            borderWidth: 0,
-          },
-        ]}
-      />
-      <View style={styles.info}>
-        <Animated.View
-          style={[
-            styles.skeletonBar,
-            { width: 120, backgroundColor: color, opacity: pulse },
-          ]}
-        />
-        <Animated.View
-          style={[
-            styles.skeletonBar,
-            { width: 40, marginTop: 4, backgroundColor: color, opacity: pulse },
-          ]}
-        />
-      </View>
-      <View style={styles.rightSide}>
-        <View style={styles.stats}>
-          <Animated.View
-            style={[
-              styles.skeletonBar,
-              { width: 60, backgroundColor: color, opacity: pulse },
-            ]}
-          />
-          <Animated.View
-            style={[
-              styles.skeletonBar,
-              {
-                width: 44,
-                marginTop: 4,
-                backgroundColor: color,
-                opacity: pulse,
-              },
-            ]}
-          />
-        </View>
-        <Animated.View
-          style={[styles.addButton, { backgroundColor: color, opacity: pulse }]}
-        >
-          <Text style={styles.addButtonText}> </Text>
-        </Animated.View>
-      </View>
-    </View>
-  );
-}
-
-function SkeletonRibbon({ color }: { color: string }) {
-  const pulse = useRef(new Animated.Value(0.3)).current;
-  useEffect(() => {
-    const anim = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, {
-          toValue: 1,
-          duration: 800,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulse, {
-          toValue: 0.3,
-          duration: 800,
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-    anim.start();
-    return () => anim.stop();
-  }, []);
-
-  return (
-    <View style={[styles.ribbonScroll, styles.ribbonContent]}>
-      <Animated.View
-        style={[
-          styles.ribbonPill,
-          { borderColor: color, opacity: pulse, width: 80, height: 28 },
-        ]}
-      />
-      <Animated.View
-        style={[
-          styles.ribbonPill,
-          { borderColor: color, opacity: pulse, width: 72, height: 28 },
-        ]}
-      />
-      <Animated.View
-        style={[
-          styles.ribbonPill,
-          { borderColor: color, opacity: pulse, width: 68, height: 28 },
-        ]}
-      />
-    </View>
-  );
-}
-
-function FadeInImage({
-  uri,
-  style,
-  resizeMode,
-}: {
-  uri: string;
-  style: any;
-  resizeMode: any;
-}) {
-  const opacity = useRef(new Animated.Value(0)).current;
-  return (
-    <Animated.Image
-      source={{ uri }}
-      style={[style, { opacity }]}
-      resizeMode={resizeMode}
-      onLoad={() => {
-        Animated.timing(opacity, {
-          toValue: 1,
-          duration: 250,
-          useNativeDriver: true,
-        }).start();
-      }}
-    />
-  );
-}
 
 interface FreeAgentListProps {
   leagueId: string;
@@ -1733,89 +1586,32 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         }
       />
 
-      {/* FAAB Bid Modal */}
-      <Modal
-        visible={!!faabModalPlayer}
-        animationType="fade"
-        transparent
-        onRequestClose={() => setFaabModalPlayer(null)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.faabModal, { backgroundColor: c.card }]}>
-            <ThemedText
-              type="defaultSemiBold"
-              style={{ fontSize: ms(16), marginBottom: 4 }}
-            >
-              Place FAAB Bid
-            </ThemedText>
-            <ThemedText
-              style={{ fontSize: ms(13), color: c.secondaryText, marginBottom: 16 }}
-            >
-              {faabModalPlayer?.name} -{" "}
-              {formatPosition(faabModalPlayer?.position ?? "")}
-            </ThemedText>
-
-            <View style={styles.bidRow}>
-              <ThemedText style={{ fontSize: ms(14), color: c.secondaryText }}>
-                Bid Amount ($)
-              </ThemedText>
-              <TextInput
-                style={[
-                  styles.bidInput,
-                  {
-                    color: c.text,
-                    borderColor: c.border,
-                    backgroundColor: c.input,
-                  },
-                ]}
-                value={bidAmount}
-                onChangeText={setBidAmount}
-                keyboardType="number-pad"
-                selectTextOnFocus
-                accessibilityLabel="Bid amount in dollars"
-              />
-            </View>
-            <ThemedText
-              style={{ fontSize: ms(11), color: c.secondaryText, marginBottom: 16 }}
-            >
-              Remaining budget: ${faabRemaining ?? 0}
-            </ThemedText>
-
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalBtn, { backgroundColor: c.cardAlt }]}
-                onPress={() => {
-                  setFaabModalPlayer(null);
-                  setFaabDropPlayerId(null);
-                }}
-                accessibilityRole="button"
-                accessibilityLabel="Cancel bid"
-              >
-                <ThemedText>Cancel</ThemedText>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalBtn, { backgroundColor: c.accent }]}
-                accessibilityRole="button"
-                accessibilityLabel="Submit bid"
-                onPress={() => {
-                  const bid = Math.max(
-                    0,
-                    Math.min(parseInt(bidAmount) || 0, faabRemaining ?? 0),
-                  );
-                  const dropId = faabDropPlayerId ?? undefined;
-                  setFaabModalPlayer(null);
-                  setFaabDropPlayerId(null);
-                  handleSubmitFaabBid(faabModalPlayer!, bid, dropId);
-                }}
-              >
-                <Text style={{ color: c.accentText, fontWeight: "600" }}>
-                  Submit Bid
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      <FaabBidModal
+        player={faabModalPlayer}
+        bidAmount={bidAmount}
+        faabRemaining={faabRemaining}
+        colors={{
+          card: c.card,
+          secondaryText: c.secondaryText,
+          text: c.text,
+          border: c.border,
+          input: c.input,
+          cardAlt: c.cardAlt,
+          accent: c.accent,
+          accentText: c.accentText,
+        }}
+        onBidAmountChange={setBidAmount}
+        onCancel={() => {
+          setFaabModalPlayer(null);
+          setFaabDropPlayerId(null);
+        }}
+        onSubmit={(player, bid) => {
+          const dropId = faabDropPlayerId ?? undefined;
+          setFaabModalPlayer(null);
+          setFaabDropPlayerId(null);
+          handleSubmitFaabBid(player, bid, dropId);
+        }}
+      />
 
       <InfoModal
         visible={infoKey === "acq"}
@@ -1832,251 +1628,3 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  offseasonBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: s(10),
-    marginHorizontal: s(8),
-    marginTop: s(4),
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  listContent: {
-    paddingHorizontal: s(8),
-    paddingBottom: s(100),
-  },
-  ribbonRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  statInfoBtn: {
-    paddingHorizontal: s(10),
-    paddingVertical: s(4),
-    marginLeft: "auto",
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: s(6),
-    paddingHorizontal: s(12),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  rowAlt: {
-    backgroundColor: "rgba(128, 128, 128, 0.09)",
-  },
-  portraitWrap: {
-    width: s(58),
-    height: s(58),
-    marginRight: s(10),
-    alignItems: "center",
-  },
-  headshotCircle: {
-    width: s(54),
-    height: s(54),
-    borderRadius: 29,
-    borderWidth: 1.5,
-    overflow: "hidden" as const,
-  },
-  headshotImg: {
-    position: "absolute" as const,
-    bottom: s(-2),
-    left: 0,
-    right: 0,
-    height: s(48),
-  },
-  teamPill: {
-    position: "absolute",
-    bottom: 0,
-    alignSelf: "center",
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.75)",
-    borderRadius: 8,
-    paddingHorizontal: s(4),
-    paddingVertical: s(1),
-    gap: s(2),
-  },
-  teamPillLogo: {
-    width: s(10),
-    height: s(10),
-  },
-  teamPillText: {
-    fontSize: ms(8),
-    fontWeight: "700",
-    letterSpacing: 0.3,
-  },
-  info: {
-    flex: 1,
-    marginRight: s(8),
-  },
-  nameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: s(4),
-  },
-  badge: {
-    paddingHorizontal: s(4),
-    paddingVertical: s(1),
-    borderRadius: 3,
-  },
-  badgeText: {
-    fontSize: ms(8),
-    fontWeight: "800",
-    letterSpacing: 0.5,
-  },
-  posRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: s(4),
-  },
-  posText: {
-    fontSize: ms(11),
-    marginTop: 0,
-  },
-  waiverBadge: {
-    paddingHorizontal: s(5),
-    paddingVertical: s(1),
-    borderRadius: 3,
-    marginLeft: s(4),
-  },
-  waiverBadgeText: {
-    fontSize: ms(9),
-    fontWeight: "700",
-  },
-  gameTodayBadge: {
-    paddingHorizontal: s(4),
-    paddingVertical: s(1),
-    borderRadius: 3,
-  },
-  gameTodayText: {
-    fontSize: ms(9),
-    fontWeight: "700",
-  },
-  rightSide: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: s(8),
-  },
-  stats: {
-    alignItems: "flex-end",
-  },
-  statLine: {
-    fontSize: ms(12),
-  },
-  fpts: {
-    fontSize: ms(11),
-    fontWeight: "600",
-    marginTop: 1,
-  },
-  catLine: {
-    fontSize: ms(10),
-    marginTop: 1,
-  },
-  addButton: {
-    width: s(28),
-    height: s(28),
-    borderRadius: 14,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
-  },
-  claimButton: {
-    width: s(28),
-    height: s(28),
-    borderRadius: 14,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
-  },
-  addButtonText: {
-    fontSize: ms(14),
-    fontWeight: "bold",
-    lineHeight: ms(16),
-  },
-  addButtonDisabled: {
-    opacity: 0.4,
-  },
-  skeletonBar: {
-    height: s(12),
-    borderRadius: 4,
-  },
-
-  // Status ribbon
-  ribbonScroll: {
-    marginTop: s(4),
-    marginHorizontal: s(8),
-  },
-  ribbonContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: s(8),
-    paddingVertical: s(4),
-    paddingHorizontal: s(2),
-  },
-  ribbonPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: s(4),
-    paddingHorizontal: s(10),
-    paddingVertical: s(6),
-    borderRadius: 16,
-    borderWidth: 1,
-  },
-  claimsList: {
-    marginHorizontal: s(8),
-    marginTop: s(4),
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: s(12),
-  },
-  claimRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: s(8),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-
-  // FAAB bid modal
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  faabModal: {
-    width: "80%",
-    borderRadius: 12,
-    padding: s(20),
-  },
-  bidRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: s(4),
-  },
-  bidInput: {
-    width: s(80),
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: s(12),
-    paddingVertical: s(8),
-    fontSize: ms(16),
-    fontWeight: "700",
-    textAlign: "center",
-  },
-  modalButtons: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    gap: s(10),
-  },
-  modalBtn: {
-    paddingHorizontal: s(20),
-    paddingVertical: s(10),
-    borderRadius: 8,
-    alignItems: "center",
-    minWidth: s(80),
-  },
-});
