@@ -1,0 +1,176 @@
+import { StyleSheet } from "react-native";
+
+import { cardShadow } from "@/constants/Colors";
+import { ms, s } from "@/utils/scale";
+
+export const styles = StyleSheet.create({
+  container: { flex: 1 },
+  center: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: s(24),
+  },
+  spinnerWrap: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: s(48),
+  },
+  dayNav: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: s(8),
+    paddingVertical: s(10),
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  navArrow: { padding: s(12) },
+  arrow: { fontSize: ms(28), lineHeight: ms(32) },
+  todayChip: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    justifyContent: "center",
+    paddingHorizontal: s(4),
+  },
+  todayChipLeft: { left: s(50) },
+  todayChipRight: { right: s(50) },
+  todayChipText: { fontSize: ms(11), fontWeight: "600" },
+  dayInfo: { flex: 1, alignItems: "center" },
+  dayLabel: { fontSize: ms(16) },
+  weekMeta: { fontSize: ms(11), marginTop: 2 },
+  body: { padding: s(6), paddingBottom: s(56), flexGrow: 1 },
+  pillBar: {
+    paddingHorizontal: s(12),
+    paddingTop: s(10),
+    paddingBottom: s(10),
+    gap: s(8),
+  },
+  pill: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: s(14),
+    paddingVertical: s(10),
+    borderRadius: 12,
+    gap: s(6),
+  },
+  pillText: {
+    fontSize: ms(10),
+    fontWeight: "600",
+    lineHeight: ms(16),
+  },
+  pillVs: {
+    fontSize: ms(10),
+    fontWeight: "500",
+    lineHeight: ms(14),
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  scheduleSheet: {
+    width: "80%",
+    maxHeight: "70%",
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
+  },
+  scheduleTitle: {
+    fontSize: ms(16),
+    padding: s(16),
+    paddingBottom: s(12),
+  },
+  scheduleRow: {
+    paddingHorizontal: s(16),
+    paddingVertical: s(12),
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  scheduleWeekLabel: { fontSize: ms(14), fontWeight: "600" },
+  scheduleWeekRange: { fontSize: ms(12), marginTop: 2 },
+});
+
+export const colStyles = StyleSheet.create({
+  scoreCard: {
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: s(14),
+    paddingTop: s(12),
+    paddingBottom: s(10),
+    marginHorizontal: s(6),
+    marginBottom: s(14),
+    ...cardShadow,
+  },
+  scoreHeader: { flexDirection: "row", alignItems: "center" },
+  scoreCol: { flex: 1 },
+  vsCol: {
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    marginHorizontal: s(6),
+    marginTop: s(14),
+  },
+  vsText: { fontSize: ms(12), fontWeight: "600" },
+  teamName: { fontWeight: "600", fontSize: ms(14), marginBottom: 2 },
+  total: { fontSize: ms(20), fontWeight: "700" },
+  dayTotal: { fontSize: ms(11), fontWeight: "500", marginTop: 2 },
+  acqRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: s(14),
+    paddingTop: s(10),
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  acqPill: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  acqText: {
+    fontSize: ms(12),
+    fontWeight: "600",
+  },
+  summaryBtnText: {
+    fontSize: ms(10),
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  benchHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: s(8),
+    gap: s(10),
+  },
+  benchLine: {
+    flex: 1,
+    height: 1,
+    opacity: 0.4,
+  },
+  benchLabel: {
+    fontSize: ms(10),
+    fontWeight: "700",
+    letterSpacing: 1.5,
+  },
+  goLiveBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "center",
+    paddingHorizontal: s(12),
+    paddingVertical: s(5),
+    borderRadius: 20,
+    backgroundColor: "#1B3D2F",
+    marginTop: s(8),
+    gap: 5,
+  },
+  goLiveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#FF3B30",
+  },
+  goLiveBtnText: {
+    color: "#fff",
+    fontSize: ms(11),
+    fontWeight: "700",
+  },
+});

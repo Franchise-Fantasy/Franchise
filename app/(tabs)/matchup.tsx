@@ -2,10 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  FlatList,
-  Modal,
   ScrollView,
-  StyleSheet,
   Text,
   TouchableOpacity,
   View,
@@ -13,7 +10,15 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { CategoryScoreboard } from "@/components/matchup/CategoryScoreboard";
+import {
+  MatchupPillBar,
+  type PillMatchup,
+} from "@/components/matchup/MatchupPillBar";
 import { SkeletonBlock } from "@/components/matchup/MatchupSkeleton";
+import {
+  colStyles,
+  styles,
+} from "@/components/matchup/matchupStyles";
 import {
   buildStatLine,
   DisplayMode,
@@ -23,6 +28,7 @@ import {
   round1,
 } from "@/components/matchup/PlayerCell";
 import { WeeklySummaryModal } from "@/components/matchup/WeeklySummaryModal";
+import { WeekScheduleModal } from "@/components/matchup/WeekScheduleModal";
 import { FptsBreakdownModal } from "@/components/player/FptsBreakdownModal";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import { TeamLogo } from "@/components/team/TeamLogo";
@@ -31,7 +37,7 @@ import { InfoModal } from "@/components/ui/InfoModal";
 import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { ThemedView } from "@/components/ui/ThemedView";
-import { Colors, cardShadow } from "@/constants/Colors";
+import { Colors } from "@/constants/Colors";
 import { CURRENT_NBA_SEASON } from "@/constants/LeagueDefaults";
 import { queryKeys } from "@/constants/queryKeys";
 import { useAppState } from "@/context/AppStateProvider";
@@ -64,7 +70,7 @@ import {
 import { fetchNbaScheduleForDate } from "@/utils/nba/nbaSchedule";
 import { fetchTeamData } from "@/utils/roster/fetchTeamData";
 import { slotLabel } from "@/utils/roster/rosterSlots";
-import { ms, s } from "@/utils/scale";
+import { s } from "@/utils/scale";
 import {
   aggregateTeamStats,
   computeCategoryResults,
@@ -211,12 +217,6 @@ async function fetchTeamInfo(teamId: string): Promise<{ name: string; logoKey: s
     .eq("id", teamId)
     .single();
   return { name: data?.name ?? "Unknown Team", logoKey: data?.logo_key ?? null };
-}
-
-interface PillMatchup {
-  id: string;
-  home_team_id: string;
-  away_team_id: string | null;
 }
 
 async function fetchAllWeekMatchups(
@@ -1004,7 +1004,6 @@ export default function MatchupScreen() {
     gameLabel: string;
   } | null>(null);
   const [weeklySummaryVisible, setWeeklySummaryVisible] = useState(false);
-  const pillScrollRef = useRef<ScrollView>(null);
 
   // Live Activity (Dynamic Island)
   const session = useSession();
@@ -1490,98 +1489,25 @@ export default function MatchupScreen() {
 
       {/* Matchup pill bar */}
       {allMatchups && allMatchups.length > 1 && teamNames && (
-        <View
-          style={{
-            borderBottomWidth: StyleSheet.hairlineWidth,
-            borderBottomColor: c.border,
+        <MatchupPillBar
+          allMatchups={allMatchups}
+          teamNames={teamNames}
+          teamId={teamId}
+          selectedMatchupId={selectedMatchupId}
+          colors={{
+            border: c.border,
+            accent: c.accent,
+            activeCard: c.activeCard,
+            activeBorder: c.activeBorder,
+            card: c.card,
+            text: c.text,
+            secondaryText: c.secondaryText,
           }}
-        >
-          <ScrollView
-            ref={pillScrollRef}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.pillBar}
-          >
-            {[...allMatchups]
-              .sort((a, b) => {
-                const aMine =
-                  a.home_team_id === teamId || a.away_team_id === teamId;
-                const bMine =
-                  b.home_team_id === teamId || b.away_team_id === teamId;
-                if (aMine && !bMine) return -1;
-                if (!aMine && bMine) return 1;
-                return 0;
-              })
-              .map((m, idx) => {
-                const isSelected = m.id === selectedMatchupId;
-                const isMine =
-                  m.home_team_id === teamId || m.away_team_id === teamId;
-                const homeName = teamNames[m.home_team_id] ?? "Unknown";
-                const awayName = m.away_team_id
-                  ? (teamNames[m.away_team_id] ?? "Unknown")
-                  : "BYE";
-
-                return (
-                  <TouchableOpacity
-                    key={m.id}
-                    onPress={() => {
-                      if (m.id !== selectedMatchupId) {
-                        setPillTransitioning(true);
-                        setSelectedMatchupId(m.id);
-                      }
-                    }}
-                    style={[
-                      styles.pill,
-                      {
-                        backgroundColor: isSelected
-                          ? c.accent
-                          : isMine
-                            ? c.activeCard
-                            : c.card,
-                      },
-                      !isSelected && {
-                        borderWidth: 1,
-                        borderColor: isMine ? c.activeBorder : c.border,
-                      },
-                      idx === allMatchups.length - 1 && { marginRight: 0 },
-                    ]}
-                    accessibilityRole="tab"
-                    accessibilityState={{ selected: isSelected }}
-                    accessibilityLabel={`${homeName} versus ${awayName}${isMine ? ", your matchup" : ""}`}
-                  >
-                    <Text
-                      style={[
-                        styles.pillText,
-                        { color: isSelected ? "#fff" : c.text },
-                      ]}
-                    >
-                      {homeName}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.pillVs,
-                        {
-                          color: isSelected
-                            ? "rgba(255,255,255,0.5)"
-                            : c.secondaryText,
-                        },
-                      ]}
-                    >
-                      vs
-                    </Text>
-                    <Text
-                      style={[
-                        styles.pillText,
-                        { color: isSelected ? "#fff" : c.text },
-                      ]}
-                    >
-                      {awayName}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-          </ScrollView>
-        </View>
+          onSelect={(id) => {
+            setPillTransitioning(true);
+            setSelectedMatchupId(id);
+          }}
+        />
       )}
 
       {/* Matchup body */}
@@ -1762,81 +1688,21 @@ export default function MatchupScreen() {
         />
       )}
 
-      {/* Schedule dropdown modal */}
-      <Modal
+      <WeekScheduleModal
         visible={scheduleVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setScheduleVisible(false)}
-      >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setScheduleVisible(false)}
-          accessibilityRole="button"
-          accessibilityLabel="Close schedule picker"
-        >
-          <View
-            style={[
-              styles.scheduleSheet,
-              { backgroundColor: c.background, borderColor: c.border },
-            ]}
-          >
-            <ThemedText
-              type="defaultSemiBold"
-              style={styles.scheduleTitle}
-              accessibilityRole="header"
-            >
-              Schedule
-            </ThemedText>
-            <FlatList
-              data={weeks}
-              keyExtractor={(w) => w.id}
-              renderItem={({ item: w, index }) => {
-                const isActive = currentWeek?.id === w.id;
-                return (
-                  <TouchableOpacity
-                    style={[
-                      styles.scheduleRow,
-                      { borderBottomColor: c.border },
-                      isActive && { backgroundColor: c.card },
-                      index === weeks.length - 1 && { borderBottomWidth: 0 },
-                    ]}
-                    onPress={() => {
-                      const jumpDate =
-                        today >= w.start_date && today <= w.end_date
-                          ? today
-                          : w.start_date;
-                      setSelectedDate(jumpDate);
-                      setScheduleVisible(false);
-                    }}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${w.is_playoff ? "Playoffs, " : ""}Week ${w.week_number}, ${formatWeekRange(w.start_date, w.end_date)}`}
-                    accessibilityState={{ selected: isActive }}
-                  >
-                    <ThemedText
-                      style={[
-                        styles.scheduleWeekLabel,
-                        isActive && { color: c.accent },
-                      ]}
-                    >
-                      {w.is_playoff ? "Playoffs · " : ""}Week {w.week_number}
-                    </ThemedText>
-                    <ThemedText
-                      style={[
-                        styles.scheduleWeekRange,
-                        { color: c.secondaryText },
-                      ]}
-                    >
-                      {formatWeekRange(w.start_date, w.end_date)}
-                    </ThemedText>
-                  </TouchableOpacity>
-                );
-              }}
-            />
-          </View>
-        </TouchableOpacity>
-      </Modal>
+        weeks={weeks}
+        currentWeek={currentWeek}
+        today={today}
+        colors={{
+          background: c.background,
+          border: c.border,
+          card: c.card,
+          accent: c.accent,
+          secondaryText: c.secondaryText,
+        }}
+        onClose={() => setScheduleVisible(false)}
+        onSelectDate={setSelectedDate}
+      />
 
       <InfoModal
         visible={acqInfoVisible}
@@ -1848,171 +1714,3 @@ export default function MatchupScreen() {
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  center: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: s(24),
-  },
-  spinnerWrap: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingVertical: s(48),
-  },
-  dayNav: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: s(8),
-    paddingVertical: s(10),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  navArrow: { padding: s(12) },
-  arrow: { fontSize: ms(28), lineHeight: ms(32) },
-  todayChip: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    justifyContent: "center",
-    paddingHorizontal: s(4),
-  },
-  todayChipLeft: { left: s(50) },
-  todayChipRight: { right: s(50) },
-  todayChipText: { fontSize: ms(11), fontWeight: "600" },
-  dayInfo: { flex: 1, alignItems: "center" },
-  dayLabel: { fontSize: ms(16) },
-  weekMeta: { fontSize: ms(11), marginTop: 2 },
-  body: { padding: s(6), paddingBottom: s(56), flexGrow: 1 },
-  pillBar: {
-    paddingHorizontal: s(12),
-    paddingTop: s(10),
-    paddingBottom: s(10),
-    gap: s(8),
-  },
-  pill: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: s(14),
-    paddingVertical: s(10),
-    borderRadius: 12,
-    gap: s(6),
-  },
-  pillText: {
-    fontSize: ms(10),
-    fontWeight: "600",
-    lineHeight: ms(16),
-  },
-  pillVs: {
-    fontSize: ms(10),
-    fontWeight: "500",
-    lineHeight: ms(14),
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.4)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  scheduleSheet: {
-    width: "80%",
-    maxHeight: "70%",
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: "hidden",
-  },
-  scheduleTitle: {
-    fontSize: ms(16),
-    padding: s(16),
-    paddingBottom: s(12),
-  },
-  scheduleRow: {
-    paddingHorizontal: s(16),
-    paddingVertical: s(12),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  scheduleWeekLabel: { fontSize: ms(14), fontWeight: "600" },
-  scheduleWeekRange: { fontSize: ms(12), marginTop: 2 },
-});
-
-const colStyles = StyleSheet.create({
-  scoreCard: {
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: s(14),
-    paddingTop: s(12),
-    paddingBottom: s(10),
-    marginHorizontal: s(6),
-    marginBottom: s(14),
-    ...cardShadow,
-  },
-  scoreHeader: { flexDirection: "row", alignItems: "center" },
-  scoreCol: { flex: 1 },
-  vsCol: { alignItems: "center" as const, justifyContent: "center" as const, marginHorizontal: s(6), marginTop: s(14) },
-  vsText: { fontSize: ms(12), fontWeight: "600" },
-  teamName: { fontWeight: "600", fontSize: ms(14), marginBottom: 2 },
-  total: { fontSize: ms(20), fontWeight: "700" },
-  dayTotal: { fontSize: ms(11), fontWeight: "500", marginTop: 2 },
-  acqRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: s(14),
-    paddingTop: s(10),
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  acqPill: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  acqText: {
-    fontSize: ms(12),
-    fontWeight: "600",
-  },
-  summaryBtnText: {
-    fontSize: ms(10),
-    fontWeight: "600",
-    marginTop: 2,
-  },
-  benchHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: s(8),
-    gap: s(10),
-  },
-  benchLine: {
-    flex: 1,
-    height: 1,
-    opacity: 0.4,
-  },
-  benchLabel: {
-    fontSize: ms(10),
-    fontWeight: "700",
-    letterSpacing: 1.5,
-  },
-  goLiveBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    alignSelf: "center",
-    paddingHorizontal: s(12),
-    paddingVertical: s(5),
-    borderRadius: 20,
-    backgroundColor: "#1B3D2F",
-    marginTop: s(8),
-    gap: 5,
-  },
-  goLiveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "#FF3B30",
-  },
-  goLiveBtnText: {
-    color: "#fff",
-    fontSize: ms(11),
-    fontWeight: "700",
-  },
-});
