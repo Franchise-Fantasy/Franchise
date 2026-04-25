@@ -1,22 +1,16 @@
 import { Ionicons } from "@expo/vector-icons";
-import { center } from "@shopify/react-native-skia";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Animated,
-  FlatList,
   Image,
-  KeyboardAvoidingView,
   Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
   PanResponder,
-  Platform,
   ScrollView,
-  StyleSheet,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -63,8 +57,12 @@ import { isActiveSlot } from "@/utils/roster/resolveSlot";
 import { calculateAge } from "@/utils/roster/rosterAge";
 import { isEligibleForSlot } from "@/utils/roster/rosterSlots";
 import { isTaxiEligible } from "@/utils/roster/taxiEligibility";
-import { ms, s } from '@/utils/scale';
+import { ms, s } from "@/utils/scale";
 import { calculateAvgFantasyPoints } from "@/utils/scoring/fantasyPoints";
+
+import { DropPickerModal } from "./DropPickerModal";
+import { playerDetailStyles as styles } from "./playerDetailStyles";
+import { TradeBlockPrompt } from "./TradeBlockPrompt";
 
 interface PlayerDetailModalProps {
   player: PlayerSeasonStats | null;
@@ -115,7 +113,7 @@ export function PlayerDetailModal({
   const [insightsWindow, setInsightsWindow] = useState(10);
 
   const [tradeBlockPromptVisible, setTradeBlockPromptVisible] = useState(false);
-  const [tradeBlockNoteInput, setTradeBlockNoteInput] = useState("");
+  const [tradeBlockInitialNote, setTradeBlockInitialNote] = useState("");
 
   const [gameLogExpanded, setGameLogExpanded] = useState(false);
 
@@ -1500,7 +1498,7 @@ export function PlayerDetailModal({
     if (!teamId || !player) return;
     if (!isOnTradeBlock) {
       // Adding — show prompt for asking price / note
-      setTradeBlockNoteInput(ownershipInfo?.tradeBlockNote ?? "");
+      setTradeBlockInitialNote(ownershipInfo?.tradeBlockNote ?? "");
       setTradeBlockPromptVisible(true);
     } else {
       // Removing
@@ -1603,190 +1601,48 @@ export function PlayerDetailModal({
     !!teamId && !hasActiveDraft && !isProcessing && !isOffseason;
   const canAdd = canTransact && !addsExhausted;
 
-  const renderDropPickerItem = ({
-    item,
-    index,
-  }: {
-    item: PlayerSeasonStats;
-    index: number;
-  }) => {
-    const fpts = scoringWeights
-      ? calculateAvgFantasyPoints(item, scoringWeights)
-      : null;
-    const dropPickerData = (rosterPlayers ?? []).filter(
-      (p) => playerLockType === "daily" || !isGameStarted(p.pro_team, gameTimeMap),
-    );
-
-    return (
-      <TouchableOpacity
-        style={[
-          styles.dropPickerRow,
-          { borderBottomColor: c.border },
-          index === dropPickerData.length - 1 && { borderBottomWidth: 0 },
-        ]}
-        accessibilityRole="button"
-        accessibilityLabel={`Drop ${item.name}, ${formatPosition(item.position)}, ${item.pro_team}${fpts !== null ? `, ${fpts} fantasy points` : ""}`}
-        onPress={() => {
-          if (activateFromIR) {
-            Alert.alert(
-              "Confirm Transaction",
-              `Drop ${item.name} to activate ${player.name} from IR?`,
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Confirm",
-                  style: "destructive",
-                  onPress: () => handleDropAndActivateFromIR(item),
-                },
-              ],
-            );
-          } else if (onDropForClaim) {
-            Alert.alert(
-              "Select Drop for Claim",
-              `Drop ${item.name} when your claim for ${player.name} processes?`,
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Confirm",
-                  onPress: () => {
-                    onDropForClaim(item);
-                    handleClose();
-                  },
-                },
-              ],
-            );
-          } else if (needsWaiverClaim) {
-            // No external callback but player needs a claim — submit natively
-            Alert.alert(
-              "Select Drop for Claim",
-              `Drop ${item.name} when your claim for ${player.name} processes?`,
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Submit Claim",
-                  onPress: async () => {
-                    setIsProcessing(true);
-                    try {
-                      await submitWaiverClaim(item.player_id);
-                      handleClose();
-                    } catch (err: any) {
-                      Alert.alert(
-                        "Error",
-                        err.message ?? "Failed to submit claim",
-                      );
-                    } finally {
-                      setIsProcessing(false);
-                    }
-                  },
-                },
-              ],
-            );
-          } else {
-            Alert.alert(
-              "Confirm Transaction",
-              `Drop ${item.name} to add ${player.name}?`,
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Confirm",
-                  style: "destructive",
-                  onPress: () => handleDropPlayer(item),
-                },
-              ],
-            );
-          }
-        }}
-        disabled={isProcessing}
-      >
-        <View style={styles.dropPickerInfo}>
-          <ThemedText type="defaultSemiBold" numberOfLines={1}>
-            {item.name}
-          </ThemedText>
-          <ThemedText
-            style={[styles.dropPickerSub, { color: c.secondaryText }]}
-          >
-            {formatPosition(item.position)} · {item.pro_team}
-          </ThemedText>
-        </View>
-        {fpts !== null && (
-          <ThemedText style={[styles.dropPickerFpts, { color: c.accent }]}>
-            {fpts} FPTS
-          </ThemedText>
-        )}
-      </TouchableOpacity>
-    );
+  const handleSubmitWaiverClaimFromDropPicker = async (
+    dropPlayerId?: string,
+  ) => {
+    setIsProcessing(true);
+    try {
+      await submitWaiverClaim(dropPlayerId);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
-  // Drop picker sub-modal
-  if (showDropPicker) {
+  if (showDropPicker && player) {
     return (
-      <Modal visible animationType="slide" transparent>
-        <View style={styles.overlay}>
-          <Animated.View
-            style={[
-              styles.sheet,
-              { backgroundColor: c.background, transform: [{ translateY }] },
-            ]}
-            accessibilityViewIsModal={true}
-          >
-            <View {...panResponder.panHandlers}>
-              <View style={[styles.header, { borderBottomColor: c.border }]}>
-                <View style={styles.headerInfo}>
-                  <ThemedText
-                    type="title"
-                    style={styles.playerName}
-                    accessibilityRole="header"
-                  >
-                    Drop a Player
-                  </ThemedText>
-                  <ThemedText
-                    style={[styles.subtitle, { color: c.secondaryText }]}
-                  >
-                    {activateFromIR
-                      ? `Your active roster is full. Select a player to drop in order to activate ${player.name} from IR.`
-                      : `Your roster is full. Select a player to drop in order to add ${player.name}.`}
-                  </ThemedText>
-                </View>
-                <TouchableOpacity
-                  onPress={() =>
-                    (startInDropPicker || startInActivateFromIR) ? handleClose() : (() => { setShowDropPicker(false); setActivateFromIR(false); })()
-                  }
-                  style={styles.closeButton}
-                  accessibilityRole="button"
-                  accessibilityLabel="Close"
-                >
-                  <ThemedText style={styles.closeText}>✕</ThemedText>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {isProcessing ? (
-              <View style={styles.loading}><LogoSpinner /></View>
-            ) : (
-              <FlatList
-                data={(rosterPlayers ?? []).filter(
-                  (p) => playerLockType === "daily" || !isGameStarted(p.pro_team, gameTimeMap),
-                )}
-                renderItem={renderDropPickerItem}
-                keyExtractor={(item) => item.player_id}
-                contentContainerStyle={styles.dropPickerList}
-                maxToRenderPerBatch={10}
-                windowSize={5}
-                ListEmptyComponent={
-                  <View style={{ padding: s(20), alignItems: "center" }}>
-                    <ThemedText
-                      style={{ color: c.secondaryText, textAlign: "center" }}
-                    >
-                      All your roster players have games in progress. Try again
-                      later.
-                    </ThemedText>
-                  </View>
-                }
-              />
-            )}
-          </Animated.View>
-        </View>
-      </Modal>
+      <DropPickerModal
+        player={player}
+        rosterPlayers={rosterPlayers}
+        isProcessing={isProcessing}
+        activateFromIR={activateFromIR}
+        startInDropPicker={startInDropPicker}
+        startInActivateFromIR={startInActivateFromIR}
+        needsWaiverClaim={needsWaiverClaim}
+        scoringWeights={scoringWeights}
+        playerLockType={playerLockType}
+        gameTimeMap={gameTimeMap}
+        translateY={translateY}
+        panHandlers={panResponder.panHandlers}
+        colors={{
+          background: c.background,
+          border: c.border,
+          secondaryText: c.secondaryText,
+          accent: c.accent,
+        }}
+        onClose={handleClose}
+        onDismissDropPicker={() => {
+          setShowDropPicker(false);
+          setActivateFromIR(false);
+        }}
+        onDropForClaim={onDropForClaim}
+        onDropAndActivateFromIR={handleDropAndActivateFromIR}
+        onDropPlayer={handleDropPlayer}
+        onSubmitWaiverClaim={handleSubmitWaiverClaimFromDropPicker}
+      />
     );
   }
 
@@ -2364,323 +2220,26 @@ export function PlayerDetailModal({
 
           {/* Trade block note prompt — rendered inside the main modal */}
           {tradeBlockPromptVisible && (
-            <KeyboardAvoidingView
-              style={styles.tradeBlockPromptOverlay}
-              behavior={Platform.OS === "ios" ? "padding" : undefined}
-            >
-              <View
-                style={[
-                  styles.tradeBlockPromptCard,
-                  { backgroundColor: c.card },
-                ]}
-              >
-                <ThemedText
-                  type="defaultSemiBold"
-                  style={styles.tradeBlockPromptTitle}
-                  accessibilityRole="header"
-                >
-                  Add to Trade Block
-                </ThemedText>
-                <ThemedText
-                  style={[
-                    styles.tradeBlockPromptDesc,
-                    { color: c.secondaryText },
-                  ]}
-                >
-                  What are you looking for? (optional)
-                </ThemedText>
-                <TextInput
-                  style={[
-                    styles.tradeBlockPromptInput,
-                    {
-                      color: c.text,
-                      borderColor: c.border,
-                      backgroundColor: c.background,
-                    },
-                  ]}
-                  value={tradeBlockNoteInput}
-                  onChangeText={setTradeBlockNoteInput}
-                  placeholder='e.g. "2nd Rounder", "Wing player"'
-                  placeholderTextColor={c.secondaryText}
-                  maxLength={100}
-                  autoFocus
-                  accessibilityLabel="Asking price or trade note"
-                />
-                <View style={styles.tradeBlockPromptButtons}>
-                  <TouchableOpacity
-                    style={[
-                      styles.tradeBlockPromptBtn,
-                      { borderColor: c.border },
-                    ]}
-                    onPress={() => setTradeBlockPromptVisible(false)}
-                    accessibilityRole="button"
-                    accessibilityLabel="Cancel"
-                  >
-                    <ThemedText>Cancel</ThemedText>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.tradeBlockPromptBtn,
-                      { backgroundColor: c.warning },
-                    ]}
-                    onPress={() => {
-                      setTradeBlockPromptVisible(false);
-                      submitTradeBlockUpdate(
-                        true,
-                        tradeBlockNoteInput.trim() || null,
-                      );
-                    }}
-                    accessibilityRole="button"
-                    accessibilityLabel="Add to trade block"
-                  >
-                    <ThemedText style={{ color: c.statusText, fontWeight: "600" }}>
-                      Add
-                    </ThemedText>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </KeyboardAvoidingView>
+            <TradeBlockPrompt
+              initialNote={tradeBlockInitialNote}
+              colors={{
+                card: c.card,
+                secondaryText: c.secondaryText,
+                text: c.text,
+                border: c.border,
+                background: c.background,
+                warning: c.warning,
+                statusText: c.statusText,
+              }}
+              onCancel={() => setTradeBlockPromptVisible(false)}
+              onConfirm={(note) => {
+                setTradeBlockPromptVisible(false);
+                submitTradeBlockUpdate(true, note);
+              }}
+            />
           )}
         </Animated.View>
       </View>
     </Modal>
   );
 }
-
-const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: "flex-end",
-  },
-  sheet: {
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
-    minHeight: "90%",
-    maxHeight: "92%",
-    overflow: "hidden",
-    paddingBottom: s(32),
-  },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    padding: s(16),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  headerHeadshotWrap: {
-    position: "relative" as const,
-    marginRight: s(12),
-  },
-  headerHeadshotCircle: {
-    width: s(74),
-    height: s(74),
-    borderRadius: 40,
-    borderWidth: 1.5,
-    overflow: "hidden" as const,
-  },
-  injuryChip: {
-    position: "absolute" as const,
-    top: s(-2),
-    left: s(-4),
-    paddingHorizontal: s(4),
-    paddingVertical: 0,
-    maxHeight: s(16),
-    borderRadius: 3,
-  },
-  injuryChipText: {
-    fontSize: ms(8),
-    fontWeight: "800" as const,
-    letterSpacing: 0.5,
-    position: "relative" as const,
-    top: -4,
-  },
-  headerHeadshotImg: {
-    position: "absolute" as const,
-    bottom: s(-2),
-    left: 0,
-    right: 0,
-    height: s(66),
-  },
-  headerInfo: {
-    flex: 1,
-  },
-  playerName: {
-    fontSize: ms(22),
-    flexShrink: 1,
-  },
-  subtitleRow: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
-    gap: s(4),
-    marginTop: s(2),
-  },
-  modalTeamLogo: {
-    width: s(14),
-    height: s(14),
-    opacity: 0.6,
-  },
-  subtitle: {
-    fontSize: ms(13),
-  },
-  outBadge: {
-    fontWeight: "700",
-  },
-  closeButton: {
-    padding: s(8),
-    marginTop: s(-4),
-    marginRight: s(-4),
-  },
-  closeText: {
-    fontSize: ms(18),
-  },
-  nameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: s(8),
-  },
-  headerActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: s(4),
-  },
-  headerBtn: {
-    height: s(26),
-    paddingHorizontal: s(10),
-    borderRadius: 6,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  headerBtnAdd: {},
-  headerBtnTaxi: {
-    backgroundColor: "#8e44ad",
-  },
-  headerBtnText: {
-    fontSize: ms(12),
-    fontWeight: "600",
-  },
-  headerWarning: {
-    fontSize: ms(10),
-    marginTop: s(2),
-  },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
-  scrollContent: {
-    paddingTop: s(12),
-  },
-  sectionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  gamesThisWeek: {
-    fontSize: ms(12),
-    fontWeight: "600",
-  },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: "rgba(128,128,128,0.2)",
-    marginHorizontal: s(16),
-    marginVertical: s(8),
-  },
-  section: {
-    paddingHorizontal: s(16),
-    marginBottom: s(8),
-  },
-  sectionTitle: {
-    marginBottom: s(8),
-  },
-  loading: {
-    padding: s(20),
-  },
-  dropPickerList: {
-    padding: s(8),
-  },
-  dropPickerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: s(14),
-    paddingHorizontal: s(16),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  dropPickerInfo: {
-    flex: 1,
-  },
-  dropPickerSub: {
-    fontSize: ms(12),
-    marginTop: s(2),
-  },
-  dropPickerFpts: {
-    fontSize: ms(14),
-    fontWeight: "600",
-    marginLeft: s(12),
-  },
-  inlineToastWrap: {
-    position: "absolute" as const,
-    top: s(8),
-    left: 0,
-    right: 0,
-    alignItems: "center" as const,
-    zIndex: 200,
-  },
-  inlineToastPill: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
-    paddingHorizontal: s(12),
-    paddingVertical: s(8),
-    borderRadius: 999,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    elevation: 6,
-    maxWidth: "90%",
-  },
-  inlineToastText: {
-    fontSize: ms(13),
-    fontWeight: "600" as const,
-  },
-  tradeBlockPromptOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: s(24),
-    zIndex: 100,
-  },
-  tradeBlockPromptCard: {
-    borderRadius: 14,
-    padding: s(20),
-    width: "100%",
-    maxWidth: s(340),
-  },
-  tradeBlockPromptTitle: {
-    fontSize: ms(17),
-    marginBottom: s(4),
-  },
-  tradeBlockPromptDesc: {
-    fontSize: ms(13),
-    marginBottom: s(12),
-  },
-  tradeBlockPromptInput: {
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: s(12),
-    paddingVertical: s(10),
-    fontSize: ms(14),
-    marginBottom: s(16),
-  },
-  tradeBlockPromptButtons: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    gap: s(8),
-  },
-  tradeBlockPromptBtn: {
-    paddingHorizontal: s(16),
-    paddingVertical: s(10),
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "transparent",
-  },
-});
