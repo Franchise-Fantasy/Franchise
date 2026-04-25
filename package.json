@@ -9,13 +9,25 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
+    "typecheck": "tsc --noEmit",
+    "typecheck:edge": "deno check --config supabase/functions/deno.json supabase/functions/finalize-week/index.ts supabase/functions/execute-trade/index.ts supabase/functions/import-screenshot-league/index.ts supabase/functions/poll-live-stats/index.ts supabase/functions/process-waivers/index.ts",
+    "check": "npm run typecheck && npm run typecheck:edge && npm run lint && npm run check:realtime-channels",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
+    "test:integration": "jest --config jest.integration.config.js --runInBand",
+    "test:integration:nuke": "jest --config jest.nuke.config.js",
+    "check:realtime-channels": "node scripts/check-realtime-channels.mjs",
     "gen-types": "npx supabase gen types typescript --project-id iuqbossmnsezzgocpcbo > types/database.types.ts"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   },
   "dependencies": {
     "@contentful/rich-text-plain-text-renderer": "^17.1.6",
+    "@expo-google-fonts/alfa-slab-one": "^0.4.1",
+    "@expo-google-fonts/inter": "^0.4.2",
+    "@expo-google-fonts/oswald": "^0.4.2",
     "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/datetimepicker": "8.4.4",
@@ -74,12 +86,15 @@
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
+    "@resvg/resvg-js": "^2.6.2",
     "@types/jest": "^30.0.0",
     "@types/react": "~19.1.10",
     "contentful-management": "^12.2.0",
+    "deno": "^2.7.13",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~10.0.0",
     "jest": "^30.2.0",
+    "lefthook": "^2.1.6",
     "ts-jest": "^29.4.6",
     "typescript": "~5.9.2"
   },

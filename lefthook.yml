@@ -1,0 +1,18 @@
+# Local git hooks. Install/update with: npx lefthook install
+#
+# pre-commit is kept fast (realtime-channel scanner only) so commits aren't blocked
+# on a 30s typecheck. The full gate (typecheck + lint + realtime) runs pre-push,
+# which is where it actually matters — nothing should reach origin without it.
+
+pre-commit:
+  parallel: true
+  commands:
+    realtime-channels:
+      glob: "*"
+      run: npm run check:realtime-channels
+
+pre-push:
+  commands:
+    check:
+      glob: "*"
+      run: npm run check
