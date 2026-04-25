@@ -3,8 +3,8 @@ import { StyleSheet, View } from 'react-native';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { CategoryResult } from '@/utils/categoryScoring';
 import { ms, s } from '@/utils/scale';
+import { CategoryResult } from '@/utils/scoring/categoryScoring';
 
 interface CategoryScoreboardProps {
   results: CategoryResult[];

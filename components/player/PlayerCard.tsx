@@ -7,8 +7,8 @@ import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { PlayerSeasonStats } from "@/types/player";
 import { formatPosition } from "@/utils/formatting";
-import { getInjuryBadge } from "@/utils/injuryBadge";
-import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
+import { getInjuryBadge } from "@/utils/nba/injuryBadge";
+import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
 import { ms, s } from "@/utils/scale";
 
 

@@ -1,11 +1,11 @@
 import { RosterPlayer, round1, buildStatLine } from '@/components/matchup/PlayerCell';
 import { supabase } from '@/lib/supabase';
 import { ScoringWeight } from '@/types/player';
-import { aggregateTeamStats } from '@/utils/categoryScoring';
+import { aggregateTeamStats } from '@/utils/scoring/categoryScoring';
 import { toDateStr, addDays } from '@/utils/dates';
-import { calculateGameFantasyPoints, calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
-import { fetchTeamSlots } from '@/utils/fetchTeamSlots';
-import { resolveSlot , isActiveSlot } from '@/utils/resolveSlot';
+import { calculateGameFantasyPoints, calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
+import { fetchTeamSlots } from '@/utils/roster/fetchTeamSlots';
+import { resolveSlot , isActiveSlot } from '@/utils/roster/resolveSlot';
 
 
 interface Week {

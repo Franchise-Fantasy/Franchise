@@ -1,4 +1,4 @@
-import { getEligiblePositions } from '@/utils/rosterSlots';
+import { getEligiblePositions } from '@/utils/roster/rosterSlots';
 
 const formatPosition = (position?: string | null): string => {
   if (!position) return '—';

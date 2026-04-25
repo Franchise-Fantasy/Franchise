@@ -4,7 +4,7 @@ import {
   formatCategoryRecord,
   CategoryDef,
   TeamStatTotals,
-} from '@/utils/categoryScoring';
+} from '@/utils/scoring/categoryScoring';
 
 // ─── aggregateTeamStats ─────────────────────────────────────────────────────
 

@@ -23,9 +23,9 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeague } from '@/hooks/useLeague';
 import { supabase } from '@/lib/supabase';
 import { toDateStr, parseLocalDate } from '@/utils/dates';
-import { formatScore } from '@/utils/fantasyPoints';
-import { calcRounds } from '@/utils/playoff';
+import { calcRounds } from '@/utils/league/playoff';
 import { ms, s } from '@/utils/scale';
+import { formatScore } from '@/utils/scoring/fantasyPoints';
 
 
 

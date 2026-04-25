@@ -46,25 +46,25 @@ import { sendNotification } from "@/lib/notifications";
 import { capture } from "@/lib/posthog";
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
-import { addFreeAgent } from "@/utils/addFreeAgent";
 import { toDateStr } from "@/utils/dates";
-import { calculateAvgFantasyPoints } from "@/utils/fantasyPoints";
 import { formatPosition } from "@/utils/formatting";
-import { GameTimeMap, hasAnyGameStarted, isGameStarted, useTodayGameTimes } from "@/utils/gameStarted";
-import { guardIllegalIR } from "@/utils/illegalIR";
-import { getInjuryBadge } from "@/utils/injuryBadge";
+import { GameTimeMap, hasAnyGameStarted, isGameStarted, useTodayGameTimes } from "@/utils/nba/gameStarted";
+import { getInjuryBadge } from "@/utils/nba/injuryBadge";
 import {
   formatGameInfo,
   liveToGameLog,
   useLivePlayerStats,
-} from "@/utils/nbaLive";
+} from "@/utils/nba/nbaLive";
+import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
 import { isOnline } from "@/utils/network";
-import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
-import { isActiveSlot } from "@/utils/resolveSlot";
-import { calculateAge } from "@/utils/rosterAge";
-import { isEligibleForSlot } from "@/utils/rosterSlots";
+import { addFreeAgent } from "@/utils/roster/addFreeAgent";
+import { guardIllegalIR } from "@/utils/roster/illegalIR";
+import { isActiveSlot } from "@/utils/roster/resolveSlot";
+import { calculateAge } from "@/utils/roster/rosterAge";
+import { isEligibleForSlot } from "@/utils/roster/rosterSlots";
+import { isTaxiEligible } from "@/utils/roster/taxiEligibility";
 import { ms, s } from '@/utils/scale';
-import { isTaxiEligible } from "@/utils/taxiEligibility";
+import { calculateAvgFantasyPoints } from "@/utils/scoring/fantasyPoints";
 
 interface PlayerDetailModalProps {
   player: PlayerSeasonStats | null;

@@ -4,8 +4,8 @@ import { NativeScrollEvent, NativeSyntheticEvent, ScrollView, StyleSheet, Toucha
 import { FptsBreakdownModal } from '@/components/player/FptsBreakdownModal';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { PlayerGameLog as PlayerGameLogType, ScoringWeight } from '@/types/player';
-import { calculateGameFantasyPoints } from '@/utils/fantasyPoints';
 import { ms, s } from "@/utils/scale";
+import { calculateGameFantasyPoints } from '@/utils/scoring/fantasyPoints';
 
 
 // Returns the Monday (start of week) for a given YYYY-MM-DD date string

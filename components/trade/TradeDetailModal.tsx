@@ -31,8 +31,8 @@ import { TradeItemRow, TradeProposalRow, useTradeVotes } from '@/hooks/useTrades
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats } from '@/types/player';
 import { estimatePickFpts } from '@/types/trade';
-import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
 import { ms, s } from '@/utils/scale';
+import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 

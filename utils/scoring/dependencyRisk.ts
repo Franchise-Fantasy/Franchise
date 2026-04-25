@@ -16,7 +16,7 @@
 
 import type { LeaguePlayerWithTeam } from '@/hooks/useLeagueRosterStats';
 import type { PlayerSeasonStats, ScoringWeight } from '@/types/player';
-import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
+import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
 
 export interface DependencyResult {
   teamId: string;

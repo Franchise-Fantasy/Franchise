@@ -7,8 +7,8 @@ import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { LeagueWizardState, NBA_POSITIONS, SPORT_DISPLAY, WAIVER_DAY_LABELS } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { taxiExperienceLabel } from '@/utils/roster/taxiEligibility';
 import { ms, s } from '@/utils/scale';
-import { taxiExperienceLabel } from '@/utils/taxiEligibility';
 
 interface StepReviewProps {
   state: LeagueWizardState;

@@ -8,7 +8,7 @@ import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { TradeItemRow } from '@/hooks/useTrades';
 import { formatPickLabel } from '@/types/trade';
-import { getPlayerHeadshotUrl } from '@/utils/playerHeadshot';
+import { getPlayerHeadshotUrl } from '@/utils/nba/playerHeadshot';
 import { ms, s } from '@/utils/scale';
 
 

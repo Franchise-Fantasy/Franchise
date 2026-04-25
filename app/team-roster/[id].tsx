@@ -26,13 +26,13 @@ import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
 import { toDateStr } from '@/utils/dates';
-import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
-import { fetchTeamSlots } from '@/utils/fetchTeamSlots';
 import { formatPosition } from '@/utils/formatting';
-import { getInjuryBadge } from '@/utils/injuryBadge';
-import { getPlayerHeadshotUrl, getTeamLogoUrl } from '@/utils/playerHeadshot';
-import { slotLabel } from '@/utils/rosterSlots';
+import { getInjuryBadge } from '@/utils/nba/injuryBadge';
+import { getPlayerHeadshotUrl, getTeamLogoUrl } from '@/utils/nba/playerHeadshot';
+import { fetchTeamSlots } from '@/utils/roster/fetchTeamSlots';
+import { slotLabel } from '@/utils/roster/rosterSlots';
 import { ms, s } from '@/utils/scale';
+import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

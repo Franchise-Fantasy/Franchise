@@ -47,9 +47,9 @@ import { useColorScheme } from "@/hooks/useColorScheme";
 import { generateDraftPicks, generateFutureDraftPicks } from "@/lib/draft";
 import { capture } from "@/lib/posthog";
 import { supabase } from "@/lib/supabase";
-import { calcLotteryPoolSize, defaultPlayoffTeams, getPlayoffTeamOptions } from "@/utils/lottery";
+import { calcLotteryPoolSize, defaultPlayoffTeams, getPlayoffTeamOptions } from "@/utils/league/lottery";
+import { sanitizeHandle } from "@/utils/league/paymentLinks";
 import { containsBlockedContent } from "@/utils/moderation";
-import { sanitizeHandle } from "@/utils/paymentLinks";
 import { ms, s } from "@/utils/scale";
 
 // --- Reducer ---

@@ -23,11 +23,11 @@ import { useLeagueScoring } from "@/hooks/useLeagueScoring";
 import { TimeRange, usePlayerFilter } from "@/hooks/usePlayerFilter";
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
-import { calculateAvgFantasyPoints } from "@/utils/fantasyPoints";
 import { formatPosition } from "@/utils/formatting";
-import { getInjuryBadge } from "@/utils/injuryBadge";
-import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
+import { getInjuryBadge } from "@/utils/nba/injuryBadge";
+import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
 import { ms, s } from "@/utils/scale";
+import { calculateAvgFantasyPoints } from "@/utils/scoring/fantasyPoints";
 
 interface AvailablePlayersProps {
   draftId: string;

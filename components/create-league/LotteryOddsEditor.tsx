@@ -4,7 +4,7 @@ import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-nativ
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { generateDefaultOdds, normalizeOdds } from '@/utils/lottery';
+import { generateDefaultOdds, normalizeOdds } from '@/utils/league/lottery';
 import { ms, s } from '@/utils/scale';
 
 interface LotteryOddsEditorProps {

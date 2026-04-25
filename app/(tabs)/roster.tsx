@@ -52,34 +52,34 @@ import { capture } from "@/lib/posthog";
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
 import type { PlayerGameLog } from "@/types/player";
-import { LineupPlayer, optimizeLineup } from "@/utils/autoLineup";
-import { buildCompositeScatter } from "@/utils/categoryAnalytics";
 import { addDays, formatDayLabel, toDateStr, useToday } from "@/utils/dates";
-import {
-  calculateAvgFantasyPoints,
-  calculateGameFantasyPoints,
-  formatScore,
-} from "@/utils/fantasyPoints";
-import { fetchTeamSlots } from "@/utils/fetchTeamSlots";
 import { formatPosition } from "@/utils/formatting";
-import { hasAnyGameStarted, isGameStarted, useTodayGameTimes } from "@/utils/gameStarted";
-import { isIrEligibleStatus } from "@/utils/illegalIR";
-import { getInjuryBadge } from "@/utils/injuryBadge";
+import { hasAnyGameStarted, isGameStarted, useTodayGameTimes } from "@/utils/nba/gameStarted";
+import { getInjuryBadge } from "@/utils/nba/injuryBadge";
 import {
   formatGameInfo,
   liveToGameLog,
   useLivePlayerStats,
-} from "@/utils/nbaLive";
+} from "@/utils/nba/nbaLive";
 import {
   fetchNbaScheduleForDate,
   formatGameTime,
   ScheduleEntry,
-} from "@/utils/nbaSchedule";
+} from "@/utils/nba/nbaSchedule";
+import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
 import { isOnline } from "@/utils/network";
-import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
-import { isEligibleForSlot, slotLabel } from "@/utils/rosterSlots";
+import { LineupPlayer, optimizeLineup } from "@/utils/roster/autoLineup";
+import { fetchTeamSlots } from "@/utils/roster/fetchTeamSlots";
+import { isIrEligibleStatus } from "@/utils/roster/illegalIR";
+import { isEligibleForSlot, slotLabel } from "@/utils/roster/rosterSlots";
+import { isTaxiEligible } from "@/utils/roster/taxiEligibility";
 import { ms, s } from "@/utils/scale";
-import { isTaxiEligible } from "@/utils/taxiEligibility";
+import { buildCompositeScatter } from "@/utils/scoring/categoryAnalytics";
+import {
+  calculateAvgFantasyPoints,
+  calculateGameFantasyPoints,
+  formatScore,
+} from "@/utils/scoring/fantasyPoints";
 
 
 // ─── Types ───────────────────────────────────────────────────────────────────

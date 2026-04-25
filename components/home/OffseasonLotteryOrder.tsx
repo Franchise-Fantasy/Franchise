@@ -10,7 +10,7 @@ import { Colors, cardShadow } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
-import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/lottery';
+import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/league/lottery';
 import { ms, s } from '@/utils/scale';
 
 

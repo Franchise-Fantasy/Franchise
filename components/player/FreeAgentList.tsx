@@ -28,17 +28,17 @@ import { TimeRange, usePlayerFilter } from "@/hooks/usePlayerFilter";
 import { useWatchlist } from "@/hooks/useWatchlist";
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
-import { addFreeAgent } from "@/utils/addFreeAgent";
 import { toDateStr } from "@/utils/dates";
-import { calculateAvgFantasyPoints } from "@/utils/fantasyPoints";
 import { formatPosition } from "@/utils/formatting";
-import { useTodayGameTimes } from "@/utils/gameStarted";
-import { guardIllegalIR } from "@/utils/illegalIR";
-import { getInjuryBadge } from "@/utils/injuryBadge";
-import { fetchNbaScheduleForDate } from "@/utils/nbaSchedule";
-import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
-import { checkPositionLimits } from "@/utils/positionLimits";
+import { useTodayGameTimes } from "@/utils/nba/gameStarted";
+import { getInjuryBadge } from "@/utils/nba/injuryBadge";
+import { fetchNbaScheduleForDate } from "@/utils/nba/nbaSchedule";
+import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
+import { addFreeAgent } from "@/utils/roster/addFreeAgent";
+import { guardIllegalIR } from "@/utils/roster/illegalIR";
+import { checkPositionLimits } from "@/utils/roster/positionLimits";
 import { ms, s } from "@/utils/scale";
+import { calculateAvgFantasyPoints } from "@/utils/scoring/fantasyPoints";
 
 const SKELETON_COUNT = 8;
 

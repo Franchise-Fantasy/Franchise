@@ -41,6 +41,12 @@ import { Colors } from "@/constants/Colors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { PlayerSeasonStats } from "@/types/player";
 import {
+  ageBucket,
+  BUCKET_COLORS,
+  PEAK_YEARS,
+} from "@/utils/roster/rosterAge";
+import { ms, s } from "@/utils/scale";
+import {
   AgeTierBreakdown,
   buildAgeTierBreakdown,
   buildCompositeScatter,
@@ -52,13 +58,7 @@ import {
   computeTeamCategoryAvgs,
   computeTeamZScores,
   RadarPoint,
-} from "@/utils/categoryAnalytics";
-import {
-  ageBucket,
-  BUCKET_COLORS,
-  PEAK_YEARS,
-} from "@/utils/rosterAge";
-import { ms, s } from "@/utils/scale";
+} from "@/utils/scoring/categoryAnalytics";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 

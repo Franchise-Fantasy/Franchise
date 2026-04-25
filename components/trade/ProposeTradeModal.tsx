@@ -43,8 +43,8 @@ import {
   formatPickLabel,
   formatProtection,
 } from '@/types/trade';
-import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
 import { ms, s } from '@/utils/scale';
+import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
 
 interface PreselectedPlayer {
   player_id: string;

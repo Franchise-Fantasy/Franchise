@@ -22,8 +22,8 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { generateDraftPicks, generateFutureDraftPicks } from '@/lib/draft';
 import { supabase } from '@/lib/supabase';
+import { sanitizeHandle } from '@/utils/league/paymentLinks';
 import { containsBlockedContent } from '@/utils/moderation';
-import { sanitizeHandle } from '@/utils/paymentLinks';
 import { ms, s } from '@/utils/scale';
 
 

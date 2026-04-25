@@ -12,16 +12,16 @@ import { Colors } from "@/constants/Colors";
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { ScoringWeight } from "@/types/player";
-import { calculateGameFantasyPoints, formatScore } from "@/utils/fantasyPoints";
-import { getInjuryBadge } from "@/utils/injuryBadge";
+import { getInjuryBadge } from "@/utils/nba/injuryBadge";
 import {
   formatGameInfo,
   LivePlayerStats,
   liveToGameLog,
-} from "@/utils/nbaLive";
-import { formatGameTime, ScheduleEntry } from "@/utils/nbaSchedule";
-import { getPlayerHeadshotUrl } from "@/utils/playerHeadshot";
+} from "@/utils/nba/nbaLive";
+import { formatGameTime, ScheduleEntry } from "@/utils/nba/nbaSchedule";
+import { getPlayerHeadshotUrl } from "@/utils/nba/playerHeadshot";
 import { ms, s } from "@/utils/scale";
+import { calculateGameFantasyPoints, formatScore } from "@/utils/scoring/fantasyPoints";
 
 
 // ─── Types ───────────────────────────────────────────────────────────────────

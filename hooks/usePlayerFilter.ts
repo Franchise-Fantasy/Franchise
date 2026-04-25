@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
 
 import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
-import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
-import { getEligiblePositions } from '@/utils/rosterSlots';
+import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
+import { getEligiblePositions } from '@/utils/roster/rosterSlots';
 
 export type SortKey = 'FPTS' | 'PPG' | 'RPG' | 'APG' | 'SPG' | 'BPG' | 'MPG' | 'FG%' | 'FT%' | 'TO';
 export type TimeRange = 'season' | '7d' | '14d' | '30d' | 'lastSeason';

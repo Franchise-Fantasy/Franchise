@@ -19,7 +19,7 @@ import {
   useSelfReportPayment,
   useTogglePayment,
 } from '@/hooks/usePaymentLedger';
-import { openPaymentConfirmed } from '@/utils/paymentLinks';
+import { openPaymentConfirmed } from '@/utils/league/paymentLinks';
 import { ms, s } from '@/utils/scale';
 
 

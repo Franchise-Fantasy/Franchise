@@ -1,6 +1,6 @@
 import { AGE_BUCKET_COLORS } from '@/constants/StatusColors';
 import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
-import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
+import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
 
 
 // Age bucket boundaries

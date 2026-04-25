@@ -16,11 +16,11 @@ import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { TradeRosterPlayer, useTeamRosterForTrade } from '@/hooks/useTeamRosterForTrade';
-import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
 import { formatPosition } from '@/utils/formatting';
-import { getInjuryBadge } from '@/utils/injuryBadge';
-import { getPlayerHeadshotUrl, getTeamLogoUrl } from '@/utils/playerHeadshot';
+import { getInjuryBadge } from '@/utils/nba/injuryBadge';
+import { getPlayerHeadshotUrl, getTeamLogoUrl } from '@/utils/nba/playerHeadshot';
 import { ms, s } from '@/utils/scale';
+import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
 
 interface TradePlayerPickerProps {
   teamId: string;

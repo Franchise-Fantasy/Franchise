@@ -17,7 +17,7 @@ import { Colors } from '@/constants/Colors';
 import { PLAYOFF_SEEDING_OPTIONS, SEEDING_DISPLAY, SEEDING_TO_DB, TIEBREAKER_DISPLAY, TIEBREAKER_OPTIONS, TIEBREAKER_TO_DB, TiebreakerOption } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
-import { getPlayoffTeamOptions } from '@/utils/lottery';
+import { getPlayoffTeamOptions } from '@/utils/league/lottery';
 import { ms, s } from '@/utils/scale';
 
 

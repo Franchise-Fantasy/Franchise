@@ -1,6 +1,6 @@
 import { PlayerGameLog, PlayerSeasonStats, ScoringWeight } from "@/types/player";
-import { CategoryDef } from "@/utils/categoryScoring";
-import { calculateGameFantasyPoints, STAT_TO_TOTAL } from "@/utils/fantasyPoints";
+import { CategoryDef } from "@/utils/scoring/categoryScoring";
+import { calculateGameFantasyPoints, STAT_TO_TOTAL } from "@/utils/scoring/fantasyPoints";
 
 export type ConsistencyLabel =
   | "Rock Solid"

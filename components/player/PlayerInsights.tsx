@@ -8,6 +8,7 @@ import { Colors, cardShadow } from "@/constants/Colors";
 import { TREND_COLORS } from "@/constants/StatusColors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { PlayerGameLog, ScoringWeight } from "@/types/player";
+import { ms, s } from "@/utils/scale";
 import {
   B2BInsight,
   BounceBack,
@@ -20,8 +21,7 @@ import {
   ConsistencyLabel,
   SplitComparison,
   TrendDirection,
-} from "@/utils/playerInsights";
-import { ms, s } from "@/utils/scale";
+} from "@/utils/scoring/playerInsights";
 
 interface Props {
   games: PlayerGameLog[] | undefined;

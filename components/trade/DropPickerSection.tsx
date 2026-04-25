@@ -6,7 +6,7 @@ import { Colors } from '@/constants/Colors';
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { PlayerSeasonStats } from '@/types/player';
-import { getPlayerHeadshotUrl } from '@/utils/playerHeadshot';
+import { getPlayerHeadshotUrl } from '@/utils/nba/playerHeadshot';
 import { ms, s } from '@/utils/scale';
 
 

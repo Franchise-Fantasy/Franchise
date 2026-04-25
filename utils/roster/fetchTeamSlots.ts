@@ -8,7 +8,7 @@
 
 import { supabase } from '@/lib/supabase';
 import { toDateStr } from '@/utils/dates';
-import { resolveSlot } from '@/utils/resolveSlot';
+import { resolveSlot } from '@/utils/roster/resolveSlot';
 
 interface DailyEntry {
   lineup_date: string;

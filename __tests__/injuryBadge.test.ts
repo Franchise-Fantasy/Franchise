@@ -1,4 +1,4 @@
-import { getInjuryBadge } from '@/utils/injuryBadge';
+import { getInjuryBadge } from '@/utils/nba/injuryBadge';
 
 describe('getInjuryBadge', () => {
   it('returns red badge for OUT', () => {

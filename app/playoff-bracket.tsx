@@ -28,7 +28,7 @@ import {
   calcRounds,
   nextPowerOf2,
   seedTeams,
-} from '@/utils/playoff';
+} from '@/utils/league/playoff';
 import { ms, s } from "@/utils/scale";
 
 /** Convert bracket pairings into PlayoffBracketSlot[] for the bracket component. */

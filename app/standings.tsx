@@ -29,15 +29,15 @@ import { useLeague } from '@/hooks/useLeague';
 import { useLeagueRosterStats } from '@/hooks/useLeagueRosterStats';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { supabase } from '@/lib/supabase';
+import { ms, s } from '@/utils/scale';
 import {
   computeAllPlayRecords,
   type AllPlayResult,
   type MatchupRow,
   type ScoringCategory,
-} from '@/utils/allPlayRecord';
-import { computeDependencyRisk, computeDependencyThresholds, type DependencyResult } from '@/utils/dependencyRisk';
-import { ms, s } from '@/utils/scale';
-import { computeStrengthOfSchedule, type SoSResult } from '@/utils/strengthOfSchedule';
+} from '@/utils/scoring/allPlayRecord';
+import { computeDependencyRisk, computeDependencyThresholds, type DependencyResult } from '@/utils/scoring/dependencyRisk';
+import { computeStrengthOfSchedule, type SoSResult } from '@/utils/scoring/strengthOfSchedule';
 
 
 // ─── Types ───────────────────────────────────────────────────────────────────

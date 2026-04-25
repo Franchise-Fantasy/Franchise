@@ -1,4 +1,4 @@
-import { isTaxiEligible, taxiExperienceLabel } from '@/utils/taxiEligibility';
+import { isTaxiEligible, taxiExperienceLabel } from '@/utils/roster/taxiEligibility';
 
 // ─── isTaxiEligible ─────────────────────────────────────────────────────────
 

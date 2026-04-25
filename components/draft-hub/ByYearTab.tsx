@@ -6,7 +6,7 @@ import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { DraftHubPick, DraftHubLeagueSettings, DraftHubSwap, DraftHubTeam } from '@/hooks/useDraftHub';
-import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/lottery';
+import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/league/lottery';
 import { ms, s } from '@/utils/scale';
 
 interface SimulationEntry {

@@ -1,7 +1,7 @@
 import { sendNotification } from "@/lib/notifications";
 import { supabase } from "@/lib/supabase";
-import { GameTimeMap, hasAnyGameStarted, isGameStarted } from "@/utils/gameStarted";
-import { assertNoIllegalIR } from "@/utils/illegalIR";
+import { GameTimeMap, hasAnyGameStarted, isGameStarted } from "@/utils/nba/gameStarted";
+import { assertNoIllegalIR } from "@/utils/roster/illegalIR";
 
 /**
  * Insert a free agent into league_players, log the transaction, and notify.

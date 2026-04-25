@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 
 import { usePlayerSeasonStats } from '@/hooks/usePlayerSeasonStats';
 import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
-import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
+import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
 
 
 export interface PlayerRanking {

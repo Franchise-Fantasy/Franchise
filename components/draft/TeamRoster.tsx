@@ -18,12 +18,12 @@ import { useLeagueRosterConfig } from "@/hooks/useLeagueRosterConfig";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
-import { calculateAvgFantasyPoints } from "@/utils/fantasyPoints";
 import { formatPosition } from "@/utils/formatting";
-import { getInjuryBadge } from "@/utils/injuryBadge";
-import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
-import { slotLabel } from "@/utils/rosterSlots";
+import { getInjuryBadge } from "@/utils/nba/injuryBadge";
+import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
+import { slotLabel } from "@/utils/roster/rosterSlots";
 import { ms, s } from "@/utils/scale";
+import { calculateAvgFantasyPoints } from "@/utils/scoring/fantasyPoints";
 
 import { PlayerDetailModal } from "../player/PlayerDetailModal";
 import { ThemedText } from "../ui/ThemedText";

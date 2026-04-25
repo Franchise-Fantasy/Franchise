@@ -19,8 +19,8 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeagueRosterConfig } from '@/hooks/useLeagueRosterConfig';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats } from '@/types/player';
-import { getInjuryBadge } from '@/utils/injuryBadge';
-import { isEligibleForSlot, slotLabel } from '@/utils/rosterSlots';
+import { getInjuryBadge } from '@/utils/nba/injuryBadge';
+import { isEligibleForSlot, slotLabel } from '@/utils/roster/rosterSlots';
 import { ms, s } from '@/utils/scale';
 
 

@@ -39,9 +39,9 @@ import { usePaymentLedger, useSelfReportPayment } from '@/hooks/usePaymentLedger
 import { usePlayoffBracket } from '@/hooks/usePlayoffBracket';
 import { markSplashReady } from '@/lib/splashReady';
 import { supabase } from '@/lib/supabase';
-import { isIrEligibleStatus } from '@/utils/illegalIR';
-import { openPaymentConfirmed } from '@/utils/paymentLinks';
-import { calcRounds } from '@/utils/playoff';
+import { openPaymentConfirmed } from '@/utils/league/paymentLinks';
+import { calcRounds } from '@/utils/league/playoff';
+import { isIrEligibleStatus } from '@/utils/roster/illegalIR';
 import { ms, s } from '@/utils/scale';
 
 type HomeDraft = {

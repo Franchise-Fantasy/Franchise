@@ -26,15 +26,15 @@ import { useRosterChanges } from '@/hooks/useRosterChanges';
 import { useWeekScores } from '@/hooks/useWeekScores';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
-import { aggregateTeamStats, computeCategoryResults, TeamStatTotals } from '@/utils/categoryScoring';
 import { parseLocalDate, addDays, formatDayLabel, useToday } from '@/utils/dates';
-import { calculateGameFantasyPoints, formatScore } from '@/utils/fantasyPoints';
-import { fetchTeamData } from '@/utils/fetchTeamData';
-import { liveToGameLog, LivePlayerStats, useLivePlayerStats } from '@/utils/nbaLive';
-import { fetchNbaScheduleForDate } from '@/utils/nbaSchedule';
-import { calcRounds } from '@/utils/playoff';
-import { slotLabel } from '@/utils/rosterSlots';
+import { calcRounds } from '@/utils/league/playoff';
+import { liveToGameLog, LivePlayerStats, useLivePlayerStats } from '@/utils/nba/nbaLive';
+import { fetchNbaScheduleForDate } from '@/utils/nba/nbaSchedule';
+import { fetchTeamData } from '@/utils/roster/fetchTeamData';
+import { slotLabel } from '@/utils/roster/rosterSlots';
 import { ms, s } from "@/utils/scale";
+import { aggregateTeamStats, computeCategoryResults, TeamStatTotals } from '@/utils/scoring/categoryScoring';
+import { calculateGameFantasyPoints, formatScore } from '@/utils/scoring/fantasyPoints';
 
 async function fetchWeeklyAdds(leagueId: string, teamId: string): Promise<number> {
   const now = new Date();

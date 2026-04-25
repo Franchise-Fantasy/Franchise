@@ -9,7 +9,7 @@ import {
   buildNextRound,
   SeedEntry,
   RoundResult,
-} from '@/utils/playoff';
+} from '@/utils/league/playoff';
 
 // ─── nextPowerOf2 ───────────────────────────────────────────────────────────
 

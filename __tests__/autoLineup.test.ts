@@ -1,4 +1,4 @@
-import { optimizeLineup, LineupPlayer, SlotAssignment } from '@/utils/autoLineup';
+import { optimizeLineup, LineupPlayer, SlotAssignment } from '@/utils/roster/autoLineup';
 
 function makePlayer(overrides: Partial<LineupPlayer> = {}): LineupPlayer {
   return {

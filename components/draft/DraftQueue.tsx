@@ -10,11 +10,11 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { useDraftPlayer } from '@/hooks/useDraftPlayer';
 import { useDraftQueue , QueuedPlayer } from '@/hooks/useDraftQueue';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
-import { calculateAvgFantasyPoints } from '@/utils/fantasyPoints';
 import { formatPosition } from '@/utils/formatting';
-import { getInjuryBadge } from '@/utils/injuryBadge';
-import { getPlayerHeadshotUrl, getTeamLogoUrl } from '@/utils/playerHeadshot';
+import { getInjuryBadge } from '@/utils/nba/injuryBadge';
+import { getPlayerHeadshotUrl, getTeamLogoUrl } from '@/utils/nba/playerHeadshot';
 import { ms, s } from '@/utils/scale';
+import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
 
 
 interface DraftQueueProps {

@@ -5,7 +5,7 @@ import { Alert, Animated, StyleSheet, Text, TouchableOpacity } from 'react-nativ
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { PaymentStatus, usePaymentLedger, useSelfReportPayment } from '@/hooks/usePaymentLedger';
-import { openPaymentConfirmed } from '@/utils/paymentLinks';
+import { openPaymentConfirmed } from '@/utils/league/paymentLinks';
 import { ms, s } from '@/utils/scale';
 
 interface PaymentNudgeProps {

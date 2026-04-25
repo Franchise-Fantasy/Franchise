@@ -4,7 +4,7 @@ import {
   getEligiblePositions,
   isEligibleForSlot,
   isStarterSlot,
-} from '@/utils/rosterSlots';
+} from '@/utils/roster/rosterSlots';
 
 // ─── baseSlotName ───────────────────────────────────────────────────────────
 

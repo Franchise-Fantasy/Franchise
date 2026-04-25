@@ -5,7 +5,7 @@ import {
   generateDefaultOdds,
   normalizeOdds,
   resizeOdds,
-} from '@/utils/lottery';
+} from '@/utils/league/lottery';
 
 // ─── getPlayoffTeamOptions ──────────────────────────────────────────────────
 

@@ -23,7 +23,7 @@ import {
   TIEBREAKER_OPTIONS,
 } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { calcLotteryPoolSize, getPlayoffTeamOptions } from '@/utils/lottery';
+import { calcLotteryPoolSize, getPlayoffTeamOptions } from '@/utils/league/lottery';
 import { ms, s } from '@/utils/scale';
 
 interface StepSeasonProps {

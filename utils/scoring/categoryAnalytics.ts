@@ -5,7 +5,7 @@
  */
 
 import { PlayerSeasonStats } from '@/types/player';
-import { calculateAge, ageBucket, shortDisplayName } from '@/utils/rosterAge';
+import { calculateAge, ageBucket, shortDisplayName } from '@/utils/roster/rosterAge';
 
 // Canonical 9-CAT order
 export const CAT_ORDER = ['PTS', 'REB', 'AST', 'STL', 'BLK', 'TO', '3PM', 'FG%', 'FT%'] as const;

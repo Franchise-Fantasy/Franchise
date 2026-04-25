@@ -13,9 +13,9 @@ import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors, cardShadow } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { PlayoffBracketSlot } from '@/types/playoff';
-import { formatScore } from '@/utils/fantasyPoints';
-import { calcRounds } from '@/utils/playoff';
+import { calcRounds } from '@/utils/league/playoff';
 import { ms, s as scale } from '@/utils/scale';
+import { formatScore } from '@/utils/scoring/fantasyPoints';
 
 // ─── Layout constants ───────────────────────────────────────────────────────
 

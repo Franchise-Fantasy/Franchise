@@ -22,8 +22,8 @@ import { useLeague } from '@/hooks/useLeague';
 import { useWeekScores } from '@/hooks/useWeekScores';
 import { supabase } from '@/lib/supabase';
 import { toDateStr, parseLocalDate } from '@/utils/dates';
-import { formatScore } from '@/utils/fantasyPoints';
 import { ms, s } from '@/utils/scale';
+import { formatScore } from '@/utils/scoring/fantasyPoints';
 
 
 

@@ -16,10 +16,10 @@ import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { PlayerSeasonStats } from "@/types/player";
 import { formatPosition } from "@/utils/formatting";
-import { getInjuryBadge } from "@/utils/injuryBadge";
-import { formatGameTime, ScheduleEntry } from "@/utils/nbaSchedule";
-import { getPlayerHeadshotUrl } from "@/utils/playerHeadshot";
-import { slotLabel } from "@/utils/rosterSlots";
+import { getInjuryBadge } from "@/utils/nba/injuryBadge";
+import { formatGameTime, ScheduleEntry } from "@/utils/nba/nbaSchedule";
+import { getPlayerHeadshotUrl } from "@/utils/nba/playerHeadshot";
+import { slotLabel } from "@/utils/roster/rosterSlots";
 import { ms, s } from "@/utils/scale";
 
 

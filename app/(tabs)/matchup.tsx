@@ -50,27 +50,27 @@ import { useWeekScores } from "@/hooks/useWeekScores";
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats, ScoringWeight } from "@/types/player";
 import {
-  aggregateTeamStats,
-  computeCategoryResults,
-  TeamStatTotals,
-} from "@/utils/categoryScoring";
-import {
   addDays,
   formatDayLabel,
   parseLocalDate,
   toDateStr,
   useToday,
 } from "@/utils/dates";
-import { calculateGameFantasyPoints, formatScore } from "@/utils/fantasyPoints";
-import { fetchTeamData } from "@/utils/fetchTeamData";
 import {
   LivePlayerStats,
   liveToGameLog,
   useLivePlayerStats,
-} from "@/utils/nbaLive";
-import { fetchNbaScheduleForDate } from "@/utils/nbaSchedule";
-import { slotLabel } from "@/utils/rosterSlots";
+} from "@/utils/nba/nbaLive";
+import { fetchNbaScheduleForDate } from "@/utils/nba/nbaSchedule";
+import { fetchTeamData } from "@/utils/roster/fetchTeamData";
+import { slotLabel } from "@/utils/roster/rosterSlots";
 import { ms, s } from "@/utils/scale";
+import {
+  aggregateTeamStats,
+  computeCategoryResults,
+  TeamStatTotals,
+} from "@/utils/scoring/categoryScoring";
+import { calculateGameFantasyPoints, formatScore } from "@/utils/scoring/fantasyPoints";
 
 
 // ─── Types ───────────────────────────────────────────────────────────────────

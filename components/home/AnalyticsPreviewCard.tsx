@@ -9,14 +9,14 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeagueRosterStats } from '@/hooks/useLeagueRosterStats';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import {
-  computeTeamCategoryAvgs,
-  computeTeamZScores,
-} from '@/utils/categoryAnalytics';
-import {
   buildLeagueComparison,
   calculateRosterAgeProfile,
-} from '@/utils/rosterAge';
+} from '@/utils/roster/rosterAge';
 import { ms, s } from '@/utils/scale';
+import {
+  computeTeamCategoryAvgs,
+  computeTeamZScores,
+} from '@/utils/scoring/categoryAnalytics';
 
 import { IconSymbol } from '../ui/IconSymbol';
 import { ThemedText } from '../ui/ThemedText';

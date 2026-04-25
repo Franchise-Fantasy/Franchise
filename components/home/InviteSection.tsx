@@ -6,7 +6,7 @@ import { Alert, Share, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Colors, cardShadow } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
-import { generateInviteCode } from '@/utils/inviteCode';
+import { generateInviteCode } from '@/utils/league/inviteCode';
 import { ms, s } from '@/utils/scale';
 
 

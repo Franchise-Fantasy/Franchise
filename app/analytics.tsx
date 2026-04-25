@@ -46,7 +46,6 @@ import { useLeague } from "@/hooks/useLeague";
 import { useLeagueRosterStats } from "@/hooks/useLeagueRosterStats";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
 import { PlayerSeasonStats } from "@/types/player";
-import { getPositionCurveKey } from "@/utils/agingCurve";
 import {
   AgeFptsPoint,
   BUCKET_COLORS,
@@ -56,8 +55,9 @@ import {
   buildScatterData,
   calculateRosterAgeProfile,
   getInsightText,
-} from "@/utils/rosterAge";
+} from "@/utils/roster/rosterAge";
 import { ms, s } from "@/utils/scale";
+import { getPositionCurveKey } from "@/utils/scoring/agingCurve";
 
 // ─── Chart layout ────────────────────────────────────────────────────────────
 

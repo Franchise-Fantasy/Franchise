@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { fetchIllegalIRPlayers, IllegalIRPlayer } from "@/utils/illegalIR";
+import { fetchIllegalIRPlayers, IllegalIRPlayer } from "@/utils/roster/illegalIR";
 
 /**
  * Returns the list of players on this team who are in IR slots but no longer

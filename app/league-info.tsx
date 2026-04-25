@@ -51,8 +51,8 @@ import { useOffseasonActions } from '@/hooks/useOffseasonActions';
 import { usePlayoffBracket } from '@/hooks/usePlayoffBracket';
 import { useSubscription } from '@/hooks/useSubscription';
 import { supabase } from '@/lib/supabase';
-import { openPaymentConfirmed } from '@/utils/paymentLinks';
-import { calcRounds } from '@/utils/playoff';
+import { openPaymentConfirmed } from '@/utils/league/paymentLinks';
+import { calcRounds } from '@/utils/league/playoff';
 import { ms, s } from '@/utils/scale';
 
 // ── Lifecycle helpers ──────────────────────────────────────────────

@@ -55,7 +55,7 @@ import {
   type SleeperPreviewResult,
 } from '@/hooks/useImportSleeper';
 import { capture } from '@/lib/posthog';
-import { calcLotteryPoolSize, getPlayoffTeamOptions } from '@/utils/lottery';
+import { calcLotteryPoolSize, getPlayoffTeamOptions } from '@/utils/league/lottery';
 import { ms, s } from '@/utils/scale';
 import { mapSleeperPositions, mapSleeperScoring } from '@/utils/sleeperMapping';
 

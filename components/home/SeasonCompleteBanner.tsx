@@ -9,7 +9,7 @@ import { Colors, cardShadow } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
-import { calcRounds } from '@/utils/playoff';
+import { calcRounds } from '@/utils/league/playoff';
 import { ms, s } from '@/utils/scale';
 
 

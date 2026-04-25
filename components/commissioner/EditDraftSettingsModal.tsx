@@ -22,7 +22,7 @@ import { Colors } from '@/constants/Colors';
 import { DRAFT_TYPE_OPTIONS, INITIAL_DRAFT_ORDER_DISPLAY, INITIAL_DRAFT_ORDER_OPTIONS, INITIAL_DRAFT_ORDER_TO_DB, ROOKIE_DRAFT_ORDER_OPTIONS, TIME_PER_PICK_OPTIONS } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
-import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/lottery';
+import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/league/lottery';
 import { ms, s } from '@/utils/scale';
 
 const ORDER_DISPLAY: Record<string, string> = {

@@ -20,7 +20,7 @@ import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats } from '@/types/player';
-import { getInjuryBadge } from '@/utils/injuryBadge';
+import { getInjuryBadge } from '@/utils/nba/injuryBadge';
 import { ms, s } from '@/utils/scale';
 
 

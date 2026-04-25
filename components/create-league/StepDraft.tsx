@@ -16,7 +16,7 @@ import {
   TIME_PER_PICK_OPTIONS,
 } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/lottery';
+import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/league/lottery';
 import { ms, s } from '@/utils/scale';
 
 interface StepDraftProps {
