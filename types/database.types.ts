@@ -825,6 +825,51 @@ export type Database = {
           },
         ]
       }
+      game_schedule: {
+        Row: {
+          away_score: number | null
+          away_team: string
+          created_at: string | null
+          game_date: string
+          game_id: string
+          game_time_utc: string | null
+          home_score: number | null
+          home_team: string
+          id: string
+          season: string
+          sport: string
+          status: string | null
+        }
+        Insert: {
+          away_score?: number | null
+          away_team: string
+          created_at?: string | null
+          game_date: string
+          game_id: string
+          game_time_utc?: string | null
+          home_score?: number | null
+          home_team: string
+          id?: string
+          season: string
+          sport?: string
+          status?: string | null
+        }
+        Update: {
+          away_score?: number | null
+          away_team?: string
+          created_at?: string | null
+          game_date?: string
+          game_id?: string
+          game_time_utc?: string | null
+          home_score?: number | null
+          home_team?: string
+          id?: string
+          season?: string
+          sport?: string
+          status?: string | null
+        }
+        Relationships: []
+      }
       keeper_declarations: {
         Row: {
           declared_at: string
@@ -1569,6 +1614,7 @@ export type Database = {
           scoring_type: string
           season: string
           season_start_date: string | null
+          sport: string
           taxi_max_experience: number | null
           taxi_slots: number
           teams: number
@@ -1627,6 +1673,7 @@ export type Database = {
           scoring_type?: string
           season?: string
           season_start_date?: string | null
+          sport?: string
           taxi_max_experience?: number | null
           taxi_slots?: number
           teams: number
@@ -1685,6 +1732,7 @@ export type Database = {
           scoring_type?: string
           season?: string
           season_start_date?: string | null
+          sport?: string
           taxi_max_experience?: number | null
           taxi_slots?: number
           teams?: number
@@ -1732,6 +1780,7 @@ export type Database = {
           player_id: string
           pts: number
           reb: number
+          sport: string
           stl: number
           tov: number
           updated_at: string
@@ -1758,6 +1807,7 @@ export type Database = {
           player_id: string
           pts?: number
           reb?: number
+          sport?: string
           stl?: number
           tov?: number
           updated_at?: string
@@ -1784,6 +1834,7 @@ export type Database = {
           player_id?: string
           pts?: number
           reb?: number
+          sport?: string
           stl?: number
           tov?: number
           updated_at?: string
@@ -1837,48 +1888,6 @@ export type Database = {
           },
         ]
       }
-      nba_schedule: {
-        Row: {
-          away_score: number | null
-          away_team: string
-          created_at: string | null
-          game_date: string
-          game_id: string
-          game_time_utc: string | null
-          home_score: number | null
-          home_team: string
-          id: string
-          season: string
-          status: string | null
-        }
-        Insert: {
-          away_score?: number | null
-          away_team: string
-          created_at?: string | null
-          game_date: string
-          game_id: string
-          game_time_utc?: string | null
-          home_score?: number | null
-          home_team: string
-          id?: string
-          season: string
-          status?: string | null
-        }
-        Update: {
-          away_score?: number | null
-          away_team?: string
-          created_at?: string | null
-          game_date?: string
-          game_id?: string
-          game_time_utc?: string | null
-          home_score?: number | null
-          home_team?: string
-          id?: string
-          season?: string
-          status?: string | null
-        }
-        Relationships: []
-      }
       pending_transactions: {
         Row: {
           action_type: string
@@ -1887,7 +1896,7 @@ export type Database = {
           id: string
           league_id: string
           metadata: Json | null
-          player_id: string
+          player_id: string | null
           status: string
           target_player_id: string | null
           team_id: string
@@ -1899,7 +1908,7 @@ export type Database = {
           id?: string
           league_id: string
           metadata?: Json | null
-          player_id: string
+          player_id?: string | null
           status?: string
           target_player_id?: string | null
           team_id: string
@@ -1911,7 +1920,7 @@ export type Database = {
           id?: string
           league_id?: string
           metadata?: Json | null
-          player_id?: string
+          player_id?: string | null
           status?: string
           target_player_id?: string | null
           team_id?: string
@@ -2046,6 +2055,7 @@ export type Database = {
           player_id: string
           pts: number
           reb: number
+          sport: string
           stl: number
           tov: number
           triple_double: boolean
@@ -2069,6 +2079,7 @@ export type Database = {
           player_id: string
           pts?: number
           reb?: number
+          sport?: string
           stl?: number
           tov?: number
           triple_double?: boolean
@@ -2092,6 +2103,7 @@ export type Database = {
           player_id?: string
           pts?: number
           reb?: number
+          sport?: string
           stl?: number
           tov?: number
           triple_double?: boolean
@@ -2131,9 +2143,10 @@ export type Database = {
           avg_tov: number | null
           games_played: number
           id: string
-          nba_team: string | null
           player_id: string
+          pro_team: string | null
           season: string
+          sport: string
           total_ast: number | null
           total_blk: number | null
           total_dd: number | null
@@ -2160,9 +2173,10 @@ export type Database = {
           avg_tov?: number | null
           games_played?: number
           id?: string
-          nba_team?: string | null
           player_id: string
+          pro_team?: string | null
           season: string
+          sport?: string
           total_ast?: number | null
           total_blk?: number | null
           total_dd?: number | null
@@ -2189,9 +2203,10 @@ export type Database = {
           avg_tov?: number | null
           games_played?: number
           id?: string
-          nba_team?: string | null
           player_id?: string
+          pro_team?: string | null
           season?: string
+          sport?: string
           total_ast?: number | null
           total_blk?: number | null
           total_dd?: number | null
@@ -2230,6 +2245,7 @@ export type Database = {
           published_at: string
           return_estimate: string | null
           source: string
+          sport: string
           title: string
         }
         Insert: {
@@ -2243,6 +2259,7 @@ export type Database = {
           published_at: string
           return_estimate?: string | null
           source: string
+          sport?: string
           title: string
         }
         Update: {
@@ -2256,6 +2273,7 @@ export type Database = {
           published_at?: string
           return_estimate?: string | null
           source?: string
+          sport?: string
           title?: string
         }
         Relationships: []
@@ -2304,54 +2322,57 @@ export type Database = {
         Row: {
           birthdate: string | null
           contentful_entry_id: string | null
+          draft_year: number | null
           dynasty_value_score: number | null
           external_id_bdl: number | null
           external_id_nba: string | null
           id: string
           is_prospect: boolean
           name: string
-          nba_draft_year: number | null
-          nba_team: string | null
           position: string | null
+          pro_team: string | null
           rookie: boolean | null
           school: string | null
           season_added: string | null
+          sport: string
           status: string | null
           updated_at: string | null
         }
         Insert: {
           birthdate?: string | null
           contentful_entry_id?: string | null
+          draft_year?: number | null
           dynasty_value_score?: number | null
           external_id_bdl?: number | null
           external_id_nba?: string | null
           id?: string
           is_prospect?: boolean
           name: string
-          nba_draft_year?: number | null
-          nba_team?: string | null
           position?: string | null
+          pro_team?: string | null
           rookie?: boolean | null
           school?: string | null
           season_added?: string | null
+          sport?: string
           status?: string | null
           updated_at?: string | null
         }
         Update: {
           birthdate?: string | null
           contentful_entry_id?: string | null
+          draft_year?: number | null
           dynasty_value_score?: number | null
           external_id_bdl?: number | null
           external_id_nba?: string | null
           id?: string
           is_prospect?: boolean
           name?: string
-          nba_draft_year?: number | null
-          nba_team?: string | null
           position?: string | null
+          pro_team?: string | null
           rookie?: boolean | null
           school?: string | null
           season_added?: string | null
+          sport?: string
           status?: string | null
           updated_at?: string | null
         }
@@ -3660,15 +3681,16 @@ export type Database = {
           avg_stl: number | null
           avg_tov: number | null
           birthdate: string | null
+          draft_year: number | null
           external_id_nba: string | null
           games_played: number | null
           name: string | null
-          nba_draft_year: number | null
-          nba_team: string | null
           player_id: string | null
           position: string | null
+          pro_team: string | null
           rookie: boolean | null
           season_added: string | null
+          sport: string | null
           status: string | null
           total_3pa: number | null
           total_3pm: number | null
@@ -3690,6 +3712,16 @@ export type Database = {
       }
     }
     Functions: {
+      accept_trade_proposal: {
+        Args: {
+          p_drop_player_ids: string[]
+          p_proposal_id: string
+          p_review_hours: number
+          p_team_id: string
+          p_veto_type: string
+        }
+        Returns: Json
+      }
       batch_update_matchup_scores: {
         Args: { p_updates: Json }
         Returns: undefined
@@ -3728,6 +3760,7 @@ export type Database = {
       }
       execute_trade_transfers: {
         Args: {
+          p_drops?: Json
           p_league_id: string
           p_notes: string
           p_pick_moves: Json
@@ -3773,17 +3806,18 @@ export type Database = {
           avg_stl: number
           avg_tov: number
           birthdate: string
+          draft_year: number
           external_id_nba: string
           games_played: number
           name: string
-          nba_draft_year: number
-          nba_team: string
           player_id: string
           position: string
           priority: number
+          pro_team: string
           queue_id: string
           rookie: boolean
           season_added: string
+          sport: string
           status: string
           total_3pa: number
           total_3pm: number
@@ -3821,15 +3855,16 @@ export type Database = {
           avg_stl: number
           avg_tov: number
           birthdate: string
+          draft_year: number
           external_id_nba: string
           games_played: number
           name: string
-          nba_draft_year: number
-          nba_team: string
           player_id: string
           position: string
+          pro_team: string
           rookie: boolean
           season_added: string
+          sport: string
           status: string
           team_id: string
           total_3pa: number
@@ -3910,16 +3945,17 @@ export type Database = {
           avg_stl: number
           avg_tov: number
           birthdate: string
+          draft_year: number
           external_id_nba: string
           games_played: number
           name: string
-          nba_draft_year: number
-          nba_team: string
           player_id: string
           position: string
+          pro_team: string
           rookie: boolean
           roster_slot: string
           season_added: string
+          sport: string
           status: string
           total_3pa: number
           total_3pm: number
@@ -3956,15 +3992,16 @@ export type Database = {
           avg_stl: number | null
           avg_tov: number | null
           birthdate: string | null
+          draft_year: number | null
           external_id_nba: string | null
           games_played: number | null
           name: string | null
-          nba_draft_year: number | null
-          nba_team: string | null
           player_id: string | null
           position: string | null
+          pro_team: string | null
           rookie: boolean | null
           season_added: string | null
+          sport: string | null
           status: string | null
           total_3pa: number | null
           total_3pm: number | null
