@@ -12,7 +12,7 @@ export interface TradeItemRow {
   to_team_id: string;
   player_name: string | null;
   player_position: string | null;
-  player_nba_team: string | null;
+  player_pro_team: string | null;
   pick_season: string | null;
   pick_round: number | null;
   pick_original_team_name: string | null;
@@ -38,6 +38,7 @@ export interface TradeProposalRow {
     team_id: string;
     status: string;
     team_name: string;
+    drop_player_ids: string[];
   }>;
   items: TradeItemRow[];
   /** Items from the original proposal this counters — used for "NEW" badges */
@@ -67,16 +68,16 @@ export function useTradeProposals(leagueId: string | null) {
       const [teamsRes, itemsRes, origItemsRes] = await Promise.all([
         supabase
           .from('trade_proposal_teams')
-          .select('id, proposal_id, team_id, status, teams(name)')
+          .select('id, proposal_id, team_id, status, drop_player_ids, teams(name)')
           .in('proposal_id', proposalIds),
         supabase
           .from('trade_proposal_items')
-          .select('id, proposal_id, player_id, draft_pick_id, from_team_id, to_team_id, protection_threshold, pick_swap_season, pick_swap_round, players(name, position, nba_team), draft_picks(season, round, original_team_id)')
+          .select('id, proposal_id, player_id, draft_pick_id, from_team_id, to_team_id, protection_threshold, pick_swap_season, pick_swap_round, players(name, position, pro_team), draft_picks(season, round, original_team_id)')
           .in('proposal_id', proposalIds),
         counterofferOfIds.length > 0
           ? supabase
               .from('trade_proposal_items')
-              .select('id, proposal_id, player_id, draft_pick_id, from_team_id, to_team_id, protection_threshold, pick_swap_season, pick_swap_round, players(name, position, nba_team), draft_picks(season, round, original_team_id)')
+              .select('id, proposal_id, player_id, draft_pick_id, from_team_id, to_team_id, protection_threshold, pick_swap_season, pick_swap_round, players(name, position, pro_team), draft_picks(season, round, original_team_id)')
               .in('proposal_id', counterofferOfIds)
           : Promise.resolve({ data: [] as any[], error: null }),
       ]);
@@ -118,7 +119,7 @@ export function useTradeProposals(leagueId: string | null) {
           to_team_id: i.to_team_id,
           player_name: i.players?.name ?? null,
           player_position: i.players?.position ?? null,
-          player_nba_team: i.players?.nba_team ?? null,
+          player_pro_team: i.players?.pro_team ?? null,
           pick_season: i.draft_picks?.season ?? null,
           pick_round: i.draft_picks?.round ?? null,
           pick_original_team_name: i.draft_picks?.original_team_id
@@ -138,7 +139,7 @@ export function useTradeProposals(leagueId: string | null) {
         to_team_id: i.to_team_id,
         player_name: i.players?.name ?? null,
         player_position: i.players?.position ?? null,
-        player_nba_team: i.players?.nba_team ?? null,
+        player_pro_team: i.players?.pro_team ?? null,
         pick_season: i.draft_picks?.season ?? null,
         pick_round: i.draft_picks?.round ?? null,
         pick_original_team_name: i.draft_picks?.original_team_id
@@ -163,6 +164,7 @@ export function useTradeProposals(leagueId: string | null) {
               team_id: t.team_id,
               status: t.status,
               team_name: t.teams?.name ?? 'Unknown',
+              drop_player_ids: (t.drop_player_ids ?? []) as string[],
             })),
           items: (proposalItems ?? [])
             .filter((i: any) => i.proposal_id === p.id)
@@ -332,7 +334,7 @@ export interface TradeBlockPlayer {
   player_id: string;
   name: string;
   position: string;
-  nba_team: string;
+  pro_team: string;
   team_id: string;
   team_name: string;
   trade_block_note: string | null;
@@ -353,7 +355,7 @@ export function useTradeBlock(leagueId: string | null) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('league_players')
-        .select('player_id, team_id, trade_block_note, trade_block_interest, players(name, position, nba_team), teams(name)')
+        .select('player_id, team_id, trade_block_note, trade_block_interest, players(name, position, pro_team), teams(name)')
         .eq('league_id', leagueId!)
         .eq('on_trade_block', true);
       if (error) throw error;
@@ -395,7 +397,7 @@ export function useTradeBlock(leagueId: string | null) {
           player_id: row.player_id,
           name: row.players?.name ?? 'Unknown',
           position: row.players?.position ?? '',
-          nba_team: row.players?.nba_team ?? '',
+          pro_team: row.players?.pro_team ?? '',
           team_id: tid,
           team_name: row.teams?.name ?? 'Unknown',
           trade_block_note: row.trade_block_note ?? null,

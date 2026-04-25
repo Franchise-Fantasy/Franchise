@@ -102,7 +102,7 @@ Deno.serve(async (req: Request) => {
       name,
       position: position ?? null,
       school: school ?? null,
-      nba_draft_year: nbaDraftYear,
+      draft_year: nbaDraftYear,
       dynasty_value_score: dynastyScore ?? null,
       contentful_entry_id: entryId,
       is_prospect: true,

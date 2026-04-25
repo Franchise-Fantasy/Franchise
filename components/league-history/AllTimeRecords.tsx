@@ -1,97 +1,152 @@
 import { ThemedText } from '@/components/ui/ThemedText';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { Colors, cardShadow } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useAllTimeRecords } from '@/hooks/useLeagueHistory';
-import { Ionicons } from '@expo/vector-icons';
 import { ms, s } from '@/utils/scale';
-import { useState } from 'react';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { StyleSheet, View } from 'react-native';
 
 interface AllTimeRecordsProps {
   leagueId: string;
 }
 
+/**
+ * Record Book — always-visible grid of the league's all-time highs and
+ * lows. Each record sits on its own tile: varsitySmall label, display-
+ * font value, the team that owns it, then a smaller detail line.
+ */
 export function AllTimeRecords({ leagueId }: AllTimeRecordsProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const { data: records, isLoading } = useAllTimeRecords(leagueId);
-  const [expanded, setExpanded] = useState(false);
-
-  if (isLoading) return <View style={{ marginVertical: 16 }}><LogoSpinner /></View>;
-  if (!records || records.length === 0) return null;
 
   return (
-    <View style={[styles.container, { backgroundColor: c.card, borderColor: c.border }]}>
-      <TouchableOpacity
-        style={styles.header}
-        onPress={() => setExpanded((prev) => !prev)}
-        accessibilityRole="button"
-        accessibilityLabel="Record Book"
-        accessibilityState={{ expanded }}
-      >
-        <Ionicons name="trophy-outline" size={20} color={c.icon} accessible={false} />
-        <ThemedText type="defaultSemiBold" style={styles.title}>Record Book</ThemedText>
-        <Ionicons
-          name={expanded ? 'chevron-up' : 'chevron-down'}
-          size={18}
-          color={c.secondaryText}
-          accessible={false}
-        />
-      </TouchableOpacity>
+    <View style={styles.wrap}>
+      <View style={styles.labelRow}>
+        <View style={[styles.labelRule, { backgroundColor: c.gold }]} />
+        <ThemedText type="sectionLabel" style={{ color: c.text }}>
+          Record Book
+        </ThemedText>
+      </View>
 
-      {expanded && (
-        <View style={styles.grid}>
-          {records.map((rec, i) => (
-            <View key={i} style={[styles.statCard, { backgroundColor: c.cardAlt }]}>
-              <ThemedText style={[styles.statLabel, { color: c.secondaryText }]}>
-                {rec.label}
-              </ThemedText>
-              <ThemedText type="defaultSemiBold" style={styles.statValue}>
-                {rec.value}
-              </ThemedText>
-              <ThemedText style={[styles.statTeam, { color: c.text }]} numberOfLines={1}>
-                {rec.teamName}
-              </ThemedText>
-              <ThemedText style={[styles.statDetail, { color: c.secondaryText }]}>
-                {rec.detail}
-              </ThemedText>
-            </View>
-          ))}
-        </View>
-      )}
+      <View
+        style={[
+          styles.card,
+          { backgroundColor: c.card, borderColor: c.border, ...cardShadow },
+        ]}
+      >
+        {isLoading ? (
+          <View style={styles.loading}>
+            <LogoSpinner />
+          </View>
+        ) : !records || records.length === 0 ? (
+          <ThemedText style={[styles.emptyText, { color: c.secondaryText }]}>
+            Records will appear once the league has played a season.
+          </ThemedText>
+        ) : (
+          <View style={styles.grid}>
+            {records.map((rec, i) => (
+              <View
+                key={i}
+                style={[
+                  styles.tile,
+                  { backgroundColor: c.cardAlt, borderColor: c.border },
+                ]}
+                accessibilityLabel={`${rec.label}: ${rec.value} by ${rec.teamName}. ${rec.detail}`}
+              >
+                <ThemedText
+                  type="varsitySmall"
+                  style={[styles.tileLabel, { color: c.secondaryText }]}
+                >
+                  {rec.label}
+                </ThemedText>
+                <ThemedText
+                  type="display"
+                  style={[styles.tileValue, { color: c.text }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                >
+                  {rec.value}
+                </ThemedText>
+                <ThemedText
+                  style={[styles.tileTeam, { color: c.text }]}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
+                  {rec.teamName}
+                </ThemedText>
+                <ThemedText style={[styles.tileDetail, { color: c.secondaryText }]}>
+                  {rec.detail}
+                </ThemedText>
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    borderRadius: 12,
-    borderWidth: 1,
-    padding: s(16),
-    marginBottom: s(16),
-    ...cardShadow,
+  wrap: {
+    marginBottom: s(4),
   },
-  header: {
+  labelRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: s(10),
     gap: s(10),
   },
-  title: { flex: 1, fontSize: ms(14) },
+  labelRule: {
+    height: 2,
+    width: s(18),
+  },
+  card: {
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: s(14),
+    paddingTop: s(14),
+    paddingBottom: s(14),
+    marginBottom: s(16),
+    overflow: 'hidden',
+  },
   grid: {
-    marginTop: s(12),
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: s(10),
   },
-  statCard: {
+  tile: {
     flexBasis: '47%',
     flexGrow: 1,
-    padding: s(12),
+    borderWidth: 1,
     borderRadius: 10,
+    paddingVertical: s(12),
+    paddingHorizontal: s(12),
   },
-  statLabel: { fontSize: ms(11), fontWeight: '600', marginBottom: s(4) },
-  statValue: { fontSize: ms(20), marginBottom: s(2) },
-  statTeam: { fontSize: ms(12), marginBottom: s(1) },
-  statDetail: { fontSize: ms(11) },
+  tileLabel: {
+    fontSize: ms(9.5),
+    marginBottom: s(6),
+  },
+  tileValue: {
+    fontSize: ms(22),
+    lineHeight: ms(26),
+    letterSpacing: -0.3,
+    marginBottom: s(4),
+  },
+  tileTeam: {
+    fontSize: ms(12),
+    fontWeight: '600',
+    marginBottom: s(2),
+  },
+  tileDetail: {
+    fontSize: ms(10.5),
+  },
+  emptyText: {
+    fontSize: ms(13),
+    textAlign: 'center',
+    paddingVertical: s(20),
+  },
+  loading: {
+    paddingVertical: s(24),
+  },
 });

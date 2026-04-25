@@ -14,6 +14,7 @@ import { FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { Ionicons } from '@expo/vector-icons';
 import { QueuedPlayer } from '@/hooks/useDraftQueue';
+import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 
 interface DraftQueueProps {
   draftId: string;
@@ -25,6 +26,7 @@ interface DraftQueueProps {
 export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueueProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const sport = useActiveLeagueSport(leagueId);
   const isMyTurn = currentPick?.current_team_id === teamId;
 
   const { queue, isLoading, removeFromQueue, moveUp, moveDown } = useDraftQueue(draftId, teamId, leagueId);
@@ -37,7 +39,7 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
       id: item.player_id,
       name: item.player.name,
       position: item.player.position,
-      nba_team: item.player.nba_team,
+      pro_team: item.player.pro_team,
     });
   }, [isMyTurn, currentPick, draftPlayer]);
 
@@ -45,8 +47,8 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
     const fpts = scoringWeights
       ? calculateAvgFantasyPoints(item.player, scoringWeights)
       : undefined;
-    const headshotUrl = getPlayerHeadshotUrl(item.player.external_id_nba);
-    const logoUrl = getTeamLogoUrl(item.player.nba_team);
+    const headshotUrl = getPlayerHeadshotUrl(item.player.external_id_nba, sport);
+    const logoUrl = getTeamLogoUrl(item.player.pro_team, sport);
     const badge = getInjuryBadge(item.player.status);
     const isSuggested = isMyTurn && index === 0;
 
@@ -65,7 +67,7 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
 
         {/* Player portrait */}
         <View style={styles.portraitWrap}>
-          <View style={[styles.headshotCircle, { borderColor: c.gold, backgroundColor: c.cardAlt }]}>
+          <View style={[styles.headshotCircle, { borderColor: c.heritageGold, backgroundColor: c.cardAlt }]}>
             {headshotUrl ? (
               <Image source={{ uri: headshotUrl }} style={styles.headshotImg} resizeMode="cover" />
             ) : null}
@@ -74,7 +76,7 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
             {logoUrl && (
               <Image source={{ uri: logoUrl }} style={styles.teamPillLogo} resizeMode="contain" />
             )}
-            <Text style={[styles.teamPillText, { color: c.statusText }]}>{item.player.nba_team}</Text>
+            <Text style={[styles.teamPillText, { color: c.statusText }]}>{item.player.pro_team}</Text>
           </View>
         </View>
 

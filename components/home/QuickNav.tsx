@@ -1,4 +1,4 @@
-import { Colors, cardShadow } from '@/constants/Colors';
+import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useMyPendingTrades } from '@/hooks/useTrades';
@@ -8,13 +8,19 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { ThemedText } from '../ui/ThemedText';
 import { IconSymbol } from '../ui/IconSymbol';
 
-const NAV_ITEMS = [
-  { icon: 'chart.bar', label: 'Scoreboard', route: '/scoreboard' },
-  { icon: 'arrow.triangle.2.circlepath', label: 'Trade Room', route: '/trades' },
-  { icon: 'clock', label: 'Transactions', route: '/activity' },
+type NavItem = {
+  icon: Parameters<typeof IconSymbol>[0]['name'];
+  label: string;
+  route: string;
+};
+
+const NAV_ITEMS: readonly NavItem[] = [
+  { icon: 'chart.bar', label: 'Scores', route: '/scoreboard' },
+  { icon: 'arrow.triangle.2.circlepath', label: 'Trades', route: '/trades' },
+  { icon: 'clock', label: 'Activity', route: '/activity' },
   { icon: 'calendar', label: 'Schedule', route: '/schedule' },
   { icon: 'trophy.fill', label: 'Playoffs', route: '/playoff-bracket' },
-  { icon: 'list.bullet.clipboard', label: 'Draft Hub', route: '/draft-hub' },
+  { icon: 'list.bullet.clipboard', label: 'Draft', route: '/draft-hub' },
   { icon: 'newspaper', label: 'News', route: '/news' },
   { icon: 'book.fill', label: 'History', route: '/league-history' },
 ] as const;
@@ -32,114 +38,142 @@ export function QuickNav({ leagueType = 'dynasty' }: { leagueType?: string }) {
     return true;
   });
 
+  // Non-dynasty leagues hide the draft-hub tile, leaving a gappy 7-tile
+  // grid. Promote the League Info pill into the grid so the last row fills.
+  const gridItems: readonly NavItem[] = isDynasty
+    ? visibleItems
+    : [...visibleItems, { icon: 'info.circle', label: 'League Info', route: '/league-info' }];
+
   return (
-    <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border, ...cardShadow }]}>
-      {/* Header row: title + League Info pill */}
+    <View style={styles.container}>
       <View style={styles.headerRow}>
-        <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">
-          Quick Navigation
-        </ThemedText>
-        <TouchableOpacity
-          style={[styles.leagueInfoPill, { backgroundColor: c.cardAlt, borderColor: c.border }]}
-          onPress={() => router.push('/league-info' as any)}
-          activeOpacity={0.7}
-          accessibilityRole="button"
-          accessibilityLabel="League Info"
-        >
-          <IconSymbol name="info.circle" size={14} color={c.icon} />
-          <Text style={[styles.leagueInfoLabel, { color: c.text }]}>League Info</Text>
-        </TouchableOpacity>
+        <View style={styles.headerLeft}>
+          <View style={[styles.rule, { backgroundColor: c.gold }]} />
+          <ThemedText type="sectionLabel" style={{ color: c.text }}>
+            Explore
+          </ThemedText>
+        </View>
+        {isDynasty && (
+          <TouchableOpacity
+            style={[styles.leagueInfoPill, { backgroundColor: c.cardAlt, borderColor: c.border }]}
+            onPress={() => router.push('/league-info' as never)}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="League Info"
+          >
+            <IconSymbol name="info.circle" size={14} color={c.gold} />
+            <ThemedText type="varsitySmall" style={[styles.pillLabel, { color: c.text }]}>
+              League Info
+            </ThemedText>
+          </TouchableOpacity>
+        )}
       </View>
 
-      <View style={styles.grid}>
-        {visibleItems.map(item => (
-          <TouchableOpacity
-            key={item.route}
-            style={[styles.navItem, { backgroundColor: c.cardAlt, borderWidth: 1, borderColor: c.border + '60' }]}
-            onPress={() => router.push(item.route as any)}
-            activeOpacity={0.65}
-            accessibilityRole="button"
-            accessibilityLabel={item.route === '/trades' && pendingTradeCount > 0
-              ? `${item.label}, ${pendingTradeCount} pending`
-              : item.label}
-          >
-            <IconSymbol name={item.icon} size={24} color={c.icon} />
-            <ThemedText style={styles.label}>{item.label}</ThemedText>
-            {item.route === '/trades' && pendingTradeCount > 0 && (
-              <View style={[styles.badge, { backgroundColor: c.danger }]} accessibilityElementsHidden>
-                <Text style={[styles.badgeText, { color: c.statusText }]}>{pendingTradeCount}</Text>
+      <View style={[styles.grid, { backgroundColor: c.card, borderColor: c.border }]}>
+        {gridItems.map(item => {
+          const showPip = item.route === '/trades' && pendingTradeCount > 0;
+          return (
+            <TouchableOpacity
+              key={item.route}
+              style={[styles.tile, { borderColor: c.border }]}
+              onPress={() => router.push(item.route as never)}
+              activeOpacity={0.6}
+              accessibilityRole="button"
+              accessibilityLabel={
+                showPip
+                  ? `${item.label}, ${pendingTradeCount} pending`
+                  : item.label
+              }
+            >
+              <View style={styles.iconWrap}>
+                <IconSymbol name={item.icon} size={22} color={c.gold} />
+                {showPip && (
+                  <View style={[styles.pip, { backgroundColor: c.danger }]} accessibilityElementsHidden>
+                    <Text style={[styles.pipText, { color: c.statusText }]}>
+                      {pendingTradeCount}
+                    </Text>
+                  </View>
+                )}
               </View>
-            )}
-          </TouchableOpacity>
-        ))}
+              <ThemedText type="varsitySmall" style={[styles.tileLabel, { color: c.text }]}>
+                {item.label}
+              </ThemedText>
+            </TouchableOpacity>
+          );
+        })}
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  section: {
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: s(16),
-    paddingTop: s(14),
-    paddingBottom: s(16),
-    marginBottom: s(16),
+  container: {
+    marginTop: s(6),
+    marginBottom: s(18),
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: s(12),
+    marginBottom: s(10),
   },
-  sectionTitle: {
-    // no extra margin needed — headerRow handles spacing
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(10),
+  },
+  rule: {
+    height: 2,
+    width: s(18),
   },
   leagueInfoPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: s(5),
-    paddingHorizontal: s(12),
-    paddingVertical: s(6),
-    borderRadius: 10,
+    paddingHorizontal: s(10),
+    paddingVertical: s(5),
+    borderRadius: 8,
     borderWidth: 1,
   },
-  leagueInfoLabel: {
-    fontSize: ms(12),
-    fontWeight: '600',
+  pillLabel: {
+    fontSize: ms(9.5),
   },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: s(12),
+    borderWidth: 1,
+    borderRadius: 14,
+    overflow: 'hidden',
   },
-  navItem: {
-    alignItems: 'center',
-    flexBasis: '45%',
-    flexGrow: 1,
-    padding: s(16),
-    borderRadius: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 3,
-    elevation: 1,
-  },
-  label: { marginTop: s(8), fontSize: ms(12) },
-  badge: {
-    position: 'absolute',
-    top: s(-8),
-    right: s(-8),
-    borderRadius: 10,
-    minWidth: s(20),
-    height: s(20),
+  tile: {
+    width: '25%',
+    paddingVertical: s(14),
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: s(5),
-    zIndex: 1,
+    borderRightWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: s(6),
   },
-  badgeText: {
-    fontSize: ms(11),
+  iconWrap: {
+    position: 'relative',
+  },
+  tileLabel: {
+    fontSize: ms(10),
+    textAlign: 'center',
+  },
+  pip: {
+    position: 'absolute',
+    top: -s(5),
+    right: -s(9),
+    minWidth: s(16),
+    height: s(16),
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: s(3),
+  },
+  pipText: {
+    fontSize: ms(10),
     fontWeight: '700',
     textAlign: 'center',
     includeFontPadding: false,

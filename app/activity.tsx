@@ -8,7 +8,7 @@ import { formatPickLabelShort } from '@/types/trade';
 import { Ionicons } from '@expo/vector-icons';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -134,7 +134,8 @@ export default function Activity() {
   const [refreshing, setRefreshing] = useState(false);
   const lastRefresh = useRef(0);
 
-  const transactions = data?.pages.flat() ?? [];
+  const transactions = useMemo(() => data?.pages.flat() ?? [], [data?.pages]);
+  const keyExtractor = useCallback((item: Transaction) => item.id, []);
 
   const renderItem = useCallback(
     ({ item }: { item: Transaction }) => {
@@ -282,13 +283,17 @@ export default function Activity() {
       ) : (
         <FlatList
           data={transactions}
-          keyExtractor={(item) => item.id}
+          keyExtractor={keyExtractor}
           renderItem={renderItem}
           contentContainerStyle={styles.list}
           onEndReached={onEndReached}
           onEndReachedThreshold={0.5}
           refreshing={refreshing}
           onRefresh={onRefresh}
+          removeClippedSubviews
+          initialNumToRender={8}
+          maxToRenderPerBatch={6}
+          windowSize={7}
           ListFooterComponent={
             isFetchingNextPage ? <View style={styles.footerLoader}><LogoSpinner size={18} /></View> : null
           }

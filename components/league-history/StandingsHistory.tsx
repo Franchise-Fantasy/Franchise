@@ -1,43 +1,29 @@
+import { TeamLogo } from '@/components/team/TeamLogo';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors, cardShadow } from '@/constants/Colors';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { Brand, Colors, Fonts } from '@/constants/Colors';
+import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { useSeasonStandings, TeamSeasonRow } from '@/hooks/useLeagueHistory';
+import { useSeasonStandings } from '@/hooks/useLeagueHistory';
 import { ms, s } from '@/utils/scale';
 import { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface StandingsHistoryProps {
   leagueId: string;
 }
 
-const RESULT_LABELS: Record<string, string> = {
-  champion: 'Champion',
-  runner_up: 'Runner-Up',
-  missed_playoffs: 'Missed Playoffs',
-  playoff_participant: 'Playoffs',
-};
-
-function resultLabel(result: string | null): string {
-  if (!result) return '—';
-  if (RESULT_LABELS[result]) return RESULT_LABELS[result];
-  if (result.startsWith('eliminated_round_')) {
-    const round = result.replace('eliminated_round_', '');
-    return `Elim. Rd ${round}`;
-  }
-  return result;
-}
-
 export function StandingsHistory({ leagueId }: StandingsHistoryProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const { teamId } = useAppState();
   const { data: standings, isLoading } = useSeasonStandings(leagueId);
   const [selectedSeason, setSelectedSeason] = useState<string | null>(null);
 
   const seasons = useMemo(() => {
     if (!standings || standings.length === 0) return [];
-    const s = new Set(standings.map((r) => r.season));
-    return [...s]; // already ordered descending from query
+    const set = new Set(standings.map((r) => r.season));
+    return [...set];
   }, [standings]);
 
   const activeSeason = selectedSeason ?? seasons[0] ?? null;
@@ -47,7 +33,9 @@ export function StandingsHistory({ leagueId }: StandingsHistoryProps) {
     return standings.filter((r) => r.season === activeSeason);
   }, [standings, activeSeason]);
 
-  if (isLoading) return <View style={{ marginVertical: s(16) }}><LogoSpinner /></View>;
+  const anyTies = seasonTeams.some((t) => (t.ties ?? 0) > 0);
+
+  if (isLoading) return <View style={styles.loading}><LogoSpinner /></View>;
   if (seasons.length === 0) {
     return (
       <ThemedText style={[styles.emptyText, { color: c.secondaryText }]}>
@@ -58,98 +46,217 @@ export function StandingsHistory({ leagueId }: StandingsHistoryProps) {
 
   return (
     <View>
-      {/* Season pills */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillRow}>
-        {seasons.map((s) => (
-          <TouchableOpacity
-            key={s}
-            accessibilityRole="button"
-            accessibilityLabel={`Season ${s}`}
-            accessibilityState={{ selected: activeSeason === s }}
-            style={[styles.pill, activeSeason === s ? { backgroundColor: c.accent } : { backgroundColor: c.cardAlt }]}
-            onPress={() => setSelectedSeason(s)}
-          >
-            <ThemedText style={[styles.pillText, activeSeason === s && { color: c.accentText }]}>
-              {s}
-            </ThemedText>
-          </TouchableOpacity>
-        ))}
+      {/* Season picker — varsity caps pills, Turf Green selected. */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.pillRowContent}
+        style={styles.pillRow}
+      >
+        {seasons.map((season) => {
+          const isSelected = activeSeason === season;
+          return (
+            <TouchableOpacity
+              key={season}
+              accessibilityRole="button"
+              accessibilityLabel={`Season ${season}`}
+              accessibilityState={{ selected: isSelected }}
+              style={[
+                styles.pill,
+                { borderColor: c.border },
+                isSelected
+                  ? { backgroundColor: Brand.turfGreen, borderColor: Brand.turfGreen }
+                  : { backgroundColor: c.cardAlt },
+              ]}
+              onPress={() => setSelectedSeason(season)}
+            >
+              <ThemedText
+                type="varsitySmall"
+                style={[
+                  styles.pillText,
+                  { color: isSelected ? Brand.ecru : c.secondaryText },
+                ]}
+              >
+                {season}
+              </ThemedText>
+            </TouchableOpacity>
+          );
+        })}
       </ScrollView>
 
-      {/* Standings table */}
-      <View style={[styles.table, { borderColor: c.border }]}>
-        {/* Header */}
-        <View style={[styles.tableHeader, { borderBottomColor: c.border }]}>
-          <ThemedText style={[styles.colRank, styles.headerText, { color: c.secondaryText }]}>#</ThemedText>
-          <ThemedText style={[styles.colName, styles.headerText, { color: c.secondaryText }]}>Team</ThemedText>
-          <ThemedText style={[styles.colRecord, styles.headerText, { color: c.secondaryText }]}>Record</ThemedText>
-          <ThemedText style={[styles.colPF, styles.headerText, { color: c.secondaryText }]}>PF</ThemedText>
-          <ThemedText style={[styles.colResult, styles.headerText, { color: c.secondaryText }]}>Result</ThemedText>
-        </View>
+      {/* Standings table — flex layout, fits the card width without
+          horizontal scrolling. Columns: rank, logo, team name (flex),
+          record, PF, PA. */}
+      <View style={[styles.tableHeader, { borderBottomColor: c.border }]}>
+        <ThemedText type="varsitySmall" style={[styles.rankText, { color: c.secondaryText }]}>#</ThemedText>
+        <View style={styles.logoSlot} />
+        <ThemedText type="varsitySmall" style={[styles.teamNameHeader, { color: c.secondaryText }]}>
+          Team
+        </ThemedText>
+        <ThemedText type="varsitySmall" style={[styles.recordHeader, { color: c.secondaryText }]}>
+          {anyTies ? 'W-L-T' : 'W-L'}
+        </ThemedText>
+        <ThemedText type="varsitySmall" style={[styles.statCol, { color: c.secondaryText }]}>
+          PF
+        </ThemedText>
+        <ThemedText type="varsitySmall" style={[styles.statCol, { color: c.secondaryText }]}>
+          PA
+        </ThemedText>
+      </View>
 
-        {seasonTeams.map((t, idx) => (
+      {seasonTeams.map((t, idx) => {
+        const isMe = !!teamId && t.team_id === teamId;
+        const standing = t.final_standing ?? idx + 1;
+        const isMissed = t.playoff_result === 'missed_playoffs';
+        const record = anyTies
+          ? `${t.wins}-${t.losses}-${t.ties}`
+          : `${t.wins}-${t.losses}`;
+        return (
           <View
             key={t.id}
             style={[
               styles.tableRow,
-              t.playoff_result === 'champion' && { backgroundColor: c.goldMuted },
-              idx < seasonTeams.length - 1 && { borderBottomColor: c.border, borderBottomWidth: StyleSheet.hairlineWidth },
+              { borderBottomColor: c.border },
+              idx === seasonTeams.length - 1 && { borderBottomWidth: 0 },
+              isMe && { backgroundColor: c.activeCard },
             ]}
+            accessibilityLabel={`${t.team?.name ?? 'Unknown'}, rank ${standing}, record ${record}, ${t.playoff_result ?? 'no result'}`}
           >
-            <ThemedText style={[styles.colRank, { color: c.secondaryText }]}>{t.final_standing}</ThemedText>
-            <ThemedText style={styles.colName} numberOfLines={1}>{t.team?.name ?? '—'}</ThemedText>
-            <ThemedText style={[styles.colRecord, { color: c.secondaryText }]}>
-              {t.wins}-{t.losses}{t.ties > 0 ? `-${t.ties}` : ''}
-            </ThemedText>
-            <ThemedText style={[styles.colPF, { color: c.secondaryText }]}>{(t.points_for ?? 0).toFixed(1)}</ThemedText>
-            <View style={[styles.resultBadge, t.playoff_result === 'champion' && { backgroundColor: c.goldMuted }]}>
-              <ThemedText style={[styles.resultText, { color: c.secondaryText }]}>
-                {resultLabel(t.playoff_result)}
+            <Text
+              style={[
+                styles.rankText,
+                { color: isMissed ? c.danger : c.secondaryText },
+              ]}
+            >
+              {standing}
+            </Text>
+            <View style={styles.logoSlot}>
+              <TeamLogo
+                logoKey={t.team?.logo_key ?? null}
+                teamName={t.team?.name ?? 'Team'}
+                tricode={t.team?.tricode ?? undefined}
+                size="small"
+              />
+            </View>
+            <View style={styles.teamNameCol}>
+              <ThemedText
+                style={[
+                  styles.teamName,
+                  { color: c.text, fontWeight: isMe ? '700' : '500' },
+                ]}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >
+                {t.team?.name ?? '—'}
               </ThemedText>
             </View>
+            <View style={styles.recordCell}>
+              <ThemedText type="mono" style={[styles.recordText, { color: c.text }]}>
+                {record}
+              </ThemedText>
+            </View>
+            <ThemedText type="mono" style={[styles.statCol, { color: c.secondaryText }]}>
+              {Math.round(Number(t.points_for ?? 0))}
+            </ThemedText>
+            <ThemedText type="mono" style={[styles.statCol, { color: c.secondaryText }]}>
+              {Math.round(Number(t.points_against ?? 0))}
+            </ThemedText>
           </View>
-        ))}
-      </View>
+        );
+      })}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   emptyText: { fontSize: ms(13), textAlign: 'center', paddingVertical: s(16) },
-  pillRow: { marginBottom: s(12) },
+  loading: { paddingVertical: s(24) },
+
+  pillRow: {
+    marginBottom: s(12),
+    marginHorizontal: -s(4),
+  },
+  pillRowContent: {
+    paddingHorizontal: s(4),
+    gap: s(8),
+  },
   pill: {
     paddingHorizontal: s(14),
-    paddingVertical: s(6),
-    borderRadius: 16,
-    marginRight: s(8),
+    paddingVertical: s(7),
+    borderRadius: 8,
+    borderWidth: 1,
   },
-  pillText: { fontSize: ms(13), fontWeight: '600' },
-  table: { borderRadius: 12, overflow: 'hidden', ...cardShadow },
+  pillText: {
+    fontSize: ms(10),
+  },
+
   tableHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: s(8),
-    paddingHorizontal: s(10),
+    paddingVertical: s(6),
+    paddingHorizontal: s(4),
     borderBottomWidth: StyleSheet.hairlineWidth,
+    marginHorizontal: -s(4),
   },
-  headerText: { fontSize: ms(11), fontWeight: '600' },
+  // Row extends past the parent card's padding so the isMe highlight
+  // spans near-full card width. Internal paddingHorizontal keeps column
+  // content inset matching the header.
   tableRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: s(8),
-    paddingHorizontal: s(10),
-  },
-  colRank: { width: s(22), fontSize: ms(12), textAlign: 'center' },
-  colName: { flex: 1, fontSize: ms(13), marginHorizontal: s(6) },
-  colRecord: { width: s(50), fontSize: ms(12), textAlign: 'center' },
-  colPF: { width: s(50), fontSize: ms(12), textAlign: 'right' },
-  colResult: { width: s(70), fontSize: ms(11), textAlign: 'center' },
-  resultBadge: {
-    width: s(70),
+    paddingVertical: s(10),
     paddingHorizontal: s(4),
-    paddingVertical: s(2),
-    borderRadius: 4,
-    alignItems: 'center',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    marginHorizontal: -s(4),
   },
-  resultText: { fontSize: ms(10), fontWeight: '600' },
+  rankText: {
+    width: s(22),
+    fontFamily: Fonts.mono,
+    fontSize: ms(12),
+    textAlign: 'left',
+    letterSpacing: 0.5,
+  },
+  logoSlot: {
+    width: s(26),
+    alignItems: 'flex-start',
+  },
+  // Team name flexes into remaining space so the row fills the card
+  // without horizontal scroll.
+  teamNameCol: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: s(8),
+    minWidth: 0,
+  },
+  teamNameHeader: {
+    flex: 1,
+    marginLeft: s(8),
+  },
+  teamName: {
+    flexShrink: 1,
+    fontSize: ms(13),
+  },
+  recordCell: {
+    width: s(46),
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: s(3),
+    borderRadius: 4,
+    marginLeft: s(4),
+  },
+  recordHeader: {
+    width: s(46),
+    textAlign: 'center',
+    marginLeft: s(4),
+  },
+  recordText: {
+    fontSize: ms(12),
+  },
+  statCol: {
+    width: s(38),
+    textAlign: 'right',
+    fontSize: ms(11.5),
+    marginLeft: s(4),
+  },
 });

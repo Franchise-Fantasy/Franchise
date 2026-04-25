@@ -3,6 +3,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { CORS_HEADERS } from '../_shared/cors.ts';
 import { normalizeName } from '../_shared/normalize.ts';
 import { getTokensForUsers, sendPush } from '../_shared/push.ts';
+import type { Sport } from '../_shared/bdl.ts';
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -11,9 +12,14 @@ const supabase = createClient(
 
 const jsonHeaders = { ...CORS_HEADERS, 'Content-Type': 'application/json' };
 
-const RSS_FEEDS: { url: string; source: string }[] = [
-  { url: 'https://www.rotowire.com/rss/news.php?sport=NBA', source: 'rotowire' },
-];
+const RSS_FEEDS_BY_SPORT: Record<Sport, { url: string; source: string }[]> = {
+  nba: [
+    { url: 'https://www.rotowire.com/rss/news.php?sport=NBA', source: 'rotowire' },
+  ],
+  wnba: [
+    { url: 'https://www.rotowire.com/rss/news.php?sport=WNBA', source: 'rotowire' },
+  ],
+};
 
 // ── RSS Parsing ────────────────────────────────
 
@@ -162,6 +168,16 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  // Sport from request body. Defaults to 'nba' so legacy cron entries keep working.
+  let sport: Sport = 'nba';
+  try {
+    const body = await req.json();
+    if (body?.sport === 'wnba') sport = 'wnba';
+  } catch {
+    // No body / not JSON — default sport stays 'nba'.
+  }
+  const RSS_FEEDS = RSS_FEEDS_BY_SPORT[sport];
+
   try {
     // 1. Fetch RSS feed multiple times over ~45s to work around the 5-item cap.
     //    RotoWire's feed only holds ~5 items at a time, so a single fetch per
@@ -207,9 +223,10 @@ Deno.serve(async (req: Request) => {
 
     console.log(`Fetched ${allItems.length} unique RSS items across ${POLL_ROUNDS} rounds`);
 
-    // 2. Load all players for name matching
+    // 2. Load all players for name matching, scoped to this sport so an NBA
+    //    article can't accidentally match a WNBA name (or vice versa).
     const { data: allPlayers, error: playerErr } = await supabase
-      .from('players').select('id, name, external_id_nba, status');
+      .from('players').select('id, name, external_id_nba, status').eq('sport', sport);
     if (playerErr) throw new Error(`Failed to fetch players: ${playerErr.message}`);
 
     // Build normalized name → player IDs map + player info lookup
@@ -275,6 +292,7 @@ Deno.serve(async (req: Request) => {
         .from('player_news')
         .upsert({
           external_id: externalId,
+          sport,
           title: item.title.slice(0, 500),
           description: item.description?.slice(0, 1000) || null,
           link: item.link,

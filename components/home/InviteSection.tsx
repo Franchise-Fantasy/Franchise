@@ -18,11 +18,11 @@ interface InviteSectionProps {
 }
 
 export function InviteSection({ isCommissioner, inviteCode, leagueId, isFull }: InviteSectionProps) {
-  if (!isCommissioner || isFull || !inviteCode) return null;
-
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const queryClient = useQueryClient();
+
+  if (!isCommissioner || isFull || !inviteCode) return null;
 
   const inviteLink = `franchisev2://join?code=${inviteCode}`;
 

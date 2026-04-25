@@ -49,5 +49,7 @@ export function useChatSubscription(conversationId: string | null) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [conversationId, queryClient]);
+    // queryClient is a stable singleton — omitting it prevents unnecessary channel teardown.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId]);
 }

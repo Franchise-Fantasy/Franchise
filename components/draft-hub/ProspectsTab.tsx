@@ -6,10 +6,12 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { useProspects } from '@/hooks/useProspects';
 import { useAddToBoard, useProspectBoard } from '@/hooks/useProspectBoard';
 import { useSession } from '@/context/AuthProvider';
+import { useSubscription } from '@/hooks/useSubscription';
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { ms, s } from '@/utils/scale';
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import type { ProspectCardData } from '@/types/prospect';
 import {
   FlatList,
   RefreshControl,
@@ -35,12 +37,17 @@ export function ProspectsTab() {
   const router = useRouter();
   const session = useSession();
   const userId = session?.user?.id;
+  const { canAccess, isLoading: subLoading } = useSubscription();
+  // Don't fire Contentful / Supabase queries for users who can't view the data.
+  // `subLoading` keeps the fetch ready-to-fire during the tier resolution flash
+  // so paying users don't see an extra spinner.
+  const hasAccess = subLoading || canAccess('prospects');
 
   const [draftYear, setDraftYear] = useState(DRAFT_YEARS[0]);
   const [position, setPosition] = useState('All');
 
-  const { data: prospects, isLoading, refetch } = useProspects(draftYear);
-  const { data: boardRows } = useProspectBoard(userId);
+  const { data: prospects, isLoading, refetch } = useProspects(draftYear, hasAccess);
+  const { data: boardRows } = useProspectBoard(userId, hasAccess);
   const { mutate: addToBoard } = useAddToBoard(userId);
 
   const boardPlayerIds = useMemo(
@@ -53,6 +60,37 @@ export function ProspectsTab() {
     if (position === 'All') return prospects;
     return prospects.filter(p => p.position === position);
   }, [prospects, position]);
+
+  const handleOpenProspect = useCallback(
+    (p: ProspectCardData) => {
+      router.push({
+        pathname: '/prospect/[id]' as any,
+        params: { id: p.playerId || p.contentfulEntryId },
+      });
+    },
+    [router],
+  );
+
+  const handleAddProspectToBoard = useCallback(
+    (p: ProspectCardData) => {
+      if (p.playerId) addToBoard(p.playerId);
+    },
+    [addToBoard],
+  );
+
+  const keyExtractor = useCallback((item: ProspectCardData) => item.contentfulEntryId, []);
+  const renderItem = useCallback(
+    ({ item, index }: { item: ProspectCardData; index: number }) => (
+      <ProspectCard
+        prospect={item}
+        rank={index + 1}
+        onOpenProspect={handleOpenProspect}
+        onAddProspectToBoard={item.playerId ? handleAddProspectToBoard : undefined}
+        alreadyOnBoard={!!item.playerId && boardPlayerIds.has(item.playerId)}
+      />
+    ),
+    [handleOpenProspect, handleAddProspectToBoard, boardPlayerIds],
+  );
 
   const lastUpdated = useMemo(() => {
     if (!prospects?.length) return null;
@@ -161,28 +199,17 @@ export function ProspectsTab() {
       ) : (
         <FlatList
           data={filtered}
-          keyExtractor={item => item.contentfulEntryId}
-          renderItem={({ item, index }) => (
-            <ProspectCard
-              prospect={item}
-              rank={index + 1}
-              onPress={() =>
-                router.push({
-                  pathname: '/prospect/[id]' as any,
-                  params: { id: item.playerId || item.contentfulEntryId },
-                })
-              }
-              onAddToBoard={
-                item.playerId && !boardPlayerIds.has(item.playerId)
-                  ? () => addToBoard(item.playerId)
-                  : undefined
-              }
-            />
-          )}
+          keyExtractor={keyExtractor}
+          renderItem={renderItem}
           refreshControl={
             <RefreshControl refreshing={false} onRefresh={refetch} tintColor={c.accent} />
           }
           contentContainerStyle={styles.listContent}
+          getItemLayout={getItemLayout}
+          removeClippedSubviews
+          initialNumToRender={10}
+          maxToRenderPerBatch={8}
+          windowSize={7}
           ListEmptyComponent={
             <View style={styles.center}>
               <ThemedText style={{ color: c.secondaryText }}>
@@ -195,6 +222,15 @@ export function ProspectsTab() {
     </PremiumGate>
   );
 }
+
+// Fixed card height = avatar (s(40)) + card padding (s(10)*2) + marginBottom (s(6)) + border (2)
+// = roughly s(68) per row. Compute once since `s` is deterministic at module load.
+const PROSPECT_ROW_HEIGHT = s(68);
+const getItemLayout = (_: unknown, index: number) => ({
+  length: PROSPECT_ROW_HEIGHT,
+  offset: PROSPECT_ROW_HEIGHT * index,
+  index,
+});
 
 const styles = StyleSheet.create({
   subtitle: {

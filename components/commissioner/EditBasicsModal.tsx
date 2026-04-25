@@ -105,7 +105,7 @@ export function EditBasicsModal({ visible, onClose, league, leagueId, canChangeS
           .eq('type', 'initial')
           .maybeSingle();
 
-        if (draft) {
+        if (draft && draft.rounds != null && draft.season) {
           // Update picks_per_round on draft row
           await supabase
             .from('drafts')

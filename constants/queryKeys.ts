@@ -52,6 +52,7 @@ export const queryKeys = {
   allTimeRecords: (leagueId: string) => ["allTimeRecords", leagueId] as const,
   headToHead: (leagueId: string) => ["headToHead", leagueId] as const,
   draftHistory: (leagueId: string) => ["draftHistory", leagueId] as const,
+  bracketHistory: (leagueId: string) => ["bracketHistory", leagueId] as const,
 
   // ── Team / Roster ────────────────────────────────────────
   teamRoster: (teamId: string, ...rest: (string | undefined)[]) =>
@@ -117,7 +118,7 @@ export const queryKeys = {
     ["playoffBracket", leagueId, season] as const,
   playoffSeeds: (
     leagueId: string,
-    season: number,
+    season: string,
     round: number | undefined
   ) => ["playoffSeeds", leagueId, season, round] as const,
   seedPicks: (
@@ -235,8 +236,8 @@ export const queryKeys = {
     ["tradeRosterWarnings", leagueId, ...rest] as const,
   tradeByTransaction: (transactionId: string) =>
     ["tradeByTransaction", transactionId] as const,
-  dropPickerRoster: (teamId: string, leagueId: string) =>
-    ["dropPickerRoster", teamId, leagueId] as const,
+  dropPickerRoster: (teamId: string, leagueId: string, proposalId: string) =>
+    ["dropPickerRoster", teamId, leagueId, proposalId] as const,
 
   // ── Chat ─────────────────────────────────────────────────
   conversations: (leagueId: string) =>
@@ -301,7 +302,7 @@ export const queryKeys = {
   // ── Lottery ──────────────────────────────────────────────
   lotteryResults: (
     leagueId: string,
-    season: number | undefined
+    season: string | undefined
   ) => ["lotteryResults", leagueId, season] as const,
 
   // ── Offseason ────────────────────────────────────────────

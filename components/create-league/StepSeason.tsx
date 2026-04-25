@@ -1,5 +1,9 @@
 import { AnimatedSection } from '@/components/ui/AnimatedSection';
+import { BrandButton } from '@/components/ui/BrandButton';
+import { BrandTextInput } from '@/components/ui/BrandTextInput';
+import { FieldGroup } from '@/components/ui/FieldGroup';
 import { FormSection } from '@/components/ui/FormSection';
+import { Section } from '@/components/ui/Section';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
@@ -14,9 +18,12 @@ import {
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { calcLotteryPoolSize, getPlayoffTeamOptions } from '@/utils/lottery';
 import { ms, s } from '@/utils/scale';
-import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import DateTimePicker, {
+  DateTimePickerAndroid,
+  DateTimePickerEvent,
+} from '@react-native-community/datetimepicker';
 import { useState } from 'react';
-import { StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
+import { Modal, Platform, Pressable, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 interface StepSeasonProps {
   state: LeagueWizardState;
@@ -97,12 +104,36 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const handleDateChange = (_event: DateTimePickerEvent, date?: Date) => {
-    setShowDatePicker(false);
-    if (!date) return;
+  const commitDate = (date: Date) => {
     date.setHours(0, 0, 0, 0);
     const iso = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
     onChange('seasonStartDate', iso);
+  };
+
+  // Platform split:
+  //  - iOS: keep a Modal open with a spinner-style picker + Done button.
+  //    (Using `display="default"` inline on iOS 14+ rendered a second
+  //    inline compact picker that crashed on tap.)
+  //  - Android: imperative `DateTimePickerAndroid.open()` — shows the
+  //    native system dialog directly, then closes itself on dismiss.
+  const handleIOSChange = (_event: DateTimePickerEvent, date?: Date) => {
+    if (date) commitDate(date);
+  };
+
+  const openDatePicker = () => {
+    if (Platform.OS === 'android') {
+      DateTimePickerAndroid.open({
+        value: seasonStart,
+        mode: 'date',
+        minimumDate: today,
+        maximumDate: nbaEnd,
+        onChange: (_e, date) => {
+          if (date) commitDate(date);
+        },
+      });
+    } else {
+      setShowDatePicker(true);
+    }
   };
 
   const maxRegularSeasonWeeks = Math.max(1, maxTotalWeeks - state.playoffWeeks);
@@ -136,140 +167,163 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
 
   return (
     <View style={styles.container}>
-      <ThemedText accessibilityRole="header" type="subtitle" style={styles.heading}>Season Settings</ThemedText>
-
       {/* League Structure (Divisions) */}
       <FormSection title="League Structure">
-        <ThemedText style={styles.label}>Divisions</ThemedText>
-        <SegmentedControl
-          options={['No Divisions', '2 Divisions']}
-          selectedIndex={state.divisionCount === 2 ? 1 : 0}
-          onSelect={(i) => onChange('divisionCount', i === 1 ? 2 : 1)}
-          disabled={!canHaveDivisions && state.divisionCount !== 2}
-        />
+        <FieldGroup
+          label="Divisions"
+          helperText={
+            state.divisionCount === 2
+              ? 'Division winners are guaranteed the top 2 playoff seeds.'
+              : canHaveDivisions
+                ? 'All teams compete in a single conference.'
+                : 'Divisions require at least 4 teams.'
+          }
+        >
+          <SegmentedControl
+            options={['No Divisions', '2 Divisions']}
+            selectedIndex={state.divisionCount === 2 ? 1 : 0}
+            onSelect={(i) => onChange('divisionCount', i === 1 ? 2 : 1)}
+            disabled={!canHaveDivisions && state.divisionCount !== 2}
+          />
+        </FieldGroup>
         <AnimatedSection visible={state.divisionCount === 2}>
           <View style={styles.divisionNames}>
-            <TextInput
-              style={[styles.divisionInput, { borderColor: c.border, backgroundColor: c.input, color: c.text }]}
+            <BrandTextInput
               value={state.division1Name}
               onChangeText={(v) => onChange('division1Name', v)}
               placeholder="Division 1"
-              placeholderTextColor={c.secondaryText}
               maxLength={24}
               accessibilityLabel="Division 1 name"
+              containerStyle={styles.divisionInput}
             />
-            <TextInput
-              style={[styles.divisionInput, { borderColor: c.border, backgroundColor: c.input, color: c.text }]}
+            <BrandTextInput
               value={state.division2Name}
               onChangeText={(v) => onChange('division2Name', v)}
               placeholder="Division 2"
-              placeholderTextColor={c.secondaryText}
               maxLength={24}
               accessibilityLabel="Division 2 name"
+              containerStyle={styles.divisionInput}
             />
           </View>
         </AnimatedSection>
-        <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
-          {state.divisionCount === 2
-            ? 'Division winners are guaranteed the top 2 playoff seeds.'
-            : 'All teams compete in a single conference.'}
-        </ThemedText>
-        {!canHaveDivisions && (
-          <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
-            Divisions require at least 4 teams.
-          </ThemedText>
-        )}
       </FormSection>
 
       {/* Schedule */}
       <FormSection title="Schedule">
-        <ThemedText style={styles.label}>Season Start Date</ThemedText>
-        <TouchableOpacity
-          onPress={() => setShowDatePicker(true)}
-          style={[styles.dateButton, { borderColor: c.border, backgroundColor: c.card }]}
-          accessibilityRole="button"
-          accessibilityLabel={`Season start date: ${formatDate(seasonStart)}. Tap to change.`}
+        <FieldGroup
+          label="Season Start Date"
+          helperText={
+            state.seasonStartDate
+              ? undefined
+              : "Auto-selected based on today's date. Tap to choose a different date."
+          }
         >
-          <ThemedText style={styles.dateButtonText}>{formatDate(seasonStart)}</ThemedText>
-        </TouchableOpacity>
-        {state.seasonStartDate && (
           <TouchableOpacity
-            onPress={() => onChange('seasonStartDate', null)}
+            onPress={openDatePicker}
+            style={[styles.dateButton, { borderColor: c.border, backgroundColor: c.input }]}
             accessibilityRole="button"
-            accessibilityLabel="Reset to automatic start date"
+            accessibilityLabel={`Season start date: ${formatDate(seasonStart)}. Tap to change.`}
           >
-            <ThemedText style={[styles.hint, { color: c.accent }]}>Reset to auto</ThemedText>
+            <ThemedText style={styles.dateButtonText}>{formatDate(seasonStart)}</ThemedText>
           </TouchableOpacity>
-        )}
-        {!state.seasonStartDate && (
-          <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
-            Auto-selected based on today's date. Tap to choose a different date.
-          </ThemedText>
-        )}
-        {showDatePicker && (
-          <DateTimePicker
-            value={seasonStart}
-            mode="date"
-            display="default"
-            minimumDate={today}
-            maximumDate={nbaEnd}
-            onChange={handleDateChange}
-          />
+          {state.seasonStartDate && (
+            <TouchableOpacity
+              onPress={() => onChange('seasonStartDate', null)}
+              accessibilityRole="button"
+              accessibilityLabel="Reset to automatic start date"
+              style={styles.resetLink}
+            >
+              <ThemedText style={[styles.resetLinkText, { color: c.accent }]}>Reset to auto</ThemedText>
+            </TouchableOpacity>
+          )}
+        </FieldGroup>
+
+        {/* iOS date-picker modal — spinner display avoids the iOS 14+
+            default-compact mode, which rendered a second inline picker
+            that crashed when tapped. Android uses the imperative
+            system dialog via `openDatePicker`. */}
+        {Platform.OS === 'ios' && showDatePicker && (
+          <Modal transparent animationType="fade" visible onRequestClose={() => setShowDatePicker(false)}>
+            <Pressable style={styles.pickerBackdrop} onPress={() => setShowDatePicker(false)}>
+              <Pressable
+                style={[styles.pickerCard, { backgroundColor: c.card, borderColor: c.border }]}
+                onPress={(e) => e.stopPropagation()}
+              >
+                <DateTimePicker
+                  value={seasonStart}
+                  mode="date"
+                  display="spinner"
+                  minimumDate={today}
+                  maximumDate={nbaEnd}
+                  onChange={handleIOSChange}
+                  textColor={c.text}
+                  themeVariant={scheme}
+                  style={styles.pickerBody}
+                />
+                <BrandButton
+                  label="Done"
+                  variant="primary"
+                  size="default"
+                  onPress={() => setShowDatePicker(false)}
+                  fullWidth
+                />
+              </Pressable>
+            </Pressable>
+          </Modal>
         )}
 
-        <View style={styles.fieldGap}>
-          <NumberStepper
-            label="Regular Season"
-            value={state.regularSeasonWeeks}
-            onValueChange={(v) => onChange('regularSeasonWeeks', v)}
-            min={1}
-            max={maxRegularSeasonWeeks}
-            suffix=" wks"
-          />
-          <NumberStepper
-            label="Playoffs"
-            value={state.playoffWeeks}
-            onValueChange={(v) => onChange('playoffWeeks', v)}
-            min={1}
-            max={maxPlayoffWeeks}
-            suffix=" wks"
-          />
-        </View>
+        <NumberStepper
+          label="Regular Season"
+          value={state.regularSeasonWeeks}
+          onValueChange={(v) => onChange('regularSeasonWeeks', v)}
+          min={1}
+          max={maxRegularSeasonWeeks}
+          suffix=" wks"
+        />
+        <NumberStepper
+          label="Playoffs"
+          value={state.playoffWeeks}
+          onValueChange={(v) => onChange('playoffWeeks', v)}
+          min={1}
+          max={maxPlayoffWeeks}
+          suffix=" wks"
+          last
+        />
       </FormSection>
 
       {/* Playoffs */}
       <FormSection title="Playoffs">
-        {state.teams >= 2 && (
-          <>
-            <ThemedText style={styles.label}>Playoff Teams</ThemedText>
-            {(() => {
-              const options = getPlayoffTeamOptions(state.playoffWeeks, state.teams);
-              const labels = options.map(String);
-              const selectedIdx = options.indexOf(state.playoffTeams);
-              return (
+        {state.teams >= 2 &&
+          (() => {
+            const options = getPlayoffTeamOptions(state.playoffWeeks, state.teams);
+            const labels = options.map(String);
+            const selectedIdx = options.indexOf(state.playoffTeams);
+            const lotteryPool = calcLotteryPoolSize(state.teams, state.playoffTeams);
+            const helper =
+              lotteryPool > 0
+                ? `${lotteryPool} non-playoff team${lotteryPool !== 1 ? 's' : ''} in the lottery pool`
+                : undefined;
+            return (
+              <FieldGroup label="Playoff Teams" helperText={helper}>
                 <SegmentedControl
                   options={labels}
                   selectedIndex={selectedIdx === -1 ? labels.length - 1 : selectedIdx}
                   onSelect={(i) => onChange('playoffTeams', options[i])}
                 />
-              );
-            })()}
-            {(() => {
-              const lotteryPool = calcLotteryPoolSize(state.teams, state.playoffTeams);
-              if (lotteryPool > 0) {
-                return (
-                  <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
-                    {lotteryPool} non-playoff team{lotteryPool !== 1 ? 's' : ''} in the lottery pool
-                  </ThemedText>
-                );
-              }
-              return null;
-            })()}
-          </>
-        )}
+              </FieldGroup>
+            );
+          })()}
 
-        <View style={styles.fieldGap}>
-          <ThemedText style={styles.label}>Seeding Format</ThemedText>
+        <FieldGroup
+          label="Seeding Format"
+          helperText={
+            state.playoffSeedingFormat === 'Standard'
+              ? 'Highest remaining seed plays lowest remaining seed each round.'
+              : state.playoffSeedingFormat === 'Fixed Bracket'
+                ? 'Traditional bracket halves: 1v8/4v5 one side, 2v7/3v6 the other.'
+                : 'After each round, higher seeds pick their next opponent.'
+          }
+        >
           <SegmentedControl
             options={[...PLAYOFF_SEEDING_OPTIONS]}
             selectedIndex={PLAYOFF_SEEDING_OPTIONS.indexOf(state.playoffSeedingFormat)}
@@ -280,50 +334,44 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
               }
             }}
           />
-          <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
-            {state.playoffSeedingFormat === 'Standard'
-              ? 'Highest remaining seed plays lowest remaining seed each round.'
-              : state.playoffSeedingFormat === 'Fixed Bracket'
-                ? 'Traditional bracket halves: 1v8/4v5 one side, 2v7/3v6 the other.'
-                : 'After each round, higher seeds pick their next opponent.'}
-          </ThemedText>
-        </View>
+        </FieldGroup>
 
         <AnimatedSection visible={state.playoffSeedingFormat === 'Standard'}>
-          <View style={styles.fieldGap}>
-            <ThemedText style={styles.label}>Reseed Each Round</ThemedText>
+          <FieldGroup
+            label="Reseed Each Round"
+            helperText={
+              state.reseedEachRound
+                ? 'After each round, remaining teams re-ranked so top seed always faces bottom seed.'
+                : 'Bracket positions fixed from initial seeding.'
+            }
+          >
             <SegmentedControl
               options={['Yes', 'No']}
               selectedIndex={state.reseedEachRound ? 0 : 1}
               onSelect={(i) => onChange('reseedEachRound', i === 0)}
             />
-            <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
-              {state.reseedEachRound
-                ? 'After each round, remaining teams re-ranked so top seed always faces bottom seed.'
-                : 'Bracket positions fixed from initial seeding.'}
-            </ThemedText>
-          </View>
+          </FieldGroup>
         </AnimatedSection>
 
-        <View style={styles.fieldGap}>
-          <ThemedText style={styles.label}>Tiebreaker Priority</ThemedText>
+        <FieldGroup
+          label="Tiebreaker Priority"
+          helperText={
+            state.tiebreakerPrimary === 'Head-to-Head'
+              ? 'Tied teams compared by head-to-head record first, then total points scored.'
+              : 'Tied teams compared by total points scored first, then head-to-head record.'
+          }
+        >
           <SegmentedControl
             options={[...TIEBREAKER_OPTIONS]}
             selectedIndex={TIEBREAKER_OPTIONS.indexOf(state.tiebreakerPrimary)}
             onSelect={(i) => onChange('tiebreakerPrimary', TIEBREAKER_OPTIONS[i])}
           />
-          <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
-            {state.tiebreakerPrimary === 'Head-to-Head'
-              ? 'Tied teams compared by head-to-head record first, then total points scored.'
-              : 'Tied teams compared by total points scored first, then head-to-head record.'}
-          </ThemedText>
-        </View>
+        </FieldGroup>
       </FormSection>
 
-      {/* Season preview card */}
-      <View style={[styles.previewCard, { backgroundColor: c.card, borderColor: c.border }]}>
-        <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.previewTitle}>Season Preview</ThemedText>
-
+      {/* Season preview — treated as a Section so it visually aligns
+          with the brand's gold-rule rhythm used in FormSection above. */}
+      <Section title="Season Preview">
         {shortFirstWeek && (
           <ThemedText style={[styles.note, { color: c.secondaryText }]}>
             Week 1 is a short week ({daysUntilSun + 1} days) ending Sunday.
@@ -349,7 +397,7 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
           <ThemedText style={[styles.previewLabel, { color: c.secondaryText }]}>NBA season ends</ThemedText>
           <ThemedText style={[styles.previewValue, { color: c.secondaryText }]}>{formatDate(nbaEnd)}</ThemedText>
         </View>
-      </View>
+      </Section>
 
       {byeError && (
         <View style={[styles.warningBox, { backgroundColor: c.dangerMuted, borderColor: c.danger, marginTop: 8 }]}>
@@ -366,40 +414,46 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  heading: {
-    marginBottom: s(16),
-  },
-  fieldGap: {
-    marginTop: s(12),
-  },
-  label: {
-    marginBottom: s(8),
-    fontSize: ms(14),
-    fontWeight: '500',
-  },
-  hint: {
-    fontSize: ms(13),
-    marginTop: s(6),
-  },
   dateButton: {
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingVertical: s(12),
-    paddingHorizontal: s(14),
-    marginBottom: s(4),
+    borderWidth: 1.5,
+    borderRadius: 10,
+    paddingVertical: s(10),
+    paddingHorizontal: s(12),
   },
+  // Explicitly set lineHeight close to the font size so text sits
+  // centered in the button. ThemedText's `default` type's baked-in
+  // lineHeight of ms(24) was sinking this 15px label toward the
+  // bottom of the 44px-tall box (same issue as BrandTextInput).
   dateButtonText: {
-    fontSize: ms(16),
+    fontSize: ms(15),
+    lineHeight: ms(18),
     fontWeight: '500',
   },
-  previewCard: {
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: s(14),
-    marginBottom: s(12),
+  resetLink: {
+    marginTop: s(6),
+    alignSelf: 'flex-start',
   },
-  previewTitle: {
-    marginBottom: s(12),
+  resetLinkText: {
+    fontSize: ms(12),
+    fontWeight: '500',
+  },
+  pickerBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: s(20),
+  },
+  pickerCard: {
+    width: '100%',
+    maxWidth: 360,
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: s(16),
+  },
+  pickerBody: {
+    alignSelf: 'center',
+    marginBottom: s(8),
   },
   note: {
     fontSize: ms(13),
@@ -429,11 +483,6 @@ const styles = StyleSheet.create({
   },
   divisionInput: {
     flex: 1,
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingVertical: s(10),
-    paddingHorizontal: s(12),
-    fontSize: ms(15),
   },
   warningBox: {
     borderWidth: 1,

@@ -4,6 +4,7 @@ import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
 import { queryKeys } from "@/constants/queryKeys";
 import { useColorScheme } from "@/hooks/useColorScheme";
+import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useDraftPlayer } from "@/hooks/useDraftPlayer";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
 import { TimeRange, usePlayerFilter } from "@/hooks/usePlayerFilter";
@@ -50,6 +51,7 @@ export function AvailablePlayers({
   const c = Colors[scheme];
   const queryClient = useQueryClient();
   const isMyTurn = currentPick?.current_team_id === teamId;
+  const sport = useActiveLeagueSport(leagueId);
   const [selectedPlayer, setSelectedPlayer] =
     useState<PlayerSeasonStats | null>(null);
 
@@ -77,7 +79,7 @@ export function AvailablePlayers({
   const [timeRange, setTimeRange] = useState<TimeRange>("season");
 
   const { data: players, isLoading } = useQuery<PlayerSeasonStats[]>({
-    queryKey: queryKeys.availablePlayers(leagueId),
+    queryKey: [...queryKeys.availablePlayers(leagueId), sport],
     queryFn: async () => {
       const { data: draftedPlayers, error: draftedError } = await supabase
         .from("league_players")
@@ -90,13 +92,16 @@ export function AvailablePlayers({
       let query = supabase
         .from("player_season_stats")
         .select("*")
+        .eq("sport", sport)
         .order("avg_pts", { ascending: false });
 
-      // Rookie drafts: only show rookies. Initial drafts: require games played.
+      // Rookie drafts: only show rookies. Initial drafts: anyone on a real
+      // team's roster (works year-round; `games_played > 0` would hide
+      // everyone during the offseason — WNBA April–May, NBA June–September).
       if (isRookieDraft) {
         query = query.eq("rookie", true);
       } else {
-        query = query.gt("games_played", 0);
+        query = query.not("pro_team", "is", null);
       }
 
       if (draftedIds.length > 0) {
@@ -121,7 +126,7 @@ export function AvailablePlayers({
     [players],
   );
   const { data: recentGameLogs } = useQuery({
-    queryKey: queryKeys.draftRecentGameLogs(leagueId),
+    queryKey: [...queryKeys.draftRecentGameLogs(leagueId), sport],
     queryFn: async () => {
       const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - 30);
@@ -136,6 +141,7 @@ export function AvailablePlayers({
           .select(
             'player_id, game_date, min, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double',
           )
+          .eq("sport", sport)
           .in("player_id", chunk)
           .gte("game_date", cutoffStr)
           .order("game_date", { ascending: false })
@@ -153,14 +159,16 @@ export function AvailablePlayers({
     staleTime: 1000 * 60 * 15,
   });
 
-  // Fetch last season's historical stats
+  // Fetch last season's historical stats. NBA "2024-25" / WNBA "2024".
+  const previousSeason = sport === "wnba" ? "2024" : "2024-25";
   const { data: historicalStats } = useQuery({
-    queryKey: queryKeys.draftHistoricalStats(leagueId),
+    queryKey: [...queryKeys.draftHistoricalStats(leagueId), sport, previousSeason],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("player_historical_stats")
         .select("*")
-        .eq("season", "2024-25");
+        .eq("sport", sport)
+        .eq("season", previousSeason);
       if (error) throw error;
       return data;
     },
@@ -323,7 +331,7 @@ export function AvailablePlayers({
       id: player.player_id,
       name: player.name,
       position: player.position,
-      nba_team: player.nba_team,
+      pro_team: player.pro_team,
     });
   };
 
@@ -335,8 +343,8 @@ export function AvailablePlayers({
       const fpts = scoringWeights && !isCategories
         ? calculateAvgFantasyPoints(item, scoringWeights)
         : undefined;
-      const headshotUrl = getPlayerHeadshotUrl(item.external_id_nba);
-      const logoUrl = getTeamLogoUrl(item.nba_team);
+      const headshotUrl = getPlayerHeadshotUrl(item.external_id_nba, sport);
+      const logoUrl = getTeamLogoUrl(item.pro_team, sport);
       const badge = getInjuryBadge(item.status);
 
       return (
@@ -349,11 +357,11 @@ export function AvailablePlayers({
           }}
           activeOpacity={0.7}
           accessibilityRole="button"
-          accessibilityLabel={`${item.name}, ${formatPosition(item.position)}, ${item.nba_team}`}
+          accessibilityLabel={`${item.name}, ${formatPosition(item.position)}, ${item.pro_team}`}
           accessibilityHint="View player details"
         >
           <View style={styles.portraitWrap}>
-            <View style={[styles.headshotCircle, { borderColor: c.gold, backgroundColor: c.cardAlt }]}>
+            <View style={[styles.headshotCircle, { borderColor: c.heritageGold, backgroundColor: c.cardAlt }]}>
               {headshotUrl ? (
                 <Image
                   source={{ uri: headshotUrl }}
@@ -372,7 +380,7 @@ export function AvailablePlayers({
                   accessible={false}
                 />
               )}
-              <Text style={[styles.teamPillText, { color: c.statusText }]}>{item.nba_team}</Text>
+              <Text style={[styles.teamPillText, { color: c.statusText }]}>{item.pro_team}</Text>
             </View>
           </View>
 

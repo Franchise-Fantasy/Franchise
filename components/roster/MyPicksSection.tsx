@@ -1,5 +1,6 @@
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
+import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useTeamTradablePicks } from '@/hooks/useTrades';
 import { formatPickLabel } from '@/types/trade';
@@ -28,6 +29,10 @@ export function MyPicksSection({ teamId, leagueId, isDynasty }: MyPicksSectionPr
   const [expanded, setExpanded] = useState(false);
 
   const { data: picks } = useTeamTradablePicks(teamId, leagueId, true);
+
+  // The upcoming rookie draft season is the one immediately following the current season
+  const upcomingStartYear = parseInt(CURRENT_NBA_SEASON.split('-')[0], 10) + 1;
+  const upcomingSeason = `${upcomingStartYear}-${String((upcomingStartYear + 1) % 100).padStart(2, '0')}`;
 
   if (!isDynasty) return null;
   if (!picks || picks.length === 0) return null;
@@ -61,7 +66,9 @@ export function MyPicksSection({ teamId, leagueId, isDynasty }: MyPicksSectionPr
       {expanded && (
         <View style={[styles.card, { backgroundColor: c.card }]}>
           {picks.map((pick) => {
-            const label = formatPickLabel(pick.season, pick.round, (pick as any).display_slot);
+            // Only show pick number for the upcoming season — future seasons have unknown standings
+            const showSlot = pick.season === upcomingSeason;
+            const label = formatPickLabel(pick.season, pick.round, showSlot ? (pick as any).display_slot : null);
             const via =
               pick.original_team_name && pick.original_team_id !== teamId
                 ? `via ${pick.original_team_name}`

@@ -4,7 +4,7 @@ interface Player {
   id: string;
   name: string;
   position: string;
-  nba_team: string;
+  pro_team: string;
 }
 
 interface DraftState {

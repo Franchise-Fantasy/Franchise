@@ -62,10 +62,16 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Verify commissioner
+    // Verify commissioner (primary auth path), OR — for imported
+    // leagues — a league member when all teams are claimed. Imports
+    // don't have a draft to trigger schedule generation, so the
+    // natural "ready" signal is "last team claimed," which can happen
+    // when any member (not just the commissioner) claims. The
+    // all-claimed state is the real authorization here; `created_by`
+    // stays required for everything else.
     const { data: league, error: leagueErr } = await supabase
       .from("leagues")
-      .select("regular_season_weeks, playoff_weeks, season, season_start_date, schedule_generated, created_by, offseason_step")
+      .select("regular_season_weeks, playoff_weeks, season, season_start_date, schedule_generated, created_by, offseason_step, imported_from")
       .eq("id", league_id)
       .single();
 
@@ -75,7 +81,22 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    if (league.created_by !== user.id) {
+    const isCommissioner = league.created_by === user.id;
+    let authorized = isCommissioner;
+
+    if (!authorized && league.imported_from) {
+      // Check: caller is a team owner in this league AND every team
+      // in the league now has a user_id (fully claimed). The second
+      // check is what makes this safe — non-commissioners can only
+      // fire when the league state is genuinely "ready to start."
+      const [{ data: callerTeam }, { data: unclaimed }] = await Promise.all([
+        supabase.from("teams").select("id").eq("league_id", league_id).eq("user_id", user.id).maybeSingle(),
+        supabase.from("teams").select("id").eq("league_id", league_id).is("user_id", null).limit(1),
+      ]);
+      authorized = !!callerTeam && (!unclaimed || unclaimed.length === 0);
+    }
+
+    if (!authorized) {
       return new Response(JSON.stringify({ error: 'Only the commissioner can generate a schedule' }), {
         status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });

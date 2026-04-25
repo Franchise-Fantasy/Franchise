@@ -76,6 +76,26 @@ export default function ClaimTeamScreen() {
           .eq('id', team.id);
       }
 
+      // Imported leagues have no draft to trigger schedule
+      // generation, so the "last claim" is the natural signal.
+      // After the claim succeeds, check if any unclaimed teams
+      // remain; if none, auto-fire generate-schedule. Fail-silent
+      // so a transient error doesn't block the user's claim flow
+      // — the commissioner will see the generate prompt on the
+      // home screen and can retry from there.
+      const { data: stillUnclaimed } = await supabase
+        .from('teams')
+        .select('id')
+        .eq('league_id', leagueId!)
+        .is('user_id', null)
+        .limit(1);
+
+      if (!stillUnclaimed || stillUnclaimed.length === 0) {
+        supabase.functions
+          .invoke('generate-schedule', { body: { league_id: leagueId } })
+          .catch(() => {});
+      }
+
       showToast('success', `Claimed "${team.name}"`);
       switchLeague(leagueId!, team.id);
       router.replace('/(tabs)');

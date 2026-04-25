@@ -98,11 +98,13 @@ export function ByTeamTab({ picks, swaps, teams, validSeasons, pickConditionsEna
                   <ThemedText style={[styles.seasonLabel, { color: c.accent }]}>
                     {parseInt(season.split('-')[0], 10)}
                   </ThemedText>
-                  {seasonPicks.map((pick, idx) => (
+                  {seasonPicks.map((pick, idx) => {
+                    const isUpcoming = season === validSeasons[0];
+                    return (
                     <View key={pick.id} style={[styles.pickRow, { borderBottomColor: c.border }, idx === seasonPicks.length - 1 && { borderBottomWidth: 0 }]}>
                       <View style={styles.pickInfo}>
                         <ThemedText style={{ fontSize: ms(13) }}>
-                          Round {pick.round} · Pick {pick.display_slot}
+                          Round {pick.round}{isUpcoming ? ` · Pick ${pick.display_slot}` : ''}
                         </ThemedText>
                         {pick.protection_threshold && pickConditionsEnabled && (
                           <View style={[styles.protBadge, { backgroundColor: c.goldMuted }]}>
@@ -121,7 +123,7 @@ export function ByTeamTab({ picks, swaps, teams, validSeasons, pickConditionsEna
                         </View>
                       )}
                     </View>
-                  ))}
+                  );})}
                   {pickConditionsEnabled && seasonSwaps.map((sw, idx) => (
                     <View key={sw.id} style={[styles.pickRow, { borderBottomColor: c.border }, idx === seasonSwaps.length - 1 && { borderBottomWidth: 0 }]}>
                       <View style={styles.pickInfo}>

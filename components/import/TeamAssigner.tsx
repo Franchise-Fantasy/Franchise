@@ -99,16 +99,10 @@ export function TeamAssigner({ leagueId }: TeamAssignerProps) {
         .delete()
         .eq('id', memberTeam.id);
 
-      // 4. Decrement current_teams since we merged two teams into one
-      // Actually we're just reassigning, count should stay the same
-      // The member joined (current_teams++), and now we're deleting their empty team (current_teams--)
-      // Net effect: imported team gets their user_id
-      await supabase.rpc('increment_team_count', {
-        league_id_input: leagueId,
-        increment_by: -1,
-      });
+      // The member joined (current_teams++), and now we're deleting their empty team.
+      // Net effect: imported team gets their user_id and current_teams stays the same — no-op needed.
 
-      // 5. Clear sleeper_roster_id since assignment is done
+      // 4. Clear sleeper_roster_id since assignment is done
       await supabase
         .from('teams')
         .update({ sleeper_roster_id: null })

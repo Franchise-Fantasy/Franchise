@@ -205,7 +205,7 @@ export function ForceRosterMoveModal({ visible, leagueId, teams, onClose }: Prop
                             )}
                           </View>
                           <ThemedText style={[styles.sub, { color: c.secondaryText }]}>
-                            {item.position} · {item.nba_team}
+                            {item.position} · {item.pro_team}
                           </ThemedText>
                         </View>
                         <View style={[styles.slotBadge, { backgroundColor: c.cardAlt }]}>

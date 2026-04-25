@@ -210,7 +210,7 @@ export function useScreenshotImport() {
 
 export interface SearchOrCreateResult {
   created: boolean;
-  players: Array<{ id: string; name: string; nba_team: string | null; position: string | null }>;
+  players: Array<{ id: string; name: string; pro_team: string | null; position: string | null }>;
 }
 
 export function useSearchOrCreatePlayer() {

@@ -1,5 +1,6 @@
 import { ThemedText } from '@/components/ui/ThemedText';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { TeamLogo } from '@/components/team/TeamLogo';
 import { Colors, cardShadow } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -21,17 +22,23 @@ interface Props {
 
 interface OrderRow {
   position: number;
+  teamId: string | null;
   teamName: string;
+  tricode: string | null;
+  logoKey: string | null;
   wins: number;
   losses: number;
   oddsPct: string;
 }
 
 /**
- * Offseason replacement for StandingsSection: shows the rookie draft order
- * for the upcoming rookie draft. Before the lottery runs, rows display odds
- * based on the prior season's final standings. After the lottery runs, rows
- * display the locked-in slot order.
+ * Offseason replacement for StandingsSection — shows either lottery odds
+ * (pre-lottery) or the locked-in rookie draft order (post-lottery).
+ *
+ * Styling mirrors StandingsSection exactly: same sectionLabel header,
+ * same card padding, left-aligned rank + team logo + flex name col,
+ * stat columns on the right in mono, footer "See All →" routing to
+ * the draft hub. Keeps the home-screen list-card rhythm consistent.
  */
 export function OffseasonLotteryOrder({
   leagueId,
@@ -56,7 +63,7 @@ export function OffseasonLotteryOrder({
     queryFn: async () => {
       const { data: allArchived } = await supabase
         .from('team_seasons')
-        .select('team_id, wins, losses, points_for, final_standing, season, team:teams!team_seasons_team_id_fkey(id, name)')
+        .select('team_id, wins, losses, points_for, final_standing, season, team:teams!team_seasons_team_id_fkey(id, name, tricode, logo_key)')
         .eq('league_id', leagueId)
         .order('season', { ascending: false });
 
@@ -81,7 +88,7 @@ export function OffseasonLotteryOrder({
       if (lotteryComplete) {
         const { data: picks } = await supabase
           .from('draft_picks')
-          .select('slot_number, current_team_id, team:teams!draft_picks_current_team_id_fkey(name)')
+          .select('slot_number, current_team_id, team:teams!draft_picks_current_team_id_fkey(id, name, tricode, logo_key)')
           .eq('league_id', leagueId)
           .eq('round', 1)
           .is('player_id', null)
@@ -92,7 +99,10 @@ export function OffseasonLotteryOrder({
         if (ordered.length > 0) {
           return ordered.map((p: any, i: number) => ({
             position: p.slot_number ?? i + 1,
+            teamId: p.team?.id ?? null,
             teamName: p.team?.name ?? 'Unknown',
+            tricode: p.team?.tricode ?? null,
+            logoKey: p.team?.logo_key ?? null,
             wins: 0,
             losses: 0,
             oddsPct: '—',
@@ -102,7 +112,10 @@ export function OffseasonLotteryOrder({
 
       return rows.map((r: any, i: number) => ({
         position: i + 1,
+        teamId: r.team?.id ?? null,
         teamName: r.team?.name ?? 'Unknown',
+        tricode: r.team?.tricode ?? null,
+        logoKey: r.team?.logo_key ?? null,
         wins: r.wins ?? 0,
         losses: r.losses ?? 0,
         oddsPct: isLotteryLeague && i < poolSize && odds[i] != null ? `${odds[i]}%` : '—',
@@ -111,86 +124,214 @@ export function OffseasonLotteryOrder({
     staleTime: 1000 * 60 * 2,
   });
 
-  const title = lotteryComplete ? 'Rookie Draft Order' : isLotteryLeague ? 'Lottery Odds' : 'Rookie Draft Order';
+  const outerLabel = lotteryComplete
+    ? 'Rookie Draft Order'
+    : isLotteryLeague
+      ? 'Lottery Odds'
+      : 'Rookie Draft Order';
+  const showRecord = !lotteryComplete;
+  const showOdds = isLotteryLeague && !lotteryComplete;
 
   return (
-    <TouchableOpacity
-      style={[styles.card, { backgroundColor: c.card, borderColor: c.border }, cardShadow]}
-      onPress={() => router.push('/draft-hub')}
-      accessibilityRole="button"
-      accessibilityLabel={`${title}, tap for full draft hub`}
-    >
-      <View style={styles.header}>
-        <Ionicons name="trophy-outline" size={18} color={c.accent} />
-        <ThemedText type="defaultSemiBold" style={styles.title} accessibilityRole="header">
-          {title}
+    <View style={styles.wrap}>
+      <View style={styles.labelRow}>
+        <View style={[styles.labelRule, { backgroundColor: c.gold }]} />
+        <ThemedText type="sectionLabel" style={{ color: c.text }}>
+          {outerLabel}
         </ThemedText>
-        <Ionicons name="chevron-forward" size={18} color={c.secondaryText} />
       </View>
-      {isLoading ? (
-        <View style={{ paddingVertical: s(20) }}><LogoSpinner /></View>
-      ) : !data || data.length === 0 ? (
-        <ThemedText style={[styles.empty, { color: c.secondaryText }]}>
-          Order will be available once the season ends.
-        </ThemedText>
-      ) : (
-        <>
-          <View style={[styles.row, { borderBottomColor: c.border }]}>
-            <ThemedText style={[styles.pos, styles.headerText, { color: c.secondaryText }]}>#</ThemedText>
-            <ThemedText style={[styles.teamCol, styles.headerText, { color: c.secondaryText }]}>Team</ThemedText>
-            {!lotteryComplete && (
-              <ThemedText style={[styles.record, styles.headerText, { color: c.secondaryText }]}>Rec</ThemedText>
-            )}
-            {isLotteryLeague && !lotteryComplete && (
-              <ThemedText style={[styles.odds, styles.headerText, { color: c.secondaryText }]}>Odds</ThemedText>
-            )}
-          </View>
-          {data.slice(0, 14).map((row) => (
-            <View key={`${row.position}-${row.teamName}`} style={[styles.row, { borderBottomColor: c.border }]}>
-              <ThemedText style={[styles.pos, { color: c.secondaryText }]}>{row.position}</ThemedText>
-              <ThemedText style={styles.teamCol} numberOfLines={1}>{row.teamName}</ThemedText>
-              {!lotteryComplete && (
-                <ThemedText style={[styles.record, { color: c.secondaryText }]}>
-                  {row.wins}-{row.losses}
-                </ThemedText>
-              )}
-              {isLotteryLeague && !lotteryComplete && (
-                <ThemedText style={[styles.odds, { color: c.accent, fontWeight: '600' }]}>
-                  {row.oddsPct}
-                </ThemedText>
-              )}
+
+      <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border, ...cardShadow }]}>
+        <View style={styles.list}>
+          {isLoading ? (
+            <View style={styles.loading}>
+              <LogoSpinner />
             </View>
-          ))}
-        </>
-      )}
-    </TouchableOpacity>
+          ) : !data || data.length === 0 ? (
+            <ThemedText style={[styles.empty, { color: c.secondaryText }]}>
+              Order will be available once the season ends.
+            </ThemedText>
+          ) : (
+            <>
+              <View style={[styles.headerRow, { borderBottomColor: c.border }]}>
+                <ThemedText type="varsitySmall" style={[styles.rank, { color: c.secondaryText }]}>#</ThemedText>
+                <View style={{ width: s(26) }} />
+                <ThemedText type="varsitySmall" style={[styles.teamCol, { color: c.secondaryText }]}>
+                  Team
+                </ThemedText>
+                {showRecord && (
+                  <ThemedText type="varsitySmall" style={[styles.record, { color: c.secondaryText }]}>
+                    W-L
+                  </ThemedText>
+                )}
+                {showOdds && (
+                  <ThemedText type="varsitySmall" style={[styles.odds, { color: c.secondaryText }]}>
+                    Odds
+                  </ThemedText>
+                )}
+              </View>
+              {data.slice(0, 14).map((row, i, arr) => {
+                const isLast = i === arr.length - 1;
+                return (
+                  <TouchableOpacity
+                    key={`${row.position}-${row.teamId ?? row.teamName}`}
+                    style={[
+                      styles.row,
+                      { borderBottomColor: c.border },
+                      isLast && { borderBottomWidth: 0 },
+                    ]}
+                    onPress={() =>
+                      row.teamId ? router.push(`/team-roster/${row.teamId}` as never) : undefined
+                    }
+                    disabled={!row.teamId}
+                    activeOpacity={0.6}
+                    accessibilityRole={row.teamId ? 'button' : undefined}
+                    accessibilityLabel={`${row.teamName}, pick ${row.position}`}
+                  >
+                    <ThemedText type="mono" style={[styles.rank, { color: c.secondaryText }]}>
+                      {row.position}
+                    </ThemedText>
+                    <TeamLogo
+                      logoKey={row.logoKey}
+                      teamName={row.teamName}
+                      tricode={row.tricode ?? undefined}
+                      size="small"
+                    />
+                    <ThemedText
+                      style={[styles.teamName, { color: c.text }]}
+                      numberOfLines={1}
+                      ellipsizeMode="tail"
+                    >
+                      {row.teamName}
+                    </ThemedText>
+                    {showRecord && (
+                      <ThemedText type="mono" style={[styles.record, { color: c.secondaryText }]}>
+                        {row.wins}-{row.losses}
+                      </ThemedText>
+                    )}
+                    {showOdds && (
+                      <ThemedText type="mono" style={[styles.odds, { color: c.gold }]}>
+                        {row.oddsPct}
+                      </ThemedText>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </>
+          )}
+        </View>
+
+        {!!data?.length && (
+          <View style={[styles.footer, { borderTopColor: c.border }]}>
+            <View />
+            <TouchableOpacity
+              style={styles.seeAll}
+              onPress={() => router.push('/draft-hub' as never)}
+              accessibilityRole="button"
+              accessibilityLabel="View full draft hub"
+              hitSlop={8}
+            >
+              <ThemedText type="varsitySmall" style={[styles.seeAllText, { color: c.secondaryText }]}>
+                Draft Hub
+              </ThemedText>
+              <Ionicons name="chevron-forward" size={12} color={c.secondaryText} accessible={false} />
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: s(14),
-    marginBottom: s(16),
+  wrap: {
+    marginBottom: s(4),
   },
-  header: {
+  labelRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: s(8),
-    marginBottom: s(8),
+    marginBottom: s(10),
+    gap: s(10),
   },
-  title: { flex: 1, fontSize: ms(15) },
+  labelRule: {
+    height: 2,
+    width: s(18),
+  },
+  card: {
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: s(14),
+    paddingTop: s(10),
+    paddingBottom: s(0),
+    marginBottom: s(16),
+    overflow: 'hidden',
+  },
+  list: {},
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: s(6),
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: s(7),
+    paddingVertical: s(9),
+    paddingHorizontal: s(4),
     borderBottomWidth: StyleSheet.hairlineWidth,
+    marginHorizontal: -s(4),
   },
-  headerText: { fontSize: ms(10), fontWeight: '600' },
-  pos: { width: s(24), fontSize: ms(12) },
-  teamCol: { flex: 1, fontSize: ms(13) },
-  record: { width: s(48), textAlign: 'center', fontSize: ms(12) },
-  odds: { width: s(48), textAlign: 'right', fontSize: ms(12) },
-  empty: { fontSize: ms(13), textAlign: 'center', paddingVertical: s(16) },
+  rank: {
+    width: s(18),
+    fontSize: ms(12),
+    textAlign: 'left',
+  },
+  teamCol: {
+    flex: 1,
+    fontSize: ms(13),
+    marginLeft: s(8),
+  },
+  teamName: {
+    flex: 1,
+    flexShrink: 1,
+    fontSize: ms(13),
+    fontWeight: '500',
+    marginLeft: s(8),
+  },
+  record: {
+    width: s(44),
+    textAlign: 'center',
+    fontSize: ms(12),
+  },
+  odds: {
+    width: s(52),
+    textAlign: 'right',
+    fontSize: ms(12),
+  },
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: s(4),
+    paddingVertical: s(10),
+    borderTopWidth: StyleSheet.hairlineWidth,
+    marginTop: s(4),
+    marginHorizontal: -s(4),
+  },
+  seeAll: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(3),
+  },
+  seeAllText: {
+    fontSize: ms(10),
+  },
+  empty: {
+    fontSize: ms(13),
+    textAlign: 'center',
+    paddingVertical: s(20),
+  },
+  loading: {
+    paddingVertical: s(20),
+  },
 });

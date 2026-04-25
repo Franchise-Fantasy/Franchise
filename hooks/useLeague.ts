@@ -22,7 +22,10 @@ export function useLeague() {
             is_commissioner,
             logo_key,
             division,
-            user_id
+            user_id,
+            wins,
+            losses,
+            ties
           )
         `)
         .eq('id', leagueId)

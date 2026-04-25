@@ -32,11 +32,16 @@ const ACTIVE_EVENTS = new Set([
   "UNCANCELLATION",
 ]);
 
-const CANCEL_EVENTS = new Set([
-  "CANCELLATION",
-  "EXPIRATION",
-  "BILLING_ISSUE",
-]);
+// Status the row should land in for each non-active event. EXPIRATION means
+// the term ran out (can re-buy as a fresh purchase); CANCELLATION/BILLING_ISSUE
+// keep the row "cancelled" until the term expires. Lumping them all into
+// "cancelled" made support triage harder — a row that says cancelled while
+// the term is over reads as "they intentionally bailed" instead of "ran out".
+const NON_ACTIVE_STATUS: Record<string, "cancelled" | "expired"> = {
+  CANCELLATION: "cancelled",
+  BILLING_ISSUE: "cancelled",
+  EXPIRATION: "expired",
+};
 
 Deno.serve(async (req) => {
   if (req.method !== "POST") {
@@ -163,12 +168,13 @@ Deno.serve(async (req) => {
           { onConflict: "league_id" },
         );
       }
-    } else if (CANCEL_EVENTS.has(eventType)) {
+    } else if (NON_ACTIVE_STATUS[eventType]) {
+      const newStatus = NON_ACTIVE_STATUS[eventType];
       if (scope === "individual") {
         await supabaseAdmin
           .from("user_subscriptions")
           .update({
-            status: "cancelled",
+            status: newStatus,
             auto_renew: false,
           })
           .eq("user_id", userId);
@@ -179,7 +185,7 @@ Deno.serve(async (req) => {
           await supabaseAdmin
             .from("league_subscriptions")
             .update({
-              status: "cancelled",
+              status: newStatus,
               auto_renew: false,
             })
             .eq("league_id", leagueId);

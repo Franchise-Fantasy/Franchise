@@ -141,13 +141,13 @@ export function useSendMessage(
       if (error) throw error;
 
       // Fire-and-forget push notification to other members
-      Promise.resolve(
-        supabase
-          .from('chat_members')
-          .select('team_id')
-          .eq('conversation_id', conversationId)
-          .neq('team_id', teamId),
-      ).then(({ data: members }) => {
+      supabase
+        .from('chat_members')
+        .select('team_id')
+        .eq('conversation_id', conversationId)
+        .neq('team_id', teamId)
+        .then(({ data: members, error: fanoutError }) => {
+          if (fanoutError) throw fanoutError;
           if (!members || members.length === 0) return;
           const otherTeamIds = members.map((m) => m.team_id);
           const preview =
@@ -166,8 +166,7 @@ export function useSendMessage(
             body: preview,
             data: { screen: `chat/${conversationId}` },
           });
-        })
-        .catch((err: unknown) => {
+        }, (err: unknown) => {
           const message = err instanceof Error ? err.message : String(err);
           console.warn('Chat push notification failed:', message);
           posthog.capture('$exception', {

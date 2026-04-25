@@ -1,11 +1,12 @@
+import { BrandButton } from '@/components/ui/BrandButton';
 import { FormSection } from '@/components/ui/FormSection';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
-import { Colors } from '@/constants/Colors';
+import { Brand, Colors, Fonts } from '@/constants/Colors';
 import { LeagueWizardState, SCORING_TYPE_OPTIONS, ScoringTypeOption } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { StyleSheet, Switch, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { ms, s } from '@/utils/scale';
 
 interface StepScoringProps {
@@ -32,10 +33,6 @@ export function StepScoring({
 
   return (
     <View style={styles.container}>
-      <ThemedText accessibilityRole="header" type="subtitle" style={styles.heading}>
-        Scoring Settings
-      </ThemedText>
-
       <FormSection title="Scoring Type">
         <SegmentedControl
           options={SCORING_TYPE_OPTIONS}
@@ -43,7 +40,7 @@ export function StepScoring({
           onSelect={(i) => onScoringTypeChange(SCORING_TYPE_OPTIONS[i])}
         />
 
-        <ThemedText style={[styles.description, { color: c.secondaryText, marginTop: s(12) }]}>
+        <ThemedText style={[styles.description, { color: c.secondaryText }]}>
           {isCategories
             ? 'Each stat is a category. Win the majority of categories to win the week.'
             : 'Adjust point values for each stat category.'}
@@ -53,41 +50,61 @@ export function StepScoring({
       {isCategories ? (
         <FormSection title="Categories">
           <ThemedText style={[styles.categoryCount, { color: c.secondaryText }]}>
-            {enabledCount} {enabledCount === 1 ? 'category' : 'categories'} active
+            {enabledCount} {enabledCount === 1 ? 'category' : 'categories'} active · tap to toggle · {' '}
+            <ThemedText type="mono" style={styles.inverseMark}>▾</ThemedText>
+            {' '}= lower wins
           </ThemedText>
 
-          {state.categories.map((cat, index) => (
-            <View
-              key={cat.stat_name}
-              style={[styles.categoryRow, { borderBottomColor: c.border }, index === state.categories.length - 1 && { borderBottomWidth: 0 }]}
-            >
-              <View style={styles.categoryLeft}>
-                <ThemedText style={styles.categoryLabel}>
-                  {cat.stat_name}
-                </ThemedText>
-                <ThemedText style={[styles.categorySublabel, { color: c.secondaryText }]}>
-                  {cat.label}
-                  {cat.inverse ? ' (lower wins)' : ''}
-                </ThemedText>
-              </View>
-              <Switch
-                value={cat.is_enabled}
-                onValueChange={(v) => onCategoryToggle(index, v)}
-                trackColor={{ false: c.border, true: c.accent }}
-                accessibilityLabel={`${cat.label}, ${cat.is_enabled ? 'enabled' : 'disabled'}`}
-                accessibilityState={{ checked: cat.is_enabled }}
-              />
-            </View>
-          ))}
+          {/* Chip grid — each category is a tappable pill. Active chips
+              fill with turfGreen + ecru text (scoreboard-on feel);
+              inactive chips are outlined. Dense layout fixes the
+              previous "big empty list of switches" look. */}
+          <View style={styles.categoryGrid}>
+            {state.categories.map((cat, index) => {
+              const active = cat.is_enabled;
+              return (
+                <TouchableOpacity
+                  key={cat.stat_name}
+                  onPress={() => onCategoryToggle(index, !active)}
+                  activeOpacity={0.75}
+                  style={[
+                    styles.categoryChip,
+                    {
+                      backgroundColor: active ? Brand.turfGreen : 'transparent',
+                      borderColor: active ? Brand.turfGreen : c.border,
+                    },
+                  ]}
+                  accessibilityRole="switch"
+                  accessibilityLabel={`${cat.label}${cat.inverse ? ', lower wins' : ''}`}
+                  accessibilityState={{ checked: active }}
+                >
+                  <ThemedText
+                    style={[
+                      styles.categoryChipText,
+                      { color: active ? Brand.ecru : c.text },
+                    ]}
+                  >
+                    {cat.stat_name}
+                    {cat.inverse ? (
+                      <ThemedText style={{ color: active ? Brand.ecru : c.secondaryText }}>
+                        {' '}▾
+                      </ThemedText>
+                    ) : null}
+                  </ThemedText>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
 
-          <TouchableOpacity
-            accessibilityRole="button"
-            accessibilityLabel="Reset to standard 9-cat"
-            onPress={onResetCategories}
-            style={styles.resetBtn}
-          >
-            <ThemedText style={{ color: c.accent }}>Reset to Standard 9-Cat</ThemedText>
-          </TouchableOpacity>
+          <View style={styles.resetWrap}>
+            <BrandButton
+              label="Reset to Standard 9-Cat"
+              variant="ghost"
+              size="small"
+              onPress={onResetCategories}
+              accessibilityLabel="Reset to standard 9-cat"
+            />
+          </View>
         </FormSection>
       ) : (
         <FormSection title="Point Values">
@@ -100,17 +117,19 @@ export function StepScoring({
               min={-10}
               max={10}
               step={0.5}
+              last={index === state.scoring.length - 1}
             />
           ))}
 
-          <TouchableOpacity
-            accessibilityRole="button"
-            accessibilityLabel="Reset scoring to defaults"
-            onPress={onResetScoring}
-            style={styles.resetBtn}
-          >
-            <ThemedText style={{ color: c.accent }}>Reset to Defaults</ThemedText>
-          </TouchableOpacity>
+          <View style={styles.resetWrap}>
+            <BrandButton
+              label="Reset to Defaults"
+              variant="ghost"
+              size="small"
+              onPress={onResetScoring}
+              accessibilityLabel="Reset scoring to defaults"
+            />
+          </View>
         </FormSection>
       )}
     </View>
@@ -121,40 +140,39 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  heading: {
-    marginBottom: s(8),
-  },
   description: {
-    fontSize: ms(14),
-    marginBottom: s(12),
+    fontSize: ms(13),
+    lineHeight: ms(18),
   },
   categoryCount: {
-    fontSize: ms(13),
-    fontWeight: '600',
-    marginBottom: s(8),
-  },
-  categoryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: s(10),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  categoryLeft: {
-    flex: 1,
-    marginRight: s(12),
-  },
-  categoryLabel: {
-    fontSize: ms(16),
-    fontWeight: '600',
-  },
-  categorySublabel: {
     fontSize: ms(12),
-    marginTop: 1,
+    lineHeight: ms(17),
   },
-  resetBtn: {
+  inverseMark: {
+    fontFamily: Fonts.mono,
+    fontSize: ms(11),
+  },
+  // Chip grid wraps; each chip sized to its stat-name content.
+  categoryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: s(8),
+  },
+  categoryChip: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: s(7),
+    paddingHorizontal: s(12),
+  },
+  categoryChipText: {
+    fontFamily: Fonts.mono,
+    fontSize: ms(12),
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  // No vertical padding/margin — FormSection's gap handles the
+  // spacing above, and the ghost button brings its own touch target.
+  resetWrap: {
     alignItems: 'center',
-    paddingVertical: s(12),
-    marginTop: s(4),
   },
 });

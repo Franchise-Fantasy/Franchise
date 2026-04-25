@@ -182,21 +182,66 @@ export const TAXI_EXPERIENCE_OPTIONS = [
   { label: 'No Max', value: null },
 ] as const;
 
-export const STEP_LABELS = ['Basics', 'Roster', 'Scoring', 'Trade', 'Waivers', 'Season', 'Draft', 'Review'];
+export const STEP_LABELS = ['Basics', 'Roster', 'Scoring', 'Waivers', 'Season', 'Trade', 'Draft', 'Review'];
 
-// Hardcoded NBA regular season end dates per season string.
-// Update each year or replace with a live query once nba_schedule is populated.
+// ── Sport ────────────────────────────────────────────────────────────────────
+// All sport-aware code (hooks, queries, season strings) keys off this type.
+// `'nba'` and `'wnba'` are the DB-side values; `'NBA'` / `'WNBA'` are the
+// labels shown in the wizard and other UI.
+
+// Sports the app is structurally aware of. Only `nba` and `wnba` are wired
+// end-to-end today; `nfl`, `nhl`, `mlb` are future expansions — the type
+// includes them so call sites that switch on sport stay exhaustive-checked
+// while we scaffold theming, position systems, etc. Adding a new sport in
+// production also requires:
+//   1. ALTER TABLE leagues to widen the CHECK constraint
+//   2. Add to SPORT_THEMES in constants/Colors.ts
+//   3. Build the sport-specific data ingestion, position spectrum, etc.
+export const SPORT_OPTIONS = ['NBA', 'WNBA'] as const;
+export type SportOption = (typeof SPORT_OPTIONS)[number];
+export type Sport = 'nba' | 'wnba' | 'nfl' | 'nhl' | 'mlb';
+
+export const SPORT_TO_DB: Record<SportOption, Sport> = {
+  NBA: 'nba',
+  WNBA: 'wnba',
+};
+export const SPORT_DISPLAY: Record<Sport, string> = {
+  nba: 'NBA',
+  wnba: 'WNBA',
+  nfl: 'NFL',
+  nhl: 'NHL',
+  mlb: 'MLB',
+};
+
+// Hardcoded regular season end dates per season string. Update each year or
+// replace with a live query once game_schedule is populated.
+// NBA uses dash format ("2025-26"), WNBA uses single-year format ("2026").
 export const NBA_SEASON_END: Record<string, string> = {
   '2024-25': '2025-04-13',
   '2025-26': '2026-04-12',
 };
 
+export const WNBA_SEASON_END: Record<string, string> = {
+  '2025': '2025-09-19',
+  '2026': '2026-09-13',
+};
+
 export const CURRENT_NBA_SEASON = '2025-26';
+export const CURRENT_WNBA_SEASON = '2026';
+
+export function getCurrentSeason(sport: Sport): string {
+  return sport === 'wnba' ? CURRENT_WNBA_SEASON : CURRENT_NBA_SEASON;
+}
+
+export function getSeasonEnd(sport: Sport, season: string): string | undefined {
+  return sport === 'wnba' ? WNBA_SEASON_END[season] : NBA_SEASON_END[season];
+}
 
 export type DraftType = (typeof DRAFT_TYPE_OPTIONS)[number];
 export type TimePerPick = (typeof TIME_PER_PICK_OPTIONS)[number];
 
 export interface LeagueWizardState {
+  sport: Sport;
   leagueType: LeagueTypeOption;
   keeperCount: number;
   name: string;

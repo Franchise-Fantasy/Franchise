@@ -21,7 +21,7 @@ export interface TeamSeasonRow {
   points_against: number;
   final_standing: number;
   playoff_result: string;
-  team: { id: string; name: string };
+  team: { id: string; name: string; tricode: string | null; logo_key: string | null };
 }
 
 export interface RecordEntry {
@@ -85,6 +85,29 @@ export interface DraftHistoryPick {
   isTraded: boolean;
 }
 
+export interface BracketSlotHistory {
+  id: string;
+  season: string;
+  round: number;
+  bracket_position: number;
+  matchup_id: string | null;
+  team_a_id: string | null;
+  team_a_seed: number | null;
+  team_a_score: number | null;
+  team_b_id: string | null;
+  team_b_seed: number | null;
+  team_b_score: number | null;
+  winner_id: string | null;
+  is_bye: boolean;
+  is_third_place: boolean;
+}
+
+export interface BracketHistoryData {
+  bracketsBySeason: Map<string, BracketSlotHistory[]>;
+  seasons: string[]; // newest first
+  teamMap: Map<string, { id: string; name: string; tricode: string | null; logo_key: string | null }>;
+}
+
 // ─── Hooks ───────────────────────────────────────────────────────────────────
 
 export function useChampions(leagueId: string | null) {
@@ -122,7 +145,7 @@ export function useSeasonStandings(leagueId: string | null) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('team_seasons')
-        .select('id, team_id, season, wins, losses, ties, points_for, points_against, final_standing, playoff_result, team:teams!team_seasons_team_id_fkey(id, name)')
+        .select('id, team_id, season, wins, losses, ties, points_for, points_against, final_standing, playoff_result, team:teams!team_seasons_team_id_fkey(id, name, tricode, logo_key)')
         .eq('league_id', leagueId!)
         .order('season', { ascending: false })
         .order('final_standing', { ascending: true })
@@ -187,17 +210,6 @@ export function useAllTimeRecords(leagueId: string | null) {
       const teamSeasons = (teamSeasonsRes.data ?? []) as any[];
       const teamNameMap = new Map((teamsRes.data ?? []).map((t) => [t.id, t.name]));
       const records: RecordEntry[] = [];
-
-      // Most wins in a season
-      if (teamSeasons.length > 0) {
-        const best = teamSeasons.reduce((a, b) => (b.wins > a.wins ? b : a));
-        records.push({
-          label: 'Most Wins (Season)',
-          value: `${best.wins}-${best.losses}`,
-          teamName: best.team?.name ?? 'Unknown',
-          detail: best.season,
-        });
-      }
 
       // Most points in a season
       if (teamSeasons.length > 0) {
@@ -385,6 +397,80 @@ export function useDraftHistory(leagueId: string | null) {
       }));
 
       return { drafts: drafts as DraftSummary[], picks: mappedPicks };
+    },
+    enabled: !!leagueId,
+    staleTime: 1000 * 60 * 10,
+  });
+}
+
+/**
+ * Historical playoff brackets — every completed bracket for the league,
+ * grouped by season, with team data and per-slot scores. Powers the
+ * Brackets segment of the League History page.
+ */
+export function useBracketHistory(leagueId: string | null) {
+  return useQuery<BracketHistoryData>({
+    queryKey: queryKeys.bracketHistory(leagueId!),
+    queryFn: async () => {
+      // Parallel: all bracket slots (with matchup scores joined) + all teams.
+      const [bracketRes, teamsRes] = await Promise.all([
+        supabase
+          .from('playoff_bracket')
+          .select(
+            'id, season, round, bracket_position, matchup_id, team_a_id, team_a_seed, team_b_id, team_b_seed, winner_id, is_bye, is_third_place, matchup:league_matchups!playoff_bracket_matchup_id_fkey(home_team_id, home_score, away_score)',
+          )
+          .eq('league_id', leagueId!)
+          .order('season', { ascending: false })
+          .order('round', { ascending: true })
+          .order('bracket_position', { ascending: true }),
+        supabase
+          .from('teams')
+          .select('id, name, tricode, logo_key')
+          .eq('league_id', leagueId!),
+      ]);
+      if (bracketRes.error) throw bracketRes.error;
+      if (teamsRes.error) throw teamsRes.error;
+
+      const teamMap = new Map(
+        (teamsRes.data ?? []).map((t) => [
+          t.id,
+          { id: t.id, name: t.name, tricode: t.tricode ?? null, logo_key: t.logo_key ?? null },
+        ]),
+      );
+
+      const bracketsBySeason = new Map<string, BracketSlotHistory[]>();
+      for (const row of (bracketRes.data ?? []) as any[]) {
+        const m = row.matchup;
+        let team_a_score: number | null = null;
+        let team_b_score: number | null = null;
+        if (m) {
+          const homeIsA = m.home_team_id === row.team_a_id;
+          team_a_score = homeIsA ? m.home_score : m.away_score;
+          team_b_score = homeIsA ? m.away_score : m.home_score;
+        }
+        const slot: BracketSlotHistory = {
+          id: row.id,
+          season: row.season,
+          round: row.round,
+          bracket_position: row.bracket_position,
+          matchup_id: row.matchup_id,
+          team_a_id: row.team_a_id,
+          team_a_seed: row.team_a_seed,
+          team_a_score,
+          team_b_id: row.team_b_id,
+          team_b_seed: row.team_b_seed,
+          team_b_score,
+          winner_id: row.winner_id,
+          is_bye: row.is_bye,
+          is_third_place: row.is_third_place,
+        };
+        if (!bracketsBySeason.has(row.season)) bracketsBySeason.set(row.season, []);
+        bracketsBySeason.get(row.season)!.push(slot);
+      }
+
+      const seasons = [...bracketsBySeason.keys()]; // already ordered DESC from query
+
+      return { bracketsBySeason, seasons, teamMap };
     },
     enabled: !!leagueId,
     staleTime: 1000 * 60 * 10,

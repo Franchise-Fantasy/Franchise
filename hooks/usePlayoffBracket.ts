@@ -103,7 +103,11 @@ export function usePlayoffBracket(season: string) {
       for (const ch of channels) supabase.removeChannel(ch);
       channelsRef.current = [];
     };
-  }, [leagueId, season, scheduleIds.join(','), queryClient]);
+    // scheduleIds is a fresh array reference each render; joining to a string gives us a
+    // stable value dep so the effect only re-runs when the set of ids actually changes.
+    // queryClient is a stable singleton.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leagueId, season, scheduleIds.join(',')]);
 
   // Merge live scores onto bracket slots
   const liveScores = liveScoresQuery.data ?? {};
@@ -189,7 +193,9 @@ export function useSeedPicks(season: string, round: number | null, poll = false)
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [poll, leagueId, season, round, queryClient]);
+    // queryClient is a stable singleton — omitting prevents unnecessary channel teardown.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [poll, leagueId, season, round]);
 
   return query;
 }

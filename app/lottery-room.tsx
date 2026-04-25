@@ -1,5 +1,6 @@
+import { IconSymbol } from '@/components/ui/IconSymbol';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Colors, Fonts } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
 import { useSession } from '@/context/AuthProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -237,11 +238,16 @@ export default function LotteryRoomScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
       <View style={[styles.header, { borderBottomColor: c.border }]}>
         <TouchableOpacity style={styles.headerButton} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back">
-          <ThemedText style={[styles.backButton, { color: c.activeText }]}>
-            {'\u2190'}
-          </ThemedText>
+          <IconSymbol name="chevron.backward" size={20} color={c.icon} accessible={false} />
         </TouchableOpacity>
-        <ThemedText type="title" style={styles.headerText} accessibilityRole="header">Draft Lottery</ThemedText>
+        <ThemedText
+          type="varsity"
+          style={[styles.headerText, { color: c.secondaryText }]}
+          accessibilityRole="header"
+          numberOfLines={1}
+        >
+          Draft Lottery
+        </ThemedText>
         <View style={styles.headerButton} />
       </View>
 
@@ -358,12 +364,12 @@ const styles = StyleSheet.create({
   headerText: {
     flex: 1,
     textAlign: 'center',
-    fontSize: ms(20),
-    fontWeight: '300',
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(12),
+    letterSpacing: 1.2,
     marginHorizontal: s(40),
   },
   headerButton: { padding: s(8), width: s(36), alignItems: 'center' },
-  backButton: { fontSize: ms(24) },
   body: { flex: 1 },
   preStartContainer: {
     flex: 1,

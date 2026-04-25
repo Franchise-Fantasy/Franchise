@@ -1,11 +1,13 @@
 import { AnimatedSection } from '@/components/ui/AnimatedSection';
+import { BrandButton } from '@/components/ui/BrandButton';
 import { FormSection } from '@/components/ui/FormSection';
+import { ToggleRow } from '@/components/ToggleRow';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { NumberStepper } from '@/components/ui/NumberStepper';
-import { Colors } from '@/constants/Colors';
+import { Colors, Fonts } from '@/constants/Colors';
 import { LeagueWizardState, NBA_POSITIONS, NbaPosition, PositionLimits, TAXI_EXPERIENCE_OPTIONS } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { StyleSheet, Switch, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { ms, s } from '@/utils/scale';
 
 interface StepRosterProps {
@@ -29,15 +31,13 @@ export function StepRoster({ state, onSlotChange, onChange, onResetRoster }: Ste
 
   return (
     <View style={styles.container}>
-      <ThemedText accessibilityRole="header" type="subtitle" style={styles.heading}>Roster Configuration</ThemedText>
-
       {/* Active Roster Slots */}
       <FormSection title="Starting Lineup & Bench">
         <ThemedText style={[styles.description, { color: c.secondaryText }]}>
           Set the number of slots for each position.
         </ThemedText>
 
-        {activeSlots.map((slot) => (
+        {activeSlots.map((slot, i) => (
           <NumberStepper
             key={slot.position}
             label={`${slot.position} - ${slot.label}`}
@@ -45,12 +45,18 @@ export function StepRoster({ state, onSlotChange, onChange, onResetRoster }: Ste
             onValueChange={(v) => onSlotChange(state.rosterSlots.indexOf(slot), v)}
             min={0}
             max={10}
+            last={i === activeSlots.length - 1}
           />
         ))}
 
         <View style={[styles.totalRow, { borderTopColor: c.border }]}>
-          <ThemedText type="defaultSemiBold">Total Roster Size</ThemedText>
-          <ThemedText type="defaultSemiBold">{totalSize}</ThemedText>
+          <ThemedText
+            type="varsitySmall"
+            style={[styles.totalLabel, { color: c.secondaryText }]}
+          >
+            Total Roster Size
+          </ThemedText>
+          <Text style={[styles.totalValue, { color: c.text }]}>{totalSize}</Text>
         </View>
       </FormSection>
 
@@ -120,48 +126,54 @@ export function StepRoster({ state, onSlotChange, onChange, onResetRoster }: Ste
 
       {/* Position Limits */}
       <FormSection title="Position Limits">
-        <View style={styles.posLimitHeader}>
-          <View style={{ flex: 1 }}>
-            <ThemedText style={[styles.extraNote, { color: c.secondaryText }]}>
-              Limit the total number of players at each position across your entire roster.
-            </ThemedText>
-          </View>
-          <Switch
-            value={posLimitsEnabled}
-            onValueChange={(on) => {
-              onChange('positionLimits', on ? { PG: 5, SG: 5, SF: 5, PF: 5, C: 5 } : {});
-            }}
-            accessibilityLabel="Enable position limits"
-          />
-        </View>
+        <ToggleRow
+          icon="filter-outline"
+          label="Limit players per position"
+          description="Cap the total number of players at each position across your roster."
+          value={posLimitsEnabled}
+          onToggle={(on) => {
+            onChange('positionLimits', on ? { PG: 5, SG: 5, SF: 5, PF: 5, C: 5 } : {});
+          }}
+          c={{ border: c.border, accent: c.accent, secondaryText: c.secondaryText }}
+          last
+        />
         <AnimatedSection visible={posLimitsEnabled}>
-          <ThemedText style={[styles.extraNote, { color: c.secondaryText, marginBottom: s(4) }]}>
-            0 = no limit. Multi-position players count toward each eligible position.
-          </ThemedText>
-          {NBA_POSITIONS.map((pos) => (
-            <NumberStepper
-              key={pos}
-              label={pos}
-              value={(state.positionLimits ?? {})[pos] ?? 0}
-              onValueChange={(v) => {
-                const next: PositionLimits = { ...(state.positionLimits ?? {}) };
-                if (v === 0) {
-                  delete next[pos as NbaPosition];
-                } else {
-                  next[pos as NbaPosition] = v;
-                }
-                onChange('positionLimits', next);
-              }}
-              min={0}
-              max={15}
-            />
-          ))}
+          <View style={styles.posLimitList}>
+            <ThemedText style={[styles.extraNote, { color: c.secondaryText }]}>
+              0 = no limit. Multi-position players count toward each eligible position.
+            </ThemedText>
+            {NBA_POSITIONS.map((pos, i) => (
+              <NumberStepper
+                key={pos}
+                label={pos}
+                value={(state.positionLimits ?? {})[pos] ?? 0}
+                onValueChange={(v) => {
+                  const next: PositionLimits = { ...(state.positionLimits ?? {}) };
+                  if (v === 0) {
+                    delete next[pos as NbaPosition];
+                  } else {
+                    next[pos as NbaPosition] = v;
+                  }
+                  onChange('positionLimits', next);
+                }}
+                min={0}
+                max={15}
+                last={i === NBA_POSITIONS.length - 1}
+              />
+            ))}
+          </View>
         </AnimatedSection>
       </FormSection>
 
-      <TouchableOpacity accessibilityRole="button" accessibilityLabel="Reset roster to defaults" onPress={onResetRoster} style={styles.resetBtn}>
-        <ThemedText style={{ color: c.accent }}>Reset to Defaults</ThemedText>
-      </TouchableOpacity>
+      <View style={styles.resetWrap}>
+        <BrandButton
+          label="Reset to Defaults"
+          variant="ghost"
+          size="small"
+          onPress={onResetRoster}
+          accessibilityLabel="Reset roster to defaults"
+        />
+      </View>
     </View>
   );
 }
@@ -170,23 +182,29 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  heading: {
-    marginBottom: s(12),
-  },
   description: {
     fontSize: ms(14),
     marginBottom: s(8),
   },
   totalRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: s(14),
-    borderTopWidth: 2,
-    marginTop: s(4),
-  },
-  resetBtn: {
     alignItems: 'center',
-    paddingVertical: s(12),
+    justifyContent: 'space-between',
+    paddingTop: s(10),
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  totalLabel: {
+    fontSize: ms(11),
+    letterSpacing: 0.9,
+  },
+  totalValue: {
+    fontFamily: Fonts.mono,
+    fontSize: ms(16),
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  resetWrap: {
+    alignItems: 'center',
   },
   extraSection: {
     marginTop: s(16),
@@ -215,10 +233,10 @@ const styles = StyleSheet.create({
   experienceChipText: {
     fontSize: ms(13),
   },
-  posLimitHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(12),
-    marginBottom: s(8),
+  posLimitList: {
+    // Animated list of per-position steppers — own gap since it's
+    // nested inside AnimatedSection (FormSection's gap doesn't reach
+    // through the animated wrapper).
+    gap: s(8),
   },
 });

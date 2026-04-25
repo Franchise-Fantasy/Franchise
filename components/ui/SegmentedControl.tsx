@@ -1,42 +1,79 @@
-import { Colors } from '@/constants/Colors';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Brand, Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
 interface SegmentedControlProps {
   options: readonly string[];
   selectedIndex: number;
   onSelect: (index: number) => void;
+  /** Accessibility group label — announced by screen readers. */
+  accessibilityLabel?: string;
+  /** Visually fades and blocks taps. */
+  disabled?: boolean;
 }
 
-export function SegmentedControl({ options, selectedIndex, onSelect }: SegmentedControlProps) {
+/**
+ * Scoreboard-style segmented picker — joined pills with a turfGreen
+ * fill on the active segment. Differs from `BrandSegmented` (which is
+ * the underline-chyron idiom for tabbed *content selectors*): this one
+ * is a *value picker* for forms, where no content flows beneath it, so
+ * the segments need button-affordance rather than a subtle underline.
+ *
+ * Joined visually via a single outer border + per-segment dividers so
+ * the group reads as one unit, like a scoreboard toggle.
+ */
+export function SegmentedControl({
+  options,
+  selectedIndex,
+  onSelect,
+  accessibilityLabel,
+  disabled,
+}: SegmentedControlProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
 
   return (
-    <View style={[styles.container, { backgroundColor: c.cardAlt, borderColor: c.border }]} accessibilityRole="radiogroup">
+    <View
+      style={[
+        styles.bar,
+        { borderColor: c.border, backgroundColor: c.input },
+        disabled && styles.disabled,
+      ]}
+      accessibilityRole="radiogroup"
+      accessibilityLabel={accessibilityLabel}
+    >
       {options.map((option, index) => {
         const selected = index === selectedIndex;
         return (
           <TouchableOpacity
             key={option}
             onPress={() => onSelect(index)}
+            disabled={disabled}
             style={[
-              styles.option,
-              selected && { backgroundColor: c.accent },
+              styles.segment,
+              // Left divider on every segment after the first — avoids
+              // double borders where they meet.
+              index > 0 && { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: c.border },
+              selected && { backgroundColor: Brand.turfGreen },
             ]}
+            activeOpacity={0.75}
             accessibilityRole="radio"
             accessibilityState={{ selected }}
             accessibilityLabel={option}
           >
-            <Text
+            <ThemedText
+              type="varsity"
               style={[
-                styles.optionText,
-                { color: selected ? c.accentText : c.text },
+                styles.label,
+                { color: selected ? Brand.ecru : c.text },
               ]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
             >
               {option}
-            </Text>
+            </ThemedText>
           </TouchableOpacity>
         );
       })}
@@ -45,20 +82,24 @@ export function SegmentedControl({ options, selectedIndex, onSelect }: Segmented
 }
 
 const styles = StyleSheet.create({
-  container: {
+  bar: {
     flexDirection: 'row',
-    borderRadius: 8,
     borderWidth: 1,
+    borderRadius: 8,
     overflow: 'hidden',
   },
-  option: {
+  disabled: {
+    opacity: 0.5,
+  },
+  segment: {
     flex: 1,
-    paddingVertical: s(10),
+    paddingVertical: s(9),
+    paddingHorizontal: s(6),
     alignItems: 'center',
     justifyContent: 'center',
   },
-  optionText: {
-    fontSize: ms(15),
-    fontWeight: '600',
+  label: {
+    fontSize: ms(11),
+    letterSpacing: 0.9,
   },
 });

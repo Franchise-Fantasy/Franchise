@@ -7,7 +7,9 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useProspectBoard, useReorderBoard, useRemoveFromBoard } from '@/hooks/useProspectBoard';
 import { useProspects } from '@/hooks/useProspects';
-import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
+import { useSubscription } from '@/hooks/useSubscription';
+import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
+import { CURRENT_NBA_SEASON, CURRENT_WNBA_SEASON } from '@/constants/LeagueDefaults';
 import { ms, s } from '@/utils/scale';
 import { useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
@@ -22,13 +24,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flatlist';
 import { useSession } from '@/context/AuthProvider';
 
-const nextDraftYear = parseInt(CURRENT_NBA_SEASON.split('-')[1]!, 10) + 2000;
-const DRAFT_YEARS = [
-  `${nextDraftYear}`,
-  `${nextDraftYear + 1}`,
-  `${nextDraftYear + 2}`,
-  `${nextDraftYear + 3}+`,
-];
+// NBA seasons are dash-formatted ("2025-26"); the next draft year is the
+// trailing 2-digit fragment, prefixed with "20". WNBA is single-year ("2026")
+// and the next draft is just (year + 1). Other sports fall back to NBA's
+// shape until they're wired through.
+function getNextDraftYear(sport: string): number {
+  if (sport === 'wnba') return parseInt(CURRENT_WNBA_SEASON, 10) + 1;
+  return parseInt(CURRENT_NBA_SEASON.split('-')[1]!, 10) + 2000;
+}
 
 interface BoardEntry {
   playerId: string;
@@ -45,11 +48,18 @@ export default function ProspectBoardScreen() {
   const router = useRouter();
   const session = useSession();
   const userId = session?.user?.id;
+  const sport = useActiveLeagueSport();
+  const { canAccess, isLoading: subLoading } = useSubscription();
+  const hasAccess = subLoading || canAccess('prospect_board');
 
+  const DRAFT_YEARS = useMemo(() => {
+    const next = getNextDraftYear(sport);
+    return [`${next}`, `${next + 1}`, `${next + 2}`, `${next + 3}+`];
+  }, [sport]);
   const [draftYear, setDraftYear] = useState(DRAFT_YEARS[0]);
 
-  const { data: boardRows, isLoading: boardLoading } = useProspectBoard(userId);
-  const { data: allProspects } = useProspects(draftYear);
+  const { data: boardRows, isLoading: boardLoading } = useProspectBoard(userId, hasAccess);
+  const { data: allProspects } = useProspects(draftYear, hasAccess);
   const { mutate: reorder } = useReorderBoard(userId);
   const { mutate: removeFromBoard } = useRemoveFromBoard(userId);
 
@@ -91,6 +101,16 @@ export default function ProspectBoardScreen() {
     [reorder],
   );
 
+  const handleOpenProspect = useCallback(
+    (playerId: string) => {
+      router.push({
+        pathname: '/prospect/[id]' as any,
+        params: { id: playerId },
+      });
+    },
+    [router],
+  );
+
   const renderItem = useCallback(
     ({ item, drag, isActive, getIndex }: RenderItemParams<BoardEntry>) => {
       const index = getIndex() ?? 0;
@@ -99,6 +119,7 @@ export default function ProspectBoardScreen() {
           <Text style={[styles.rankLabel, { color: c.tint }]}>{index + 1}</Text>
           <View style={styles.rankCard}>
             <ProspectBoardItem
+              playerId={item.playerId}
               name={item.name}
               position={item.position}
               school={item.school}
@@ -107,18 +128,13 @@ export default function ProspectBoardScreen() {
               userRank={index + 1}
               drag={drag}
               isActive={isActive}
-              onPress={() =>
-                router.push({
-                  pathname: '/prospect/[id]' as any,
-                  params: { id: item.playerId },
-                })
-              }
+              onPressItem={handleOpenProspect}
             />
           </View>
         </View>
       );
     },
-    [c.tint],
+    [c.tint, handleOpenProspect],
   );
 
   return (

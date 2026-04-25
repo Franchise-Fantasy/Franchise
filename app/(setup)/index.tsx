@@ -1,3 +1,4 @@
+import { BrandWordmark } from "@/components/ui/BrandWordmark";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { ms, s } from "@/utils/scale";
 import { ThemedView } from "@/components/ui/ThemedView";
@@ -15,10 +16,7 @@ export default function SetupHome() {
   return (
     <ThemedView style={styles.container}>
       <View style={styles.hero}>
-        <Ionicons name="trophy-outline" size={64} color={c.accent} accessible={false} />
-        <ThemedText type="title" style={styles.title}>
-          Welcome to Franchise
-        </ThemedText>
+        <BrandWordmark width={s(240)} />
         <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>
           Create your own league or join an existing one to get started.
         </ThemedText>
@@ -65,12 +63,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 48,
   },
-  title: {
-    marginTop: 16,
-    textAlign: "center",
-  },
   subtitle: {
-    marginTop: 8,
+    marginTop: 16,
     textAlign: "center",
     fontSize: ms(16),
     lineHeight: 22,

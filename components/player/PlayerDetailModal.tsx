@@ -26,7 +26,7 @@ import { isEligibleForSlot } from "@/utils/rosterSlots";
 import { calculateAvgFantasyPoints } from "@/utils/fantasyPoints";
 import { formatPosition } from "@/utils/formatting";
 import { addFreeAgent } from "@/utils/addFreeAgent";
-import { assertNoIllegalIR } from "@/utils/illegalIR";
+import { guardIllegalIR } from "@/utils/illegalIR";
 import { GameTimeMap, hasAnyGameStarted, isGameStarted, useTodayGameTimes } from "@/utils/gameStarted";
 import { isActiveSlot } from "@/utils/resolveSlot";
 import { ms, s } from '@/utils/scale';
@@ -63,6 +63,7 @@ import {
 } from "react-native";
 import { center } from "@shopify/react-native-skia";
 import { LogoSpinner } from "@/components/ui/LogoSpinner";
+import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 
 interface PlayerDetailModalProps {
   player: PlayerSeasonStats | null;
@@ -102,6 +103,7 @@ export function PlayerDetailModal({
   const router = useRouter();
   const scheme = useColorScheme() ?? "light";
   const c = Colors[scheme];
+  const sport = useActiveLeagueSport(leagueId);
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const { isWatchlisted, toggleWatchlist } = useWatchlist();
@@ -405,14 +407,14 @@ export function PlayerDetailModal({
 
   // How many games has this player's team played so far this season?
   const { data: teamGamesPlayed } = useQuery({
-    queryKey: queryKeys.teamGamesPlayed(player?.nba_team ?? ''),
+    queryKey: queryKeys.teamGamesPlayed(player?.pro_team ?? ''),
     queryFn: async () => {
       const today = new Date().toISOString().slice(0, 10);
       const { count, error } = await supabase
-        .from("nba_schedule")
+        .from("game_schedule")
         .select("id", { count: "exact", head: true })
         .eq("season", CURRENT_NBA_SEASON)
-        .or(`home_team.eq.${player!.nba_team},away_team.eq.${player!.nba_team}`)
+        .or(`home_team.eq.${player!.pro_team},away_team.eq.${player!.pro_team}`)
         .not("game_id", "like", "001%")
         .lte("game_date", today);
       if (error) throw error;
@@ -424,7 +426,7 @@ export function PlayerDetailModal({
   // Game lock detection
   const gameTimeMap = useTodayGameTimes(!!player);
   const playerGameStarted = player
-    ? isGameStarted(player.nba_team, gameTimeMap)
+    ? isGameStarted(player.pro_team, gameTimeMap)
     : false;
 
   // Live stats for today's game
@@ -434,21 +436,21 @@ export function PlayerDetailModal({
 
   // Next 3 upcoming games
   const { data: upcomingGames } = useQuery({
-    queryKey: queryKeys.upcomingGames(player?.nba_team ?? ''),
+    queryKey: queryKeys.upcomingGames(player?.pro_team ?? ''),
     queryFn: async () => {
       const today = new Date().toISOString().slice(0, 10);
       const { data, error } = await supabase
-        .from("nba_schedule")
+        .from("game_schedule")
         .select("game_date, home_team, away_team, game_time_utc")
         .eq("season", CURRENT_NBA_SEASON)
-        .or(`home_team.eq.${player!.nba_team},away_team.eq.${player!.nba_team}`)
+        .or(`home_team.eq.${player!.pro_team},away_team.eq.${player!.pro_team}`)
         .not("game_id", "like", "001%")
         .gte("game_date", today)
         .order("game_date", { ascending: true })
         .limit(4);
       if (error) throw error;
       return (data ?? []).map((g) => {
-        const isHome = g.home_team === player!.nba_team;
+        const isHome = g.home_team === player!.pro_team;
         return {
           game_date: g.game_date as string,
           opponent: isHome ? g.away_team : g.home_team,
@@ -457,7 +459,7 @@ export function PlayerDetailModal({
         };
       });
     },
-    enabled: !!player?.nba_team,
+    enabled: !!player?.pro_team,
     staleTime: 1000 * 60 * 60,
   });
 
@@ -590,6 +592,21 @@ export function PlayerDetailModal({
   // Submit a waiver claim natively (used when no external callback is provided)
   const submitWaiverClaim = async (dropPlayerId?: string) => {
     if (!teamId || !player) return;
+
+    const { data: existingClaim } = await supabase
+      .from("waiver_claims")
+      .select("id")
+      .eq("league_id", leagueId)
+      .eq("team_id", teamId)
+      .eq("player_id", player.player_id)
+      .eq("status", "pending")
+      .maybeSingle();
+    if (existingClaim) {
+      throw new Error(
+        "You already have a pending claim for this player. Cancel the existing claim before submitting a new one.",
+      );
+    }
+
     const { data: wp } = await supabase
       .from("waiver_priority")
       .select("priority")
@@ -631,12 +648,7 @@ export function PlayerDetailModal({
 
     // IR lockout preflight — block before opening the drop picker or starting
     // any other flow, so users aren't led into a modal they'll be rejected from.
-    try {
-      await assertNoIllegalIR(leagueId, teamId);
-    } catch (err: any) {
-      Alert.alert("Roster locked", err.message ?? "Roster is locked.");
-      return;
-    }
+    if (!(await guardIllegalIR(leagueId, teamId))) return;
 
     // If this player requires a waiver claim, delegate to the claim callback
     // or handle natively if no callback provided
@@ -712,7 +724,7 @@ export function PlayerDetailModal({
           player_id: player.player_id,
           name: player.name,
           position: player.position,
-          nba_team: player.nba_team ?? "",
+          pro_team: player.pro_team ?? "",
         },
         playerLockType: playerLockType ?? null,
         gameTimeMap: parentGameTimeMap ?? gameTimeMap,
@@ -744,9 +756,13 @@ export function PlayerDetailModal({
       return;
     }
 
+    // Exempt the player we're about to drop — if *that* player is the
+    // illegal-IR one, dropping them resolves the lockout. Any other
+    // illegal-IR players still block.
+    if (!(await guardIllegalIR(leagueId, teamId, [dropping.player_id]))) return;
+
     setIsProcessing(true);
     try {
-      await assertNoIllegalIR(leagueId, teamId);
       // For add-and-drop, check if the dropped player is a starter whose game
       // has started — if so, queue the drop for tomorrow instead of dropping now.
       if (playerToDrop && player && parentGameTimeMap && playerLockType) {
@@ -762,7 +778,7 @@ export function PlayerDetailModal({
         const droppingGameStarted =
           playerLockType === "daily"
             ? hasAnyGameStarted(parentGameTimeMap)
-            : isGameStarted(dropping.nba_team, parentGameTimeMap);
+            : isGameStarted(dropping.pro_team, parentGameTimeMap);
 
         if (droppingIsStarter && droppingGameStarted) {
           // Queue the drop for tomorrow — starter is mid-game
@@ -790,7 +806,7 @@ export function PlayerDetailModal({
               player_id: player.player_id,
               name: player.name,
               position: player.position,
-              nba_team: player.nba_team ?? "",
+              pro_team: player.pro_team ?? "",
             },
             playerLockType,
             gameTimeMap: parentGameTimeMap,
@@ -957,7 +973,7 @@ export function PlayerDetailModal({
             player_id: player.player_id,
             name: player.name,
             position: player.position,
-            nba_team: player.nba_team ?? "",
+            pro_team: player.pro_team ?? "",
           },
           playerLockType: playerLockType ?? null,
           gameTimeMap: parentGameTimeMap ?? gameTimeMap,
@@ -1537,9 +1553,11 @@ export function PlayerDetailModal({
 
   const handleQueueDrop = async () => {
     if (!teamId || !player || !leagueId) return;
+    // Queueing a drop of the illegal-IR player itself is allowed — that's
+    // the move that resolves the lockout. Other illegal-IR players still block.
+    if (!(await guardIllegalIR(leagueId, teamId, [player.player_id]))) return;
     setIsProcessing(true);
     try {
-      await assertNoIllegalIR(leagueId, teamId);
       const { data: existing } = await supabase
         .from("pending_transactions")
         .select("id")
@@ -1595,7 +1613,7 @@ export function PlayerDetailModal({
       ? calculateAvgFantasyPoints(item, scoringWeights)
       : null;
     const dropPickerData = (rosterPlayers ?? []).filter(
-      (p) => playerLockType === "daily" || !isGameStarted(p.nba_team, gameTimeMap),
+      (p) => playerLockType === "daily" || !isGameStarted(p.pro_team, gameTimeMap),
     );
 
     return (
@@ -1606,7 +1624,7 @@ export function PlayerDetailModal({
           index === dropPickerData.length - 1 && { borderBottomWidth: 0 },
         ]}
         accessibilityRole="button"
-        accessibilityLabel={`Drop ${item.name}, ${formatPosition(item.position)}, ${item.nba_team}${fpts !== null ? `, ${fpts} fantasy points` : ""}`}
+        accessibilityLabel={`Drop ${item.name}, ${formatPosition(item.position)}, ${item.pro_team}${fpts !== null ? `, ${fpts} fantasy points` : ""}`}
         onPress={() => {
           if (activateFromIR) {
             Alert.alert(
@@ -1686,7 +1704,7 @@ export function PlayerDetailModal({
           <ThemedText
             style={[styles.dropPickerSub, { color: c.secondaryText }]}
           >
-            {formatPosition(item.position)} · {item.nba_team}
+            {formatPosition(item.position)} · {item.pro_team}
           </ThemedText>
         </View>
         {fpts !== null && (
@@ -1746,7 +1764,7 @@ export function PlayerDetailModal({
             ) : (
               <FlatList
                 data={(rosterPlayers ?? []).filter(
-                  (p) => playerLockType === "daily" || !isGameStarted(p.nba_team, gameTimeMap),
+                  (p) => playerLockType === "daily" || !isGameStarted(p.pro_team, gameTimeMap),
                 )}
                 renderItem={renderDropPickerItem}
                 keyExtractor={(item) => item.player_id}
@@ -1789,13 +1807,14 @@ export function PlayerDetailModal({
                 {(() => {
                   const headshotUrl = getPlayerHeadshotUrl(
                     player.external_id_nba,
+                    sport,
                     "1040x760",
                   );
                   return (
                     <View
                       style={[
                         styles.headerHeadshotCircle,
-                        { borderColor: c.gold, backgroundColor: c.cardAlt },
+                        { borderColor: c.heritageGold, backgroundColor: c.cardAlt },
                       ]}
                       accessibilityLabel={`${player.name} headshot`}
                     >
@@ -1857,7 +1876,7 @@ export function PlayerDetailModal({
                             proposePlayerId: player.player_id,
                             proposePlayerName: player.name,
                             proposePlayerPos: player.position,
-                            proposePlayerTeam: player.nba_team,
+                            proposePlayerTeam: player.pro_team,
                             proposePlayerFpts: avgFpts != null ? String(avgFpts) : undefined,
                           },
                         });
@@ -1905,7 +1924,7 @@ export function PlayerDetailModal({
                 {/* Line 2: Identity — team + positions + GP */}
                 <View style={styles.subtitleRow}>
                   {(() => {
-                    const logoUrl = getTeamLogoUrl(player.nba_team);
+                    const logoUrl = getTeamLogoUrl(player.pro_team, sport);
                     return logoUrl ? (
                       <Image
                         source={{ uri: logoUrl }}
@@ -1917,7 +1936,7 @@ export function PlayerDetailModal({
                   <ThemedText
                     style={[styles.subtitle, { color: c.secondaryText }]}
                   >
-                    {player.nba_team} · {formatPosition(player.position)}
+                    {player.pro_team} · {formatPosition(player.position)}
                     {player.birthdate ? ` · ${calculateAge(player.birthdate)}y` : ""}
                     {" · "}
                     {player.games_played}
@@ -2080,7 +2099,7 @@ export function PlayerDetailModal({
                             playerRosterSlot !== "IR" &&
                             (!playerRosterSlot || playerRosterSlot === "BE") &&
                             isTaxiEligible(
-                              player.nba_draft_year,
+                              player.draft_year,
                               rosterInfo.season,
                               rosterInfo.taxiMaxExperience,
                             ) && (

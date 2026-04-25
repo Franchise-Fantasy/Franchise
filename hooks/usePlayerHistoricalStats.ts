@@ -19,7 +19,7 @@ export interface HistoricalSeasonStats {
   avg_ftm: number;
   avg_fta: number;
   avg_pf: number;
-  nba_team: string | null;
+  pro_team: string | null;
 }
 
 export function usePlayerHistoricalStats(playerId: string | null) {
@@ -29,7 +29,7 @@ export function usePlayerHistoricalStats(playerId: string | null) {
       const { data, error } = await supabase
         .from('player_historical_stats')
         .select(
-          'season, games_played, avg_pts, avg_reb, avg_ast, avg_stl, avg_blk, avg_tov, avg_min, avg_fgm, avg_fga, avg_3pm, avg_3pa, avg_ftm, avg_fta, avg_pf, nba_team',
+          'season, games_played, avg_pts, avg_reb, avg_ast, avg_stl, avg_blk, avg_tov, avg_min, avg_fgm, avg_fga, avg_3pm, avg_3pa, avg_ftm, avg_fta, avg_pf, pro_team',
         )
         .eq('player_id', playerId!)
         .order('season', { ascending: false })

@@ -22,6 +22,7 @@ import { aggregateTeamStats, computeCategoryResults, TeamStatTotals } from '@/ut
 import { fetchTeamData } from '@/utils/fetchTeamData';
 import { liveToGameLog, LivePlayerStats, useLivePlayerStats } from '@/utils/nbaLive';
 import { parseLocalDate, addDays, formatDayLabel, useToday } from '@/utils/dates';
+import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { fetchNbaScheduleForDate } from '@/utils/nbaSchedule';
 import { calculateGameFantasyPoints, formatScore } from '@/utils/fantasyPoints';
 import { calcRounds } from '@/utils/playoff';
@@ -123,7 +124,7 @@ interface StoredPlayerScore {
   player_id: string;
   name: string;
   position: string;
-  nba_team: string;
+  pro_team: string;
   external_id_nba: number | null;
   roster_slot: string;
   week_points: number;
@@ -169,12 +170,12 @@ function buildFromStored(
       }
     }
 
-    const t = p.nba_team ?? '';
+    const t = p.pro_team ?? '';
     return {
       player_id: p.player_id,
       name: p.name,
       position: p.position,
-      nba_team: t,
+      pro_team: t,
       nbaTricode: t && t !== 'Active' && t !== 'Inactive' ? t : null,
       external_id_nba: p.external_id_nba,
       status: 'active',
@@ -197,6 +198,7 @@ function buildFromStored(
 export default function MatchupDetailScreen() {
   const { id: matchupId } = useLocalSearchParams<{ id: string }>();
   const { leagueId, teamId } = useAppState();
+  const sport = useActiveLeagueSport();
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
 
@@ -380,8 +382,8 @@ export default function MatchupDetailScreen() {
   // Future schedule
   const isFutureDate = effectiveDate > today;
   const { data: futureSchedule } = useQuery<Map<string, any>>({
-    queryKey: queryKeys.futureSchedule(effectiveDate),
-    queryFn: () => fetchNbaScheduleForDate(effectiveDate),
+    queryKey: [...queryKeys.futureSchedule(effectiveDate), sport],
+    queryFn: () => fetchNbaScheduleForDate(effectiveDate, sport),
     enabled: isToday || isFutureDate,
     staleTime: 1000 * 60 * 60,
   });

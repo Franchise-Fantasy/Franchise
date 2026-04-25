@@ -159,9 +159,10 @@ Deno.serve(async (req) => {
 
     const isRookieDraft = draft.type === 'rookie';
 
-    // Fetch position limits for the league
+    // Fetch league config (sport + position limits) in one round-trip.
     const { data: leagueForLimits } = await supabaseAdmin
-      .from('leagues').select('position_limits').eq('id', draft.league_id).single();
+      .from('leagues').select('sport, position_limits').eq('id', draft.league_id).single();
+    const sport: 'nba' | 'wnba' = leagueForLimits?.sport === 'wnba' ? 'wnba' : 'nba';
     const posLimits = leagueForLimits?.position_limits as Record<string, number> | null;
     let teamRoster: { position: string; roster_slot: string }[] | null = null;
     if (posLimits && Object.keys(posLimits).length > 0) {
@@ -205,17 +206,22 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Fall back to best available by avg_pts (fetch multiple to handle position limits)
+    // Fall back to best available by avg_pts (fetch multiple to handle position limits).
+    // `pro_team IS NOT NULL` works year-round; `games_played > 0` would yield
+    // an empty pool during the offseason (a problem for any rookie/pre-season
+    // auto-draft) — except for rookie drafts which override the filter below.
     if (!topPlayer) {
       let query = supabaseAdmin
         .from('player_season_stats')
         .select('player_id, position')
-        .gt('games_played', 0)
+        .eq('sport', sport)
         .order('avg_pts', { ascending: false })
         .limit(20);
 
       if (isRookieDraft) {
         query = query.eq('rookie', true);
+      } else {
+        query = query.not('pro_team', 'is', null);
       }
 
       if (draftedIds.length > 0) {

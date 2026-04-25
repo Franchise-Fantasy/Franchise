@@ -46,7 +46,7 @@ export interface TradeProposalItem {
   // Joined for display
   player_name?: string;
   player_position?: string;
-  player_nba_team?: string;
+  player_pro_team?: string;
   pick_season?: string;
   pick_round?: number;
   pick_original_team_name?: string;
@@ -65,7 +65,7 @@ export interface TradeBuilderPlayer {
   player_id: string;
   name: string;
   position: string;
-  nba_team: string;
+  pro_team: string;
   avg_fpts: number;
   to_team_id: string; // destination team for this asset
 }

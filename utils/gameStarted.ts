@@ -1,22 +1,26 @@
 import { supabase } from '@/lib/supabase';
 import { toDateStr } from '@/utils/dates';
+import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useQuery } from '@tanstack/react-query';
 
 export type GameTimeMap = Map<string, string>;
 
 /**
- * Returns a map of NBA tricode → game_time_utc ISO string for today's games.
- * Enabled only when `enabled` is true (i.e. viewing today's date).
+ * Returns a map of pro tricode → game_time_utc ISO string for today's games.
+ * Scoped to the active league's sport. Enabled only when `enabled` is true
+ * (i.e. viewing today's date).
  */
 export function useTodayGameTimes(enabled: boolean): GameTimeMap {
   const today = toDateStr(new Date());
+  const sport = useActiveLeagueSport();
 
   const { data } = useQuery<GameTimeMap>({
-    queryKey: ['todayGameTimes', today],
+    queryKey: ['todayGameTimes', sport, today],
     queryFn: async () => {
       const { data } = await supabase
-        .from('nba_schedule')
+        .from('game_schedule')
         .select('home_team, away_team, game_time_utc')
+        .eq('sport', sport)
         .eq('game_date', today)
         .not('game_time_utc', 'is', null);
       const map = new Map<string, string>();

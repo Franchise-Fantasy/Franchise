@@ -8,6 +8,7 @@ import { getPlayerHeadshotUrl } from '@/utils/playerHeadshot';
 import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { Image, StyleSheet, Text, View } from 'react-native';
+import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 
 interface TradeAssetRowProps {
   item: TradeItemRow;
@@ -24,6 +25,7 @@ interface TradeAssetRowProps {
 }
 
 export function TradeAssetRow({ item, avgFpts, externalIdNba, isNew, teamNameMap, fromTeamName }: TradeAssetRowProps) {
+  const sport = useActiveLeagueSport();
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
 
@@ -86,7 +88,7 @@ export function TradeAssetRow({ item, avgFpts, externalIdNba, isNew, teamNameMap
   }
 
   // Player
-  const headshotUrl = getPlayerHeadshotUrl(externalIdNba);
+  const headshotUrl = getPlayerHeadshotUrl(externalIdNba, sport);
 
   return (
     <View

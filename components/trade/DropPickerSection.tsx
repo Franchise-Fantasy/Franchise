@@ -6,6 +6,7 @@ import { getPlayerHeadshotUrl } from '@/utils/playerHeadshot';
 import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
 import { Image, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 
 interface DropPickerSectionProps {
   roster: (PlayerSeasonStats & { roster_slot: string | null })[];
@@ -17,6 +18,7 @@ interface DropPickerSectionProps {
 export function DropPickerSection({ roster, selectedPlayerIds, maxSelections, onSelect }: DropPickerSectionProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const sport = useActiveLeagueSport();
 
   const handleToggle = (playerId: string) => {
     if (selectedPlayerIds.includes(playerId)) {
@@ -54,7 +56,7 @@ export function DropPickerSection({ roster, selectedPlayerIds, maxSelections, on
       <View style={styles.list}>
         {roster.map((p) => {
           const isSelected = selectedPlayerIds.includes(p.player_id);
-          const headshotUrl = getPlayerHeadshotUrl(p.external_id_nba);
+          const headshotUrl = getPlayerHeadshotUrl(p.external_id_nba, sport);
           const atLimit = selectedPlayerIds.length >= maxSelections && !isSelected;
 
           return (

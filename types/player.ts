@@ -2,12 +2,12 @@ export interface PlayerSeasonStats {
   player_id: string;
   name: string;
   position: string;
-  nba_team: string;
+  pro_team: string;
   status: string;
   external_id_nba: string | null;
   rookie: boolean;
   season_added: string | null;
-  nba_draft_year: number | null;
+  draft_year: number | null;
   birthdate: string | null;
   games_played: number;
   // Totals

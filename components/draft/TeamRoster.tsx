@@ -24,6 +24,7 @@ import {
 import { PlayerDetailModal } from "../player/PlayerDetailModal";
 import { ThemedText } from "../ui/ThemedText";
 import { LogoSpinner } from "@/components/ui/LogoSpinner";
+import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 
 interface TeamRosterProps {
   teamId: string;
@@ -43,6 +44,7 @@ interface SlotEntry {
 export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
   const colorScheme = useColorScheme() ?? "light";
   const c = Colors[colorScheme];
+  const sport = useActiveLeagueSport(leagueId);
   const [selectedPlayer, setSelectedPlayer] =
     useState<PlayerSeasonStats | null>(null);
 
@@ -252,12 +254,12 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
           >
             <View style={styles.portraitWrap}>
               {(() => {
-                const url = getPlayerHeadshotUrl(slot.player.external_id_nba);
+                const url = getPlayerHeadshotUrl(slot.player.external_id_nba, sport);
                 return (
                   <View
                     style={[
                       styles.headshotCircle,
-                      { borderColor: c.gold, backgroundColor: c.cardAlt },
+                      { borderColor: c.heritageGold, backgroundColor: c.cardAlt },
                     ]}
                   >
                     {url ? (
@@ -271,7 +273,7 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
                 );
               })()}
               {(() => {
-                const logoUrl = getTeamLogoUrl(slot.player.nba_team);
+                const logoUrl = getTeamLogoUrl(slot.player.pro_team, sport);
                 return (
                   <View style={styles.teamPill}>
                     {logoUrl && (
@@ -282,7 +284,7 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
                       />
                     )}
                     <Text style={[styles.teamPillText, { color: c.statusText }]}>
-                      {slot.player.nba_team}
+                      {slot.player.pro_team}
                     </Text>
                   </View>
                 );

@@ -1,19 +1,34 @@
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import React from 'react';
+import { BrandButton } from '@/components/ui/BrandButton';
+import { Section } from '@/components/ui/Section';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
-import { LEAGUE_TYPE_DISPLAY, LeagueWizardState, NBA_POSITIONS, WAIVER_DAY_LABELS } from '@/constants/LeagueDefaults';
+import { LeagueWizardState, NBA_POSITIONS, SPORT_DISPLAY, WAIVER_DAY_LABELS } from '@/constants/LeagueDefaults';
 import { taxiExperienceLabel } from '@/utils/taxiEligibility';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { ms, s } from '@/utils/scale';
 
 interface StepReviewProps {
   state: LeagueWizardState;
   onSubmit: () => void;
+  onBack: () => void;
   loading: boolean;
+  /** Label for the primary submit button. Defaults to "Create League". */
+  submitLabel?: string;
+  /** Optional content rendered above the config Section blocks —
+   *  e.g. an import-specific summary card on the Sleeper import flow. */
+  headerContent?: React.ReactNode;
 }
 
-export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
+export function StepReview({
+  state,
+  onSubmit,
+  onBack,
+  loading,
+  submitLabel = 'Create League',
+  headerContent,
+}: StepReviewProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
 
@@ -24,11 +39,9 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
 
   return (
     <View style={styles.container}>
-      <ThemedText accessibilityRole="header" type="subtitle" style={styles.heading}>Review & Create</ThemedText>
-
-      {/* Basics */}
-      <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
-        <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>League Basics</ThemedText>
+      {headerContent}
+      <Section title="League Basics">
+        <Row label="Sport" value={SPORT_DISPLAY[state.sport]} c={c} />
         <Row label="League Type" value={state.leagueType ?? 'Dynasty'} c={c} />
         {state.leagueType === 'Keeper' && (
           <Row label="Keepers Per Team" value={String(state.keeperCount ?? 5)} c={c} />
@@ -40,43 +53,37 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
         {state.buyIn > 0 && state.venmoUsername ? <Row label="Venmo" value={`@${state.venmoUsername}`} c={c} /> : null}
         {state.buyIn > 0 && state.cashappTag ? <Row label="Cash App" value={`$${state.cashappTag}`} c={c} /> : null}
         {state.buyIn > 0 && state.paypalUsername ? <Row label="PayPal" value={state.paypalUsername} c={c} /> : null}
-      </View>
+      </Section>
 
-      {/* Roster */}
-      <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
-        <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>Roster ({totalRoster} slots)</ThemedText>
-        <ThemedText style={[styles.rosterSummary, { color: c.secondaryText }]}>
+      <Section title={`Roster (${totalRoster} slots)`}>
+        <ThemedText style={[styles.summaryLine, { color: c.secondaryText }]}>
           {activeSlots.map((s) => `${s.position}: ${s.count}`).join('  |  ')}
         </ThemedText>
         {taxiSlotCount > 0 && (
           <Row label="Taxi Eligibility" value={taxiExperienceLabel(state.taxiMaxExperience)} c={c} />
         )}
         {Object.keys(state.positionLimits).length > 0 && (
-          <ThemedText style={[styles.rosterSummary, { color: c.secondaryText, marginTop: s(4) }]}>
+          <ThemedText style={[styles.summaryLine, { color: c.secondaryText, marginTop: s(6) }]}>
             Position Limits: {NBA_POSITIONS.filter((p) => state.positionLimits[p] != null).map((p) => `${p}: ${state.positionLimits[p]}`).join('  |  ')}
           </ThemedText>
         )}
-      </View>
+      </Section>
 
-      {/* Scoring */}
-      <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
-        <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>Scoring</ThemedText>
+      <Section title="Scoring">
         <Row label="Type" value={state.scoringType} c={c} />
         {state.scoringType === 'H2H Categories' ? (
-          <ThemedText style={[styles.rosterSummary, { color: c.secondaryText }]}>
+          <ThemedText style={[styles.summaryLine, { color: c.secondaryText }]}>
             {state.categories.filter((cat) => cat.is_enabled).map((cat) => cat.label).join('  |  ')}
             {'\n'}({state.categories.filter((cat) => cat.is_enabled).length} categories)
           </ThemedText>
         ) : (
-          <ThemedText style={[styles.rosterSummary, { color: c.secondaryText }]}>
+          <ThemedText style={[styles.summaryLine, { color: c.secondaryText }]}>
             {state.scoring.map((s) => `${s.stat_name}: ${s.point_value > 0 ? '+' : ''}${s.point_value}`).join('  |  ')}
           </ThemedText>
         )}
-      </View>
+      </Section>
 
-      {/* Draft */}
-      <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
-        <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>Draft Settings</ThemedText>
+      <Section title="Draft Settings">
         <Row label="Type" value={state.draftType} c={c} />
         <Row label="Draft Order" value={state.initialDraftOrder} c={c} />
         <Row label="Time Per Pick" value={`${state.timePerPick}s`} c={c} />
@@ -88,14 +95,12 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
             {state.rookieDraftOrder === 'Lottery' && (
               <Row label="Lottery Draws" value={String(state.lotteryDraws)} c={c} />
             )}
-            <Row label="Initial Draft, Pick Trading" value={state.draftPickTradingEnabled ? 'Enabled' : 'Disabled'} c={c} />
+            <Row label="Pick Trading" value={state.draftPickTradingEnabled ? 'Enabled' : 'Disabled'} c={c} />
           </>
         )}
-      </View>
+      </Section>
 
-      {/* Trade */}
-      <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
-        <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>Trade Settings</ThemedText>
+      <Section title="Trade Settings">
         <Row label="Veto Type" value={state.tradeVetoType} c={c} />
         {state.tradeVetoType !== 'None' && (
           <Row label="Review Period" value={`${state.tradeReviewPeriodHours} hrs`} c={c} />
@@ -111,11 +116,9 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
           value={state.tradeDeadlineWeek === 0 ? 'None' : `After Week ${state.tradeDeadlineWeek}`}
           c={c}
         />
-      </View>
+      </Section>
 
-      {/* Waivers */}
-      <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
-        <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>Waiver Settings</ThemedText>
+      <Section title="Waiver Settings">
         <Row label="Waiver Type" value={state.waiverType} c={c} />
         {state.waiverType !== 'None' && (
           <Row label="Waiver Period" value={`${state.waiverPeriodDays} days`} c={c} />
@@ -127,11 +130,9 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
           </>
         )}
         <Row label="Player Lock" value={state.playerLockType} c={c} />
-      </View>
+      </Section>
 
-      {/* Season */}
-      <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
-        <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>Season</ThemedText>
+      <Section title="Season">
         <Row label="NBA Season" value={state.season} c={c} />
         <Row label="Regular Season" value={`${state.regularSeasonWeeks} weeks`} c={c} />
         <Row label="Playoffs" value={`${state.playoffWeeks} weeks`} c={c} />
@@ -145,22 +146,26 @@ export function StepReview({ state, onSubmit, loading }: StepReviewProps) {
           value={state.divisionCount === 2 ? `${state.division1Name} & ${state.division2Name}` : 'None'}
           c={c}
         />
-      </View>
+      </Section>
 
-      <TouchableOpacity
-        accessibilityRole="button"
-        accessibilityLabel="Create league"
-        accessibilityState={{ disabled: loading }}
-        onPress={onSubmit}
-        disabled={loading}
-        style={[styles.createBtn, { backgroundColor: loading ? c.buttonDisabled : c.accent }]}
-      >
-        {loading ? (
-          <LogoSpinner size={18} />
-        ) : (
-          <Text style={[styles.createBtnText, { color: c.accentText }]}>Create League</Text>
-        )}
-      </TouchableOpacity>
+      <View style={styles.actionRow}>
+        <BrandButton
+          label="Back"
+          variant="secondary"
+          size="default"
+          onPress={onBack}
+          disabled={loading}
+          accessibilityLabel="Back to previous step"
+        />
+        <BrandButton
+          label={submitLabel}
+          variant="primary"
+          size="default"
+          onPress={onSubmit}
+          loading={loading}
+          accessibilityLabel={submitLabel}
+        />
+      </View>
     </View>
   );
 }
@@ -169,7 +174,9 @@ function Row({ label, value, c }: { label: string; value: string; c: any }) {
   return (
     <View style={styles.row}>
       <ThemedText style={[styles.rowLabel, { color: c.secondaryText }]}>{label}</ThemedText>
-      <ThemedText>{value}</ThemedText>
+      <ThemedText style={styles.rowValue} numberOfLines={2}>
+        {value}
+      </ThemedText>
     </View>
   );
 }
@@ -178,38 +185,34 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  heading: {
-    marginBottom: s(16),
-  },
-  section: {
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: s(14),
-    marginBottom: s(12),
-  },
-  sectionTitle: {
-    marginBottom: s(8),
-  },
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: s(4),
+    alignItems: 'center',
+    paddingVertical: s(5),
+    gap: s(12),
   },
   rowLabel: {
     fontSize: ms(14),
+    flexShrink: 1,
   },
-  rosterSummary: {
+  rowValue: {
     fontSize: ms(14),
-    lineHeight: ms(22),
+    fontWeight: '500',
+    textAlign: 'right',
+    flexShrink: 1,
   },
-  createBtn: {
-    paddingVertical: s(14),
-    borderRadius: 8,
+  summaryLine: {
+    fontSize: ms(13),
+    lineHeight: ms(20),
+    paddingVertical: s(4),
+  },
+  actionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
+    gap: s(12),
     marginTop: s(8),
-  },
-  createBtnText: {
-    fontSize: ms(17),
-    fontWeight: '700',
+    marginBottom: s(20),
   },
 });

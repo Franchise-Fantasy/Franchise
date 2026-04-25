@@ -5,7 +5,7 @@ import { DraftHubPick, DraftHubLeagueSettings, DraftHubSwap, DraftHubTeam } from
 import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/lottery';
 import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 interface SimulationEntry {
@@ -156,14 +156,14 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
   const [selectedSeason, setSelectedSeason] = useState(validSeasons[0]);
   const [simResult, setSimResult] = useState<SimulationEntry[] | null>(null);
   const [expandedProts, setExpandedProts] = useState<Set<string>>(new Set());
-  const toggleProt = (key: string) => {
+  const toggleProt = useCallback((key: string) => {
     setExpandedProts(prev => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
       return next;
     });
-  };
+  }, []);
 
   const isUpcomingSeason = selectedSeason === validSeasons[0];
 
@@ -176,9 +176,12 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
   const reversedStandings = useMemo(() => [...teams].reverse(), [teams]);
 
   const lotteryPoolSize = calcLotteryPoolSize(teams.length, leagueSettings.playoffTeams);
-  const lotteryPool = reversedStandings.slice(0, lotteryPoolSize);
-  const playoffTeams = reversedStandings.slice(lotteryPoolSize);
-  const odds = leagueSettings.lotteryOdds ?? generateDefaultOdds(lotteryPoolSize);
+  const lotteryPool = useMemo(() => reversedStandings.slice(0, lotteryPoolSize), [reversedStandings, lotteryPoolSize]);
+  const playoffTeams = useMemo(() => reversedStandings.slice(lotteryPoolSize), [reversedStandings, lotteryPoolSize]);
+  const odds = useMemo(
+    () => leagueSettings.lotteryOdds ?? generateDefaultOdds(lotteryPoolSize),
+    [leagueSettings.lotteryOdds, lotteryPoolSize],
+  );
 
   // Swaps for the selected season
   const seasonSwaps = useMemo(
@@ -256,6 +259,72 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
       }));
   }, [displayPicks]);
 
+  // Build the lottery-odds display rows once per relevant input change rather than
+  // rebuilding the whole list every render (previously an inline IIFE inside JSX).
+  type OddsRow = {
+    team: DraftHubTeam;
+    position: number;
+    moved: number;
+    wasDrawn: boolean;
+    isPlayoff: boolean;
+    oddsValue: string;
+  };
+  const displayRows: OddsRow[] = useMemo(() => {
+    const rows: OddsRow[] = [];
+    if (simResult) {
+      const combined = [...lotteryPool, ...playoffTeams];
+      simResult.forEach((entry, i) => {
+        const team = combined.find((t) => t.id === entry.team_id)!;
+        const origIdx = lotteryPool.findIndex((t) => t.id === entry.team_id);
+        rows.push({
+          team,
+          position: i + 1,
+          moved: entry.original_standing - entry.lottery_position,
+          wasDrawn: entry.was_drawn,
+          isPlayoff: false,
+          oddsValue: origIdx >= 0 && odds[origIdx] != null ? `${odds[origIdx]}%` : '—',
+        });
+      });
+      playoffTeams.forEach((team, i) => {
+        rows.push({
+          team,
+          position: lotteryPoolSize + i + 1,
+          moved: 0,
+          wasDrawn: false,
+          isPlayoff: true,
+          oddsValue: '—',
+        });
+      });
+    } else {
+      lotteryPool.forEach((team, i) => {
+        rows.push({
+          team,
+          position: i + 1,
+          moved: 0,
+          wasDrawn: false,
+          isPlayoff: false,
+          oddsValue: odds[i] != null ? `${odds[i]}%` : '—',
+        });
+      });
+      playoffTeams.forEach((team, i) => {
+        rows.push({
+          team,
+          position: lotteryPoolSize + i + 1,
+          moved: 0,
+          wasDrawn: false,
+          isPlayoff: true,
+          oddsValue: '—',
+        });
+      });
+    }
+    return rows;
+  }, [simResult, lotteryPool, playoffTeams, lotteryPoolSize, odds]);
+
+  const playoffCutoffIndex = useMemo(
+    () => displayRows.findIndex((r) => r.isPlayoff),
+    [displayRows],
+  );
+
   const handleSimulate = () => {
     if (lotteryPoolSize === 0 || !leagueSettings.leagueFull) return;
     const result = simulateLottery(lotteryPool, odds, Math.min(leagueSettings.lotteryDraws, lotteryPoolSize));
@@ -305,88 +374,25 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
           </View>
 
           {/* Teams in order — reordered if simulation active */}
-          {(() => {
-            // Build the display list: simulation reorders lottery pool, playoff teams stay at end
-            const displayRows: {
-              team: DraftHubTeam;
-              position: number;
-              moved: number; // positive = moved up, negative = moved down, 0 = same
-              wasDrawn: boolean;
-              isPlayoff: boolean;
-              oddsValue: string;
-            }[] = [];
+          {displayRows.map((row, i) => {
+            const ownership = pickOwnerMap[row.team.id];
 
-            if (simResult) {
-              // Simulation active: use simResult order for lottery teams
-              simResult.forEach((entry, i) => {
-                const team = [...lotteryPool, ...playoffTeams].find(t => t.id === entry.team_id)!;
-                const origIdx = lotteryPool.findIndex(t => t.id === entry.team_id);
-                displayRows.push({
-                  team,
-                  position: i + 1,
-                  moved: entry.original_standing - entry.lottery_position,
-                  wasDrawn: entry.was_drawn,
-                  isPlayoff: false,
-                  oddsValue: origIdx >= 0 && odds[origIdx] != null ? `${odds[origIdx]}%` : '—',
-                });
-              });
-              // Playoff teams stay in their original order after lottery
-              playoffTeams.forEach((team, i) => {
-                displayRows.push({
-                  team,
-                  position: lotteryPoolSize + i + 1,
-                  moved: 0,
-                  wasDrawn: false,
-                  isPlayoff: true,
-                  oddsValue: '—',
-                });
-              });
-            } else {
-              // Default: original standings order with odds %
-              lotteryPool.forEach((team, i) => {
-                displayRows.push({
-                  team,
-                  position: i + 1,
-                  moved: 0,
-                  wasDrawn: false,
-                  isPlayoff: false,
-                  oddsValue: odds[i] != null ? `${odds[i]}%` : '—',
-                });
-              });
-              playoffTeams.forEach((team, i) => {
-                displayRows.push({
-                  team,
-                  position: lotteryPoolSize + i + 1,
-                  moved: 0,
-                  wasDrawn: false,
-                  isPlayoff: true,
-                  oddsValue: '—',
-                });
-              });
+            // Compute effective owner based on position and protection
+            let effectiveOwnerName = ownership?.ownerName;
+            let effectiveIsTraded = ownership?.isTraded ?? false;
+            let protectionHolds = false;
+            if (ownership?.protectionThreshold && ownership?.protectionOwnerId && leagueSettings.pickConditionsEnabled) {
+              protectionHolds = row.position <= ownership.protectionThreshold;
+              if (protectionHolds) {
+                effectiveOwnerName = ownership.protectionOwnerName ?? ownership.ownerName;
+                effectiveIsTraded = ownership.protectionOwnerId !== row.team.id;
+              }
             }
 
-            // Find where to insert the playoff cutoff divider
-            const cutoffIndex = displayRows.findIndex(r => r.isPlayoff);
-
-            return displayRows.map((row, i) => {
-              const ownership = pickOwnerMap[row.team.id];
-
-              // Compute effective owner based on position and protection
-              let effectiveOwnerName = ownership?.ownerName;
-              let effectiveIsTraded = ownership?.isTraded ?? false;
-              let protectionHolds = false;
-              if (ownership?.protectionThreshold && ownership?.protectionOwnerId && leagueSettings.pickConditionsEnabled) {
-                protectionHolds = row.position <= ownership.protectionThreshold;
-                if (protectionHolds) {
-                  effectiveOwnerName = ownership.protectionOwnerName ?? ownership.ownerName;
-                  effectiveIsTraded = ownership.protectionOwnerId !== row.team.id;
-                }
-              }
-
-              return (
-                <View key={row.team.id}>
+            return (
+              <View key={row.team.id}>
                   {/* Insert playoff cutoff divider */}
-                  {i === cutoffIndex && cutoffIndex > 0 && (
+                  {i === playoffCutoffIndex && playoffCutoffIndex > 0 && (
                     <View style={styles.cutoffRow}>
                       <View style={[styles.cutoffLine, { backgroundColor: c.secondaryText }]} />
                       <ThemedText style={[styles.cutoffLabel, { color: c.secondaryText }]}>
@@ -448,8 +454,7 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
                   </View>
                 </View>
               );
-            });
-          })()}
+            })}
 
           {/* Simulate / Clear buttons — hidden once the lottery has been run */}
           {!leagueSettings.lotteryComplete && (
@@ -493,7 +498,8 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
             </ThemedText>
             {roundPicks.map((pick, idx) => {
               const pickPos = pick.display_slot;
-              const protHolds = pick.protection_threshold && leagueSettings.pickConditionsEnabled
+              // Protection position checks only meaningful when standings are known
+              const protHolds = pick.protection_threshold && leagueSettings.pickConditionsEnabled && isUpcomingSeason
                 ? pickPos <= pick.protection_threshold
                 : false;
 
@@ -516,7 +522,7 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
                   <View style={styles.pickRowLine1}>
                     <View style={[styles.pickNum, { backgroundColor: c.cardAlt }]}>
                       <ThemedText style={[styles.pickNumText, { color: c.secondaryText }]}>
-                        {pickPos}
+                        {isUpcomingSeason ? pickPos : '?'}
                       </ThemedText>
                     </View>
                     <ThemedText style={styles.pickTeamName} numberOfLines={1}>

@@ -1,10 +1,15 @@
 """
-Seed the nba_schedule table with the full season schedule (past + future).
+Seed the game_schedule table with the full season schedule (past + future).
 Uses the nba_api library's ScheduleLeagueV2 endpoint.
 
+NOTE: Prefer the `sync-game-schedule` edge function for routine syncs — it
+covers both NBA and WNBA via BDL with one call. This Python script remains
+useful when nba_api gives more authoritative arena/national-TV metadata than
+BDL, or as a fallback when BDL is rate-limited.
+
 Usage:
-    python seed_schedule.py              # seeds 2025-26 season
-    python seed_schedule.py 2024-25      # seeds a specific season
+    python seed_schedule.py              # seeds 2025-26 NBA season
+    python seed_schedule.py 2024-25      # seeds a specific NBA season
 """
 
 import os
@@ -16,6 +21,9 @@ from supabase import create_client
 SUPABASE_URL = 'https://iuqbossmnsezzgocpcbo.supabase.co'
 SUPABASE_KEY = os.environ['SB_SECRET_KEY']
 
+# nba_api ScheduleLeagueV2 covers NBA only (LeagueID=00). For WNBA seeding,
+# use the `sync-game-schedule` edge function instead, which hits BDL.
+SPORT = 'nba'
 NBA_SEASON = sys.argv[1] if len(sys.argv) > 1 else '2025-26'
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -61,6 +69,7 @@ for gd in game_dates:
         game_time_utc = game.get('gameDateTimeUTC')  # e.g. "2025-10-22T23:30:00Z"
 
         rows.append({
+            'sport': SPORT,
             'game_id': game_id,
             'game_date': game_date,
             'season': NBA_SEASON,
@@ -82,13 +91,13 @@ rows.sort(key=lambda g: g['game_date'])
 print(f'  First game: {rows[0]["game_date"]}  ({rows[0]["away_team"]} @ {rows[0]["home_team"]})')
 print(f'  Last game:  {rows[-1]["game_date"]}  ({rows[-1]["away_team"]} @ {rows[-1]["home_team"]})')
 
-# Upsert in batches of 500
+# Upsert in batches of 500. Composite (sport, game_id) is the unique key.
 BATCH = 500
 inserted = 0
 for i in range(0, len(rows), BATCH):
     batch = rows[i:i + BATCH]
-    supabase.table('nba_schedule').upsert(batch, on_conflict='game_id').execute()
+    supabase.table('game_schedule').upsert(batch, on_conflict='sport,game_id').execute()
     inserted += len(batch)
     print(f'  Upserted {inserted}/{len(rows)}...')
 
-print(f'Done. {len(rows)} games upserted for {NBA_SEASON}.')
+print(f'Done. {len(rows)} games upserted for {SPORT} {NBA_SEASON}.')

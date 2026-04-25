@@ -171,7 +171,7 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
     return acc;
   }, 0);
 
-  const needsMyDrop = proposal.status === 'pending_drops' && isInvolved && myNetGain > 0;
+  const mySubmittedDropCount = myProposalTeam?.drop_player_ids?.length ?? 0;
   const newItemKeys = getNewItemKeys(proposal.items, proposal.original_items);
 
   // ── Data fetching ──
@@ -250,15 +250,36 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
   });
   const wouldExceedRoster = dropsNeeded > 0;
 
+  // Drops picker appears while the proposal is blocked on drops AND I still
+  // owe more than I've already submitted. If `dropsNeeded` is 0 it means I
+  // have spare roster room and the server won't flag me — no picker needed,
+  // even when `myNetGain > 0`. If I've already submitted enough drops, we
+  // fall through to the "waiting on other teams" chip instead.
+  const needsMyDrop = proposal.status === 'pending_drops' && isInvolved && dropsNeeded > mySubmittedDropCount;
+
   const { data: myRoster } = useQuery({
-    queryKey: queryKeys.dropPickerRoster(teamId, leagueId),
+    queryKey: queryKeys.dropPickerRoster(teamId, leagueId, proposal.id),
     queryFn: async (): Promise<(PlayerSeasonStats & { roster_slot: string | null })[]> => {
-      const { data: lps, error: lpErr } = await supabase
-        .from('league_players')
-        .select('player_id, roster_slot')
-        .eq('team_id', teamId)
-        .eq('league_id', leagueId);
-      if (lpErr) throw lpErr;
+      const [lpRes, lockedRes] = await Promise.all([
+        supabase
+          .from('league_players')
+          .select('player_id, roster_slot')
+          .eq('team_id', teamId)
+          .eq('league_id', leagueId),
+        // Any of MY players that are from_team_id in another active trade
+        // proposal can't be safely dropped — dropping them would break the
+        // other trade when it executes. Excludes the current proposal.
+        supabase
+          .from('trade_proposal_items')
+          .select('player_id, trade_proposals!inner(id, status)')
+          .eq('from_team_id', teamId)
+          .neq('trade_proposals.id', proposal.id)
+          .in('trade_proposals.status', ['pending', 'accepted', 'in_review', 'delayed', 'pending_drops'])
+          .not('player_id', 'is', null),
+      ]);
+      if (lpRes.error) throw lpRes.error;
+      if (lockedRes.error) throw lockedRes.error;
+      const lps = lpRes.data;
       if (!lps || lps.length === 0) return [];
       const ids = lps.map((lp) => lp.player_id);
       const slotMap = new Map(lps.map((lp) => [lp.player_id, lp.roster_slot]));
@@ -270,10 +291,19 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
       const tradedAwayIds = new Set(
         proposal.items.filter((i) => i.player_id && i.from_team_id === teamId).map((i) => i.player_id!),
       );
+      const lockedInOtherTrades = new Set(
+        (lockedRes.data ?? [])
+          .map((r: any) => r.player_id as string | null)
+          .filter((x): x is string => !!x),
+      );
       return (data ?? [])
         .filter((p) => !!p.player_id)
         .map((p) => ({ ...p, roster_slot: slotMap.get(p.player_id!) ?? null }))
-        .filter((p) => !tradedAwayIds.has(p.player_id!) && p.roster_slot !== 'IR')
+        .filter((p) =>
+          !tradedAwayIds.has(p.player_id!)
+          && !lockedInOtherTrades.has(p.player_id!)
+          && p.roster_slot !== 'IR',
+        )
         .sort((a, b) => {
           const aIsBench = a.roster_slot === 'BE' || a.roster_slot === 'TAXI' ? 0 : 1;
           const bIsBench = b.roster_slot === 'BE' || b.roster_slot === 'TAXI' ? 0 : 1;

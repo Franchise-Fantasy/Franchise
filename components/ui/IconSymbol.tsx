@@ -18,6 +18,7 @@ const MAPPING = {
   'paperplane.fill': 'send',
   'chevron.left.forwardslash.chevron.right': 'code',
   'chevron.right': 'chevron-right',
+  'chevron.backward': 'arrow-back-ios-new',
   'chart.bar': 'bar-chart',
   'arrow.triangle.2.circlepath': 'compare-arrows',
   'clock': 'access-time',

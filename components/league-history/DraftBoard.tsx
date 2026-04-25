@@ -1,24 +1,22 @@
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { Brand, Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { useDraftHistory, DraftSummary, DraftHistoryPick } from '@/hooks/useLeagueHistory';
+import { DraftHistoryPick, DraftSummary, useDraftHistory } from '@/hooks/useLeagueHistory';
 import { ms, s } from '@/utils/scale';
 import { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
 
 interface DraftBoardProps {
   leagueId: string;
 }
 
-/** e.g. "2025-26" → "'26 Rookie Draft", "2025-26" initial → "2025-26 Draft" */
 function draftLabel(draft: DraftSummary): string {
   if (draft.type === 'rookie') {
-    // Rookie draft for "2026-27" season happens in 2026 → "'26 Rookie Draft"
     const startYear = draft.season.split('-')[0];
-    return `'${startYear.slice(-2)} Rookie Draft`;
+    return `'${startYear.slice(-2)} Rookie`;
   }
-  return `${draft.season} Draft`;
+  return `${draft.season}`;
 }
 
 export function DraftBoard({ leagueId }: DraftBoardProps) {
@@ -28,7 +26,6 @@ export function DraftBoard({ leagueId }: DraftBoardProps) {
 
   const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
 
-  // All drafts as selectable options
   const draftOptions = useMemo(() => {
     if (!data) return [];
     return data.drafts.map((d) => ({ ...d, label: draftLabel(d) }));
@@ -40,7 +37,6 @@ export function DraftBoard({ leagueId }: DraftBoardProps) {
     return draftOptions[0];
   }, [draftOptions, selectedDraftId]);
 
-  // Picks for the active draft, grouped by round
   const picksByRound = useMemo(() => {
     if (!data || !activeDraft) return new Map<number, DraftHistoryPick[]>();
     const draftPicks = data.picks.filter((p) => p.draft_id === activeDraft.id);
@@ -52,7 +48,7 @@ export function DraftBoard({ leagueId }: DraftBoardProps) {
     return map;
   }, [data, activeDraft]);
 
-  if (isLoading) return <View style={{ marginVertical: s(16) }}><LogoSpinner /></View>;
+  if (isLoading) return <View style={styles.loading}><LogoSpinner /></View>;
   if (!data || data.drafts.length === 0) {
     return (
       <ThemedText style={[styles.emptyText, { color: c.secondaryText }]}>
@@ -63,8 +59,12 @@ export function DraftBoard({ leagueId }: DraftBoardProps) {
 
   return (
     <View>
-      {/* Draft selector pills */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillRow}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.pillRowContent}
+        style={styles.pillRow}
+      >
         {draftOptions.map((d) => {
           const isActive = activeDraft?.id === d.id;
           return (
@@ -73,52 +73,90 @@ export function DraftBoard({ leagueId }: DraftBoardProps) {
               accessibilityRole="button"
               accessibilityLabel={d.label}
               accessibilityState={{ selected: isActive }}
-              style={[styles.pill, isActive ? { backgroundColor: c.accent } : { backgroundColor: c.cardAlt }]}
+              style={[
+                styles.pill,
+                { borderColor: c.border },
+                isActive
+                  ? { backgroundColor: Brand.turfGreen, borderColor: Brand.turfGreen }
+                  : { backgroundColor: c.cardAlt },
+              ]}
               onPress={() => setSelectedDraftId(d.id)}
             >
-              <ThemedText style={[styles.pillText, isActive && { color: c.accentText }]}>{d.label}</ThemedText>
+              <ThemedText
+                type="varsitySmall"
+                style={[
+                  styles.pillText,
+                  { color: isActive ? Brand.ecru : c.secondaryText },
+                ]}
+              >
+                {d.label}
+              </ThemedText>
             </TouchableOpacity>
           );
         })}
       </ScrollView>
 
-      {/* Draft info */}
       {activeDraft && (
-        <ThemedText style={[styles.draftInfo, { color: c.secondaryText }]}>
-          {activeDraft.draft_type === 'snake' ? 'Snake' : 'Linear'} · {activeDraft.rounds} rounds
+        <ThemedText
+          type="varsitySmall"
+          style={[styles.draftInfo, { color: c.secondaryText }]}
+        >
+          {activeDraft.draft_type === 'snake' ? 'Snake' : 'Linear'} · {activeDraft.rounds} Rounds
         </ThemedText>
       )}
 
-      {/* Pick-by-pick board */}
       {[...picksByRound.entries()].map(([round, picks]) => (
         <View key={round} style={styles.roundBlock}>
-          <ThemedText accessibilityRole="header" type="defaultSemiBold" style={[styles.roundLabel, { color: c.secondaryText }]}>
-            Round {round}
-          </ThemedText>
+          <View style={styles.roundHeader}>
+            <View style={[styles.roundRule, { backgroundColor: c.heritageGold }]} />
+            <ThemedText
+              type="varsity"
+              style={[styles.roundLabel, { color: c.text }]}
+              accessibilityRole="header"
+            >
+              Round {round}
+            </ThemedText>
+          </View>
           {picks.map((pick, idx) => (
             <View
               key={pick.id}
-              style={[styles.pickRow, { borderBottomColor: c.border }, idx === picks.length - 1 && { borderBottomWidth: 0 }]}
+              style={[
+                styles.pickRow,
+                { borderBottomColor: c.border },
+                idx === picks.length - 1 && { borderBottomWidth: 0 },
+              ]}
             >
-              <ThemedText style={[styles.pickNum, { color: c.secondaryText }]}>
+              <ThemedText type="mono" style={[styles.pickNum, { color: c.secondaryText }]}>
                 {pick.pick_number}
               </ThemedText>
               <View style={styles.pickInfo}>
-                <ThemedText style={styles.pickTeam} numberOfLines={1}>
+                <ThemedText
+                  style={[styles.pickTeam, { color: c.text }]}
+                  numberOfLines={1}
+                >
                   {pick.current_team_name}
                 </ThemedText>
                 {pick.isTraded && (
-                  <ThemedText style={[styles.viaLabel, { color: c.secondaryText }]}>
+                  <ThemedText
+                    type="varsitySmall"
+                    style={[styles.viaLabel, { color: c.secondaryText }]}
+                  >
                     via {pick.original_team_name}
                   </ThemedText>
                 )}
               </View>
               <View style={styles.playerInfo}>
-                <ThemedText style={styles.playerName} numberOfLines={1}>
+                <ThemedText
+                  style={[styles.playerName, { color: c.text }]}
+                  numberOfLines={1}
+                >
                   {pick.player_name ?? '—'}
                 </ThemedText>
                 {pick.player_position && (
-                  <ThemedText style={[styles.playerPos, { color: c.secondaryText }]}>
+                  <ThemedText
+                    type="mono"
+                    style={[styles.playerPos, { color: c.secondaryText }]}
+                  >
                     {pick.player_position}
                   </ThemedText>
                 )}
@@ -133,29 +171,66 @@ export function DraftBoard({ leagueId }: DraftBoardProps) {
 
 const styles = StyleSheet.create({
   emptyText: { fontSize: ms(13), textAlign: 'center', paddingVertical: s(16) },
-  pillRow: { marginBottom: s(10) },
+  loading: { paddingVertical: s(24) },
+
+  pillRow: {
+    marginBottom: s(10),
+    marginHorizontal: -s(4),
+  },
+  pillRowContent: {
+    paddingHorizontal: s(4),
+    gap: s(8),
+  },
   pill: {
     paddingHorizontal: s(14),
-    paddingVertical: s(6),
-    borderRadius: 16,
-    marginRight: s(8),
+    paddingVertical: s(7),
+    borderRadius: 8,
+    borderWidth: 1,
   },
-  pillText: { fontSize: ms(13), fontWeight: '600' },
-  draftInfo: { fontSize: ms(12), marginBottom: s(12) },
-  roundBlock: { marginBottom: s(12) },
-  roundLabel: { fontSize: ms(12), marginBottom: s(6) },
+  pillText: {
+    fontSize: ms(10),
+  },
+
+  draftInfo: {
+    fontSize: ms(10),
+    marginBottom: s(14),
+  },
+
+  roundBlock: {
+    marginBottom: s(14),
+  },
+  roundHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(8),
+    marginBottom: s(6),
+  },
+  roundRule: {
+    height: 1,
+    width: s(14),
+  },
+  roundLabel: {
+    fontSize: ms(11),
+  },
+
   pickRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: s(8),
+    paddingVertical: s(9),
+    paddingHorizontal: s(4),
     borderBottomWidth: StyleSheet.hairlineWidth,
     gap: s(10),
+    marginHorizontal: -s(4),
   },
-  pickNum: { width: s(28), fontSize: ms(12), textAlign: 'center', fontWeight: '600' },
+  pickNum: {
+    width: s(28),
+    fontSize: ms(12),
+    textAlign: 'center',
+  },
   pickInfo: { flex: 1 },
   pickTeam: { fontSize: ms(13), fontWeight: '600' },
-  viaLabel: { fontSize: ms(10), marginTop: 1 },
-  playerInfo: { alignItems: 'flex-end' },
+  viaLabel: { fontSize: ms(9), marginTop: s(1) },
+  playerInfo: { alignItems: 'flex-end', maxWidth: s(140) },
   playerName: { fontSize: ms(13) },
-  playerPos: { fontSize: ms(10), marginTop: 1 },
+  playerPos: { fontSize: ms(10), marginTop: s(1) },
 });

@@ -38,9 +38,20 @@ export function TradeBlockSheet({ visible, tradeBlock, leagueId, teamId, onClose
 
   // Load hidden players from storage on mount
   useEffect(() => {
-    AsyncStorage.getItem(storageKey).then((raw) => {
-      if (raw) setHiddenPlayers(new Set(JSON.parse(raw)));
-    });
+    let cancelled = false;
+    AsyncStorage.getItem(storageKey)
+      .then((raw) => {
+        if (cancelled || !raw) return;
+        try {
+          setHiddenPlayers(new Set(JSON.parse(raw)));
+        } catch (e) {
+          console.warn('Parse hidden trade-block list failed:', e);
+        }
+      })
+      .catch((e) => console.warn('Load hidden trade-block list failed:', e));
+    return () => {
+      cancelled = true;
+    };
   }, [storageKey]);
 
   const persistHidden = useCallback(
@@ -138,13 +149,13 @@ export function TradeBlockSheet({ visible, tradeBlock, leagueId, teamId, onClose
                       onPress={() => onPlayerPress(p)}
                       activeOpacity={p.team_id === teamId ? 1 : 0.7}
                       accessibilityRole="button"
-                      accessibilityLabel={`${p.name}, ${p.position}, ${p.nba_team}${p.trade_block_note ? `, looking for: ${p.trade_block_note}` : ''}`}
+                      accessibilityLabel={`${p.name}, ${p.position}, ${p.pro_team}${p.trade_block_note ? `, looking for: ${p.trade_block_note}` : ''}`}
                       accessibilityHint={p.team_id !== teamId ? 'Propose a trade for this player' : undefined}
                     >
                       <View style={styles.playerInfo}>
                         <ThemedText style={styles.playerName} numberOfLines={1}>{p.name}</ThemedText>
                         <ThemedText style={[styles.playerMeta, { color: c.secondaryText }]}>
-                          {p.position} · {p.nba_team}
+                          {p.position} · {p.pro_team}
                         </ThemedText>
                         {p.trade_block_note ? (() => {
                           const willTruncate = p.trade_block_note.length > 35;

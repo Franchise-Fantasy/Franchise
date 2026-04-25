@@ -11,7 +11,7 @@ import { supabase } from '@/lib/supabase';
 import type { PlayerNewsArticle } from '@/types/news';
 import { queryKeys } from '@/constants/queryKeys';
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   FlatList,
   RefreshControl,
@@ -86,12 +86,14 @@ export default function NewsScreen() {
         ? matchup.away_team_id
         : matchup.home_team_id;
 
+      const teamIds = opponentId ? [teamId!, opponentId] : [teamId!];
+
       // Fetch both teams' player IDs
       const { data: players } = await supabase
         .from('league_players')
         .select('player_id')
         .eq('league_id', leagueId!)
-        .in('team_id', [teamId!, opponentId]);
+        .in('team_id', teamIds);
 
       return (players ?? []).map((r: any) => r.player_id);
     },
@@ -125,6 +127,13 @@ export default function NewsScreen() {
     matchup: 'No recent news for matchup players',
     all: 'No recent news available',
   };
+
+  const renderNews = useCallback(
+    ({ item }: { item: PlayerNewsArticle }) => <NewsCard article={item} showHeadshots />,
+    [],
+  );
+  const keyExtractor = useCallback((item: PlayerNewsArticle) => item.id, []);
+  const handleRefresh = useCallback(() => { newsQuery.refetch(); }, [newsQuery]);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
@@ -172,16 +181,20 @@ export default function NewsScreen() {
       ) : (
         <FlatList
           data={filteredNews}
-          keyExtractor={(item: PlayerNewsArticle) => item.id}
-          renderItem={({ item }) => <NewsCard article={item} showHeadshots />}
+          keyExtractor={keyExtractor}
+          renderItem={renderNews}
           refreshControl={
             <RefreshControl
               refreshing={newsQuery.isRefetching}
-              onRefresh={() => newsQuery.refetch()}
+              onRefresh={handleRefresh}
               tintColor={c.accent}
             />
           }
           contentContainerStyle={styles.list}
+          removeClippedSubviews
+          initialNumToRender={8}
+          maxToRenderPerBatch={6}
+          windowSize={7}
           ListEmptyComponent={
             <ThemedText style={[styles.empty, { color: c.secondaryText }]}>
               {emptyMessages[filter]}

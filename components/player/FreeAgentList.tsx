@@ -10,12 +10,13 @@ import { TimeRange, usePlayerFilter } from "@/hooks/usePlayerFilter";
 import { useWatchlist } from "@/hooks/useWatchlist";
 import { supabase } from "@/lib/supabase";
 import { addFreeAgent } from "@/utils/addFreeAgent";
-import { assertNoIllegalIR } from "@/utils/illegalIR";
+import { guardIllegalIR } from "@/utils/illegalIR";
 import { PlayerSeasonStats } from "@/types/player";
 import { toDateStr } from "@/utils/dates";
 import { calculateAvgFantasyPoints } from "@/utils/fantasyPoints";
 import { formatPosition } from "@/utils/formatting";
 import { getInjuryBadge } from "@/utils/injuryBadge";
+import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useTodayGameTimes } from "@/utils/gameStarted";
 import { checkPositionLimits } from "@/utils/positionLimits";
 import { fetchNbaScheduleForDate } from "@/utils/nbaSchedule";
@@ -239,12 +240,13 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   // User-selected "playing on date" filter — null means filter is off
   const [playingOnDate, setPlayingOnDate] = useState<string | null>(null);
 
-  // Fetch NBA schedule for the selected date (defaults to today so row badges still show)
+  // Fetch schedule for the selected date (defaults to today so row badges still show)
   const todayStr = toDateStr(new Date());
   const scheduleDate = playingOnDate ?? todayStr;
+  const sport = useActiveLeagueSport(leagueId);
   const { data: todaySchedule } = useQuery({
-    queryKey: queryKeys.todaySchedule(scheduleDate),
-    queryFn: () => fetchNbaScheduleForDate(scheduleDate),
+    queryKey: [...queryKeys.todaySchedule(scheduleDate), sport],
+    queryFn: () => fetchNbaScheduleForDate(scheduleDate, sport),
     staleTime: 1000 * 60 * 30,
   });
 
@@ -451,7 +453,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       const { data, error } = await supabase
         .from("waiver_claims")
         .select(
-          "id, player_id, drop_player_id, bid_amount, created_at, player:players!waiver_claims_player_id_fkey(name, position, nba_team)",
+          "id, player_id, drop_player_id, bid_amount, created_at, player:players!waiver_claims_player_id_fkey(name, position, pro_team)",
         )
         .eq("league_id", leagueId)
         .eq("team_id", teamId)
@@ -466,12 +468,17 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   const { watchlistedIds } = useWatchlist();
 
   const { data: allPlayers, isLoading } = useQuery<PlayerSeasonStats[]>({
-    queryKey: queryKeys.allPlayers(leagueId),
+    queryKey: [...queryKeys.allPlayers(leagueId), sport],
     queryFn: async () => {
+      // `pro_team IS NOT NULL` = currently on a real team's roster, which is
+      // the correct "available in fantasy" filter year-round. Filtering on
+      // `games_played > 0` instead would hide every player during the
+      // offseason (WNBA April–May, NBA June–September).
       const { data, error } = await supabase
         .from("player_season_stats")
         .select("*")
-        .gt("games_played", 0)
+        .eq("sport", sport)
+        .not("pro_team", "is", null)
         .order("avg_pts", { ascending: false });
       if (error) throw error;
       return data as PlayerSeasonStats[];
@@ -767,17 +774,11 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
   // Instant add (free agent, no waivers)
   const handleAddPlayer = async (player: PlayerSeasonStats) => {
+    // IR lockout preflight — block before even opening the drop picker so
+    // users aren't led through a modal flow only to be rejected at the end.
+    if (!(await guardIllegalIR(leagueId, teamId))) return;
     setAddingPlayerId(player.player_id);
     try {
-      // IR lockout preflight — block before even opening the drop picker so
-      // users aren't led through a modal flow only to be rejected at the end.
-      try {
-        await assertNoIllegalIR(leagueId, teamId);
-      } catch (err: any) {
-        Alert.alert("Roster locked", err.message ?? "Roster is locked.");
-        setAddingPlayerId(null);
-        return;
-      }
       // Re-check roster limit and weekly acquisition limit before adding
       const [allRes, irRes, leagueRes] = await Promise.all([
         supabase
@@ -817,7 +818,11 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
           .select("position, roster_slot")
           .eq("league_id", leagueId)
           .eq("team_id", teamId);
-        const violation = checkPositionLimits(posLimits, rosterForLimits ?? [], player.position);
+        const violation = checkPositionLimits(
+          posLimits,
+          (rosterForLimits ?? []).map((r) => ({ position: r.position, roster_slot: r.roster_slot ?? undefined })),
+          player.position,
+        );
         if (violation) {
           Alert.alert(
             "Position Limit Reached",
@@ -878,7 +883,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
           player_id: player.player_id,
           name: player.name,
           position: player.position,
-          nba_team: player.nba_team ?? "",
+          pro_team: player.pro_team ?? "",
         },
         playerLockType,
         gameTimeMap,
@@ -974,9 +979,16 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     player: PlayerSeasonStats,
     dropPlayerId?: string,
   ) => {
+    if (pendingClaims?.some((c) => c.player_id === player.player_id)) {
+      Alert.alert(
+        "Claim Already Pending",
+        `You already have a pending claim for ${player.name}. Cancel it before submitting a new one.`,
+      );
+      return;
+    }
+    if (!(await guardIllegalIR(leagueId, teamId))) return;
     setAddingPlayerId(player.player_id);
     try {
-      await assertNoIllegalIR(leagueId, teamId);
       // Get current waiver priority
       const { data: wp } = await supabase
         .from("waiver_priority")
@@ -1026,9 +1038,16 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       );
       return;
     }
+    if (pendingClaims?.some((c) => c.player_id === player.player_id)) {
+      Alert.alert(
+        "Bid Already Pending",
+        `You already have a pending bid for ${player.name}. Cancel it before submitting a new one.`,
+      );
+      return;
+    }
+    if (!(await guardIllegalIR(leagueId, teamId))) return;
     setAddingPlayerId(player.player_id);
     try {
-      await assertNoIllegalIR(leagueId, teamId);
       const { data: wp } = await supabase
         .from("waiver_priority")
         .select("priority")
@@ -1141,12 +1160,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   const handleButtonPress = async (player: PlayerSeasonStats) => {
     // IR lockout preflight — applies to every add/claim/drop-picker entry
     // point so users aren't led into a modal flow while locked.
-    try {
-      await assertNoIllegalIR(leagueId, teamId);
-    } catch (err: any) {
-      Alert.alert("Roster locked", err.message ?? "Roster is locked.");
-      return;
-    }
+    if (!(await guardIllegalIR(leagueId, teamId))) return;
 
     const needsClaim = isOnWaivers(player.player_id);
 
@@ -1183,12 +1197,12 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         ? calculateAvgFantasyPoints(item, scoringWeights)
         : undefined;
     const isAdding = addingPlayerId === item.player_id;
-    const headshotUrl = getPlayerHeadshotUrl(item.external_id_nba);
-    const logoUrl = getTeamLogoUrl(item.nba_team);
+    const headshotUrl = getPlayerHeadshotUrl(item.external_id_nba, sport);
+    const logoUrl = getTeamLogoUrl(item.pro_team, sport);
     const badge = getInjuryBadge(item.status);
     const needsClaim = isOnWaivers(item.player_id);
     const waiverLabel = needsClaim ? getWaiverBadgeLabel(item.player_id) : null;
-    const schedEntry = todaySchedule?.get(item.nba_team) ?? null;
+    const schedEntry = todaySchedule?.get(item.pro_team) ?? null;
     const gameToday = schedEntry?.matchup ?? null;
     const isRostered = rosteredPlayerIds?.has(item.player_id) ?? false;
     const ownerTeamName = ownershipMap?.get(item.player_id)?.teamName ?? null;
@@ -1206,13 +1220,13 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         onPress={() => selectPlayer(item)}
         activeOpacity={0.7}
         accessibilityRole="button"
-        accessibilityLabel={`${item.name}, ${formatPosition(item.position)}, ${item.nba_team}${ownerTeamName ? `, rostered by ${ownerTeamName}` : ""}${fpts !== undefined ? `, ${fpts} fantasy points` : ""}${isCategories ? `, ${item.avg_pts} points, ${item.avg_reb} rebounds, ${item.avg_ast} assists, ${item.avg_stl} steals, ${item.avg_blk} blocks` : ""}`}
+        accessibilityLabel={`${item.name}, ${formatPosition(item.position)}, ${item.pro_team}${ownerTeamName ? `, rostered by ${ownerTeamName}` : ""}${fpts !== undefined ? `, ${fpts} fantasy points` : ""}${isCategories ? `, ${item.avg_pts} points, ${item.avg_reb} rebounds, ${item.avg_ast} assists, ${item.avg_stl} steals, ${item.avg_blk} blocks` : ""}`}
       >
         <View style={styles.portraitWrap}>
           <View
             style={[
               styles.headshotCircle,
-              { borderColor: c.gold, backgroundColor: c.cardAlt },
+              { borderColor: c.heritageGold, backgroundColor: c.cardAlt },
             ]}
           >
             {headshotUrl ? (
@@ -1231,7 +1245,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
                 resizeMode="contain"
               />
             )}
-            <Text style={[styles.teamPillText, { color: c.statusText }]}>{item.nba_team}</Text>
+            <Text style={[styles.teamPillText, { color: c.statusText }]}>{item.pro_team}</Text>
           </View>
         </View>
 
@@ -1548,7 +1562,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
                       <ThemedText
                         style={{ fontSize: ms(11), color: c.secondaryText }}
                       >
-                        {claim.player?.position} - {claim.player?.nba_team}
+                        {claim.player?.position} - {claim.player?.pro_team}
                         {waiverType === "faab"
                           ? ` | $${claim.bid_amount} bid`
                           : ""}
@@ -1684,8 +1698,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         leagueId={leagueId}
         teamId={teamId}
         ownerTeamName={
-          selectedPlayer &&
-          ownershipMap?.get(selectedPlayer.player_id)?.teamName
+          (selectedPlayer && ownershipMap?.get(selectedPlayer.player_id)?.teamName) ?? undefined
         }
         playerLockType={playerLockType}
         gameTimeMap={gameTimeMap}

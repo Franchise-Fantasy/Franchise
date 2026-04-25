@@ -110,7 +110,9 @@ export function useWeekScores({ leagueId, scheduleId, weekIsLive }: UseWeekScore
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [scheduleId, leagueId, queryClient]);
+    // queryClient is a stable singleton — omitting prevents unnecessary channel teardown.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scheduleId, leagueId]);
 
   return query;
 }

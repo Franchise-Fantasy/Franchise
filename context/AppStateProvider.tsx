@@ -55,43 +55,58 @@ export const AppStateProvider = ({ children }: { children: React.ReactNode }) =>
 
     setState(s => ({ ...s, loading: true }));
 
-    const fetchTeam = async () => {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('favorite_league_id')
-        .eq('id', session.user.id)
-        .maybeSingle();
+    let cancelled = false;
+    const userId = session.user.id;
 
-      if (profile?.favorite_league_id) {
-        const { data: favTeam } = await supabase
-          .from('teams')
-          .select('id, league_id')
-          .eq('user_id', session.user.id)
-          .eq('league_id', profile.favorite_league_id)
+    const fetchTeam = async () => {
+      try {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('favorite_league_id')
+          .eq('id', userId)
           .maybeSingle();
 
-        if (favTeam) {
-          setState({ teamId: favTeam.id, leagueId: favTeam.league_id, loading: false, resolvedUserId: session.user.id });
-          return;
+        if (profile?.favorite_league_id) {
+          const { data: favTeam } = await supabase
+            .from('teams')
+            .select('id, league_id')
+            .eq('user_id', userId)
+            .eq('league_id', profile.favorite_league_id)
+            .maybeSingle();
+
+          if (cancelled) return;
+          if (favTeam) {
+            setState({ teamId: favTeam.id, leagueId: favTeam.league_id, loading: false, resolvedUserId: userId });
+            return;
+          }
         }
+
+        const { data } = await supabase
+          .from('teams')
+          .select('id, league_id')
+          .eq('user_id', userId)
+          .limit(1)
+          .maybeSingle();
+
+        if (cancelled) return;
+        setState({
+          teamId: data?.id ?? null,
+          leagueId: data?.league_id ?? null,
+          loading: false,
+          resolvedUserId: userId,
+        });
+      } catch (err) {
+        if (cancelled) return;
+        console.warn('AppStateProvider fetchTeam failed:', err);
+        setState((s) => ({ ...s, loading: false }));
       }
-
-      const { data } = await supabase
-        .from('teams')
-        .select('id, league_id')
-        .eq('user_id', session.user.id)
-        .limit(1)
-        .maybeSingle();
-
-      setState({
-        teamId: data?.id ?? null,
-        leagueId: data?.league_id ?? null,
-        loading: false,
-        resolvedUserId: session.user.id,
-      });
     };
 
     fetchTeam();
+
+    return () => {
+      cancelled = true;
+    };
   }, [initialized, session?.user?.id]);
 
   // Treat as loading if the session user hasn't been resolved yet

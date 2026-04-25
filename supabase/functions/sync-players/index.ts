@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { CORS_HEADERS } from '../_shared/cors.ts';
-import { bdlFetchAll } from '../_shared/bdl.ts';
+import { bdlFetchAll, coerceBdlPosition, type Sport } from '../_shared/bdl.ts';
 import { normalizeName } from '../_shared/normalize.ts';
 
 const supabase = createClient(
@@ -14,24 +14,42 @@ const jsonHeaders = { ...CORS_HEADERS, 'Content-Type': 'application/json' };
 // Must match POSITION_SPECTRUM in utils/rosterSlots.ts
 const POSITION_SPECTRUM = ['PG', 'SG', 'SF', 'PF', 'C'];
 
-// Must match CURRENT_NBA_SEASON in constants/LeagueDefaults.ts
-const CURRENT_SEASON = '2025-26';
+// Must match CURRENT_*_SEASON in constants/LeagueDefaults.ts.
+// NBA uses dash format ("2025-26"), WNBA uses single-year format ("2026").
+const CURRENT_SEASON: Record<Sport, string> = {
+  nba: '2025-26',
+  wnba: '2026',
+};
 
 const SLEEPER_PLAYERS_URL = 'https://api.sleeper.app/v1/players/nba';
-const NBA_STATS_URL =
-  `https://stats.nba.com/stats/commonallplayers?LeagueID=00&Season=${CURRENT_SEASON}&IsOnlyCurrentSeason=1`;
 
-// NBA Stats blocks non-browser user agents
-const NBA_STATS_HEADERS = {
-  'Accept': 'application/json, text/plain, */*',
-  'Accept-Language': 'en-US,en;q=0.9',
-  'Origin': 'https://www.nba.com',
-  'Referer': 'https://www.nba.com/',
-  'User-Agent':
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-  'x-nba-stats-origin': 'stats',
-  'x-nba-stats-token': 'true',
+// stats.nba.com / stats.wnba.com share the same response shape; only the host
+// and LeagueID differ (00 = NBA, 10 = WNBA). The IDs they return populate
+// `players.external_id_nba`, which is what cdn.{nba,wnba}.com headshots key on.
+const STATS_HOSTS: Record<Sport, { host: string; leagueId: string; origin: string; referer: string }> = {
+  nba:  { host: 'stats.nba.com',  leagueId: '00', origin: 'https://www.nba.com',  referer: 'https://www.nba.com/' },
+  wnba: { host: 'stats.wnba.com', leagueId: '10', origin: 'https://www.wnba.com', referer: 'https://www.wnba.com/' },
 };
+
+function buildStatsUrl(sport: Sport, season: string): string {
+  const { host, leagueId } = STATS_HOSTS[sport];
+  return `https://${host}/stats/commonallplayers?LeagueID=${leagueId}&Season=${season}&IsOnlyCurrentSeason=1`;
+}
+
+function buildStatsHeaders(sport: Sport): Record<string, string> {
+  const { origin, referer } = STATS_HOSTS[sport];
+  // stats.{nba,wnba}.com block non-browser user agents.
+  return {
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Origin': origin,
+    'Referer': referer,
+    'User-Agent':
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'x-nba-stats-origin': 'stats',
+    'x-nba-stats-token': 'true',
+  };
+}
 
 /** Convert Sleeper fantasy_positions (e.g. ["PG","SG"]) to spectrum format ("PG-SG"). */
 function buildPosition(fantasyPositions: string[] | null | undefined): string | null {
@@ -75,29 +93,44 @@ async function fetchSleeperPositions(): Promise<{
   return { byNameTeam, byName };
 }
 
-/** Fetch NBA Stats active players and return external_id_nba lookup maps. */
-async function fetchNbaStatsIds(): Promise<{
+/**
+ * Fetch personId lookup maps for headshot URL construction.
+ *
+ *  - NBA → stats.nba.com `commonallplayers`. IDs key cdn.nba.com headshots.
+ *  - WNBA → ESPN's per-team roster endpoint (stats.wnba.com works from
+ *    browsers but stalls indefinitely from cloud IPs). IDs key
+ *    a.espncdn.com WNBA headshots.
+ */
+async function fetchStatsIds(sport: Sport, season: string): Promise<{
+  byNameTeam: Map<string, number>;
+  byName: Map<string, number>;
+}> {
+  if (sport === 'wnba') return fetchEspnWnbaAthletes();
+  return fetchNbaStatsIds(season);
+}
+
+async function fetchNbaStatsIds(season: string): Promise<{
   byNameTeam: Map<string, number>;
   byName: Map<string, number>;
 }> {
   const byNameTeam = new Map<string, number>();
   const byName = new Map<string, number>();
 
-  const res = await fetch(NBA_STATS_URL, {
-    headers: NBA_STATS_HEADERS,
+  const res = await fetch(buildStatsUrl('nba', season), {
+    headers: buildStatsHeaders('nba'),
     signal: AbortSignal.timeout(20000),
   });
-  if (!res.ok) throw new Error(`NBA Stats returned ${res.status}`);
+  if (!res.ok) throw new Error(`nba Stats returned ${res.status}`);
   const body = await res.json();
   const set = body?.resultSets?.[0];
-  if (!set) throw new Error('NBA Stats response missing resultSets');
+  if (!set) throw new Error('nba Stats response missing resultSets');
 
   const headers: string[] = set.headers;
   const rows: any[][] = set.rowSet ?? [];
   const idxId = headers.indexOf('PERSON_ID');
   const idxName = headers.indexOf('DISPLAY_FIRST_LAST');
   const idxTeam = headers.indexOf('TEAM_ABBREVIATION');
-  if (idxId < 0 || idxName < 0) throw new Error('NBA Stats headers missing expected columns');
+  if (idxId < 0 || idxName < 0) throw new Error('nba Stats headers missing expected columns');
 
   for (const row of rows) {
     const personId = Number(row[idxId]);
@@ -108,6 +141,45 @@ async function fetchNbaStatsIds(): Promise<{
     if (team) byNameTeam.set(`${norm}|${team}`, personId);
     byName.set(norm, personId);
   }
+
+  return { byNameTeam, byName };
+}
+
+const ESPN_WNBA_TEAMS_URL = 'https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/teams';
+const ESPN_WNBA_ROSTER_URL = (teamId: string) =>
+  `https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/teams/${teamId}/roster`;
+
+async function fetchEspnWnbaAthletes(): Promise<{
+  byNameTeam: Map<string, number>;
+  byName: Map<string, number>;
+}> {
+  const byNameTeam = new Map<string, number>();
+  const byName = new Map<string, number>();
+
+  const teamsRes = await fetch(ESPN_WNBA_TEAMS_URL, { signal: AbortSignal.timeout(10000) });
+  if (!teamsRes.ok) throw new Error(`ESPN WNBA teams returned ${teamsRes.status}`);
+  const teamsBody = await teamsRes.json();
+  const teams: any[] = teamsBody?.sports?.[0]?.leagues?.[0]?.teams ?? [];
+
+  await Promise.allSettled(
+    teams.map(async (t: any) => {
+      const teamId: string | undefined = t?.team?.id;
+      const tricode: string | undefined = t?.team?.abbreviation?.toUpperCase();
+      if (!teamId) return;
+      const rosterRes = await fetch(ESPN_WNBA_ROSTER_URL(teamId), { signal: AbortSignal.timeout(10000) });
+      if (!rosterRes.ok) return;
+      const rosterBody = await rosterRes.json();
+      const athletes: any[] = rosterBody?.athletes ?? [];
+      for (const a of athletes) {
+        const id = parseInt(String(a.id), 10);
+        const name = a.fullName ?? `${a.firstName ?? ''} ${a.lastName ?? ''}`.trim();
+        if (!id || !name) continue;
+        const norm = normalizeName(name);
+        if (tricode) byNameTeam.set(`${norm}|${tricode}`, id);
+        byName.set(norm, id);
+      }
+    }),
+  );
 
   return { byNameTeam, byName };
 }
@@ -124,16 +196,26 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: jsonHeaders });
   }
 
+  // Sport from request body. Defaults to 'nba' so legacy cron entries keep working.
+  let sport: Sport = 'nba';
   try {
-    // 1. Fetch active players from balldontlie
-    const bdlPlayers = await bdlFetchAll('/players/active');
+    const body = await req.json();
+    if (body?.sport === 'wnba') sport = 'wnba';
+  } catch {
+    // No body / not JSON — default sport stays 'nba'.
+  }
 
-    // 2. Build list of active NBA players (those with a team)
+  try {
+    // 1. Fetch active players from balldontlie (sport-namespaced).
+    const bdlPlayers = await bdlFetchAll(sport, '/players/active');
+
+    // 2. Build list of active players (those with a team).
     const activePlayers: Array<{
       bdl_id: number;
       name: string;
       normName: string;
-      nba_team: string;
+      pro_team: string;
+      bdl_position: string | null;
     }> = [];
 
     for (const bp of bdlPlayers) {
@@ -147,25 +229,37 @@ Deno.serve(async (req: Request) => {
         bdl_id: bp.id,
         name,
         normName: normalizeName(name),
-        nba_team: team,
+        pro_team: team,
+        bdl_position: coerceBdlPosition(bp.position),
       });
     }
 
-    // 3. Fetch Sleeper (positions) and NBA Stats (headshot IDs) in parallel.
-    // Either can fail independently — rest of sync still completes.
-    const [sleeperResult, nbaStatsResult] = await Promise.allSettled([
-      fetchSleeperPositions(),
-      fetchNbaStatsIds(),
-    ]);
+    // 3. Enrichment — runs in parallel, each can fail independently.
+    //    - Sleeper position spectrum: NBA only (Sleeper has no WNBA support).
+    //    - League Stats personId (for cdn.{nba,wnba}.com headshots): both sports.
+    let sleeperPos: { byNameTeam: Map<string, string>; byName: Map<string, string> } | null = null;
+    let statsIds: { byNameTeam: Map<string, number>; byName: Map<string, number> } | null = null;
 
-    const sleeperPos = sleeperResult.status === 'fulfilled' ? sleeperResult.value : null;
-    const nbaIds = nbaStatsResult.status === 'fulfilled' ? nbaStatsResult.value : null;
+    const enrichmentTasks: Array<Promise<unknown>> = [];
+    const sleeperIdx = sport === 'nba' ? enrichmentTasks.push(fetchSleeperPositions()) - 1 : -1;
+    const statsIdx = enrichmentTasks.push(fetchStatsIds(sport, CURRENT_SEASON[sport])) - 1;
+    const enrichmentResults = await Promise.allSettled(enrichmentTasks);
 
-    if (sleeperResult.status === 'rejected') {
-      console.error('Sleeper fetch failed:', sleeperResult.reason?.message ?? sleeperResult.reason);
+    if (sleeperIdx >= 0) {
+      const r = enrichmentResults[sleeperIdx];
+      if (r.status === 'fulfilled') {
+        sleeperPos = r.value as typeof sleeperPos;
+      } else {
+        console.error('Sleeper fetch failed:', (r.reason as any)?.message ?? r.reason);
+      }
     }
-    if (nbaStatsResult.status === 'rejected') {
-      console.error('NBA Stats fetch failed:', nbaStatsResult.reason?.message ?? nbaStatsResult.reason);
+    {
+      const r = enrichmentResults[statsIdx];
+      if (r.status === 'fulfilled') {
+        statsIds = r.value as typeof statsIds;
+      } else {
+        console.error(`${sport} Stats fetch failed:`, (r.reason as any)?.message ?? r.reason);
+      }
     }
 
     const lookupPosition = (norm: string, team: string): string | null => {
@@ -174,19 +268,21 @@ Deno.serve(async (req: Request) => {
     };
 
     const lookupNbaId = (norm: string, team: string): number | null => {
-      if (!nbaIds) return null;
-      return nbaIds.byNameTeam.get(`${norm}|${team}`) ?? nbaIds.byName.get(norm) ?? null;
+      if (!statsIds) return null;
+      return statsIds.byNameTeam.get(`${norm}|${team}`) ?? statsIds.byName.get(norm) ?? null;
     };
 
-    // 4. Fetch our existing players
+    // 4. Fetch our existing players, scoped to this sport (BDL ID namespaces
+    // are separate per sport, so cross-sport name collisions don't matter).
     const { data: existing, error: fetchErr } = await supabase
       .from('players')
-      .select('id, name, position, nba_team, external_id_bdl, external_id_nba');
+      .select('id, name, position, pro_team, external_id_bdl, external_id_nba')
+      .eq('sport', sport);
     if (fetchErr) throw new Error(`Failed to fetch players: ${fetchErr.message}`);
 
     type ExistingRec = {
       id: string;
-      nba_team: string | null;
+      pro_team: string | null;
       position: string | null;
       external_id_bdl: number | null;
       external_id_nba: number | null;
@@ -198,10 +294,10 @@ Deno.serve(async (req: Request) => {
     for (const p of existing ?? []) {
       const rec: ExistingRec = {
         id: p.id,
-        nba_team: p.nba_team,
+        pro_team: p.pro_team,
         position: p.position,
         external_id_bdl: p.external_id_bdl,
-        external_id_nba: p.external_id_nba,
+        external_id_nba: p.external_id_nba ? Number(p.external_id_nba) : null,
       };
       if (p.external_id_bdl) existingByBdlId.set(Number(p.external_id_bdl), rec);
       existingByName.set(normalizeName(p.name), rec);
@@ -214,11 +310,11 @@ Deno.serve(async (req: Request) => {
       return true;
     });
 
-    // 5b. Find existing players whose nba_team changed, plus backfill needs
+    // 5b. Find existing players whose pro_team changed, plus backfill needs
     const bdlActiveIds = new Set<number>();
     const updates: Array<{
       id: string;
-      nba_team?: string;
+      pro_team?: string;
       external_id_bdl?: number;
       position?: string;
       external_id_nba?: number;
@@ -234,8 +330,8 @@ Deno.serve(async (req: Request) => {
       const update: typeof updates[number] = { id: match.id };
       let hasChange = false;
 
-      if (match.nba_team !== bp.nba_team) {
-        update.nba_team = bp.nba_team;
+      if (match.pro_team !== bp.pro_team) {
+        update.pro_team = bp.pro_team;
         hasChange = true;
       }
       // Back-fill bdl_id if matched by name only
@@ -245,15 +341,17 @@ Deno.serve(async (req: Request) => {
       }
       // Back-fill position if currently NULL
       if (!match.position) {
-        const pos = lookupPosition(bp.normName, bp.nba_team);
+        // Prefer Sleeper-derived spectrum (NBA only); fall back to BDL.
+        const pos = lookupPosition(bp.normName, bp.pro_team) ?? bp.bdl_position;
         if (pos) {
           update.position = pos;
           hasChange = true;
         }
       }
-      // Back-fill external_id_nba if currently NULL
+      // Back-fill external_id_nba (the league's Stats personId) if currently NULL.
+      // Used to build cdn.{nba,wnba}.com headshot URLs.
       if (!match.external_id_nba) {
-        const nbaId = lookupNbaId(bp.normName, bp.nba_team);
+        const nbaId = lookupNbaId(bp.normName, bp.pro_team);
         if (nbaId) {
           update.external_id_nba = nbaId;
           hasChange = true;
@@ -266,7 +364,7 @@ Deno.serve(async (req: Request) => {
     // 5c. Players in our DB with a bdl_id who are no longer in the active list → waived / released
     const waivedIds: string[] = [];
     for (const [bdlId, rec] of existingByBdlId) {
-      if (!bdlActiveIds.has(bdlId) && rec.nba_team !== null) {
+      if (!bdlActiveIds.has(bdlId) && rec.pro_team !== null) {
         waivedIds.push(rec.id);
       }
     }
@@ -277,13 +375,16 @@ Deno.serve(async (req: Request) => {
       const toInsert = newPlayers.map((p) => {
         const row: Record<string, any> = {
           name: p.name,
-          nba_team: p.nba_team,
+          sport,
+          pro_team: p.pro_team,
           status: 'active',
           external_id_bdl: p.bdl_id,
         };
-        const pos = lookupPosition(p.normName, p.nba_team);
+        // NBA: prefer Sleeper-derived spectrum, fall back to BDL.
+        // WNBA: BDL is the only source.
+        const pos = lookupPosition(p.normName, p.pro_team) ?? p.bdl_position;
         if (pos) row.position = pos;
-        const nbaId = lookupNbaId(p.normName, p.nba_team);
+        const nbaId = lookupNbaId(p.normName, p.pro_team);
         if (nbaId) row.external_id_nba = nbaId;
         return row;
       });
@@ -300,7 +401,7 @@ Deno.serve(async (req: Request) => {
       const chunk = updates.slice(i, i + 50);
       await Promise.all(chunk.map((u) => {
         const patch: Record<string, any> = {};
-        if (u.nba_team !== undefined) patch.nba_team = u.nba_team;
+        if (u.pro_team !== undefined) patch.pro_team = u.pro_team;
         if (u.external_id_bdl !== undefined) patch.external_id_bdl = u.external_id_bdl;
         if (u.position !== undefined) {
           patch.position = u.position;
@@ -315,12 +416,12 @@ Deno.serve(async (req: Request) => {
       updated += chunk.length;
     }
 
-    // 8. Clear nba_team for waived/released players
+    // 8. Clear pro_team for waived/released players
     let waivedCount = 0;
     if (waivedIds.length > 0) {
       const { error: waivedErr } = await supabase
         .from('players')
-        .update({ nba_team: null })
+        .update({ pro_team: null })
         .in('id', waivedIds);
       if (waivedErr) console.error('Waived update error:', waivedErr.message);
       else waivedCount = waivedIds.length;
@@ -334,6 +435,7 @@ Deno.serve(async (req: Request) => {
     return new Response(
       JSON.stringify({
         ok: true,
+        sport,
         bdl_active: activePlayers.length,
         already_in_db: (existing ?? []).length,
         newly_inserted: newlyInserted,
@@ -342,7 +444,7 @@ Deno.serve(async (req: Request) => {
         nba_ids_backfilled: nbaIdsBackfilled,
         waived_cleared: waivedCount,
         sleeper_ok: sleeperPos !== null,
-        nba_stats_ok: nbaIds !== null,
+        nba_stats_ok: statsIds !== null,
         sample_new: sampleNames,
       }),
       { status: 200, headers: jsonHeaders },

@@ -6,15 +6,22 @@ import {
   SubscriptionTier,
   TIER_COLORS,
   TIER_LABELS,
+  TIER_RANK,
 } from "@/constants/Subscriptions";
 import { useColorScheme } from "@/hooks/useColorScheme";
-import { initPurchases, getOfferings, purchasePackage, restorePurchases } from "@/lib/purchases";
-import Purchases, { PurchasesPackage } from "react-native-purchases";
+import {
+  purchasePackage,
+  restorePurchases,
+  syncSubscriptionFromRC,
+} from "@/lib/purchases";
+import Purchases from "react-native-purchases";
+import { useAppState } from "@/context/AppStateProvider";
 import { useSession } from "@/context/AuthProvider";
-import { useSubscription } from "@/hooks/useSubscription";
+import { useSubscription, waitForSubscriptionChange } from "@/hooks/useSubscription";
+import { useOfferings } from "@/hooks/useOfferings";
 import { useQueryClient } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Alert,
   Modal,
@@ -67,55 +74,39 @@ export function UpgradeModal({
   const c = Colors[scheme];
   const isDark = scheme === "dark";
   const queryClient = useQueryClient();
-  const { individualTier, leagueTier } = useSubscription();
+  const {
+    individualTier,
+    individualPeriod,
+    leagueTier,
+    leaguePeriod,
+  } = useSubscription();
+  const { leagueId } = useAppState();
   // Scope "current plan" to the subscription type the modal is showing.
   // Personal Pro must NOT mark the League Pro card as owned, and vice versa.
   const currentTier: SubscriptionTier = leagueMode
     ? (leagueTier ?? "free")
     : (individualTier ?? "free");
+  const currentPeriod: string | null = leagueMode
+    ? (leaguePeriod ?? null)
+    : (individualPeriod ?? null);
   const session = useSession();
 
-  const [packages, setPackages] = useState<PurchasesPackage[]>([]);
-  const [loadingOfferings, setLoadingOfferings] = useState(false);
-
-  // Init RevenueCat then fetch offerings — sequential, no race condition
-  useEffect(() => {
-    if (!visible || !session?.user?.id) return;
-    let cancelled = false;
-
-    (async () => {
-      setLoadingOfferings(true);
-      await initPurchases(session.user.id);
-      const offering = await getOfferings();
-      if (!cancelled) {
-        setPackages(offering?.availablePackages ?? []);
-        setLoadingOfferings(false);
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [visible, session?.user?.id]);
-
-  const findPkg = (id: string) => packages.find(p => p.identifier === id) ?? null;
+  const { data: offerings, isLoading: loadingOfferings } = useOfferings();
 
   const [annual, setAnnual] = useState(true);
   const [purchasing, setPurchasing] = useState<SubscriptionTier | null>(null);
 
-  const proPackage = leagueMode
-    ? annual
-      ? findPkg("league_pro_annual")
-      : findPkg("league_pro_monthly")
-    : annual
-      ? findPkg("pro_annual")
-      : findPkg("pro_monthly");
+  const proPackage = !offerings
+    ? null
+    : leagueMode
+      ? annual ? offerings.leagueProAnnual : offerings.leagueProMonthly
+      : annual ? offerings.proAnnual : offerings.proMonthly;
 
-  const premiumPackage = leagueMode
-    ? annual
-      ? findPkg("league_premium_annual")
-      : findPkg("league_premium_monthly")
-    : annual
-      ? findPkg("premium_annual")
-      : findPkg("premium_monthly");
+  const premiumPackage = !offerings
+    ? null
+    : leagueMode
+      ? annual ? offerings.leaguePremiumAnnual : offerings.leaguePremiumMonthly
+      : annual ? offerings.premiumAnnual : offerings.premiumMonthly;
 
   async function handleManage() {
     try {
@@ -133,14 +124,45 @@ export function UpgradeModal({
       Alert.alert("Unavailable", "This plan is not available yet.");
       return;
     }
+    const expectedPeriod = annual ? "annual" : "monthly";
 
     setPurchasing(tier);
     try {
       await purchasePackage(pkg);
-      // Give the webhook a moment to write to DB before refetching
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Poll the subscriptions table until the RevenueCat webhook has written
+      // the new tier or period. Without this, invalidating too early races the
+      // webhook and the UI flickers back to the paywall (or still shows
+      // "Switch to Annual" after a monthly→annual swap).
+      let synced = await waitForSubscriptionChange({
+        userId: session?.user?.id,
+        leagueId,
+        leagueMode,
+        expectedTier: tier,
+        expectedPeriod,
+        previousPeriod: currentTier === tier ? (currentPeriod ?? undefined) : undefined,
+      });
+      // Webhook didn't land in time — pull authoritative state from RC ourselves
+      // so the user isn't stuck staring at "Purchase Processing" forever.
+      if (!synced) {
+        await syncSubscriptionFromRC();
+        synced = await waitForSubscriptionChange({
+          userId: session?.user?.id,
+          leagueId,
+          leagueMode,
+          expectedTier: tier,
+          expectedPeriod,
+          previousPeriod: currentTier === tier ? (currentPeriod ?? undefined) : undefined,
+          timeoutMs: 4000,
+        });
+      }
       await queryClient.invalidateQueries({ queryKey: ["userSubscription"] });
       await queryClient.invalidateQueries({ queryKey: ["leagueSubscription"] });
+      if (!synced) {
+        Alert.alert(
+          "Purchase Processing",
+          "Your payment went through but we're still syncing. Your new plan will unlock shortly.",
+        );
+      }
       onClose();
     } catch (err: any) {
       // User cancelled is not an error
@@ -155,9 +177,11 @@ export function UpgradeModal({
   async function handleRestore() {
     setPurchasing("pro"); // just show loading
     try {
+      // restorePurchases() already calls the server-side sync, which writes the
+      // row directly. No webhook race to wait out — just invalidate and read.
       const restored = await restorePurchases();
-      queryClient.invalidateQueries({ queryKey: ["userSubscription"] });
-      queryClient.invalidateQueries({ queryKey: ["leagueSubscription"] });
+      await queryClient.invalidateQueries({ queryKey: ["userSubscription"] });
+      await queryClient.invalidateQueries({ queryKey: ["leagueSubscription"] });
       if (restored) {
         Alert.alert("Restored", "Your subscription has been restored.");
         onClose();
@@ -180,6 +204,68 @@ export function UpgradeModal({
   const premiumDisplay = premiumPackage?.product?.priceString ?? null;
 
   const leagueLabel = leagueMode ? "League " : "";
+  const selectedPeriod = annual ? "annual" : "monthly";
+
+  /**
+   * What the CTA on each plan card should do based on current tier vs target.
+   * - "owned": exact match (same tier and period) — sends to Apple manage screen.
+   * - "switch": same tier, different period — native purchase triggers Apple's swap.
+   * - "upgrade" / "buy": higher tier than current — standard purchase.
+   * - "downgrade": lower tier than current — must go through Apple's manage screen.
+   */
+  type PlanCtaKind = "owned" | "switch" | "upgrade" | "buy" | "downgrade";
+  function ctaFor(targetTier: SubscriptionTier): {
+    kind: PlanCtaKind;
+    label: string;
+    a11yLabel: string;
+  } {
+    const tierLabel = `${leagueLabel}${TIER_LABELS[targetTier]}`;
+    if (currentTier === targetTier) {
+      if (!currentPeriod || currentPeriod === selectedPeriod) {
+        return {
+          kind: "owned",
+          label: "Current Plan — Manage",
+          a11yLabel: `Current plan: ${tierLabel}. Tap to manage.`,
+        };
+      }
+      const switchTo = annual ? "Annual" : "Monthly";
+      return {
+        kind: "switch",
+        label: annual ? `Switch to Annual — save 40%` : `Switch to Monthly`,
+        a11yLabel: `Switch ${tierLabel} to ${switchTo}`,
+      };
+    }
+    if (TIER_RANK[targetTier] > TIER_RANK[currentTier]) {
+      const kind: PlanCtaKind = currentTier === "free" ? "buy" : "upgrade";
+      return {
+        kind,
+        label: currentTier === "free" ? `Get ${tierLabel}` : `Upgrade to ${tierLabel}`,
+        a11yLabel: `${currentTier === "free" ? "Purchase" : "Upgrade to"} ${tierLabel}`,
+      };
+    }
+    return {
+      kind: "downgrade",
+      label: `Downgrade — Manage`,
+      a11yLabel: `Downgrade to ${tierLabel} via the App Store`,
+    };
+  }
+
+  const proCta = ctaFor("pro");
+  const premiumCta = ctaFor("premium");
+
+  /** owned/downgrade go to Apple's screen; switch/upgrade/buy trigger purchase. */
+  const runCta = (kind: PlanCtaKind, tier: SubscriptionTier) => {
+    if (kind === "owned" || kind === "downgrade") return handleManage();
+    return handlePurchase(tier);
+  };
+
+  const headerTitle = leagueMode
+    ? currentTier === "free" ? "Upgrade Your League" : "Manage League Plan"
+    : currentTier === "free"
+      ? "Upgrade to Pro"
+      : currentTier === "pro"
+        ? "Upgrade to Premium"
+        : "Manage Plan";
 
   return (
     <Modal
@@ -192,11 +278,7 @@ export function UpgradeModal({
         {/* Header */}
         <View style={styles.header}>
           <ThemedText type="title" style={styles.headerTitle}>
-            {leagueMode
-              ? "Upgrade Your League"
-              : currentTier === "free"
-                ? "Upgrade to Pro"
-                : "Manage Plan"}
+            {headerTitle}
           </ThemedText>
           <TouchableOpacity
             onPress={onClose}
@@ -331,34 +413,32 @@ export function UpgradeModal({
               style={[
                 styles.purchaseButton,
                 {
-                  backgroundColor: currentTier === "pro"
+                  backgroundColor: proCta.kind === "owned"
                     ? isDark ? "rgba(0,122,255,0.15)" : "rgba(0,122,255,0.1)"
                     : TIER_COLORS.pro,
-                  opacity: (!proPackage && currentTier !== "pro") ? 0.6 : 1,
+                  opacity: (!proPackage && proCta.kind !== "owned" && proCta.kind !== "downgrade") ? 0.6 : 1,
                 },
               ]}
-              onPress={() => currentTier === "pro" ? handleManage() : handlePurchase("pro")}
-              disabled={!!purchasing || loadingOfferings || (!proPackage && currentTier !== "pro")}
+              onPress={() => runCta(proCta.kind, "pro")}
+              disabled={
+                !!purchasing
+                || loadingOfferings
+                || (!proPackage && proCta.kind !== "owned" && proCta.kind !== "downgrade")
+              }
               activeOpacity={0.7}
               accessibilityRole="button"
-              accessibilityLabel={
-                currentTier === "pro"
-                  ? "Current plan: Pro. Tap to manage."
-                  : proDisplay
-                    ? `Upgrade to ${leagueLabel}Pro for ${proDisplay}`
-                    : `Loading ${leagueLabel}Pro pricing`
-              }
+              accessibilityLabel={proCta.a11yLabel}
             >
-              {purchasing === "pro" || (loadingOfferings && currentTier !== "pro") ? (
+              {purchasing === "pro" || (loadingOfferings && proCta.kind !== "owned") ? (
                 <LogoSpinner size={18} />
               ) : (
                 <Text
                   style={[
                     styles.purchaseButtonText,
-                    currentTier === "pro" && { color: TIER_COLORS.pro },
+                    proCta.kind === "owned" && { color: TIER_COLORS.pro },
                   ]}
                 >
-                  {currentTier === "pro" ? "Current Plan — Manage" : `Get ${leagueLabel}Pro`}
+                  {proCta.label}
                 </Text>
               )}
             </TouchableOpacity>
@@ -414,34 +494,32 @@ export function UpgradeModal({
               style={[
                 styles.purchaseButton,
                 {
-                  backgroundColor: currentTier === "premium"
+                  backgroundColor: premiumCta.kind === "owned"
                     ? isDark ? "rgba(255,184,0,0.15)" : "rgba(255,184,0,0.1)"
                     : TIER_COLORS.premium,
-                  opacity: (!premiumPackage && currentTier !== "premium") ? 0.6 : 1,
+                  opacity: (!premiumPackage && premiumCta.kind !== "owned" && premiumCta.kind !== "downgrade") ? 0.6 : 1,
                 },
               ]}
-              onPress={() => currentTier === "premium" ? handleManage() : handlePurchase("premium")}
-              disabled={!!purchasing || loadingOfferings || (!premiumPackage && currentTier !== "premium")}
+              onPress={() => runCta(premiumCta.kind, "premium")}
+              disabled={
+                !!purchasing
+                || loadingOfferings
+                || (!premiumPackage && premiumCta.kind !== "owned" && premiumCta.kind !== "downgrade")
+              }
               activeOpacity={0.7}
               accessibilityRole="button"
-              accessibilityLabel={
-                currentTier === "premium"
-                  ? "Current plan: Premium. Tap to manage."
-                  : premiumDisplay
-                    ? `Upgrade to ${leagueLabel}Premium for ${premiumDisplay}`
-                    : `Loading ${leagueLabel}Premium pricing`
-              }
+              accessibilityLabel={premiumCta.a11yLabel}
             >
-              {purchasing === "premium" || (loadingOfferings && currentTier !== "premium") ? (
+              {purchasing === "premium" || (loadingOfferings && premiumCta.kind !== "owned") ? (
                 <LogoSpinner size={18} />
               ) : (
                 <Text
                   style={[
                     styles.purchaseButtonText,
-                    currentTier === "premium" && { color: TIER_COLORS.premium },
+                    premiumCta.kind === "owned" && { color: TIER_COLORS.premium },
                   ]}
                 >
-                  {currentTier === "premium" ? "Current Plan — Manage" : `Get ${leagueLabel}Premium`}
+                  {premiumCta.label}
                 </Text>
               )}
             </TouchableOpacity>

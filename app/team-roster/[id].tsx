@@ -31,6 +31,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -52,6 +53,7 @@ export default function TeamRosterScreen() {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const { leagueId, teamId: myTeamId } = useAppState();
+  const sport = useActiveLeagueSport(leagueId);
 
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerSeasonStats | null>(null);
   const [showTradeModal, setShowTradeModal] = useState(false);
@@ -271,17 +273,17 @@ export default function TeamRosterScreen() {
             style={styles.slotPlayer}
             onPress={() => setSelectedPlayer(slot.player)}
             accessibilityRole="button"
-            accessibilityLabel={`${slot.player.name}, ${formatPosition(slot.player.position)}, ${slot.player.nba_team}${avgFpts !== null ? `, ${avgFpts.toFixed(1)} average fantasy points` : ''}`}
+            accessibilityLabel={`${slot.player.name}, ${formatPosition(slot.player.position)}, ${slot.player.pro_team}${avgFpts !== null ? `, ${avgFpts.toFixed(1)} average fantasy points` : ''}`}
           >
             {/* Headshot with team pill */}
             <View style={styles.rosterPortraitWrap} accessible={false}>
               {(() => {
-                const url = getPlayerHeadshotUrl(slot.player.external_id_nba);
+                const url = getPlayerHeadshotUrl(slot.player.external_id_nba, sport);
                 return (
                   <View
                     style={[
                       styles.rosterHeadshotCircle,
-                      { borderColor: c.gold, backgroundColor: c.cardAlt },
+                      { borderColor: c.heritageGold, backgroundColor: c.cardAlt },
                     ]}
                     accessible={false}
                   >
@@ -297,7 +299,7 @@ export default function TeamRosterScreen() {
                 );
               })()}
               {(() => {
-                const logoUrl = getTeamLogoUrl(slot.player.nba_team);
+                const logoUrl = getTeamLogoUrl(slot.player.pro_team, sport);
                 return (
                   <View style={styles.rosterTeamPill}>
                     {logoUrl && (
@@ -308,7 +310,7 @@ export default function TeamRosterScreen() {
                       />
                     )}
                     <Text style={[styles.rosterTeamPillText, { color: c.statusText }]}>
-                      {slot.player.nba_team}
+                      {slot.player.pro_team}
                     </Text>
                   </View>
                 );
@@ -332,7 +334,7 @@ export default function TeamRosterScreen() {
                 })()}
               </View>
               <ThemedText style={[styles.slotPlayerSub, { color: c.secondaryText }]} numberOfLines={1}>
-                {formatPosition(slot.player.position)} · {slot.player.nba_team}
+                {formatPosition(slot.player.position)} · {slot.player.pro_team}
               </ThemedText>
             </View>
             {avgFpts !== null && (

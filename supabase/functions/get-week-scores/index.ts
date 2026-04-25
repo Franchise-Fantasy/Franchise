@@ -2,7 +2,6 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { CORS_HEADERS, corsResponse } from "../_shared/cors.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
-import { bdlFetch } from "../_shared/bdl.ts";
 import { pushActivityUpdate } from "../_shared/apns.ts";
 
 const supabase = createClient(
@@ -422,9 +421,11 @@ async function upsertCategoryWins(
   );
 }
 
-// ── NBA game check via balldontlie ───────────────────────────────────────────
+// ── Game activity check ─────────────────────────────────────────────────────
 
-/** Returns true if any NBA game is currently live or recently finished today.
+/** Returns true if any game (any sport) has tipped off today. Reads from
+ *  game_schedule rather than BDL so a single check covers both leagues without
+ *  paying for two API calls.
  *  Between midnight–3am ET, also checks yesterday for late West Coast games. */
 async function hasActiveOrFinishedGames(): Promise<boolean> {
   try {
@@ -434,14 +435,14 @@ async function hasActiveOrFinishedGames(): Promise<boolean> {
     const yesterdayET = new Date(nowET.getTime() - 86_400_000).toISOString().slice(0, 10);
     const datesToCheck = hour < 3 ? [today, yesterdayET] : [today];
 
-    const results = await Promise.all(
-      datesToCheck.map(d => bdlFetch("/games", { "dates[]": d })),
-    );
-    const games = results.flatMap((r: any) => r?.data ?? []);
-    return games.some((g: any) => {
-      const s: string = g.status ?? "";
-      return s === "Final" || /Qtr|Half|OT/i.test(s);
-    });
+    const { data } = await supabase
+      .from('game_schedule')
+      .select('game_id', { head: false, count: 'exact' })
+      .in('game_date', datesToCheck)
+      .lte('game_time_utc', new Date().toISOString())
+      .limit(1);
+
+    return (data?.length ?? 0) > 0;
   } catch {
     return true; // On error, assume games are happening
   }

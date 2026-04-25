@@ -3,9 +3,11 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
 import { DynastyScoreBadge } from './DynastyScoreBadge';
 import { Ionicons } from '@expo/vector-icons';
+import { memo, useCallback } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface ProspectBoardItemProps {
+  playerId: string;
   name: string;
   position: string;
   school: string;
@@ -16,10 +18,12 @@ interface ProspectBoardItemProps {
   userRank?: number;
   drag: () => void;
   isActive: boolean;
-  onPress?: () => void;
+  /** Stable callback — receives playerId so the parent can use a single memoized handler. */
+  onPressItem?: (playerId: string) => void;
 }
 
-export function ProspectBoardItem({
+function ProspectBoardItemBase({
+  playerId,
   name,
   position,
   school,
@@ -28,8 +32,11 @@ export function ProspectBoardItem({
   userRank,
   drag,
   isActive,
-  onPress,
+  onPressItem,
 }: ProspectBoardItemProps) {
+  const onPress = useCallback(() => {
+    onPressItem?.(playerId);
+  }, [onPressItem, playerId]);
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
 
@@ -93,6 +100,8 @@ export function ProspectBoardItem({
     </View>
   );
 }
+
+export const ProspectBoardItem = memo(ProspectBoardItemBase);
 
 const styles = StyleSheet.create({
   row: {

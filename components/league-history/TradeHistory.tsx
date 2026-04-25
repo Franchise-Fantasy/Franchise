@@ -1,7 +1,7 @@
 import { TradeCard } from '@/components/trade/TradeCard';
 import { TradeDetailModal } from '@/components/trade/TradeDetailModal';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Brand, Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { TradeProposalRow, useTradeProposals } from '@/hooks/useTrades';
@@ -28,7 +28,6 @@ export function TradeHistory({ leagueId }: TradeHistoryProps) {
     return allProposals.filter((p) => HISTORICAL_STATUSES.has(p.status));
   }, [allProposals]);
 
-  // Get unique teams involved in trades
   const teams = useMemo(() => {
     const teamMap = new Map<string, string>();
     for (const t of historicalTrades) {
@@ -39,7 +38,6 @@ export function TradeHistory({ leagueId }: TradeHistoryProps) {
     return [...teamMap.entries()].map(([id, name]) => ({ id, name }));
   }, [historicalTrades]);
 
-  // Filter by selected team
   const filteredTrades = useMemo(() => {
     if (!selectedTeam) return historicalTrades;
     return historicalTrades.filter((t) =>
@@ -55,34 +53,53 @@ export function TradeHistory({ leagueId }: TradeHistoryProps) {
     );
   }
 
+  const renderPill = (id: string | null, label: string) => {
+    const isActive = selectedTeam === id;
+    return (
+      <TouchableOpacity
+        key={id ?? 'all'}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityState={{ selected: isActive }}
+        style={[
+          styles.pill,
+          { borderColor: c.border },
+          isActive
+            ? { backgroundColor: Brand.turfGreen, borderColor: Brand.turfGreen }
+            : { backgroundColor: c.cardAlt },
+        ]}
+        onPress={() => setSelectedTeam(id)}
+      >
+        <ThemedText
+          type="varsitySmall"
+          style={[
+            styles.pillText,
+            { color: isActive ? Brand.ecru : c.secondaryText },
+          ]}
+          numberOfLines={1}
+        >
+          {label}
+        </ThemedText>
+      </TouchableOpacity>
+    );
+  };
+
   return (
     <View>
-      {/* Team filter pills */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
-        <TouchableOpacity
-          accessibilityRole="button"
-          accessibilityLabel="All teams"
-          accessibilityState={{ selected: !selectedTeam }}
-          style={[styles.pill, !selectedTeam ? { backgroundColor: c.accent } : { backgroundColor: c.cardAlt }]}
-          onPress={() => setSelectedTeam(null)}
-        >
-          <ThemedText style={[styles.pillText, !selectedTeam && { color: c.accentText }]}>All</ThemedText>
-        </TouchableOpacity>
-        {teams.map((t) => (
-          <TouchableOpacity
-            key={t.id}
-            accessibilityRole="button"
-            accessibilityLabel={t.name}
-            accessibilityState={{ selected: selectedTeam === t.id }}
-            style={[styles.pill, selectedTeam === t.id ? { backgroundColor: c.accent } : { backgroundColor: c.cardAlt }]}
-            onPress={() => setSelectedTeam(t.id)}
-          >
-            <ThemedText style={[styles.pillText, selectedTeam === t.id && { color: c.accentText }]}>{t.name}</ThemedText>
-          </TouchableOpacity>
-        ))}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.filterRowContent}
+        style={styles.filterRow}
+      >
+        {renderPill(null, 'All')}
+        {teams.map((t) => renderPill(t.id, t.name))}
       </ScrollView>
 
-      <ThemedText style={[styles.count, { color: c.secondaryText }]}>
+      <ThemedText
+        type="varsitySmall"
+        style={[styles.count, { color: c.secondaryText }]}
+      >
         {filteredTrades.length} trade{filteredTrades.length !== 1 ? 's' : ''}
       </ThemedText>
 
@@ -108,13 +125,26 @@ export function TradeHistory({ leagueId }: TradeHistoryProps) {
 
 const styles = StyleSheet.create({
   emptyText: { fontSize: ms(13), textAlign: 'center', paddingVertical: s(16) },
-  filterRow: { marginBottom: s(10) },
-  pill: {
-    paddingHorizontal: s(12),
-    paddingVertical: s(6),
-    borderRadius: 16,
-    marginRight: s(8),
+  filterRow: {
+    marginHorizontal: -s(4),
+    marginBottom: s(8),
   },
-  pillText: { fontSize: ms(12), fontWeight: '600' },
-  count: { fontSize: ms(12), marginBottom: s(10) },
+  filterRowContent: {
+    paddingHorizontal: s(4),
+    gap: s(8),
+  },
+  pill: {
+    paddingHorizontal: s(14),
+    paddingVertical: s(7),
+    borderRadius: 8,
+    borderWidth: 1,
+    maxWidth: s(140),
+  },
+  pillText: {
+    fontSize: ms(10),
+  },
+  count: {
+    fontSize: ms(10),
+    marginBottom: s(10),
+  },
 });

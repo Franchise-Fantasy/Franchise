@@ -1,8 +1,10 @@
+import { IconSymbol } from '@/components/ui/IconSymbol';
+import { SportBadge } from '@/components/ui/SportBadge';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { Fonts } from '@/constants/Colors';
+import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
+import { useColors } from '@/hooks/useColors';
 import { ms, s } from '@/utils/scale';
-import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
@@ -10,12 +12,14 @@ interface PageHeaderProps {
   title: string;
   rightAction?: React.ReactNode;
   onBack?: () => void;
+  /** Hide the sport badge — use on screens outside league context (auth, setup). */
+  hideSport?: boolean;
 }
 
-export function PageHeader({ title, rightAction, onBack }: PageHeaderProps) {
+export function PageHeader({ title, rightAction, onBack, hideSport }: PageHeaderProps) {
   const router = useRouter();
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
+  const sport = useActiveLeagueSport();
 
   return (
     <View style={[styles.header, { borderBottomColor: c.border }]}>
@@ -26,14 +30,18 @@ export function PageHeader({ title, rightAction, onBack }: PageHeaderProps) {
         accessibilityRole="button"
         accessibilityLabel="Go back"
       >
-        <Ionicons name="chevron-back" size={22} color={c.accent} />
-        <ThemedText style={[styles.backText, { color: c.accent }]}>Back</ThemedText>
+        <IconSymbol name="chevron.backward" size={20} color={c.icon} accessible={false} />
       </TouchableOpacity>
-      <ThemedText type="defaultSemiBold" style={styles.title} numberOfLines={1} accessibilityRole="header">
+      <ThemedText
+        type="varsity"
+        style={[styles.title, { color: c.secondaryText }]}
+        numberOfLines={1}
+        accessibilityRole="header"
+      >
         {title}
       </ThemedText>
       <View style={[styles.side, styles.sideRight]}>
-        {rightAction ?? null}
+        {rightAction ?? (!hideSport && sport !== 'nba' ? <SportBadge sport={sport} /> : null)}
       </View>
     </View>
   );
@@ -42,27 +50,27 @@ export function PageHeader({ title, rightAction, onBack }: PageHeaderProps) {
 const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
+    padding: s(8),
+    borderBottomWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
-    paddingHorizontal: s(8),
     height: s(50),
-    borderBottomWidth: 1,
+    justifyContent: 'space-between',
   },
   side: {
-    width: s(70),
-    flexDirection: 'row',
+    paddingHorizontal: s(8),
+    minWidth: s(36),
     alignItems: 'center',
+    justifyContent: 'center',
   },
   sideRight: {
-    justifyContent: 'flex-end',
-    overflow: 'visible',
-  },
-  backText: {
-    fontSize: ms(16),
-    fontWeight: '500',
+    alignItems: 'flex-end',
   },
   title: {
     flex: 1,
     textAlign: 'center',
-    fontSize: ms(17),
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(12),
+    letterSpacing: 1.2,
+    marginHorizontal: s(8),
   },
 });

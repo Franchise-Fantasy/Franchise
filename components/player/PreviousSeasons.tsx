@@ -28,7 +28,6 @@ export function PreviousSeasons({
     <View style={styles.section}>
       <View
         style={[styles.table, { borderColor: c.border }]}
-        accessibilityRole="table"
         accessibilityLabel="Previous season stats"
       >
         <View style={[styles.headerRow, { borderBottomColor: c.border }]}>

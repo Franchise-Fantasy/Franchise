@@ -1,3 +1,6 @@
+import { Badge } from '@/components/ui/Badge';
+import { ListRow } from '@/components/ui/ListRow';
+import { Section } from '@/components/ui/Section';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EditBasicsModal } from '@/components/commissioner/EditBasicsModal';
@@ -13,7 +16,6 @@ import { ForceAddDropModal } from '@/components/commissioner/ForceAddDropModal';
 import { ForceRosterMoveModal } from '@/components/commissioner/ForceRosterMoveModal';
 import { ManagePickConditionsModal } from '@/components/commissioner/ManagePickConditionsModal';
 import { PaymentLedgerModal } from '@/components/commissioner/PaymentLedgerModal';
-import { PaymentNudge } from '@/components/home/PaymentNudge';
 import { openPaymentConfirmed } from '@/utils/paymentLinks';
 import { SendAnnouncementModal } from '@/components/commissioner/SendAnnouncementModal';
 import { TransferOwnershipModal } from '@/components/commissioner/TransferOwnershipModal';
@@ -34,6 +36,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeague } from '@/hooks/useLeague';
 import { useLeagueRosterConfig } from '@/hooks/useLeagueRosterConfig';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
+import { useOffseasonActions } from '@/hooks/useOffseasonActions';
 import { usePlayoffBracket } from '@/hooks/usePlayoffBracket';
 import { calcRounds } from '@/utils/playoff';
 import { supabase } from '@/lib/supabase';
@@ -143,46 +146,26 @@ export default function LeagueInfoScreen() {
   const [showLeagueNotifs, setShowLeagueNotifs] = useState(false);
   const [showDivisionsModal, setShowDivisionsModal] = useState(false);
   const [showTransferOwnership, setShowTransferOwnership] = useState(false);
-  const [advancingseason, setAdvancingSeason] = useState(false);
   const [showLeagueUpgrade, setShowLeagueUpgrade] = useState(false);
   const { leagueTier } = useSubscription();
 
-  const handleAdvanceSeason = () => {
-    Alert.alert(
-      'Advance to Offseason',
-      'This will:\n\n- Archive this season\'s stats\n- Reset W/L records\n- Cancel pending trades, waivers, & queued moves\n- Begin the offseason process\n\nThis cannot be undone. Continue?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Advance',
-          style: 'destructive',
-          onPress: async () => {
-            setAdvancingSeason(true);
-            try {
-              const { error } = await supabase.functions.invoke('advance-season', {
-                body: { league_id: league!.id },
-              });
-              if (error) throw error;
-              queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId!) });
-              Alert.alert('Season Advanced', 'The offseason has begun!');
-            } catch (err: any) {
-              Alert.alert('Error', err.message ?? 'Failed to advance season');
-            } finally {
-              setAdvancingSeason(false);
-            }
-          },
-        },
-      ],
-    );
-  };
+  // Shared offseason/advance handlers — same hook the home hero uses.
+  const {
+    advanceSeason: handleAdvanceSeason,
+    loading: advancingseason,
+  } = useOffseasonActions({
+    leagueId: leagueId ?? '',
+    season: league?.season ?? '',
+    isDynasty: (league?.league_type ?? 'dynasty') === 'dynasty',
+  });
 
 
   // ── Render ─────────────────────────────────────────────────────
 
   if (leagueLoading || !league) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
-        <View style={{ marginTop: 60 }}><LogoSpinner delay={0} /></View>
+      <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
+        <View style={{ marginTop: 60 }}><LogoSpinner /></View>
       </SafeAreaView>
     );
   }
@@ -191,143 +174,98 @@ export default function LeagueInfoScreen() {
   const teamCount = league.league_teams?.length ?? league.teams ?? 0;
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
       <PageHeader title="League Info" />
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
 
         {/* ── Commissioner Dashboard ── */}
         {isCommissioner && (
-          <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border, borderLeftWidth: 3, borderLeftColor: c.warning }]}>
-            <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">Commissioner Dashboard</ThemedText>
+          <Section title="Commissioner" cardStyle={styles.sectionCardInner}>
+            {/* League Management */}
+              <ThemedText type="varsitySmall" style={[styles.commGroupLabel, { color: c.secondaryText }]}>
+                League Management
+              </ThemedText>
+              <CommAction
+                icon="megaphone"
+                label="Send Announcement"
+                c={c}
+                onPress={() => setShowSendAnnouncement(true)}
+              />
+              <CommAction
+                icon="cash"
+                label="Payment Ledger"
+                c={c}
+                onPress={() => setShowPaymentLedger(true)}
+              />
+              <CommAction
+                icon="people"
+                label="Transfer Team Ownership"
+                c={c}
+                onPress={() => setShowTransferOwnership(true)}
+              />
+              <CommAction
+                icon="diamond"
+                label={leagueTier ? 'Manage League Plan' : 'Upgrade League'}
+                subLabel={leagueTier ? `Currently ${TIER_LABELS[leagueTier]}` : undefined}
+                accent
+                c={c}
+                onPress={() => setShowLeagueUpgrade(true)}
+                last
+              />
 
-            {/* ── League Management ── */}
-            <ThemedText style={[styles.commGroupLabel, { color: c.secondaryText }]} accessibilityRole="header">League Management</ThemedText>
-            <TouchableOpacity
-              style={[styles.commAction, { borderBottomColor: c.border }]}
-              onPress={() => setShowSendAnnouncement(true)}
-              accessibilityRole="button"
-              accessibilityLabel="Send Announcement"
-            >
-              <Ionicons name="megaphone" size={18} color={c.warning} accessible={false} />
-              <ThemedText style={[styles.commActionText, { color: c.warning }]}>Send Announcement</ThemedText>
-              <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.commAction, { borderBottomColor: c.border }]}
-              onPress={() => setShowPaymentLedger(true)}
-              accessibilityRole="button"
-              accessibilityLabel="Payment Ledger"
-            >
-              <Ionicons name="cash" size={18} color={c.success} accessible={false} />
-              <ThemedText style={[styles.commActionText, { color: c.success }]}>Payment Ledger</ThemedText>
-              <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.commAction, { borderBottomColor: c.border }]}
-              onPress={() => setShowTransferOwnership(true)}
-              accessibilityRole="button"
-              accessibilityLabel="Transfer Team Ownership"
-            >
-              <Ionicons name="people" size={18} color={c.text} accessible={false} />
-              <ThemedText style={styles.commActionText}>Transfer Team Ownership</ThemedText>
-              <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.commAction, { borderBottomWidth: 0 }]}
-              onPress={() => setShowLeagueUpgrade(true)}
-              accessibilityRole="button"
-              accessibilityLabel={leagueTier ? `League plan: ${TIER_LABELS[leagueTier]}` : 'Upgrade league plan'}
-            >
-              <Ionicons name="diamond" size={18} color={TIER_COLORS.pro} accessible={false} />
-              <View style={{ flex: 1 }}>
-                <ThemedText style={[styles.commActionText, { color: TIER_COLORS.pro }]}>
-                  {leagueTier ? 'Manage League Plan' : 'Upgrade League'}
-                </ThemedText>
-                {leagueTier && (
-                  <ThemedText style={{ fontSize: ms(11), color: c.secondaryText, marginTop: 2 }}>
-                    Currently {TIER_LABELS[leagueTier]}
+              {/* Season */}
+              {lifecycle === 'mid_season' && !league?.offseason_step && (
+                <>
+                  <ThemedText type="varsitySmall" style={[styles.commGroupLabel, { color: c.secondaryText }]}>
+                    Season
                   </ThemedText>
-                )}
-              </View>
-              <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
-            </TouchableOpacity>
+                  <CommAction
+                    icon="calendar"
+                    label="Advance to Offseason"
+                    subLabel={!playoffsComplete ? 'Playoffs must finish first' : undefined}
+                    c={c}
+                    onPress={handleAdvanceSeason}
+                    disabled={advancingseason || !playoffsComplete}
+                    loading={advancingseason}
+                    last
+                  />
+                </>
+              )}
 
-            {/* ── Season ── */}
-            {lifecycle === 'mid_season' && !league?.offseason_step && (
-              <>
-                <ThemedText style={[styles.commGroupLabel, { color: c.secondaryText }]} accessibilityRole="header">Season</ThemedText>
-                <TouchableOpacity
-                  style={[styles.commAction, { borderBottomWidth: 0 }, (advancingseason || !playoffsComplete) && { opacity: 0.5 }]}
-                  onPress={handleAdvanceSeason}
-                  disabled={advancingseason || !playoffsComplete}
-                  accessibilityRole="button"
-                  accessibilityLabel={playoffsComplete ? 'Advance to Offseason' : 'Advance to Offseason, disabled until playoffs complete'}
-                  accessibilityState={{ disabled: advancingseason || !playoffsComplete }}
-                >
-                  <Ionicons name="calendar" size={18} color={c.warning} accessible={false} />
-                  <View style={{ flex: 1 }}>
-                    <ThemedText style={[styles.commActionText, { color: c.warning }]}>Advance to Offseason</ThemedText>
-                    {!playoffsComplete && (
-                      <ThemedText style={{ fontSize: ms(11), color: c.secondaryText, marginTop: 2 }}>
-                        Playoffs must finish first
-                      </ThemedText>
-                    )}
-                  </View>
-                  {advancingseason ? (
-                    <LogoSpinner size={18} delay={0} />
-                  ) : (
-                    <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
-                  )}
-                </TouchableOpacity>
-              </>
-            )}
-
-            {/* ── Roster & Trade Corrections ── */}
-            <ThemedText style={[styles.commGroupLabel, { color: c.secondaryText }]} accessibilityRole="header">Roster & Trade Corrections</ThemedText>
-            <TouchableOpacity
-              style={[styles.commAction, { borderBottomColor: c.border }]}
-              onPress={() => setShowReverseTrade(true)}
-              accessibilityRole="button"
-              accessibilityLabel="Reverse Trade"
-            >
-              <Ionicons name="arrow-undo" size={18} color={c.text} accessible={false} />
-              <ThemedText style={styles.commActionText}>Reverse Trade</ThemedText>
-              <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.commAction, { borderBottomColor: c.border }]}
-              onPress={() => setShowForceAddDrop(true)}
-              accessibilityRole="button"
-              accessibilityLabel="Force Add or Drop"
-            >
-              <Ionicons name="person-add" size={18} color={c.text} accessible={false} />
-              <ThemedText style={styles.commActionText}>Force Add/Drop</ThemedText>
-              <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.commAction, { borderBottomColor: c.border, borderBottomWidth: (league?.league_type ?? 'dynasty') === 'dynasty' && league?.pick_conditions_enabled ? StyleSheet.hairlineWidth : 0 }]}
-              onPress={() => setShowForceMove(true)}
-              accessibilityRole="button"
-              accessibilityLabel="Force Roster Move"
-            >
-              <Ionicons name="swap-vertical" size={18} color={c.text} accessible={false} />
-              <ThemedText style={styles.commActionText}>Force Roster Move</ThemedText>
-              <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
-            </TouchableOpacity>
-            {(league?.league_type ?? 'dynasty') === 'dynasty' && league?.pick_conditions_enabled && (
-              <TouchableOpacity
-                style={[styles.commAction, { borderBottomWidth: 0 }]}
-                onPress={() => setShowPickConditions(true)}
-                accessibilityRole="button"
-                accessibilityLabel="Manage Pick Conditions"
-              >
-                <Ionicons name="shield-checkmark" size={18} color={c.text} accessible={false} />
-                <ThemedText style={styles.commActionText}>Manage Pick Conditions</ThemedText>
-                <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
-              </TouchableOpacity>
-            )}
-          </View>
+              {/* Roster & Trade Corrections */}
+              <ThemedText type="varsitySmall" style={[styles.commGroupLabel, { color: c.secondaryText }]}>
+                Roster & Trade Corrections
+              </ThemedText>
+              <CommAction
+                icon="arrow-undo"
+                label="Reverse Trade"
+                c={c}
+                onPress={() => setShowReverseTrade(true)}
+              />
+              <CommAction
+                icon="person-add"
+                label="Force Add/Drop"
+                c={c}
+                onPress={() => setShowForceAddDrop(true)}
+              />
+              <CommAction
+                icon="swap-vertical"
+                label="Force Roster Move"
+                c={c}
+                onPress={() => setShowForceMove(true)}
+                last={!((league?.league_type ?? 'dynasty') === 'dynasty' && league?.pick_conditions_enabled)}
+              />
+              {(league?.league_type ?? 'dynasty') === 'dynasty' && league?.pick_conditions_enabled && (
+                <CommAction
+                  icon="shield-checkmark"
+                  label="Manage Pick Conditions"
+                  c={c}
+                  onPress={() => setShowPickConditions(true)}
+                  last
+                />
+              )}
+          </Section>
         )}
 
         {/* ── Team Assignment (imported leagues) ── */}
@@ -381,32 +319,6 @@ export default function LeagueInfoScreen() {
           <Row label="Season" value={league.season} c={c} />
           {commissionerTeam && <Row label="Commissioner" value={commissionerTeam.name} c={c} last />}
         </SectionCard>
-
-        {/* Non-commissioner: payment nudge + ledger link */}
-        {!isCommissioner && !!league.buy_in_amount && teamId && (
-          <View style={{ marginHorizontal: 16 }}>
-            <PaymentNudge
-              leagueId={leagueId!}
-              leagueName={league.name}
-              season={league.season}
-              teamId={teamId}
-              buyInAmount={league.buy_in_amount}
-              venmoUsername={league.venmo_username ?? null}
-              cashappTag={league.cashapp_tag ?? null}
-              paypalUsername={league.paypal_username ?? null}
-            />
-            <TouchableOpacity
-              style={[styles.paymentLedgerBtn, { backgroundColor: c.card, borderColor: c.border }]}
-              onPress={() => setShowPaymentLedger(true)}
-              accessibilityRole="button"
-              accessibilityLabel="View Payment Ledger"
-            >
-              <Ionicons name="cash-outline" size={18} color={c.success} accessible={false} />
-              <ThemedText style={{ color: c.success, fontWeight: '600', flex: 1, marginLeft: 8 }}>View Payment Ledger</ThemedText>
-              <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
-            </TouchableOpacity>
-          </View>
-        )}
 
         {/* ── Roster Configuration ── */}
         <SectionCard title={`Roster (${league.roster_size ?? '?'} slots)`} c={c} editable={sectionEditable('roster', lifecycle, isCommissioner)} onEdit={() => setShowRosterModal(true)}>
@@ -517,28 +429,30 @@ export default function LeagueInfoScreen() {
         {/* ── Assign Divisions (commissioner, pre-season, 2 divisions) ── */}
         {isCommissioner && league.division_count === 2 && lifecycle !== 'mid_season' && (
           <TouchableOpacity
-            style={[styles.section, { backgroundColor: c.card, borderColor: c.border, flexDirection: 'row', alignItems: 'center', gap: 10 }]}
+            style={[styles.navRow, { backgroundColor: c.card, borderColor: c.border }]}
             onPress={() => setShowDivisionsModal(true)}
             accessibilityRole="button"
             accessibilityLabel="Assign teams to divisions"
           >
-            <Ionicons name="git-branch-outline" size={20} color={c.accent} accessible={false} />
-            <ThemedText style={{ flex: 1, fontSize: ms(14) }}>Assign Divisions</ThemedText>
-            <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
+            <Ionicons name="git-branch-outline" size={18} color={c.heritageGold} accessible={false} />
+            <ThemedText style={[styles.navRowText, { color: c.text }]}>Assign Divisions</ThemedText>
+            <Ionicons name="chevron-forward" size={14} color={c.secondaryText} accessible={false} />
           </TouchableOpacity>
         )}
 
         {/* ── Members ── */}
-        <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
-          <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">Members</ThemedText>
+        <Section title="Members" cardStyle={styles.membersCard}>
           {(league.league_teams ?? []).map((team: any, idx: number) => {
             const isMine = team.id === teamId;
+            const total = league.league_teams?.length ?? 0;
             return (
-              <View
+              <ListRow
                 key={team.id}
-                style={[styles.memberRow, idx === (league.league_teams?.length ?? 0) - 1 && { borderBottomWidth: 0 }, { borderBottomColor: c.border }]}
+                index={idx}
+                total={total}
+                style={styles.memberRow}
               >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                <View style={styles.memberLeft}>
                   <TeamLogo logoKey={team.logo_key} teamName={team.name} tricode={team.tricode} size="medium" />
                   <TouchableOpacity
                     disabled={!isMine}
@@ -563,7 +477,7 @@ export default function LeagueInfoScreen() {
                       );
                     }}
                   >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <View style={styles.memberNameRow}>
                       <ThemedText>{team.name}</ThemedText>
                       {isMine && <Ionicons name="pencil" size={10} color={c.secondaryText} />}
                     </View>
@@ -601,54 +515,55 @@ export default function LeagueInfoScreen() {
                     </View>
                   </TouchableOpacity>
                 </View>
-                {team.is_commissioner && (
-                  <View style={[styles.commBadge, { backgroundColor: c.activeCard, borderColor: c.activeBorder }]}>
-                    <ThemedText style={[styles.commBadgeText, { color: c.activeText }]}>Commish</ThemedText>
-                  </View>
-                )}
-              </View>
+                {team.is_commissioner && <Badge label="Commish" variant="turf" />}
+              </ListRow>
             );
           })}
-        </View>
+        </Section>
 
         {/* ── League Notification Preferences ── */}
         <TouchableOpacity
-          style={[styles.section, { backgroundColor: c.card, borderColor: c.border, flexDirection: 'row', alignItems: 'center', gap: 10 }]}
+          style={[styles.navRow, { backgroundColor: c.card, borderColor: c.border }]}
           onPress={() => setShowLeagueNotifs(true)}
           accessibilityRole="button"
           accessibilityLabel="League notification preferences"
         >
-          <Ionicons name="notifications-outline" size={20} color={c.accent} accessible={false} />
-          <ThemedText style={{ flex: 1, fontSize: ms(14) }}>Notification Preferences</ThemedText>
-          <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
+          <Ionicons name="notifications-outline" size={18} color={c.heritageGold} accessible={false} />
+          <ThemedText style={[styles.navRowText, { color: c.text }]}>Notification Preferences</ThemedText>
+          <Ionicons name="chevron-forward" size={14} color={c.secondaryText} accessible={false} />
         </TouchableOpacity>
 
         {/* ── Announcements ── */}
         {(announcements ?? []).length > 0 && (
-          <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">Announcements</ThemedText>
-              {isCommissioner && (
-                <TouchableOpacity onPress={() => setShowSendAnnouncement(true)} style={{ paddingHorizontal: 12, paddingVertical: 4 }} accessibilityRole="button" accessibilityLabel="Add announcement">
-                  <Ionicons name="add-circle" size={22} color={c.accent} accessible={false} />
-                </TouchableOpacity>
-              )}
-            </View>
+          <Section
+            title="Announcements"
+            action={
+              isCommissioner
+                ? {
+                    icon: 'add-circle',
+                    onPress: () => setShowSendAnnouncement(true),
+                    accessibilityLabel: 'Add announcement',
+                  }
+                : undefined
+            }
+            cardStyle={styles.sectionCardInner}
+          >
             {(announcements ?? []).map((a, idx) => (
-              <View
+              <ListRow
                 key={a.id}
-                style={[
-                  styles.announcementRow,
-                  idx < (announcements?.length ?? 1) - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.border },
-                ]}
+                index={idx}
+                total={announcements?.length ?? 1}
+                style={styles.announcementRow}
               >
-                <ThemedText style={[styles.announcementDate, { color: c.secondaryText }]}>
-                  {new Date(a.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                </ThemedText>
-                <ThemedText style={styles.announcementText}>{a.content}</ThemedText>
-              </View>
+                <View style={styles.announcementContent}>
+                  <ThemedText type="mono" style={[styles.announcementDate, { color: c.secondaryText }]}>
+                    {new Date(a.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  </ThemedText>
+                  <ThemedText style={[styles.announcementText, { color: c.text }]}>{a.content}</ThemedText>
+                </View>
+              </ListRow>
             ))}
-          </View>
+          </Section>
         )}
 
         {/* ── Season History ── */}
@@ -781,8 +696,8 @@ export default function LeagueInfoScreen() {
         </>
       )}
 
-      {/* Payment Ledger — available to all members */}
-      {leagueId && (
+      {/* Payment Ledger — commissioner only */}
+      {isCommissioner && leagueId && (
         <PaymentLedgerModal
           visible={showPaymentLedger}
           leagueId={leagueId}
@@ -812,34 +727,100 @@ export default function LeagueInfoScreen() {
 
 function Row({ label, value, c, last }: { label: string; value: string; c: any; last?: boolean }) {
   return (
-    <View style={[styles.row, !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.border }]}>
-      <ThemedText style={[styles.rowLabel, { color: c.secondaryText }]}>{label}</ThemedText>
-      <ThemedText style={styles.rowValue}>{value}</ThemedText>
+    <View
+      style={[
+        styles.row,
+        !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.border },
+      ]}
+    >
+      <ThemedText style={[styles.rowLabel, { color: c.secondaryText }]} numberOfLines={2}>
+        {label}
+      </ThemedText>
+      <ThemedText style={[styles.rowValue, { color: c.text }]} numberOfLines={2}>
+        {value}
+      </ThemedText>
     </View>
   );
 }
 
+function CommAction({
+  icon,
+  label,
+  subLabel,
+  c,
+  onPress,
+  disabled,
+  loading,
+  last,
+  accent,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  subLabel?: string;
+  c: any;
+  onPress: () => void;
+  disabled?: boolean;
+  loading?: boolean;
+  last?: boolean;
+  accent?: boolean;
+}) {
+  const iconColor = accent ? c.heritageGold : c.text;
+  const labelColor = accent ? c.heritageGold : c.text;
+  return (
+    <TouchableOpacity
+      style={[
+        styles.commAction,
+        !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.border },
+        disabled && { opacity: 0.5 },
+      ]}
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: !!disabled }}
+    >
+      <Ionicons name={icon} size={16} color={iconColor} accessible={false} />
+      <View style={{ flex: 1 }}>
+        <ThemedText style={[styles.commActionText, { color: labelColor }]}>{label}</ThemedText>
+        {subLabel && (
+          <ThemedText style={{ fontSize: ms(11), color: c.secondaryText, marginTop: s(2) }}>
+            {subLabel}
+          </ThemedText>
+        )}
+      </View>
+      {loading ? (
+        <LogoSpinner size={16} delay={0} />
+      ) : (
+        <Ionicons name="chevron-forward" size={14} color={c.secondaryText} accessible={false} />
+      )}
+    </TouchableOpacity>
+  );
+}
+
 function SectionCard({
-  title, c, editable, onEdit, children,
+  title, editable, onEdit, children,
 }: {
   title: string;
-  c: any;
+  // `c` was previously forwarded to inline styles; the Section primitive
+  // owns its own theme access now, so the prop is optional here for
+  // backwards compat with existing call sites that still pass it.
+  c?: any;
   editable?: boolean;
   onEdit?: () => void;
   children: React.ReactNode;
 }) {
   return (
-    <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}>
-      <View style={styles.sectionHeader}>
-        <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">{title}</ThemedText>
-        {editable && onEdit && (
-          <TouchableOpacity onPress={onEdit} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Edit ${title}`}>
-            <Ionicons name="pencil" size={16} color={c.accent} accessible={false} />
-          </TouchableOpacity>
-        )}
-      </View>
+    <Section
+      title={title}
+      action={
+        editable && onEdit
+          ? { icon: 'pencil', onPress: onEdit, accessibilityLabel: `Edit ${title}` }
+          : undefined
+      }
+      cardStyle={styles.sectionCardInner}
+    >
       {children}
-    </View>
+    </Section>
   );
 }
 
@@ -847,98 +828,132 @@ function SectionCard({
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  paymentLedgerBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: s(14),
-    marginBottom: s(12),
-    borderRadius: 10,
-    borderWidth: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: s(8),
-    paddingVertical: s(12),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  backBtn: { width: s(70), paddingHorizontal: s(8) },
-  backText: { fontSize: ms(16), fontWeight: '500' },
-  titleText: { fontSize: ms(16), textAlign: 'center' },
   scroll: { flex: 1 },
-  scrollContent: { padding: s(16), paddingBottom: s(40) },
+  scrollContent: { paddingHorizontal: s(20), paddingTop: s(12), paddingBottom: s(40) },
 
-  // Section card
-  section: {
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: s(14),
-    marginBottom: s(12),
+  // Tighter vertical rhythm than the Section primitive default — this
+  // screen stacks many short sections, so the denser s(6) padding reads
+  // more like a settings list than a content card.
+  sectionCardInner: {
+    paddingTop: s(6),
+    paddingBottom: s(6),
   },
-  sectionHeader: {
+  // Members section drops the card's horizontal padding so ListRow's
+  // own 14-unit padding handles content insets and the (future) active
+  // row bg would span the card's full width. Keeps rhythm consistent
+  // with the standings tables.
+  membersCard: {
+    paddingHorizontal: 0,
+    paddingTop: s(4),
+    paddingBottom: s(4),
+  },
+
+  // Inline one-tap nav row (shares card look but no header above)
+  navRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: s(8),
+    gap: s(10),
+    paddingHorizontal: s(14),
+    paddingVertical: s(14),
+    borderWidth: 1,
+    borderRadius: 14,
+    marginBottom: s(14),
   },
-  sectionTitle: { fontSize: ms(15) },
+  navRowText: {
+    flex: 1,
+    fontSize: ms(14),
+  },
 
-  // Rows
+  // Rows inside a sectionCard
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: s(6),
+    paddingVertical: s(11),
+    gap: s(12),
   },
-  rowLabel: { fontSize: ms(14) },
-  rowValue: { fontSize: ms(14), fontWeight: '500' },
-  summaryText: { fontSize: ms(14), lineHeight: ms(22) },
+  rowLabel: {
+    fontSize: ms(14),
+    flexShrink: 1,
+  },
+  rowValue: {
+    fontSize: ms(14),
+    fontWeight: '500',
+    textAlign: 'right',
+    flexShrink: 1,
+  },
+  summaryText: {
+    fontSize: ms(13),
+    lineHeight: ms(20),
+    paddingVertical: s(10),
+  },
 
-  // Members
+  // Members — ListRow supplies the divider + pressability. We just
+  // override to keep the commish Badge pushed to the right edge.
   memberRow: {
-    flexDirection: 'row',
     justifyContent: 'space-between',
+  },
+  memberLeft: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: s(8),
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: 8,
+    flex: 1,
   },
-  commBadge: {
-    paddingHorizontal: s(8),
-    paddingVertical: s(2),
-    borderRadius: 8,
-    borderWidth: 1,
+  memberNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
-  commBadgeText: { fontSize: ms(11), fontWeight: '600' },
   tricodeBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: s(3),
-    paddingHorizontal: s(6),
-    paddingVertical: s(2),
+    paddingHorizontal: s(7),
+    paddingVertical: s(3),
     borderRadius: 4,
   },
-  tricodeText: { fontSize: ms(11), fontWeight: '700', letterSpacing: 0.5 },
+  tricodeText: {
+    fontSize: ms(11),
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
 
   // Commissioner actions
   commAction: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: s(12),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    gap: s(10),
+    paddingVertical: s(13),
+    gap: s(12),
   },
-  commActionText: { flex: 1, fontSize: ms(14) },
+  commActionText: {
+    flex: 1,
+    fontSize: ms(14),
+  },
   commGroupLabel: {
-    fontSize: ms(11),
-    fontWeight: '600',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-    marginTop: s(14),
-    marginBottom: s(4),
+    fontSize: ms(10),
+    marginTop: s(12),
+    marginBottom: s(2),
   },
-  announcementRow: { paddingVertical: s(10), paddingHorizontal: s(12) },
-  announcementDate: { fontSize: ms(12), marginBottom: s(2) },
-  announcementText: { fontSize: ms(14) },
 
+  // Announcements — content stacks vertically (date above body text).
+  // ListRow defaults to row layout, so we restyle the outer row to be
+  // stretched & less horizontally indented (content is already inside
+  // a card with its own 14-unit padding).
+  announcementRow: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    paddingHorizontal: s(2),
+  },
+  announcementContent: {
+    // Plain wrapper so date + body stack the same way they did
+    // pre-refactor.
+  },
+  announcementDate: {
+    fontSize: ms(11),
+    marginBottom: s(3),
+  },
+  announcementText: {
+    fontSize: ms(14),
+    lineHeight: ms(20),
+  },
 });

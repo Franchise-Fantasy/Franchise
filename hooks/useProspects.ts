@@ -3,6 +3,8 @@ import { contentful } from '@/lib/contentful';
 import { mapProspectCard } from '@/lib/prospect-mappers';
 import { supabase } from '@/lib/supabase';
 import { useAppState } from '@/context/AppStateProvider';
+import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
+import { SPORT_DISPLAY } from '@/constants/LeagueDefaults';
 import type { ProspectCardData } from '@/types/prospect';
 import { useQuery } from '@tanstack/react-query';
 
@@ -11,33 +13,37 @@ import { useQuery } from '@tanstack/react-query';
  * Filters out prospects already rostered in the user's current league.
  * Sorts by dynastyValueScore descending.
  */
-export function useProspects(draftYear: string) {
+export function useProspects(draftYear: string, enabled: boolean = true) {
   const { leagueId } = useAppState();
+  const sport = useActiveLeagueSport();
+  const contentfulSport = SPORT_DISPLAY[sport]; // 'NBA' | 'WNBA'
 
   // Fetch Contentful entries
   const contentfulQuery = useQuery<ProspectCardData[]>({
-    queryKey: queryKeys.prospects(draftYear),
+    queryKey: [...queryKeys.prospects(draftYear), sport],
     queryFn: async () => {
       const response = await contentful.getEntries({
         content_type: 'prospect',
-        'fields.sport': 'NBA',
+        'fields.sport': contentfulSport,
         'fields.projectedDraftYear': draftYear,
         order: ['-fields.dynastyValueScore'],
         limit: 200,
       });
       return response.items.map(mapProspectCard);
     },
+    enabled,
     staleTime: 1000 * 60 * 5,
   });
 
   // Fetch player IDs that are prospects in our DB (to get players.id and filter rostered)
   const playersQuery = useQuery({
-    queryKey: queryKeys.prospectPlayers(leagueId ?? ''),
+    queryKey: [...queryKeys.prospectPlayers(leagueId ?? ''), sport],
     queryFn: async () => {
       // Get all prospect player rows with their contentful_entry_id
       const { data: prospects, error: pErr } = await supabase
         .from('players')
         .select('id, contentful_entry_id')
+        .eq('sport', sport)
         .eq('is_prospect', true)
         .eq('status', 'prospect');
 
@@ -58,7 +64,7 @@ export function useProspects(draftYear: string) {
         rosteredIds,
       };
     },
-    enabled: !!leagueId,
+    enabled: enabled && !!leagueId,
     staleTime: 1000 * 60 * 5,
   });
 

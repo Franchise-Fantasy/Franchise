@@ -94,7 +94,7 @@ export function useSurveyResults(surveyId: string | null) {
       const { data, error } = await supabase
         .rpc('get_survey_results', { p_survey_id: surveyId! });
       if (error) throw error;
-      return (data ?? []) as SurveyQuestionResult[];
+      return ((data ?? []) as unknown) as SurveyQuestionResult[];
     },
     enabled: !!surveyId,
     staleTime: 1000 * 60 * 2,

@@ -322,10 +322,10 @@ Deno.serve(async (req) => {
         const taxiPlayerIds = taxiPlayers.map(tp => tp.player_id);
         const { data: players } = await supabaseAdmin
           .from('players')
-          .select('id, nba_draft_year')
+          .select('id, draft_year')
           .in('id', taxiPlayerIds);
 
-        const draftYearMap = new Map((players ?? []).map(p => [p.id, p.nba_draft_year]));
+        const draftYearMap = new Map((players ?? []).map(p => [p.id, p.draft_year]));
         const newYear = parseInt(newSeason.split('-')[0], 10) + 1;
         const promotedIds: string[] = [];
 

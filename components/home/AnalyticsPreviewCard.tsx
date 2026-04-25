@@ -1,4 +1,4 @@
-import { Colors, cardShadowMedium } from '@/constants/Colors';
+import { Brand, Colors, cardShadow } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
 import { ms, s } from '@/utils/scale';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -7,24 +7,34 @@ import { useLeagueRosterStats } from '@/hooks/useLeagueRosterStats';
 import {
   buildLeagueComparison,
   calculateRosterAgeProfile,
-  getInsightText,
 } from '@/utils/rosterAge';
 import {
   computeTeamCategoryAvgs,
   computeTeamZScores,
-  CAT_ORDER,
 } from '@/utils/categoryAnalytics';
-import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useMemo } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '../ui/ThemedText';
+import { IconSymbol } from '../ui/IconSymbol';
 
-export function AnalyticsPreviewCard({ leagueId, scoringType }: { leagueId: string; scoringType?: string }) {
+/**
+ * Analytics preview — one solid card matching the rest of the home
+ * surfaces (no nested pill sub-cards). Two columns separated by a thin
+ * rule: a primary stat on the left, a framing counterpart on the right.
+ * A Turf Green notch up top echoes the hero's gold notch without
+ * repeating the hero's color — keeps the screen from feeling monotone.
+ */
+export function AnalyticsPreviewCard({
+  leagueId,
+  scoringType,
+}: {
+  leagueId: string;
+  scoringType?: string;
+}) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
-  const isDark = scheme === 'dark';
   const router = useRouter();
   const { teamId } = useAppState();
 
@@ -46,11 +56,6 @@ export function AnalyticsPreviewCard({ leagueId, scoringType }: { leagueId: stri
     return buildLeagueComparison(allPlayers as any, weights, teamId);
   }, [allPlayers, weights, teamId]);
 
-  const insight = useMemo(() => {
-    if (!profile) return '';
-    return getInsightText(profile, comparison);
-  }, [profile, comparison]);
-
   const isCategories = scoringType === 'h2h_categories';
 
   const teamAvgs = useMemo(() => {
@@ -63,232 +68,278 @@ export function AnalyticsPreviewCard({ leagueId, scoringType }: { leagueId: stri
     return computeTeamZScores(teamAvgs, teamId);
   }, [teamAvgs, teamId]);
 
-  const topStrengths = useMemo(() => {
-    if (!zScores?.length) return [];
-    return [...zScores].sort((a, b) => b.zScore - a.zScore).slice(0, 3);
+  const bestCategory = useMemo(() => {
+    if (!zScores?.length) return null;
+    return [...zScores].sort((a, b) => b.zScore - a.zScore)[0];
   }, [zScores]);
 
-  const topWeaknesses = useMemo(() => {
-    if (!zScores?.length) return [];
-    return [...zScores].sort((a, b) => a.zScore - b.zScore).slice(0, 3);
+  const worstCategory = useMemo(() => {
+    if (!zScores?.length) return null;
+    return [...zScores].sort((a, b) => a.zScore - b.zScore)[0];
   }, [zScores]);
+
+  // "4th youngest of 10" / "3rd oldest of 10" — phrased from whichever
+  // end of the age scale is shorter for this team, so the number is
+  // always a small, easily-parsed position.
+  const { rankValue, rankSub } = useMemo(() => {
+    if (!comparison) return { rankValue: '—', rankSub: '' };
+    const rank = comparison.weightedAgeRank; // 1 = youngest
+    const total = comparison.totalTeams;
+    const fromYoungest = rank <= Math.ceil(total / 2);
+    const n = fromYoungest ? rank : total - rank + 1;
+    return {
+      rankValue: `${n}${ordinalSuffix(n)}`,
+      rankSub: `${fromYoungest ? 'youngest' : 'oldest'} of ${total}`,
+    };
+  }, [comparison]);
 
   if (!teamId) return null;
 
   const isLoading = loadingPlayers || loadingScoring;
-  const skewsOlder = profile ? profile.weightedProductionAge > profile.avgAge : false;
-  const prodColor = isDark
-    ? skewsOlder ? '#818CF8' : '#60A5FA'
-    : skewsOlder ? '#6366F1' : '#2563EB';
-
   const vsLeague = comparison
     ? profile!.weightedProductionAge - comparison.leagueAvgWeightedAge
     : null;
 
+  // Whether the card has enough data to bother navigating into the full
+  // analytics screen. Empty/loading states shouldn't be tappable — there's
+  // nothing behind the tap and the affordance is misleading.
+  const hasData =
+    !isLoading &&
+    (isCategories
+      ? !!bestCategory && !!worstCategory
+      : !!profile && profile.totalWithAge >= 3);
+
+  const CardWrapper = hasData ? TouchableOpacity : View;
+  const wrapperProps = hasData
+    ? {
+        onPress: () => router.push('/analytics' as never),
+        activeOpacity: 0.78,
+        accessibilityRole: 'button' as const,
+        accessibilityLabel: 'Analytics preview. Tap to view full analytics',
+      }
+    : {};
+
   return (
-    <TouchableOpacity
-      style={[styles.card, {
-        backgroundColor: isDark ? 'rgba(96,165,250,0.06)' : 'rgba(96,165,250,0.05)',
-        borderColor: isDark ? 'rgba(96,165,250,0.15)' : 'rgba(96,165,250,0.2)',
-        ...cardShadowMedium,
-      }]}
-      onPress={() => router.push('/analytics' as any)}
-      activeOpacity={0.7}
-      accessibilityRole="button"
-      accessibilityLabel="Roster Analytics preview. Tap to view full analytics"
-    >
-      {/* Header */}
+    <View style={styles.container}>
       <View style={styles.headerRow}>
-        <View style={styles.headerLeft}>
-          <Ionicons
-            name="analytics"
-            size={16}
-            color={isDark ? '#60A5FA' : '#2563EB'}
-            accessible={false}
-          />
-          <Text style={[styles.headerLabel, { color: isDark ? '#60A5FA' : '#2563EB' }]}>
-            ROSTER ANALYTICS
-          </Text>
-        </View>
-        <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
+        <View style={[styles.rule, { backgroundColor: c.gold }]} />
+        <ThemedText type="sectionLabel" style={{ color: c.text }}>
+          Analytics
+        </ThemedText>
       </View>
 
-      {isLoading ? (
-        <View style={styles.loading}><LogoSpinner /></View>
-      ) : isCategories && topStrengths.length > 0 ? (
-        <>
-          {/* CAT strengths / weaknesses */}
-          <View style={styles.pillRow}>
-            <View style={[styles.pill, { flex: 1, backgroundColor: isDark ? 'rgba(52,211,153,0.08)' : 'rgba(16,185,129,0.06)', borderWidth: 1, borderColor: isDark ? 'rgba(52,211,153,0.15)' : 'rgba(16,185,129,0.15)' }]}>
-              <Text style={[styles.pillLabel, { color: c.secondaryText }]}>STRENGTHS</Text>
-              {topStrengths.map((s) => (
-                <View key={s.cat} style={styles.zRow}>
-                  <ThemedText style={styles.zCat}>{s.cat}</ThemedText>
-                  <Text style={[styles.zValue, { color: isDark ? '#6EE7B7' : '#059669' }]}>
-                    {s.zScore >= 0 ? '+' : ''}{s.zScore.toFixed(1)}
-                  </Text>
-                </View>
-              ))}
+      <CardWrapper
+        style={[
+          styles.card,
+          {
+            // Heritage gold surface — the older olive-leaning gold, at
+            // low opacity. Warmer than Vintage Gold and doesn't fight
+            // with the ecru page around it. Turf Green notch + ink text
+            // keep the read legible.
+            backgroundColor: c.heritageGoldMuted,
+            borderColor: c.border,
+            ...cardShadow,
+          },
+        ]}
+        {...wrapperProps}
+      >
+        <View style={[styles.topRule, { backgroundColor: Brand.turfGreen }]} />
+
+        {/* Fixed-height content well. All states (loading/empty/data)
+            render into the same reserved box so the card doesn't flicker
+            height as the data resolves. */}
+        <View style={styles.contentWell}>
+          {isLoading ? (
+            <LogoSpinner />
+          ) : isCategories && bestCategory && worstCategory ? (
+            <View style={styles.dataRow}>
+              <Column
+                label="Strongest"
+                bigValue={bestCategory.cat}
+                subValue={`${bestCategory.zScore >= 0 ? '+' : ''}${bestCategory.zScore.toFixed(1)}`}
+                bigColor={Brand.turfGreen}
+                subColor={Brand.turfGreen}
+                labelColor={c.secondaryText}
+              />
+              <View style={[styles.divider, { backgroundColor: c.border }]} />
+              <Column
+                label="Weakest"
+                bigValue={worstCategory.cat}
+                subValue={`${worstCategory.zScore >= 0 ? '+' : ''}${worstCategory.zScore.toFixed(1)}`}
+                bigColor={c.danger}
+                subColor={c.danger}
+                labelColor={c.secondaryText}
+              />
             </View>
-            <View style={[styles.pill, { flex: 1, backgroundColor: isDark ? 'rgba(248,113,113,0.08)' : 'rgba(239,68,68,0.06)', borderWidth: 1, borderColor: isDark ? 'rgba(248,113,113,0.15)' : 'rgba(239,68,68,0.15)' }]}>
-              <Text style={[styles.pillLabel, { color: c.secondaryText }]}>WEAKNESSES</Text>
-              {topWeaknesses.map((s) => (
-                <View key={s.cat} style={styles.zRow}>
-                  <ThemedText style={styles.zCat}>{s.cat}</ThemedText>
-                  <Text style={[styles.zValue, { color: isDark ? '#FCA5A5' : '#DC2626' }]}>
-                    {s.zScore >= 0 ? '+' : ''}{s.zScore.toFixed(1)}
-                  </Text>
-                </View>
-              ))}
+          ) : !profile || profile.totalWithAge < 3 ? (
+            <ThemedText style={[styles.placeholderText, { color: c.secondaryText }]}>
+              Not enough age data available
+            </ThemedText>
+          ) : (
+            <View style={styles.dataRow}>
+              <Column
+                label="Weighted Age"
+                bigValue={String(profile.weightedProductionAge)}
+                subValue={
+                  vsLeague !== null
+                    ? `${vsLeague >= 0 ? '+' : ''}${vsLeague.toFixed(1)}yr vs avg`
+                    : undefined
+                }
+                bigColor={c.text}
+                subColor={c.secondaryText}
+                labelColor={c.secondaryText}
+              />
+              <View style={[styles.divider, { backgroundColor: c.border }]} />
+              <Column
+                label="League Position"
+                bigValue={rankValue}
+                subValue={rankSub || undefined}
+                bigColor={c.text}
+                subColor={c.secondaryText}
+                labelColor={c.secondaryText}
+              />
             </View>
+          )}
+        </View>
+
+        {hasData && (
+          <View style={styles.tapHint}>
+            <ThemedText
+              type="varsitySmall"
+              style={[styles.tapHintText, { color: c.secondaryText }]}
+            >
+              Tap for full breakdown
+            </ThemedText>
+            <IconSymbol name="arrow.right" size={12} color={c.secondaryText} />
           </View>
-        </>
-      ) : !profile || profile.totalWithAge < 3 ? (
-        <ThemedText style={[styles.placeholderText, { color: c.secondaryText }]}>
-          Not enough age data available
-        </ThemedText>
-      ) : (
-        <>
-          {/* Points league: age pills */}
-          <View style={styles.pillRow}>
-            <View style={[styles.pill, {
-              backgroundColor: skewsOlder
-                ? (isDark ? 'rgba(129,140,248,0.08)' : 'rgba(99,102,241,0.06)')
-                : (isDark ? 'rgba(96,165,250,0.08)' : 'rgba(37,99,235,0.06)'),
-              borderWidth: 1,
-              borderColor: skewsOlder
-                ? (isDark ? 'rgba(129,140,248,0.15)' : 'rgba(99,102,241,0.15)')
-                : (isDark ? 'rgba(96,165,250,0.15)' : 'rgba(37,99,235,0.15)'),
-            }]}>
-              <Text style={[styles.pillLabel, { color: c.secondaryText }]}>
-                WEIGHTED AGE
-              </Text>
-              <Text style={[styles.pillValue, { color: prodColor }]}>
-                {profile.weightedProductionAge}
-              </Text>
-            </View>
-
-            <View style={[styles.pill, {
-              backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
-            }]}>
-              <Text style={[styles.pillLabel, { color: c.secondaryText }]}>
-                LEAGUE RANK
-              </Text>
-              <ThemedText style={styles.pillValue}>
-                {comparison ? `#${comparison.weightedAgeRank}` : '—'}
-              </ThemedText>
-              {comparison && (
-                <Text style={[styles.pillSub, { color: c.secondaryText }]}>
-                  of {comparison.totalTeams}
-                </Text>
-              )}
-            </View>
-
-            <View style={[styles.pill, {
-              backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
-            }]}>
-              <Text style={[styles.pillLabel, { color: c.secondaryText }]}>
-                VS LEAGUE
-              </Text>
-              <ThemedText style={styles.pillValue}>
-                {vsLeague !== null
-                  ? `${vsLeague >= 0 ? '+' : ''}${vsLeague.toFixed(1)}`
-                  : '—'}
-              </ThemedText>
-              {vsLeague !== null && (
-                <Text style={[styles.pillSub, { color: c.secondaryText }]}>
-                  yr
-                </Text>
-              )}
-            </View>
-          </View>
-
-          <Text style={[styles.insight, { color: c.secondaryText }]}>
-            {insight}
-          </Text>
-        </>
-      )}
-    </TouchableOpacity>
+        )}
+      </CardWrapper>
+    </View>
   );
 }
 
+function Column({
+  label,
+  bigValue,
+  subValue,
+  labelColor,
+  bigColor,
+  subColor,
+}: {
+  label: string;
+  bigValue: string;
+  subValue?: string;
+  labelColor: string;
+  bigColor: string;
+  subColor: string;
+}) {
+  return (
+    <View style={styles.column}>
+      <ThemedText type="varsitySmall" style={[styles.colLabel, { color: labelColor }]}>
+        {label}
+      </ThemedText>
+      <ThemedText
+        type="display"
+        style={[styles.colBig, { color: bigColor }]}
+        numberOfLines={1}
+      >
+        {bigValue}
+      </ThemedText>
+      {subValue !== undefined && (
+        <ThemedText type="varsitySmall" style={[styles.colSub, { color: subColor }]}>
+          {subValue}
+        </ThemedText>
+      )}
+    </View>
+  );
+}
+
+function ordinalSuffix(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return s[(v - 20) % 10] || s[v] || s[0];
+}
+
 const styles = StyleSheet.create({
-  card: {
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: s(16),
-    paddingTop: s(14),
-    paddingBottom: s(14),
-    marginBottom: s(16),
+  container: {
+    marginBottom: s(18),
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: s(12),
+    marginBottom: s(10),
+    gap: s(10),
   },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(6),
+  rule: {
+    height: 2,
+    width: s(18),
   },
-  headerLabel: {
-    fontSize: ms(11),
-    fontWeight: '700',
-    letterSpacing: 1.5,
+  card: {
+    position: 'relative',
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: s(16),
+    paddingTop: s(18),
+    paddingBottom: s(12),
+    overflow: 'hidden',
+    // Match the data-state height so loading/empty/data renders don't
+    // reflow the surrounding scroll.
+    minHeight: s(120),
   },
-  pillRow: {
-    flexDirection: 'row',
-    gap: s(8),
+  topRule: {
+    position: 'absolute',
+    top: 0,
+    left: s(16),
+    height: 3,
+    width: s(44),
   },
-  pill: {
+  // Flex-fills the card's vertical space so loading/empty states center
+  // across the full card, not just a small reserved box. When the tap
+  // hint is present it sits in the remaining flex row below.
+  contentWell: {
     flex: 1,
-    borderRadius: 10,
-    paddingVertical: s(7),
-    paddingHorizontal: s(8),
-    alignItems: 'center',
+    justifyContent: 'center',
+    alignItems: 'stretch',
   },
-  pillLabel: {
-    fontSize: ms(8),
-    fontWeight: '600',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
+  dataRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  column: {
+    flex: 1,
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    paddingHorizontal: s(4),
+  },
+  divider: {
+    width: 1,
+    marginHorizontal: s(10),
+  },
+  colLabel: {
+    marginBottom: s(4),
+    fontSize: ms(9.5),
+  },
+  colBig: {
+    fontSize: ms(26),
+    lineHeight: ms(30),
+    letterSpacing: -0.3,
     marginBottom: s(2),
   },
-  pillValue: {
-    fontSize: ms(18),
-    fontWeight: '700',
+  colSub: {
+    fontSize: ms(10),
+    letterSpacing: 0.3,
   },
-  pillSub: {
-    fontSize: ms(9),
-    fontWeight: '500',
-    marginTop: s(1),
+  tapHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(5),
+    marginTop: s(14),
   },
-  insight: {
-    fontSize: ms(11),
-    marginTop: s(10),
-    lineHeight: ms(16),
+  tapHintText: {
+    fontSize: ms(9.5),
   },
   placeholderText: {
     fontSize: ms(13),
     textAlign: 'center',
-    paddingVertical: s(8),
-  },
-  loading: {
-    paddingVertical: s(12),
-  },
-  zRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: s(2),
-  },
-  zCat: {
-    fontSize: ms(12),
-    fontWeight: '600',
-  },
-  zValue: {
-    fontSize: ms(12),
-    fontWeight: '700',
   },
 });

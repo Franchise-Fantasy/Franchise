@@ -37,14 +37,21 @@ export function ChatInput({ conversationId, onSend, sending, isCommissioner, isL
 
   // Restore draft on mount
   useEffect(() => {
-    AsyncStorage.getItem(DRAFT_PREFIX + conversationId).then((saved) => {
-      if (saved) setText(saved);
-      draftLoaded.current = true;
-    });
+    let cancelled = false;
+    AsyncStorage.getItem(DRAFT_PREFIX + conversationId)
+      .then((saved) => {
+        if (cancelled) return;
+        if (saved) setText(saved);
+        draftLoaded.current = true;
+      })
+      .catch((e) => console.warn('Restore chat draft failed:', e));
+    return () => {
+      cancelled = true;
+    };
   }, [conversationId]);
 
   // Persist draft as user types (debounced via ref to avoid excessive writes)
-  const saveTimer = useRef<ReturnType<typeof setTimeout>>();
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const handleTextChange = useCallback((val: string) => {
     setText(val);
     if (!draftLoaded.current) return;

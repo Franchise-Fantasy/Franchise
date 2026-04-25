@@ -450,14 +450,22 @@ export default function ConversationScreen() {
   const pinnedIds = useMemo(() => new Set(pinnedMessages?.map((m) => m.id) ?? []), [pinnedMessages]);
   const [showPinnedSheet, setShowPinnedSheet] = useState(false);
 
-  const newestMessageId = messages.length > 0 ? messages[0].id : null;
+  const newestMessage = messages.length > 0 ? messages[0] : null;
+  const newestMessageId = newestMessage?.id ?? null;
+  const newestMessageCreatedAt = newestMessage?.created_at ?? null;
   const { receipts: readReceipts, updateReadPosition } = useReadReceipts(
     conversationId ?? null,
     teamId ?? null,
     myTeamName,
     myTricode,
   );
-  useMarkRead(conversationId ?? null, teamId ?? null, newestMessageId, updateReadPosition);
+  useMarkRead(
+    conversationId ?? null,
+    teamId ?? null,
+    newestMessageId,
+    newestMessageCreatedAt,
+    updateReadPosition,
+  );
 
   const readReceiptsByMessageId = useMemo(() => {
     if (!teamId || messages.length === 0 || readReceipts.length === 0) return {};
@@ -742,9 +750,9 @@ export default function ConversationScreen() {
                 onScrollToIndexFailed={handleScrollToIndexFailed}
                 onEndReachedThreshold={0.5}
                 removeClippedSubviews
-                initialNumToRender={15}
-                maxToRenderPerBatch={10}
-                windowSize={7}
+                initialNumToRender={10}
+                maxToRenderPerBatch={6}
+                windowSize={5}
                 ListFooterComponent={
                   isFetchingNextPage ? (
                     <View style={styles.footerLoader}><LogoSpinner size={18} /></View>

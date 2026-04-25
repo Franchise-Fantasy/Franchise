@@ -7,6 +7,7 @@ import { TeamRoster } from '@/components/draft/TeamRoster';
 import { DraftChatModal } from '@/components/draft/DraftChatModal';
 import { ProposeTradeModal } from '@/components/trade/ProposeTradeModal';
 import { TradeDetailModal } from '@/components/trade/TradeDetailModal';
+import { IconSymbol } from '@/components/ui/IconSymbol';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ThemedView } from '@/components/ui/ThemedView';
 import { supabase } from '@/lib/supabase';
@@ -22,7 +23,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, FlatList, Modal, Pressable, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Colors } from '@/constants/Colors';
+import { Colors, Fonts } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Ionicons } from '@expo/vector-icons';
 import { ms, s } from '@/utils/scale';
@@ -220,9 +221,16 @@ export default function DraftRoomScreen() {
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
         <ThemedView style={[styles.header, { borderBottomColor: colors.border }]}>
           <TouchableOpacity style={styles.headerButton} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back">
-            <ThemedText style={[styles.backButton, { color: colors.activeText }]}>←</ThemedText>
+            <IconSymbol name="chevron.backward" size={20} color={colors.icon} accessible={false} />
           </TouchableOpacity>
-          <ThemedText type="defaultSemiBold" style={styles.headerText}>Draft</ThemedText>
+          <ThemedText
+            type="varsity"
+            style={[styles.headerText, { color: colors.secondaryText }]}
+            numberOfLines={1}
+            accessibilityRole="header"
+          >
+            Draft
+          </ThemedText>
           <View style={styles.headerButton} />
         </ThemedView>
         <ThemedText style={{ textAlign: 'center', marginTop: s(40), fontSize: ms(15), color: colors.secondaryText }}>
@@ -241,10 +249,15 @@ export default function DraftRoomScreen() {
           accessibilityRole="button"
           accessibilityLabel="Go back"
         >
-          <ThemedText style={[styles.backButton, { color: colors.activeText }]}>←</ThemedText>
+          <IconSymbol name="chevron.backward" size={20} color={colors.icon} accessible={false} />
         </TouchableOpacity>
 
-        <ThemedText type="title" style={styles.headerText} accessibilityRole="header">
+        <ThemedText
+          type="varsity"
+          style={[styles.headerText, { color: colors.secondaryText }]}
+          numberOfLines={1}
+          accessibilityRole="header"
+        >
           {isDraftComplete
             ? (isRookieDraft ? 'Rookie Draft Complete' : 'Draft Complete')
             : (isRookieDraft ? 'Rookie Draft' : 'Draft Room')}
@@ -564,8 +577,9 @@ const styles = StyleSheet.create({
   headerText: {
     flex: 1,
     textAlign: 'center',
-    fontSize: ms(20),
-    fontWeight: 'thin',
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(12),
+    letterSpacing: 1.2,
     marginHorizontal: s(40),
   },
   headerButton: {
@@ -589,9 +603,6 @@ const styles = StyleSheet.create({
   },
   mainContent: {
     flex: 1,
-  },
-  backButton: {
-    fontSize: ms(24),
   },
   completeBanner: {
     padding: s(12),

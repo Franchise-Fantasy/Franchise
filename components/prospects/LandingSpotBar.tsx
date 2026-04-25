@@ -2,7 +2,7 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
 import type { LandingSpot } from '@/types/prospect';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View, type DimensionValue } from 'react-native';
 
 interface LandingSpotBarProps {
   spot: LandingSpot;
@@ -15,7 +15,7 @@ export function LandingSpotBar({ spot, index }: LandingSpotBarProps) {
 
   const pct = parseInt(spot.odds.replace('%', ''), 10) || 0;
   // Scale bar width: max 60% of container width at 100%
-  const barWidth = `${Math.min(pct * 0.6, 60)}%`;
+  const barWidth = `${Math.min(pct * 0.6, 60)}%` as DimensionValue;
 
   return (
     <View

@@ -10,7 +10,7 @@ interface LogoSpinnerProps {
   delay?: number;
 }
 
-const LOGO = require('@/assets/images/icon.png');
+const LOGO = require('@/assets/images/patch_logo.png');
 
 export function LogoSpinner({ size = 40, delay = 400 }: LogoSpinnerProps) {
   const opacity = useRef(new Animated.Value(0.35)).current;
@@ -44,7 +44,8 @@ export function LogoSpinner({ size = 40, delay = 400 }: LogoSpinnerProps) {
         <Animated.View style={{ opacity }}>
           <Image
             source={LOGO}
-            style={{ width: size, height: size, borderRadius: size / 2 }}
+            style={{ width: size, height: size }}
+            resizeMode="contain"
           />
         </Animated.View>
       )}
@@ -56,5 +57,6 @@ const styles = StyleSheet.create({
   wrapper: {
     alignItems: 'center',
     justifyContent: 'center',
+    alignSelf: 'center',
   },
 });

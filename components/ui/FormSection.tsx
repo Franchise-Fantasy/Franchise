@@ -1,8 +1,8 @@
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { ms, s } from '@/utils/scale';
 import { ReactNode } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet } from 'react-native';
+
+import { s } from '@/utils/scale';
+import { Section } from './Section';
 
 interface FormSectionProps {
   title?: string;
@@ -10,39 +10,36 @@ interface FormSectionProps {
 }
 
 /**
- * Visual card grouping for related form fields within a wizard step.
- * Provides a subtle bordered container with an optional section header.
+ * Thin wrapper over `Section` for wizard-form field groups. Keeps the
+ * legacy `{ title, children }` API while inheriting Section's gold-rule
+ * label + varsity-anchored typography, so the ~20 wizard call sites
+ * don't need to be edited one-by-one.
+ *
+ * Wizard cards are denser than data-screen cards (many fields stacked),
+ * so we trim the vertical padding on the inner card from the Section
+ * default. Surface matches the app's standard `c.card` (the same
+ * near-white/dark-card tone used on data screens).
  */
 export function FormSection({ title, children }: FormSectionProps) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
-
   return (
-    <View
-      style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}
-      accessibilityRole={title ? 'group' : undefined}
-      accessibilityLabel={title}
+    <Section
+      title={title ?? ''}
+      noLabel={!title}
+      cardStyle={styles.formCard}
     >
-      {title && (
-        <Text style={[styles.title, { color: c.secondaryText }]}>{title}</Text>
-      )}
       {children}
-    </View>
+    </Section>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: s(14),
-    marginBottom: s(16),
-  },
-  title: {
-    fontSize: ms(12),
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: s(12),
+  formCard: {
+    paddingTop: s(12),
+    paddingBottom: s(12),
+    // Consistent breathing room between successive field groups
+    // (text inputs, labelled segmented pickers, number steppers,
+    // toggle rows). Field wrappers can drop their own marginTop
+    // shims — let the card handle vertical rhythm.
+    gap: s(14),
   },
 });

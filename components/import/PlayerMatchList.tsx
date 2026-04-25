@@ -1,4 +1,8 @@
+import { Badge } from '@/components/ui/Badge';
+import { BrandButton } from '@/components/ui/BrandButton';
+import { BrandTextInput } from '@/components/ui/BrandTextInput';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { Section } from '@/components/ui/Section';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -11,7 +15,6 @@ import {
   FlatList,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -34,33 +37,32 @@ export function PlayerMatchList({
 
   return (
     <View style={styles.container}>
-      {/* Unmatched players (action needed) */}
+      {/* Unmatched players — each row expands inline with its own
+          BrandTextInput search + results when the user taps Search. */}
       {unmatched.length > 0 && (
-        <View>
-          <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">
-            Unmatched Players ({unmatched.length})
-          </ThemedText>
+        <Section title={`Unmatched Players (${unmatched.length})`}>
           <ThemedText style={[styles.sectionDesc, { color: c.secondaryText }]}>
             Search for each player or skip them.
           </ThemedText>
-          {unmatched.map((p) => (
-            <UnmatchedRow
-              key={p.sleeper_id}
-              player={p}
-              onResolve={onResolve}
-              onSkip={onSkip}
-            />
-          ))}
-        </View>
+          <View style={styles.unmatchedList}>
+            {unmatched.map((p) => (
+              <UnmatchedRow
+                key={p.sleeper_id}
+                player={p}
+                onResolve={onResolve}
+                onSkip={onSkip}
+              />
+            ))}
+          </View>
+        </Section>
       )}
 
-      {/* Matched players (info only) */}
-      <View>
-        <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">
-          Matched Players ({matched.length})
-        </ThemedText>
-        <ThemedText style={[styles.sectionDesc, { color: c.secondaryText }]}>
-          Green = exact name and team match. Orange = name matched but team differs (e.g. recent trade).
+      {/* Matched players — read-only summary with a confidence Badge
+          per row. Green = high confidence, warning = name matched but
+          team differs (e.g. recent trade). */}
+      <Section title={`Matched Players (${matched.length})`} cardStyle={styles.matchedCard}>
+        <ThemedText style={[styles.sectionDesc, styles.matchedDesc, { color: c.secondaryText }]}>
+          Green = exact name + team match. Gold = name matched but team differs (e.g. recent trade).
         </ThemedText>
         <FlatList
           data={matched}
@@ -70,42 +72,55 @@ export function PlayerMatchList({
             <MatchedRow match={item} isLast={index === matched.length - 1} />
           )}
         />
-      </View>
+      </Section>
     </View>
   );
 }
 
-// --- Matched player row ---
+// ─── Matched player row ─────────────────────────────────────────────
 
 function MatchedRow({ match, isLast }: { match: SleeperPlayerMatch; isLast: boolean }) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
 
-  const confColor = match.confidence === 'high' ? c.success : c.warning;
-  const confIcon = match.confidence === 'high' ? 'checkmark-circle' : 'alert-circle';
+  const isHigh = match.confidence === 'high';
 
   return (
     <View
-      style={[styles.row, { borderBottomColor: c.border }, isLast && { borderBottomWidth: 0 }]}
+      style={[
+        styles.matchedRow,
+        { borderBottomColor: c.border },
+        isLast && { borderBottomWidth: 0 },
+      ]}
       accessibilityLabel={`${match.sleeper_name} matched to ${match.matched_name}, ${match.confidence} confidence`}
     >
-      <Ionicons name={confIcon as any} size={18} color={confColor} accessible={false} />
-      <View style={styles.rowText}>
-        <ThemedText style={styles.playerName} numberOfLines={1}>
+      <Ionicons
+        name={isHigh ? 'checkmark-circle' : 'alert-circle'}
+        size={ms(16)}
+        color={isHigh ? c.success : c.warning}
+        accessible={false}
+      />
+      <View style={styles.matchedBody}>
+        <ThemedText style={[styles.playerName, { color: c.text }]} numberOfLines={1}>
           {match.sleeper_name}
         </ThemedText>
-        <Text style={[styles.matchedTo, { color: c.secondaryText }]}>
+        <ThemedText
+          style={[styles.matchedTo, { color: c.secondaryText }]}
+          numberOfLines={1}
+        >
           → {match.matched_name}
-        </Text>
+        </ThemedText>
       </View>
-      <Text style={[styles.confBadge, { color: confColor }]}>
-        {match.confidence}
-      </Text>
+      <Badge
+        label={match.confidence}
+        variant={isHigh ? 'success' : 'warning'}
+        size="small"
+      />
     </View>
   );
 }
 
-// --- Unmatched player row with search ---
+// ─── Unmatched player row (with inline search) ──────────────────────
 
 function UnmatchedRow({
   player,
@@ -120,7 +135,9 @@ function UnmatchedRow({
   const c = Colors[scheme];
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<Array<{ id: string; name: string; nba_team: string; position: string }>>([]);
+  const [results, setResults] = useState<
+    Array<{ id: string; name: string; pro_team: string | null; position: string | null }>
+  >([]);
   const [loading, setLoading] = useState(false);
   const [resolved, setResolved] = useState(false);
 
@@ -133,7 +150,7 @@ function UnmatchedRow({
     setLoading(true);
     const { data } = await supabase
       .from('players')
-      .select('id, name, nba_team, position')
+      .select('id, name, pro_team, position')
       .ilike('name', `%${text}%`)
       .limit(10);
     setResults(data ?? []);
@@ -143,82 +160,94 @@ function UnmatchedRow({
   if (resolved) return null;
 
   return (
-    <View style={[styles.unmatchedCard, { backgroundColor: c.card, borderColor: c.border }]}>
+    <View style={[styles.unmatchedCard, { backgroundColor: c.input, borderColor: c.border }]}>
       <View style={styles.unmatchedHeader}>
-        <Ionicons name="alert-circle" size={18} color={c.warning} accessible={false} />
-        <ThemedText style={styles.playerName} numberOfLines={1}>
+        <Ionicons name="alert-circle-outline" size={ms(16)} color={c.warning} accessible={false} />
+        <ThemedText style={[styles.playerName, { color: c.text }]} numberOfLines={1}>
           {player.name}
         </ThemedText>
-        {player.team && (
-          <Text style={[styles.teamBadge, { color: c.secondaryText }]}>
-            {player.team}
-          </Text>
-        )}
+        {player.team && <Badge label={player.team} variant="neutral" size="small" />}
       </View>
 
       {!searching ? (
         <View style={styles.unmatchedActions}>
-          <TouchableOpacity
+          <BrandButton
+            label="Search"
+            variant="primary"
+            size="small"
             onPress={() => setSearching(true)}
-            style={[styles.actionBtn, { backgroundColor: c.accent }]}
-            accessibilityRole="button"
             accessibilityLabel={`Search for ${player.name}`}
-          >
-            <Text style={[styles.actionBtnText, { color: c.accentText }]}>Search</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+          />
+          <BrandButton
+            label="Skip"
+            variant="secondary"
+            size="small"
             onPress={() => {
               onSkip(player.sleeper_id);
               setResolved(true);
             }}
-            style={[styles.actionBtn, { borderColor: c.border, borderWidth: 1 }]}
-            accessibilityRole="button"
             accessibilityLabel={`Skip ${player.name}`}
-          >
-            <Text style={[styles.actionBtnText, { color: c.text }]}>Skip</Text>
-          </TouchableOpacity>
+          />
         </View>
       ) : (
         <View style={styles.searchArea}>
-          <TextInput
-            style={[styles.searchInput, { color: c.text, borderColor: c.border, backgroundColor: c.background }]}
-            placeholder="Search player name..."
-            placeholderTextColor={c.secondaryText}
+          <BrandTextInput
+            placeholder="Search player name…"
             value={query}
             onChangeText={handleSearch}
             autoFocus
             accessibilityLabel="Search for player"
           />
-          {loading && <View style={styles.searchLoading}><LogoSpinner size={18} /></View>}
-          {results.map((r, idx) => (
-            <TouchableOpacity
-              key={r.id}
-              style={[styles.searchResult, { borderBottomColor: c.border }, idx === results.length - 1 && { borderBottomWidth: 0 }]}
+          {loading && (
+            <View style={styles.searchLoading}>
+              <LogoSpinner size={18} />
+            </View>
+          )}
+          {results.length > 0 && (
+            <View style={styles.searchResults}>
+              {results.map((r, idx) => (
+                <TouchableOpacity
+                  key={r.id}
+                  style={[
+                    styles.searchResult,
+                    { borderBottomColor: c.border },
+                    idx === results.length - 1 && { borderBottomWidth: 0 },
+                  ]}
+                  onPress={() => {
+                    onResolve(
+                      player.sleeper_id,
+                      r.id,
+                      r.name,
+                      r.position ?? '',
+                    );
+                    setResolved(true);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Select ${r.name}, ${r.pro_team ?? ''}`}
+                >
+                  <ThemedText style={[styles.resultName, { color: c.text }]}>
+                    {r.name}
+                  </ThemedText>
+                  <Text style={[styles.resultMeta, { color: c.secondaryText }]}>
+                    {[r.pro_team, r.position].filter(Boolean).join(' · ')}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+          <View style={styles.cancelWrap}>
+            <BrandButton
+              label="Cancel"
+              variant="ghost"
+              size="small"
               onPress={() => {
-                onResolve(player.sleeper_id, r.id, r.name, r.position);
-                setResolved(true);
+                setSearching(false);
+                setQuery('');
+                setResults([]);
               }}
-              accessibilityRole="button"
-              accessibilityLabel={`Select ${r.name}, ${r.nba_team}`}
-            >
-              <ThemedText style={styles.resultName}>{r.name}</ThemedText>
-              <Text style={[styles.resultTeam, { color: c.secondaryText }]}>
-                {r.nba_team} · {r.position}
-              </Text>
-            </TouchableOpacity>
-          ))}
-          <TouchableOpacity
-            onPress={() => {
-              setSearching(false);
-              setQuery('');
-              setResults([]);
-            }}
-            style={styles.cancelSearch}
-            accessibilityRole="button"
-            accessibilityLabel="Cancel search"
-          >
-            <Text style={[styles.cancelText, { color: c.accent }]}>Cancel</Text>
-          </TouchableOpacity>
+              accessibilityLabel="Cancel search"
+            />
+          </View>
         </View>
       )}
     </View>
@@ -227,28 +256,88 @@ function UnmatchedRow({
 
 const styles = StyleSheet.create({
   container: {
-    gap: s(20),
-  },
-  sectionTitle: {
-    fontSize: ms(16),
-    marginBottom: s(4),
+    gap: s(16),
   },
   sectionDesc: {
-    fontSize: ms(13),
-    marginBottom: s(12),
+    fontSize: ms(12),
+    lineHeight: ms(17),
+    marginBottom: s(4),
   },
-  row: {
+
+  // ─── Unmatched list ───────────────────────────────────────
+  unmatchedList: {
+    gap: s(8),
+  },
+  // The unmatched "row" is a mini-card that expands on Search. Using
+  // c.input as surface so it reads as a "field-like" interactive
+  // element nested inside the parent Section's card.
+  unmatchedCard: {
+    borderRadius: 10,
+    borderWidth: 1,
+    padding: s(12),
+    gap: s(10),
+  },
+  unmatchedHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: s(8),
     gap: s(8),
+  },
+  unmatchedActions: {
+    flexDirection: 'row',
+    gap: s(8),
+  },
+  searchArea: {
+    gap: s(8),
+  },
+  searchLoading: {
+    alignItems: 'center',
+    paddingVertical: s(4),
+  },
+  searchResults: {
+    borderRadius: 8,
+  },
+  searchResult: {
+    paddingVertical: s(10),
+    paddingHorizontal: s(6),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  rowText: {
+  resultName: {
+    fontSize: ms(14),
+    fontWeight: '500',
+  },
+  resultMeta: {
+    fontSize: ms(12),
+    marginTop: s(2),
+  },
+  cancelWrap: {
+    alignItems: 'center',
+  },
+
+  // ─── Matched list ─────────────────────────────────────────
+  // Drop horizontal card padding so rows + their hairline dividers
+  // span the card edge-to-edge.
+  matchedCard: {
+    paddingHorizontal: 0,
+  },
+  // The description for the matched section lives inside a horizontal-
+  // padding-zero card, so re-add its own inset.
+  matchedDesc: {
+    paddingHorizontal: s(14),
+  },
+  matchedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: s(9),
+    paddingHorizontal: s(14),
+    gap: s(10),
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  matchedBody: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: s(6),
+    minWidth: 0,
   },
   playerName: {
     fontSize: ms(14),
@@ -258,73 +347,5 @@ const styles = StyleSheet.create({
   matchedTo: {
     fontSize: ms(13),
     flexShrink: 1,
-  },
-  confBadge: {
-    fontSize: ms(12),
-    fontWeight: '600',
-    textTransform: 'capitalize',
-  },
-  unmatchedCard: {
-    borderRadius: 10,
-    borderWidth: 1,
-    padding: s(12),
-    marginBottom: s(8),
-  },
-  unmatchedHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(8),
-  },
-  teamBadge: {
-    fontSize: ms(12),
-    fontWeight: '600',
-  },
-  unmatchedActions: {
-    flexDirection: 'row',
-    gap: s(8),
-    marginTop: s(10),
-  },
-  actionBtn: {
-    paddingVertical: s(8),
-    paddingHorizontal: s(16),
-    borderRadius: 6,
-  },
-  actionBtnText: {
-    fontSize: ms(14),
-    fontWeight: '600',
-  },
-  searchArea: {
-    marginTop: s(10),
-  },
-  searchInput: {
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: s(12),
-    paddingVertical: s(10),
-    fontSize: ms(14),
-  },
-  searchLoading: {
-    marginTop: s(8),
-  },
-  searchResult: {
-    paddingVertical: s(10),
-    paddingHorizontal: s(4),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  resultName: {
-    fontSize: ms(14),
-    fontWeight: '500',
-  },
-  resultTeam: {
-    fontSize: ms(12),
-    marginTop: s(2),
-  },
-  cancelSearch: {
-    paddingVertical: s(10),
-    alignItems: 'center',
-  },
-  cancelText: {
-    fontSize: ms(14),
-    fontWeight: '500',
   },
 });

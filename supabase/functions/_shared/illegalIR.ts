@@ -13,10 +13,16 @@ export function isIrEligibleStatus(status: string | null | undefined): boolean {
   return IR_ELIGIBLE_STATUSES.has(status ?? "");
 }
 
+/**
+ * `exemptPlayerIds` — players to ignore when computing the illegal set. Used
+ * when the caller's action already resolves the lockout for those players
+ * (e.g. the pending trade drops them, or a direct-drop is dropping them).
+ */
 export async function fetchIllegalIRPlayers(
   supabase: any,
   leagueId: string,
   teamId: string,
+  exemptPlayerIds: string[] = [],
 ): Promise<IllegalIRPlayer[]> {
   const { data: irRows, error: irErr } = await supabase
     .from("league_players")
@@ -35,9 +41,11 @@ export async function fetchIllegalIRPlayers(
     .in("id", playerIds);
   if (pErr) throw pErr;
 
+  const exempt = new Set(exemptPlayerIds);
   const illegal: IllegalIRPlayer[] = [];
   for (const p of players ?? []) {
     if (isIrEligibleStatus(p.status)) continue;
+    if (exempt.has(p.id)) continue;
     illegal.push({
       player_id: p.id,
       name: p.name ?? "Unknown",

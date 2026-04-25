@@ -22,7 +22,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#1a1a1a"
+        "backgroundColor": "#E9E2CB"
       },
       "edgeToEdgeEnabled": true,
       "package": "com.chewers.franchisev2"
@@ -37,7 +37,7 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/icon.png",
+          "image": "./assets/images/patch_logo.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#1B3D2F"

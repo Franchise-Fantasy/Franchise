@@ -8,6 +8,7 @@ import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/playerHeadshot";
 import { ms, s } from "@/utils/scale";
 import { ReactNode } from "react";
 import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 
 interface PlayerCardProps {
   player: PlayerSeasonStats;
@@ -24,6 +25,7 @@ export function PlayerCard({
 }: PlayerCardProps) {
   const scheme = useColorScheme() ?? "light";
   const c = Colors[scheme];
+  const sport = useActiveLeagueSport();
 
   return (
     <TouchableOpacity
@@ -36,12 +38,12 @@ export function PlayerCard({
         {formatPosition(player.position)}
       </ThemedText>
       {(() => {
-        const url = getPlayerHeadshotUrl(player.external_id_nba);
+        const url = getPlayerHeadshotUrl(player.external_id_nba, sport);
         return url ? (
           <View
             style={[
               styles.headshotCircle,
-              { borderColor: c.gold, backgroundColor: c.cardAlt },
+              { borderColor: c.heritageGold, backgroundColor: c.cardAlt },
             ]}
             accessibilityLabel={`${player.name} headshot`}
           >
@@ -73,7 +75,7 @@ export function PlayerCard({
         </View>
         <View style={styles.teamRow}>
           {(() => {
-            const logoUrl = getTeamLogoUrl(player.nba_team);
+            const logoUrl = getTeamLogoUrl(player.pro_team, sport);
             return logoUrl ? (
               <Image
                 source={{ uri: logoUrl }}
@@ -83,7 +85,7 @@ export function PlayerCard({
             ) : null;
           })()}
           <ThemedText style={[styles.team, { color: c.secondaryText }]}>
-            {player.nba_team}
+            {player.pro_team}
           </ThemedText>
         </View>
       </View>

@@ -69,7 +69,7 @@ export function TeamLogoPickerModal({
 
     const asset = result.assets[0];
     setPreview(asset.uri);
-    uploadImage(asset.base64);
+    uploadImage(asset.base64!);
   };
 
   const uploadImage = async (base64: string) => {

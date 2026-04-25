@@ -16,7 +16,7 @@ import { assertNoIllegalIR } from "@/utils/illegalIR";
 export async function addFreeAgent(params: {
   leagueId: string;
   teamId: string;
-  player: { player_id: string; name: string; position: string; nba_team: string };
+  player: { player_id: string; name: string; position: string; pro_team: string };
   playerLockType: "daily" | "individual" | null;
   gameTimeMap: GameTimeMap;
 }): Promise<{ deferred: boolean }> {
@@ -30,7 +30,7 @@ export async function addFreeAgent(params: {
   if (playerLockType === "daily") {
     locked = hasAnyGameStarted(gameTimeMap);
   } else if (playerLockType === "individual") {
-    locked = isGameStarted(player.nba_team, gameTimeMap);
+    locked = isGameStarted(player.pro_team, gameTimeMap);
   }
 
   let acquiredAt: string;

@@ -24,3 +24,11 @@ credentials.json
 *.mobileprovision
 AuthKey_*
 .vercel
+
+# scripts/ may contain hardcoded secrets in seed/admin scripts.
+# Only check-realtime-channels.mjs and reset-project.js are tracked,
+# since they're wired into npm scripts (`check:realtime-channels`,
+# `reset-project`) that other devs / CI need.
+scripts/*
+!scripts/check-realtime-channels.mjs
+!scripts/reset-project.js

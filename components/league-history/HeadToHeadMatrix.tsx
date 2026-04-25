@@ -1,16 +1,11 @@
-import { ThemedText } from "@/components/ui/ThemedText";
-import { Colors, cardShadow } from "@/constants/Colors";
-import { useColorScheme } from "@/hooks/useColorScheme";
-import { H2HRecord, useHeadToHead } from "@/hooks/useLeagueHistory";
+import { ThemedText } from '@/components/ui/ThemedText';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { Brand, Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { H2HRecord, useHeadToHead } from '@/hooks/useLeagueHistory';
 import { ms, s } from '@/utils/scale';
-import { useMemo, useState } from "react";
-import {
-  ScrollView,
-  StyleSheet,
-  TouchableOpacity,
-  View,
-} from "react-native";
-import { LogoSpinner } from "@/components/ui/LogoSpinner";
+import { useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 interface HeadToHeadMatrixProps {
   leagueId: string;
@@ -21,36 +16,24 @@ function formatRecord(r: H2HRecord): string {
   return `${r.wins}-${r.losses}`;
 }
 
-function cellColor(r: H2HRecord, c: typeof Colors.light): string | undefined {
-  if (r.wins > r.losses) return c.success + "18";
-  if (r.losses > r.wins) return c.danger + "18";
-  return undefined;
-}
-
 export function HeadToHeadMatrix({ leagueId }: HeadToHeadMatrixProps) {
-  const scheme = useColorScheme() ?? "light";
+  const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const { data, isLoading } = useHeadToHead(leagueId);
-  const [selectedPair, setSelectedPair] = useState<{
-    a: string;
-    b: string;
-  } | null>(null);
+  const [selectedPair, setSelectedPair] = useState<{ a: string; b: string } | null>(null);
 
   const teamNameMap = useMemo(() => {
     if (!data) return new Map<string, string>();
     return new Map(data.teams.map((t) => [t.id, t.name]));
   }, [data]);
 
-  // Drill-down matchups for selected pair
   const pairMatchups = useMemo(() => {
     if (!data || !selectedPair) return [];
     return data.matchups
       .filter(
         (m) =>
-          (m.home_team_id === selectedPair.a &&
-            m.away_team_id === selectedPair.b) ||
-          (m.home_team_id === selectedPair.b &&
-            m.away_team_id === selectedPair.a),
+          (m.home_team_id === selectedPair.a && m.away_team_id === selectedPair.b) ||
+          (m.home_team_id === selectedPair.b && m.away_team_id === selectedPair.a),
       )
       .sort((a, b) => {
         if (a.season !== b.season) return a.season.localeCompare(b.season);
@@ -58,7 +41,6 @@ export function HeadToHeadMatrix({ leagueId }: HeadToHeadMatrixProps) {
       });
   }, [data, selectedPair]);
 
-  // Group drill-down matchups by season
   const pairBySeason = useMemo(() => {
     const map = new Map<string, typeof pairMatchups>();
     for (const m of pairMatchups) {
@@ -68,7 +50,7 @@ export function HeadToHeadMatrix({ leagueId }: HeadToHeadMatrixProps) {
     return map;
   }, [pairMatchups]);
 
-  if (isLoading) return <View style={{ marginVertical: 16 }}><LogoSpinner /></View>;
+  if (isLoading) return <View style={styles.loading}><LogoSpinner /></View>;
   if (!data || data.teams.length === 0) {
     return (
       <ThemedText style={[styles.emptyText, { color: c.secondaryText }]}>
@@ -77,37 +59,59 @@ export function HeadToHeadMatrix({ leagueId }: HeadToHeadMatrixProps) {
     );
   }
 
-  const CELL_SIZE = s(52);
-  const NAME_COL_WIDTH = s(40);
+  const CELL_SIZE = s(48);
+  const CELL_GAP = s(3);
+  const HEADER_HEIGHT = s(28);
+  const NAME_COL_WIDTH = s(44);
   const teams = data.teams;
 
   return (
     <View>
-      {/* Matrix */}
-      <View style={styles.matrixWrapper}>
-        {/* Fixed left column (team tricodes/names) */}
-        <View style={[styles.nameCol, { width: NAME_COL_WIDTH }]}>
-          <View style={{ height: CELL_SIZE + 2 }} />
-          {teams.map((t) => (
-            <View key={t.id} style={[styles.nameCell, { height: CELL_SIZE + 2 }]}>
-              <ThemedText style={styles.nameText} numberOfLines={1}>
-                {t.tricode ?? t.name.slice(0, 4)}
+      {/* Two-column layout: the left tricode column is PINNED (not part
+          of the horizontal scroll) so row context never gets lost when
+          scanning across a large league's matrix. The right portion
+          (column headers + data cells) is the only thing that scrolls.
+          Inside the scroll view, flexGrow + justifyContent: 'center'
+          keeps small leagues centered instead of flush-left. */}
+      <View style={styles.matrixWrap}>
+        {/* Pinned left column */}
+        <View style={{ width: NAME_COL_WIDTH }}>
+          <View style={{ height: HEADER_HEIGHT }} />
+          {teams.map((rowTeam) => (
+            <View
+              key={rowTeam.id}
+              style={[styles.nameCell, { height: CELL_SIZE, marginTop: CELL_GAP }]}
+            >
+              <ThemedText
+                type="varsitySmall"
+                style={[styles.nameText, { color: c.secondaryText }]}
+                numberOfLines={1}
+              >
+                {rowTeam.tricode ?? rowTeam.name.slice(0, 4)}
               </ThemedText>
             </View>
           ))}
         </View>
 
-        {/* Scrollable grid */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        {/* Scrolling right portion */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ flex: 1 }}
+          contentContainerStyle={styles.matrixScrollContent}
+        >
           <View>
-            {/* Column headers */}
-            <View style={styles.headerRow}>
-              {teams.map((t) => (
+            <View style={[styles.headerRow, { height: HEADER_HEIGHT }]}>
+              {teams.map((t, i) => (
                 <View
                   key={t.id}
-                  style={[styles.colHeader, { width: CELL_SIZE }]}
+                  style={[
+                    styles.colHeader,
+                    { width: CELL_SIZE, marginLeft: i === 0 ? 0 : CELL_GAP },
+                  ]}
                 >
                   <ThemedText
+                    type="varsitySmall"
                     style={[styles.colHeaderText, { color: c.secondaryText }]}
                     numberOfLines={1}
                   >
@@ -117,26 +121,26 @@ export function HeadToHeadMatrix({ leagueId }: HeadToHeadMatrixProps) {
               ))}
             </View>
 
-            {/* Grid rows */}
             {teams.map((rowTeam) => (
-              <View key={rowTeam.id} style={styles.gridRow}>
-                {teams.map((colTeam) => {
+              <View key={rowTeam.id} style={[styles.gridRow, { marginTop: CELL_GAP }]}>
+                {teams.map((colTeam, i) => {
                   if (rowTeam.id === colTeam.id) {
                     return (
                       <View
                         key={colTeam.id}
                         style={[
                           styles.cell,
+                          styles.cellDiagonal,
                           {
                             width: CELL_SIZE,
                             height: CELL_SIZE,
+                            marginLeft: i === 0 ? 0 : CELL_GAP,
                             backgroundColor: c.cardAlt,
+                            borderColor: c.border,
                           },
                         ]}
                       >
-                        <ThemedText
-                          style={[styles.cellDash, { color: c.buttonDisabled }]}
-                        >
+                        <ThemedText style={[styles.cellDash, { color: c.buttonDisabled }]}>
                           —
                         </ThemedText>
                       </View>
@@ -145,33 +149,45 @@ export function HeadToHeadMatrix({ leagueId }: HeadToHeadMatrixProps) {
                   const key = `${rowTeam.id}_${colTeam.id}`;
                   const record = data.records[key];
                   const isSelected =
-                    selectedPair?.a === rowTeam.id &&
-                    selectedPair?.b === colTeam.id;
+                    selectedPair?.a === rowTeam.id && selectedPair?.b === colTeam.id;
+                  const winning = record && record.wins > record.losses;
+                  const losing = record && record.losses > record.wins;
                   return (
                     <TouchableOpacity
                       key={colTeam.id}
                       accessibilityRole="button"
-                      accessibilityLabel={`${teamNameMap.get(rowTeam.id) ?? rowTeam.id} vs ${teamNameMap.get(colTeam.id) ?? colTeam.id}: ${record ? formatRecord(record) : "no matchups"}`}
+                      accessibilityLabel={`${teamNameMap.get(rowTeam.id) ?? rowTeam.id} vs ${teamNameMap.get(colTeam.id) ?? colTeam.id}: ${record ? formatRecord(record) : 'no matchups'}`}
                       accessibilityState={{ selected: isSelected }}
+                      activeOpacity={0.7}
                       style={[
                         styles.cell,
                         {
                           width: CELL_SIZE,
                           height: CELL_SIZE,
-                          backgroundColor: record
-                            ? cellColor(record, c)
-                            : undefined,
+                          marginLeft: i === 0 ? 0 : CELL_GAP,
+                          borderColor: c.border,
+                          backgroundColor: winning
+                            ? c.successMuted
+                            : losing
+                              ? c.dangerMuted
+                              : 'transparent',
                         },
-                        isSelected && { borderColor: c.accent, borderWidth: 2 },
+                        isSelected && { borderColor: Brand.turfGreen, borderWidth: 2 },
                       ]}
                       onPress={() =>
-                        setSelectedPair(
-                          record ? { a: rowTeam.id, b: colTeam.id } : null,
-                        )
+                        setSelectedPair(record ? { a: rowTeam.id, b: colTeam.id } : null)
                       }
                     >
-                      <ThemedText style={styles.cellText}>
-                        {record ? formatRecord(record) : "—"}
+                      <ThemedText
+                        type="mono"
+                        style={[
+                          styles.cellText,
+                          {
+                            color: winning ? c.success : losing ? c.danger : c.secondaryText,
+                          },
+                        ]}
+                      >
+                        {record ? formatRecord(record) : '—'}
                       </ThemedText>
                     </TouchableOpacity>
                   );
@@ -182,35 +198,36 @@ export function HeadToHeadMatrix({ leagueId }: HeadToHeadMatrixProps) {
         </ScrollView>
       </View>
 
-      {/* Drill-down detail */}
+      {/* Drill-down detail — a muted inset card inside the parent card. */}
       {selectedPair && (
         <View
           style={[
-            styles.detailContainer,
+            styles.detailCard,
             { backgroundColor: c.cardAlt, borderColor: c.border },
           ]}
         >
           <View style={styles.detailHeader}>
             <ThemedText
-              accessibilityRole="header"
-              type="defaultSemiBold"
-              style={styles.detailTitle}
+              type="sectionLabel"
+              style={[styles.detailTitle, { color: c.text }]}
+              numberOfLines={2}
             >
-              {teamNameMap.get(selectedPair.a)} vs{" "}
-              {teamNameMap.get(selectedPair.b)}
+              {teamNameMap.get(selectedPair.a)} vs {teamNameMap.get(selectedPair.b)}
             </ThemedText>
             {data.records[`${selectedPair.a}_${selectedPair.b}`] && (
-              <ThemedText style={[styles.detailRecord, { color: c.accent }]}>
-                {formatRecord(
-                  data.records[`${selectedPair.a}_${selectedPair.b}`],
-                )}
+              <ThemedText
+                type="mono"
+                style={[styles.detailRecord, { color: c.text }]}
+              >
+                {formatRecord(data.records[`${selectedPair.a}_${selectedPair.b}`])}
               </ThemedText>
             )}
           </View>
 
           {[...pairBySeason.entries()].map(([season, matchups]) => (
-            <View key={season}>
+            <View key={season} style={styles.seasonBlock}>
               <ThemedText
+                type="varsitySmall"
                 style={[styles.seasonLabel, { color: c.secondaryText }]}
               >
                 {season}
@@ -224,28 +241,31 @@ export function HeadToHeadMatrix({ leagueId }: HeadToHeadMatrixProps) {
                 return (
                   <View key={m.id} style={styles.matchupRow}>
                     <ThemedText
+                      type="varsitySmall"
                       style={[styles.weekLabel, { color: c.secondaryText }]}
                     >
                       Wk {m.week_number}
-                      {m.playoff_round ? " (P)" : ""}
+                      {m.playoff_round ? ' · Playoff' : ''}
                     </ThemedText>
                     <ThemedText
+                      type="mono"
                       style={[
                         styles.matchupScore,
-                        aWon && { color: c.accent, fontWeight: "700" },
+                        aWon && { color: c.success, fontWeight: '700' },
+                        !aWon && { color: c.secondaryText },
                       ]}
                     >
                       {aScore.toFixed(1)}
                     </ThemedText>
-                    <ThemedText
-                      style={[styles.matchupDash, { color: c.secondaryText }]}
-                    >
+                    <ThemedText style={[styles.matchupDash, { color: c.secondaryText }]}>
                       –
                     </ThemedText>
                     <ThemedText
+                      type="mono"
                       style={[
                         styles.matchupScore,
-                        bWon && { color: c.accent, fontWeight: "700" },
+                        bWon && { color: c.success, fontWeight: '700' },
+                        !bWon && { color: c.secondaryText },
                       ]}
                     >
                       {bScore.toFixed(1)}
@@ -262,55 +282,91 @@ export function HeadToHeadMatrix({ leagueId }: HeadToHeadMatrixProps) {
 }
 
 const styles = StyleSheet.create({
-  emptyText: { fontSize: ms(13), textAlign: "center", paddingVertical: s(16) },
-  matrixWrapper: { flexDirection: "row", marginLeft: s(-10) },
-  nameCol: {},
-  nameCell: { justifyContent: "center", paddingRight: s(8) },
-  nameText: { fontSize: ms(11), fontWeight: "600", textAlign: "right" },
-  headerRow: { flexDirection: "row", height: s(52) },
+  emptyText: { fontSize: ms(13), textAlign: 'center', paddingVertical: s(16) },
+  loading: { paddingVertical: s(24) },
+  // Two-column layout: pinned tricode column + horizontally-scrolling
+  // data grid. paddingVertical breathes above/below the header.
+  matrixWrap: {
+    flexDirection: 'row',
+    paddingVertical: s(4),
+  },
+  // flexGrow: 1 + justifyContent: 'center' → the data grid centers
+  // within the scroll view when its total width is narrower than the
+  // viewport (small leagues). When it overflows (large leagues), the
+  // scrollview engages and the pinned left column keeps row context
+  // visible the whole time.
+  matrixScrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingLeft: s(6),
+    paddingRight: s(4),
+  },
+  nameCell: {
+    justifyContent: 'center',
+    paddingRight: s(8),
+  },
+  nameText: {
+    fontSize: ms(10),
+    textAlign: 'right',
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    paddingBottom: s(4),
+  },
   colHeader: {
-    justifyContent: "flex-end",
-    alignItems: "center",
-    paddingBottom: s(6),
+    justifyContent: 'flex-end',
+    alignItems: 'center',
   },
-  colHeaderText: { fontSize: ms(10), fontWeight: "600" },
-  gridRow: { flexDirection: "row" },
+  colHeaderText: {
+    fontSize: ms(9.5),
+  },
+  gridRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   cell: {
-    justifyContent: "center",
-    alignItems: "center",
+    justifyContent: 'center',
+    alignItems: 'center',
     borderRadius: 4,
-    margin: 1,
-  },
-  cellText: { fontSize: ms(11), fontWeight: "600" },
-  cellDash: { fontSize: ms(14) },
-  detailContainer: {
-    marginTop: s(16),
-    borderRadius: 12,
     borderWidth: 1,
-    padding: s(14),
-    ...cardShadow,
+  },
+  cellDiagonal: {
+    opacity: 0.5,
+  },
+  cellText: { fontSize: ms(11) },
+  cellDash: { fontSize: ms(14) },
+  detailCard: {
+    marginTop: s(16),
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: s(14),
+    paddingVertical: s(12),
   },
   detailHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: s(10),
+    gap: s(8),
   },
-  detailTitle: { fontSize: ms(14), flex: 1 },
-  detailRecord: { fontSize: ms(14), fontWeight: "700" },
+  detailTitle: { flex: 1, fontSize: ms(14) },
+  detailRecord: { fontSize: ms(13) },
+  seasonBlock: {
+    marginTop: s(6),
+  },
   seasonLabel: {
-    fontSize: ms(12),
-    fontWeight: "600",
-    marginTop: s(8),
+    fontSize: ms(9.5),
+    marginTop: s(6),
     marginBottom: s(4),
   },
   matchupRow: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingVertical: s(4),
     gap: s(8),
   },
-  weekLabel: { width: s(56), fontSize: ms(12) },
-  matchupScore: { fontSize: ms(13), width: s(46), textAlign: "right" },
-  matchupDash: { fontSize: ms(13) },
+  weekLabel: { width: s(70), fontSize: ms(9.5) },
+  matchupScore: { fontSize: ms(12), width: s(46), textAlign: 'right' },
+  matchupDash: { fontSize: ms(12) },
 });

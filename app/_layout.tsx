@@ -4,6 +4,16 @@ import {
   ThemeProvider,
 } from "@react-navigation/native";
 import { useFonts } from "expo-font";
+import { AlfaSlabOne_400Regular } from "@expo-google-fonts/alfa-slab-one";
+import {
+  Oswald_500Medium,
+  Oswald_700Bold,
+} from "@expo-google-fonts/oswald";
+import {
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_700Bold,
+} from "@expo-google-fonts/inter";
 import * as Notifications from "expo-notifications";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
@@ -93,8 +103,9 @@ import {
   PostHogSurveyProvider,
   usePostHog,
 } from "posthog-react-native";
-import { useCallback, useEffect, useRef } from "react";
-import { Alert, AppState } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { registerSplashReadyHandler } from "@/lib/splashReady";
+import { Alert, Animated, AppState, Image, StyleSheet } from "react-native";
 
 // Sync React Query's online state with actual device connectivity
 onlineManager.setEventListener((setOnline) => {
@@ -177,19 +188,110 @@ async function switchLeagueContext(
   return false;
 }
 
-/** Keep the native splash visible until auth + app state are resolved. */
+/**
+ * Keep the native splash visible until:
+ *   1. Auth state has resolved
+ *   2. AppState has finished loading
+ *   3. Either a signed-in user hasn't mounted the home screen yet, OR
+ *      the home screen has called `markSplashReady()` — whichever comes
+ *      first. Prevents the hero flashing an intermediate variant while
+ *      downstream queries (activeDraft, playoff bracket, etc.) settle.
+ *
+ * Fallback: if nothing reports ready within `HOME_READY_TIMEOUT_MS` of
+ * auth + app-state being done, we hide the splash anyway so a broken
+ * query never strands the user on the splash indefinitely.
+ */
+const HOME_READY_TIMEOUT_MS = 3000;
+
 function SplashGate() {
   const authReady = useAuthInitialized();
   const { loading } = useAppState();
+  const session = useSession();
+  const [homeReady, setHomeReady] = useState(false);
+
+  // Signed-out users have no home data to wait on — skip the gate.
+  const needsHomeData = !!session?.user;
+  const canHide = authReady && !loading && (!needsHomeData || homeReady);
+
+  // Register the handler consumers (home screen) can call once their
+  // queries resolve. Unregister on unmount so a stale setter can't fire.
+  useEffect(() => {
+    return registerSplashReadyHandler(() => setHomeReady(true));
+  }, []);
+
+  // Reset home-ready when the session changes — a fresh sign-in should
+  // re-arm the gate so the new user's data gets the same treatment.
+  useEffect(() => {
+    setHomeReady(false);
+  }, [session?.user?.id]);
 
   useEffect(() => {
-    if (authReady && !loading) {
-      SplashScreen.hideAsync();
-    }
-  }, [authReady, loading]);
+    if (canHide) SplashScreen.hideAsync();
+  }, [canHide]);
 
-  return null;
+  // Safety net — hide the splash even if the home screen never reports in.
+  useEffect(() => {
+    if (authReady && !loading && needsHomeData && !homeReady) {
+      const t = setTimeout(() => setHomeReady(true), HOME_READY_TIMEOUT_MS);
+      return () => clearTimeout(t);
+    }
+  }, [authReady, loading, needsHomeData, homeReady]);
+
+  return <SplashFadeOverlay visible={!canHide} />;
 }
+
+/**
+ * JS-side splash overlay that visually matches the native splash screen
+ * (same turf-green bg, same centered patch logo). Rendered on top of the
+ * app so that when the native splash hides, the user sees this overlay
+ * instead of a hard cut to content — then the overlay fades out to reveal
+ * the home screen. Kept in lockstep with app.json's expo-splash-screen
+ * config below; if that changes, update this too.
+ */
+const SPLASH_BG = '#1B3D2F';
+const SPLASH_LOGO_WIDTH = 200;
+const SPLASH_FADE_DURATION = 300;
+
+function SplashFadeOverlay({ visible }: { visible: boolean }) {
+  const opacity = useRef(new Animated.Value(1)).current;
+  const [mounted, setMounted] = useState(true);
+
+  useEffect(() => {
+    if (!visible && mounted) {
+      Animated.timing(opacity, {
+        toValue: 0,
+        duration: SPLASH_FADE_DURATION,
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) setMounted(false);
+      });
+    }
+  }, [visible, mounted, opacity]);
+
+  if (!mounted) return null;
+
+  return (
+    <Animated.View
+      pointerEvents={visible ? 'auto' : 'none'}
+      style={[StyleSheet.absoluteFill, splashStyles.overlay, { opacity }]}
+    >
+      <Image
+        source={require('../assets/images/patch_logo.png')}
+        style={{ width: SPLASH_LOGO_WIDTH, height: SPLASH_LOGO_WIDTH }}
+        resizeMode="contain"
+      />
+    </Animated.View>
+  );
+}
+
+const splashStyles = StyleSheet.create({
+  overlay: {
+    backgroundColor: SPLASH_BG,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 9999,
+  },
+});
 
 /** Identify users and set league/team context as super properties. */
 function PostHogIdentifier() {
@@ -391,6 +493,12 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
   const [loaded] = useFonts({
     SpaceMono: require("../assets/fonts/SpaceMono-Regular.ttf"),
+    AlfaSlabOne_400Regular,
+    Oswald_500Medium,
+    Oswald_700Bold,
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_700Bold,
   });
 
   // Check for OTA updates when the app launches (only in TestFlight / production)
@@ -440,7 +548,6 @@ export default function RootLayout() {
               <ToastProvider>
                 <AuthProvider>
                   <AppStateProvider>
-                    <SplashGate />
                     <PostHogIdentifier />
                     <ScreenTracker />
                     <NotificationAndLinkHandler />
@@ -597,6 +704,10 @@ export default function RootLayout() {
                       <Stack.Screen name="+not-found" />
                     </Stack>
                     </ErrorBoundary>
+                    {/* Splash overlay lives at the end so it renders on
+                        top of the Stack — gives us the cross-fade from
+                        native splash → JS UI without a hard cut. */}
+                    <SplashGate />
                   </AppStateProvider>
                   <StatusBar style="auto" />
                 </AuthProvider>

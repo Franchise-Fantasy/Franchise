@@ -20,6 +20,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -29,7 +30,7 @@ export interface RosterPlayer {
   player_id: string;
   name: string;
   position: string;
-  nba_team: string;
+  pro_team: string;
   nbaTricode: string | null;
   roster_slot: string;
   external_id_nba: number | null;
@@ -209,6 +210,7 @@ export const PlayerCell = React.memo(function PlayerCell({
     gameLabel: string,
   ) => void;
 }) {
+  const sport = useActiveLeagueSport();
   const align = side === "right" ? "flex-end" : "flex-start";
   const textAlign = side === "right" ? ("right" as const) : ("left" as const);
   // Line 2/3 row direction: push fpts & chip toward center (near headshots)
@@ -248,12 +250,12 @@ export const PlayerCell = React.memo(function PlayerCell({
       }
     : { accessibilityLabel: `${player.name}, ${player.position}` };
 
-  const headshotUrl = getPlayerHeadshotUrl(player.external_id_nba);
+  const headshotUrl = getPlayerHeadshotUrl(player.external_id_nba, sport);
   const headshotEl = headshotUrl ? (
     <View
       style={[
         pStyles.headshotCircle,
-        { borderColor: c.gold, backgroundColor: c.cardAlt },
+        { borderColor: c.heritageGold, backgroundColor: c.cardAlt },
       ]}
       accessibilityLabel={`${player.name} headshot`}
     >

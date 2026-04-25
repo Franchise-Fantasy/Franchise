@@ -1,13 +1,17 @@
-import { FormSection } from '@/components/ui/FormSection';
+import { Badge } from '@/components/ui/Badge';
+import { BrandButton } from '@/components/ui/BrandButton';
+import { BrandTextInput } from '@/components/ui/BrandTextInput';
+import { ListRow } from '@/components/ui/ListRow';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
-import { ThemedText } from '@/components/ui/ThemedText';
-import { ms, s } from "@/utils/scale";
 import { PageHeader } from '@/components/ui/PageHeader';
+import { Section } from '@/components/ui/Section';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
+import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
+import { ms, s } from '@/utils/scale';
 import { Ionicons } from '@expo/vector-icons';
-import { queryKeys } from '@/constants/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
@@ -15,9 +19,6 @@ import {
   Alert,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -38,6 +39,7 @@ export default function JoinLeagueScreen() {
   const c = Colors[scheme];
   const [code, setCode] = useState(paramCode?.toUpperCase() ?? '');
   const [joining, setJoining] = useState(false);
+  const [codeError, setCodeError] = useState<string | null>(null);
   const autoJoinTriggered = useRef(false);
 
   const { data: leagues, isLoading } = useQuery({
@@ -61,8 +63,15 @@ export default function JoinLeagueScreen() {
 
       const myLeagueIds = new Set((myTeamsResult.data ?? []).map(t => t.league_id));
 
+      // For imported leagues the `current_teams` counter can equal
+      // `teams` while unclaimed slots still exist (every team is
+      // pre-created at import time). The per-league click-through
+      // in `handleJoinLeague` checks for unclaimed teams precisely,
+      // so include imports here regardless of the counter — users
+      // who can't actually claim a team will see the right message
+      // in join-by-code rather than being silently hidden.
       return (leaguesResult.data as League[]).filter(
-        l => (l.current_teams ?? 0) < l.teams && !myLeagueIds.has(l.id)
+        l => (l.imported_from ? true : (l.current_teams ?? 0) < l.teams) && !myLeagueIds.has(l.id)
       );
     }
   });
@@ -71,6 +80,7 @@ export default function JoinLeagueScreen() {
     const trimmed = code.trim().toUpperCase();
     if (!trimmed) return;
 
+    setCodeError(null);
     setJoining(true);
     try {
       const user = (await supabase.auth.getUser()).data.user;
@@ -86,15 +96,12 @@ export default function JoinLeagueScreen() {
         .maybeSingle();
 
       if (error || !league) {
-        Alert.alert('Invalid Code', 'No league found with that invite code.');
+        setCodeError('No league found with that invite code.');
         return;
       }
 
-      if ((league.current_teams ?? 0) >= league.teams) {
-        Alert.alert('League Full', 'This league already has the maximum number of teams.');
-        return;
-      }
-
+      // Already-joined check runs before any "full" checks — applies to
+      // both imported and created leagues.
       const { data: existingTeam } = await supabase
         .from('teams')
         .select('id')
@@ -103,27 +110,42 @@ export default function JoinLeagueScreen() {
         .maybeSingle();
 
       if (existingTeam) {
-        Alert.alert('Already Joined', 'You already have a team in this league.');
+        setCodeError('You already have a team in this league.');
         return;
       }
 
-      // Imported leagues: claim an existing team instead of creating a new one
       if (league.imported_from) {
+        // Imported leagues have all their teams pre-created at import
+        // time — `current_teams` is inflated on day one, so the
+        // generic "current_teams >= teams" check would block every
+        // invitee. Instead, "full" means every pre-created team has
+        // been claimed (user_id set). If there's at least one team
+        // with user_id NULL, the invitee can claim it.
         const { data: unclaimed } = await supabase
           .from('teams')
           .select('id')
           .eq('league_id', league.id)
           .is('user_id', null)
-          .not('sleeper_roster_id', 'is', null)
           .limit(1);
 
-        if (unclaimed && unclaimed.length > 0) {
-          router.push({
-            pathname: '/claim-team',
-            params: { leagueId: league.id, isCommissioner: 'false' },
-          });
+        if (!unclaimed || unclaimed.length === 0) {
+          setCodeError('All teams in this league have been claimed.');
           return;
         }
+
+        router.push({
+          pathname: '/claim-team',
+          params: { leagueId: league.id, isCommissioner: 'false' },
+        });
+        return;
+      }
+
+      // Non-imported leagues: the create-team flow increments
+      // current_teams as users join, so the generic fullness check
+      // works as expected.
+      if ((league.current_teams ?? 0) >= league.teams) {
+        setCodeError('This league is already full.');
+        return;
       }
 
       router.push({
@@ -154,14 +176,16 @@ export default function JoinLeagueScreen() {
         return;
       }
 
-      // Imported leagues: claim an existing team
+      // Imported leagues: claim an existing team. Matches
+      // handleJoinByCode — drops the `sleeper_roster_id IS NOT NULL`
+      // filter so screenshot-imported leagues (where teams may not
+      // have a sleeper_roster_id) also resolve correctly.
       if (league.imported_from) {
         const { data: unclaimed } = await supabase
           .from('teams')
           .select('id')
           .eq('league_id', league.id)
           .is('user_id', null)
-          .not('sleeper_roster_id', 'is', null)
           .limit(1);
 
         if (unclaimed && unclaimed.length > 0) {
@@ -185,94 +209,107 @@ export default function JoinLeagueScreen() {
 
   const slotsAvailable = (league: League) => league.teams - (league.current_teams ?? 0);
 
+  const hasCode = code.trim().length > 0;
+
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
       <PageHeader title="Join a League" />
 
-      <ScrollView style={styles.content} keyboardShouldPersistTaps="handled">
-        {/* Invite code section */}
-        <FormSection title="Invite Code">
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* ── Invite code ── */}
+        <Section title="Invite Code">
           <ThemedText style={[styles.hint, { color: c.secondaryText }]}>
             Enter the code your commissioner shared with you.
           </ThemedText>
-          <View style={styles.codeInputRow}>
-            <TextInput
-              style={[styles.codeInput, { borderColor: c.border, backgroundColor: c.input, color: c.text }]}
-              placeholder="Enter code"
-              placeholderTextColor={c.secondaryText}
-              value={code}
-              onChangeText={(t) => setCode(t.toUpperCase())}
-              autoCapitalize="characters"
-              maxLength={8}
-              returnKeyType="go"
-              onSubmitEditing={handleJoinByCode}
-              accessibilityLabel="League invite code"
-              accessibilityHint="Enter the invite code to join a private league"
-            />
-            <TouchableOpacity
-              style={[styles.joinBtn, { backgroundColor: code.trim().length > 0 ? c.accent : c.buttonDisabled }]}
-              onPress={handleJoinByCode}
-              disabled={!code.trim() || joining}
-              accessibilityRole="button"
-              accessibilityLabel={joining ? 'Joining league' : 'Join league with code'}
-              accessibilityState={{ disabled: !code.trim() || joining }}
-            >
-              <Text style={[styles.joinBtnText, { color: code.trim().length > 0 ? c.accentText : c.secondaryText }]}>
-                {joining ? '...' : 'Join'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </FormSection>
+          <BrandTextInput
+            value={code}
+            onChangeText={(t) => {
+              setCode(t.toUpperCase());
+              if (codeError) setCodeError(null);
+            }}
+            placeholder="ENTER CODE"
+            autoCapitalize="characters"
+            maxLength={8}
+            returnKeyType="go"
+            onSubmitEditing={handleJoinByCode}
+            errorText={codeError ?? undefined}
+            containerStyle={styles.codeInputWrap}
+            inputStyle={styles.codeInput}
+            accessibilityLabel="League invite code"
+            accessibilityHint="Enter the invite code to join a private league"
+          />
+          <BrandButton
+            label={joining ? 'Joining…' : 'Join League'}
+            onPress={handleJoinByCode}
+            variant="primary"
+            disabled={!hasCode}
+            loading={joining}
+            fullWidth
+            accessibilityLabel={joining ? 'Joining league' : 'Join league with code'}
+          />
+        </Section>
 
-        {/* Divider */}
+        {/* ── OR divider ── */}
         <View style={styles.dividerRow}>
           <View style={[styles.dividerLine, { backgroundColor: c.border }]} />
-          <ThemedText style={[styles.dividerText, { color: c.secondaryText }]}>OR</ThemedText>
+          <ThemedText type="varsitySmall" style={[styles.dividerText, { color: c.secondaryText }]}>
+            or
+          </ThemedText>
           <View style={[styles.dividerLine, { backgroundColor: c.border }]} />
         </View>
 
-        {/* Public leagues */}
-        <ThemedText type="subtitle" style={styles.publicTitle} accessibilityRole="header">Public Leagues</ThemedText>
-
-        {isLoading ? (
-          <View style={styles.loading}><LogoSpinner /></View>
-        ) : !leagues?.length ? (
-          <View style={styles.emptyState}>
-            <Ionicons name="people-outline" size={40} color={c.secondaryText} accessible={false} />
-            <ThemedText style={[styles.emptyText, { color: c.secondaryText }]}>
-              No public leagues available
-            </ThemedText>
-          </View>
-        ) : (
-          leagues.map(league => (
-            <TouchableOpacity
-              key={league.id}
-              style={[styles.leagueCard, { backgroundColor: c.card, borderColor: c.border }]}
-              onPress={() => handleJoinLeague(league)}
-              accessibilityRole="button"
-              accessibilityLabel={`${league.name}, ${league.current_teams ?? 0} of ${league.teams} teams`}
-              accessibilityHint="Join this league"
-            >
-              <View style={styles.leagueCardTop}>
-                <ThemedText type="defaultSemiBold" style={styles.leagueName}>{league.name}</ThemedText>
-                <Ionicons name="chevron-forward" size={18} color={c.secondaryText} accessible={false} />
-              </View>
-              <View style={styles.leagueCardMeta}>
-                <View style={styles.leagueMetaItem}>
-                  <Ionicons name="people-outline" size={14} color={c.secondaryText} accessible={false} />
-                  <ThemedText style={[styles.leagueInfo, { color: c.secondaryText }]}>
-                    {league.current_teams ?? 0}/{league.teams} teams
-                  </ThemedText>
-                </View>
-                <View style={[styles.slotsBadge, { backgroundColor: c.accent + '18' }]}>
-                  <ThemedText style={[styles.slotsText, { color: c.accent }]}>
-                    {slotsAvailable(league)} {slotsAvailable(league) === 1 ? 'spot' : 'spots'} open
-                  </ThemedText>
-                </View>
-              </View>
-            </TouchableOpacity>
-          ))
-        )}
+        {/* ── Public leagues ── */}
+        <Section title="Public Leagues" cardStyle={styles.listCard}>
+          {isLoading ? (
+            <View style={styles.loading}><LogoSpinner /></View>
+          ) : !leagues?.length ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="people-outline" size={40} color={c.secondaryText} accessible={false} />
+              <ThemedText style={[styles.emptyText, { color: c.secondaryText }]}>
+                No public leagues available yet.
+              </ThemedText>
+            </View>
+          ) : (
+            leagues.map((league, idx) => {
+              const slots = slotsAvailable(league);
+              return (
+                <ListRow
+                  key={league.id}
+                  index={idx}
+                  total={leagues.length}
+                  onPress={() => handleJoinLeague(league)}
+                  accessibilityLabel={`${league.name}, ${league.current_teams ?? 0} of ${league.teams} teams`}
+                  accessibilityHint="Join this league"
+                >
+                  <View style={styles.leagueInfo}>
+                    <ThemedText
+                      type="sectionLabel"
+                      style={[styles.leagueName, { color: c.text }]}
+                      numberOfLines={1}
+                    >
+                      {league.name}
+                    </ThemedText>
+                    <View style={styles.leagueMetaRow}>
+                      <Ionicons name="people-outline" size={12} color={c.secondaryText} accessible={false} />
+                      <ThemedText style={[styles.leagueMeta, { color: c.secondaryText }]}>
+                        {league.current_teams ?? 0}/{league.teams} teams
+                      </ThemedText>
+                      <Badge
+                        label={`${slots} ${slots === 1 ? 'spot' : 'spots'} open`}
+                        variant="success"
+                      />
+                    </View>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
+                </ListRow>
+              );
+            })
+          )}
+        </Section>
       </ScrollView>
     </SafeAreaView>
   );
@@ -282,103 +319,77 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  content: {
+  scroll: {
     flex: 1,
-    paddingHorizontal: s(16),
-    paddingTop: s(16),
-    paddingBottom: s(16),
+  },
+  scrollContent: {
+    padding: s(16),
+    paddingBottom: s(40),
   },
   hint: {
     fontSize: ms(13),
-    marginBottom: s(10),
+    marginBottom: s(12),
     lineHeight: ms(18),
   },
-  codeInputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(10),
+  codeInputWrap: {
+    marginBottom: s(12),
   },
   codeInput: {
-    flex: 1,
-    borderWidth: 1,
-    padding: s(12),
-    borderRadius: 8,
     fontSize: ms(18),
     fontWeight: '600',
     letterSpacing: 2,
     textAlign: 'center',
   },
-  joinBtn: {
-    paddingHorizontal: s(20),
-    paddingVertical: s(12),
-    borderRadius: 8,
-  },
-  joinBtnText: {
-    fontSize: ms(16),
-    fontWeight: '600',
-  },
+
+  // ─── OR divider ──────────────────────────────────────────
   dividerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: s(16),
+    gap: s(12),
+    marginVertical: s(6),
   },
   dividerLine: {
     flex: 1,
     height: StyleSheet.hairlineWidth,
   },
   dividerText: {
-    marginHorizontal: s(12),
-    fontSize: ms(13),
-    fontWeight: '600',
+    fontSize: ms(10),
   },
-  publicTitle: {
-    marginBottom: s(12),
+
+  // ─── Public leagues list ─────────────────────────────────
+  // Drops card's horizontal padding so ListRow's own padding handles
+  // inset and any future active-row bg spans the card's full width.
+  listCard: {
+    paddingHorizontal: 0,
   },
-  loading: { marginTop: s(20) },
+  loading: {
+    paddingVertical: s(24),
+    alignItems: 'center',
+  },
   emptyState: {
     paddingVertical: s(40),
     alignItems: 'center',
     gap: s(12),
   },
   emptyText: {
-    fontSize: ms(15),
-  },
-  leagueCard: {
-    padding: s(14),
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: s(10),
-  },
-  leagueCardTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  leagueName: {
-    fontSize: ms(16),
-    flex: 1,
-  },
-  leagueCardMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: s(8),
-  },
-  leagueMetaItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(4),
+    fontSize: ms(14),
+    textAlign: 'center',
   },
   leagueInfo: {
-    fontSize: ms(13),
+    flex: 1,
+    minWidth: 0,
+    gap: s(4),
   },
-  slotsBadge: {
-    paddingHorizontal: s(8),
-    paddingVertical: s(3),
-    borderRadius: 10,
+  leagueName: {
+    fontSize: ms(15),
+    lineHeight: ms(20),
   },
-  slotsText: {
+  leagueMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(8),
+  },
+  leagueMeta: {
     fontSize: ms(12),
-    fontWeight: '600',
   },
 });

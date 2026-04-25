@@ -22,7 +22,7 @@ export interface PlayerMatch {
 export interface OurPlayer {
   id: string;
   name: string;
-  nba_team: string | null;
+  pro_team: string | null;
   position: string | null;
 }
 
@@ -95,10 +95,15 @@ export function mapSleeperPositions(rosterPositions: string[]): RosterSlot[] {
     UTIL: 'Utility',
     BE: 'Bench',
     IR: 'Injured Reserve',
+    TAXI: 'Taxi Squad',
   };
 
-  // Maintain standard slot ordering
-  const ORDER = ['PG', 'SG', 'SF', 'PF', 'C', 'G', 'F', 'UTIL', 'BE', 'IR'];
+  // Maintain standard slot ordering. TAXI is a dynasty-only concept
+  // that Sleeper doesn't model, so it's always appended with count 0
+  // — users opt in during the Roster step. Same shape as
+  // `DEFAULT_ROSTER_SLOTS` so StepRoster's TAXI UI renders for
+  // imports too.
+  const ORDER = ['PG', 'SG', 'SF', 'PF', 'C', 'G', 'F', 'UTIL', 'BE', 'IR', 'TAXI'];
 
   return ORDER.map((pos) => ({
     position: pos,
@@ -160,7 +165,7 @@ export function matchPlayers(
 
   for (const p of ourPlayers) {
     const norm = normalizePlayerName(p.name);
-    const key = `${norm}|${(p.nba_team ?? '').toUpperCase()}`;
+    const key = `${norm}|${(p.pro_team ?? '').toUpperCase()}`;
     byNameAndTeam.set(key, p);
 
     if (!byNameOnly.has(norm)) byNameOnly.set(norm, []);

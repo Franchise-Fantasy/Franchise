@@ -50,7 +50,7 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
         .maybeSingle();
 
       if (error) throw error;
-      return data;
+      return data as Draft | null;
     },
     enabled: !!leagueId
   });

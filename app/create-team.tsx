@@ -77,12 +77,12 @@ export default function CreateTeam() {
       if (leagueError) throw leagueError;
 
       // Initialize waiver priority for this team
-      await supabase.from('waiver_priority').insert({
+      await supabase.from('waiver_priority').insert([{
         league_id: leagueId,
         team_id: teamData.id,
-        priority: league.current_teams,
+        priority: league.current_teams ?? undefined,
         faab_remaining: league.faab_budget ?? 100,
-      });
+      }]);
 
       switchLeague(leagueId, teamData.id);
       router.replace('/(tabs)');

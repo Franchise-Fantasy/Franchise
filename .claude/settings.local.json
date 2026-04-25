@@ -1,6 +1,7 @@
 {
   "permissions": {
     "allow": [
+      "Bash",
       "mcp__claude_ai_Supabase__list_tables",
       "mcp__claude_ai_Supabase__list_edge_functions",
       "mcp__claude_ai_Supabase__get_edge_function",
@@ -347,7 +348,24 @@
       "Bash(awk -F'\\(' '{print $1}')",
       "Bash(awk -F: '$1>1174 {print $1; exit}')",
       "Bash(awk 'NR==1174,/^  };$/' \"c:/Users/Joe/OneDrive/Desktop/franchise.v2/components/player/FreeAgentList.tsx\")",
-      "mcp__claude_ai_Supabase__get_project"
+      "mcp__claude_ai_Supabase__get_project",
+      "Bash(eas env:list --environment preview)",
+      "Bash(eas env:list --environment production)",
+      "Bash(eas credentials *)",
+      "Bash(kill %1)",
+      "Bash(eas build:list --platform android --limit 3 --non-interactive --json)",
+      "Bash(identify c:/Users/Joe/OneDrive/Desktop/franchise.v2/assets/images/icon.png)",
+      "Bash(node -e \"console.log\\(process.versions\\)\")",
+      "Bash(python -c \"from PIL import Image; print\\(Image.__version__\\)\")",
+      "Bash(python -c ' *)",
+      "PowerShell(supabase functions deploy poll-live-stats --no-verify-jwt --project-ref iuqbossmnsezzgocpcbo)",
+      "PowerShell(npx supabase functions deploy poll-live-stats --no-verify-jwt --project-ref iuqbossmnsezzgocpcbo)",
+      "Read(//Users/Joe/OneDrive/Desktop/franchise.v2/**)",
+      "Read(//c/Users/Joe/OneDrive/Desktop/franchise.v2/**)",
+      "PowerShell(supabase functions deploy execute-trade --no-verify-jwt --project-ref iuqbossmnsezzgocpcbo)",
+      "PowerShell(npx supabase functions deploy execute-trade --no-verify-jwt --project-ref iuqbossmnsezzgocpcbo)",
+      "PowerShell(winget install -e --id DenoLand.Deno --accept-package-agreements --accept-source-agreements 2>&1)",
+      "PowerShell(Get-Command deno -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source; if \\(-not $?\\) { Get-ChildItem \"$env:LOCALAPPDATA\\\\Microsoft\\\\WinGet\\\\Packages\" -Recurse -Filter \"deno.exe\" -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName })"
     ],
     "additionalDirectories": [
       "c:\\Users\\jjspo\\OneDrive\\Desktop\\Franchise Wiki\\Franchise Wiki\\Pages",

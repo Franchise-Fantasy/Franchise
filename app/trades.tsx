@@ -74,7 +74,7 @@ export default function Trades() {
         player_id: params.proposePlayerId,
         name: params.proposePlayerName,
         position: params.proposePlayerPos ?? "",
-        nba_team: params.proposePlayerTeam ?? "",
+        pro_team: params.proposePlayerTeam ?? "",
         team_id: params.proposeTeamId ?? "",
         team_name: "",
         trade_block_note: null,

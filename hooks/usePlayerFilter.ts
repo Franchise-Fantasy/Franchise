@@ -96,7 +96,7 @@ export function usePlayerFilter(
 
     // Playing on selected date: only players whose team has a game on that date
     if (playingOnDate && scheduleMap) {
-      result = result.filter(p => p.nba_team && scheduleMap.has(p.nba_team));
+      result = result.filter(p => p.pro_team && scheduleMap.has(p.pro_team));
     }
 
     // Free agents only: exclude rostered players (default ON)

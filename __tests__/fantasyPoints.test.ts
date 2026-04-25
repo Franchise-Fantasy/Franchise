@@ -4,9 +4,9 @@ import { PlayerSeasonStats, PlayerGameLog, ScoringWeight } from '@/types/player'
 // Helper to build a minimal PlayerSeasonStats with defaults
 function makePlayer(overrides: Partial<PlayerSeasonStats> = {}): PlayerSeasonStats {
   return {
-    player_id: 'p1', name: 'Test Player', position: 'PG', nba_team: 'LAL',
+    player_id: 'p1', name: 'Test Player', position: 'PG', pro_team: 'LAL',
     status: 'active', external_id_nba: null, rookie: false,
-    season_added: null, nba_draft_year: null, birthdate: null, games_played: 0,
+    season_added: null, draft_year: null, birthdate: null, games_played: 0,
     total_pts: 0, total_reb: 0, total_ast: 0, total_stl: 0, total_blk: 0,
     total_tov: 0, total_fgm: 0, total_fga: 0, total_3pm: 0, total_3pa: 0,
     total_ftm: 0, total_fta: 0, total_pf: 0, total_dd: 0, total_td: 0,

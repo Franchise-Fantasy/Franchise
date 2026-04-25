@@ -11,7 +11,7 @@ export interface TransactionItem {
   draft_pick_id: string | null;
   team_from_id: string | null;
   team_to_id: string | null;
-  player: { name: string; position: string; nba_team: string } | null;
+  player: { name: string; position: string; pro_team: string } | null;
   draft_pick: { season: string; round: number } | null;
   team_from: { name: string; logo_key: string | null } | null;
   team_to: { name: string; logo_key: string | null } | null;
@@ -44,7 +44,7 @@ export function useTransactions(typeFilter?: string) {
           initiator:teams!league_transactions_team_id_fkey ( name, logo_key ),
           league_transaction_items (
             id, player_id, draft_pick_id, team_from_id, team_to_id,
-            player:players ( name, position, nba_team ),
+            player:players ( name, position, pro_team ),
             draft_pick:draft_picks ( season, round ),
             team_from:teams!league_transaction_items_team_from_id_fkey ( name, logo_key ),
             team_to:teams!league_transaction_items_team_to_id_fkey ( name, logo_key )

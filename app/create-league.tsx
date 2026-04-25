@@ -7,11 +7,13 @@ import { StepScoring } from "@/components/create-league/StepScoring";
 import { StepSeason, computeMaxWeeks, computeSeasonStart } from "@/components/create-league/StepSeason";
 import { StepTrade } from "@/components/create-league/StepTrade";
 import { StepWaivers } from "@/components/create-league/StepWaivers";
+import { BrandButton } from "@/components/ui/BrandButton";
 import { ThemedView } from "@/components/ui/ThemedView";
 import { StepIndicator } from "@/components/ui/StepIndicator";
 import { Colors } from "@/constants/Colors";
 import {
   CURRENT_NBA_SEASON,
+  CURRENT_WNBA_SEASON,
   DEFAULT_CATEGORIES,
   DEFAULT_ROSTER_SLOTS,
   DEFAULT_SCORING,
@@ -38,12 +40,13 @@ import { useRouter } from "expo-router";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import {
   Alert,
+  KeyboardAvoidingView,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
@@ -65,6 +68,7 @@ const maxWeeks = computeMaxWeeks(CURRENT_NBA_SEASON);
 const WIZARD_STORAGE_KEY = '@league_wizard';
 
 const initialState: LeagueWizardState = {
+  sport: 'nba',
   leagueType: 'Dynasty',
   keeperCount: 5,
   name: "",
@@ -157,6 +161,16 @@ function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
       if (action.field === 'leagueType' && action.value === 'Dynasty') {
         return { ...next, maxDraftYears: 3 };
       }
+      // When sport changes, snap the season string to that sport's default and
+      // recompute week boundaries from the new season's start date.
+      if (action.field === 'sport') {
+        const newSport = action.value as 'nba' | 'wnba';
+        const newSeason = newSport === 'wnba' ? CURRENT_WNBA_SEASON : CURRENT_NBA_SEASON;
+        const newMax = computeMaxWeeks(newSeason);
+        const playoffWeeks = Math.min(next.playoffWeeks, Math.max(1, newMax - 1));
+        const regularSeasonWeeks = Math.min(next.regularSeasonWeeks, Math.max(1, newMax - playoffWeeks));
+        return clampLotteryState({ ...next, season: newSeason, seasonStartDate: null, regularSeasonWeeks, playoffWeeks });
+      }
       return next;
     }
     case "SET_ROSTER_SLOT": {
@@ -208,6 +222,14 @@ export default function CreateLeague() {
   const scrollRef = useRef<ScrollView>(null);
   const [isAtBottom, setIsAtBottom] = useState(false);
   const [hasMoreContent, setHasMoreContent] = useState(false);
+  // Track the ScrollView's viewport height and the rendered content
+  // height independently so we can compute "is there more to scroll?"
+  // immediately when the step mounts — before the user touches the
+  // screen. The previous implementation only computed this on
+  // `onScroll`, which meant the hint appeared late (or not at all for
+  // steps the user never scrolled).
+  const viewportHeightRef = useRef(0);
+  const contentHeightRef = useRef(0);
 
   // Restore saved wizard progress on mount
   useEffect(() => {
@@ -244,7 +266,9 @@ export default function CreateLeague() {
   const persistWizard = useCallback((s: LeagueWizardState, currentStep: number) => {
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      AsyncStorage.setItem(WIZARD_STORAGE_KEY, JSON.stringify({ state: s, step: currentStep })).catch(() => {});
+      AsyncStorage.setItem(WIZARD_STORAGE_KEY, JSON.stringify({ state: s, step: currentStep })).catch((e) =>
+        console.warn('Persist create-league wizard state failed:', e),
+      );
     }, 500);
   }, []);
 
@@ -252,11 +276,13 @@ export default function CreateLeague() {
     persistWizard(state, step);
   }, [state, step, persistWizard]);
 
-  // Scroll to top when step changes
+  // Scroll to top when step changes. Reset the "at bottom" flag but
+  // leave `hasMoreContent` for the size-change handlers below to set
+  // when the new step's content measures itself — that avoids the
+  // old bug where the hint was stuck false until the user scrolled.
   useEffect(() => {
     scrollRef.current?.scrollTo({ y: 0, animated: false });
     setIsAtBottom(false);
-    setHasMoreContent(false);
   }, [step]);
 
   // Track wizard step progression
@@ -266,17 +292,44 @@ export default function CreateLeague() {
     }
   }, [step]);
 
+  const recomputeHint = useCallback(() => {
+    const viewport = viewportHeightRef.current;
+    const content = contentHeightRef.current;
+    if (viewport > 0 && content > 0) {
+      setHasMoreContent(content > viewport + 20);
+    }
+  }, []);
+
   const handleScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
     const distanceFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
     setIsAtBottom(distanceFromBottom < 20);
-    setHasMoreContent(contentSize.height > layoutMeasurement.height + 20);
-  }, []);
+    // Keep refs in sync in case content changed mid-scroll.
+    viewportHeightRef.current = layoutMeasurement.height;
+    contentHeightRef.current = contentSize.height;
+    recomputeHint();
+  }, [recomputeHint]);
 
-  // Steps: 0=Basics, 1=Roster, 2=Scoring, 3=Trade, 4=Waivers, 5=Season, 6=Draft, 7=Review
+  const handleLayout = useCallback(
+    (e: NativeSyntheticEvent<{ layout: { height: number } }>) => {
+      viewportHeightRef.current = e.nativeEvent.layout.height;
+      recomputeHint();
+    },
+    [recomputeHint],
+  );
+
+  const handleContentSizeChange = useCallback(
+    (_w: number, h: number) => {
+      contentHeightRef.current = h;
+      recomputeHint();
+    },
+    [recomputeHint],
+  );
+
+  // Steps: 0=Basics, 1=Roster, 2=Scoring, 3=Waivers, 4=Season, 5=Trade, 6=Draft, 7=Review
   const TOTAL_STEPS = STEP_LABELS.length;
   const isOddTeamByeInvalid =
-    step === 5 &&
+    step === 4 &&
     state.teams % 2 !== 0 &&
     state.regularSeasonWeeks % state.teams !== 0;
   const canAdvance =
@@ -330,6 +383,7 @@ export default function CreateLeague() {
       .insert({
         name: state.name,
         created_by: user.id,
+        sport: state.sport,
         league_type: LEAGUE_TYPE_TO_DB[state.leagueType],
         keeper_count: state.leagueType === 'Keeper' ? state.keeperCount : null,
         max_future_seasons: isDynasty ? state.maxDraftYears : 0,
@@ -498,9 +552,18 @@ export default function CreateLeague() {
         ),
       );
     }
-    Promise.all(pickPromises).catch((error) => console.error("Error generating draft picks:", error));
+    // allSettled so one generator failing doesn't cancel the others — we still want
+    // the partial league to exist so the user can navigate in and recover.
+    Promise.allSettled(pickPromises).then((results) => {
+      const failed = results.filter((r) => r.status === 'rejected');
+      if (failed.length > 0) {
+        console.error('Error generating draft picks:', failed.map((f) => (f as PromiseRejectedResult).reason));
+      }
+    });
 
-    AsyncStorage.removeItem(WIZARD_STORAGE_KEY).catch(() => {});
+    AsyncStorage.removeItem(WIZARD_STORAGE_KEY).catch((e) =>
+      console.warn('Clear create-league wizard storage failed:', e),
+    );
 
     capture('league_created', {
       league_type: state.leagueType,
@@ -536,18 +599,22 @@ export default function CreateLeague() {
   return (
     <ThemedView style={styles.container}>
       <View style={styles.headerRow}>
-        <TouchableOpacity
+        <BrandButton
+          label="Cancel"
           onPress={handleCancel}
-          style={styles.cancelBtn}
-          accessibilityRole="button"
+          variant="ghost"
+          size="default"
           accessibilityLabel="Cancel league creation"
-        >
-          <Text style={[styles.cancelText, { color: c.accent }]}>Cancel</Text>
-        </TouchableOpacity>
+        />
       </View>
 
       <StepIndicator currentStep={step} steps={STEP_LABELS} />
 
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+      <View style={styles.scrollWrap}>
       <ScrollView
         ref={scrollRef}
         style={styles.content}
@@ -556,6 +623,8 @@ export default function CreateLeague() {
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
         scrollEventThrottle={16}
+        onLayout={handleLayout}
+        onContentSizeChange={handleContentSizeChange}
       >
         {step === 0 && <StepBasics state={state} onChange={handleChange} />}
         {step === 1 && (
@@ -584,62 +653,59 @@ export default function CreateLeague() {
             onResetCategories={() => dispatch({ type: "RESET_CATEGORIES" })}
           />
         )}
-        {step === 3 && <StepTrade state={state} onChange={handleChange} />}
-        {step === 4 && <StepWaivers state={state} onChange={handleChange} />}
-        {step === 5 && <StepSeason state={state} onChange={handleChange} />}
+        {step === 3 && <StepWaivers state={state} onChange={handleChange} />}
+        {step === 4 && <StepSeason state={state} onChange={handleChange} />}
+        {step === 5 && <StepTrade state={state} onChange={handleChange} />}
         {step === 6 && <StepDraft state={state} onChange={handleChange} />}
         {step === 7 && (
           <StepReview
             state={state}
             onSubmit={handleCreateLeague}
+            onBack={() => setStep((s) => s - 1)}
             loading={loading}
           />
         )}
       </ScrollView>
-
+      {/* Scroll hint overlays the ScrollView's bottom edge so it
+          always sits right against the visible content boundary —
+          no matter the viewport height or how much the content
+          overflows. Subtle down-arrow; the previous "Scroll for
+          more" text was too prominent and the absolute positioning
+          kept landing it above the visible area. */}
       {hasMoreContent && !isAtBottom && (
         <Animated.View
           entering={FadeIn.duration(200)}
           exiting={FadeOut.duration(200)}
-          style={[styles.scrollHint, { borderTopColor: c.border }]}
+          style={styles.scrollHint}
           pointerEvents="none"
           accessibilityLabel="Scroll down for more options"
         >
-          <Text style={[styles.scrollHintText, { color: c.secondaryText }]}>
-            Scroll for more
-          </Text>
+          <Text style={[styles.scrollHintText, { color: c.secondaryText }]}>↓</Text>
         </Animated.View>
       )}
+      </View>
+      </KeyboardAvoidingView>
 
       {step < TOTAL_STEPS - 1 && (
         <View style={styles.navRow}>
           {step > 0 ? (
-            <TouchableOpacity
+            <BrandButton
+              label="Back"
               onPress={() => setStep((s) => s - 1)}
-              style={[styles.navBtn, { borderColor: c.border }]}
-              accessibilityRole="button"
-              accessibilityLabel="Back"
-            >
-              <Text style={[styles.navBtnText, { color: c.text }]}>Back</Text>
-            </TouchableOpacity>
+              variant="secondary"
+              size="default"
+            />
           ) : (
             <View />
           )}
-          <TouchableOpacity
+          <BrandButton
+            label="Next"
             onPress={() => setStep((s) => s + 1)}
+            variant="primary"
+            size="default"
             disabled={!canAdvance}
-            style={[
-              styles.navBtn,
-              { backgroundColor: canAdvance ? c.accent : c.buttonDisabled },
-            ]}
-            accessibilityRole="button"
             accessibilityLabel={`Next, step ${step + 2} of ${TOTAL_STEPS}`}
-            accessibilityState={{ disabled: !canAdvance }}
-          >
-            <Text style={[styles.navBtnText, { color: c.accentText }]}>
-              Next
-            </Text>
-          </TouchableOpacity>
+          />
         </View>
       )}
     </ThemedView>
@@ -655,15 +721,15 @@ const styles = StyleSheet.create({
   headerRow: {
     flexDirection: "row",
     justifyContent: "flex-start",
-    marginBottom: 4,
+    // Negative margin pulls the ghost button's internal padding back
+    // so its label sits flush with the content edge (matches where
+    // Section-card text starts below, not indented by the button's
+    // own padding).
+    marginLeft: -s(18),
+    marginBottom: 6,
   },
-  cancelBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 4,
-  },
-  cancelText: {
-    fontSize: ms(16),
-    fontWeight: "500",
+  flex: {
+    flex: 1,
   },
   content: {
     flex: 1,
@@ -671,32 +737,28 @@ const styles = StyleSheet.create({
   contentInner: {
     paddingBottom: 24,
   },
+  scrollWrap: {
+    flex: 1,
+    position: "relative",
+  },
   scrollHint: {
+    position: "absolute",
+    bottom: s(6),
+    left: 0,
+    right: 0,
     alignItems: "center",
-    paddingVertical: 6,
-    borderTopWidth: StyleSheet.hairlineWidth,
   },
   scrollHintText: {
-    fontSize: ms(12),
-    fontWeight: "500",
-    opacity: 0.7,
+    fontSize: ms(16),
+    fontWeight: "600",
+    opacity: 0.45,
   },
   navRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingVertical: 16,
+    alignItems: "center",
+    paddingTop: 8,
     paddingBottom: 32,
-  },
-  navBtn: {
-    paddingVertical: 12,
-    paddingHorizontal: 28,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "transparent",
-  },
-  navBtnText: {
-    fontSize: ms(16),
-    fontWeight: "600",
   },
 });
 

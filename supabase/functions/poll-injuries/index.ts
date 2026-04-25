@@ -2,7 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { notifyTeams } from '../_shared/push.ts';
 import { CORS_HEADERS } from '../_shared/cors.ts';
-import { bdlFetch, bdlFetchAll } from '../_shared/bdl.ts';
+import { bdlFetch, bdlFetchAll, type Sport } from '../_shared/bdl.ts';
 import { normalizeName } from '../_shared/normalize.ts';
 
 const supabase = createClient(
@@ -39,15 +39,15 @@ function mapBdlStatus(bdlStatus: string, description?: string): string {
   return 'QUES';
 }
 
-async function fetchInjuriesFromBdl(): Promise<{
+async function fetchInjuriesFromBdl(sport: Sport): Promise<{
   injuries: Array<{ bdl_id: number; player_name: string; status: string }>;
   teamsOnReport: string[];
 } | null> {
   try {
     // BDL injury endpoint only returns team_id (numeric), so look up abbreviations
     const [bdlInjuries, bdlTeams] = await Promise.all([
-      bdlFetchAll('/player_injuries'),
-      bdlFetch('/teams').then((d: any) => d.data ?? []),
+      bdlFetchAll(sport, '/player_injuries'),
+      bdlFetch(sport, '/teams').then((d: any) => d.data ?? []),
     ]);
     if (!bdlInjuries || bdlInjuries.length === 0) return null;
 
@@ -82,19 +82,20 @@ async function fetchInjuriesFromBdl(): Promise<{
 }
 
 async function applyInjuries(
+  sport: Sport,
   injuries: Array<{ bdl_id?: number; player_name: string; status: string }>,
   teamsOnReport: string[],
 ): Promise<{ matchedPlayers: number; statusUpdates: number; playersReset: number; unmatchedNames: string[]; changedPlayerIds: string[]; teamsReported: number }> {
   const { data: allPlayers, error: playerErr } = await supabase
-    .from('players').select('id, name, status, nba_team, external_id_bdl');
+    .from('players').select('id, name, status, pro_team, external_id_bdl').eq('sport', sport);
   if (playerErr) throw new Error(playerErr.message);
 
   // Primary: match by BDL ID. Fallback: name match (for manual JSON payloads without bdl_id)
-  const bdlIdMap = new Map<number, { id: string; status: string; nba_team: string }>();
-  const exactMap = new Map<string, { id: string; status: string; nba_team: string }>();
-  const normMap = new Map<string, { id: string; status: string; nba_team: string }>();
+  const bdlIdMap = new Map<number, { id: string; status: string; pro_team: string }>();
+  const exactMap = new Map<string, { id: string; status: string; pro_team: string }>();
+  const normMap = new Map<string, { id: string; status: string; pro_team: string }>();
   for (const p of allPlayers ?? []) {
-    const entry = { id: p.id, status: p.status, nba_team: p.nba_team };
+    const entry = { id: p.id, status: p.status, pro_team: p.pro_team };
     if (p.external_id_bdl) bdlIdMap.set(Number(p.external_id_bdl), entry);
     exactMap.set(p.name.toLowerCase(), entry);
     normMap.set(normalizeName(p.name), entry);
@@ -106,11 +107,12 @@ async function applyInjuries(
 
   // Cross-reference reported teams with today's schedule to avoid false positives
   // (spaceless PDF matching can pick up team names that aren't actually playing today).
-  // Use ET because nba_schedule.game_date is ET-aligned.
+  // Use ET because game_schedule.game_date is ET-aligned.
   const todayStr = getEtDateStr(new Date());
   const { data: todayGames } = await supabase
-    .from('nba_schedule')
+    .from('game_schedule')
     .select('home_team, away_team')
+    .eq('sport', sport)
     .eq('game_date', todayStr);
   const teamsPlayingToday = new Set<string>();
   for (const g of todayGames ?? []) {
@@ -119,7 +121,7 @@ async function applyInjuries(
   }
   // Only reset players from teams that are both on the report AND actually play today
   const reportedTeams = new Set(teamsOnReport.filter(t => teamsPlayingToday.has(t)));
-  console.log(`Teams playing today: ${teamsPlayingToday.size}, filtered reported teams: ${reportedTeams.size}`);
+  console.log(`[${sport}] Teams playing today: ${teamsPlayingToday.size}, filtered reported teams: ${reportedTeams.size}`);
 
   const matchedPlayerIds = new Set<string>();
   const unmatchedNames: string[] = [];
@@ -150,7 +152,7 @@ async function applyInjuries(
       .filter((p: any) =>
         GAME_DAY_STATUSES.has(p.status) &&
         !matchedPlayerIds.has(p.id) &&
-        reportedTeams.has(p.nba_team)
+        reportedTeams.has(p.pro_team)
       )
       .map((p: any) => p.id);
 
@@ -171,7 +173,7 @@ async function applyInjuries(
   return { matchedPlayers: matchedPlayerIds.size, statusUpdates: updateCount, playersReset, unmatchedNames, changedPlayerIds, teamsReported: reportedTeams.size };
 }
 
-// nba_schedule.game_date is ET-aligned, so "today" must be computed in ET.
+// game_schedule.game_date is ET-aligned, so "today" must be computed in ET.
 // Using UTC causes tomorrow's ET games to be mislabeled "Tonight" when the
 // cron runs late evening ET (UTC already rolled past midnight).
 function getEtDateStr(d: Date, offsetDays = 0): string {
@@ -197,32 +199,42 @@ function formatNextGameLabel(gameDate: string, now: Date): string {
   return `${day} ${month}/${date}`;
 }
 
-async function getNextGameByTeam(nbaTeams: string[]): Promise<Map<string, string>> {
+async function getNextGameByTeam(sport: Sport, proTeams: string[]): Promise<Map<string, string>> {
   const now = new Date();
   const todayStr = getEtDateStr(now);
   const nextGameMap = new Map<string, string>();
-  if (nbaTeams.length === 0) return nextGameMap;
+  if (proTeams.length === 0) return nextGameMap;
 
   // Fetch upcoming games that haven't started yet.
   // Use game_time_utc when available so we skip today's games already in progress / finished.
   const { data: upcoming } = await supabase
-    .from('nba_schedule')
+    .from('game_schedule')
     .select('game_date, game_time_utc, home_team, away_team')
+    .eq('sport', sport)
     .gte('game_date', todayStr)
     .neq('status', 'final')
-    .or(nbaTeams.map(t => `home_team.eq.${t},away_team.eq.${t}`).join(','))
+    .or(proTeams.map(t => `home_team.eq.${t},away_team.eq.${t}`).join(','))
     .order('game_date', { ascending: true })
     .limit(100);
 
   for (const game of upcoming ?? []) {
-    // Skip today's games we can't prove are still upcoming. If game_time_utc
-    // is set, use it; if it's missing, assume today's game already tipped
+    // Today's games need special handling. If game_time_utc is set and tipoff
+    // has passed, the game is in progress (status != 'final' filtered above) —
+    // label those teams "In Progress" so injury notifications that fire mid-game
+    // don't claim the update applies to tonight's or tomorrow's game.
+    // If game_time_utc is missing, assume it already tipped and skip forward
     // (better to label a back-to-back's second night "Tomorrow" than to
     // mislabel a concluded game "Tonight" when the schedule row hasn't
     // flipped to status='final' yet).
     if (game.game_date === todayStr) {
       const tipoff = game.game_time_utc ? new Date(game.game_time_utc) : null;
-      if (!tipoff || tipoff <= now) continue;
+      if (tipoff && tipoff <= now) {
+        for (const team of [game.home_team, game.away_team]) {
+          if (!nextGameMap.has(team)) nextGameMap.set(team, 'In Progress');
+        }
+        continue;
+      }
+      if (!tipoff) continue;
     }
 
     for (const team of [game.home_team, game.away_team]) {
@@ -234,7 +246,7 @@ async function getNextGameByTeam(nbaTeams: string[]): Promise<Map<string, string
   return nextGameMap;
 }
 
-async function sendInjuryNotifications(changedPlayerIds: string[]) {
+async function sendInjuryNotifications(sport: Sport, changedPlayerIds: string[]) {
   if (changedPlayerIds.length === 0) return;
 
   // Find which teams roster these players, including league name
@@ -244,14 +256,14 @@ async function sendInjuryNotifications(changedPlayerIds: string[]) {
 
   if (!affectedRosters || affectedRosters.length === 0) return;
 
-  // Fetch player details + nba_team for next-game lookup
+  // Fetch player details + pro_team for next-game lookup
   const { data: allChangedPlayers } = await supabase
-    .from('players').select('id, name, status, nba_team').in('id', changedPlayerIds);
+    .from('players').select('id, name, status, pro_team').in('id', changedPlayerIds);
   const playerMap = new Map((allChangedPlayers ?? []).map((p: any) => [p.id, p]));
 
-  // Look up next game for each affected NBA team
-  const nbaTeams = [...new Set((allChangedPlayers ?? []).map((p: any) => p.nba_team).filter(Boolean))];
-  const nextGameMap = await getNextGameByTeam(nbaTeams);
+  // Look up next game for each affected pro team
+  const proTeams = [...new Set((allChangedPlayers ?? []).map((p: any) => p.pro_team).filter(Boolean))];
+  const nextGameMap = await getNextGameByTeam(sport, proTeams);
 
   // Group by team_id + league name (a user could own the same player in multiple leagues)
   const teamLeaguePlayers = new Map<string, { leagueName: string; playerIds: string[] }>();
@@ -274,9 +286,10 @@ async function sendInjuryNotifications(changedPlayerIds: string[]) {
       for (const id of playerIds) {
         const p = playerMap.get(id);
         if (!p) continue;
-        const nextGame = nextGameMap.get(p.nba_team);
+        const nextGame = nextGameMap.get(p.pro_team);
         let line = `${p.name}: ${p.status}`;
-        if (nextGame) line += `\nNext Game: ${nextGame}`;
+        if (nextGame === 'In Progress') line += `\nGame: In Progress`;
+        else if (nextGame) line += `\nNext Game: ${nextGame}`;
         lines.push(line);
       }
       const summary = lines.join('\n');
@@ -304,11 +317,13 @@ Deno.serve(async (req: Request) => {
     let injuries: Array<{ player_name: string; status: string }> | null = null;
     let teamsOnReport: string[] = [];
     let source = 'manual';
+    let sport: Sport = 'nba';
 
     const contentType = req.headers.get('content-type') ?? '';
     if (contentType.includes('application/json')) {
       try {
         const body = await req.json();
+        if (body?.sport === 'wnba') sport = 'wnba';
         if (body?.injuries?.length > 0) {
           for (const inj of body.injuries) {
             if (!VALID_STATUSES.has(inj.status)) {
@@ -326,12 +341,12 @@ Deno.serve(async (req: Request) => {
     }
 
     if (!injuries) {
-      console.log('No manual data — auto-fetching from balldontlie...');
-      const fetched = await fetchInjuriesFromBdl();
+      console.log(`[${sport}] No manual data — auto-fetching from balldontlie...`);
+      const fetched = await fetchInjuriesFromBdl(sport);
       source = 'balldontlie';
       if (!fetched) {
         return new Response(
-          JSON.stringify({ ok: true, source, note: 'could not fetch injuries from balldontlie' }),
+          JSON.stringify({ ok: true, sport, source, note: 'could not fetch injuries from balldontlie' }),
           { status: 200, headers: jsonHeaders },
         );
       }
@@ -339,18 +354,18 @@ Deno.serve(async (req: Request) => {
       teamsOnReport = fetched.teamsOnReport;
     }
 
-    console.log(`Teams on report (${teamsOnReport.length}): ${teamsOnReport.join(', ')}`);
-    const result = await applyInjuries(injuries, teamsOnReport);
+    console.log(`[${sport}] Teams on report (${teamsOnReport.length}): ${teamsOnReport.join(', ')}`);
+    const result = await applyInjuries(sport, injuries, teamsOnReport);
 
     // Send injury notifications for changed players
     try {
-      await sendInjuryNotifications(result.changedPlayerIds);
+      await sendInjuryNotifications(sport, result.changedPlayerIds);
     } catch (notifyErr) {
       console.warn('Injury notifications failed (non-fatal):', notifyErr);
     }
 
     return new Response(
-      JSON.stringify({ ok: true, source, injuriesReceived: injuries.length, matchedPlayers: result.matchedPlayers, statusUpdates: result.statusUpdates, playersReset: result.playersReset, teamsReported: result.teamsReported, unmatchedNames: result.unmatchedNames }),
+      JSON.stringify({ ok: true, sport, source, injuriesReceived: injuries.length, matchedPlayers: result.matchedPlayers, statusUpdates: result.statusUpdates, playersReset: result.playersReset, teamsReported: result.teamsReported, unmatchedNames: result.unmatchedNames }),
       { status: 200, headers: jsonHeaders },
     );
   } catch (err: any) {

@@ -220,7 +220,9 @@ export function DraftChatModal({
 
   const toggleReaction = useToggleReaction(conversationId ?? '');
 
-  const newestMessageId = messages.length > 0 ? messages[0].id : null;
+  const newestMessage = messages.length > 0 ? messages[0] : null;
+  const newestMessageId = newestMessage?.id ?? null;
+  const newestMessageCreatedAt = newestMessage?.created_at ?? null;
   const { receipts: readReceipts, updateReadPosition } = useReadReceipts(
     visible ? conversationId ?? null : null,
     teamId,
@@ -231,6 +233,7 @@ export function DraftChatModal({
     visible ? conversationId ?? null : null,
     teamId,
     newestMessageId,
+    newestMessageCreatedAt,
     updateReadPosition,
   );
 
@@ -264,7 +267,7 @@ export function DraftChatModal({
   const swipeReveal = useSharedValue(0);
 
   const handleSend = useCallback(
-    (text: string) => sendMessage.mutate(text),
+    (text: string) => sendMessage.mutate({ content: text }),
     [sendMessage],
   );
 

@@ -3,31 +3,37 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
 import type { ProspectCardData } from '@/types/prospect';
 import { DynastyScoreBadge } from './DynastyScoreBadge';
+import { memo, useMemo } from 'react';
 import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 interface ProspectCardProps {
   prospect: ProspectCardData;
   rank: number;
-  onPress: () => void;
-  onAddToBoard?: () => void;
+  /** Stable handler receiving the prospect so parents can pass a single memoized callback. */
+  onOpenProspect: (prospect: ProspectCardData) => void;
+  onAddProspectToBoard?: (prospect: ProspectCardData) => void;
+  /** Whether this prospect is already on the user's board (disables the add button). */
+  alreadyOnBoard?: boolean;
 }
 
-export function ProspectCard({ prospect, rank, onPress, onAddToBoard }: ProspectCardProps) {
+function ProspectCardBase({ prospect, rank, onOpenProspect, onAddProspectToBoard, alreadyOnBoard }: ProspectCardProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
 
-  const initials = prospect.name
-    .split(' ')
-    .map(w => w[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase();
+  const initials = useMemo(
+    () => prospect.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase(),
+    [prospect.name],
+  );
+
+  const handlePress = () => onOpenProspect(prospect);
+  const handleAdd = () => onAddProspectToBoard?.(prospect);
+  const showAdd = !!onAddProspectToBoard && !alreadyOnBoard;
 
   return (
     <TouchableOpacity
       style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}
-      onPress={onPress}
+      onPress={handlePress}
       activeOpacity={0.7}
       accessibilityRole="button"
       accessibilityLabel={`${prospect.name}, ${prospect.position}, ${prospect.school}, dynasty score ${prospect.dynastyValueScore}`}
@@ -36,7 +42,7 @@ export function ProspectCard({ prospect, rank, onPress, onAddToBoard }: Prospect
       <Text style={[styles.rank, { color: c.tint }]}>{rank}</Text>
 
       {/* Avatar with gold ring */}
-      <View style={[styles.avatarRing, { borderColor: c.gold }]}>
+      <View style={[styles.avatarRing, { borderColor: c.heritageGold }]}>
         {prospect.photoUrl ? (
           <Image
             source={{ uri: prospect.photoUrl }}
@@ -67,11 +73,11 @@ export function ProspectCard({ prospect, rank, onPress, onAddToBoard }: Prospect
       )}
 
       {/* Add to board */}
-      {onAddToBoard && (
+      {showAdd && (
         <TouchableOpacity
           onPress={e => {
             e.stopPropagation();
-            onAddToBoard();
+            handleAdd();
           }}
           hitSlop={8}
           style={[styles.addBtn, { backgroundColor: c.cardAlt }]}
@@ -87,6 +93,21 @@ export function ProspectCard({ prospect, rank, onPress, onAddToBoard }: Prospect
     </TouchableOpacity>
   );
 }
+
+export const ProspectCard = memo(ProspectCardBase, (prev, next) => (
+  prev.rank === next.rank &&
+  prev.alreadyOnBoard === next.alreadyOnBoard &&
+  prev.onOpenProspect === next.onOpenProspect &&
+  prev.onAddProspectToBoard === next.onAddProspectToBoard &&
+  prev.prospect.playerId === next.prospect.playerId &&
+  prev.prospect.contentfulEntryId === next.prospect.contentfulEntryId &&
+  prev.prospect.name === next.prospect.name &&
+  prev.prospect.position === next.prospect.position &&
+  prev.prospect.school === next.prospect.school &&
+  prev.prospect.classYear === next.prospect.classYear &&
+  prev.prospect.photoUrl === next.prospect.photoUrl &&
+  prev.prospect.dynastyValueScore === next.prospect.dynastyValueScore
+));
 
 const styles = StyleSheet.create({
   card: {

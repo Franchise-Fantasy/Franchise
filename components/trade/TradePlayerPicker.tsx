@@ -19,6 +19,7 @@ import {
   View,
 } from 'react-native';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 
 interface TradePlayerPickerProps {
   teamId: string;
@@ -45,6 +46,7 @@ export function TradePlayerPicker({
 }: TradePlayerPickerProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const sport = useActiveLeagueSport(leagueId);
   const [search, setSearch] = useState('');
 
   const { data: roster, isLoading } = useTeamRosterForTrade(teamId, leagueId);
@@ -61,8 +63,8 @@ export function TradePlayerPicker({
     const isOnIR = item.roster_slot === 'IR';
     const isDisabled = isLocked || isOnIR || isPendingDrop;
     const fpts = scoringWeights && !isCategories ? calculateAvgFantasyPoints(item, scoringWeights) : null;
-    const headshotUrl = getPlayerHeadshotUrl(item.external_id_nba);
-    const logoUrl = getTeamLogoUrl(item.nba_team);
+    const headshotUrl = getPlayerHeadshotUrl(item.external_id_nba, sport);
+    const logoUrl = getTeamLogoUrl(item.pro_team, sport);
     const badge = getInjuryBadge(item.status);
 
     return (
@@ -82,7 +84,7 @@ export function TradePlayerPicker({
       >
         {/* Headshot + team pill */}
         <View style={styles.portraitWrap}>
-          <View style={[styles.headshotCircle, { borderColor: c.gold, backgroundColor: c.cardAlt }]}>
+          <View style={[styles.headshotCircle, { borderColor: c.heritageGold, backgroundColor: c.cardAlt }]}>
             {headshotUrl ? (
               <Image source={{ uri: headshotUrl }} style={styles.headshotImg} resizeMode="cover" />
             ) : null}
@@ -91,7 +93,7 @@ export function TradePlayerPicker({
             {logoUrl && (
               <Image source={{ uri: logoUrl }} style={styles.teamPillLogo} resizeMode="contain" />
             )}
-            <Text style={[styles.teamPillText, { color: c.statusText }]}>{item.nba_team}</Text>
+            <Text style={[styles.teamPillText, { color: c.statusText }]}>{item.pro_team}</Text>
           </View>
         </View>
 

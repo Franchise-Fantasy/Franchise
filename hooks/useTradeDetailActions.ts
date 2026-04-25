@@ -83,95 +83,44 @@ export function useTradeDetailActions({
 
     setProcessing(true);
     try {
-      if (selectedDropPlayerIds.length > 0) {
-        await supabase
-          .from('trade_proposal_teams')
-          .update({ drop_player_ids: selectedDropPlayerIds })
-          .eq('proposal_id', proposal.id)
-          .eq('team_id', teamId);
-      }
+      // Atomic accept: the RPC takes a row lock on the proposal, updates this
+      // team's status + drops, checks whether every party has now accepted,
+      // transitions the proposal (accepted / in_review), and cancels any
+      // conflicting proposals — all in one transaction. Fixes the double-accept
+      // race where concurrent accepts each missed the other's write and the
+      // proposal silently stayed un-executed.
+      const vetoType = leagueSettings?.trade_veto_type ?? 'commissioner';
+      const reviewHours = leagueSettings?.trade_review_period_hours ?? 24;
 
-      await supabase
-        .from('trade_proposal_teams')
-        .update({ status: 'accepted', responded_at: new Date().toISOString() })
-        .eq('proposal_id', proposal.id)
-        .eq('team_id', teamId);
+      const { data: rpcResult, error: rpcError } = await supabase.rpc('accept_trade_proposal' as any, {
+        p_proposal_id: proposal.id,
+        p_team_id: teamId,
+        p_drop_player_ids: selectedDropPlayerIds.length > 0 ? selectedDropPlayerIds : null,
+        p_veto_type: vetoType,
+        p_review_hours: reviewHours,
+      });
+      if (rpcError) throw rpcError;
 
-      const { data: allTeams } = await supabase
-        .from('trade_proposal_teams')
-        .select('status')
-        .eq('proposal_id', proposal.id);
+      const result = rpcResult as {
+        all_accepted: boolean;
+        needs_review: boolean;
+        already_finalized: boolean;
+      };
 
-      const allAccepted = (allTeams ?? []).every((t) => t.status === 'accepted');
       const myTeamName = myProposalTeam?.team_name ?? 'A team';
 
-      if (allAccepted) {
-        // Cancel any other active proposals that share assets with this trade
-        const { data: thisItems } = await supabase
-          .from('trade_proposal_items')
-          .select('player_id, draft_pick_id')
-          .eq('proposal_id', proposal.id);
-
-        const pIds = (thisItems ?? []).map((i) => i.player_id).filter(Boolean) as string[];
-        const dIds = (thisItems ?? []).map((i) => i.draft_pick_id).filter(Boolean) as string[];
-
-        if (pIds.length > 0 || dIds.length > 0) {
-          let q = supabase
-            .from('trade_proposal_items')
-            .select('proposal_id, player_id, draft_pick_id, trade_proposals!inner(id, status)')
-            .neq('trade_proposals.id', proposal.id)
-            .in('trade_proposals.status', ['pending', 'accepted']);
-
-          if (pIds.length > 0 && dIds.length > 0) {
-            q = q.or(`player_id.in.(${pIds.join(',')}),draft_pick_id.in.(${dIds.join(',')})`);
-          } else if (pIds.length > 0) {
-            q = q.in('player_id', pIds);
-          } else {
-            q = q.in('draft_pick_id', dIds);
-          }
-
-          const { data: conflicts } = await q;
-          if (conflicts && conflicts.length > 0) {
-            const idsToCancel = [...new Set(
-              conflicts.map((c: any) => (c as any).trade_proposals.id),
-            )];
-            for (const cid of idsToCancel) {
-              await supabase
-                .from('trade_proposals')
-                .update({ status: 'cancelled' })
-                .eq('id', cid);
-            }
-          }
-        }
-
-        const vetoType = leagueSettings?.trade_veto_type ?? 'commissioner';
-        if (vetoType === 'none') {
-          await supabase
-            .from('trade_proposals')
-            .update({ status: 'accepted', accepted_at: new Date().toISOString() })
-            .eq('id', proposal.id);
-          await supabase.functions.invoke('execute-trade', { body: { proposal_id: proposal.id } });
-        } else {
-          const reviewHours = leagueSettings?.trade_review_period_hours ?? 24;
-          const expiresAt = new Date(Date.now() + reviewHours * 3600000).toISOString();
-          await supabase
-            .from('trade_proposals')
-            .update({
-              status: 'in_review',
-              accepted_at: new Date().toISOString(),
-              review_expires_at: expiresAt,
-            })
-            .eq('id', proposal.id);
-
-          sendNotification({
-            league_id: leagueId,
-            category: 'trades',
-            title: 'Trade Under Review',
-            body: 'A trade has been accepted and is now under review.',
-            data: { screen: 'trades' },
-          });
-        }
-      } else {
+      if (result.all_accepted && !result.needs_review && !result.already_finalized) {
+        // All parties accepted, no veto review configured — fire execution now.
+        await supabase.functions.invoke('execute-trade', { body: { proposal_id: proposal.id } });
+      } else if (result.all_accepted && result.needs_review) {
+        sendNotification({
+          league_id: leagueId,
+          category: 'trades',
+          title: 'Trade Under Review',
+          body: 'A trade has been accepted and is now under review.',
+          data: { screen: 'trades' },
+        });
+      } else if (!result.all_accepted) {
         sendNotification({
           league_id: leagueId,
           team_ids: [proposal.proposed_by_team_id],

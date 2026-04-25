@@ -4,7 +4,7 @@ import type { ProspectBoardRow } from '@/types/prospect';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 /** Fetch the current user's prospect board, ordered by rank. */
-export function useProspectBoard(userId: string | undefined) {
+export function useProspectBoard(userId: string | undefined, enabled: boolean = true) {
   return useQuery<ProspectBoardRow[]>({
     queryKey: queryKeys.prospectBoard(userId!),
     queryFn: async () => {
@@ -18,7 +18,7 @@ export function useProspectBoard(userId: string | undefined) {
       if (error) throw error;
       return data ?? [];
     },
-    enabled: !!userId,
+    enabled: enabled && !!userId,
     staleTime: 1000 * 60 * 5,
   });
 }

@@ -1,12 +1,12 @@
+import { IconSymbol } from "@/components/ui/IconSymbol";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { ms, s } from "@/utils/scale";
-import { ThemedView } from "@/components/ui/ThemedView";
-import { Colors } from "@/constants/Colors";
+import { Colors, Fonts } from "@/constants/Colors";
 import { useColorScheme } from "@/hooks/useColorScheme";
-import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 const TERMS_OF_SERVICE = `Last updated: April 2026
 
@@ -125,14 +125,26 @@ export default function LegalScreen() {
   );
 
   return (
-    <ThemedView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: c.border }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="chevron-back" size={24} color={c.text} />
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={styles.headerButton}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
+          <IconSymbol name="chevron.backward" size={20} color={c.icon} accessible={false} />
         </TouchableOpacity>
-        <ThemedText type="subtitle">Legal</ThemedText>
-        <View style={styles.backButton} />
+        <ThemedText
+          type="varsity"
+          style={[styles.headerText, { color: c.secondaryText }]}
+          accessibilityRole="header"
+          numberOfLines={1}
+        >
+          Legal
+        </ThemedText>
+        <View style={styles.headerButton} />
       </View>
 
       {/* Tab Switcher */}
@@ -169,7 +181,7 @@ export default function LegalScreen() {
           {activeTab === "terms" ? TERMS_OF_SERVICE : PRIVACY_POLICY}
         </ThemedText>
       </ScrollView>
-    </ThemedView>
+    </SafeAreaView>
   );
 }
 
@@ -177,14 +189,21 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   header: {
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingTop: 60,
-    paddingBottom: 12,
-    paddingHorizontal: 16,
+    padding: s(8),
     borderBottomWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    height: s(50),
+    justifyContent: "space-between",
   },
-  backButton: { width: 40 },
+  headerText: {
+    flex: 1,
+    textAlign: "center",
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(12),
+    letterSpacing: 1.2,
+    marginHorizontal: s(40),
+  },
+  headerButton: { padding: s(8), width: s(36), alignItems: "center" },
   tabs: {
     flexDirection: "row",
     borderBottomWidth: StyleSheet.hairlineWidth,

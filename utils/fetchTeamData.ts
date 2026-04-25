@@ -70,7 +70,7 @@ export async function fetchTeamData(
       .in('player_id', allPlayerIds),
     supabase
       .from('players')
-      .select('id, name, position, nba_team, external_id_nba, status')
+      .select('id, name, position, pro_team, external_id_nba, status')
       .in('id', allPlayerIds),
   ]);
 
@@ -134,7 +134,7 @@ export async function fetchTeamData(
   // Build roster player list — use slotMap from fetchTeamSlots for display slot
   const rosterPlayers: RosterPlayer[] = allPlayerIds.map((pid) => {
     const info = playerInfoMap.get(pid);
-    const t = info?.nba_team ?? '';
+    const t = info?.pro_team ?? '';
     const nbaTricode = t && t !== 'Active' && t !== 'Inactive' ? t : null;
     const displaySlot = slots.slotMap.get(pid) ?? 'BE';
     const isDropped = !slots.currentPlayerIds.has(pid);
@@ -143,7 +143,7 @@ export async function fetchTeamData(
       player_id: pid,
       name: info?.name ?? '—',
       position: info?.position ?? '—',
-      nba_team: t,
+      pro_team: t,
       external_id_nba: info?.external_id_nba ?? null,
       status: info?.status ?? 'active',
       nbaTricode,

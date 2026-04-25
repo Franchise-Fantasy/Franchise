@@ -49,7 +49,7 @@ interface PreselectedPlayer {
   player_id: string;
   name: string;
   position: string;
-  nba_team: string;
+  pro_team: string;
   avg_fpts?: number;
 }
 
@@ -120,7 +120,7 @@ function reducer(state: TradeState, action: TradeAction): TradeState {
           player_id: action.preselectedPlayer.player_id,
           name: action.preselectedPlayer.name,
           position: action.preselectedPlayer.position,
-          nba_team: action.preselectedPlayer.nba_team,
+          pro_team: action.preselectedPlayer.pro_team,
           avg_fpts: action.preselectedPlayer.avg_fpts ?? 0,
           to_team_id: '', // destination TBD until partner is selected
         });
@@ -136,7 +136,7 @@ function reducer(state: TradeState, action: TradeAction): TradeState {
             player_id: action.preselectedPlayer.player_id,
             name: action.preselectedPlayer.name,
             position: action.preselectedPlayer.position,
-            nba_team: action.preselectedPlayer.nba_team,
+            pro_team: action.preselectedPlayer.pro_team,
             avg_fpts: action.preselectedPlayer.avg_fpts ?? 0,
             to_team_id: action.teamId, // goes to my team
           });
@@ -186,7 +186,7 @@ function reducer(state: TradeState, action: TradeAction): TradeState {
             player_id: item.player_id,
             name: item.player_name ?? '',
             position: item.player_position ?? '',
-            nba_team: item.player_nba_team ?? '',
+            pro_team: item.player_pro_team ?? '',
             avg_fpts: 0, // Will be recalculated by fairness bar
             to_team_id: item.to_team_id,
           });
@@ -483,6 +483,7 @@ export function ProposeTradeModal({
             if (!data) return;
             const fptsMap: Record<string, number> = {};
             for (const row of data) {
+              if (!row.player_id) continue;
               fptsMap[row.player_id] = calculateAvgFantasyPoints(row as PlayerSeasonStats, scoringWeights);
             }
             dispatch({ type: 'UPDATE_PLAYER_FPTS', fptsMap });
@@ -707,11 +708,11 @@ export function ProposeTradeModal({
       const { error: itemsError } = await supabase.from('trade_proposal_items').insert(itemRows);
       if (itemsError) throw itemsError;
 
-      // Fire-and-forget: check for bidding wars (auto-rumors)
+      // Fire-and-forget: check for bidding wars (auto-rumors); errors are non-fatal
       supabase.rpc('check_bidding_wars', {
         p_proposal_id: proposal.id,
         p_league_id: leagueId,
-      }).then(() => {}).catch(() => {}); // non-fatal
+      }).then(() => {}, () => {});
 
       if (instantExecute) {
         // Draft room trades: set all teams accepted and execute immediately
@@ -800,7 +801,7 @@ export function ProposeTradeModal({
           player_id: player.player_id,
           name: player.name,
           position: player.position,
-          nba_team: player.nba_team,
+          pro_team: player.pro_team,
           avg_fpts: avgFpts,
           to_team_id: getDefaultDest(forTeamId),
         },
@@ -1189,7 +1190,7 @@ export function ProposeTradeModal({
                       to_team_id: dest,
                       player_name: p.name,
                       player_position: p.position,
-                      player_nba_team: p.nba_team,
+                      player_pro_team: p.pro_team,
                       pick_season: null,
                       pick_round: null,
                       pick_original_team_name: null,
@@ -1210,7 +1211,7 @@ export function ProposeTradeModal({
                       to_team_id: dest,
                       player_name: null,
                       player_position: null,
-                      player_nba_team: null,
+                      player_pro_team: null,
                       pick_season: pk.season,
                       pick_round: pk.round,
                       pick_original_team_name: pk.original_team_name || null,
@@ -1228,7 +1229,7 @@ export function ProposeTradeModal({
                       to_team_id: sw.beneficiary_team_id,
                       player_name: null,
                       player_position: null,
-                      player_nba_team: null,
+                      player_pro_team: null,
                       pick_season: null,
                       pick_round: null,
                       pick_original_team_name: null,

@@ -2,15 +2,21 @@ import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats } from '@/types/player';
 import { useQuery } from '@tanstack/react-query';
+import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 
 export function usePlayerSeasonStats(excludePlayerIds?: string[]) {
+  const sport = useActiveLeagueSport();
+
   return useQuery<PlayerSeasonStats[]>({
-    queryKey: queryKeys.playerSeasonStats(excludePlayerIds ?? []),
+    queryKey: [...queryKeys.playerSeasonStats(excludePlayerIds ?? []), sport],
     queryFn: async () => {
+      // `pro_team IS NOT NULL` = currently on a real team — works year-round.
+      // (Filtering by games_played would hide everyone during the offseason.)
       let query = supabase
         .from('player_season_stats')
         .select('*')
-        .gt('games_played', 0)
+        .eq('sport', sport)
+        .not('pro_team', 'is', null)
         .order('avg_pts', { ascending: false })
         .limit(600);
 

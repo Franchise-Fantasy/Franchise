@@ -66,8 +66,9 @@ export function TransferOwnershipModal({ visible, onClose, leagueId, teams }: Tr
               });
 
               if (error) throw error;
-              if (data?.error) {
-                Alert.alert('Error', data.error);
+              const result = data as { error?: string } | null;
+              if (result?.error) {
+                Alert.alert('Error', result.error);
                 setSaving(false);
                 return;
               }

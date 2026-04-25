@@ -14,6 +14,7 @@ import React, { useState } from "react";
 import {
   Alert,
   AppState,
+  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -22,6 +23,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+
+const COLOR_PATCH = require("@/assets/images/emproidered_patch_color.png");
 
 // Grace period before disconnecting Realtime when backgrounded.
 // Short enough to free the connection quickly, long enough to avoid
@@ -306,16 +309,13 @@ export default function Auth() {
         >
           {/* Header */}
           <View style={styles.header}>
-            <View style={[styles.avatar, { backgroundColor: c.accent }]}>
-              <Ionicons
-                name="basketball-outline"
-                size={32}
-                color={c.accentText}
-              />
-            </View>
-            <ThemedText type="title" style={styles.title}>
-              Franchise
-            </ThemedText>
+            <Image
+              source={COLOR_PATCH}
+              style={{ width: s(300), height: s(300) / 1.5 }}
+              resizeMode="contain"
+              accessibilityLabel="Franchise"
+              accessibilityRole="image"
+            />
           </View>
 
           {pendingVerification ? (
@@ -476,7 +476,7 @@ export default function Auth() {
                     accessibilityLabel="Email"
                   />
                 </View>
-                <View style={styles.inputRow}>
+                <View style={[styles.inputRow, { borderBottomWidth: 0 }]}>
                   <Ionicons
                     name="lock-closed-outline"
                     size={20}
@@ -632,18 +632,7 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: "center",
-    marginBottom: s(32),
-  },
-  avatar: {
-    width: s(72),
-    height: s(72),
-    borderRadius: 36,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: s(14),
-  },
-  title: {
-    marginBottom: s(6),
+    marginBottom: s(4),
   },
   modeToggle: {
     flexDirection: "row",

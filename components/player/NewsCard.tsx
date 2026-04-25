@@ -4,7 +4,9 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import type { PlayerNewsArticle } from '@/types/news';
 import { getPlayerHeadshotUrl } from '@/utils/playerHeadshot';
 import { ms, s } from '@/utils/scale';
+import { memo } from 'react';
 import { Image, Linking, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -39,7 +41,8 @@ interface NewsCardProps {
   showHeadshots?: boolean;
 }
 
-export function NewsCard({ article, showHeadshots }: NewsCardProps) {
+function NewsCardBase({ article, showHeadshots }: NewsCardProps) {
+  const sport = useActiveLeagueSport();
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
 
@@ -48,7 +51,7 @@ export function NewsCard({ article, showHeadshots }: NewsCardProps) {
 
   const players = article.mentioned_players ?? [];
   const headshots = showHeadshots
-    ? players.map(p => getPlayerHeadshotUrl(p.external_id_nba)).filter(Boolean)
+    ? players.map(p => getPlayerHeadshotUrl(p.external_id_nba, sport)).filter(Boolean)
     : [];
 
   return (
@@ -66,7 +69,7 @@ export function NewsCard({ article, showHeadshots }: NewsCardProps) {
             {headshots.slice(0, 2).map((url, i) => (
               <View
                 key={i}
-                style={[styles.headshotCircle, { borderColor: c.gold, backgroundColor: c.cardAlt }]}
+                style={[styles.headshotCircle, { borderColor: c.heritageGold, backgroundColor: c.cardAlt }]}
                 accessibilityLabel={players[i]?.name ?? 'Player'}
               >
                 <Image
@@ -121,6 +124,8 @@ export function NewsCard({ article, showHeadshots }: NewsCardProps) {
     </TouchableOpacity>
   );
 }
+
+export const NewsCard = memo(NewsCardBase);
 
 const styles = StyleSheet.create({
   card: {

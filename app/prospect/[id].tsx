@@ -71,7 +71,7 @@ export default function ProspectProfileScreen() {
         {/* Hero block */}
         <View style={[styles.hero, { backgroundColor: c.tint }]}>
           <View style={styles.heroRow}>
-            <View style={[styles.heroAvatarRing, { borderColor: c.gold }]}>
+            <View style={[styles.heroAvatarRing, { borderColor: c.heritageGold }]}>
               {prospect.photoUrl ? (
                 <Image
                   source={{ uri: prospect.photoUrl }}

@@ -1,8 +1,13 @@
 import { TeamLogo } from '@/components/team/TeamLogo';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { BrandSegmented } from '@/components/ui/BrandSegmented';
+import { Badge } from '@/components/ui/Badge';
+import { ListRow } from '@/components/ui/ListRow';
+import { Section } from '@/components/ui/Section';
+import { StatTile } from '@/components/ui/StatTile';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors, cardShadow } from '@/constants/Colors';
+import { Brand, Colors, Fonts } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -20,7 +25,6 @@ import {
 import { computeDependencyRisk, computeDependencyThresholds, type DependencyResult } from '@/utils/dependencyRisk';
 import { computePlayoffStatuses } from '@/components/home/StandingsSection';
 import { computeStrengthOfSchedule, type SoSResult } from '@/utils/strengthOfSchedule';
-import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
@@ -48,20 +52,6 @@ interface TeamStanding {
   points_against: number;
   streak: string;
   division: number | null;
-}
-
-// Deterministic font size for the team name column. React Native's
-// `adjustsFontSizeToFit` is unreliable across platforms and produces
-// inconsistent sizing between rows, so we pick a size by character count.
-function teamNameFontSize(name: string): number {
-  const len = name.length;
-  if (len <= 12) return ms(13);
-  if (len <= 15) return ms(12);
-  if (len <= 18) return ms(11);
-  if (len <= 21) return ms(10);
-  if (len <= 24) return ms(9);
-  if (len <= 28) return ms(8);
-  return ms(7);
 }
 
 // ─── Standings resolution (shared with StandingsSection) ─────────────────────
@@ -93,7 +83,6 @@ function resolveStandings(
   }
   groups.push(currentGroup);
 
-  // H2H lookup
   const h2hWins = new Map<string, number>();
   const h2hKey = (a: string, b: string) => `${a}:${b}`;
 
@@ -150,10 +139,16 @@ function resolveStandings(
 
 const DEFAULT_TIEBREAKER = ['head_to_head', 'points_for'];
 
+// Segmented switcher labels — short forms picked to fit a 5-option row.
+// "Risk" stands in for Dependency Risk in the switcher (full title still
+// appears above the content for clarity).
+const SEGMENTS = ['Standings', 'All-Play', 'Luck', 'Risk', 'SoS'] as const;
+type Segment = typeof SEGMENTS[number];
+type InfoKey = 'luck' | 'allplay' | 'dependency' | 'sos';
+
 export default function StandingsScreen() {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
-  const isDark = scheme === 'dark';
   const router = useRouter();
   const { leagueId, teamId } = useAppState();
 
@@ -163,6 +158,10 @@ export default function StandingsScreen() {
   const playoffTeams = league?.playoff_teams;
   const tiebreakers = league?.tiebreaker_order ?? DEFAULT_TIEBREAKER;
   const hasDivisions = league?.division_count === 2;
+
+  const [segment, setSegment] = useState<Segment>('Standings');
+  const [expandedWeek, setExpandedWeek] = useState<number | null>(null);
+  const [infoModal, setInfoModal] = useState<InfoKey | null>(null);
 
   // ─── Data fetching ───────────────────────────────────────────────────
 
@@ -196,7 +195,6 @@ export default function StandingsScreen() {
     enabled: !!leagueId,
   });
 
-  // Unfinalized regular-season matchups for future SoS
   const { data: futureMatchups } = useQuery({
     queryKey: queryKeys.futureMatchups(leagueId!),
     queryFn: async () => {
@@ -212,7 +210,6 @@ export default function StandingsScreen() {
     enabled: !!leagueId,
   });
 
-  // Compute remaining games per team from futureMatchups (for clinch/elimination)
   const remainingGames = useMemo(() => {
     if (!futureMatchups) return undefined;
     const counts = new Map<string, number>();
@@ -224,7 +221,6 @@ export default function StandingsScreen() {
     return counts;
   }, [futureMatchups]);
 
-  // Roster stats + scoring weights for dependency risk
   const { data: allPlayers } = useLeagueRosterStats(leagueId!);
   const { data: scoringWeights } = useLeagueScoring(leagueId!);
 
@@ -240,7 +236,6 @@ export default function StandingsScreen() {
     return computePlayoffStatuses(allStandings, remainingGames, playoffTeams, matchups ?? [], tiebreakers);
   }, [allStandings, remainingGames, playoffTeams, matchups, tiebreakers]);
 
-  // Build scoring categories for all-play category simulation
   const scoringCategories: ScoringCategory[] | undefined = useMemo(() => {
     if (!isCategories || !scoringWeights?.length) return undefined;
     return scoringWeights.map((w) => ({ stat_name: w.stat_name, inverse: w.inverse }));
@@ -258,13 +253,11 @@ export default function StandingsScreen() {
     return map;
   }, [allPlayResults]);
 
-  // All-play sorted by win% for the "true power ranking"
   const allPlayRanked = useMemo(
     () => allPlayResults ? [...allPlayResults].sort((a, b) => b.allPlayWinPct - a.allPlayWinPct) : [],
     [allPlayResults],
   );
 
-  // Luck sorted for the overview bar chart
   const luckSorted = useMemo(
     () => allPlayResults ? [...allPlayResults].sort((a, b) => b.luckIndex - a.luckIndex) : [],
     [allPlayResults],
@@ -275,7 +268,6 @@ export default function StandingsScreen() {
     [luckSorted],
   );
 
-  // Dependency Risk
   const depResults = useMemo(() => {
     if (!allPlayers?.length || !scoringWeights?.length) return [];
     return computeDependencyRisk(allPlayers, scoringWeights, scoringType);
@@ -297,14 +289,9 @@ export default function StandingsScreen() {
     return map;
   }, [depResults]);
 
-  // Strength of Schedule
   const sosResults = useMemo(() => {
     if (!rawTeams?.length) return [];
-    return computeStrengthOfSchedule(
-      matchups ?? [],
-      futureMatchups ?? [],
-      rawTeams,
-    );
+    return computeStrengthOfSchedule(matchups ?? [], futureMatchups ?? [], rawTeams);
   }, [matchups, futureMatchups, rawTeams]);
 
   const sosSorted = useMemo(
@@ -314,8 +301,7 @@ export default function StandingsScreen() {
 
   const leagueAvgSoS = useMemo(() => {
     if (!sosResults.length) return 0;
-    const sum = sosResults.reduce((acc, r) => acc + r.pastSoS, 0);
-    return sum / sosResults.length;
+    return sosResults.reduce((acc, r) => acc + r.pastSoS, 0) / sosResults.length;
   }, [sosResults]);
 
   const hasFutureSoS = sosResults.some(r => r.futureSoS !== null);
@@ -326,20 +312,17 @@ export default function StandingsScreen() {
     return map;
   }, [sosResults]);
 
-  // UI state
-  const [expandedWeek, setExpandedWeek] = useState<number | null>(null);
-  const [expandedSection, setExpandedSection] = useState<string | null>(null);
-  const [infoModal, setInfoModal] = useState<'luck' | 'allplay' | 'dependency' | 'sos' | null>(null);
   const myAllPlay = teamId ? allPlayMap.get(teamId) : null;
   const myDep = teamId ? depMap.get(teamId) : null;
   const mySoS = teamId ? sosMap.get(teamId) : null;
 
-  // Team name lookup
   const teamNameMap = useMemo(() => {
     const map = new Map<string, TeamStanding>();
     for (const t of rawTeams ?? []) map.set(t.id, t);
     return map;
   }, [rawTeams]);
+
+  const anyTies = (rawTeams ?? []).some((t) => (t.ties ?? 0) > 0);
 
   const isLoading = loadingTeams || loadingMatchups;
 
@@ -351,103 +334,156 @@ export default function StandingsScreen() {
     return c.secondaryText;
   }
 
+  function depColor(pct: number): string {
+    if (pct >= depThresholds.high) return c.danger;
+    if (pct >= depThresholds.moderate) return c.warning;
+    return c.success;
+  }
+
+  function depLabel(pct: number): string {
+    if (pct >= depThresholds.high) return 'High';
+    if (pct >= depThresholds.moderate) return 'Moderate';
+    return 'Deep';
+  }
+
   const handleTeamPress = (id: string) => {
     if (id === teamId) router.push('/(tabs)/roster');
     else router.push(`/team-roster/${id}` as any);
   };
 
+  // ─── Sub-renders: Standings table ────────────────────────────────────
+
+  const renderStandingsHeader = () => (
+    <View style={[styles.tableHeader, { borderBottomColor: c.border }]}>
+      <ThemedText type="varsitySmall" style={[styles.rank, { color: c.secondaryText }]}>#</ThemedText>
+      <View style={styles.logoSlot} />
+      <ThemedText type="varsitySmall" style={[styles.teamNameHeader, { color: c.secondaryText }]}>
+        Team
+      </ThemedText>
+      <ThemedText type="varsitySmall" style={[styles.recordHeader, { color: c.secondaryText }]}>
+        {anyTies ? 'W-L-T' : 'W-L'}
+      </ThemedText>
+      <ThemedText type="varsitySmall" style={[styles.streakCol, { color: c.secondaryText }]}>
+        Stk
+      </ThemedText>
+      <ThemedText type="varsitySmall" style={[styles.statCol, { color: c.secondaryText }]}>
+        {isCategories ? 'CW' : 'PF'}
+      </ThemedText>
+      <ThemedText type="varsitySmall" style={[styles.statCol, { color: c.secondaryText }]}>
+        {isCategories ? 'CL' : 'PA'}
+      </ThemedText>
+      <ThemedText type="varsitySmall" style={[styles.gbCol, { color: c.secondaryText }]}>GB</ThemedText>
+    </View>
+  );
+
   const renderTeamRow = (
     team: TeamStanding & { rank: number },
-    isLast: boolean,
+    idx: number,
+    total: number,
     leader?: TeamStanding,
   ) => {
     const isMe = team.id === teamId;
+    const status = playoffStatuses?.get(team.id);
+    const hasStreak = !!team.streak && team.streak !== 'W0' && team.streak !== 'L0';
+    const streakDir = team.streak?.[0];
+    const streakLen = hasStreak ? Number(team.streak.slice(1)) || 0 : 0;
+    const isBigStreak = streakLen >= 5;
+    const record = anyTies
+      ? `${team.wins}-${team.losses}-${team.ties}`
+      : `${team.wins}-${team.losses}`;
     const gb = leader
       ? ((leader.wins - team.wins) + (team.losses - leader.losses)) / 2
       : 0;
+    const gbDisplay = gb === 0 ? '—' : gb % 1 === 0 ? gb.toFixed(0) : gb.toFixed(1);
+
     return (
-      <TouchableOpacity
+      <ListRow
         key={team.id}
-        style={[
-          styles.standingRow,
-          { borderBottomColor: c.border },
-          isLast && { borderBottomWidth: 0 },
-          isMe && { backgroundColor: isDark ? 'rgba(96,165,250,0.06)' : 'rgba(96,165,250,0.04)' },
-        ]}
+        index={idx}
+        total={total}
+        isActive={isMe}
         onPress={() => handleTeamPress(team.id)}
-        activeOpacity={0.6}
-        accessibilityLabel={`${team.name}, rank ${team.rank}, record ${team.wins}-${team.losses}-${team.ties}`}
+        accessibilityLabel={`${team.name}, rank ${team.rank}, record ${record}, streak ${team.streak || 'none'}`}
       >
-        <ThemedText style={[styles.rank, { color: c.secondaryText }]}>{team.rank}</ThemedText>
-        <TeamLogo logoKey={team.logo_key} teamName={team.name} tricode={team.tricode ?? undefined} size="small" />
+        <ThemedText type="mono" style={[styles.rank, { color: c.secondaryText }]}>{team.rank}</ThemedText>
+        <View style={styles.logoSlot}>
+          <TeamLogo logoKey={team.logo_key} teamName={team.name} tricode={team.tricode ?? undefined} size="small" />
+        </View>
         <View style={styles.teamNameCol}>
           <ThemedText
-            style={[styles.teamName, { fontSize: teamNameFontSize(team.name) }]}
+            style={[styles.teamName, { color: c.text }]}
             numberOfLines={1}
+            ellipsizeMode="tail"
           >
             {team.name}
           </ThemedText>
-          {playoffStatuses?.get(team.id) === 'clinched' && (
-            <ThemedText style={[styles.clinchBadge, { color: c.success }]} accessibilityLabel="Clinched playoff spot">x</ThemedText>
+          {status === 'clinched' && (
+            <ThemedText type="varsitySmall" style={[styles.clinchBadge, { color: c.success }]} accessibilityLabel="Clinched playoff spot">x</ThemedText>
           )}
-          {playoffStatuses?.get(team.id) === 'eliminated' && (
-            <ThemedText style={[styles.clinchBadge, { color: c.danger }]} accessibilityLabel="Eliminated from playoffs">e</ThemedText>
+          {status === 'eliminated' && (
+            <ThemedText type="varsitySmall" style={[styles.clinchBadge, { color: c.danger }]} accessibilityLabel="Eliminated from playoffs">e</ThemedText>
           )}
         </View>
-        <ThemedText style={[styles.record, { color: c.secondaryText }]}>
-          {team.wins}-{team.losses}-{team.ties}
+        <View
+          style={[
+            styles.recordCell,
+            hasStreak && streakDir === 'W' && { backgroundColor: c.successMuted },
+            hasStreak && streakDir === 'L' && { backgroundColor: c.dangerMuted },
+            isBigStreak && streakDir === 'W' && { borderColor: c.success },
+            isBigStreak && streakDir === 'L' && { borderColor: c.danger },
+          ]}
+        >
+          <ThemedText type="mono" style={[styles.recordText, { color: c.text }]}>
+            {record}
+          </ThemedText>
+        </View>
+        <Text style={[styles.streakCol, styles.monoBold, { color: streakColor(team.streak) }]}>
+          {team.streak && team.streak !== 'W0' && team.streak !== 'L0' ? team.streak : '—'}
+        </Text>
+        <ThemedText type="mono" style={[styles.statCol, { color: c.secondaryText }]}>
+          {Math.round(Number(team.points_for))}
         </ThemedText>
-        <ThemedText style={[styles.stat, { color: c.secondaryText }]}>
-          {isCategories ? Math.round(Number(team.points_for)) : Number(team.points_for).toFixed(1)}
+        <ThemedText type="mono" style={[styles.statCol, { color: c.secondaryText }]}>
+          {Math.round(Number(team.points_against))}
         </ThemedText>
-        <ThemedText style={[styles.stat, { color: c.secondaryText }]}>
-          {isCategories ? Math.round(Number(team.points_against)) : Number(team.points_against).toFixed(1)}
+        <ThemedText type="mono" style={[styles.gbCol, { color: c.secondaryText }]}>
+          {gbDisplay}
         </ThemedText>
-        <ThemedText style={[styles.gb, { color: c.secondaryText }]}>
-          {gb === 0 ? '—' : gb % 1 === 0 ? gb.toFixed(0) : gb.toFixed(1)}
-        </ThemedText>
-        <ThemedText style={[styles.streakCol, { color: streakColor(team.streak) }]}>
-          {team.streak || '—'}
-        </ThemedText>
-      </TouchableOpacity>
+      </ListRow>
     );
   };
-
-  const renderStandingsHeader = () => (
-    <View style={[styles.standingRow, styles.tableHeaderRow]}>
-      <ThemedText style={[styles.rank, styles.headerText, { color: c.secondaryText }]}>#</ThemedText>
-      <View style={{ width: s(28) }} />
-      <ThemedText style={[styles.teamNameCol, styles.headerText, { color: c.secondaryText }]}>Team</ThemedText>
-      <ThemedText style={[styles.record, styles.headerText, { color: c.secondaryText }]}>W-L-T</ThemedText>
-      <ThemedText style={[styles.stat, styles.headerText, { color: c.secondaryText }]}>{isCategories ? 'CW' : 'PF'}</ThemedText>
-      <ThemedText style={[styles.stat, styles.headerText, { color: c.secondaryText }]}>{isCategories ? 'CL' : 'PA'}</ThemedText>
-      <ThemedText style={[styles.gb, styles.headerText, { color: c.secondaryText }]}>GB</ThemedText>
-      <ThemedText style={[styles.streakCol, styles.headerText, { color: c.secondaryText }]}>STK</ThemedText>
-    </View>
-  );
 
   const renderStandingsBlock = (teams: (TeamStanding & { rank: number })[]) => {
     const leader = teams[0];
     const cutoff = playoffTeams ?? 0;
     const hasCutoff = cutoff > 0 && cutoff < teams.length;
+    // Horizontal scroll lets the table show full team names + a dedicated
+    // streak column without cramping on phone. Rows live inside a fixed-
+    // width inner view so every column stays aligned across rows.
     return (
-      <View>
-        {renderStandingsHeader()}
-        {teams.map((team, idx) => (
-          <View key={team.id}>
-            {hasCutoff && team.rank === cutoff + 1 && (
-              <View style={styles.playoffCutoff}>
-                <View style={[styles.cutoffLine, { backgroundColor: c.secondaryText }]} />
-                <ThemedText style={[styles.cutoffLabel, { color: c.secondaryText }]}>
-                  Playoff cutoff — top {cutoff} qualify
-                </ThemedText>
-                <View style={[styles.cutoffLine, { backgroundColor: c.secondaryText }]} />
-              </View>
-            )}
-            {renderTeamRow(team, idx === teams.length - 1, leader)}
-          </View>
-        ))}
-      </View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ minWidth: '100%' }}
+      >
+        <View style={styles.tableInner}>
+          {renderStandingsHeader()}
+          {teams.map((team, idx) => (
+            <View key={team.id}>
+              {hasCutoff && team.rank === cutoff + 1 && (
+                <View style={styles.playoffCutoff}>
+                  <View style={[styles.cutoffLine, { backgroundColor: c.border }]} />
+                  <ThemedText type="varsitySmall" style={[styles.cutoffLabel, { color: c.secondaryText }]}>
+                    Playoff Cutoff — Top {cutoff} Qualify
+                  </ThemedText>
+                  <View style={[styles.cutoffLine, { backgroundColor: c.border }]} />
+                </View>
+              )}
+              {renderTeamRow(team, idx, teams.length, leader)}
+            </View>
+          ))}
+        </View>
+      </ScrollView>
     );
   };
 
@@ -456,7 +492,8 @@ export default function StandingsScreen() {
     return (
       <View key={divisionName} style={styles.divisionBlock}>
         <ThemedText
-          style={[styles.divisionHeader, styles.standingsCardBody, { color: c.secondaryText }]}
+          type="varsitySmall"
+          style={[styles.divisionHeader, { color: c.secondaryText }]}
           accessibilityRole="header"
         >
           {divisionName}
@@ -469,22 +506,395 @@ export default function StandingsScreen() {
   const div1Teams = rawTeams?.filter(t => t.division === 1) ?? [];
   const div2Teams = rawTeams?.filter(t => t.division === 2) ?? [];
 
-  // ─── Helpers ─────────────────────────────────────────────────────────
+  const renderStandingsView = () => (
+    <Section title="League Standings" cardStyle={styles.tableCard}>
+      {!rawTeams?.length ? (
+        <ThemedText style={[styles.placeholderText, { color: c.secondaryText }]}>
+          No standings available yet
+        </ThemedText>
+      ) : hasDivisions && div1Teams.length > 0 && div2Teams.length > 0 ? (
+        <>
+          {renderDivisionBlock(div1Teams, league?.division_1_name ?? 'Division 1')}
+          {renderDivisionBlock(div2Teams, league?.division_2_name ?? 'Division 2')}
+        </>
+      ) : allStandings ? (
+        renderStandingsBlock(allStandings)
+      ) : null}
 
-  function depColor(pct: number): string {
-    if (pct >= depThresholds.high) return isDark ? '#FCA5A5' : '#DC2626';
-    if (pct >= depThresholds.moderate) return isDark ? '#FCD34D' : '#D97706';
-    return isDark ? '#6EE7B7' : '#059669';
-  }
+      {!!rawTeams?.length && !!playoffTeams && (
+        <View style={[styles.cardFooter, { borderTopColor: c.border }]}>
+          <ThemedText type="varsitySmall" style={[styles.footnote, { color: c.secondaryText }]}>
+            <ThemedText type="varsitySmall" style={{ color: c.success }}>x</ThemedText>
+            {' '}Clinched · <ThemedText type="varsitySmall" style={{ color: c.danger }}>e</ThemedText>
+            {' '}Eliminated · GB Games Behind
+          </ThemedText>
+        </View>
+      )}
+    </Section>
+  );
 
-  function depLabel(pct: number): string {
-    if (pct >= depThresholds.high) return 'High';
-    if (pct >= depThresholds.moderate) return 'Moderate';
-    return 'Deep';
-  }
+  // ─── Sub-renders: All-Play view ──────────────────────────────────────
 
-  const toggleSection = (key: string) =>
-    setExpandedSection(prev => prev === key ? null : key);
+  const renderAllPlayView = () => (
+    <>
+      <Section
+        title="All-Play Standings"
+        onInfoPress={() => setInfoModal('allplay')}
+        cardStyle={styles.tableCard}
+      >
+        {allPlayRanked.length === 0 ? (
+          <ThemedText style={[styles.placeholderText, { color: c.secondaryText }]}>
+            Not enough games played yet
+          </ThemedText>
+        ) : (
+          <>
+            <View style={[styles.tableHeader, { borderBottomColor: c.border }]}>
+              <ThemedText type="varsitySmall" style={[styles.rank, { color: c.secondaryText }]}>#</ThemedText>
+              <View style={styles.logoSlot} />
+              <ThemedText type="varsitySmall" style={[styles.apTeamHeader, { color: c.secondaryText }]}>
+                Team
+              </ThemedText>
+              <ThemedText type="varsitySmall" style={[styles.apRecord, { color: c.secondaryText }]}>Record</ThemedText>
+              <ThemedText type="varsitySmall" style={[styles.apExpW, { color: c.secondaryText }]}>ExpW</ThemedText>
+              <ThemedText type="varsitySmall" style={[styles.apLuck, { color: c.secondaryText }]}>Luck</ThemedText>
+            </View>
+            {allPlayRanked.map((r, idx) => {
+              const team = teamNameMap.get(r.teamId);
+              if (!team) return null;
+              const isMe = r.teamId === teamId;
+              const luckC = r.luckIndex >= 0.5 ? c.success : r.luckIndex <= -0.5 ? c.danger : c.secondaryText;
+              return (
+                <ListRow
+                  key={r.teamId}
+                  index={idx}
+                  total={allPlayRanked.length}
+                  isActive={isMe}
+                  accessibilityLabel={`Rank ${idx + 1}, ${team.name}, all-play ${r.allPlayWins}-${r.allPlayLosses}-${r.allPlayTies}, luck ${r.luckIndex >= 0 ? 'plus' : 'minus'} ${Math.abs(r.luckIndex).toFixed(1)}`}
+                >
+                  <ThemedText type="mono" style={[styles.rank, { color: c.secondaryText }]}>
+                    {idx + 1}
+                  </ThemedText>
+                  <View style={styles.logoSlot}>
+                    <TeamLogo
+                      logoKey={team.logo_key}
+                      teamName={team.name}
+                      tricode={team.tricode ?? undefined}
+                      size="small"
+                    />
+                  </View>
+                  <ThemedText
+                    style={[
+                      styles.apTeam,
+                      { color: c.text, fontWeight: isMe ? '700' : '500' },
+                    ]}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                  >
+                    {team.name}
+                  </ThemedText>
+                  <ThemedText type="mono" style={[styles.apRecord, { color: c.secondaryText }]}>
+                    {r.allPlayWins}-{r.allPlayLosses}{r.allPlayTies > 0 ? `-${r.allPlayTies}` : ''}
+                  </ThemedText>
+                  <ThemedText type="mono" style={[styles.apExpW, { color: c.secondaryText }]}>
+                    {r.expectedWins.toFixed(1)}
+                  </ThemedText>
+                  <Text style={[styles.apLuck, styles.monoBold, { color: luckC }]}>
+                    {r.luckIndex >= 0 ? '+' : ''}{r.luckIndex.toFixed(1)}
+                  </Text>
+                </ListRow>
+              );
+            })}
+          </>
+        )}
+      </Section>
+
+      {myAllPlay && myAllPlay.weeklyBreakdown.length > 0 && (
+        <Section title="Your Weekly Breakdown" cardStyle={styles.tableCard}>
+          {myAllPlay.weeklyBreakdown.map((week, idx, arr) => {
+            const totalTeams = rawTeams?.length ?? 1;
+            const isExpanded = expandedWeek === week.weekNumber;
+            const beatMost = week.wins >= (totalTeams - 1) * 0.5;
+            const wasUnlucky = beatMost && week.actualResult === 'L';
+            const wasLucky = !beatMost && week.actualResult === 'W';
+            return (
+              <ListRow
+                key={week.weekNumber}
+                index={idx}
+                total={arr.length}
+                onPress={() => setExpandedWeek(isExpanded ? null : week.weekNumber)}
+                accessibilityLabel={`Week ${week.weekNumber}, beat ${week.wins} of ${totalTeams - 1} teams`}
+                style={styles.weekRowOverride}
+              >
+                <View style={styles.weekHeader}>
+                  <ThemedText type="mono" style={[styles.weekLabel, { color: c.text }]}>Wk {week.weekNumber}</ThemedText>
+                  <View style={styles.weekMeta}>
+                    <Text
+                      style={[
+                        styles.weekResult,
+                        {
+                          color: week.actualResult === 'W' ? c.success : week.actualResult === 'L' ? c.danger : c.secondaryText,
+                        },
+                      ]}
+                    >
+                      {week.actualResult}
+                    </Text>
+                    <ThemedText type="mono" style={[styles.weekAp, { color: c.secondaryText }]}>
+                      AP {week.wins}-{week.losses}{week.ties > 0 ? `-${week.ties}` : ''}
+                    </ThemedText>
+                    <ThemedText type="mono" style={[styles.weekRankText, { color: c.secondaryText }]}>
+                      #{week.rankAmongAll}
+                    </ThemedText>
+                    {wasUnlucky && <Badge label="Unlucky" variant="danger" size="small" />}
+                    {wasLucky && <Badge label="Lucky" variant="success" size="small" />}
+                  </View>
+                </View>
+                {isExpanded && (
+                  <View style={styles.weekExpanded}>
+                    <ThemedText style={[styles.weekDetail, { color: c.secondaryText }]}>
+                      Score: {isCategories ? week.teamScore : week.teamScore.toFixed(1)}
+                    </ThemedText>
+                    <ThemedText style={[styles.weekDetail, { color: c.secondaryText }]}>
+                      Beat {week.wins} of {totalTeams - 1} teams
+                    </ThemedText>
+                    <ThemedText style={[styles.weekDetail, { color: c.secondaryText }]}>
+                      Ranked #{week.rankAmongAll} of {totalTeams} that week
+                    </ThemedText>
+                  </View>
+                )}
+              </ListRow>
+            );
+          })}
+        </Section>
+      )}
+    </>
+  );
+
+  // ─── Sub-renders: Luck view ──────────────────────────────────────────
+
+  const renderLuckView = () => (
+    <Section
+      title="Luck Index"
+      onInfoPress={() => setInfoModal('luck')}
+      cardStyle={styles.tableCard}
+    >
+      {luckSorted.length === 0 ? (
+        <ThemedText style={[styles.placeholderText, { color: c.secondaryText }]}>
+          Not enough games played yet
+        </ThemedText>
+      ) : (
+        luckSorted.map((r, idx) => {
+          const team = teamNameMap.get(r.teamId);
+          if (!team) return null;
+          const isMe = r.teamId === teamId;
+          const isPositive = r.luckIndex >= 0;
+          const barWidth = Math.abs(r.luckIndex) / maxAbsLuck;
+          const barColor = isPositive ? c.success : c.danger;
+          return (
+            <ListRow
+              key={r.teamId}
+              index={idx}
+              total={luckSorted.length}
+              isActive={isMe}
+              accessibilityLabel={`${team.name}, luck ${isPositive ? 'plus' : 'minus'} ${Math.abs(r.luckIndex).toFixed(1)}`}
+            >
+              <ThemedText
+                style={[styles.luckTeamName, { color: c.text, fontWeight: isMe ? '700' : '500' }]}
+                numberOfLines={1}
+              >
+                {team.tricode ?? team.name.slice(0, 10)}
+              </ThemedText>
+              <View style={styles.luckBarContainer}>
+                <View style={[styles.luckCenter, { backgroundColor: c.border }]} />
+                <View
+                  style={[
+                    styles.luckBar,
+                    {
+                      backgroundColor: barColor,
+                      width: `${barWidth * 45}%`,
+                      ...(isPositive ? { left: '50%' } : { right: '50%' }),
+                    },
+                  ]}
+                />
+              </View>
+              <Text style={[styles.luckValue, { color: barColor }]}>
+                {isPositive ? '+' : ''}{r.luckIndex.toFixed(1)}
+              </Text>
+            </ListRow>
+          );
+        })
+      )}
+    </Section>
+  );
+
+  // ─── Sub-renders: Dependency Risk view ───────────────────────────────
+
+  const renderRiskView = () => (
+    <Section
+      title="Dependency Risk"
+      onInfoPress={() => setInfoModal('dependency')}
+      cardStyle={styles.tableCard}
+    >
+      {depSorted.length === 0 ? (
+        <ThemedText style={[styles.placeholderText, { color: c.secondaryText }]}>
+          Roster data unavailable
+        </ThemedText>
+      ) : (
+        depSorted.map((r, idx) => {
+          const team = teamNameMap.get(r.teamId);
+          if (!team) return null;
+          const isMe = r.teamId === teamId;
+          const pct = Math.round(r.topThreePct * 100);
+          const color = depColor(r.topThreePct);
+          return (
+            <ListRow
+              key={r.teamId}
+              index={idx}
+              total={depSorted.length}
+              isActive={isMe}
+              accessibilityLabel={`${team.name}, ${pct}% from top 3: ${r.topThreePlayers.join(', ')}`}
+            >
+              <ThemedText
+                style={[styles.depTeamName, { color: c.text, fontWeight: isMe ? '700' : '500' }]}
+                numberOfLines={1}
+              >
+                {team.tricode ?? team.name.slice(0, 10)}
+              </ThemedText>
+              <View style={[styles.depBarOuter, { backgroundColor: c.border }]}>
+                <View style={[styles.depBarInner, { width: `${pct}%`, backgroundColor: color }]} />
+              </View>
+              <Text style={[styles.depPct, { color }]}>{pct}%</Text>
+            </ListRow>
+          );
+        })
+      )}
+    </Section>
+  );
+
+  // ─── Sub-renders: Schedule view ──────────────────────────────────────
+
+  const renderScheduleView = () => (
+    <Section
+      title="Strength of Schedule"
+      onInfoPress={() => setInfoModal('sos')}
+      cardStyle={styles.tableCard}
+    >
+      {sosSorted.length === 0 ? (
+        <ThemedText style={[styles.placeholderText, { color: c.secondaryText }]}>
+          Not enough games played yet
+        </ThemedText>
+      ) : (
+        <>
+          <View style={[styles.tableHeader, { borderBottomColor: c.border }]}>
+            <ThemedText type="varsitySmall" style={[styles.sosTeam, { color: c.secondaryText }]}>Team</ThemedText>
+            <ThemedText type="varsitySmall" style={[styles.sosStat, { color: c.secondaryText }]}>Past</ThemedText>
+            {hasFutureSoS && (
+              <ThemedText type="varsitySmall" style={[styles.sosStat, { color: c.secondaryText }]}>Future</ThemedText>
+            )}
+            <ThemedText type="varsitySmall" style={[styles.sosStat, { color: c.secondaryText }]}>Overall</ThemedText>
+          </View>
+          {sosSorted.map((r, idx) => {
+            const team = teamNameMap.get(r.teamId);
+            if (!team) return null;
+            const isMe = r.teamId === teamId;
+            const pastC = r.pastSoS > leagueAvgSoS + 0.02
+              ? c.danger
+              : r.pastSoS < leagueAvgSoS - 0.02
+                ? c.success
+                : c.secondaryText;
+            return (
+              <ListRow
+                key={r.teamId}
+                index={idx}
+                total={sosSorted.length}
+                isActive={isMe}
+                accessibilityLabel={`${team.name}, past strength of schedule ${(r.pastSoS * 100).toFixed(0)} percent`}
+              >
+                <ThemedText
+                  style={[styles.sosTeam, { color: c.text, fontWeight: isMe ? '700' : '500', fontSize: ms(12) }]}
+                  numberOfLines={1}
+                >
+                  {team.tricode ?? team.name}
+                </ThemedText>
+                <Text style={[styles.sosStat, styles.monoBold, { color: pastC }]}>
+                  {r.pastOpponents > 0 ? (r.pastSoS * 100).toFixed(1) : '—'}
+                </Text>
+                {hasFutureSoS && (
+                  <ThemedText type="mono" style={[styles.sosStat, { color: c.secondaryText }]}>
+                    {r.futureSoS !== null ? (r.futureSoS * 100).toFixed(1) : '—'}
+                  </ThemedText>
+                )}
+                <ThemedText type="mono" style={[styles.sosStat, { color: c.secondaryText }]}>
+                  {(r.overallSoS * 100).toFixed(1)}
+                </ThemedText>
+              </ListRow>
+            );
+          })}
+          {!hasFutureSoS && (
+            <ThemedText style={[styles.sosEmptyNote, { color: c.secondaryText }]}>
+              No remaining regular season games — future SoS unavailable.
+            </ThemedText>
+          )}
+        </>
+      )}
+    </Section>
+  );
+
+  // ─── Your Team Insights tiles (above segmented switcher) ─────────────
+
+  const renderInsightsTiles = () => {
+    if (!teamId || !(myAllPlay || myDep || mySoS)) return null;
+    return (
+      <Section title="Your Team" noCard>
+        <View style={styles.insightGrid}>
+          {myAllPlay && (() => {
+            const isPositive = myAllPlay.luckIndex >= 0;
+            const luckC = isPositive ? c.success : c.danger;
+            return (
+              <StatTile
+                label="Luck"
+                value={`${isPositive ? '+' : ''}${myAllPlay.luckIndex.toFixed(1)}`}
+                sub={isPositive ? 'Lucky' : 'Unlucky'}
+                valueColor={luckC}
+                onPress={() => setSegment('Luck')}
+                accessibilityLabel={`Luck Index ${isPositive ? 'plus' : 'minus'} ${Math.abs(myAllPlay.luckIndex).toFixed(1)}. Tap to view league comparison.`}
+              />
+            );
+          })()}
+
+          {myAllPlay && (
+            <StatTile
+              label="All-Play"
+              value={`${myAllPlay.allPlayWins}-${myAllPlay.allPlayLosses}`}
+              sub={`${(myAllPlay.allPlayWinPct * 100).toFixed(0)}% win rate`}
+              onPress={() => setSegment('All-Play')}
+              accessibilityLabel={`All-play record ${myAllPlay.allPlayWins} wins, ${myAllPlay.allPlayLosses} losses. Tap to view standings.`}
+            />
+          )}
+
+          {mySoS && mySoS.pastOpponents > 0 && (
+            <StatTile
+              label="Schedule"
+              value={`.${(mySoS.pastSoS * 1000).toFixed(0).padStart(3, '0')}`}
+              sub={mySoS.pastSoS > leagueAvgSoS + 0.02 ? 'Tough' : mySoS.pastSoS < leagueAvgSoS - 0.02 ? 'Easy' : 'Average'}
+              onPress={() => setSegment('SoS')}
+              accessibilityLabel={`Schedule strength ${(mySoS.pastSoS * 100).toFixed(0)} percent. Tap to view league comparison.`}
+            />
+          )}
+
+          {myDep && (
+            <StatTile
+              label="Risk"
+              value={`${Math.round(myDep.topThreePct * 100)}%`}
+              sub={depLabel(myDep.topThreePct)}
+              valueColor={depColor(myDep.topThreePct)}
+              onPress={() => setSegment('Risk')}
+              accessibilityLabel={`Dependency risk ${Math.round(myDep.topThreePct * 100)} percent. Tap to view league comparison.`}
+            />
+          )}
+        </View>
+      </Section>
+    );
+  };
 
   // ─── Render ──────────────────────────────────────────────────────────
 
@@ -496,392 +906,46 @@ export default function StandingsScreen() {
           <View style={styles.loading}><LogoSpinner /></View>
         ) : (
           <>
-            {/* ── Standings Table ── */}
-            <View style={[styles.card, styles.standingsCard, { backgroundColor: c.card, borderColor: c.border, ...cardShadow }]}>
-              <ThemedText
-                type="defaultSemiBold"
-                style={[styles.sectionTitle, styles.standingsCardBody]}
-                accessibilityRole="header"
-              >
-                League Standings
-              </ThemedText>
+            {renderInsightsTiles()}
 
-              {!rawTeams?.length ? (
-                <ThemedText style={[styles.placeholder, styles.standingsCardBody, { color: c.secondaryText }]}>
-                  No standings available yet
-                </ThemedText>
-              ) : hasDivisions && div1Teams.length > 0 && div2Teams.length > 0 ? (
-                <>
-                  {renderDivisionBlock(div1Teams, league?.division_1_name ?? 'Division 1')}
-                  {renderDivisionBlock(div2Teams, league?.division_2_name ?? 'Division 2')}
-                </>
-              ) : allStandings ? (
-                renderStandingsBlock(allStandings)
-              ) : null}
-              {!!playoffTeams && (
-                <ThemedText style={[styles.footnote, styles.standingsCardBody, { color: c.secondaryText }]}>
-                  <ThemedText style={[styles.clinchBadge, { color: c.success }]}>x</ThemedText> = clinched playoff spot{' · '}
-                  <ThemedText style={[styles.clinchBadge, { color: c.danger }]}>e</ThemedText> = eliminated{' · '}
-                  GB = games behind leader
-                </ThemedText>
-              )}
-            </View>
+            <BrandSegmented
+              options={SEGMENTS}
+              selected={segment}
+              onSelect={setSegment}
+            />
 
-            {/* ── Your Team Insights ── */}
-            {teamId && (myAllPlay || myDep || mySoS) && (
-              <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border, ...cardShadow }]}>
-                <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">
-                  Your Team Insights
-                </ThemedText>
-
-                <View style={styles.insightGrid}>
-                  {/* Luck Index */}
-                  {myAllPlay && (() => {
-                    const isPositive = myAllPlay.luckIndex >= 0;
-                    const luckColor = isPositive
-                      ? (isDark ? '#6EE7B7' : '#059669')
-                      : (isDark ? '#FCA5A5' : '#DC2626');
-                    return (
-                      <TouchableOpacity
-                        style={[styles.insightTile, { borderColor: c.border }]}
-                        onPress={() => setInfoModal('luck')}
-                        activeOpacity={0.6}
-                        accessibilityLabel={`Luck Index ${isPositive ? 'plus' : 'minus'} ${Math.abs(myAllPlay.luckIndex).toFixed(1)}`}
-                      >
-                        <Text style={[styles.insightLabel, { color: c.secondaryText }]}>Luck Index</Text>
-                        <Text style={[styles.insightValue, { color: luckColor }]}>
-                          {isPositive ? '+' : ''}{myAllPlay.luckIndex.toFixed(1)}
-                        </Text>
-                        <Text style={[styles.insightSub, { color: c.secondaryText }]}>
-                          {isPositive ? 'Lucky' : 'Unlucky'}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })()}
-
-                  {/* All-Play Record */}
-                  {myAllPlay && (
-                    <TouchableOpacity
-                      style={[styles.insightTile, { borderColor: c.border }]}
-                      onPress={() => setInfoModal('allplay')}
-                      activeOpacity={0.6}
-                      accessibilityLabel={`All-play record ${myAllPlay.allPlayWins}-${myAllPlay.allPlayLosses}`}
-                    >
-                      <Text style={[styles.insightLabel, { color: c.secondaryText }]}>All-Play</Text>
-                      <ThemedText style={styles.insightValue}>
-                        {myAllPlay.allPlayWins}-{myAllPlay.allPlayLosses}
-                      </ThemedText>
-                      <Text style={[styles.insightSub, { color: c.secondaryText }]}>
-                        {(myAllPlay.allPlayWinPct * 100).toFixed(0)}% win rate
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-
-                  {/* Schedule Strength */}
-                  {mySoS && mySoS.pastOpponents > 0 && (
-                    <TouchableOpacity
-                      style={[styles.insightTile, { borderColor: c.border }]}
-                      onPress={() => setInfoModal('sos')}
-                      activeOpacity={0.6}
-                      accessibilityLabel={`Schedule strength ${(mySoS.pastSoS * 100).toFixed(0)}%`}
-                    >
-                      <Text style={[styles.insightLabel, { color: c.secondaryText }]}>Schedule</Text>
-                      <ThemedText style={styles.insightValue}>
-                        .{(mySoS.pastSoS * 1000).toFixed(0).padStart(3, '0')}
-                      </ThemedText>
-                      <Text style={[styles.insightSub, { color: c.secondaryText }]}>
-                        {mySoS.pastSoS > leagueAvgSoS + 0.02 ? 'Tough' : mySoS.pastSoS < leagueAvgSoS - 0.02 ? 'Easy' : 'Average'}
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-
-                  {/* Dependency Risk */}
-                  {myDep && (
-                    <TouchableOpacity
-                      style={[styles.insightTile, { borderColor: c.border }]}
-                      onPress={() => setInfoModal('dependency')}
-                      activeOpacity={0.6}
-                      accessibilityLabel={`Dependency risk ${Math.round(myDep.topThreePct * 100)}%`}
-                    >
-                      <Text style={[styles.insightLabel, { color: c.secondaryText }]}>Dependency</Text>
-                      <Text style={[styles.insightValue, { color: depColor(myDep.topThreePct) }]}>
-                        {Math.round(myDep.topThreePct * 100)}%
-                      </Text>
-                      <Text style={[styles.insightSub, { color: c.secondaryText }]}>
-                        {depLabel(myDep.topThreePct)}
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              </View>
-            )}
-
-            {/* ── Expandable League-Wide Sections ── */}
-
-            {/* Luck Index */}
-            {luckSorted.length > 0 && (
-              <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border, ...cardShadow }]}>
-                <TouchableOpacity
-                  style={styles.expandHeader}
-                  onPress={() => toggleSection('luck')}
-                  activeOpacity={0.6}
-                  accessibilityRole="button"
-                  accessibilityLabel="Luck Index league comparison"
-                >
-                  <View style={styles.expandHeaderLeft}>
-                    <ThemedText type="defaultSemiBold" style={styles.expandTitle}>Luck Index</ThemedText>
-                    <TouchableOpacity hitSlop={12} onPress={() => setInfoModal('luck')} accessibilityLabel="What is Luck Index?">
-                      <Ionicons name="information-circle-outline" size={16} color={c.secondaryText} />
-                    </TouchableOpacity>
-                  </View>
-                  <Ionicons name={expandedSection === 'luck' ? 'chevron-up' : 'chevron-down'} size={18} color={c.secondaryText} />
-                </TouchableOpacity>
-
-                {expandedSection === 'luck' && (
-                  <View style={styles.expandBody}>
-                    {luckSorted.map((r) => {
-                      const team = teamNameMap.get(r.teamId);
-                      if (!team) return null;
-                      const isMe = r.teamId === teamId;
-                      const isPositive = r.luckIndex >= 0;
-                      const barWidth = Math.abs(r.luckIndex) / maxAbsLuck;
-                      const barColor = isPositive ? (isDark ? '#6EE7B7' : '#059669') : (isDark ? '#FCA5A5' : '#DC2626');
-
-                      return (
-                        <View key={r.teamId} style={[styles.luckRow, isMe && { backgroundColor: isDark ? 'rgba(96,165,250,0.06)' : 'rgba(96,165,250,0.04)' }]}
-                          accessibilityLabel={`${team.name}, luck ${r.luckIndex >= 0 ? 'plus' : 'minus'} ${Math.abs(r.luckIndex).toFixed(1)}`}>
-                          <ThemedText style={[styles.luckTeamName, isMe && styles.luckTeamNameBold]} numberOfLines={1}>
-                            {team.tricode ?? team.name.slice(0, 10)}
-                          </ThemedText>
-                          <View style={styles.luckBarContainer}>
-                            <View style={[styles.luckCenter, { backgroundColor: c.border }]} />
-                            <View style={[styles.luckBar, { backgroundColor: barColor, width: `${barWidth * 45}%`, ...(isPositive ? { left: '50%' } : { right: '50%' }) }]} />
-                          </View>
-                          <Text style={[styles.luckValue, { color: barColor }]}>{isPositive ? '+' : ''}{r.luckIndex.toFixed(1)}</Text>
-                        </View>
-                      );
-                    })}
-                  </View>
-                )}
-              </View>
-            )}
-
-            {/* All-Play Standings */}
-            {allPlayRanked.length > 0 && (
-              <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border, ...cardShadow }]}>
-                <TouchableOpacity
-                  style={styles.expandHeader}
-                  onPress={() => toggleSection('allplay')}
-                  activeOpacity={0.6}
-                  accessibilityRole="button"
-                  accessibilityLabel="All-Play Standings"
-                >
-                  <View style={styles.expandHeaderLeft}>
-                    <ThemedText type="defaultSemiBold" style={styles.expandTitle}>All-Play Standings</ThemedText>
-                    <TouchableOpacity hitSlop={12} onPress={() => setInfoModal('allplay')} accessibilityLabel="What is All-Play?">
-                      <Ionicons name="information-circle-outline" size={16} color={c.secondaryText} />
-                    </TouchableOpacity>
-                  </View>
-                  <Ionicons name={expandedSection === 'allplay' ? 'chevron-up' : 'chevron-down'} size={18} color={c.secondaryText} />
-                </TouchableOpacity>
-
-                {expandedSection === 'allplay' && (
-                  <View style={styles.expandBody}>
-                    <View style={styles.apHeaderRow}>
-                      <ThemedText style={[styles.apRank, styles.headerText, { color: c.secondaryText }]}>#</ThemedText>
-                      <ThemedText style={[styles.apTeam, styles.headerText, { color: c.secondaryText }]}>Team</ThemedText>
-                      <ThemedText style={[styles.apRecord, styles.headerText, { color: c.secondaryText }]}>Record</ThemedText>
-                      <ThemedText style={[styles.apPct, styles.headerText, { color: c.secondaryText }]}>Win%</ThemedText>
-                      <ThemedText style={[styles.apExpW, styles.headerText, { color: c.secondaryText }]}>Exp W</ThemedText>
-                      <ThemedText style={[styles.apLuck, styles.headerText, { color: c.secondaryText }]}>Luck</ThemedText>
-                    </View>
-                    {allPlayRanked.map((r, idx) => {
-                      const team = teamNameMap.get(r.teamId);
-                      if (!team) return null;
-                      const isMe = r.teamId === teamId;
-                      const luckColor = r.luckIndex >= 0.5 ? (isDark ? '#6EE7B7' : '#059669') : r.luckIndex <= -0.5 ? (isDark ? '#FCA5A5' : '#DC2626') : c.secondaryText;
-                      return (
-                        <View key={r.teamId} style={[styles.apRow, { borderBottomColor: c.border }, idx === allPlayRanked.length - 1 && { borderBottomWidth: 0 }, isMe && { backgroundColor: isDark ? 'rgba(96,165,250,0.06)' : 'rgba(96,165,250,0.04)' }]}
-                          accessibilityLabel={`Rank ${idx + 1}, ${team.name}, all-play ${r.allPlayWins}-${r.allPlayLosses}-${r.allPlayTies}`}>
-                          <ThemedText style={[styles.apRank, { color: c.secondaryText }]}>{idx + 1}</ThemedText>
-                          <ThemedText style={[styles.apTeam, isMe && { fontWeight: '700' }]} numberOfLines={1}>{team.tricode ?? team.name.slice(0, 10)}</ThemedText>
-                          <ThemedText style={[styles.apRecord, { color: c.secondaryText }]}>{r.allPlayWins}-{r.allPlayLosses}-{r.allPlayTies}</ThemedText>
-                          <ThemedText style={[styles.apPct, { color: c.secondaryText }]}>{(r.allPlayWinPct * 100).toFixed(1)}</ThemedText>
-                          <ThemedText style={[styles.apExpW, { color: c.secondaryText }]}>{r.expectedWins.toFixed(1)}</ThemedText>
-                          <Text style={[styles.apLuck, { color: luckColor, fontWeight: '700' }]}>{r.luckIndex >= 0 ? '+' : ''}{r.luckIndex.toFixed(1)}</Text>
-                        </View>
-                      );
-                    })}
-                  </View>
-                )}
-              </View>
-            )}
-
-            {/* Dependency Risk */}
-            {depSorted.length > 0 && (
-              <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border, ...cardShadow }]}>
-                <TouchableOpacity
-                  style={styles.expandHeader}
-                  onPress={() => toggleSection('dependency')}
-                  activeOpacity={0.6}
-                  accessibilityRole="button"
-                  accessibilityLabel="Dependency Risk league comparison"
-                >
-                  <View style={styles.expandHeaderLeft}>
-                    <ThemedText type="defaultSemiBold" style={styles.expandTitle}>Dependency Risk</ThemedText>
-                    <TouchableOpacity hitSlop={12} onPress={() => setInfoModal('dependency')} accessibilityLabel="What is Dependency Risk?">
-                      <Ionicons name="information-circle-outline" size={16} color={c.secondaryText} />
-                    </TouchableOpacity>
-                  </View>
-                  <Ionicons name={expandedSection === 'dependency' ? 'chevron-up' : 'chevron-down'} size={18} color={c.secondaryText} />
-                </TouchableOpacity>
-
-                {expandedSection === 'dependency' && (
-                  <View style={styles.expandBody}>
-                    {depSorted.map((r) => {
-                      const team = teamNameMap.get(r.teamId);
-                      if (!team) return null;
-                      const isMe = r.teamId === teamId;
-                      const pct = Math.round(r.topThreePct * 100);
-                      const color = depColor(r.topThreePct);
-                      return (
-                        <View key={r.teamId} style={[styles.depRow, isMe && { backgroundColor: isDark ? 'rgba(96,165,250,0.06)' : 'rgba(96,165,250,0.04)' }]}
-                          accessibilityLabel={`${team.name}, ${pct}% from top 3: ${r.topThreePlayers.join(', ')}`}>
-                          <ThemedText style={[styles.depTeamName, isMe && { fontWeight: '700' }]} numberOfLines={1}>{team.tricode ?? team.name.slice(0, 10)}</ThemedText>
-                          <View style={styles.depBarOuter}>
-                            <View style={[styles.depBarInner, { width: `${pct}%`, backgroundColor: color }]} />
-                          </View>
-                          <Text style={[styles.depPct, { color }]}>{pct}%</Text>
-                        </View>
-                      );
-                    })}
-                  </View>
-                )}
-              </View>
-            )}
-
-            {/* Strength of Schedule */}
-            {sosSorted.length > 0 && (
-              <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border, ...cardShadow }]}>
-                <TouchableOpacity
-                  style={styles.expandHeader}
-                  onPress={() => toggleSection('sos')}
-                  activeOpacity={0.6}
-                  accessibilityRole="button"
-                  accessibilityLabel="Strength of Schedule"
-                >
-                  <View style={styles.expandHeaderLeft}>
-                    <ThemedText type="defaultSemiBold" style={styles.expandTitle}>Strength of Schedule</ThemedText>
-                    <TouchableOpacity hitSlop={12} onPress={() => setInfoModal('sos')} accessibilityLabel="What is Strength of Schedule?">
-                      <Ionicons name="information-circle-outline" size={16} color={c.secondaryText} />
-                    </TouchableOpacity>
-                  </View>
-                  <Ionicons name={expandedSection === 'sos' ? 'chevron-up' : 'chevron-down'} size={18} color={c.secondaryText} />
-                </TouchableOpacity>
-
-                {expandedSection === 'sos' && (
-                  <View style={styles.expandBody}>
-                    <View style={styles.sosHeaderRow}>
-                      <ThemedText style={[styles.sosTeam, styles.headerText, { color: c.secondaryText }]}>Team</ThemedText>
-                      <ThemedText style={[styles.sosStat, styles.headerText, { color: c.secondaryText }]}>Past</ThemedText>
-                      {hasFutureSoS && <ThemedText style={[styles.sosStat, styles.headerText, { color: c.secondaryText }]}>Future</ThemedText>}
-                      <ThemedText style={[styles.sosStat, styles.headerText, { color: c.secondaryText }]}>Overall</ThemedText>
-                    </View>
-                    {sosSorted.map((r, idx) => {
-                      const team = teamNameMap.get(r.teamId);
-                      if (!team) return null;
-                      const isMe = r.teamId === teamId;
-                      const pastColor = r.pastSoS > leagueAvgSoS + 0.02 ? (isDark ? '#FCA5A5' : '#DC2626') : r.pastSoS < leagueAvgSoS - 0.02 ? (isDark ? '#6EE7B7' : '#059669') : c.secondaryText;
-                      return (
-                        <View key={r.teamId} style={[styles.sosRow, { borderBottomColor: c.border }, idx === sosSorted.length - 1 && { borderBottomWidth: 0 }, isMe && { backgroundColor: isDark ? 'rgba(96,165,250,0.06)' : 'rgba(96,165,250,0.04)' }]}
-                          accessibilityLabel={`${team.name}, past SoS ${(r.pastSoS * 100).toFixed(0)}%`}>
-                          <ThemedText style={[styles.sosTeam, isMe && { fontWeight: '700' }]} numberOfLines={1}>{team.tricode ?? team.name.slice(0, 10)}</ThemedText>
-                          <Text style={[styles.sosStat, { color: pastColor, fontWeight: '600' }]}>{r.pastOpponents > 0 ? (r.pastSoS * 100).toFixed(1) : '—'}</Text>
-                          {hasFutureSoS && <ThemedText style={[styles.sosStat, { color: c.secondaryText }]}>{r.futureSoS !== null ? (r.futureSoS * 100).toFixed(1) : '—'}</ThemedText>}
-                          <ThemedText style={[styles.sosStat, { color: c.secondaryText }]}>{(r.overallSoS * 100).toFixed(1)}</ThemedText>
-                        </View>
-                      );
-                    })}
-                    {!hasFutureSoS && (
-                      <ThemedText style={[styles.sosEmptyNote, { color: c.secondaryText }]}>No remaining regular season games — future SoS unavailable.</ThemedText>
-                    )}
-                  </View>
-                )}
-              </View>
-            )}
-
-            {/* Weekly Breakdown */}
-            {myAllPlay && myAllPlay.weeklyBreakdown.length > 0 && (
-              <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border, ...cardShadow }]}>
-                <TouchableOpacity
-                  style={styles.expandHeader}
-                  onPress={() => toggleSection('weekly')}
-                  activeOpacity={0.6}
-                  accessibilityRole="button"
-                  accessibilityLabel="Your Weekly Breakdown"
-                >
-                  <ThemedText type="defaultSemiBold" style={styles.expandTitle}>Your Weekly Breakdown</ThemedText>
-                  <Ionicons name={expandedSection === 'weekly' ? 'chevron-up' : 'chevron-down'} size={18} color={c.secondaryText} />
-                </TouchableOpacity>
-
-                {expandedSection === 'weekly' && (
-                  <View style={styles.expandBody}>
-                    {myAllPlay.weeklyBreakdown.map((week) => {
-                      const totalTeams = rawTeams?.length ?? 1;
-                      const isExpanded = expandedWeek === week.weekNumber;
-                      const beatMost = week.wins >= (totalTeams - 1) * 0.5;
-                      const wasUnlucky = beatMost && week.actualResult === 'L';
-                      const wasLucky = !beatMost && week.actualResult === 'W';
-                      return (
-                        <TouchableOpacity key={week.weekNumber} style={[styles.weekRow, { borderBottomColor: c.border }]}
-                          onPress={() => setExpandedWeek(isExpanded ? null : week.weekNumber)} activeOpacity={0.6}
-                          accessibilityRole="button" accessibilityLabel={`Week ${week.weekNumber}, beat ${week.wins} of ${totalTeams - 1} teams`}>
-                          <View style={styles.weekHeader}>
-                            <ThemedText style={styles.weekLabel}>Wk {week.weekNumber}</ThemedText>
-                            <View style={styles.weekMeta}>
-                              <Text style={[styles.weekResult, { color: week.actualResult === 'W' ? c.success : week.actualResult === 'L' ? c.danger : c.secondaryText }]}>
-                                {week.actualResult}
-                              </Text>
-                              <ThemedText style={[styles.weekAp, { color: c.secondaryText }]}>AP: {week.wins}-{week.losses}{week.ties > 0 ? `-${week.ties}` : ''}</ThemedText>
-                              <ThemedText style={[styles.weekRankText, { color: c.secondaryText }]}>#{week.rankAmongAll}</ThemedText>
-                              {wasUnlucky && (
-                                <View style={[styles.weekBadge, { backgroundColor: isDark ? 'rgba(248,113,113,0.15)' : 'rgba(239,68,68,0.1)' }]}>
-                                  <Text style={{ fontSize: ms(9), color: isDark ? '#FCA5A5' : '#DC2626', fontWeight: '600' }}>Unlucky</Text>
-                                </View>
-                              )}
-                              {wasLucky && (
-                                <View style={[styles.weekBadge, { backgroundColor: isDark ? 'rgba(52,211,153,0.15)' : 'rgba(16,185,129,0.1)' }]}>
-                                  <Text style={{ fontSize: ms(9), color: isDark ? '#6EE7B7' : '#059669', fontWeight: '600' }}>Lucky</Text>
-                                </View>
-                              )}
-                            </View>
-                            <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={c.secondaryText} />
-                          </View>
-                          {isExpanded && (
-                            <View style={styles.weekExpanded}>
-                              <ThemedText style={[styles.weekDetail, { color: c.secondaryText }]}>Score: {isCategories ? week.teamScore : week.teamScore.toFixed(1)}</ThemedText>
-                              <ThemedText style={[styles.weekDetail, { color: c.secondaryText }]}>Beat {week.wins} of {totalTeams - 1} teams</ThemedText>
-                              <ThemedText style={[styles.weekDetail, { color: c.secondaryText }]}>Ranked #{week.rankAmongAll} of {totalTeams} that week</ThemedText>
-                            </View>
-                          )}
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                )}
-              </View>
-            )}
+            {segment === 'Standings' && renderStandingsView()}
+            {segment === 'All-Play' && renderAllPlayView()}
+            {segment === 'Luck' && renderLuckView()}
+            {segment === 'Risk' && renderRiskView()}
+            {segment === 'SoS' && renderScheduleView()}
           </>
         )}
       </ScrollView>
 
-      {/* ── Info Modal ── */}
-      <Modal visible={infoModal !== null} transparent animationType="fade" onRequestClose={() => setInfoModal(null)}>
-        <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setInfoModal(null)} accessibilityLabel="Close" accessibilityRole="button">
+      <Modal
+        visible={infoModal !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setInfoModal(null)}
+      >
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setInfoModal(null)}
+          accessibilityLabel="Close"
+          accessibilityRole="button"
+        >
           <View style={[styles.modalCard, { backgroundColor: c.card, borderColor: c.border }]}>
-            <ThemedText type="defaultSemiBold" style={styles.modalTitle}>
-              {infoModal === 'luck' ? 'Luck Index' : infoModal === 'allplay' ? 'All-Play Standings' : infoModal === 'dependency' ? 'Dependency Risk' : 'Strength of Schedule'}
-            </ThemedText>
+            <View style={styles.modalTitleRow}>
+              <View style={[styles.labelRule, { backgroundColor: c.gold }]} />
+              <ThemedText type="sectionLabel" style={{ color: c.text }}>
+                {infoModal === 'luck' ? 'Luck Index'
+                  : infoModal === 'allplay' ? 'All-Play Standings'
+                    : infoModal === 'dependency' ? 'Dependency Risk'
+                      : 'Strength of Schedule'}
+              </ThemedText>
+            </View>
 
             {infoModal === 'luck' ? (
               <>
@@ -889,7 +953,7 @@ export default function StandingsScreen() {
                   Each week, your score is compared against every other team in the league — not just your actual opponent. This gives you an "all-play" win percentage that reflects how good your team really was.
                 </ThemedText>
                 <ThemedText style={[styles.modalBody, { color: c.secondaryText }]}>
-                  <ThemedText style={{ fontWeight: '700' }}>Luck Index</ThemedText> = your actual wins minus the wins you'd "expect" based on that all-play percentage.
+                  <ThemedText style={{ fontWeight: '700', color: c.text }}>Luck Index</ThemedText> = your actual wins minus the wins you'd "expect" based on that all-play percentage.
                 </ThemedText>
                 <ThemedText style={[styles.modalBody, { color: c.secondaryText }]}>
                   A positive number means you've won more than expected (lucky schedule). Negative means you've been unlucky — your team is better than your record shows.
@@ -901,16 +965,16 @@ export default function StandingsScreen() {
                   In a normal fantasy week, you only play one opponent. All-Play asks: "What if you played everyone?"
                 </ThemedText>
                 <ThemedText style={[styles.modalBody, { color: c.secondaryText }]}>
-                  <ThemedText style={{ fontWeight: '700' }}>Record</ThemedText> — your all-play wins, losses, and ties across every week this season.
+                  <ThemedText style={{ fontWeight: '700', color: c.text }}>Record</ThemedText> — your all-play wins, losses, and ties across every week this season.
                 </ThemedText>
                 <ThemedText style={[styles.modalBody, { color: c.secondaryText }]}>
-                  <ThemedText style={{ fontWeight: '700' }}>Win%</ThemedText> — what percentage of all hypothetical matchups you would have won.
+                  <ThemedText style={{ fontWeight: '700', color: c.text }}>Win%</ThemedText> — what percentage of all hypothetical matchups you would have won.
                 </ThemedText>
                 <ThemedText style={[styles.modalBody, { color: c.secondaryText }]}>
-                  <ThemedText style={{ fontWeight: '700' }}>Exp W</ThemedText> — "Expected Wins." If your all-play win% is 60% and you've played 20 weeks, your expected wins would be 12.
+                  <ThemedText style={{ fontWeight: '700', color: c.text }}>ExpW</ThemedText> — "Expected Wins." If your all-play win% is 60% and you've played 20 weeks, your expected wins would be 12.
                 </ThemedText>
                 <ThemedText style={[styles.modalBody, { color: c.secondaryText }]}>
-                  <ThemedText style={{ fontWeight: '700' }}>Luck</ThemedText> — the difference between your actual wins and expected wins.
+                  <ThemedText style={{ fontWeight: '700', color: c.text }}>Luck</ThemedText> — the difference between your actual wins and expected wins.
                 </ThemedText>
               </>
             ) : infoModal === 'dependency' ? (
@@ -919,10 +983,10 @@ export default function StandingsScreen() {
                   Dependency Risk measures how much of a team's total season production is concentrated in their top 3 players, weighted by games played.
                 </ThemedText>
                 <ThemedText style={[styles.modalBody, { color: c.secondaryText }]}>
-                  Teams labeled <ThemedText style={{ fontWeight: '700' }}>High</ThemedText> are more fragile — if a key player gets injured or rests, the team's output drops significantly.
+                  Teams labeled <ThemedText style={{ fontWeight: '700', color: c.text }}>High</ThemedText> are more fragile — if a key player gets injured or rests, the team's output drops significantly.
                 </ThemedText>
                 <ThemedText style={[styles.modalBody, { color: c.secondaryText }]}>
-                  Teams labeled <ThemedText style={{ fontWeight: '700' }}>Deep</ThemedText> have balanced rosters that can absorb injuries and rest days more easily.
+                  Teams labeled <ThemedText style={{ fontWeight: '700', color: c.text }}>Deep</ThemedText> have balanced rosters that can absorb injuries and rest days more easily.
                 </ThemedText>
                 <ThemedText style={[styles.modalBody, { color: c.secondaryText }]}>
                   Labels are relative to your league — "High" means higher concentration than most teams in this league.
@@ -934,19 +998,26 @@ export default function StandingsScreen() {
                   Strength of Schedule measures how tough your opponents have been (and will be), based on their win percentages.
                 </ThemedText>
                 <ThemedText style={[styles.modalBody, { color: c.secondaryText }]}>
-                  <ThemedText style={{ fontWeight: '700' }}>Past</ThemedText> — the average win% of opponents you've already played. A high number means you've faced tougher competition.
+                  <ThemedText style={{ fontWeight: '700', color: c.text }}>Past</ThemedText> — the average win% of opponents you've already played. A high number means you've faced tougher competition.
                 </ThemedText>
                 <ThemedText style={[styles.modalBody, { color: c.secondaryText }]}>
-                  <ThemedText style={{ fontWeight: '700' }}>Future</ThemedText> — the average win% of your remaining regular-season opponents.
+                  <ThemedText style={{ fontWeight: '700', color: c.text }}>Future</ThemedText> — the average win% of your remaining regular-season opponents.
                 </ThemedText>
                 <ThemedText style={[styles.modalBody, { color: c.secondaryText }]}>
-                  <ThemedText style={{ fontWeight: '700' }}>Overall</ThemedText> — a weighted combination of past and future, giving a complete picture.
+                  <ThemedText style={{ fontWeight: '700', color: c.text }}>Overall</ThemedText> — a weighted combination of past and future, giving a complete picture.
                 </ThemedText>
               </>
             )}
 
-            <TouchableOpacity style={[styles.modalClose, { backgroundColor: c.accent }]} onPress={() => setInfoModal(null)} accessibilityRole="button" accessibilityLabel="Got it">
-              <Text style={[styles.modalCloseText, { color: '#fff' }]}>Got it</Text>
+            <TouchableOpacity
+              style={[styles.modalClose, { backgroundColor: Brand.turfGreen }]}
+              onPress={() => setInfoModal(null)}
+              accessibilityRole="button"
+              accessibilityLabel="Got it"
+            >
+              <ThemedText type="varsity" style={[styles.modalCloseText, { color: Brand.ecru }]}>
+                Got it
+              </ThemedText>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -963,168 +1034,232 @@ const styles = StyleSheet.create({
   scrollContent: { padding: s(16), paddingBottom: s(40) },
   loading: { marginTop: s(40) },
 
-  card: {
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: s(16),
-    paddingTop: s(14),
-    paddingBottom: s(8),
-    marginBottom: s(16),
-  },
-  // Variant used only for the standings table card so its rows (and the
-  // "your team" highlight) can run edge-to-edge. The title/footnote inside
-  // wrap themselves in standingsCardBody for the normal inset.
-  standingsCard: {
+  // Any Section whose children are ListRow tables needs its card padding
+  // dropped to 0 — so isActive row backgrounds reach the card's edges
+  // instead of stopping at a 14-unit interior gutter.
+  tableCard: {
     paddingHorizontal: 0,
     overflow: 'hidden',
   },
-  standingsCardBody: {
-    paddingHorizontal: s(16),
-  },
-  sectionTitle: { marginBottom: s(8) },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: s(4),
-  },
-  explainer: {
-    fontSize: ms(11),
-    lineHeight: ms(16),
-    marginBottom: s(12),
-  },
-  placeholder: {
+
+  placeholderText: {
     fontSize: ms(14),
     textAlign: 'center',
     paddingVertical: s(20),
+    paddingHorizontal: s(14),
   },
 
-  // ─── Team Insights grid ──────────────
+  // ─── Team Insights grid ──────────────────────────────
   insightGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: s(8),
-  },
-  insightTile: {
-    flexBasis: '47%',
-    flexGrow: 1,
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingVertical: s(10),
-    paddingHorizontal: s(12),
-    alignItems: 'center',
-  },
-  insightLabel: {
-    fontSize: ms(9),
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: s(2),
-  },
-  insightValue: {
-    fontSize: ms(22),
-    fontWeight: '700',
-  },
-  insightSub: {
-    fontSize: ms(10),
-    marginTop: s(2),
+    marginBottom: s(16),
   },
 
-  // ─── Expandable sections ────────────
-  expandHeader: {
+  // ─── Standings table ─────────────────────────────────
+  // Inner table width locked so every row/header column stays aligned
+  // inside the horizontal ScrollView. Width sums the fixed column widths
+  // below plus gaps — bumping a column here means adjusting this too.
+  tableInner: {
+    width: s(460),
+  },
+  tableHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: s(2),
+    paddingVertical: s(6),
+    paddingHorizontal: s(14),
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  expandHeaderLeft: {
+  rank: {
+    width: s(22),
+    fontSize: ms(12),
+    textAlign: 'left',
+  },
+  logoSlot: {
+    width: s(28),
+    alignItems: 'flex-start',
+  },
+  // Team name column — fixed width (no flex) so columns across all rows
+  // line up horizontally inside the scrollable inner view. Long names
+  // still ellipsize, but at s(150) most NBA-style team names fit.
+  teamNameCol: {
+    width: s(150),
     flexDirection: 'row',
     alignItems: 'center',
     gap: s(6),
+    marginLeft: s(8),
+    minWidth: 0,
   },
-  expandTitle: {
-    fontSize: ms(14),
+  teamNameHeader: {
+    width: s(150),
+    marginLeft: s(8),
   },
-  expandBody: {
-    marginTop: s(10),
+  teamName: {
+    flexShrink: 1,
+    fontSize: ms(13),
+    fontWeight: '500',
   },
-
-  // ─── Standings table ─────────────────
-  tableHeaderRow: {
-    height: s(24),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(128,128,128,0.3)',
+  clinchBadge: {
+    fontSize: ms(9),
   },
-  headerText: { fontSize: ms(10), fontWeight: '600' },
-  standingRow: {
-    flexDirection: 'row',
+  // Record cell — tinted by streak direction, ringed on 5+ streaks.
+  // Default transparent border reserves space so the ring doesn't shift
+  // the row width when it appears.
+  recordCell: {
+    width: s(48),
     alignItems: 'center',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    // Small symmetric horizontal padding so highlighted rows run nearly
-    // edge-to-edge on both sides of the card.
-    paddingHorizontal: s(8),
-    height: s(44),
+    justifyContent: 'center',
+    paddingVertical: s(3),
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    marginLeft: s(4),
   },
-  rank: { width: s(18), fontSize: ms(12) },
-  teamNameCol: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: s(4), marginLeft: s(6), minWidth: 0 },
-  teamName: { flexShrink: 1 },
-  clinchBadge: { fontSize: ms(10), fontWeight: '700', fontStyle: 'italic' },
-  record: { width: s(44), textAlign: 'center', fontSize: ms(11) },
-  stat: { width: s(46), textAlign: 'right', fontSize: ms(11) },
-  gb: { width: s(26), textAlign: 'right', fontSize: ms(11) },
-  streakCol: { width: s(28), textAlign: 'right', fontSize: ms(11), fontWeight: '600' },
-  divisionBlock: { marginBottom: s(12) },
-  divisionHeader: {
+  recordHeader: {
+    width: s(48),
+    textAlign: 'center',
+    marginLeft: s(4),
+  },
+  recordText: {
     fontSize: ms(12),
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: s(4),
-    marginTop: s(4),
+  },
+  // Dedicated streak column — "W3" / "L2" in mono bold, tinted success/
+  // danger. Sits right of the tinted record cell so both reinforce the
+  // same signal at a glance.
+  streakCol: {
+    width: s(36),
+    textAlign: 'center',
+    fontSize: ms(11.5),
+    marginLeft: s(4),
+  },
+  // PF/PA/GB — mono, right-aligned, whole-number-only content so the
+  // widths hold across all weeks.
+  statCol: {
+    width: s(44),
+    textAlign: 'right',
+    fontSize: ms(11.5),
+    marginLeft: s(4),
+  },
+  gbCol: {
+    width: s(32),
+    textAlign: 'right',
+    fontSize: ms(11.5),
+    marginLeft: s(4),
+  },
+  divisionBlock: {
+    marginBottom: s(10),
+  },
+  divisionHeader: {
+    fontSize: ms(10),
+    letterSpacing: 0.8,
+    marginTop: s(6),
+    marginBottom: s(2),
+    paddingHorizontal: s(14),
   },
   playoffCutoff: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: s(6),
-    paddingHorizontal: s(16),
+    paddingHorizontal: s(14),
     gap: s(8),
   },
-  cutoffLine: { flex: 1, height: 1, opacity: 0.4 },
+  cutoffLine: {
+    flex: 1,
+    height: 1,
+  },
   cutoffLabel: {
     fontSize: ms(9),
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+  },
+  cardFooter: {
+    paddingHorizontal: s(14),
+    paddingTop: s(10),
+    paddingBottom: s(4),
+    borderTopWidth: StyleSheet.hairlineWidth,
+    marginTop: s(4),
+    alignItems: 'center',
   },
   footnote: {
-    fontSize: ms(10),
-    fontStyle: 'italic',
+    fontSize: ms(9.5),
     textAlign: 'center',
-    paddingHorizontal: s(12),
-    paddingTop: s(8),
-    paddingBottom: s(4),
   },
 
-  // ─── Luck Index bars ─────────────────
-  luckRow: {
+  // ─── All-Play table ──────────────────────────────────
+  // All-Play columns — uses the shared rank + logoSlot from the main
+  // standings table (so rank/logo alignment matches across lenses) plus
+  // a flex team name, record, ExpW, and Luck. Win% dropped to make room
+  // for full team names + logos without horizontal scroll.
+  apTeam: {
+    flex: 1,
+    fontSize: ms(12.5),
+    marginLeft: s(8),
+    minWidth: 0,
+  },
+  apTeamHeader: {
+    flex: 1,
+    marginLeft: s(8),
+  },
+  apRecord: { width: s(58), textAlign: 'center', fontSize: ms(11), marginLeft: s(4) },
+  apExpW: { width: s(34), textAlign: 'right', fontSize: ms(11), marginLeft: s(4) },
+  apLuck: { width: s(38), textAlign: 'right', fontSize: ms(11), marginLeft: s(4) },
+  // Bold mono emphasis for stat columns. SpaceMono doesn't have a true
+  // bold variant, so we bump weight — Hermes falls back to the closest
+  // available weight, which still reads tighter/heavier than regular.
+  monoBold: {
+    fontFamily: Fonts.mono,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+
+  // ─── Weekly breakdown ────────────────────────────────
+  // Override ListRow's default flex-row so header + expanded details can
+  // stack vertically inside a single pressable row.
+  weekRowOverride: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    paddingVertical: s(9),
+  },
+  weekHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: s(6),
-    paddingHorizontal: s(4),
-    borderRadius: 6,
   },
-  luckTeamName: {
-    width: s(60),
-    fontSize: ms(11),
+  weekLabel: {
+    width: s(46),
+    fontSize: ms(12),
   },
-  luckTeamNameBold: {
+  weekMeta: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(10),
+  },
+  weekResult: {
+    fontSize: ms(13),
     fontWeight: '700',
+    width: s(16),
+  },
+  weekAp: { fontSize: ms(11) },
+  weekRankText: { fontSize: ms(11) },
+  weekExpanded: {
+    marginTop: s(8),
+    marginLeft: s(46),
+    gap: s(4),
+  },
+  weekDetail: {
+    fontSize: ms(11),
+    lineHeight: ms(16),
+  },
+
+  // ─── Luck Index bars ─────────────────────────────────
+  luckTeamName: {
+    width: s(68),
+    fontSize: ms(12),
   },
   luckBarContainer: {
     flex: 1,
     height: s(14),
     position: 'relative',
-    marginHorizontal: s(8),
+    marginHorizontal: s(10),
   },
   luckCenter: {
     position: 'absolute',
@@ -1138,138 +1273,60 @@ const styles = StyleSheet.create({
     top: s(2),
     height: s(10),
     borderRadius: 3,
-    opacity: 0.7,
+    opacity: 0.75,
   },
   luckValue: {
-    width: s(36),
+    width: s(40),
     textAlign: 'right',
-    fontSize: ms(11),
+    fontSize: ms(11.5),
+    fontFamily: Fonts.mono,
     fontWeight: '700',
+    letterSpacing: 0.5,
   },
 
-  // ─── All-Play table ──────────────────
-  apHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: s(4),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(128,128,128,0.3)',
-  },
-  apRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: s(7),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: s(2),
-    borderRadius: 6,
-  },
-  apRank: { width: s(22), fontSize: ms(11) },
-  apTeam: { flex: 1, fontSize: ms(11) },
-  apRecord: { width: s(60), textAlign: 'center', fontSize: ms(11) },
-  apPct: { width: s(38), textAlign: 'right', fontSize: ms(11) },
-  apExpW: { width: s(38), textAlign: 'right', fontSize: ms(11) },
-  apLuck: { width: s(36), textAlign: 'right', fontSize: ms(11) },
-
-  // ─── Weekly breakdown ────────────────
-  weekRow: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    paddingVertical: s(8),
-  },
-  weekHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  weekLabel: {
-    width: s(42),
-    fontSize: ms(12),
-    fontWeight: '600',
-  },
-  weekMeta: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(10),
-  },
-  weekResult: {
-    fontSize: ms(12),
-    fontWeight: '700',
-    width: s(16),
-  },
-  weekAp: { fontSize: ms(11) },
-  weekRankText: { fontSize: ms(11) },
-  weekBadge: {
-    paddingHorizontal: s(6),
-    paddingVertical: s(2),
-    borderRadius: 4,
-  },
-  weekExpanded: {
-    marginTop: s(8),
-    marginLeft: s(42),
-    gap: s(4),
-  },
-  weekDetail: {
-    fontSize: ms(11),
-    lineHeight: ms(16),
-  },
-
-  // ─── Dependency Risk ──────────────────
-  depRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: s(6),
-    paddingHorizontal: s(4),
-    borderRadius: 6,
-  },
+  // ─── Dependency Risk bars ────────────────────────────
   depTeamName: {
-    width: s(60),
-    fontSize: ms(11),
+    width: s(68),
+    fontSize: ms(12),
   },
   depBarOuter: {
     flex: 1,
-    height: s(12),
-    backgroundColor: 'rgba(128,128,128,0.1)',
+    height: s(10),
     borderRadius: 4,
-    marginHorizontal: s(8),
+    marginHorizontal: s(10),
     overflow: 'hidden',
+    opacity: 0.35,
   },
   depBarInner: {
     height: '100%',
     borderRadius: 4,
-    opacity: 0.7,
+    opacity: 1,
   },
   depPct: {
-    width: s(34),
+    width: s(40),
     textAlign: 'right',
-    fontSize: ms(11),
+    fontSize: ms(11.5),
+    fontFamily: Fonts.mono,
     fontWeight: '700',
+    letterSpacing: 0.5,
   },
 
-  // ─── Strength of Schedule ────────────
-  sosHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: s(4),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(128,128,128,0.3)',
-  },
-  sosRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: s(7),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: s(2),
-    borderRadius: 6,
-  },
-  sosTeam: { flex: 1, fontSize: ms(11) },
-  sosStat: { width: s(48), textAlign: 'right', fontSize: ms(11) },
+  // ─── Strength of Schedule ────────────────────────────
+  sosTeam: { flex: 1, fontSize: ms(11), marginLeft: s(2), minWidth: 0 },
+  sosStat: { width: s(56), textAlign: 'right', fontSize: ms(11), marginLeft: s(2) },
   sosEmptyNote: {
     fontSize: ms(11),
     fontStyle: 'italic',
-    marginTop: s(8),
+    textAlign: 'center',
+    marginTop: s(10),
     marginBottom: s(4),
   },
 
-  // ─── Info modal ──────────────────────
+  // ─── Info modal ──────────────────────────────────────
+  labelRule: {
+    height: 2,
+    width: s(18),
+  },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -1284,9 +1341,11 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 400,
   },
-  modalTitle: {
-    fontSize: ms(17),
-    marginBottom: s(12),
+  modalTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(10),
+    marginBottom: s(14),
   },
   modalBody: {
     fontSize: ms(13),
@@ -1295,12 +1354,12 @@ const styles = StyleSheet.create({
   },
   modalClose: {
     marginTop: s(8),
-    paddingVertical: s(10),
-    borderRadius: 8,
+    paddingVertical: s(12),
+    borderRadius: 10,
     alignItems: 'center',
   },
   modalCloseText: {
-    fontSize: ms(15),
-    fontWeight: '600',
+    fontSize: ms(12),
+    letterSpacing: 1,
   },
 });

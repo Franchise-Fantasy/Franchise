@@ -121,7 +121,15 @@ async function fetchLeagueTeams(leagueId: string): Promise<Record<string, League
     .eq('league_id', leagueId);
   if (error) throw error;
   const map: Record<string, LeagueTeam> = {};
-  for (const t of data ?? []) map[t.id] = t;
+  for (const t of data ?? []) {
+    map[t.id] = {
+      id: t.id,
+      name: t.name,
+      wins: t.wins ?? 0,
+      losses: t.losses ?? 0,
+      ties: t.ties,
+    };
+  }
   return map;
 }
 

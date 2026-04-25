@@ -217,7 +217,9 @@ export function sendNotification(params: {
   body: string;
   data?: Record<string, unknown>;
 }): void {
-  supabase.functions.invoke('send-notification', { body: params }).catch(() => {});
+  supabase.functions
+    .invoke('send-notification', { body: params })
+    .catch((e) => console.warn('send-notification invoke failed:', e));
 }
 
 // Silently refreshes the push token if it changed (e.g. Expo rotated it).

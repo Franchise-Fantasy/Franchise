@@ -1,6 +1,7 @@
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
+import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { ms, s } from '@/utils/scale';
@@ -33,6 +34,7 @@ type Step = 'team' | 'action' | 'player';
 export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const sport = useActiveLeagueSport(leagueId);
   const queryClient = useQueryClient();
 
   const [step, setStep] = useState<Step>('team');
@@ -82,9 +84,10 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
     enabled: !!selectedTeam && action === 'drop' && step === 'player',
   });
 
-  // Fetch free agents (for add)
+  // Fetch free agents (for add). `pro_team IS NOT NULL` works year-round;
+  // `games_played > 0` would hide everyone during the offseason.
   const { data: freeAgents, isLoading: faLoading } = useQuery<PlayerSeasonStats[]>({
-    queryKey: queryKeys.commishFreeAgents(leagueId),
+    queryKey: [...queryKeys.commishFreeAgents(leagueId), sport],
     queryFn: async () => {
       const { data: rostered } = await supabase
         .from('league_players')
@@ -95,7 +98,8 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
       let query = supabase
         .from('player_season_stats')
         .select('*')
-        .gt('games_played', 0)
+        .eq('sport', sport)
+        .not('pro_team', 'is', null)
         .order('avg_pts', { ascending: false });
 
       if (rosteredIds.length > 0) {
@@ -239,7 +243,7 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
                     return (
                       <TouchableOpacity
                         accessibilityRole="button"
-                        accessibilityLabel={`${item.name}, ${item.position}, ${item.nba_team}`}
+                        accessibilityLabel={`${item.name}, ${item.position}, ${item.pro_team}`}
                         style={[styles.row, { borderBottomColor: c.border }, index === filtered.length - 1 && { borderBottomWidth: 0 }]}
                         onPress={() => handleSelectPlayer(item)}
                         disabled={processing}
@@ -254,7 +258,7 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
                             )}
                           </View>
                           <ThemedText style={[styles.sub, { color: c.secondaryText }]}>
-                            {item.position} · {item.nba_team}
+                            {item.position} · {item.pro_team}
                             {action === 'drop' && (item as any).roster_slot ? ` · ${(item as any).roster_slot}` : ''}
                           </ThemedText>
                         </View>

@@ -1,172 +1,88 @@
-import { Colors } from '@/constants/Colors';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Brand, Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
-import { useEffect, useRef } from 'react';
-import { Animated, StyleSheet, Text, View } from 'react-native';
-
-const STEP_WIDTH = 100;
-const CIRCLE_SIZE = 32;
-const CIRCLE_SIZE_ACTIVE = 38;
-const CIRCLE_ROW_HEIGHT = CIRCLE_SIZE_ACTIVE;
-const VISIBLE_STEPS = 3;
-const WINDOW_WIDTH = STEP_WIDTH * VISIBLE_STEPS;
+import { StyleSheet, View } from 'react-native';
 
 interface StepIndicatorProps {
   currentStep: number;
   steps: string[];
 }
 
-function getOffset(step: number) {
-  // Center the given step index in the visible window.
-  return WINDOW_WIDTH / 2 - STEP_WIDTH / 2 - step * STEP_WIDTH;
-}
-
+/**
+ * Compact wizard progress — varsity-caps label on the left names the
+ * current step (so the step title is never repeated in the page body),
+ * a pip row on the right visualizes progress (filled pips for
+ * completed + current, hollow for upcoming). Same design language as
+ * HomeHero's offseason pip stepper so the app's progress indicators
+ * share a visual vocabulary.
+ *
+ * Intentionally drops the carousel + "X of N" counter — the filled
+ * pips already convey position and the label names the active step.
+ */
 export function StepIndicator({ currentStep, steps }: StepIndicatorProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
-  const translateX = useRef(new Animated.Value(getOffset(0))).current;
-
-  useEffect(() => {
-    Animated.spring(translateX, {
-      toValue: getOffset(currentStep),
-      useNativeDriver: true,
-      tension: 60,
-      friction: 12,
-    }).start();
-  }, [currentStep]);
-
-  const stripWidth = steps.length * STEP_WIDTH;
 
   return (
-    <View style={styles.container}>
-      <View style={styles.window}>
-        <Animated.View
-          style={[
-            styles.strip,
-            {
-              width: stripWidth,
-              transform: [{ translateX }],
-            },
-          ]}
-        >
-          {steps.map((label, index) => {
-            const isActive = index === currentStep;
-            const isCompleted = index < currentStep;
-            const size = isActive ? CIRCLE_SIZE_ACTIVE : CIRCLE_SIZE;
+    <View style={styles.row}>
+      <ThemedText
+        type="varsity"
+        style={[styles.label, { color: c.text }]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+      >
+        {steps[currentStep]}
+      </ThemedText>
 
-            return (
-              <View key={label} style={[styles.stepWrapper, { width: STEP_WIDTH }]}>
-                {/* Fixed-height row keeps all circles vertically aligned */}
-                <View style={styles.circleRow}>
-                  {index > 0 && (
-                    <View
-                      style={[
-                        styles.line,
-                        { backgroundColor: isCompleted ? c.accent : c.border },
-                      ]}
-                    />
-                  )}
-                  <View
-                    style={[
-                      styles.circle,
-                      {
-                        width: size,
-                        height: size,
-                        borderRadius: size / 2,
-                        backgroundColor:
-                          isActive || isCompleted ? c.accent : c.background,
-                        borderColor:
-                          isActive || isCompleted ? c.accent : c.border,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.circleText,
-                        {
-                          fontSize: isActive ? 15 : 13,
-                          color:
-                            isActive || isCompleted
-                              ? c.accentText
-                              : c.secondaryText,
-                        },
-                      ]}
-                    >
-                      {isCompleted ? '\u2713' : index + 1}
-                    </Text>
-                  </View>
-                </View>
-                <Text
-                  style={[
-                    styles.label,
-                    {
-                      color: isActive ? c.text : c.secondaryText,
-                      fontWeight: isActive ? '700' : '400',
-                      fontSize: isActive ? 12 : 11,
-                    },
-                  ]}
-                  numberOfLines={1}
-                >
-                  {label}
-                </Text>
-              </View>
-            );
-          })}
-        </Animated.View>
+      <View style={styles.pips}>
+        {steps.map((_, i) => {
+          const isFilled = i <= currentStep;
+          return (
+            <View
+              key={i}
+              style={[
+                styles.pip,
+                {
+                  backgroundColor: isFilled ? Brand.vintageGold : 'transparent',
+                  borderColor: isFilled ? Brand.vintageGold : c.border,
+                },
+              ]}
+            />
+          );
+        })}
       </View>
-
-      <Text style={[styles.counter, { color: c.secondaryText }]}>
-        {currentStep + 1} of {steps.length}
-      </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    paddingVertical: s(12),
-    alignItems: 'center',
-  },
-  window: {
-    width: WINDOW_WIDTH,
-    overflow: 'hidden',
-  },
-  strip: {
+  row: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  stepWrapper: {
     alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: s(10),
+    // Extra bottom space so the first FormSection of each step doesn't
+    // hug the indicator — gives the page a breath before content.
+    paddingBottom: s(20),
+    gap: s(16),
   },
-  circleRow: {
-    width: '100%',
-    height: CIRCLE_ROW_HEIGHT,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  line: {
-    position: 'absolute',
-    top: CIRCLE_ROW_HEIGHT / 2 - 1,
-    height: s(2),
-    right: '50%',
-    left: '-50%',
-    zIndex: 0,
-  },
-  circle: {
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 1,
-  },
-  circleText: {
-    fontWeight: '700',
-  },
+  // Label leans bigger than the pips so the current step name is the
+  // clear anchor of the header.
   label: {
-    marginTop: s(6),
-    textAlign: 'center',
+    flex: 1,
+    fontSize: ms(17),
+    letterSpacing: 1.4,
   },
-  counter: {
-    marginTop: s(8),
-    fontSize: ms(12),
+  pips: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(5),
+  },
+  pip: {
+    width: s(8),
+    height: s(8),
+    borderRadius: s(4),
+    borderWidth: 1,
   },
 });

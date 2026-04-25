@@ -153,14 +153,14 @@ async function handlePreview(
   // Fetch our players for matching
   const { data: ourPlayers } = await supabaseAdmin
     .from('players')
-    .select('id, name, nba_team, position');
+    .select('id, name, pro_team, position');
 
   // Match players
   const byNameAndTeam = new Map<string, any>();
   const byNameOnly = new Map<string, any[]>();
   for (const p of (ourPlayers ?? [])) {
     const norm = normalizeName(p.name);
-    byNameAndTeam.set(`${norm}|${(p.nba_team ?? '').toUpperCase()}`, p);
+    byNameAndTeam.set(`${norm}|${(p.pro_team ?? '').toUpperCase()}`, p);
     if (!byNameOnly.has(norm)) byNameOnly.set(norm, []);
     byNameOnly.get(norm)!.push(p);
   }

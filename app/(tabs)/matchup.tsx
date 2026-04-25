@@ -53,6 +53,7 @@ import {
   liveToGameLog,
   useLivePlayerStats,
 } from "@/utils/nbaLive";
+import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { fetchNbaScheduleForDate } from "@/utils/nbaSchedule";
 import { slotLabel } from "@/utils/rosterSlots";
 import { ms, s } from "@/utils/scale";
@@ -96,7 +97,7 @@ interface StoredPlayerScore {
   player_id: string;
   name: string;
   position: string;
-  nba_team: string;
+  pro_team: string;
   external_id_nba: number | null;
   roster_slot: string;
   week_points: number;
@@ -307,12 +308,12 @@ function buildFromStored(
       }
     }
 
-    const t = p.nba_team ?? "";
+    const t = p.pro_team ?? "";
     return {
       player_id: p.player_id,
       name: p.name,
       position: p.position,
-      nba_team: t,
+      pro_team: t,
       nbaTricode: t && t !== "Active" && t !== "Inactive" ? t : null,
       external_id_nba: p.external_id_nba,
       status: "active",
@@ -974,6 +975,7 @@ function MatchupBoard({
 
 export default function MatchupScreen() {
   const { leagueId, teamId } = useAppState();
+  const sport = useActiveLeagueSport();
   const router = useRouter();
   const scheme = useColorScheme() ?? "light";
   const c = Colors[scheme];
@@ -1240,8 +1242,8 @@ export default function MatchupScreen() {
 
   // Future schedule: tricode → matchup string for the selected future date
   const { data: futureSchedule } = useQuery<Map<string, any>>({
-    queryKey: queryKeys.futureSchedule(selectedDate),
-    queryFn: () => fetchNbaScheduleForDate(selectedDate),
+    queryKey: [...queryKeys.futureSchedule(selectedDate), sport],
+    queryFn: () => fetchNbaScheduleForDate(selectedDate, sport),
     enabled: isToday || isFutureDate,
     staleTime: 1000 * 60 * 60,
   });
@@ -1271,13 +1273,13 @@ export default function MatchupScreen() {
 
       if (day >= todayStr) {
         queryClient.prefetchQuery({
-          queryKey: queryKeys.futureSchedule(day),
-          queryFn: () => fetchNbaScheduleForDate(day),
+          queryKey: [...queryKeys.futureSchedule(day), sport],
+          queryFn: () => fetchNbaScheduleForDate(day, sport),
           staleTime: 1000 * 60 * 60,
         });
       }
     }
-  }, [selectedDate, weeks, teamId, leagueId, scoring]);
+  }, [selectedDate, weeks, teamId, leagueId, scoring, sport]);
 
   // Playoff seeds for current round
   const playoffRound = currentWeek?.is_playoff
@@ -1383,7 +1385,7 @@ export default function MatchupScreen() {
           </View>
         </View>
         <View style={styles.spinnerWrap}>
-          <LogoSpinner delay={0} />
+          <LogoSpinner />
         </View>
       </SafeAreaView>
     );
@@ -1583,7 +1585,7 @@ export default function MatchupScreen() {
       {/* Matchup body */}
       {displayLoading && (
         <View style={styles.spinnerWrap}>
-          <LogoSpinner delay={0} />
+          <LogoSpinner />
         </View>
       )}
 

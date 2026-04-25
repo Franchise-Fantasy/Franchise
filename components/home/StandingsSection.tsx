@@ -183,19 +183,6 @@ export function computePlayoffStatuses(
   return statuses;
 }
 
-// Deterministic font size for team names. React Native's adjustsFontSizeToFit
-// is unreliable across platforms, so we pick a size by character count.
-function teamNameFontSize(name: string): number {
-  const len = name.length;
-  if (len <= 12) return ms(13);
-  if (len <= 15) return ms(12);
-  if (len <= 18) return ms(11);
-  if (len <= 21) return ms(10);
-  if (len <= 24) return ms(9);
-  if (len <= 28) return ms(8);
-  return ms(7);
-}
-
 function streakColor(streak: string, c: any): string {
   if (streak.startsWith('W')) return c.success;
   if (streak.startsWith('L')) return c.danger;
@@ -290,56 +277,103 @@ export function StandingsSection({ leagueId, playoffTeams, scoringType, tiebreak
     ? computePlayoffStatuses(allStandings, remainingGames, playoffTeams, matchups ?? [], tiebreakers)
     : null;
 
+  // Only show the T column when at least one team has tied — most leagues
+  // never do, and "W-L-T" takes 20% more horizontal space than "W-L".
+  const anyTies = (rawTeams ?? []).some((t) => (t.ties ?? 0) > 0);
+  const isCategories = scoringType === 'h2h_categories';
+
   const renderHeader = () => (
-    <View style={styles.headerRow}>
-      <ThemedText style={[styles.rank, styles.headerText, { color: c.secondaryText }]}>#</ThemedText>
-      <View style={{ width: s(28) }} />
-      <ThemedText style={[styles.teamNameCol, styles.headerText, { color: c.secondaryText }]}>Team</ThemedText>
-      <ThemedText style={[styles.record, styles.headerText, { color: c.secondaryText }]}>W-L-T</ThemedText>
-      <ThemedText style={[styles.pf, styles.headerText, { color: c.secondaryText }]}>{scoringType === 'h2h_categories' ? 'CW' : 'PF'}</ThemedText>
-      <ThemedText style={[styles.pa, styles.headerText, { color: c.secondaryText }]}>{scoringType === 'h2h_categories' ? 'CL' : 'PA'}</ThemedText>
-      <ThemedText style={[styles.streakCol, styles.headerText, { color: c.secondaryText }]}>STK</ThemedText>
+    <View style={[styles.headerRow, { borderBottomColor: c.border }]}>
+      <ThemedText type="varsitySmall" style={[styles.rank, { color: c.secondaryText }]}>#</ThemedText>
+      <View style={{ width: s(26) }} />
+      <ThemedText type="varsitySmall" style={[styles.teamNameCol, { color: c.secondaryText }]}>
+        Team
+      </ThemedText>
+      <ThemedText
+        type="varsitySmall"
+        style={[styles.recordHeader, { color: c.secondaryText }]}
+      >
+        {anyTies ? 'W-L-T' : 'W-L'}
+      </ThemedText>
+      <ThemedText type="varsitySmall" style={[styles.pf, { color: c.secondaryText }]}>
+        {isCategories ? 'CW' : 'PF'}
+      </ThemedText>
+      <ThemedText type="varsitySmall" style={[styles.pa, { color: c.secondaryText }]}>
+        {isCategories ? 'CL' : 'PA'}
+      </ThemedText>
     </View>
   );
 
-  const renderTeamRow = (team: TeamStanding & { rank: number }, idx: number, total: number) => (
-    <TouchableOpacity
-      key={team.id}
-      style={[styles.standingRow, { borderBottomColor: c.border }, idx === total - 1 && { borderBottomWidth: 0 }]}
-      onPress={() => team.id === teamId ? router.push('/(tabs)/roster') : router.push(`/team-roster/${team.id}` as any)}
-      activeOpacity={0.6}
-      accessibilityLabel={`${team.name}, rank ${team.rank}, record ${team.wins}-${team.losses}-${team.ties}`}
-    >
-      <ThemedText style={[styles.rank, { color: c.secondaryText }]}>{team.rank}</ThemedText>
-      <TeamLogo logoKey={team.logo_key} teamName={team.name} tricode={team.tricode ?? undefined} size="small" />
-      <View style={styles.teamNameCol}>
-        <ThemedText
-          style={[styles.teamName, { fontSize: teamNameFontSize(team.name) }]}
-          numberOfLines={1}
+  const renderTeamRow = (team: TeamStanding & { rank: number }, idx: number, total: number) => {
+    const isMe = team.id === teamId;
+    const status = playoffStatuses?.get(team.id);
+    const hasStreak = !!team.streak && team.streak !== 'W0' && team.streak !== 'L0';
+    const streakDir = team.streak?.[0]; // 'W' | 'L' | undefined
+    // Streaks of 5+ get a full colored ring on top of the tint, making
+    // hot/cold runs pop visually without adding a dedicated column.
+    const streakLen = hasStreak ? Number(team.streak.slice(1)) || 0 : 0;
+    const isBigStreak = streakLen >= 5;
+    const record = anyTies
+      ? `${team.wins}-${team.losses}-${team.ties}`
+      : `${team.wins}-${team.losses}`;
+    return (
+      <TouchableOpacity
+        key={team.id}
+        style={[
+          styles.standingRow,
+          { borderBottomColor: c.border },
+          idx === total - 1 && { borderBottomWidth: 0 },
+          isMe && { backgroundColor: c.activeCard },
+        ]}
+        onPress={() => isMe ? router.push('/(tabs)/roster') : router.push(`/team-roster/${team.id}` as any)}
+        activeOpacity={0.6}
+        accessibilityLabel={`${team.name}, rank ${team.rank}, record ${team.wins}-${team.losses}-${team.ties}, streak ${team.streak || 'none'}`}
+      >
+        <ThemedText type="mono" style={[styles.rank, { color: c.secondaryText }]}>{team.rank}</ThemedText>
+        <TeamLogo logoKey={team.logo_key} teamName={team.name} tricode={team.tricode ?? undefined} size="small" />
+        <View style={styles.teamNameCol}>
+          <ThemedText
+            style={[styles.teamName, { color: c.text }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            {team.name}
+          </ThemedText>
+          {status === 'clinched' && (
+            <ThemedText type="varsitySmall" style={[styles.clinchBadge, { color: c.success }]} accessibilityLabel="Clinched playoff spot">x</ThemedText>
+          )}
+          {status === 'eliminated' && (
+            <ThemedText type="varsitySmall" style={[styles.clinchBadge, { color: c.danger }]} accessibilityLabel="Eliminated from playoffs">e</ThemedText>
+          )}
+        </View>
+        {/* Record cell with a subtle background tint that encodes current
+            streak direction. Winning → success-muted, losing → danger-muted,
+            neutral → none. Streaks of 5+ earn a full-color ring on top
+            of the tint so the hot/cold stretches stand out from the
+            normal W-streaks. Tint + border tokens flip sensibly in
+            light/dark themes. */}
+        <View
+          style={[
+            styles.recordCell,
+            hasStreak && streakDir === 'W' && { backgroundColor: c.successMuted },
+            hasStreak && streakDir === 'L' && { backgroundColor: c.dangerMuted },
+            isBigStreak && streakDir === 'W' && { borderColor: c.success },
+            isBigStreak && streakDir === 'L' && { borderColor: c.danger },
+          ]}
         >
-          {team.name}
+          <ThemedText type="mono" style={[styles.record, { color: c.text }]}>
+            {record}
+          </ThemedText>
+        </View>
+        <ThemedText type="mono" style={[styles.pf, { color: c.secondaryText }]}>
+          {Math.round(Number(team.points_for))}
         </ThemedText>
-        {playoffStatuses?.get(team.id) === 'clinched' && (
-          <ThemedText style={[styles.clinchBadge, { color: c.success }]} accessibilityLabel="Clinched playoff spot">x</ThemedText>
-        )}
-        {playoffStatuses?.get(team.id) === 'eliminated' && (
-          <ThemedText style={[styles.clinchBadge, { color: c.danger }]} accessibilityLabel="Eliminated from playoffs">e</ThemedText>
-        )}
-      </View>
-      <ThemedText style={[styles.record, { color: c.secondaryText }]}>
-        {team.wins}-{team.losses}-{team.ties}
-      </ThemedText>
-      <ThemedText style={[styles.pf, { color: c.secondaryText }]}>
-        {scoringType === 'h2h_categories' ? Math.round(Number(team.points_for)) : Number(team.points_for).toFixed(1)}
-      </ThemedText>
-      <ThemedText style={[styles.pa, { color: c.secondaryText }]}>
-        {scoringType === 'h2h_categories' ? Math.round(Number(team.points_against)) : Number(team.points_against).toFixed(1)}
-      </ThemedText>
-      <ThemedText style={[styles.streakCol, { color: streakColor(team.streak, c) }]}>
-        {team.streak || '—'}
-      </ThemedText>
-    </TouchableOpacity>
-  );
+        <ThemedText type="mono" style={[styles.pa, { color: c.secondaryText }]}>
+          {Math.round(Number(team.points_against))}
+        </ThemedText>
+      </TouchableOpacity>
+    );
+  };
 
   const renderDivisionBlock = (divisionTeams: TeamStanding[], divisionName: string) => {
     const divStandings = resolveStandings(divisionTeams, matchups ?? [], tiebreakers);
@@ -359,55 +393,76 @@ export function StandingsSection({ leagueId, playoffTeams, scoringType, tiebreak
   const div2Teams = rawTeams?.filter(t => t.division === 2) ?? [];
 
   return (
-    <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border, ...cardShadow }]}>
-      <TouchableOpacity
-        style={styles.sectionHeader}
-        onPress={() => router.push('/standings' as any)}
-        activeOpacity={0.6}
-        accessibilityRole="button"
-        accessibilityLabel="View detailed standings"
-      >
-        <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>Standings</ThemedText>
-        <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
-      </TouchableOpacity>
-      <View style={styles.standings}>
-        {isLoading ? (
-          <View style={styles.loading}><LogoSpinner /></View>
-        ) : !rawTeams?.length ? (
-          <View style={styles.placeholder}>
-            <ThemedText style={[styles.placeholderText, { color: c.secondaryText }]}>
-              No standings available yet
-            </ThemedText>
+    <View style={styles.wrap}>
+      <View style={styles.labelRow}>
+        <View style={[styles.labelRule, { backgroundColor: c.gold }]} />
+        <ThemedText type="sectionLabel" style={[styles.labelText, { color: c.text }]}>
+          Standings
+        </ThemedText>
+      </View>
+      <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border, ...cardShadow }]}>
+        <View style={styles.standings}>
+          {isLoading ? (
+            <View style={styles.loading}><LogoSpinner /></View>
+          ) : !rawTeams?.length ? (
+            <View style={styles.placeholder}>
+              <ThemedText style={[styles.placeholderText, { color: c.secondaryText }]}>
+                No standings available yet
+              </ThemedText>
+            </View>
+          ) : hasDivisions && div1Teams.length > 0 && div2Teams.length > 0 ? (
+            <>
+              {renderDivisionBlock(div1Teams, division1Name ?? 'Division 1')}
+              {renderDivisionBlock(div2Teams, division2Name ?? 'Division 2')}
+            </>
+          ) : allStandings ? (
+            <>
+              {renderHeader()}
+              {allStandings.map((team, idx) => (
+                <View key={team.id}>
+                  {!!playoffTeams && team.rank === playoffTeams + 1 && (
+                    <View style={styles.playoffCutoff}>
+                      <View style={[styles.cutoffLine, { backgroundColor: c.border }]} />
+                      <ThemedText
+                        type="varsitySmall"
+                        style={[styles.cutoffLabel, { color: c.secondaryText }]}
+                      >
+                        Playoff Cutoff
+                      </ThemedText>
+                      <View style={[styles.cutoffLine, { backgroundColor: c.border }]} />
+                    </View>
+                  )}
+                  {renderTeamRow(team, idx, allStandings.length)}
+                </View>
+              ))}
+            </>
+          ) : null}
+        </View>
+
+        {!!rawTeams?.length && (
+          <View style={[styles.footer, { borderTopColor: c.border }]}>
+            {!!playoffTeams && allStandings ? (
+              <ThemedText type="varsitySmall" style={[styles.footnote, { color: c.secondaryText }]}>
+                <ThemedText type="varsitySmall" style={{ color: c.success }}>x</ThemedText>
+                {' '}Clinched · <ThemedText type="varsitySmall" style={{ color: c.danger }}>e</ThemedText>
+                {' '}Eliminated
+              </ThemedText>
+            ) : (
+              <View />
+            )}
+            <TouchableOpacity
+              style={styles.seeAll}
+              onPress={() => router.push('/standings' as any)}
+              accessibilityRole="button"
+              accessibilityLabel="View detailed standings"
+              hitSlop={8}
+            >
+              <ThemedText type="varsitySmall" style={[styles.seeAllText, { color: c.secondaryText }]}>
+                See All
+              </ThemedText>
+              <Ionicons name="chevron-forward" size={12} color={c.secondaryText} accessible={false} />
+            </TouchableOpacity>
           </View>
-        ) : hasDivisions && div1Teams.length > 0 && div2Teams.length > 0 ? (
-          <>
-            {renderDivisionBlock(div1Teams, division1Name ?? 'Division 1')}
-            {renderDivisionBlock(div2Teams, division2Name ?? 'Division 2')}
-          </>
-        ) : allStandings ? (
-          <>
-            {renderHeader()}
-            {allStandings.map((team, idx) => (
-              <View key={team.id}>
-                {!!playoffTeams && team.rank === playoffTeams + 1 && (
-                  <View style={styles.playoffCutoff}>
-                    <View style={[styles.cutoffLine, { backgroundColor: c.secondaryText }]} />
-                    <ThemedText style={[styles.cutoffLabel, { color: c.secondaryText }]}>
-                      Playoff cutoff
-                    </ThemedText>
-                    <View style={[styles.cutoffLine, { backgroundColor: c.secondaryText }]} />
-                  </View>
-                )}
-                {renderTeamRow(team, idx, allStandings.length)}
-              </View>
-            ))}
-          </>
-        ) : null}
-        {!!playoffTeams && allStandings && (
-          <ThemedText style={[styles.footnote, { color: c.secondaryText }]}>
-            <ThemedText style={[styles.clinchBadge, { color: c.success }]}>x</ThemedText> = clinched{' · '}
-            <ThemedText style={[styles.clinchBadge, { color: c.danger }]}>e</ThemedText> = eliminated
-          </ThemedText>
         )}
       </View>
     </View>
@@ -415,80 +470,158 @@ export function StandingsSection({ leagueId, playoffTeams, scoringType, tiebreak
 }
 
 const styles = StyleSheet.create({
-  section: {
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: s(16),
-    paddingTop: s(14),
-    paddingBottom: s(2),
-    marginBottom: s(16),
+  wrap: {
+    marginBottom: s(4),
   },
-  sectionHeader: {
+  labelRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    marginBottom: s(10),
+    gap: s(10),
   },
-  sectionTitle: {
+  labelRule: {
+    height: 2,
+    width: s(18),
+  },
+  labelText: {},
+  // Card drops its horizontal padding so the isMe row background wraps
+  // all the way to the card's left/right borders. Header/row/footer
+  // each supply their own s(14) internal padding to keep content inset.
+  section: {
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 0,
+    paddingTop: s(10),
+    paddingBottom: s(0),
+    marginBottom: s(16),
+    overflow: 'hidden',
+  },
+  standings: {},
+  divisionBlock: {
     marginBottom: s(8),
   },
-  standings: { marginTop: s(4) },
-  divisionBlock: {
-    marginBottom: s(12),
-  },
   divisionHeader: {
-    fontSize: ms(12),
-    fontWeight: '700',
+    fontSize: ms(10),
+    letterSpacing: 0.8,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: s(4),
-    marginTop: s(4),
+    fontWeight: '700',
+    marginTop: s(8),
+    marginBottom: s(2),
+    paddingHorizontal: s(14),
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: s(4),
+    paddingVertical: s(6),
+    paddingHorizontal: s(14),
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(128,128,128,0.3)',
+    borderBottomColor: 'rgba(128,128,128,0.22)',
   },
-  headerText: { fontSize: ms(10), fontWeight: '600' },
+  // Row spans full card width since the card has no horizontal padding.
+  // Internal s(14) padding keeps column content inset so it aligns with
+  // the header, while the isMe background reaches the card's edges.
   standingRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: s(8),
+    paddingVertical: s(9),
+    paddingHorizontal: s(14),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  rank: { width: s(24), fontSize: ms(12) },
-  teamNameCol: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: s(6), marginLeft: s(8) },
-  teamName: { flexShrink: 1, fontSize: ms(13) },
-  clinchBadge: { fontSize: ms(10), fontWeight: '700', fontStyle: 'italic' },
-  footnote: {
-    fontSize: ms(10),
-    fontStyle: 'italic',
-    textAlign: 'center',
-    paddingVertical: s(6),
+  // Left: rank (mono), logo sits via TeamLogo w/ natural width, then name col.
+  // Left-aligned so the digit hugs the card's left padding, mirroring how
+  // PA right-aligns against the card's right padding — balanced margins.
+  rank: {
+    width: s(18),
+    fontSize: ms(12),
+    textAlign: 'left',
   },
-  record: { width: s(48), textAlign: 'center', fontSize: ms(12) },
-  pf: { width: s(44), textAlign: 'right', fontSize: ms(11) },
-  pa: { width: s(44), textAlign: 'right', fontSize: ms(11) },
-  streakCol: { width: s(30), textAlign: 'right', fontSize: ms(11), fontWeight: '600' },
+  // Team name owns all remaining width — flex: 1 + ellipsis, no more
+  // variable-size-by-length hacks.
+  teamNameCol: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(6),
+    marginLeft: s(8),
+    minWidth: 0, // lets flex children shrink inside a row in RN
+  },
+  teamName: {
+    flexShrink: 1,
+    fontSize: ms(13),
+    fontWeight: '500',
+  },
+  clinchBadge: {
+    fontSize: ms(9),
+  },
+  // Record cell — a single-line pill that picks up a streak-colored tint
+  // behind the W-L number. Transparent border reserved so a streak >= 5
+  // ring can flip colored without shifting pill size (keeps rows aligned
+  // whether one team has a 5-game streak or every team's record is flat).
+  recordCell: {
+    width: s(46),
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: s(3),
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  recordHeader: {
+    width: s(46),
+    textAlign: 'center',
+  },
+  record: {
+    fontSize: ms(12),
+  },
+  // PF / PA — whole-number rounded. A full dynasty season can accumulate
+  // 5-digit totals (e.g. 12456), so columns need to fit that without
+  // clipping on small phones. s(40) at mono ms(11) covers 5 chars cleanly.
+  pf: {
+    width: s(40),
+    textAlign: 'right',
+    fontSize: ms(11),
+  },
+  pa: {
+    width: s(40),
+    textAlign: 'right',
+    fontSize: ms(11),
+  },
   playoffCutoff: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: s(6),
+    paddingVertical: s(5),
+    paddingHorizontal: s(14),
     gap: s(8),
   },
   cutoffLine: {
     flex: 1,
     height: 1,
-    opacity: 0.4,
   },
   cutoffLabel: {
     fontSize: ms(9),
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+  },
+  // Footer holds the clinched/eliminated legend + See All tap target.
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: s(14),
+    paddingVertical: s(10),
+    borderTopWidth: StyleSheet.hairlineWidth,
+    marginTop: s(4),
+  },
+  footnote: {
+    fontSize: ms(10),
+  },
+  seeAll: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(3),
+  },
+  seeAllText: {
+    fontSize: ms(10),
   },
   placeholder: { padding: s(20), alignItems: 'center' },
   placeholderText: { fontSize: ms(14) },
-  loading: { marginTop: s(16) },
+  loading: { marginVertical: s(16) },
 });
