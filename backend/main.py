@@ -38,7 +38,7 @@ try:
                 'external_id_nba': player['id'],
                 'name': f"{player['first_name']} {player['last_name']}",
                 'position': position,  # This will now be their actual position
-                'nba_team': common_info[16],
+                'pro_team': common_info[16],
             }
             players_to_insert.append(player_record)
             print(f"  Position: {position}")  # Debug print to verify position

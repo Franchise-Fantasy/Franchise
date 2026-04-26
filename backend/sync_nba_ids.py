@@ -74,7 +74,7 @@ def fetch_with_retry(retries=4, delay=5):
 
 def main():
     print('fetching players missing external_id_nba...', flush=True)
-    result = supabase.table('players').select('id, name, nba_team').is_('external_id_nba', 'null').execute()
+    result = supabase.table('players').select('id, name, pro_team').is_('external_id_nba', 'null').execute()
     missing = result.data or []
     print(f'  {len(missing)} rows to backfill', flush=True)
 
@@ -105,7 +105,7 @@ def main():
     unmatched = []
     for p in missing:
         norm = normalize(p['name'])
-        team = (p.get('nba_team') or '').upper()
+        team = (p.get('pro_team') or '').upper()
         person_id = by_name_team.get(f'{norm}|{team}') or by_name.get(norm)
         if person_id:
             updates.append({'id': p['id'], 'name': p['name'], 'external_id_nba': person_id})

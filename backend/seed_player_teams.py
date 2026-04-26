@@ -47,7 +47,7 @@ for p in sb_players:
         skipped += 1
         continue
     tricode = nba_team_map[nba_id]
-    supabase.table('players').update({'nba_team': tricode}).eq('id', p['id']).execute()
+    supabase.table('players').update({'pro_team': tricode}).eq('id', p['id']).execute()
     updates += 1
 
 print(f'Done. Updated {updates} players. Skipped {skipped} (no NBA match or free agent).')

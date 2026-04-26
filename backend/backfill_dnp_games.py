@@ -138,7 +138,7 @@ def main():
     print(f"  {len(schedule)} completed games")
 
     print("Fetching all players...")
-    players = paginated_fetch('players', 'id, nba_team')
+    players = paginated_fetch('players', 'id, pro_team')
     print(f"  {len(players)} players")
 
     print("Fetching all player_games...")
@@ -168,7 +168,7 @@ def main():
 
         # Attach nba_team as fallback for null matchups
         for pg in player_game_rows:
-            pg['_nba_team'] = player['nba_team']
+            pg['_nba_team'] = player['pro_team']
 
         stints = get_player_team_stints(player_game_rows, schedule)
         if not stints:

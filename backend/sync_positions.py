@@ -100,7 +100,7 @@ def main():
 
     # 3. Fetch our players
     print('Fetching DB players...', flush=True)
-    result = supabase.table('players').select('id, name, position, nba_team').execute()
+    result = supabase.table('players').select('id, name, position, pro_team').execute()
     db_players = result.data or []
     print(f'  Got {len(db_players)} DB players', flush=True)
 
@@ -110,7 +110,7 @@ def main():
 
     for p in db_players:
         norm = normalize(p['name'])
-        team = (p.get('nba_team') or '').upper()
+        team = (p.get('pro_team') or '').upper()
 
         # Try name+team first, then name only
         new_pos = sleeper_by_name_team.get(f'{norm}|{team}') or sleeper_by_name.get(norm)

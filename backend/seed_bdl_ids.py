@@ -95,7 +95,7 @@ def load_db_players() -> list[dict]:
 
     while True:
         resp = supabase.table('players').select(
-            'id, name, nba_team, external_id_nba, external_id_bdl'
+            'id, name, pro_team, external_id_nba, external_id_bdl'
         ).range(offset, offset + page_size - 1).execute()
 
         rows = resp.data or []
@@ -136,7 +136,7 @@ def main():
 
     for p in db_players:
         name = normalize(p.get('name', ''))
-        team = (p.get('nba_team') or '').upper()
+        team = (p.get('pro_team') or '').upper()
         key = f'{name}|{team}'
         db_by_name_team[key] = p
         db_by_name.setdefault(name, []).append(p)
@@ -185,17 +185,17 @@ def main():
     # Show DB players that didn't get a BDL match
     matched_db_ids = {u['id'] for u in updates}
     already_ids = {p['id'] for p in db_players if p.get('external_id_bdl')}
-    unmatched_db = [p for p in db_players if p['id'] not in matched_db_ids and p['id'] not in already_ids and p.get('nba_team')]
+    unmatched_db = [p for p in db_players if p['id'] not in matched_db_ids and p['id'] not in already_ids and p.get('pro_team')]
     if unmatched_db:
         print(f'\nDB players WITHOUT BDL match ({len(unmatched_db)}):', flush=True)
         for p in unmatched_db:
             name_safe = (p.get('name', '') or '').encode('ascii', 'replace').decode()
-        print(f"  {(p.get('nba_team') or ''):4s} {name_safe:30s}", flush=True)
+        print(f"  {(p.get('pro_team') or ''):4s} {name_safe:30s}", flush=True)
 
     if unmatched_bdl:
         # Only show BDL players on current NBA teams who aren't in our DB
         # (skip historical players — those are expected misses)
-        current_teams = {p.get('nba_team', '').upper() for p in db_players if p.get('nba_team')}
+        current_teams = {p.get('pro_team', '').upper() for p in db_players if p.get('pro_team')}
         relevant_unmatched = [p for p in unmatched_bdl if p['team'] in current_teams]
         if relevant_unmatched:
             print(f'\nUnmatched BDL players on active NBA teams ({len(relevant_unmatched)}):', flush=True)
@@ -222,12 +222,12 @@ def main():
     # Coverage check
     resp = supabase.table('players').select(
         'id', count='exact'
-    ).not_.is_('nba_team', 'null').is_('external_id_bdl', 'null').execute()
+    ).not_.is_('pro_team', 'null').is_('external_id_bdl', 'null').execute()
 
     missing_count = resp.count or 0
     total_resp = supabase.table('players').select(
         'id', count='exact'
-    ).not_.is_('nba_team', 'null').execute()
+    ).not_.is_('pro_team', 'null').execute()
     total_active = total_resp.count or 0
 
     if total_active > 0:

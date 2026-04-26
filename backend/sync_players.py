@@ -132,7 +132,7 @@ try:
                 'external_id_nba': person_id,
                 'name': display_name,
                 'position': mapped_pos,
-                'nba_team': nba_team if nba_team else None,
+                'pro_team': nba_team if nba_team else None,
                 'status': 'active',
             })
             print(f"  Position: {position} -> {mapped_pos}, Team: {nba_team}")
@@ -145,7 +145,7 @@ try:
                 'external_id_nba': person_id,
                 'name': display_name,
                 'position': 'G',  # Default — positions are managed manually
-                'nba_team': team_abbr if team_abbr else None,
+                'pro_team': team_abbr if team_abbr else None,
                 'status': 'active',
             })
             print(f"  Inserted with default position")

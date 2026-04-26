@@ -111,7 +111,7 @@ for i, player in enumerate(players):
                 "total_stl": round(avg_stl * gp),
                 "total_blk": round(avg_blk * gp),
                 "total_tov": round(avg_tov * gp),
-                "nba_team": row[headers.index("TEAM_ABBREVIATION")],
+                "pro_team": row[headers.index("TEAM_ABBREVIATION")],
             }
 
             supabase.table("player_historical_stats").upsert(
