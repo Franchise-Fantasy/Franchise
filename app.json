@@ -2,7 +2,7 @@
   "expo": {
     "name": "Franchise",
     "slug": "franchise-v2",
-    "version": "1.1.6",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "franchisev2",
@@ -14,7 +14,11 @@
       "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "LSApplicationQueriesSchemes": ["venmo", "cashapp", "paypal"],
+        "LSApplicationQueriesSchemes": [
+          "venmo",
+          "cashapp",
+          "paypal"
+        ],
         "NSCameraUsageDescription": "Franchise uses the camera to take photos for chat messages and team logos.",
         "NSPhotoLibraryUsageDescription": "Franchise uses your photo library to share images in chat and set team logos."
       }
@@ -68,7 +72,12 @@
           "iosUrlScheme": "com.googleusercontent.apps.352302197811-pt3tu6ohuktd738g1gtk81jsrqmk7p14"
         }
       ],
-      ["@sentry/react-native/expo", { "uploadSourceMaps": false }]
+      [
+        "@sentry/react-native/expo",
+        {
+          "uploadSourceMaps": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
