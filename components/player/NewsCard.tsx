@@ -1,40 +1,52 @@
+import { Image } from 'expo-image';
 import { memo } from 'react';
-import { Image, Linking, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Linking, StyleSheet, TouchableOpacity, View } from 'react-native';
 
+import { Badge, type BadgeVariant } from '@/components/ui/Badge';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors, cardShadow } from '@/constants/Colors';
-import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { Fonts, cardShadow } from '@/constants/Colors';
+import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
+import { useColors } from '@/hooks/useColors';
 import type { PlayerNewsArticle } from '@/types/news';
-import { getPlayerHeadshotUrl } from '@/utils/nba/playerHeadshot';
+import { PLAYER_SILHOUETTE, getPlayerHeadshotUrl } from '@/utils/nba/playerHeadshot';
 import { ms, s } from '@/utils/scale';
-
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1) return 'JUST NOW';
+  if (mins < 60) return `${mins}M AGO`;
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
+  if (hrs < 24) return `${hrs}H AGO`;
   const days = Math.floor(hrs / 24);
-  if (days === 1) return 'yesterday';
-  if (days < 7) return `${days}d ago`;
-  return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  if (days === 1) return 'YESTERDAY';
+  if (days < 7) return `${days}D AGO`;
+  return new Date(dateStr)
+    .toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    .toUpperCase();
 }
 
-function returnEstimateColor(
-  estimate: string,
-  c: (typeof Colors)['light'],
-): { bg: string; text: string } {
+function returnEstimateVariant(estimate: string): BadgeVariant {
+  // Season-ending / indefinite injuries get the merlot danger treatment;
+  // everything else (day-to-day, GTD, week-to-week) reads as a gold warning.
+  // We collapsed the previous day-to-day vs short-term split because both
+  // produced visually identical gold chips in our palette.
   const lower = estimate.toLowerCase();
   if (lower.includes('season') || lower.includes('indefinitely')) {
-    return { bg: c.dangerMuted, text: c.danger };
+    return 'danger';
   }
-  if (lower.includes('day-to-day')) {
-    return { bg: c.goldMuted, text: c.gold };
+  return 'warning';
+}
+
+function sourceLabel(source: PlayerNewsArticle['source']): string {
+  switch (source) {
+    case 'rotowire':
+      return 'ROTOWIRE';
+    case 'cbssports':
+      return 'CBS SPORTS';
+    default:
+      return String(source).toUpperCase();
   }
-  return { bg: c.warningMuted, text: c.warning };
 }
 
 interface NewsCardProps {
@@ -45,16 +57,23 @@ interface NewsCardProps {
 
 function NewsCardBase({ article, showHeadshots }: NewsCardProps) {
   const sport = useActiveLeagueSport();
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
 
   const a11yParts = [`News: ${article.title}`];
-  if (article.return_estimate) a11yParts.push(`estimated return: ${article.return_estimate}`);
+  if (article.return_estimate) {
+    a11yParts.push(`estimated return: ${article.return_estimate}`);
+  }
+  if (article.has_minutes_restriction) {
+    a11yParts.push('minutes restriction');
+  }
 
   const players = article.mentioned_players ?? [];
   const headshots = showHeadshots
-    ? players.map(p => getPlayerHeadshotUrl(p.external_id_nba, sport)).filter(Boolean)
+    ? players.map((p) => getPlayerHeadshotUrl(p.external_id_nba, sport)).filter(Boolean)
     : [];
+
+  const hasBadgeRow =
+    !!article.return_estimate || article.has_minutes_restriction;
 
   return (
     <TouchableOpacity
@@ -64,63 +83,75 @@ function NewsCardBase({ article, showHeadshots }: NewsCardProps) {
       accessibilityRole="link"
       accessibilityLabel={a11yParts.join(', ')}
     >
-      {/* Title row: headshots + title */}
+      {/* Title row: headshots + Alfa Slab title */}
       <View style={styles.titleRow}>
         {headshots.length > 0 && (
           <View style={styles.headshots}>
             {headshots.slice(0, 2).map((url, i) => (
               <View
                 key={i}
-                style={[styles.headshotCircle, { borderColor: c.heritageGold, backgroundColor: c.cardAlt }]}
+                style={[
+                  styles.headshotCircle,
+                  { borderColor: c.heritageGold, backgroundColor: c.cardAlt },
+                ]}
                 accessibilityLabel={players[i]?.name ?? 'Player'}
               >
                 <Image
                   source={{ uri: url! }}
                   style={styles.headshotImg}
-                  resizeMode="cover"
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  recyclingKey={url!}
+                  placeholder={PLAYER_SILHOUETTE}
                 />
               </View>
             ))}
           </View>
         )}
-        <ThemedText type="defaultSemiBold" style={styles.title} numberOfLines={2}>
+        <ThemedText style={[styles.title, { color: c.text }]} numberOfLines={3}>
           {article.title}
         </ThemedText>
       </View>
 
-      {/* Return estimate badge */}
-      {article.return_estimate && (
-        <View
-          style={[
-            styles.returnBadge,
-            { backgroundColor: returnEstimateColor(article.return_estimate, c).bg },
-          ]}
-        >
-          <ThemedText
-            style={[
-              styles.returnText,
-              { color: returnEstimateColor(article.return_estimate, c).text },
-            ]}
-          >
-            {article.return_estimate}
-          </ThemedText>
+      {/* Status badge row: return estimate + minutes restriction */}
+      {hasBadgeRow && (
+        <View style={styles.badgeRow}>
+          {article.return_estimate && (
+            <Badge
+              label={article.return_estimate.toUpperCase()}
+              variant={returnEstimateVariant(article.return_estimate)}
+              size="small"
+            />
+          )}
+          {article.has_minutes_restriction && (
+            <Badge label="MIN RESTRICTION" variant="gold" size="small" />
+          )}
         </View>
       )}
 
       {/* Description excerpt */}
       {article.description ? (
-        <ThemedText style={[styles.excerpt, { color: c.secondaryText }]} numberOfLines={3}>
+        <ThemedText
+          style={[styles.excerpt, { color: c.secondaryText }]}
+          numberOfLines={3}
+        >
           {article.description}
         </ThemedText>
       ) : null}
 
-      {/* Footer: time left, source right */}
+      {/* Footer: time left, source right — varsity caps */}
       <View style={styles.footer}>
-        <ThemedText style={[styles.meta, { color: c.secondaryText }]}>
+        <ThemedText
+          type="varsitySmall"
+          style={[styles.meta, { color: c.secondaryText }]}
+        >
           {timeAgo(article.published_at)}
         </ThemedText>
-        <ThemedText style={[styles.meta, { color: c.secondaryText }]}>
-          RotoWire.com
+        <ThemedText
+          type="varsitySmall"
+          style={[styles.meta, { color: c.secondaryText }]}
+        >
+          {sourceLabel(article.source)}
         </ThemedText>
       </View>
     </TouchableOpacity>
@@ -134,7 +165,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     padding: s(14),
-    gap: s(6),
+    gap: s(10),
     ...cardShadow,
   },
   titleRow: {
@@ -161,18 +192,16 @@ const styles = StyleSheet.create({
     height: s(34),
   },
   title: {
+    fontFamily: Fonts.display,
     fontSize: ms(15),
+    lineHeight: ms(20),
+    letterSpacing: -0.2,
     flex: 1,
   },
-  returnBadge: {
-    alignSelf: 'flex-start',
-    borderRadius: 6,
-    paddingHorizontal: s(8),
-    paddingVertical: s(3),
-  },
-  returnText: {
-    fontSize: ms(11),
-    fontWeight: '600',
+  badgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: s(6),
   },
   excerpt: {
     fontSize: ms(13),
@@ -182,8 +211,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginTop: s(2),
   },
   meta: {
-    fontSize: ms(11),
+    fontSize: ms(10),
+    letterSpacing: 1.0,
   },
 });

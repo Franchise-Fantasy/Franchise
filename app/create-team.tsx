@@ -8,6 +8,7 @@ import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { checkAndAssignDraftSlots } from '@/lib/draft';
+import { logger } from '@/utils/logger';
 import { containsBlockedContent } from '@/utils/moderation';
 import { ms } from "@/utils/scale";
 
@@ -88,7 +89,9 @@ export default function CreateTeam() {
       router.replace('/(tabs)');
 
       if (league && league.current_teams === league.teams) {
-        checkAndAssignDraftSlots(leagueId).catch(console.error);
+        checkAndAssignDraftSlots(leagueId).catch((e) =>
+          logger.error('checkAndAssignDraftSlots failed', e),
+        );
 
         // Auto-assign divisions when league is full
         if (league.division_count === 2) {
@@ -114,7 +117,7 @@ export default function CreateTeam() {
       }
 
     } catch (error) {
-      console.error(error);
+      logger.error('Create team failed', error);
       Alert.alert('Failed to create team.')
     } finally {
       setLoading(false)

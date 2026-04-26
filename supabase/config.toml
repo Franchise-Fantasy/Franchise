@@ -2,7 +2,7 @@
 # https://supabase.com/docs/guides/local-development/cli/config
 # A string used to distinguish different Supabase projects on the same host. Defaults to the
 # working directory name when running `supabase init`.
-project_id = "franchise.v2"
+project_id = "franchise"
 
 [api]
 enabled = true
@@ -206,7 +206,11 @@ enable_signup = true
 # addresses. If disabled, only the new email is required to confirm.
 double_confirm_changes = true
 # If enabled, users need to confirm their email address before signing in.
-enable_confirmations = false
+# NOTE: This setting is ALSO mirrored in the hosted Supabase dashboard under
+# Auth → Providers → Email → "Confirm email". config.toml only governs the
+# local emulator, so toggling here without flipping the dashboard does
+# nothing in production. Keep them in sync.
+enable_confirmations = true
 # If enabled, users will need to reauthenticate or have logged in recently to change their password.
 secure_password_change = false
 # Controls the minimum amount of time that must pass before sending another signup confirmation or password reset email.

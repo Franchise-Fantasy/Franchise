@@ -1,8 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useRef } from 'react';
-import { Alert, Animated, StyleSheet, Text, TouchableOpacity } from 'react-native';
+import { Animated, StyleSheet, Text, TouchableOpacity } from 'react-native';
 
+import { type ModalAction } from '@/components/ui/InlineAction';
 import { Colors } from '@/constants/Colors';
+import { useActionPicker, useConfirm } from '@/context/ConfirmProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { PaymentStatus, usePaymentLedger, useSelfReportPayment } from '@/hooks/usePaymentLedger';
 import { openPaymentConfirmed } from '@/utils/league/paymentLinks';
@@ -34,6 +36,8 @@ export function PaymentNudge({
 
   const { data: payments, isLoading } = usePaymentLedger(leagueId, season);
   const selfReport = useSelfReportPayment(leagueId, season);
+  const pickAction = useActionPicker();
+  const confirm = useConfirm();
 
   const myPayment = payments?.find((p) => p.team_id === teamId);
   const status: PaymentStatus = myPayment?.status ?? 'unpaid';
@@ -67,53 +71,58 @@ export function PaymentNudge({
   if (status === 'confirmed') return null;
   if (!hasPaymentMethods && status !== 'self_reported') return null;
 
+  function promptMarkPaid() {
+    confirm({
+      title: 'Mark as Paid?',
+      message: 'The commissioner will be notified to confirm your payment.',
+      action: {
+        label: 'I Paid',
+        onPress: () => selfReport.mutate({ teamId }),
+      },
+    });
+  }
+
   function handlePress() {
     if (status === 'self_reported') return; // nothing actionable
-
-    const buttons: { text: string; onPress?: () => void; style?: 'cancel' | 'destructive' }[] =
-      [];
-
-    if (hasPaymentMethods) {
-      if (venmoUsername) {
-        buttons.push({
-          text: 'Pay via Venmo',
-          onPress: () =>
-            openPaymentConfirmed('venmo', venmoUsername, {
-              amount: buyInAmount,
-              note: `${leagueName} buy-in`,
-            }),
-        });
-      }
-      if (paypalUsername) {
-        buttons.push({
-          text: 'Pay via PayPal',
-          onPress: () => openPaymentConfirmed('paypal', paypalUsername, { amount: buyInAmount }),
-        });
-      }
-      if (cashappTag) {
-        buttons.push({
-          text: 'Pay via Cash App',
-          onPress: () => openPaymentConfirmed('cashapp', cashappTag),
-        });
-      }
-    }
-
-    buttons.push({
-      text: 'I Already Paid',
-      onPress: () =>
-        Alert.alert(
-          'Mark as Paid?',
-          'The commissioner will be notified to confirm your payment.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'I Paid', onPress: () => selfReport.mutate({ teamId }) },
-          ],
-        ),
+    const paymentActions: ModalAction[] = [
+      {
+        id: 'venmo',
+        label: 'Pay via Venmo',
+        icon: 'wallet-outline',
+        hidden: !venmoUsername,
+        onPress: () =>
+          openPaymentConfirmed('venmo', venmoUsername!, {
+            amount: buyInAmount,
+            note: `${leagueName} buy-in`,
+          }),
+      },
+      {
+        id: 'paypal',
+        label: 'Pay via PayPal',
+        icon: 'card-outline',
+        hidden: !paypalUsername,
+        onPress: () =>
+          openPaymentConfirmed('paypal', paypalUsername!, { amount: buyInAmount }),
+      },
+      {
+        id: 'cashapp',
+        label: 'Pay via Cash App',
+        icon: 'cash-outline',
+        hidden: !cashappTag,
+        onPress: () => openPaymentConfirmed('cashapp', cashappTag!),
+      },
+      {
+        id: 'mark-paid',
+        label: 'I Already Paid',
+        icon: 'checkmark-done-outline',
+        onPress: promptMarkPaid,
+      },
+    ];
+    pickAction({
+      title: `$${buyInAmount} Buy-In`,
+      subtitle: 'CHOOSE A PAYMENT OPTION',
+      actions: paymentActions,
     });
-
-    buttons.push({ text: 'Cancel', style: 'cancel' });
-
-    Alert.alert(`$${buyInAmount} Buy-In`, 'Choose a payment option', buttons);
   }
 
   const isPending = status === 'self_reported';

@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { NativeModules, NativeEventEmitter, Platform, AppState, Alert, Linking } from 'react-native';
+import { NativeModules, NativeEventEmitter, Platform, AppState, Linking } from 'react-native';
+
+import { useConfirm } from '@/context/ConfirmProvider';
+import { logger } from '@/utils/logger';
 
 import { supabase } from '../lib/supabase';
 
@@ -52,6 +55,7 @@ interface MatchupActivityParams {
  */
 export function useLiveActivity(userId?: string) {
   const activeActivityRef = useRef<string | null>(null);
+  const confirm = useConfirm();
 
   // Listen for push token updates from the native module
   useEffect(() => {
@@ -140,21 +144,19 @@ export function useLiveActivity(userId?: string) {
         return result;
       } catch (err: any) {
         if (err?.code === 'DISABLED') {
-          Alert.alert(
-            'Live Activities Disabled',
-            'Enable Live Activities for Franchise in your device settings to use this feature.',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Open Settings', onPress: () => Linking.openSettings() },
-            ],
-          );
+          confirm({
+            title: 'Live Activities Disabled',
+            message:
+              'Enable Live Activities for Franchise in your device settings to use this feature.',
+            action: { label: 'Open Settings', onPress: () => Linking.openSettings() },
+          });
         } else {
-          console.warn('Failed to start matchup activity:', err);
+          logger.warn('Failed to start matchup activity', err);
         }
         return null;
       }
     },
-    [userId],
+    [userId, confirm],
   );
 
   const endActivity = useCallback(

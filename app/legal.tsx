@@ -1,13 +1,14 @@
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { useState } from "react";
-import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useLocalSearchParams } from 'expo-router';
+import { useState } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { IconSymbol } from "@/components/ui/IconSymbol";
-import { ThemedText } from "@/components/ui/ThemedText";
-import { Colors, Fonts } from "@/constants/Colors";
-import { useColorScheme } from "@/hooks/useColorScheme";
-import { ms, s } from "@/utils/scale";
+import { BrandSegmented } from '@/components/ui/BrandSegmented';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Fonts } from '@/constants/Colors';
+import { useColors } from '@/hooks/useColors';
+import { ms, s } from '@/utils/scale';
 
 const TERMS_OF_SERVICE = `Last updated: April 2026
 
@@ -114,72 +115,60 @@ We may update this Privacy Policy at any time. We will notify you of material ch
 
 For privacy questions or data requests, please contact us through the App.`;
 
-type Tab = "terms" | "privacy";
+const TAB_OPTIONS = ['Terms', 'Privacy'] as const;
+type Tab = (typeof TAB_OPTIONS)[number];
 
 export default function LegalScreen() {
-  const scheme = useColorScheme() ?? "light";
-  const c = Colors[scheme];
-  const router = useRouter();
+  const c = useColors();
   const params = useLocalSearchParams<{ tab?: string }>();
   const [activeTab, setActiveTab] = useState<Tab>(
-    params.tab === "privacy" ? "privacy" : "terms"
+    params.tab === 'privacy' ? 'Privacy' : 'Terms',
   );
+
+  const body = activeTab === 'Terms' ? TERMS_OF_SERVICE : PRIVACY_POLICY;
+  const title = activeTab === 'Terms' ? 'Terms of Service' : 'Privacy Policy';
+
+  // Pull the "Last updated" line off so we can render it as a varsity-caps
+  // eyebrow above the bold display title.
+  const [lastUpdatedRaw, ...rest] = body.split('\n\n');
+  const lastUpdated = lastUpdatedRaw.replace('Last updated:', '').trim();
+  const restBody = rest.join('\n\n');
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
-      {/* Header */}
-      <View style={[styles.header, { borderBottomColor: c.border }]}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.headerButton}
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-        >
-          <IconSymbol name="chevron.backward" size={20} color={c.icon} accessible={false} />
-        </TouchableOpacity>
-        <ThemedText
-          type="varsity"
-          style={[styles.headerText, { color: c.secondaryText }]}
-          accessibilityRole="header"
-          numberOfLines={1}
-        >
-          Legal
-        </ThemedText>
-        <View style={styles.headerButton} />
-      </View>
+      <PageHeader title="Legal" />
 
-      {/* Tab Switcher */}
-      <View style={[styles.tabs, { borderBottomColor: c.border }]}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === "terms" && { borderBottomColor: c.accent, borderBottomWidth: 2 }]}
-          onPress={() => setActiveTab("terms")}
-        >
-          <ThemedText
-            style={[styles.tabText, activeTab === "terms" ? { color: c.accent } : { color: c.secondaryText }]}
-          >
-            Terms of Service
-          </ThemedText>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === "privacy" && { borderBottomColor: c.accent, borderBottomWidth: 2 }]}
-          onPress={() => setActiveTab("privacy")}
-        >
-          <ThemedText
-            style={[styles.tabText, activeTab === "privacy" ? { color: c.accent } : { color: c.secondaryText }]}
-          >
-            Privacy Policy
-          </ThemedText>
-        </TouchableOpacity>
-      </View>
+      <BrandSegmented
+        options={TAB_OPTIONS}
+        selected={activeTab}
+        onSelect={setActiveTab}
+      />
 
-      {/* Content */}
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <ThemedText style={styles.body}>
-          {activeTab === "terms" ? TERMS_OF_SERVICE : PRIVACY_POLICY}
+        <View style={styles.eyebrowRow}>
+          <View style={[styles.eyebrowRule, { backgroundColor: c.gold }]} />
+          <ThemedText
+            type="varsitySmall"
+            style={[styles.eyebrow, { color: c.secondaryText }]}
+          >
+            UPDATED · {lastUpdated.toUpperCase()}
+          </ThemedText>
+        </View>
+
+        <ThemedText
+          type="display"
+          style={[styles.title, { color: c.text }]}
+          accessibilityRole="header"
+        >
+          {title}
+        </ThemedText>
+
+        <ThemedText style={[styles.body, { color: c.text }]}>
+          {restBody}
         </ThemedText>
       </ScrollView>
     </SafeAreaView>
@@ -188,34 +177,35 @@ export default function LegalScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: {
-    flexDirection: "row",
-    padding: s(8),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    alignItems: "center",
-    height: s(50),
-    justifyContent: "space-between",
-  },
-  headerText: {
-    flex: 1,
-    textAlign: "center",
-    fontFamily: Fonts.varsityBold,
-    fontSize: ms(12),
-    letterSpacing: 1.2,
-    marginHorizontal: s(40),
-  },
-  headerButton: { padding: s(8), width: s(36), alignItems: "center" },
-  tabs: {
-    flexDirection: "row",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  tab: {
-    flex: 1,
-    alignItems: "center",
-    paddingVertical: 12,
-  },
-  tabText: { fontSize: ms(14), fontWeight: "600" },
   scroll: { flex: 1 },
-  scrollContent: { padding: 20, paddingBottom: 60 },
-  body: { fontSize: ms(14), lineHeight: 22 },
+  scrollContent: {
+    paddingHorizontal: s(20),
+    paddingTop: s(8),
+    paddingBottom: s(60),
+  },
+  eyebrowRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(10),
+    marginBottom: s(8),
+  },
+  eyebrowRule: {
+    height: 2,
+    width: s(18),
+  },
+  eyebrow: {
+    fontSize: ms(10),
+    letterSpacing: 1.4,
+  },
+  title: {
+    fontFamily: Fonts.display,
+    fontSize: ms(26),
+    lineHeight: ms(30),
+    letterSpacing: -0.3,
+    marginBottom: s(16),
+  },
+  body: {
+    fontSize: ms(14),
+    lineHeight: ms(22),
+  },
 });

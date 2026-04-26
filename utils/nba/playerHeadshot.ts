@@ -5,6 +5,12 @@ import type { Sport } from '@/constants/LeagueDefaults';
 // by the `sync-headshots` edge function.
 const STORAGE_BASE = 'https://iuqbossmnsezzgocpcbo.supabase.co/storage/v1/object/public';
 
+// Bundled fallback silhouette. Used as the `placeholder` prop on every player
+// Image so that (a) players without an `external_id_nba` and (b) players
+// whose source CDN 404'd during seeding still render a recognizable figure
+// instead of an empty circle. Regenerate via `scripts/generate-silhouette.mjs`.
+export const PLAYER_SILHOUETTE = require('@/assets/images/player-silhouette.png');
+
 /**
  * Returns the headshot URL for a player, or null if no external ID is set.
  *

@@ -63,10 +63,10 @@ export function useTransactions(typeFilter?: string) {
       const { data, error } = await query;
 
       if (error) throw error;
-      return (data as any[]).map((row) => ({
+      return (data ?? []).map((row) => ({
         ...row,
         initiator: Array.isArray(row.initiator) ? row.initiator[0] ?? null : row.initiator,
-        league_transaction_items: (row.league_transaction_items ?? []).map((item: any) => ({
+        league_transaction_items: (row.league_transaction_items ?? []).map((item) => ({
           ...item,
           player: Array.isArray(item.player) ? item.player[0] ?? null : item.player,
           draft_pick: Array.isArray(item.draft_pick) ? item.draft_pick[0] ?? null : item.draft_pick,

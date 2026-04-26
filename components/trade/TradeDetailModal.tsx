@@ -584,29 +584,33 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
 
               {/* ── Action bar ── */}
               <TradeActionBar
-                processing={actions.processing}
-                status={proposal.status}
-                isInvolved={isInvolved}
-                isProposer={isProposer}
-                isEditable={isEditable}
-                isCommissioner={isCommissioner ?? false}
-                myTeamStatus={myTeamStatus}
-                hasVoted={hasVoted}
-                vetoType={leagueSettings?.trade_veto_type}
-                showDropPicker={showDropPicker}
-                dropsReady={selectedDropPlayerIds.length >= dropsNeeded && dropsNeeded > 0}
-                needsMyDrop={needsMyDrop}
-                canLeak={!!(canLeak && !isTerminal && isInvolved && proposal.counteroffer_of && leakPlayers.length > 0)}
-                onAccept={() => actions.handleAccept(() => setShowDropPicker(true))}
-                onReject={actions.handleReject}
-                onCancel={actions.handleCancel}
-                onEdit={onEdit ? () => onEdit(proposal) : undefined}
-                onCounteroffer={onCounteroffer ? () => onCounteroffer(proposal) : undefined}
-                onCommissionerApprove={actions.handleCommissionerApprove}
-                onCommissionerVeto={actions.handleCommissionerVeto}
-                onVoteToVeto={actions.handleVoteToVeto}
-                onSubmitDrop={actions.handleSubmitDrop}
-                onLeakToChat={() => setShowLeakSheet(true)}
+                state={{
+                  processing: actions.processing,
+                  status: proposal.status,
+                  isInvolved,
+                  isProposer,
+                  isEditable,
+                  isCommissioner: isCommissioner ?? false,
+                  myTeamStatus,
+                  hasVoted,
+                  vetoType: leagueSettings?.trade_veto_type,
+                  showDropPicker,
+                  dropsReady: selectedDropPlayerIds.length >= dropsNeeded && dropsNeeded > 0,
+                  needsMyDrop,
+                  canLeak: !!(canLeak && !isTerminal && isInvolved && proposal.counteroffer_of && leakPlayers.length > 0),
+                }}
+                actions={{
+                  onAccept: () => actions.handleAccept(() => setShowDropPicker(true)),
+                  onReject: actions.handleReject,
+                  onCancel: actions.handleCancel,
+                  onEdit: onEdit ? () => onEdit(proposal) : undefined,
+                  onCounteroffer: onCounteroffer ? () => onCounteroffer(proposal) : undefined,
+                  onCommissionerApprove: actions.handleCommissionerApprove,
+                  onCommissionerVeto: actions.handleCommissionerVeto,
+                  onVoteToVeto: actions.handleVoteToVeto,
+                  onSubmitDrop: actions.handleSubmitDrop,
+                  onLeakToChat: () => setShowLeakSheet(true),
+                }}
               />
             </>
           )}

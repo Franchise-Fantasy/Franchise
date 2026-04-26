@@ -3,28 +3,24 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { useState } from 'react';
 import {
   Alert,
-  KeyboardAvoidingView,
-  Modal,
   Platform,
-  ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 
+import { BottomSheet } from '@/components/ui/BottomSheet';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ToggleRow } from '@/components/ui/ToggleRow';
-import { Colors } from '@/constants/Colors';
+import { Brand, Fonts } from '@/constants/Colors';
 import { useToast } from '@/context/ToastProvider';
 import { useCreatePoll } from '@/hooks/chat';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { containsBlockedContent } from '@/utils/moderation';
 import { ms, s } from '@/utils/scale';
-
 
 const POLL_TYPES = ['Single Choice', 'Multi-Select'] as const;
 const PRESETS = [
@@ -49,8 +45,7 @@ export function CreatePollModal({
   teamId,
   onClose,
 }: Props) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const { showToast } = useToast();
   const createPoll = useCreatePoll();
 
@@ -128,7 +123,7 @@ export function CreatePollModal({
     if (!canSubmit || !closesAt) return;
     const allText = [trimmedQ, ...filledOptions].join(' ');
     if (containsBlockedContent(allText)) {
-      Alert.alert('Content blocked', 'Your poll contains language that isn\u2019t allowed.');
+      Alert.alert('Content blocked', 'Your poll contains language that isn’t allowed.');
       return;
     }
 
@@ -156,259 +151,229 @@ export function CreatePollModal({
   }
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={handleClose}>
-      <KeyboardAvoidingView
-        style={styles.overlay}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    <BottomSheet
+      visible={visible}
+      onClose={handleClose}
+      title="Create Poll"
+      keyboardAvoiding
+      footer={
+        <TouchableOpacity
+          onPress={handleCreate}
+          disabled={!canSubmit}
+          style={[
+            styles.createBtn,
+            { backgroundColor: canSubmit ? c.gold : c.buttonDisabled },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Create poll"
+          accessibilityState={{ disabled: !canSubmit }}
+        >
+          {createPoll.isPending ? (
+            <LogoSpinner size={18} />
+          ) : (
+            <ThemedText style={[styles.createBtnText, { color: Brand.ink }]}>
+              CREATE POLL
+            </ThemedText>
+          )}
+        </TouchableOpacity>
+      }
+    >
+      {/* Question */}
+      <ThemedText type="varsitySmall" style={[styles.label, { color: c.secondaryText }]}>
+        QUESTION
+      </ThemedText>
+      <TextInput
+        accessibilityLabel="Poll question"
+        style={[styles.input, { color: c.text, backgroundColor: c.input, borderColor: c.border }]}
+        placeholder="What do you want to ask?"
+        placeholderTextColor={c.secondaryText}
+        value={question}
+        onChangeText={(t) => setQuestion(t.slice(0, 500))}
+        multiline
+        maxLength={500}
+        textAlignVertical="top"
+      />
+      <ThemedText style={[styles.counter, { color: c.secondaryText }]}>
+        {question.length}/500
+      </ThemedText>
+
+      {/* Options */}
+      <ThemedText
+        type="varsitySmall"
+        style={[styles.label, styles.labelSpaced, { color: c.secondaryText }]}
       >
-        <View style={[styles.content, { backgroundColor: c.card }]} accessibilityViewIsModal>
-          {/* Header */}
-          <View style={styles.header}>
-            <ThemedText accessibilityRole="header" type="subtitle">
-              Create Poll
-            </ThemedText>
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel="Close"
-              onPress={handleClose}
-            >
-              <Ionicons name="close" size={24} color={c.text} />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView showsVerticalScrollIndicator={false} style={styles.scroll}>
-            {/* Question */}
-            <ThemedText style={[styles.label, { color: c.text }]}>Question</ThemedText>
-            <TextInput
-              accessibilityLabel="Poll question"
-              style={[styles.input, { color: c.text, backgroundColor: c.cardAlt, borderColor: c.border }]}
-              placeholder="What do you want to ask?"
-              placeholderTextColor={c.secondaryText}
-              value={question}
-              onChangeText={(t) => setQuestion(t.slice(0, 500))}
-              multiline
-              maxLength={500}
-              textAlignVertical="top"
-              autoFocus
-            />
-            <ThemedText style={[styles.counter, { color: c.secondaryText }]}>
-              {question.length}/500
-            </ThemedText>
-
-            {/* Options */}
-            <ThemedText style={[styles.label, { color: c.text, marginTop: s(14) }]}>
-              Options
-            </ThemedText>
-            {options.map((opt, idx) => (
-              <View key={idx} style={styles.optionInputRow}>
-                <TextInput
-                  accessibilityLabel={`Poll option ${idx + 1}`}
-                  style={[
-                    styles.optionInput,
-                    { color: c.text, backgroundColor: c.cardAlt, borderColor: c.border },
-                  ]}
-                  placeholder={`Option ${idx + 1}`}
-                  placeholderTextColor={c.secondaryText}
-                  value={opt}
-                  onChangeText={(t) => updateOption(idx, t)}
-                  maxLength={200}
-                />
-                {options.length > 2 && (
-                  <TouchableOpacity
-                    onPress={() => removeOption(idx)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Remove option ${idx + 1}`}
-                    style={styles.removeBtn}
-                  >
-                    <Ionicons name="close-circle" size={22} color={c.secondaryText} />
-                  </TouchableOpacity>
-                )}
-              </View>
-            ))}
-            {options.length < 10 && (
-              <TouchableOpacity
-                onPress={addOption}
-                style={styles.addBtn}
-                accessibilityRole="button"
-                accessibilityLabel="Add another option"
-              >
-                <Ionicons name="add-circle-outline" size={20} color={c.accent} />
-                <ThemedText style={[styles.addText, { color: c.accent }]}>
-                  Add Option
-                </ThemedText>
-              </TouchableOpacity>
-            )}
-
-            {/* Poll Type */}
-            <ThemedText style={[styles.label, { color: c.text, marginTop: s(14) }]}>
-              Poll Type
-            </ThemedText>
-            <SegmentedControl
-              options={POLL_TYPES}
-              selectedIndex={pollTypeIdx}
-              onSelect={setPollTypeIdx}
-            />
-
-            {/* Closing Time */}
-            <ThemedText style={[styles.label, { color: c.text, marginTop: s(14) }]}>
-              Closing Time
-            </ThemedText>
-            <View style={styles.presets}>
-              {PRESETS.map((p, idx) => (
-                <TouchableOpacity
-                  key={p.label}
-                  onPress={() => selectPreset(idx)}
-                  style={[
-                    styles.presetChip,
-                    {
-                      backgroundColor: presetIdx === idx ? c.accent : c.cardAlt,
-                      borderColor: presetIdx === idx ? c.accent : c.border,
-                    },
-                  ]}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: presetIdx === idx }}
-                  accessibilityLabel={`Close poll in ${p.label}`}
-                >
-                  <Text
-                    style={{
-                      color: presetIdx === idx ? c.statusText : c.text,
-                      fontSize: ms(13),
-                      fontWeight: '600',
-                    }}
-                  >
-                    {p.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-              <TouchableOpacity
-                onPress={handleCustomPress}
-                style={[
-                  styles.presetChip,
-                  {
-                    backgroundColor: customDate ? c.accent : c.cardAlt,
-                    borderColor: customDate ? c.accent : c.border,
-                  },
-                ]}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: !!customDate }}
-                accessibilityLabel="Set custom closing time"
-              >
-                <Text
-                  style={{
-                    color: customDate ? c.statusText : c.text,
-                    fontSize: ms(13),
-                    fontWeight: '600',
-                  }}
-                >
-                  Custom
-                </Text>
-              </TouchableOpacity>
-            </View>
-            {showDatePicker && (
-              <DateTimePicker
-                value={customDate ?? new Date()}
-                mode="datetime"
-                minimumDate={new Date()}
-                onChange={(_, date) => {
-                  if (Platform.OS === 'android') setShowDatePicker(false);
-                  if (date) setCustomDate(date);
-                }}
-                display={Platform.OS === 'ios' ? 'inline' : 'default'}
-              />
-            )}
-            {closesAt && (
-              <ThemedText style={[styles.closesLabel, { color: c.secondaryText }]}>
-                Closes: {closesAt.toLocaleString()}
-              </ThemedText>
-            )}
-
-            {/* Toggles */}
-            <View style={[styles.toggleSection, { borderTopColor: c.border }]}>
-              <ToggleRow
-                icon="lock-closed"
-                label="Anonymous Voting"
-                description="Votes are truly anonymous — no one can see who voted for what."
-                value={isAnonymous}
-                onToggle={setIsAnonymous}
-                c={c}
-              />
-              <ToggleRow
-                icon="eye"
-                label="Show Live Results"
-                description="Members see vote counts as they come in. If off, results are hidden until the poll closes."
-                value={showLiveResults}
-                onToggle={setShowLiveResults}
-                c={c}
-              />
-            </View>
-          </ScrollView>
-
-          {/* Create button */}
-          <TouchableOpacity
-            onPress={handleCreate}
-            disabled={!canSubmit}
+        OPTIONS
+      </ThemedText>
+      {options.map((opt, idx) => (
+        <View key={idx} style={styles.optionInputRow}>
+          <TextInput
+            accessibilityLabel={`Poll option ${idx + 1}`}
             style={[
-              styles.createBtn,
-              { backgroundColor: canSubmit ? c.accent : c.buttonDisabled },
+              styles.optionInput,
+              { color: c.text, backgroundColor: c.input, borderColor: c.border },
             ]}
-            accessibilityRole="button"
-            accessibilityLabel="Create poll"
-            accessibilityState={{ disabled: !canSubmit }}
-          >
-            {createPoll.isPending ? (
-              <LogoSpinner size={18} />
-            ) : (
-              <Text style={[styles.createBtnText, { color: c.statusText }]}>Create Poll</Text>
-            )}
-          </TouchableOpacity>
+            placeholder={`Option ${idx + 1}`}
+            placeholderTextColor={c.secondaryText}
+            value={opt}
+            onChangeText={(t) => updateOption(idx, t)}
+            maxLength={200}
+          />
+          {options.length > 2 && (
+            <TouchableOpacity
+              onPress={() => removeOption(idx)}
+              accessibilityRole="button"
+              accessibilityLabel={`Remove option ${idx + 1}`}
+              style={styles.removeBtn}
+            >
+              <Ionicons name="close-circle" size={ms(20)} color={c.secondaryText} accessible={false} />
+            </TouchableOpacity>
+          )}
         </View>
-      </KeyboardAvoidingView>
-    </Modal>
+      ))}
+      {options.length < 10 && (
+        <TouchableOpacity
+          onPress={addOption}
+          style={styles.addBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Add another option"
+        >
+          <Ionicons name="add-circle-outline" size={ms(18)} color={c.gold} accessible={false} />
+          <ThemedText style={[styles.addText, { color: c.gold }]}>
+            ADD OPTION
+          </ThemedText>
+        </TouchableOpacity>
+      )}
+
+      {/* Poll Type */}
+      <ThemedText
+        type="varsitySmall"
+        style={[styles.label, styles.labelSpaced, { color: c.secondaryText }]}
+      >
+        POLL TYPE
+      </ThemedText>
+      <SegmentedControl
+        options={POLL_TYPES}
+        selectedIndex={pollTypeIdx}
+        onSelect={setPollTypeIdx}
+      />
+
+      {/* Closing Time */}
+      <ThemedText
+        type="varsitySmall"
+        style={[styles.label, styles.labelSpaced, { color: c.secondaryText }]}
+      >
+        CLOSING TIME
+      </ThemedText>
+      <View style={styles.presets}>
+        {PRESETS.map((p, idx) => (
+          <TouchableOpacity
+            key={p.label}
+            onPress={() => selectPreset(idx)}
+            style={[
+              styles.presetChip,
+              {
+                backgroundColor: presetIdx === idx ? c.gold : c.cardAlt,
+                borderColor: presetIdx === idx ? c.gold : c.border,
+              },
+            ]}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: presetIdx === idx }}
+            accessibilityLabel={`Close poll in ${p.label}`}
+          >
+            <ThemedText
+              style={[
+                styles.presetChipText,
+                { color: presetIdx === idx ? Brand.ink : c.text },
+              ]}
+            >
+              {p.label.toUpperCase()}
+            </ThemedText>
+          </TouchableOpacity>
+        ))}
+        <TouchableOpacity
+          onPress={handleCustomPress}
+          style={[
+            styles.presetChip,
+            {
+              backgroundColor: customDate ? c.gold : c.cardAlt,
+              borderColor: customDate ? c.gold : c.border,
+            },
+          ]}
+          accessibilityRole="radio"
+          accessibilityState={{ selected: !!customDate }}
+          accessibilityLabel="Set custom closing time"
+        >
+          <ThemedText
+            style={[
+              styles.presetChipText,
+              { color: customDate ? Brand.ink : c.text },
+            ]}
+          >
+            CUSTOM
+          </ThemedText>
+        </TouchableOpacity>
+      </View>
+      {showDatePicker && (
+        <DateTimePicker
+          value={customDate ?? new Date()}
+          mode="datetime"
+          minimumDate={new Date()}
+          onChange={(_, date) => {
+            if (Platform.OS === 'android') setShowDatePicker(false);
+            if (date) setCustomDate(date);
+          }}
+          display={Platform.OS === 'ios' ? 'inline' : 'default'}
+        />
+      )}
+      {closesAt && (
+        <ThemedText style={[styles.closesLabel, { color: c.secondaryText }]}>
+          Closes: {closesAt.toLocaleString()}
+        </ThemedText>
+      )}
+
+      {/* Toggles */}
+      <View style={[styles.toggleSection, { borderTopColor: c.border }]}>
+        <ToggleRow
+          icon="lock-closed"
+          label="Anonymous Voting"
+          description="Votes are truly anonymous — no one can see who voted for what."
+          value={isAnonymous}
+          onToggle={setIsAnonymous}
+          c={c}
+        />
+        <ToggleRow
+          icon="eye"
+          label="Show Live Results"
+          description="Members see vote counts as they come in. If off, results are hidden until the poll closes."
+          value={showLiveResults}
+          onToggle={setShowLiveResults}
+          c={c}
+        />
+      </View>
+    </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: 'flex-end' },
-  content: {
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
-    padding: s(20),
-    paddingBottom: s(32),
-    maxHeight: '90%',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: s(12),
-  },
-  scroll: {
-    flexGrow: 0,
-  },
   label: {
-    fontSize: ms(14),
-    fontWeight: '600',
+    fontSize: ms(11),
+    letterSpacing: 1.2,
     marginBottom: s(6),
+  },
+  labelSpaced: {
+    marginTop: s(16),
   },
   input: {
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: 10,
     padding: s(12),
     fontSize: ms(15),
     minHeight: s(60),
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 2,
-    elevation: 1,
   },
   counter: {
-    fontSize: ms(11),
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(10),
+    letterSpacing: 0.6,
     textAlign: 'right',
     marginTop: s(2),
   },
@@ -421,15 +386,10 @@ const styles = StyleSheet.create({
   optionInput: {
     flex: 1,
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: 10,
     paddingHorizontal: s(12),
     paddingVertical: s(8),
     fontSize: ms(15),
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 2,
-    elevation: 1,
   },
   removeBtn: {
     padding: s(4),
@@ -441,8 +401,9 @@ const styles = StyleSheet.create({
     paddingVertical: s(6),
   },
   addText: {
-    fontSize: ms(14),
-    fontWeight: '600',
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(11),
+    letterSpacing: 1.0,
   },
   presets: {
     flexDirection: 'row',
@@ -456,23 +417,30 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
   },
+  presetChipText: {
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(11),
+    letterSpacing: 1.0,
+  },
   closesLabel: {
-    fontSize: ms(12),
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(10),
+    letterSpacing: 0.8,
     marginBottom: s(8),
   },
   toggleSection: {
     borderTopWidth: StyleSheet.hairlineWidth,
-    marginTop: s(14),
+    marginTop: s(16),
     paddingTop: s(8),
   },
   createBtn: {
     borderRadius: 10,
     paddingVertical: s(12),
     alignItems: 'center',
-    marginTop: s(12),
   },
   createBtnText: {
-    fontSize: ms(16),
-    fontWeight: '600',
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(13),
+    letterSpacing: 1.2,
   },
 });

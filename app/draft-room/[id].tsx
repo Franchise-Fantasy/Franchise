@@ -19,6 +19,7 @@ import { ThemedText } from '@/components/ui/ThemedText';
 import { ThemedView } from '@/components/ui/ThemedView';
 import { Colors, Fonts } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
+import { useConfirm } from '@/context/ConfirmProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useDraftQueue } from '@/hooks/useDraftQueue';
 import { useRosterChanges } from '@/hooks/useRosterChanges';
@@ -35,6 +36,7 @@ type ViewMode = 'players' | 'roster' | 'queue' | 'trades';
 
 export default function DraftRoomScreen() {
   const colorScheme = useColorScheme() ?? 'light';
+  const confirm = useConfirm();
   const colors = Colors[colorScheme];
   const queryClient = useQueryClient();
   const { id: draftId } = useLocalSearchParams<{ id: string }>();
@@ -187,14 +189,11 @@ export default function DraftRoomScreen() {
       };
 
       if (isMyTurn) {
-        Alert.alert(
-          'Enable Autopick',
-          'Your current pick will be made automatically. Continue?',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Enable', onPress: enable },
-          ],
-        );
+        confirm({
+          title: 'Enable Autopick',
+          message: 'Your current pick will be made automatically. Continue?',
+          action: { label: 'Enable', onPress: enable },
+        });
       } else {
         await enable();
       }

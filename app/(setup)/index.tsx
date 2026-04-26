@@ -1,54 +1,68 @@
-import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useRouter } from 'expo-router';
+import { StyleSheet, View } from 'react-native';
 
-import { BrandWordmark } from "@/components/ui/BrandWordmark";
-import { ThemedText } from "@/components/ui/ThemedText";
-import { ThemedView } from "@/components/ui/ThemedView";
-import { Colors } from "@/constants/Colors";
-import { useColorScheme } from "@/hooks/useColorScheme";
-import { ms, s } from "@/utils/scale";
+import { BrandButton } from '@/components/ui/BrandButton';
+import { BrandWordmark } from '@/components/ui/BrandWordmark';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { ThemedView } from '@/components/ui/ThemedView';
+import { Fonts } from '@/constants/Colors';
+import { useColors } from '@/hooks/useColors';
+import { ms, s } from '@/utils/scale';
 
 export default function SetupHome() {
   const router = useRouter();
-  const scheme = useColorScheme() ?? "light";
-  const c = Colors[scheme];
+  const c = useColors();
 
   return (
     <ThemedView style={styles.container}>
       <View style={styles.hero}>
+        <View style={styles.eyebrowRow}>
+          <View style={[styles.eyebrowRule, { backgroundColor: c.gold }]} />
+          <ThemedText
+            type="varsitySmall"
+            style={[styles.eyebrow, { color: c.secondaryText }]}
+          >
+            WELCOME
+          </ThemedText>
+          <View style={[styles.eyebrowRule, { backgroundColor: c.gold }]} />
+        </View>
+
         <BrandWordmark width={s(240)} />
-        <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>
-          Create your own league or join an existing one to get started.
+
+        <ThemedText
+          type="display"
+          style={[styles.title, { color: c.text }]}
+          accessibilityRole="header"
+        >
+          Tip-off.
+        </ThemedText>
+
+        <ThemedText
+          style={[styles.subtitle, { color: c.secondaryText }]}
+        >
+          Create your own league or join one a friend has already started.
         </ThemedText>
       </View>
 
       <View style={styles.actions}>
-        <TouchableOpacity
-          style={[styles.primaryBtn, { backgroundColor: c.accent }]}
-          onPress={() => router.push("/create-league")}
-          activeOpacity={0.8}
-          accessibilityRole="button"
+        <BrandButton
+          label="Create a League"
+          icon="add-circle-outline"
+          onPress={() => router.push('/create-league' as any)}
+          variant="primary"
+          size="large"
+          fullWidth
           accessibilityLabel="Create a league"
-        >
-          <Ionicons name="add-circle-outline" size={22} color={c.accentText} accessible={false} />
-          <Text style={[styles.primaryBtnText, { color: c.accentText }]}>
-            Create a League
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.secondaryBtn, { borderColor: c.border }]}
-          onPress={() => router.push("/join-league")}
-          activeOpacity={0.8}
-          accessibilityRole="button"
+        />
+        <BrandButton
+          label="Join a League"
+          icon="people-outline"
+          onPress={() => router.push('/join-league' as any)}
+          variant="secondary"
+          size="large"
+          fullWidth
           accessibilityLabel="Join a league"
-        >
-          <Ionicons name="people-outline" size={22} color={c.text} accessible={false} />
-          <ThemedText style={styles.secondaryBtnText}>
-            Join a League
-          </ThemedText>
-        </TouchableOpacity>
+        />
       </View>
     </ThemedView>
   );
@@ -57,45 +71,43 @@ export default function SetupHome() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: "center",
-    paddingHorizontal: 32,
+    justifyContent: 'center',
+    paddingHorizontal: s(32),
   },
   hero: {
-    alignItems: "center",
-    marginBottom: 48,
+    alignItems: 'center',
+    marginBottom: s(40),
+  },
+  eyebrowRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(10),
+    marginBottom: s(14),
+  },
+  eyebrowRule: {
+    height: 2,
+    width: s(20),
+  },
+  eyebrow: {
+    fontSize: ms(11),
+    letterSpacing: 1.6,
+  },
+  title: {
+    fontFamily: Fonts.display,
+    fontSize: ms(26),
+    lineHeight: ms(30),
+    letterSpacing: -0.3,
+    textAlign: 'center',
+    marginTop: s(20),
   },
   subtitle: {
-    marginTop: 16,
-    textAlign: "center",
-    fontSize: ms(16),
-    lineHeight: 22,
+    marginTop: s(12),
+    textAlign: 'center',
+    fontSize: ms(14),
+    lineHeight: ms(20),
+    paddingHorizontal: s(8),
   },
   actions: {
-    gap: 14,
-  },
-  primaryBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    paddingVertical: 16,
-    borderRadius: 12,
-  },
-  primaryBtnText: {
-    fontSize: ms(17),
-    fontWeight: "700",
-  },
-  secondaryBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    paddingVertical: 16,
-    borderRadius: 12,
-    borderWidth: 1.5,
-  },
-  secondaryBtnText: {
-    fontSize: ms(17),
-    fontWeight: "600",
+    gap: s(12),
   },
 });

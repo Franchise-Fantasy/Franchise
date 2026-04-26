@@ -1,45 +1,55 @@
-import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
 import {
   Alert,
   Image,
-  Platform,
   ScrollView,
   StyleSheet,
   Switch,
-  Text,
   TouchableOpacity,
   View,
-} from "react-native";
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { UpgradeModal } from "@/components/account/UpgradeModal";
-import { TeamLogoPickerModal } from "@/components/team/TeamLogoPickerModal";
-import { ThemedText } from "@/components/ui/ThemedText";
-import { ThemedView } from "@/components/ui/ThemedView";
-import { Colors, cardShadow } from "@/constants/Colors";
-import { TIER_LABELS, TIER_COLORS } from "@/constants/Subscriptions";
-import { useAppState } from "@/context/AppStateProvider";
-import { useSession } from "@/context/AuthProvider";
-import { useColorScheme } from "@/hooks/useColorScheme";
-import { useLeague } from "@/hooks/useLeague";
-import { useSubscription } from "@/hooks/useSubscription";
+import { UpgradeModal } from '@/components/account/UpgradeModal';
+import { TeamLogoPickerModal } from '@/components/team/TeamLogoPickerModal';
+import { Badge, type BadgeVariant } from '@/components/ui/Badge';
+import { ListRow } from '@/components/ui/ListRow';
+import { Section } from '@/components/ui/Section';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Brand, Fonts } from '@/constants/Colors';
+import { TIER_LABELS, type SubscriptionTier } from '@/constants/Subscriptions';
+import { useAppState } from '@/context/AppStateProvider';
+import { useSession } from '@/context/AuthProvider';
+import { useConfirm, useTextPrompt } from '@/context/ConfirmProvider';
+import { useColors } from '@/hooks/useColors';
+import { useLeague } from '@/hooks/useLeague';
+import { useSubscription } from '@/hooks/useSubscription';
 import {
   getPushPrefs,
   registerPushToken,
   unregisterPushToken,
-} from "@/lib/notifications";
-import { supabase } from "@/lib/supabase";
-import { containsBlockedContent } from "@/utils/moderation";
-import { ms } from "@/utils/scale";
+} from '@/lib/notifications';
+import { supabase } from '@/lib/supabase';
+import { logger } from '@/utils/logger';
+import { containsBlockedContent } from '@/utils/moderation';
+import { ms, s } from '@/utils/scale';
+
+function tierBadgeVariant(tier: SubscriptionTier): BadgeVariant {
+  if (tier === 'premium') return 'gold';
+  if (tier === 'pro') return 'turf';
+  return 'neutral';
+}
 
 export default function ProfileScreen() {
   const session = useSession();
   const router = useRouter();
-  const scheme = useColorScheme() ?? "light";
-  const c = Colors[scheme];
+  const c = useColors();
+  const confirm = useConfirm();
+  const promptInput = useTextPrompt();
   const { teamId } = useAppState();
   const { data: league } = useLeague();
   const queryClient = useQueryClient();
@@ -51,56 +61,82 @@ export default function ProfileScreen() {
   const userId = session?.user?.id;
   const myTeam = (league?.league_teams ?? []).find((t: any) => t.id === teamId);
   const myLogoKey = myTeam?.logo_key ?? null;
-  const myTeamName = myTeam?.name ?? "";
-  const myTricode = myTeam?.tricode ?? "";
+  const myTeamName = myTeam?.name ?? '';
+  const myTricode = myTeam?.tricode ?? '';
   const { tier, individualPeriod, leagueTier, leaguePeriod } = useSubscription();
+  const userEmail = session?.user?.email ?? 'Unknown';
+  const isCommissioner = session?.user?.id === league?.created_by;
 
   function handleEditTeamName() {
     if (!teamId) return;
-    if (Platform.OS === 'ios') {
-      Alert.prompt(
-        'Edit Team Name',
-        'Enter your new team name',
-        async (value) => {
-          const name = (value ?? '').trim();
+    promptInput({
+      title: 'Edit Team Name',
+      message: 'Enter your new team name',
+      defaultValue: myTeamName,
+      maxLength: 30,
+      action: {
+        label: 'Save',
+        onSubmit: async (value) => {
+          const name = value.trim();
           if (!name) return;
-          if (name.length > 30) { Alert.alert('Too long', 'Team name must be 30 characters or fewer.'); return; }
-          if (containsBlockedContent(name)) { Alert.alert('Invalid name', 'That team name contains language that isn\u2019t allowed.'); return; }
-          const { error } = await supabase.from('teams').update({ name }).eq('id', teamId);
-          if (error) { Alert.alert('Error', error.message); return; }
+          if (name.length > 30) {
+            Alert.alert('Too long', 'Team name must be 30 characters or fewer.');
+            return;
+          }
+          if (containsBlockedContent(name)) {
+            Alert.alert(
+              'Invalid name',
+              'That team name contains language that isn’t allowed.',
+            );
+            return;
+          }
+          const { error } = await supabase
+            .from('teams')
+            .update({ name })
+            .eq('id', teamId);
+          if (error) {
+            Alert.alert('Error', error.message);
+            return;
+          }
           queryClient.invalidateQueries({ queryKey: ['league'] });
         },
-        'plain-text',
-        myTeamName,
-      );
-    } else {
-      // Android doesn't support Alert.prompt — use inline editing via league-info or a simple alert
-      Alert.alert('Edit Team Name', 'Use the League Info page to edit your team name on Android.');
-    }
+      },
+    });
   }
 
   function handleEditTricode() {
     if (!teamId) return;
-    if (Platform.OS === 'ios') {
-      Alert.prompt(
-        'Edit Tricode',
-        '2-4 characters (letters/numbers)',
-        async (value) => {
-          const code = (value ?? '').trim().toUpperCase();
-          if (!code || code.length < 2 || code.length > 4 || !/^[A-Z0-9]+$/.test(code)) {
+    promptInput({
+      title: 'Edit Tricode',
+      message: '2-4 characters (letters/numbers)',
+      defaultValue: myTricode,
+      maxLength: 4,
+      autoCapitalize: 'characters',
+      action: {
+        label: 'Save',
+        onSubmit: async (value) => {
+          const code = value.trim().toUpperCase();
+          if (
+            !code ||
+            code.length < 2 ||
+            code.length > 4 ||
+            !/^[A-Z0-9]+$/.test(code)
+          ) {
             Alert.alert('Invalid tricode', 'Must be 2-4 letters/numbers.');
             return;
           }
-          const { error } = await supabase.from('teams').update({ tricode: code }).eq('id', teamId);
-          if (error) { Alert.alert('Error', error.message); return; }
+          const { error } = await supabase
+            .from('teams')
+            .update({ tricode: code })
+            .eq('id', teamId);
+          if (error) {
+            Alert.alert('Error', error.message);
+            return;
+          }
           queryClient.invalidateQueries({ queryKey: ['league'] });
         },
-        'plain-text',
-        myTricode,
-      );
-    } else {
-      Alert.alert('Edit Tricode', 'Use the League Info page to edit your tricode on Android.');
-    }
+      },
+    });
   }
 
   useEffect(() => {
@@ -111,7 +147,7 @@ export default function ProfileScreen() {
         if (!cancelled) setNotificationsEnabled(enabled);
       })
       .catch((err) => {
-        console.warn("getPushPrefs failed", err);
+        logger.warn('getPushPrefs failed', err);
       });
     return () => {
       cancelled = true;
@@ -129,331 +165,478 @@ export default function ProfileScreen() {
     }
   }
 
-  const userEmail = session?.user?.email ?? "Unknown";
-  const isCommissioner = session?.user?.id === league?.created_by;
-
   async function handleSignOut() {
     setLoading(true);
     const { error } = await supabase.auth.signOut();
 
     const keys = await AsyncStorage.getAllKeys();
-    const supabaseKeys = keys.filter((k) => k.startsWith("sb-"));
+    const supabaseKeys = keys.filter((k) => k.startsWith('sb-'));
     if (supabaseKeys.length > 0) {
       await AsyncStorage.multiRemove(supabaseKeys);
     }
 
     setLoading(false);
     if (error) {
-      Alert.alert("Error", error.message);
+      Alert.alert('Error', error.message);
     } else {
-      router.replace("/auth");
+      router.replace('/auth');
     }
   }
 
   async function handleDeleteAccount() {
-    Alert.alert(
-      "Delete Account",
-      "Are you sure? This will permanently delete your account and all associated data. This cannot be undone.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            setLoading(true);
-            try {
-              const { data: { session: currentSession } } = await supabase.auth.getSession();
-              const { error } = await supabase.functions.invoke('delete-account', {
-                headers: { Authorization: `Bearer ${currentSession?.access_token}` },
-              });
-              if (error) throw error;
+    confirm({
+      title: 'Delete Account',
+      message:
+        'This will permanently delete your account and all associated data. This cannot be undone.',
+      requireTypedConfirmation: 'delete',
+      action: {
+        label: 'Delete',
+        destructive: true,
+        onPress: async () => {
+          setLoading(true);
+          try {
+            const {
+              data: { session: currentSession },
+            } = await supabase.auth.getSession();
+            const { error } = await supabase.functions.invoke('delete-account', {
+              headers: {
+                Authorization: `Bearer ${currentSession?.access_token}`,
+              },
+            });
+            if (error) throw error;
 
-              // Clean up local storage and redirect
-              const keys = await AsyncStorage.getAllKeys();
-              const supabaseKeys = keys.filter((k) => k.startsWith("sb-"));
-              if (supabaseKeys.length > 0) {
-                await AsyncStorage.multiRemove(supabaseKeys);
-              }
-              await supabase.auth.signOut();
-              router.replace("/auth");
-            } catch (err: any) {
-              Alert.alert("Error", err.message ?? "Failed to delete account. Please try again.");
-            } finally {
-              setLoading(false);
+            const keys = await AsyncStorage.getAllKeys();
+            const supabaseKeys = keys.filter((k) => k.startsWith('sb-'));
+            if (supabaseKeys.length > 0) {
+              await AsyncStorage.multiRemove(supabaseKeys);
             }
-          },
+            await supabase.auth.signOut();
+            router.replace('/auth');
+          } catch (err: any) {
+            Alert.alert(
+              'Error',
+              err.message ?? 'Failed to delete account. Please try again.',
+            );
+          } finally {
+            setLoading(false);
+          }
         },
-      ],
-    );
+      },
+    });
   }
 
   return (
-    <ThemedView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Profile Header */}
-        <View style={styles.header}>
-          <TouchableOpacity
-            onPress={() => { if (teamId) setShowLogoPicker(true); }}
-            disabled={!teamId}
-            activeOpacity={0.7}
-            accessibilityRole="button"
-            accessibilityLabel={myLogoKey ? `${myTeamName} logo, tap to change` : "Set team logo"}
-          >
-            <View>
-              {myLogoKey?.startsWith("http") ? (
-                <Image source={{ uri: myLogoKey }} style={styles.avatar} />
-              ) : (
-                <View style={[styles.avatar, { backgroundColor: c.accent }]}>
-                  <Text style={[styles.avatarText, { color: c.accentText }]}>
-                    {(myTeamName || userEmail).charAt(0).toUpperCase()}
-                  </Text>
-                </View>
-              )}
-              {teamId && (
-                <View style={[styles.avatarEditBadge, { backgroundColor: c.card, borderColor: c.border }]}>
-                  <Ionicons name="pencil" size={11} color={c.text} />
-                </View>
-              )}
-            </View>
-          </TouchableOpacity>
-          <ThemedText type="subtitle" style={styles.email} accessibilityRole="header">
-            {userEmail}
-          </ThemedText>
-          {isCommissioner && (
-            <View
-              style={[
-                styles.badge,
-                { backgroundColor: c.activeCard, borderColor: c.activeBorder },
-              ]}
-              accessibilityLabel="Commissioner"
-            >
-              <ThemedText style={[styles.badgeText, { color: c.activeText }]}>
-                Commissioner
-              </ThemedText>
-            </View>
-          )}
-        </View>
-
-        {/* League Info */}
-        {league && (
-          <View
-            style={[
-              styles.section,
-              { backgroundColor: c.card, borderColor: c.border },
-            ]}
-          >
-            <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">
-              League
-            </ThemedText>
-            <SettingRow
-              icon="trophy-outline"
-              label="League Name"
-              value={league.name}
-              c={c}
-            />
-            <SettingRow
-              icon="people-outline"
-              label="Teams"
-              value={`${league.current_teams ?? 0} / ${league.teams ?? '?'}`}
-              c={c}
-            />
-            <SettingRow
-              icon="shield-outline"
-              label="Visibility"
-              value={league.private ? "Private" : "Public"}
-              c={c}
-            />
-            <SettingRow
-              icon="diamond-outline"
-              label="League Plan"
-              value={leagueTier ? `${TIER_LABELS[leagueTier]}${leaguePeriod ? ` (${leaguePeriod})` : ''}` : 'Free'}
-              c={c}
-            />
-            {myTeam && (
-              <>
-                <TouchableOpacity
-                  style={[styles.settingRow, { borderBottomColor: c.border }]}
-                  onPress={handleEditTeamName}
-                  activeOpacity={0.7}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Team Name: ${myTeamName}, tap to edit`}
-                >
-                  <View style={styles.actionLeft}>
-                    <Ionicons name="shirt-outline" size={20} color={c.secondaryText} accessible={false} />
-                    <ThemedText style={[styles.settingLabel, { color: c.secondaryText }]}>
-                      Team Name
-                    </ThemedText>
-                  </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <ThemedText>{myTeamName}</ThemedText>
-                    <Ionicons name="pencil" size={14} color={c.secondaryText} accessible={false} />
-                  </View>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.settingRow, { borderBottomWidth: 0, borderBottomColor: c.border }]}
-                  onPress={handleEditTricode}
-                  activeOpacity={0.7}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Tricode: ${myTricode || 'not set'}, tap to edit`}
-                >
-                  <View style={styles.actionLeft}>
-                    <Ionicons name="text-outline" size={20} color={c.secondaryText} accessible={false} />
-                    <ThemedText style={[styles.settingLabel, { color: c.secondaryText }]}>
-                      Tricode
-                    </ThemedText>
-                  </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <ThemedText>{myTricode || '—'}</ThemedText>
-                    <Ionicons name="pencil" size={14} color={c.secondaryText} accessible={false} />
-                  </View>
-                </TouchableOpacity>
-              </>
-            )}
-          </View>
-        )}
-
-        {/* Subscription */}
+        {/* ─── Identity hero ─────────────────────────────────────────────── */}
         <View
-          style={[
-            styles.section,
-            { backgroundColor: c.card, borderColor: c.border },
-          ]}
+          style={[styles.hero, { backgroundColor: Brand.turfGreen }]}
+          accessibilityLabel={`Profile for ${myTeamName || userEmail}${isCommissioner ? ', commissioner' : ''}`}
         >
-          <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">
-            Subscription
-          </ThemedText>
-          <SettingRow
-            icon="diamond-outline"
-            label="Current Plan"
-            value={`${TIER_LABELS[tier]}${tier !== 'free' && individualPeriod ? ` (${individualPeriod})` : ''}`}
-            c={c}
-          />
-          {leagueTier && (
-            <SettingRow
-              icon="people-outline"
-              label="League Plan"
-              value={`${TIER_LABELS[leagueTier]}${leaguePeriod ? ` (${leaguePeriod})` : ''}`}
-              c={c}
-            />
-          )}
-          <TouchableOpacity
-            style={[styles.actionRow, { borderBottomWidth: 0 }]}
-            onPress={() => setShowUpgradeModal(true)}
-            activeOpacity={0.7}
-            accessibilityRole="button"
-            accessibilityLabel={tier === 'free' ? 'Upgrade Plan' : 'Manage Plan'}
-          >
-            <View style={styles.actionLeft}>
-              <Ionicons
-                name={tier === 'free' ? "arrow-up-circle-outline" : "settings-outline"}
-                size={20}
-                color={tier === 'free' ? TIER_COLORS.pro : c.secondaryText}
-                accessible={false}
-              />
-              <ThemedText style={styles.actionLabel}>
-                {tier === 'free' ? 'Upgrade Plan' : 'Manage Plan'}
-              </ThemedText>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={c.secondaryText} accessible={false} />
-          </TouchableOpacity>
-        </View>
+          <View style={[styles.heroRule, { backgroundColor: c.gold }]} />
 
-        {/* Notifications */}
-        <View
-          style={[
-            styles.section,
-            { backgroundColor: c.card, borderColor: c.border },
-          ]}
-        >
-          <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">
-            Notifications
-          </ThemedText>
-          <View style={[styles.settingRow, { borderBottomColor: c.border }]}>
-            <View style={styles.actionLeft}>
-              <Ionicons name="notifications-outline" size={20} color={c.secondaryText} accessible={false} />
-              <ThemedText style={styles.actionLabel}>Push Notifications</ThemedText>
-            </View>
-            <Switch
-              value={notificationsEnabled}
-              onValueChange={handleNotificationsToggle}
-              trackColor={{ false: c.border, true: c.accent }}
-              accessibilityLabel="Push Notifications"
-              accessibilityRole="switch"
-              accessibilityState={{ checked: notificationsEnabled }}
-            />
-          </View>
-          {notificationsEnabled && (
+          <View style={styles.heroBody}>
             <TouchableOpacity
-              style={[styles.actionRow, { borderBottomWidth: 0 }]}
-              onPress={() => router.push('/notification-settings')}
+              onPress={() => {
+                if (teamId) setShowLogoPicker(true);
+              }}
+              disabled={!teamId}
               activeOpacity={0.7}
               accessibilityRole="button"
+              accessibilityLabel={
+                myLogoKey
+                  ? `${myTeamName} logo, tap to change`
+                  : 'Set team logo'
+              }
+            >
+              <View>
+                {myLogoKey?.startsWith('http') ? (
+                  <Image
+                    source={{ uri: myLogoKey }}
+                    style={[styles.avatar, { borderColor: c.gold }]}
+                  />
+                ) : (
+                  <View
+                    style={[
+                      styles.avatar,
+                      styles.avatarFallback,
+                      { backgroundColor: Brand.ecru, borderColor: c.gold },
+                    ]}
+                  >
+                    <ThemedText
+                      type="display"
+                      style={[styles.avatarText, { color: Brand.ink }]}
+                    >
+                      {(myTeamName || userEmail).charAt(0).toUpperCase()}
+                    </ThemedText>
+                  </View>
+                )}
+                {teamId && (
+                  <View
+                    style={[
+                      styles.avatarEditBadge,
+                      { backgroundColor: c.gold, borderColor: Brand.turfGreen },
+                    ]}
+                  >
+                    <Ionicons name="pencil" size={ms(11)} color={Brand.ink} />
+                  </View>
+                )}
+              </View>
+            </TouchableOpacity>
+
+            <View style={styles.heroIdentity}>
+              <ThemedText
+                type="varsitySmall"
+                style={[styles.heroEyebrow, { color: c.gold }]}
+              >
+                {isCommissioner ? 'COMMISSIONER' : 'MANAGER'}
+              </ThemedText>
+              <ThemedText
+                type="display"
+                style={[styles.heroName, { color: Brand.ecru }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+                accessibilityRole="header"
+              >
+                {myTeamName || 'Your Team'}
+              </ThemedText>
+              <ThemedText
+                type="varsitySmall"
+                style={[styles.heroEmail, { color: Brand.ecruMuted }]}
+                numberOfLines={1}
+              >
+                {userEmail}
+              </ThemedText>
+            </View>
+          </View>
+
+          <View style={[styles.heroRule, { backgroundColor: c.gold }]} />
+        </View>
+
+        <View style={styles.sectionsWrap}>
+
+        {/* ─── League ──────────────────────────────────────────────────────── */}
+        {league &&
+          (() => {
+            const rows: { node: React.ReactNode }[] = [
+              {
+                node: (
+                  <SettingRowContent
+                    icon="trophy-outline"
+                    label="League Name"
+                    value={league.name}
+                  />
+                ),
+              },
+              {
+                node: (
+                  <SettingRowContent
+                    icon="people-outline"
+                    label="Teams"
+                    value={`${league.current_teams ?? 0} / ${league.teams ?? '?'}`}
+                  />
+                ),
+              },
+              {
+                node: (
+                  <SettingRowContent
+                    icon="shield-outline"
+                    label="Visibility"
+                    value={league.private ? 'Private' : 'Public'}
+                  />
+                ),
+              },
+            ];
+
+            if (myTeam) {
+              rows.push({
+                node: (
+                  <SettingRowContent
+                    icon="shirt-outline"
+                    label="Team Name"
+                    value={myTeamName || '—'}
+                    editable
+                  />
+                ),
+              });
+              rows.push({
+                node: (
+                  <SettingRowContent
+                    icon="text-outline"
+                    label="Tricode"
+                    value={myTricode || '—'}
+                    editable
+                  />
+                ),
+              });
+            }
+
+            return (
+              <Section title="League">
+                {rows.map((row, idx) => {
+                  const isTeamName = idx === 3 && myTeam;
+                  const isTricode = idx === 4 && myTeam;
+                  const onPress = isTeamName
+                    ? handleEditTeamName
+                    : isTricode
+                      ? handleEditTricode
+                      : undefined;
+                  return (
+                    <ListRow
+                      key={idx}
+                      index={idx}
+                      total={rows.length}
+                      onPress={onPress}
+                      accessibilityLabel={
+                        onPress ? `Edit ${idx === 3 ? 'team name' : 'tricode'}` : undefined
+                      }
+                    >
+                      {row.node}
+                    </ListRow>
+                  );
+                })}
+              </Section>
+            );
+          })()}
+
+        {/* ─── Subscription ────────────────────────────────────────────────── */}
+        <Section title="Subscription">
+          <ListRow index={0} total={leagueTier ? 3 : 2}>
+            <View style={styles.rowContent}>
+              <View style={styles.rowLeft}>
+                <Ionicons
+                  name="diamond-outline"
+                  size={ms(18)}
+                  color={c.secondaryText}
+                  accessible={false}
+                />
+                <ThemedText style={[styles.rowLabel, { color: c.secondaryText }]}>
+                  Current Plan
+                </ThemedText>
+              </View>
+              <View style={styles.rowRight}>
+                <Badge
+                  label={`${TIER_LABELS[tier].toUpperCase()}${tier !== 'free' && individualPeriod ? ` · ${individualPeriod.toUpperCase()}` : ''}`}
+                  variant={tierBadgeVariant(tier)}
+                  size="small"
+                />
+              </View>
+            </View>
+          </ListRow>
+
+          {leagueTier && (
+            <ListRow index={1} total={3}>
+              <View style={styles.rowContent}>
+                <View style={styles.rowLeft}>
+                  <Ionicons
+                    name="people-outline"
+                    size={ms(18)}
+                    color={c.secondaryText}
+                    accessible={false}
+                  />
+                  <ThemedText style={[styles.rowLabel, { color: c.secondaryText }]}>
+                    League Plan
+                  </ThemedText>
+                </View>
+                <View style={styles.rowRight}>
+                  <Badge
+                    label={`${TIER_LABELS[leagueTier].toUpperCase()}${leaguePeriod ? ` · ${leaguePeriod.toUpperCase()}` : ''}`}
+                    variant={tierBadgeVariant(leagueTier)}
+                    size="small"
+                  />
+                </View>
+              </View>
+            </ListRow>
+          )}
+
+          <ListRow
+            index={leagueTier ? 2 : 1}
+            total={leagueTier ? 3 : 2}
+            onPress={() => setShowUpgradeModal(true)}
+            accessibilityLabel={tier === 'free' ? 'Upgrade Plan' : 'Manage Plan'}
+          >
+            <View style={styles.rowContent}>
+              <View style={styles.rowLeft}>
+                <Ionicons
+                  name={
+                    tier === 'free' ? 'arrow-up-circle-outline' : 'settings-outline'
+                  }
+                  size={ms(18)}
+                  color={tier === 'free' ? c.gold : c.text}
+                  accessible={false}
+                />
+                <ThemedText
+                  style={[
+                    styles.rowLabel,
+                    { color: tier === 'free' ? c.gold : c.text },
+                  ]}
+                >
+                  {tier === 'free' ? 'Upgrade Plan' : 'Manage Plan'}
+                </ThemedText>
+              </View>
+              <Ionicons
+                name="chevron-forward"
+                size={ms(16)}
+                color={c.secondaryText}
+                accessible={false}
+              />
+            </View>
+          </ListRow>
+        </Section>
+
+        {/* ─── Notifications ───────────────────────────────────────────────── */}
+        <Section title="Notifications">
+          <ListRow index={0} total={notificationsEnabled ? 2 : 1}>
+            <View style={styles.rowContent}>
+              <View style={styles.rowLeft}>
+                <Ionicons
+                  name="notifications-outline"
+                  size={ms(18)}
+                  color={c.text}
+                  accessible={false}
+                />
+                <ThemedText style={[styles.rowLabel, { color: c.text }]}>
+                  Push Notifications
+                </ThemedText>
+              </View>
+              <Switch
+                value={notificationsEnabled}
+                onValueChange={handleNotificationsToggle}
+                trackColor={{ false: c.border, true: c.accent }}
+                accessibilityLabel="Push Notifications"
+                accessibilityRole="switch"
+                accessibilityState={{ checked: notificationsEnabled }}
+              />
+            </View>
+          </ListRow>
+
+          {notificationsEnabled && (
+            <ListRow
+              index={1}
+              total={2}
+              onPress={() => router.push('/notification-settings' as any)}
               accessibilityLabel="Notification Preferences"
               accessibilityHint="Opens notification category settings"
             >
-              <View style={styles.actionLeft}>
-                <Ionicons name="options-outline" size={20} color={c.secondaryText} accessible={false} />
-                <ThemedText style={styles.actionLabel}>Notification Preferences</ThemedText>
+              <View style={styles.rowContent}>
+                <View style={styles.rowLeft}>
+                  <Ionicons
+                    name="options-outline"
+                    size={ms(18)}
+                    color={c.text}
+                    accessible={false}
+                  />
+                  <ThemedText style={[styles.rowLabel, { color: c.text }]}>
+                    Notification Preferences
+                  </ThemedText>
+                </View>
+                <Ionicons
+                  name="chevron-forward"
+                  size={ms(16)}
+                  color={c.secondaryText}
+                  accessible={false}
+                />
               </View>
-              <Ionicons name="chevron-forward" size={18} color={c.secondaryText} accessible={false} />
-            </TouchableOpacity>
+            </ListRow>
           )}
-        </View>
+        </Section>
 
-        {/* Legal */}
-        <View
-          style={[
-            styles.section,
-            { backgroundColor: c.card, borderColor: c.border },
-          ]}
-        >
-          <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">
-            Legal
-          </ThemedText>
-          <TouchableOpacity
-            style={styles.actionRow}
+        {/* ─── Privacy & Safety ────────────────────────────────────────────── */}
+        <Section title="Privacy & Safety">
+          <ListRow
+            index={0}
+            total={1}
+            onPress={() => router.push('/blocked-users' as any)}
+            accessibilityLabel="Blocked Users"
+            accessibilityHint="View and manage users you've blocked"
+          >
+            <View style={styles.rowContent}>
+              <View style={styles.rowLeft}>
+                <Ionicons
+                  name="ban-outline"
+                  size={ms(18)}
+                  color={c.text}
+                  accessible={false}
+                />
+                <ThemedText style={[styles.rowLabel, { color: c.text }]}>
+                  Blocked Users
+                </ThemedText>
+              </View>
+              <Ionicons
+                name="chevron-forward"
+                size={ms(16)}
+                color={c.secondaryText}
+                accessible={false}
+              />
+            </View>
+          </ListRow>
+        </Section>
+
+        {/* ─── Legal ───────────────────────────────────────────────────────── */}
+        <Section title="Legal">
+          <ListRow
+            index={0}
+            total={2}
             onPress={() => router.push('/legal?tab=terms' as any)}
-            activeOpacity={0.7}
-            accessibilityRole="button"
             accessibilityLabel="Terms of Service"
           >
-            <View style={styles.actionLeft}>
-              <Ionicons name="document-text-outline" size={20} color={c.secondaryText} accessible={false} />
-              <ThemedText style={styles.actionLabel}>Terms of Service</ThemedText>
+            <View style={styles.rowContent}>
+              <View style={styles.rowLeft}>
+                <Ionicons
+                  name="document-text-outline"
+                  size={ms(18)}
+                  color={c.text}
+                  accessible={false}
+                />
+                <ThemedText style={[styles.rowLabel, { color: c.text }]}>
+                  Terms of Service
+                </ThemedText>
+              </View>
+              <Ionicons
+                name="chevron-forward"
+                size={ms(16)}
+                color={c.secondaryText}
+                accessible={false}
+              />
             </View>
-            <Ionicons name="chevron-forward" size={18} color={c.secondaryText} accessible={false} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionRow, { borderBottomWidth: 0 }]}
+          </ListRow>
+          <ListRow
+            index={1}
+            total={2}
             onPress={() => router.push('/legal?tab=privacy' as any)}
-            activeOpacity={0.7}
-            accessibilityRole="button"
             accessibilityLabel="Privacy Policy"
           >
-            <View style={styles.actionLeft}>
-              <Ionicons name="shield-checkmark-outline" size={20} color={c.secondaryText} accessible={false} />
-              <ThemedText style={styles.actionLabel}>Privacy Policy</ThemedText>
+            <View style={styles.rowContent}>
+              <View style={styles.rowLeft}>
+                <Ionicons
+                  name="shield-checkmark-outline"
+                  size={ms(18)}
+                  color={c.text}
+                  accessible={false}
+                />
+                <ThemedText style={[styles.rowLabel, { color: c.text }]}>
+                  Privacy Policy
+                </ThemedText>
+              </View>
+              <Ionicons
+                name="chevron-forward"
+                size={ms(16)}
+                color={c.secondaryText}
+                accessible={false}
+              />
             </View>
-            <Ionicons name="chevron-forward" size={18} color={c.secondaryText} accessible={false} />
-          </TouchableOpacity>
-        </View>
+          </ListRow>
+        </Section>
 
-        {/* Account Actions */}
-        <View
-          style={[
-            styles.section,
-            { backgroundColor: c.card, borderColor: c.border },
-          ]}
-        >
-          <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">
-            Account
-          </ThemedText>
-
-          <TouchableOpacity
-            style={styles.actionRow}
+        {/* ─── Account ─────────────────────────────────────────────────────── */}
+        <Section title="Account">
+          <ListRow
+            index={0}
+            total={3}
             onPress={async () => {
               const email = session?.user?.email;
               if (!email) return;
@@ -463,72 +646,106 @@ export default function ProfileScreen() {
               if (error) {
                 Alert.alert('Error', error.message);
               } else {
-                Alert.alert('Check Your Email', 'A password reset link has been sent to your email address.');
+                Alert.alert(
+                  'Check Your Email',
+                  'A password reset link has been sent to your email address.',
+                );
               }
             }}
-            activeOpacity={0.7}
-            accessibilityRole="button"
             accessibilityLabel="Change Password"
             accessibilityHint="Sends a password reset link to your email"
           >
-            <View style={styles.actionLeft}>
-              <Ionicons name="key-outline" size={20} color={c.text} accessible={false} />
-              <ThemedText style={styles.actionLabel}>Change Password</ThemedText>
+            <View style={styles.rowContent}>
+              <View style={styles.rowLeft}>
+                <Ionicons
+                  name="key-outline"
+                  size={ms(18)}
+                  color={c.text}
+                  accessible={false}
+                />
+                <ThemedText style={[styles.rowLabel, { color: c.text }]}>
+                  Change Password
+                </ThemedText>
+              </View>
+              <Ionicons
+                name="chevron-forward"
+                size={ms(16)}
+                color={c.secondaryText}
+                accessible={false}
+              />
             </View>
-            <Ionicons name="chevron-forward" size={18} color={c.secondaryText} accessible={false} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.actionRow}
+          </ListRow>
+          <ListRow
+            index={1}
+            total={3}
             onPress={handleSignOut}
-            disabled={loading}
-            activeOpacity={0.7}
-            accessibilityRole="button"
             accessibilityLabel="Sign Out"
-            accessibilityState={{ disabled: loading }}
+            accessibilityHint={loading ? 'Signing out…' : undefined}
           >
-            <View style={styles.actionLeft}>
-              <Ionicons name="log-out-outline" size={20} color={c.text} accessible={false} />
-              <ThemedText style={styles.actionLabel}>Sign Out</ThemedText>
+            <View style={styles.rowContent}>
+              <View style={styles.rowLeft}>
+                <Ionicons
+                  name="log-out-outline"
+                  size={ms(18)}
+                  color={c.text}
+                  accessible={false}
+                />
+                <ThemedText style={[styles.rowLabel, { color: c.text }]}>
+                  Sign Out
+                </ThemedText>
+              </View>
+              <Ionicons
+                name="chevron-forward"
+                size={ms(16)}
+                color={c.secondaryText}
+                accessible={false}
+              />
             </View>
-            <Ionicons
-              name="chevron-forward"
-              size={18}
-              color={c.secondaryText}
-              accessible={false}
-            />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.actionRow, { borderBottomWidth: 0 }]}
+          </ListRow>
+          <ListRow
+            index={2}
+            total={3}
             onPress={handleDeleteAccount}
-            activeOpacity={0.7}
-            accessibilityRole="button"
             accessibilityLabel="Delete Account"
             accessibilityHint="Permanently deletes your account and all data"
           >
-            <View style={styles.actionLeft}>
-              <Ionicons name="trash-outline" size={20} color={c.danger} accessible={false} />
-              <Text style={[styles.actionLabel, { color: c.danger }]}>
-                Delete Account
-              </Text>
+            <View style={styles.rowContent}>
+              <View style={styles.rowLeft}>
+                <Ionicons
+                  name="trash-outline"
+                  size={ms(18)}
+                  color={c.danger}
+                  accessible={false}
+                />
+                <ThemedText style={[styles.rowLabel, { color: c.danger }]}>
+                  Delete Account
+                </ThemedText>
+              </View>
+              <Ionicons
+                name="chevron-forward"
+                size={ms(16)}
+                color={c.secondaryText}
+                accessible={false}
+              />
             </View>
-            <Ionicons
-              name="chevron-forward"
-              size={18}
-              color={c.secondaryText}
-              accessible={false}
-            />
-          </TouchableOpacity>
+          </ListRow>
+        </Section>
+
+        {/* ─── Version footer ──────────────────────────────────────────────── */}
+        <View style={styles.versionWrap}>
+          <View style={[styles.versionRule, { backgroundColor: c.border }]} />
+          <ThemedText
+            type="varsitySmall"
+            style={[styles.versionText, { color: c.secondaryText }]}
+          >
+            FRANCHISE · V2.0.0
+          </ThemedText>
+          <View style={[styles.versionRule, { backgroundColor: c.border }]} />
         </View>
 
-        {/* App Info */}
-        <ThemedText style={[styles.versionText, { color: c.secondaryText }]}>
-          Franchise v2.0.0
-        </ThemedText>
+        </View>
       </ScrollView>
 
-      {/* Team Logo Picker */}
       {teamId && (
         <TeamLogoPickerModal
           visible={showLogoPicker}
@@ -547,131 +764,171 @@ export default function ProfileScreen() {
         visible={showUpgradeModal}
         onClose={() => setShowUpgradeModal(false)}
       />
-    </ThemedView>
+    </SafeAreaView>
   );
 }
 
-function SettingRow({
+function SettingRowContent({
   icon,
   label,
   value,
-  c,
-  isLast,
+  editable,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   value: string;
-  c: any;
-  isLast?: boolean;
+  editable?: boolean;
 }) {
+  const c = useColors();
   return (
-    <View
-      style={[styles.settingRow, { borderBottomColor: c.border }, isLast && { borderBottomWidth: 0 }]}
-      accessibilityLabel={`${label}: ${value}`}
-    >
-      <View style={styles.actionLeft}>
-        <Ionicons name={icon} size={20} color={c.secondaryText} accessible={false} />
-        <ThemedText style={[styles.settingLabel, { color: c.secondaryText }]}>
+    <View style={styles.rowContent}>
+      <View style={styles.rowLeft}>
+        <Ionicons
+          name={icon}
+          size={ms(18)}
+          color={c.secondaryText}
+          accessible={false}
+        />
+        <ThemedText style={[styles.rowLabel, { color: c.secondaryText }]}>
           {label}
         </ThemedText>
       </View>
-      <ThemedText>{value}</ThemedText>
+      <View style={styles.rowRight}>
+        <ThemedText style={{ color: c.text }} numberOfLines={1}>
+          {value}
+        </ThemedText>
+        {editable && (
+          <Ionicons
+            name="pencil"
+            size={ms(13)}
+            color={c.secondaryText}
+            accessible={false}
+          />
+        )}
+      </View>
     </View>
   );
 }
-
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 70,
-    paddingBottom: 40,
+    paddingBottom: s(40),
   },
-  header: {
-    alignItems: "center",
-    marginBottom: 28,
+
+  // ─── Identity hero ───
+  hero: {
+    paddingVertical: s(8),
+    // Hero is the first thing on the page now (no PageHeader), so add a
+    // little top breathing room past the safe-area inset.
+    marginTop: s(8),
+    marginBottom: s(20),
+  },
+  heroRule: {
+    height: 2,
+    marginHorizontal: s(20),
+  },
+  heroBody: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: s(20),
+    paddingVertical: s(18),
+    gap: s(16),
   },
   avatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 12,
+    width: s(72),
+    height: s(72),
+    borderRadius: s(36),
+    borderWidth: 2,
+    overflow: 'hidden',
+  },
+  avatarFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   avatarText: {
-    fontSize: ms(28),
-    fontWeight: "700",
+    fontFamily: Fonts.display,
+    fontSize: ms(30),
+    lineHeight: ms(36),
+    letterSpacing: -0.3,
   },
   avatarEditBadge: {
-    position: "absolute",
-    bottom: 4,
-    right: -4,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    position: 'absolute',
+    bottom: -s(2),
+    right: -s(2),
+    width: s(24),
+    height: s(24),
+    borderRadius: s(12),
     borderWidth: 2,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  email: {
-    textAlign: "center",
+  heroIdentity: {
+    flex: 1,
+    minWidth: 0,
+    gap: s(4),
   },
-  badge: {
-    marginTop: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-    borderWidth: 1,
+  heroEyebrow: {
+    fontSize: ms(10),
+    letterSpacing: 1.6,
   },
-  badgeText: {
-    fontSize: ms(12),
-    fontWeight: "600",
+  heroName: {
+    fontFamily: Fonts.display,
+    fontSize: ms(22),
+    lineHeight: ms(26),
+    letterSpacing: -0.3,
   },
-  section: {
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 2,
-    marginBottom: 16,
-    ...cardShadow,
+  heroEmail: {
+    fontSize: ms(10),
+    letterSpacing: 1.3,
   },
-  sectionTitle: {
-    marginBottom: 8,
+
+  // ─── Sections wrap ───
+  sectionsWrap: {
+    paddingHorizontal: s(16),
   },
-  settingRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+
+  // ─── List rows ───
+  rowContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: s(12),
   },
-  settingLabel: {
+  rowLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(10),
+    flexShrink: 1,
+  },
+  rowRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(6),
+    flexShrink: 1,
+  },
+  rowLabel: {
     fontSize: ms(15),
+    flexShrink: 1,
   },
-  actionRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "rgba(128,128,128,0.15)",
+
+  // ─── Version footer ───
+  versionWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(12),
+    paddingHorizontal: s(40),
+    marginTop: s(8),
   },
-  actionLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  actionLabel: {
-    fontSize: ms(16),
+  versionRule: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
   },
   versionText: {
-    textAlign: "center",
-    fontSize: ms(13),
-    marginTop: 8,
+    fontSize: ms(10),
+    letterSpacing: 1.4,
   },
 });

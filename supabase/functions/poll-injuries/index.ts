@@ -1,8 +1,9 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { notifyTeams } from '../_shared/push.ts';
+import { notifyTeamsBulk, type BulkTeamsNotification } from '../_shared/push.ts';
 import { CORS_HEADERS } from '../_shared/cors.ts';
 import { bdlFetch, bdlFetchAll, type Sport } from '../_shared/bdl.ts';
+import { recordHeartbeat } from '../_shared/heartbeat.ts';
 import { normalizeName } from '../_shared/normalize.ts';
 
 const supabase = createClient(
@@ -278,28 +279,31 @@ async function sendInjuryNotifications(sport: Sport, changedPlayerIds: string[])
     }
   }
 
-  // Send one notification per team per league
+  // Build one notification per team per league and send in a single bulk batch
+  const bulkNotifs: BulkTeamsNotification[] = [];
   for (const [key, { leagueName, playerIds }] of teamLeaguePlayers) {
     const teamId = key.split('::')[0];
-    try {
-      const lines: string[] = [];
-      for (const id of playerIds) {
-        const p = playerMap.get(id);
-        if (!p) continue;
-        const nextGame = nextGameMap.get(p.pro_team);
-        let line = `${p.name}: ${p.status}`;
-        if (nextGame === 'In Progress') line += `\nGame: In Progress`;
-        else if (nextGame) line += `\nNext Game: ${nextGame}`;
-        lines.push(line);
-      }
-      const summary = lines.join('\n');
-      await notifyTeams(supabase, [teamId], 'injuries',
-        `Injury Update — ${leagueName}`,
-        summary,
-        { screen: 'roster' }
-      );
-    } catch (_) {}
+    const lines: string[] = [];
+    for (const id of playerIds) {
+      const p = playerMap.get(id);
+      if (!p) continue;
+      const nextGame = nextGameMap.get(p.pro_team);
+      let line = `${p.name}: ${p.status}`;
+      if (nextGame === 'In Progress') line += `\nGame: In Progress`;
+      else if (nextGame) line += `\nNext Game: ${nextGame}`;
+      lines.push(line);
+    }
+    if (lines.length === 0) continue;
+    bulkNotifs.push({
+      teamIds: [teamId],
+      title: `Injury Update — ${leagueName}`,
+      body: lines.join('\n'),
+      data: { screen: 'roster' },
+    });
   }
+  try {
+    await notifyTeamsBulk(supabase, 'injuries', bulkNotifs);
+  } catch (_) {}
 }
 
 Deno.serve(async (req: Request) => {
@@ -345,6 +349,7 @@ Deno.serve(async (req: Request) => {
       const fetched = await fetchInjuriesFromBdl(sport);
       source = 'balldontlie';
       if (!fetched) {
+        await recordHeartbeat(supabase, `poll-injuries:${sport}`, 'ok');
         return new Response(
           JSON.stringify({ ok: true, sport, source, note: 'could not fetch injuries from balldontlie' }),
           { status: 200, headers: jsonHeaders },
@@ -364,12 +369,15 @@ Deno.serve(async (req: Request) => {
       console.warn('Injury notifications failed (non-fatal):', notifyErr);
     }
 
+    await recordHeartbeat(supabase, `poll-injuries:${sport}`, 'ok');
     return new Response(
       JSON.stringify({ ok: true, sport, source, injuriesReceived: injuries.length, matchedPlayers: result.matchedPlayers, statusUpdates: result.statusUpdates, playersReset: result.playersReset, teamsReported: result.teamsReported, unmatchedNames: result.unmatchedNames }),
       { status: 200, headers: jsonHeaders },
     );
   } catch (err: any) {
     console.error('Unhandled error in poll-injuries:', err?.message ?? err);
+    // sport may not be set if we threw before assignment; default to 'nba'.
+    await recordHeartbeat(supabase, `poll-injuries:nba`, 'error', err?.message ?? String(err));
     return new Response(JSON.stringify({ error: err?.message ?? String(err) }), { status: 500, headers: CORS_HEADERS });
   }
 });

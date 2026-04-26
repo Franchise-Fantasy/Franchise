@@ -50,130 +50,12 @@ export function useTradeProposals(leagueId: string | null) {
   return useQuery<TradeProposalRow[]>({
     queryKey: queryKeys.tradeProposals(leagueId!),
     queryFn: async () => {
-      // Fetch proposals
-      const { data: proposals, error } = await supabase
-        .from('trade_proposals')
-        .select('id, league_id, proposed_by_team_id, status, proposed_at, accepted_at, review_expires_at, completed_at, transaction_id, notes, counteroffer_of')
-        .eq('league_id', leagueId!)
-        .order('proposed_at', { ascending: false })
-        .limit(200);
+      const { data, error } = await supabase.rpc(
+        'get_trade_proposals_for_league',
+        { p_league_id: leagueId! },
+      );
       if (error) throw error;
-      if (!proposals || proposals.length === 0) return [];
-
-      const proposalIds = proposals.map((p) => p.id);
-      const counterofferOfIds = proposals
-        .filter((p) => p.counteroffer_of)
-        .map((p) => p.counteroffer_of!);
-
-      // Fetch teams, items, and counteroffer items in parallel
-      const [teamsRes, itemsRes, origItemsRes] = await Promise.all([
-        supabase
-          .from('trade_proposal_teams')
-          .select('id, proposal_id, team_id, status, drop_player_ids, teams(name)')
-          .in('proposal_id', proposalIds),
-        supabase
-          .from('trade_proposal_items')
-          .select('id, proposal_id, player_id, draft_pick_id, from_team_id, to_team_id, protection_threshold, pick_swap_season, pick_swap_round, players(name, position, pro_team), draft_picks(season, round, original_team_id)')
-          .in('proposal_id', proposalIds),
-        counterofferOfIds.length > 0
-          ? supabase
-              .from('trade_proposal_items')
-              .select('id, proposal_id, player_id, draft_pick_id, from_team_id, to_team_id, protection_threshold, pick_swap_season, pick_swap_round, players(name, position, pro_team), draft_picks(season, round, original_team_id)')
-              .in('proposal_id', counterofferOfIds)
-          : Promise.resolve({ data: [] as any[], error: null }),
-      ]);
-      if (teamsRes.error) throw teamsRes.error;
-      if (itemsRes.error) throw itemsRes.error;
-      if (origItemsRes.error) throw origItemsRes.error;
-
-      const proposalTeams = teamsRes.data;
-      const proposalItems = itemsRes.data;
-
-      // Collect original_team_ids from both item sets to resolve names in one query
-      const allItems = [...(proposalItems ?? []), ...(origItemsRes.data ?? [])] as any[];
-      const origTeamIds = [...new Set(
-        allItems
-          .filter((i: any) => i.draft_picks?.original_team_id)
-          .map((i: any) => i.draft_picks.original_team_id),
-      )];
-      let origTeamNameMap: Record<string, string> = {};
-      if (origTeamIds.length > 0) {
-        const { data: origTeams } = await supabase
-          .from('teams')
-          .select('id, name')
-          .in('id', origTeamIds);
-        if (origTeams) {
-          origTeamNameMap = Object.fromEntries(origTeams.map((t) => [t.id, t.name]));
-        }
-      }
-
-      // Build counteroffer original items map
-      let originalItemsMap: Record<string, TradeItemRow[]> = {};
-      for (const i of (origItemsRes.data ?? []) as any[]) {
-        const pid = i.proposal_id;
-        if (!originalItemsMap[pid]) originalItemsMap[pid] = [];
-        originalItemsMap[pid].push({
-          id: i.id,
-          player_id: i.player_id,
-          draft_pick_id: i.draft_pick_id,
-          from_team_id: i.from_team_id,
-          to_team_id: i.to_team_id,
-          player_name: i.players?.name ?? null,
-          player_position: i.players?.position ?? null,
-          player_pro_team: i.players?.pro_team ?? null,
-          pick_season: i.draft_picks?.season ?? null,
-          pick_round: i.draft_picks?.round ?? null,
-          pick_original_team_name: i.draft_picks?.original_team_id
-            ? origTeamNameMap[i.draft_picks.original_team_id] ?? null
-            : null,
-          protection_threshold: i.protection_threshold ?? null,
-          pick_swap_season: i.pick_swap_season ?? null,
-          pick_swap_round: i.pick_swap_round ?? null,
-        });
-      }
-
-      const mapItem = (i: any): TradeItemRow => ({
-        id: i.id,
-        player_id: i.player_id,
-        draft_pick_id: i.draft_pick_id,
-        from_team_id: i.from_team_id,
-        to_team_id: i.to_team_id,
-        player_name: i.players?.name ?? null,
-        player_position: i.players?.position ?? null,
-        player_pro_team: i.players?.pro_team ?? null,
-        pick_season: i.draft_picks?.season ?? null,
-        pick_round: i.draft_picks?.round ?? null,
-        pick_original_team_name: i.draft_picks?.original_team_id
-          ? origTeamNameMap[i.draft_picks.original_team_id] ?? null
-          : null,
-        protection_threshold: i.protection_threshold ?? null,
-        pick_swap_season: i.pick_swap_season ?? null,
-        pick_swap_round: i.pick_swap_round ?? null,
-      });
-
-      // Build a set of proposal IDs that have been superseded by a counteroffer
-      const supersededIds = new Set(counterofferOfIds);
-
-      return proposals
-        .filter((p) => !supersededIds.has(p.id) || p.status !== 'cancelled')
-        .map((p) => ({
-          ...p,
-          teams: (proposalTeams ?? [])
-            .filter((t: any) => t.proposal_id === p.id)
-            .map((t: any) => ({
-              id: t.id,
-              team_id: t.team_id,
-              status: t.status,
-              team_name: t.teams?.name ?? 'Unknown',
-              drop_player_ids: (t.drop_player_ids ?? []) as string[],
-            })),
-          items: (proposalItems ?? [])
-            .filter((i: any) => i.proposal_id === p.id)
-            .map(mapItem),
-          original_items: p.counteroffer_of
-            ? originalItemsMap[p.counteroffer_of]
-            : undefined,
-        }));
+      return ((data ?? []) as unknown) as TradeProposalRow[];
     },
     enabled: !!leagueId,
     staleTime: 1000 * 60 * 2,
@@ -292,7 +174,10 @@ export function useTeamTradablePicks(teamId: string | null, leagueId: string | n
       // When draft pick trading is disabled, exclude initial draft picks only
       // Rookie draft picks (type='rookie') and future picks (no draft) remain tradeable
       if (!draftPickTradingEnabled) {
-        return results.filter((p) => (p.drafts as any)?.type !== 'initial');
+        return results.filter((p) => {
+          const drafts = Array.isArray(p.drafts) ? p.drafts[0] ?? null : p.drafts;
+          return drafts?.type !== 'initial';
+        });
       }
       return results;
     },
@@ -305,7 +190,9 @@ export function useMyPendingTrades(teamId: string | null, leagueId: string | nul
   return useQuery<number>({
     queryKey: queryKeys.pendingTradeCount(teamId!, leagueId!),
     queryFn: async () => {
-      // Count trades where I need to respond (pending) or select drops (pending_drops with empty drop_player_ids)
+      // Count trades where I need to respond (pending) or select drops (pending_drops with empty drop_player_ids).
+      // The drops query fetches rows and filters client-side because PostgREST's array-equality syntax
+      // for the empty-array literal is brittle (was previously cast `'{}' as any` and silently never matched).
       const [pendingRes, dropsRes] = await Promise.all([
         supabase
           .from('trade_proposal_teams')
@@ -316,15 +203,17 @@ export function useMyPendingTrades(teamId: string | null, leagueId: string | nul
           .eq('trade_proposals.status', 'pending'),
         supabase
           .from('trade_proposal_teams')
-          .select('id, trade_proposals!inner(id)', { count: 'exact', head: true })
+          .select('drop_player_ids, trade_proposals!inner(id)')
           .eq('team_id', teamId!)
-          .eq('drop_player_ids', '{}' as any)
           .eq('trade_proposals.league_id', leagueId!)
           .eq('trade_proposals.status', 'pending_drops'),
       ]);
       if (pendingRes.error) throw pendingRes.error;
       if (dropsRes.error) throw dropsRes.error;
-      return (pendingRes.count ?? 0) + (dropsRes.count ?? 0);
+      const dropCount = (dropsRes.data ?? []).filter(
+        (r) => !r.drop_player_ids || r.drop_player_ids.length === 0,
+      ).length;
+      return (pendingRes.count ?? 0) + dropCount;
     },
     enabled: !!teamId && !!leagueId,
     staleTime: 1000 * 60 * 5,
@@ -364,7 +253,7 @@ export function useTradeBlock(leagueId: string | null) {
 
       // Collect all unique team IDs from interest arrays to resolve names
       const allInterestIds = new Set<string>();
-      for (const row of data as any[]) {
+      for (const row of data) {
         for (const id of row.trade_block_interest ?? []) allInterestIds.add(id);
       }
       let teamNameMap: Record<string, string> = {};
@@ -380,7 +269,7 @@ export function useTradeBlock(leagueId: string | null) {
 
       // Group by team
       const grouped: Record<string, TradeBlockTeamGroup> = {};
-      for (const row of data as any[]) {
+      for (const row of data) {
         const tid = row.team_id;
         if (!grouped[tid]) {
           grouped[tid] = {

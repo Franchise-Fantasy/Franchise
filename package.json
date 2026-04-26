@@ -1,5 +1,5 @@
 {
-  "name": "franchise.v2",
+  "name": "franchise",
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
@@ -18,7 +18,8 @@
     "test:integration": "jest --config jest.integration.config.js --runInBand",
     "test:integration:nuke": "jest --config jest.nuke.config.js",
     "check:realtime-channels": "node scripts/check-realtime-channels.mjs",
-    "gen-types": "npx supabase gen types typescript --project-id iuqbossmnsezzgocpcbo > types/database.types.ts"
+    "gen-types": "npx supabase gen types typescript --project-id iuqbossmnsezzgocpcbo > types/database.types.ts",
+    "release": "node scripts/release.mjs"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -95,6 +96,7 @@
     "eslint-config-expo": "~10.0.0",
     "jest": "^30.2.0",
     "lefthook": "^2.1.6",
+    "sharp": "^0.34.5",
     "ts-jest": "^29.4.6",
     "typescript": "~5.9.2"
   },

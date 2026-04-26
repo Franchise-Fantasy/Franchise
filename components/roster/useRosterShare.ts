@@ -3,6 +3,10 @@ import { useRef, useState } from 'react';
 import { Alert, View } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('useRosterShare');
+
 /**
  * Hook for capturing the roster as a shareable image.
  *
@@ -41,7 +45,7 @@ export function useRosterShare() {
         UTI: 'public.png',
       });
     } catch (err) {
-      console.error('[useRosterShare] capture failed', err);
+      logger.error('capture failed', err);
       Alert.alert('Could not share', 'Failed to capture your roster image. Please try again.');
     } finally {
       setIsSharing(false);

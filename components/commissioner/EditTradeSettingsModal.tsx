@@ -2,22 +2,17 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
   Alert,
-  Modal,
-  Pressable,
-  ScrollView,
   StyleSheet,
-  Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
 
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { BottomSheet } from '@/components/ui/BottomSheet';
+import { BrandButton } from '@/components/ui/BrandButton';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ToggleRow } from '@/components/ui/ToggleRow';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
 import { ms, s } from '@/utils/scale';
 
@@ -50,8 +45,7 @@ export function EditTradeSettingsModal({
   leagueId,
   teamCount,
 }: EditTradeSettingsModalProps) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const queryClient = useQueryClient();
 
   const [vetoType, setVetoType] = useState('Commissioner');
@@ -131,165 +125,114 @@ export function EditTradeSettingsModal({
   const maxDeadlineWeek = league?.regular_season_weeks ?? 20;
 
   return (
-    <Modal
+    <BottomSheet
       visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
+      onClose={onClose}
+      title="Trade Settings"
+      footer={
+        <View style={styles.footer}>
+          <BrandButton
+            label="Cancel"
+            variant="secondary"
+            size="large"
+            onPress={onClose}
+            fullWidth
+            style={styles.footerBtn}
+            accessibilityLabel="Cancel"
+          />
+          <BrandButton
+            label="Save"
+            variant="primary"
+            size="large"
+            onPress={handleSave}
+            loading={saving}
+            fullWidth
+            style={styles.footerBtn}
+            accessibilityLabel="Save"
+          />
+        </View>
+      }
     >
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable
-          style={[styles.sheet, { backgroundColor: c.card }]}
-          onPress={() => {}}
-          accessibilityViewIsModal={true}
-        >
-          {/* Handle */}
-          <View style={[styles.handle, { backgroundColor: c.border }]} />
+      {/* Veto Type */}
+      <View style={[styles.editRow, { borderBottomColor: c.border }]}>
+        <ThemedText style={styles.rowLabel}>Veto Type</ThemedText>
+      </View>
+      <View style={{ paddingVertical: s(8) }}>
+        <SegmentedControl
+          options={VETO_OPTIONS}
+          selectedIndex={vetoIndex >= 0 ? vetoIndex : 0}
+          onSelect={(i) => setVetoType(VETO_OPTIONS[i])}
+        />
+        <ThemedText style={[styles.helperText, { color: c.secondaryText, marginTop: s(6) }]}>
+          {vetoType === 'Commissioner'
+            ? 'Only the commissioner can veto trades during the review period.'
+            : vetoType === 'League Vote'
+              ? 'League members can vote to veto. The commissioner can also veto directly.'
+              : 'Trades are processed immediately with no review period.'}
+        </ThemedText>
+      </View>
 
-          {/* Title */}
-          <View style={styles.titleRow}>
-            <ThemedText accessibilityRole="header" style={styles.title}>Trade Settings</ThemedText>
-          </View>
+      {/* Review Period - shown when veto !== 'None' */}
+      {vetoType !== 'None' && (
+        <NumberStepper
+          label="Review Period (hours)"
+          value={reviewHours}
+          onValueChange={setReviewHours}
+          min={1}
+          max={72}
+        />
+      )}
 
-          <ScrollView
-            style={styles.scroll}
-            showsVerticalScrollIndicator={false}
-            nestedScrollEnabled
-          >
-            {/* Veto Type */}
-            <View style={[styles.editRow, { borderBottomColor: c.border }]}>
-              <ThemedText style={styles.rowLabel}>Veto Type</ThemedText>
-            </View>
-            <View style={{ paddingVertical: s(8) }}>
-              <SegmentedControl
-                options={VETO_OPTIONS}
-                selectedIndex={vetoIndex >= 0 ? vetoIndex : 0}
-                onSelect={(i) => setVetoType(VETO_OPTIONS[i])}
-              />
-              <ThemedText style={[styles.helperText, { color: c.secondaryText, marginTop: s(6) }]}>
-                {vetoType === 'Commissioner'
-                  ? 'Only the commissioner can veto trades during the review period.'
-                  : vetoType === 'League Vote'
-                    ? 'League members can vote to veto. The commissioner can also veto directly.'
-                    : 'Trades are processed immediately with no review period.'}
-              </ThemedText>
-            </View>
+      {/* Votes to Veto - shown when veto === 'League Vote' */}
+      {vetoType === 'League Vote' && (
+        <NumberStepper
+          label="Votes to Veto"
+          value={votesToVeto}
+          onValueChange={setVotesToVeto}
+          min={1}
+          max={teamCount - 1}
+        />
+      )}
 
-            {/* Review Period - shown when veto !== 'None' */}
-            {vetoType !== 'None' && (
-              <NumberStepper
-                label="Review Period (hours)"
-                value={reviewHours}
-                onValueChange={setReviewHours}
-                min={1}
-                max={72}
-              />
-            )}
+      {/* Pick Protections & Swaps */}
+      <ToggleRow
+        icon="shield-checkmark-outline"
+        label="Pick Protections & Swaps"
+        value={pickConditions}
+        onToggle={setPickConditions}
+        c={c}
+      />
 
-            {/* Votes to Veto - shown when veto === 'League Vote' */}
-            {vetoType === 'League Vote' && (
-              <NumberStepper
-                label="Votes to Veto"
-                value={votesToVeto}
-                onValueChange={setVotesToVeto}
-                min={1}
-                max={teamCount - 1}
-              />
-            )}
+      {/* League Intel */}
+      <ToggleRow
+        icon="megaphone-outline"
+        label="League Intel"
+        description="Automatically announce when multiple teams are bidding or interested in the same player"
+        value={autoRumors}
+        onToggle={setAutoRumors}
+        c={c}
+      />
 
-            {/* Pick Protections & Swaps */}
-            <ToggleRow
-              icon="shield-checkmark-outline"
-              label="Pick Protections & Swaps"
-              value={pickConditions}
-              onToggle={setPickConditions}
-              c={c}
-            />
-
-            {/* League Intel */}
-            <ToggleRow
-              icon="megaphone-outline"
-              label="League Intel"
-              description="Automatically announce when multiple teams are bidding or interested in the same player"
-              value={autoRumors}
-              onToggle={setAutoRumors}
-              c={c}
-            />
-
-            {/* Trade Deadline */}
-            <NumberStepper
-              label="Trade Deadline (Week)"
-              value={tradeDeadlineWeek}
-              onValueChange={setTradeDeadlineWeek}
-              min={0}
-              max={maxDeadlineWeek}
-            />
-            <ThemedText style={[styles.helperText, { color: c.secondaryText }]}>
-              {tradeDeadlineWeek === 0
-                ? 'No trade deadline — trades allowed all season.'
-                : `Trades lock after Week ${tradeDeadlineWeek}.`}
-            </ThemedText>
-          </ScrollView>
-
-          {/* Footer */}
-          <View style={styles.footer}>
-            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Cancel" style={[styles.btn, { backgroundColor: c.cardAlt }]} onPress={onClose}>
-              <ThemedText style={styles.btnText}>Cancel</ThemedText>
-            </TouchableOpacity>
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel="Save"
-              accessibilityState={{ disabled: saving }}
-              style={[
-                styles.btn,
-                { backgroundColor: saving ? c.buttonDisabled : c.accent },
-              ]}
-              onPress={handleSave}
-              disabled={saving}
-            >
-              {saving ? (
-                <LogoSpinner size={18} />
-              ) : (
-                <Text style={[styles.btnText, { color: c.accentText }]}>
-                  Save
-                </Text>
-              )}
-            </TouchableOpacity>
-          </View>
-        </Pressable>
-      </Pressable>
-    </Modal>
+      {/* Trade Deadline */}
+      <NumberStepper
+        label="Trade Deadline (Week)"
+        value={tradeDeadlineWeek}
+        onValueChange={setTradeDeadlineWeek}
+        min={0}
+        max={maxDeadlineWeek}
+      />
+      <ThemedText style={[styles.helperText, { color: c.secondaryText }]}>
+        {tradeDeadlineWeek === 0
+          ? 'No trade deadline — trades allowed all season.'
+          : `Trades lock after Week ${tradeDeadlineWeek}.`}
+      </ThemedText>
+    </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'transparent',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingTop: s(12),
-    paddingBottom: s(40),
-    maxHeight: '85%',
-  },
-  handle: {
-    width: s(40),
-    height: s(4),
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: s(12),
-  },
-  titleRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    paddingHorizontal: s(16),
-    marginBottom: s(16),
-  },
-  title: { fontSize: ms(17), fontWeight: '600' },
-  scroll: { flexShrink: 1, paddingHorizontal: s(16) },
+  footer: { flexDirection: 'row', gap: s(12) },
+  footerBtn: { flex: 1 },
   editRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -299,17 +242,4 @@ const styles = StyleSheet.create({
   },
   rowLabel: { fontSize: ms(14) },
   helperText: { fontSize: ms(13), marginTop: s(2) },
-  footer: {
-    flexDirection: 'row',
-    gap: s(12),
-    paddingHorizontal: s(16),
-    paddingTop: s(16),
-  },
-  btn: {
-    flex: 1,
-    paddingVertical: s(14),
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  btnText: { fontSize: ms(15), fontWeight: '600' },
 });

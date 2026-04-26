@@ -93,10 +93,16 @@ export function useTradeDetailActions({
       const vetoType = leagueSettings?.trade_veto_type ?? 'commissioner';
       const reviewHours = leagueSettings?.trade_review_period_hours ?? 24;
 
-      const { data: rpcResult, error: rpcError } = await supabase.rpc('accept_trade_proposal' as any, {
+      // p_drop_player_ids is generated as `string[]` in TS but the underlying SQL
+      // function treats NULL as "preserve existing drops" (COALESCE), distinct from
+      // an empty array which would overwrite. Cast on this arg only — the RPC name
+      // itself is now correctly typed.
+      const { data: rpcResult, error: rpcError } = await supabase.rpc('accept_trade_proposal', {
         p_proposal_id: proposal.id,
         p_team_id: teamId,
-        p_drop_player_ids: selectedDropPlayerIds.length > 0 ? selectedDropPlayerIds : null,
+        p_drop_player_ids: (selectedDropPlayerIds.length > 0
+          ? selectedDropPlayerIds
+          : null) as unknown as string[],
         p_veto_type: vetoType,
         p_review_hours: reviewHours,
       });

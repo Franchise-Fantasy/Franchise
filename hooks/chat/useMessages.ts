@@ -11,6 +11,7 @@ import { sendNotification } from '@/lib/notifications';
 import { capture, posthog } from '@/lib/posthog';
 import { supabase } from '@/lib/supabase';
 import type { ChatMessage, ChatMessageType } from '@/types/chat';
+import { logger } from '@/utils/logger';
 
 const PAGE_SIZE = 30;
 
@@ -93,7 +94,7 @@ export function useUnsendMessage(conversationId: string, leagueId: string) {
           context.previous,
         );
       }
-      console.error('Unsend message error:', err);
+      logger.error('Unsend message error', err);
       posthog.capture('$exception', {
         $exception_message: err instanceof Error ? err.message : String(err),
         $exception_type: 'ChatUnsendError',
@@ -169,7 +170,7 @@ export function useSendMessage(
           });
         }, (err: unknown) => {
           const message = err instanceof Error ? err.message : String(err);
-          console.warn('Chat push notification failed:', message);
+          logger.warn('Chat push notification failed', { message });
           posthog.capture('$exception', {
             $exception_message: message,
             $exception_type: 'ChatPushNotifyError',
@@ -219,7 +220,7 @@ export function useSendMessage(
         );
       }
       const errMessage = err instanceof Error ? err.message : String(err);
-      console.error('Send message error:', err);
+      logger.error('Send message error', err);
       posthog.capture('$exception', {
         $exception_message: errMessage,
         $exception_type: 'ChatSendError',

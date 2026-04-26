@@ -1,11 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Animated,
-  Image,
   Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -27,6 +27,7 @@ import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
 import { CURRENT_NBA_SEASON } from "@/constants/LeagueDefaults";
 import { queryKeys } from "@/constants/queryKeys";
+import { DialogHost, useConfirm } from "@/context/ConfirmProvider";
 import { useToast } from "@/context/ToastProvider";
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from "@/hooks/useColorScheme";
@@ -49,7 +50,7 @@ import {
   liveToGameLog,
   useLivePlayerStats,
 } from "@/utils/nba/nbaLive";
-import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
+import { getPlayerHeadshotUrl, getTeamLogoUrl, PLAYER_SILHOUETTE } from "@/utils/nba/playerHeadshot";
 import { isOnline } from "@/utils/network";
 import { addFreeAgent } from "@/utils/roster/addFreeAgent";
 import { guardIllegalIR } from "@/utils/roster/illegalIR";
@@ -105,6 +106,7 @@ export function PlayerDetailModal({
   const sport = useActiveLeagueSport(leagueId);
   const queryClient = useQueryClient();
   const { showToast } = useToast();
+  const confirm = useConfirm();
   const { isWatchlisted, toggleWatchlist } = useWatchlist();
 
   const [isProcessing, setIsProcessing] = useState(false);
@@ -1464,34 +1466,31 @@ export function PlayerDetailModal({
 
   const handlePromoteFromTaxi = () => {
     if (!teamId || !player) return;
-    Alert.alert(
-      "Promote from Taxi",
-      `Move ${player.name} to bench? This is permanent — they cannot return to the taxi squad.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Promote",
-          onPress: async () => {
-            setIsProcessing(true);
-            try {
-              const { error } = await supabase
-                .from("league_players")
-                .update({ roster_slot: "BE" })
-                .eq("league_id", leagueId)
-                .eq("team_id", teamId)
-                .eq("player_id", player.player_id);
-              if (error) throw error;
-              invalidateRosterQueries();
-              onClose();
-            } catch (err: any) {
-              Alert.alert("Error", err.message ?? "Failed to promote player");
-            } finally {
-              setIsProcessing(false);
-            }
-          },
+    confirm({
+      title: "Promote from Taxi",
+      message: `Move ${player.name} to bench? This is permanent — they cannot return to the taxi squad.`,
+      action: {
+        label: "Promote",
+        onPress: async () => {
+          setIsProcessing(true);
+          try {
+            const { error } = await supabase
+              .from("league_players")
+              .update({ roster_slot: "BE" })
+              .eq("league_id", leagueId)
+              .eq("team_id", teamId)
+              .eq("player_id", player.player_id);
+            if (error) throw error;
+            invalidateRosterQueries();
+            onClose();
+          } catch (err: any) {
+            Alert.alert("Error", err.message ?? "Failed to promote player");
+          } finally {
+            setIsProcessing(false);
+          }
         },
-      ],
-    );
+      },
+    });
   };
 
   const handleToggleTradeBlock = () => {
@@ -1502,17 +1501,14 @@ export function PlayerDetailModal({
       setTradeBlockPromptVisible(true);
     } else {
       // Removing
-      Alert.alert(
-        "Remove from Trade Block",
-        `Remove ${player.name} from the trade block?`,
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Remove",
-            onPress: () => submitTradeBlockUpdate(false, null),
-          },
-        ],
-      );
+      confirm({
+        title: "Remove from Trade Block",
+        message: `Remove ${player.name} from the trade block?`,
+        action: {
+          label: "Remove",
+          onPress: () => submitTradeBlockUpdate(false, null),
+        },
+      });
     }
   };
 
@@ -1675,13 +1671,14 @@ export function PlayerDetailModal({
                       ]}
                       accessibilityLabel={`${player.name} headshot`}
                     >
-                      {headshotUrl ? (
-                        <Image
-                          source={{ uri: headshotUrl }}
-                          style={styles.headerHeadshotImg}
-                          resizeMode="cover"
-                        />
-                      ) : null}
+                      <Image
+                        source={headshotUrl ? { uri: headshotUrl } : PLAYER_SILHOUETTE}
+                        style={styles.headerHeadshotImg}
+                        contentFit="cover"
+                        cachePolicy="memory-disk"
+                        recyclingKey={headshotUrl ?? "silhouette"}
+                        placeholder={PLAYER_SILHOUETTE}
+                      />
                     </View>
                   );
                 })()}
@@ -1786,7 +1783,9 @@ export function PlayerDetailModal({
                       <Image
                         source={{ uri: logoUrl }}
                         style={styles.modalTeamLogo}
-                        resizeMode="contain"
+                        contentFit="contain"
+                        cachePolicy="memory-disk"
+                        recyclingKey={logoUrl}
                       />
                     ) : null;
                   })()}
@@ -1892,31 +1891,25 @@ export function PlayerDetailModal({
                             accessibilityLabel={`Drop ${player.name}`}
                             onPress={() => {
                               if (playerGameStarted) {
-                                Alert.alert(
-                                  "Drop Player",
-                                  `${player.name}'s game has already started. Drop will be queued for tomorrow.`,
-                                  [
-                                    { text: "Cancel", style: "cancel" },
-                                    {
-                                      text: "Drop",
-                                      style: "destructive",
-                                      onPress: () => handleQueueDrop(),
-                                    },
-                                  ],
-                                );
+                                confirm({
+                                  title: "Drop Player",
+                                  message: `${player.name}'s game has already started. Drop will be queued for tomorrow.`,
+                                  action: {
+                                    label: "Drop",
+                                    destructive: true,
+                                    onPress: () => handleQueueDrop(),
+                                  },
+                                });
                               } else {
-                                Alert.alert(
-                                  "Drop Player",
-                                  `Are you sure you want to drop ${player.name}?`,
-                                  [
-                                    { text: "Cancel", style: "cancel" },
-                                    {
-                                      text: "Drop",
-                                      style: "destructive",
-                                      onPress: () => handleDropPlayer(),
-                                    },
-                                  ],
-                                );
+                                confirm({
+                                  title: "Drop Player",
+                                  message: `Are you sure you want to drop ${player.name}?`,
+                                  action: {
+                                    label: "Drop",
+                                    destructive: true,
+                                    onPress: () => handleDropPlayer(),
+                                  },
+                                });
                               }
                             }}
                             disabled={!canTransact}
@@ -2239,6 +2232,7 @@ export function PlayerDetailModal({
             />
           )}
         </Animated.View>
+        <DialogHost />
       </View>
     </Modal>
   );

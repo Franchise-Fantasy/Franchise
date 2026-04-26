@@ -9,6 +9,13 @@ interface BrandSegmentedProps<T extends string> {
   options: readonly T[];
   selected: T;
   onSelect: (value: T) => void;
+  /**
+   * Drop the hairline baseline that runs across the bottom of the bar.
+   * Default `false`. The baseline ties the chyron to content directly
+   * underneath (Legal tabs → document body); pages where the segmented
+   * sits in isolation (Auth) read better without it.
+   */
+  noBaseline?: boolean;
 }
 
 /**
@@ -25,12 +32,20 @@ export function BrandSegmented<T extends string>({
   options,
   selected,
   onSelect,
+  noBaseline = false,
 }: BrandSegmentedProps<T>) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
 
   return (
-    <View style={[styles.bar, { borderBottomColor: c.border }]}>
+    <View
+      style={[
+        styles.bar,
+        noBaseline
+          ? { borderBottomWidth: 0 }
+          : { borderBottomColor: c.border },
+      ]}
+    >
       {options.map((opt) => {
         const isSelected = opt === selected;
         return (

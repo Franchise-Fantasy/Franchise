@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 import { useAuthInitialized, useSession } from '@/context/AuthProvider';
+import { logger } from '@/utils/logger';
 
 import { supabase } from '../lib/supabase';
 
@@ -99,7 +100,7 @@ export const AppStateProvider = ({ children }: { children: React.ReactNode }) =>
         });
       } catch (err) {
         if (cancelled) return;
-        console.warn('AppStateProvider fetchTeam failed:', err);
+        logger.warn('AppStateProvider fetchTeam failed', err);
         setState((s) => ({ ...s, loading: false }));
       }
     };

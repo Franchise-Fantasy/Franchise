@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { bdlFetch, mapGameStatus, toIsoDuration, type Sport } from "../_shared/bdl.ts";
 import { pushActivityUpdate } from "../_shared/apns.ts";
 import { createLogger } from "../_shared/log.ts";
+import { recordHeartbeat } from "../_shared/heartbeat.ts";
 
 const log = createLogger("poll-live-stats");
 
@@ -82,23 +83,23 @@ async function dispatchPlayerTickerUpdates(
     scoringByLeague.set(sw.league_id, list);
   }
 
-  // For each active token, build player stat lines
+  // Build all the contentState payloads first, then push in parallel
+  const pushTasks: Array<Promise<unknown>> = [];
+
   for (const token of tokens) {
     const roster = rosterByTeam.get(token.team_id) ?? [];
     const weights = scoringByLeague.get(token.league_id) ?? [];
 
-    // Find rostered players with live stats
     const playerLines: any[] = [];
     for (const rp of roster) {
       const live = liveByPlayer.get(rp.player_id);
-      if (!live || live.game_status < 2) continue; // only live or final games
+      if (!live || live.game_status < 2) continue;
 
       const player = (rp as any).players;
       const firstName = player?.first_name ?? '';
       const lastName = player?.last_name ?? '';
       const name = firstName ? `${firstName.charAt(0)}. ${lastName}` : lastName;
 
-      // Compute fantasy points
       let fpts = 0;
       for (const w of weights) {
         if (!w.is_enabled) continue;
@@ -121,22 +122,17 @@ async function dispatchPlayerTickerUpdates(
       });
     }
 
-    // Sort by FPTS descending, take top 5
     playerLines.sort((a, b) => b.fantasyPoints - a.fantasyPoints);
     const top5 = playerLines.slice(0, 5);
 
-    // Find biggest contributor
     const biggest = top5[0];
     const biggestContributor = biggest
       ? `${biggest.name} ${biggest.statLine}`
       : '';
 
-    // Only push if there are live players to show
     if (top5.length === 0) continue;
 
     const contentState = {
-      // Scores are set by get-week-scores; we only update player lines here
-      // ActivityKit merges updates, so we include all fields
       myScore: 0,
       opponentScore: 0,
       scoreGap: 0,
@@ -146,11 +142,16 @@ async function dispatchPlayerTickerUpdates(
       players: top5,
     };
 
-    await pushActivityUpdate(supabase, 'matchup', {
-      schedule_id: token.schedule_id,
-      league_id: token.league_id,
-    }, contentState).catch(() => {});
+    pushTasks.push(
+      pushActivityUpdate(supabase, 'matchup', {
+        schedule_id: token.schedule_id,
+        league_id: token.league_id,
+      }, contentState).catch(() => {}),
+    );
   }
+
+  // Push all tokens in parallel — APNs is per-token so concurrency is fine
+  await Promise.all(pushTasks);
 }
 
 // Stat key mapping (matches get-week-scores)
@@ -203,6 +204,7 @@ Deno.serve(async (req: Request) => {
     const nowET = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
     const hour = nowET.getHours();
     if (hour >= 3 && hour < 10) {
+      await recordHeartbeat(supabase, `poll-live-stats:${sport}`, 'ok');
       return new Response(
         JSON.stringify({ ok: true, sport, skipped: true, reason: "off-hours (3-10am ET)" }),
         { status: 200, headers: { "Content-Type": "application/json" } },
@@ -233,6 +235,7 @@ Deno.serve(async (req: Request) => {
     });
 
     if (activeGames.length === 0) {
+      await recordHeartbeat(supabase, `poll-live-stats:${sport}`, 'ok');
       return new Response(
         JSON.stringify({ ok: true, games: 0, allGames: allGames.length }),
         { status: 200, headers: { "Content-Type": "application/json" } },
@@ -439,6 +442,7 @@ Deno.serve(async (req: Request) => {
       log.warn('Live activity ticker dispatch error (non-fatal)', { error: String(err) }),
     );
 
+    await recordHeartbeat(supabase, `poll-live-stats:${sport}`, 'ok');
     return new Response(
       JSON.stringify({
         ok: true,
@@ -454,6 +458,7 @@ Deno.serve(async (req: Request) => {
   } catch (err) {
     log.error("Unhandled error in poll-live-stats", err);
     const message = err instanceof Error ? err.message : String(err);
+    await recordHeartbeat(supabase, `poll-live-stats:${sport}`, 'error', message);
     return new Response(JSON.stringify({ error: message }), {
       status: 500,
     });

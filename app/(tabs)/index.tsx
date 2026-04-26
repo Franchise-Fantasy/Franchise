@@ -24,6 +24,7 @@ import { QuickNav } from '@/components/home/QuickNav';
 import { StandingsSection } from '@/components/home/StandingsSection';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { IconSymbol } from '@/components/ui/IconSymbol';
+import { type ModalAction } from '@/components/ui/InlineAction';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ThemedView } from '@/components/ui/ThemedView';
@@ -31,6 +32,7 @@ import { Colors, Fonts } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
 import { useSession } from '@/context/AuthProvider';
+import { useActionPicker, useConfirm } from '@/context/ConfirmProvider';
 import { useTotalUnread } from '@/hooks/chat';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeague } from '@/hooks/useLeague';
@@ -183,6 +185,8 @@ export default function HomeScreen() {
   const router = useRouter();
   const { data: unreadCount } = useTotalUnread();
   const [switcherVisible, setSwitcherVisible] = useState(false);
+  const pickAction = useActionPicker();
+  const confirm = useConfirm();
 
   // Draft schedule modal state — same pattern DraftSection used
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -683,57 +687,63 @@ export default function HomeScreen() {
 
   // ── Payment prompt (same UX as the old PaymentNudge) ───────────────
 
+  const promptMarkPaid = () => {
+    confirm({
+      title: 'Mark as Paid?',
+      message: 'The commissioner will be notified to confirm your payment.',
+      action: {
+        label: 'I Paid',
+        onPress: () => teamId && selfReport.mutate({ teamId }),
+      },
+    });
+  };
+
   const onPaymentPress = () => {
     if (!league || !teamId) return;
     const status =
       paymentLedger?.find((p) => p.team_id === teamId)?.status ?? 'unpaid';
     if (status === 'self_reported') return;
-
-    const buttons: {
-      text: string;
-      onPress?: () => void;
-      style?: 'cancel' | 'destructive';
-    }[] = [];
-    if (league.venmo_username) {
-      buttons.push({
-        text: 'Pay via Venmo',
+    const paymentActions: ModalAction[] = [
+      {
+        id: 'venmo',
+        label: 'Pay via Venmo',
+        icon: 'wallet-outline',
+        hidden: !league.venmo_username,
         onPress: () =>
           openPaymentConfirmed('venmo', league.venmo_username!, {
             amount: league.buy_in_amount!,
             note: `${league.name} buy-in`,
           }),
-      });
-    }
-    if (league.paypal_username) {
-      buttons.push({
-        text: 'Pay via PayPal',
+      },
+      {
+        id: 'paypal',
+        label: 'Pay via PayPal',
+        icon: 'card-outline',
+        hidden: !league.paypal_username,
         onPress: () =>
           openPaymentConfirmed('paypal', league.paypal_username!, {
             amount: league.buy_in_amount!,
           }),
-      });
-    }
-    if (league.cashapp_tag) {
-      buttons.push({
-        text: 'Pay via Cash App',
+      },
+      {
+        id: 'cashapp',
+        label: 'Pay via Cash App',
+        icon: 'cash-outline',
+        hidden: !league.cashapp_tag,
         onPress: () => openPaymentConfirmed('cashapp', league.cashapp_tag!),
-      });
-    }
-    buttons.push({
-      text: 'I Already Paid',
-      onPress: () =>
-        Alert.alert(
-          'Mark as Paid?',
-          'The commissioner will be notified to confirm your payment.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'I Paid', onPress: () => selfReport.mutate({ teamId }) },
-          ],
-        ),
+      },
+      {
+        id: 'mark-paid',
+        label: 'I Already Paid',
+        icon: 'checkmark-done-outline',
+        onPress: promptMarkPaid,
+      },
+    ];
+    pickAction({
+      title: league.buy_in_amount ? `$${league.buy_in_amount} Buy-In` : 'Buy-In',
+      subtitle: 'CHOOSE A PAYMENT OPTION',
+      actions: paymentActions,
     });
-    buttons.push({ text: 'Cancel', style: 'cancel' });
-
-    Alert.alert(`$${league.buy_in_amount} Buy-In`, 'Choose a payment option', buttons);
   };
 
   const handleChatPress = () => router.push('/chat');

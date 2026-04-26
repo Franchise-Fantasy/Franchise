@@ -37,7 +37,7 @@ export function TradeBlockPrompt({
   return (
     <KeyboardAvoidingView
       style={styles.tradeBlockPromptOverlay}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
       <View
         style={[styles.tradeBlockPromptCard, { backgroundColor: colors.card }]}

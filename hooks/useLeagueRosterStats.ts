@@ -12,7 +12,7 @@ export function useLeagueRosterStats(leagueId: string) {
   return useQuery<LeaguePlayerWithTeam[]>({
     queryKey: queryKeys.leagueRosterStats(leagueId),
     queryFn: async () => {
-      const { data, error } = await supabase.rpc('get_league_roster_stats' as any, {
+      const { data, error } = await supabase.rpc('get_league_roster_stats', {
         p_league_id: leagueId,
       });
       if (error) throw error;

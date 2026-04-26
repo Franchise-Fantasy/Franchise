@@ -42,12 +42,14 @@ import {
   STEP_LABELS,
   TIEBREAKER_TO_DB,
 } from "@/constants/LeagueDefaults";
+import { useConfirm } from "@/context/ConfirmProvider";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { generateDraftPicks, generateFutureDraftPicks } from "@/lib/draft";
 import { capture } from "@/lib/posthog";
 import { supabase } from "@/lib/supabase";
 import { calcLotteryPoolSize, defaultPlayoffTeams, getPlayoffTeamOptions } from "@/utils/league/lottery";
 import { sanitizeHandle } from "@/utils/league/paymentLinks";
+import { logger } from "@/utils/logger";
 import { containsBlockedContent } from "@/utils/moderation";
 import { ms, s } from "@/utils/scale";
 
@@ -214,6 +216,7 @@ export default function CreateLeague() {
   const router = useRouter();
   const scheme = useColorScheme() ?? "light";
   const c = Colors[scheme];
+  const confirm = useConfirm();
 
   const [state, dispatch] = useReducer(reducer, initialState);
   const [step, setStep] = useState(0);
@@ -239,23 +242,24 @@ export default function CreateLeague() {
         if (!saved || hasRestoredRef.current) return;
         const { state: savedState, step: savedStep } = JSON.parse(saved);
         if (!savedState?.name) return; // nothing meaningful saved
-        Alert.alert(
-          'Resume Progress?',
-          `You have a saved league "${savedState.name}" (step ${savedStep + 1}/${STEP_LABELS.length}). Continue where you left off?`,
-          [
-            { text: 'Start Over', style: 'destructive', onPress: () => AsyncStorage.removeItem(WIZARD_STORAGE_KEY) },
-            {
-              text: 'Resume',
-              onPress: () => {
-                // Replay saved state into the reducer
-                for (const [key, value] of Object.entries(savedState)) {
-                  dispatch({ type: 'SET_FIELD', field: key as keyof LeagueWizardState, value });
-                }
-                setStep(savedStep);
-              },
+        confirm({
+          title: 'Resume Progress?',
+          message: `You have a saved league "${savedState.name}" (step ${savedStep + 1}/${STEP_LABELS.length}). Continue where you left off?`,
+          cancelLabel: 'Start Over',
+          onCancel: () => {
+            AsyncStorage.removeItem(WIZARD_STORAGE_KEY).catch(() => {});
+          },
+          action: {
+            label: 'Resume',
+            onPress: () => {
+              // Replay saved state into the reducer
+              for (const [key, value] of Object.entries(savedState)) {
+                dispatch({ type: 'SET_FIELD', field: key as keyof LeagueWizardState, value });
+              }
+              setStep(savedStep);
             },
-          ],
-        );
+          },
+        });
         hasRestoredRef.current = true;
       } catch {}
     })();
@@ -267,7 +271,7 @@ export default function CreateLeague() {
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       AsyncStorage.setItem(WIZARD_STORAGE_KEY, JSON.stringify({ state: s, step: currentStep })).catch((e) =>
-        console.warn('Persist create-league wizard state failed:', e),
+        logger.warn('Persist create-league wizard state failed', e),
       );
     }, 500);
   }, []);
@@ -455,8 +459,14 @@ export default function CreateLeague() {
       .single();
 
     if (leagueError) {
-      console.error(leagueError);
-      Alert.alert("Failed to create league.");
+      logger.error('Create league insert failed', leagueError);
+      // Per-user cap trigger and other constraint violations surface
+      // human-readable messages — show them rather than swallowing into a
+      // generic alert.
+      const friendly = (leagueError as any).code === '23514' || /maximum of \d+ leagues/i.test(leagueError.message)
+        ? leagueError.message
+        : 'Failed to create league.';
+      Alert.alert(friendly);
       setLoading(false);
       return;
     }
@@ -475,7 +485,7 @@ export default function CreateLeague() {
       .insert(rosterRows);
 
     if (rosterError) {
-      console.error(rosterError);
+      logger.error('League roster config insert failed', rosterError);
       Alert.alert("League created but failed to save roster config.");
     }
 
@@ -503,7 +513,7 @@ export default function CreateLeague() {
       .insert(scoringRows);
 
     if (scoringError) {
-      console.error(scoringError);
+      logger.error('League scoring settings insert failed', scoringError);
       Alert.alert("League created but failed to save scoring settings.");
     }
 
@@ -524,7 +534,7 @@ export default function CreateLeague() {
       .single();
 
     if (draftError) {
-      console.error(draftError);
+      logger.error('Initial draft insert failed', draftError);
       Alert.alert("League created but failed to create draft.");
       setLoading(false);
       return;
@@ -557,12 +567,14 @@ export default function CreateLeague() {
     Promise.allSettled(pickPromises).then((results) => {
       const failed = results.filter((r) => r.status === 'rejected');
       if (failed.length > 0) {
-        console.error('Error generating draft picks:', failed.map((f) => (f as PromiseRejectedResult).reason));
+        logger.error('Error generating draft picks', undefined, {
+          reasons: failed.map((f) => String((f as PromiseRejectedResult).reason)),
+        });
       }
     });
 
     AsyncStorage.removeItem(WIZARD_STORAGE_KEY).catch((e) =>
-      console.warn('Clear create-league wizard storage failed:', e),
+      logger.warn('Clear create-league wizard storage failed', e),
     );
 
     capture('league_created', {
@@ -582,18 +594,12 @@ export default function CreateLeague() {
   };
 
   const handleCancel = () => {
-    Alert.alert(
-      'Exit League Creation?',
-      'Your progress has been saved and you can resume later.',
-      [
-        { text: 'Keep Editing', style: 'cancel' },
-        {
-          text: 'Exit',
-          style: 'destructive',
-          onPress: () => router.back(),
-        },
-      ],
-    );
+    confirm({
+      title: 'Exit League Creation?',
+      message: 'Your progress has been saved and you can resume later.',
+      cancelLabel: 'Keep Editing',
+      action: { label: 'Exit', destructive: true, onPress: () => router.back() },
+    });
   };
 
   return (

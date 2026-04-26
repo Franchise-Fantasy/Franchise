@@ -1,12 +1,14 @@
+import { Image, type ImageContentFit, type ImageSource } from "expo-image";
 import { useEffect, useRef } from "react";
 import {
   Animated,
-  type ImageResizeMode,
   type StyleProp,
   type ImageStyle,
   Text,
   View,
 } from "react-native";
+
+import { PLAYER_SILHOUETTE } from "@/utils/nba/playerHeadshot";
 
 import { freeAgentListStyles as styles } from "./freeAgentListStyles";
 
@@ -142,25 +144,23 @@ export function SkeletonRibbon({ color }: { color: string }) {
 export function FadeInImage({
   uri,
   style,
-  resizeMode,
+  contentFit = "cover",
+  placeholder = PLAYER_SILHOUETTE,
 }: {
-  uri: string;
+  uri: string | null | undefined;
   style: StyleProp<ImageStyle>;
-  resizeMode: ImageResizeMode;
+  contentFit?: ImageContentFit;
+  placeholder?: ImageSource | number;
 }) {
-  const opacity = useRef(new Animated.Value(0)).current;
   return (
-    <Animated.Image
-      source={{ uri }}
-      style={[style, { opacity }]}
-      resizeMode={resizeMode}
-      onLoad={() => {
-        Animated.timing(opacity, {
-          toValue: 1,
-          duration: 250,
-          useNativeDriver: true,
-        }).start();
-      }}
+    <Image
+      source={uri ? { uri } : placeholder}
+      style={style}
+      contentFit={contentFit}
+      cachePolicy="memory-disk"
+      recyclingKey={uri ?? "silhouette"}
+      placeholder={placeholder}
+      transition={250}
     />
   );
 }

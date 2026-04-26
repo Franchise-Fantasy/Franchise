@@ -2,11 +2,15 @@
  * Shared balldontlie API helper for edge functions.
  *
  * All BDL requests go through these helpers so auth, error handling,
- * pagination, and sport-namespacing are handled in one place.
+ * pagination, sport-namespacing, AND retry/backoff are handled in one
+ * place. Transient 5xx/429s recover within the same cron tick instead
+ * of skipping the whole cycle.
  *
  * BDL exposes NBA at `/v1` and WNBA at `/wnba/v1` with the same auth and
  * response shapes — callers pass `sport` and we route accordingly.
  */
+
+import { fetchWithRetry } from './retry.ts';
 
 export type Sport = "nba" | "wnba";
 
@@ -30,16 +34,13 @@ export async function bdlFetch(
     }
   }
 
-  const res = await fetch(url.toString(), {
-    headers: { Authorization: BDL_API_KEY },
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(
-      `BDL ${sport}${path} returned ${res.status}: ${text.slice(0, 200)}`,
-    );
-  }
+  // fetchWithRetry throws on non-2xx after exhausting retries; treat the
+  // thrown error as the final outcome.
+  const res = await fetchWithRetry(
+    url.toString(),
+    { headers: { Authorization: BDL_API_KEY } },
+    { attempts: 3, baseMs: 250, maxMs: 2000 },
+  );
 
   return res.json();
 }

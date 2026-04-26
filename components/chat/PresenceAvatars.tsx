@@ -11,9 +11,9 @@ import Animated, {
 } from "react-native-reanimated";
 
 import { TeamLogo } from "@/components/team/TeamLogo";
-import { Colors } from "@/constants/Colors";
+import { Fonts } from "@/constants/Colors";
 import type { ReadReceipt } from "@/hooks/chat/useReadReceipts";
-import { useColorScheme } from "@/hooks/useColorScheme";
+import { useColors } from "@/hooks/useColors";
 import { ms, s } from "@/utils/scale";
 
 interface PresenceAvatarsProps {
@@ -55,8 +55,7 @@ export function PresenceAvatars({
   myTricode,
   onPress,
 }: PresenceAvatarsProps) {
-  const scheme = useColorScheme() ?? "light";
-  const c = Colors[scheme];
+  const c = useColors();
 
   // Stable join-order: first arrival leftmost, newest on the right.
   // We defer adding self until presence has synced so that teams already
@@ -305,7 +304,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   overflowText: {
-    fontSize: ms(11),
-    fontWeight: "700",
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(10),
+    letterSpacing: 0.6,
   },
 });

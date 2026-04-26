@@ -9,6 +9,7 @@ import {
 
 import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { ThemedText } from "@/components/ui/ThemedText";
+import { DialogHost, useConfirm } from "@/context/ConfirmProvider";
 import { PlayerSeasonStats } from "@/types/player";
 import { formatPosition } from "@/utils/formatting";
 import { GameTimeMap, isGameStarted } from "@/utils/nba/gameStarted";
@@ -65,6 +66,7 @@ export function DropPickerModal({
   onDropPlayer,
   onSubmitWaiverClaim,
 }: DropPickerModalProps) {
+  const confirm = useConfirm();
   const dropCandidates = (rosterPlayers ?? []).filter(
     (p) => playerLockType === "daily" || !isGameStarted(p.pro_team, gameTimeMap),
   );
@@ -91,68 +93,56 @@ export function DropPickerModal({
         accessibilityLabel={`Drop ${item.name}, ${formatPosition(item.position)}, ${item.pro_team}${fpts !== null ? `, ${fpts} fantasy points` : ""}`}
         onPress={() => {
           if (activateFromIR) {
-            Alert.alert(
-              "Confirm Transaction",
-              `Drop ${item.name} to activate ${player.name} from IR?`,
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Confirm",
-                  style: "destructive",
-                  onPress: () => onDropAndActivateFromIR(item),
-                },
-              ],
-            );
+            confirm({
+              title: "Confirm Transaction",
+              message: `Drop ${item.name} to activate ${player.name} from IR?`,
+              action: {
+                label: "Confirm",
+                destructive: true,
+                onPress: () => onDropAndActivateFromIR(item),
+              },
+            });
           } else if (onDropForClaim) {
-            Alert.alert(
-              "Select Drop for Claim",
-              `Drop ${item.name} when your claim for ${player.name} processes?`,
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Confirm",
-                  onPress: () => {
-                    onDropForClaim(item);
-                    onClose();
-                  },
+            confirm({
+              title: "Select Drop for Claim",
+              message: `Drop ${item.name} when your claim for ${player.name} processes?`,
+              action: {
+                label: "Confirm",
+                onPress: () => {
+                  onDropForClaim(item);
+                  onClose();
                 },
-              ],
-            );
+              },
+            });
           } else if (needsWaiverClaim) {
-            Alert.alert(
-              "Select Drop for Claim",
-              `Drop ${item.name} when your claim for ${player.name} processes?`,
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Submit Claim",
-                  onPress: async () => {
-                    try {
-                      await onSubmitWaiverClaim(item.player_id);
-                      onClose();
-                    } catch (err: any) {
-                      Alert.alert(
-                        "Error",
-                        err.message ?? "Failed to submit claim",
-                      );
-                    }
-                  },
+            confirm({
+              title: "Select Drop for Claim",
+              message: `Drop ${item.name} when your claim for ${player.name} processes?`,
+              action: {
+                label: "Submit Claim",
+                onPress: async () => {
+                  try {
+                    await onSubmitWaiverClaim(item.player_id);
+                    onClose();
+                  } catch (err: any) {
+                    Alert.alert(
+                      "Error",
+                      err.message ?? "Failed to submit claim",
+                    );
+                  }
                 },
-              ],
-            );
+              },
+            });
           } else {
-            Alert.alert(
-              "Confirm Transaction",
-              `Drop ${item.name} to add ${player.name}?`,
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Confirm",
-                  style: "destructive",
-                  onPress: () => onDropPlayer(item),
-                },
-              ],
-            );
+            confirm({
+              title: "Confirm Transaction",
+              message: `Drop ${item.name} to add ${player.name}?`,
+              action: {
+                label: "Confirm",
+                destructive: true,
+                onPress: () => onDropPlayer(item),
+              },
+            });
           }
         }}
         disabled={isProcessing}
@@ -243,6 +233,7 @@ export function DropPickerModal({
             />
           )}
         </Animated.View>
+        <DialogHost />
       </View>
     </Modal>
   );

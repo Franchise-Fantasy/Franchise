@@ -2,9 +2,9 @@ import { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Fonts } from '@/constants/Colors';
 import type { ReadReceipt } from '@/hooks/chat/useReadReceipts';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { ms, s } from '@/utils/scale';
 
 interface Props {
@@ -15,8 +15,7 @@ interface Props {
 }
 
 export function ReadReceiptIndicator({ isDM, readers }: Props) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const opacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -36,7 +35,7 @@ export function ReadReceiptIndicator({ isDM, readers }: Props) {
           style={[styles.seenText, { color: c.secondaryText }]}
           accessibilityLabel="Message seen"
         >
-          Seen
+          SEEN
         </ThemedText>
       </Animated.View>
     );
@@ -76,8 +75,9 @@ const styles = StyleSheet.create({
     paddingRight: s(4),
   },
   seenText: {
-    fontSize: ms(11),
-    fontWeight: '500',
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(9),
+    letterSpacing: 1.0,
   },
   tricodeBadge: {
     paddingHorizontal: s(6),
@@ -85,7 +85,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   tricodeText: {
-    fontSize: ms(10),
-    fontWeight: '600',
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(9),
+    letterSpacing: 0.8,
   },
 });

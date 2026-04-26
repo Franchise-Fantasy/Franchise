@@ -3,30 +3,27 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { useState } from 'react';
 import {
   Alert,
-  KeyboardAvoidingView,
-  Modal,
   Platform,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 
+import { BottomSheet } from '@/components/ui/BottomSheet';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ToggleRow } from '@/components/ui/ToggleRow';
-import { Colors } from '@/constants/Colors';
+import { Brand, Fonts } from '@/constants/Colors';
 import { useToast } from '@/context/ToastProvider';
 import { useCreateSurvey } from '@/hooks/chat/useSurveys';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { capture } from '@/lib/posthog';
 import type { SurveyQuestionType } from '@/types/survey';
 import { containsBlockedContent } from '@/utils/moderation';
 import { ms, s } from '@/utils/scale';
-
 
 const PRESETS = [
   { label: '24 hours', hours: 24 },
@@ -74,8 +71,7 @@ export function CreateSurveyModal({
   teamId,
   onClose,
 }: Props) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const { showToast } = useToast();
   const createSurvey = useCreateSurvey();
 
@@ -209,7 +205,7 @@ export function CreateSurveyModal({
       ...questions.flatMap((q) => [q.prompt.trim(), ...q.options.map((o) => o.trim())]),
     ].join(' ');
     if (containsBlockedContent(allText)) {
-      Alert.alert('Content blocked', 'Your survey contains language that isn\u2019t allowed.');
+      Alert.alert('Content blocked', 'Your survey contains language that isn’t allowed.');
       return;
     }
 
@@ -244,405 +240,380 @@ export function CreateSurveyModal({
   }
 
   return (
-    <Modal
+    <BottomSheet
       visible={visible}
-      animationType="slide"
-      presentationStyle="fullScreen"
-      onRequestClose={handleClose}
-    >
-      <View style={[styles.root, { backgroundColor: c.card }]} accessibilityViewIsModal>
-        {/* Header */}
-        <View style={[styles.topBar, { borderBottomColor: c.border }]}>
-          <TouchableOpacity
-            onPress={handleClose}
-            accessibilityRole="button"
-            accessibilityLabel="Close"
-          >
-            <Ionicons name="close" size={24} color={c.text} />
-          </TouchableOpacity>
-          <ThemedText accessibilityRole="header" type="subtitle">
-            Create Survey
-          </ThemedText>
-          <View style={{ width: s(24) }} />
-        </View>
-
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      onClose={handleClose}
+      title="Create Survey"
+      height="92%"
+      keyboardAvoiding
+      footer={
+        <TouchableOpacity
+          onPress={handleCreate}
+          disabled={!canSubmit}
+          style={[
+            styles.createBtn,
+            { backgroundColor: canSubmit ? c.gold : c.buttonDisabled },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Create survey"
+          accessibilityState={{ disabled: !canSubmit }}
         >
-          <ScrollView
-            style={styles.scroll}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-          >
-            {/* Title */}
-            <ThemedText style={[styles.label, { color: c.text }]}>Title</ThemedText>
-            <TextInput
-              accessibilityLabel="Survey title"
-              style={[styles.input, { color: c.text, backgroundColor: c.cardAlt, borderColor: c.border }]}
-              placeholder="What's this survey about?"
-              placeholderTextColor={c.secondaryText}
-              value={title}
-              onChangeText={(t) => setTitle(t.slice(0, 200))}
-              maxLength={200}
-              autoFocus
-            />
-            <ThemedText style={[styles.counter, { color: c.secondaryText }]}>
-              {title.length}/200
+          {createSurvey.isPending ? (
+            <LogoSpinner size={18} />
+          ) : (
+            <ThemedText style={[styles.createBtnText, { color: Brand.ink }]}>
+              CREATE SURVEY
+            </ThemedText>
+          )}
+        </TouchableOpacity>
+      }
+    >
+      {/* Title */}
+      <ThemedText type="varsitySmall" style={[styles.label, { color: c.secondaryText }]}>
+        TITLE
+      </ThemedText>
+      <TextInput
+        accessibilityLabel="Survey title"
+        style={[styles.input, { color: c.text, backgroundColor: c.input, borderColor: c.border }]}
+        placeholder="What's this survey about?"
+        placeholderTextColor={c.secondaryText}
+        value={title}
+        onChangeText={(t) => setTitle(t.slice(0, 200))}
+        maxLength={200}
+      />
+      <ThemedText style={[styles.counter, { color: c.secondaryText }]}>
+        {title.length}/200
+      </ThemedText>
+
+      {/* Description */}
+      <ThemedText
+        type="varsitySmall"
+        style={[styles.label, styles.labelSpaced, { color: c.secondaryText }]}
+      >
+        DESCRIPTION (OPTIONAL)
+      </ThemedText>
+      <TextInput
+        accessibilityLabel="Survey description"
+        style={[styles.input, styles.multiline, { color: c.text, backgroundColor: c.input, borderColor: c.border }]}
+        placeholder="Add context or instructions…"
+        placeholderTextColor={c.secondaryText}
+        value={description}
+        onChangeText={(t) => setDescription(t.slice(0, 1000))}
+        multiline
+        maxLength={1000}
+        textAlignVertical="top"
+      />
+
+      {/* Questions */}
+      <View style={[styles.sectionHeader, { borderTopColor: c.border }]}>
+        <ThemedText type="varsitySmall" style={[styles.sectionTitle, { color: c.gold }]}>
+          QUESTIONS · {questions.length}/20
+        </ThemedText>
+      </View>
+
+      {questions.map((q, qIdx) => (
+        <View
+          key={qIdx}
+          style={[styles.questionCard, { backgroundColor: c.cardAlt, borderColor: c.border }]}
+        >
+          {/* Question header */}
+          <View style={styles.questionHeader}>
+            <ThemedText style={[styles.questionNum, { color: c.gold }]}>
+              Q{qIdx + 1}
             </ThemedText>
 
-            {/* Description */}
-            <ThemedText style={[styles.label, { color: c.text, marginTop: s(12) }]}>
-              Description (optional)
-            </ThemedText>
-            <TextInput
-              accessibilityLabel="Survey description"
-              style={[styles.input, styles.multiline, { color: c.text, backgroundColor: c.cardAlt, borderColor: c.border }]}
-              placeholder="Add context or instructions…"
-              placeholderTextColor={c.secondaryText}
-              value={description}
-              onChangeText={(t) => setDescription(t.slice(0, 1000))}
-              multiline
-              maxLength={1000}
-              textAlignVertical="top"
-            />
-
-            {/* Questions */}
-            <View style={[styles.sectionHeader, { borderTopColor: c.border, marginTop: s(16) }]}>
-              <ThemedText style={[styles.sectionTitle, { color: c.text }]}>
-                Questions ({questions.length}/20)
-              </ThemedText>
-            </View>
-
-            {questions.map((q, qIdx) => (
-              <View
-                key={qIdx}
-                style={[styles.questionCard, { backgroundColor: c.cardAlt, borderColor: c.border }]}
-              >
-                {/* Question header */}
-                <View style={styles.questionHeader}>
-                  <ThemedText style={[styles.questionNum, { color: c.accent }]}>
-                    Q{qIdx + 1}
-                  </ThemedText>
-
-                  <View style={styles.questionActions}>
-                    <TouchableOpacity
-                      onPress={() => moveQuestion(qIdx, -1)}
-                      disabled={qIdx === 0}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Move question ${qIdx + 1} up`}
-                      hitSlop={6}
-                    >
-                      <Ionicons
-                        name="chevron-up"
-                        size={18}
-                        color={qIdx === 0 ? c.border : c.text}
-                      />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() => moveQuestion(qIdx, 1)}
-                      disabled={qIdx === questions.length - 1}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Move question ${qIdx + 1} down`}
-                      hitSlop={6}
-                    >
-                      <Ionicons
-                        name="chevron-down"
-                        size={18}
-                        color={qIdx === questions.length - 1 ? c.border : c.text}
-                      />
-                    </TouchableOpacity>
-                    {questions.length > 1 && (
-                      <TouchableOpacity
-                        onPress={() => removeQuestion(qIdx)}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Remove question ${qIdx + 1}`}
-                        hitSlop={6}
-                      >
-                        <Ionicons name="trash-outline" size={16} color={c.secondaryText} />
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                </View>
-
-                {/* Type selector */}
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={styles.typeScroll}
-                >
-                  {QUESTION_TYPES.map((qt) => (
-                    <TouchableOpacity
-                      key={qt.value}
-                      onPress={() => {
-                        updateQuestion(qIdx, { type: qt.value });
-                        // Reset options when switching to a type that doesn't need them
-                        if (!needsOptions(qt.value)) {
-                          updateQuestion(qIdx, { type: qt.value, options: ['', ''] });
-                        }
-                        // Ensure ranked choice has at least 3 options
-                        if (qt.value === 'ranked_choice' && q.options.length < 3) {
-                          updateQuestion(qIdx, {
-                            type: qt.value,
-                            options: [...q.options, ...Array(3 - q.options.length).fill('')],
-                          });
-                        }
-                      }}
-                      style={[
-                        styles.typeChip,
-                        {
-                          backgroundColor: q.type === qt.value ? c.accent : c.card,
-                          borderColor: q.type === qt.value ? c.accent : c.border,
-                        },
-                      ]}
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected: q.type === qt.value }}
-                      accessibilityLabel={qt.label}
-                    >
-                      <Text
-                        style={{
-                          color: q.type === qt.value ? c.statusText : c.text,
-                          fontSize: ms(12),
-                          fontWeight: '600',
-                        }}
-                      >
-                        {qt.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-
-                {/* Prompt */}
-                <TextInput
-                  accessibilityLabel={`Question ${qIdx + 1} prompt`}
-                  style={[styles.qInput, { color: c.text, backgroundColor: c.card, borderColor: c.border }]}
-                  placeholder="Ask a question…"
-                  placeholderTextColor={c.secondaryText}
-                  value={q.prompt}
-                  onChangeText={(t) => updateQuestion(qIdx, { prompt: t.slice(0, 500) })}
-                  multiline
-                  maxLength={500}
-                  textAlignVertical="top"
-                />
-
-                {/* Options (for MC and ranked choice) */}
-                {needsOptions(q.type) && (
-                  <View style={styles.optionsSection}>
-                    {q.options.map((opt, oIdx) => (
-                      <View key={oIdx} style={styles.optionInputRow}>
-                        <TextInput
-                          accessibilityLabel={`Question ${qIdx + 1}, option ${oIdx + 1}`}
-                          style={[
-                            styles.optionInput,
-                            { color: c.text, backgroundColor: c.card, borderColor: c.border },
-                          ]}
-                          placeholder={`Option ${oIdx + 1}`}
-                          placeholderTextColor={c.secondaryText}
-                          value={opt}
-                          onChangeText={(t) => updateOption(qIdx, oIdx, t)}
-                          maxLength={200}
-                        />
-                        {q.options.length > 2 && (
-                          <TouchableOpacity
-                            onPress={() => removeOption(qIdx, oIdx)}
-                            accessibilityRole="button"
-                            accessibilityLabel={`Remove option ${oIdx + 1}`}
-                          >
-                            <Ionicons name="close-circle" size={20} color={c.secondaryText} />
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                    ))}
-                    {q.options.length < 10 && (
-                      <TouchableOpacity
-                        onPress={() => addOption(qIdx)}
-                        style={styles.addOptBtn}
-                        accessibilityRole="button"
-                        accessibilityLabel="Add option"
-                      >
-                        <Ionicons name="add-circle-outline" size={18} color={c.accent} />
-                        <ThemedText style={[styles.addOptText, { color: c.accent }]}>
-                          Add Option
-                        </ThemedText>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                )}
-
-                {/* Required toggle */}
-                <ToggleRow
-                  icon="alert-circle-outline"
-                  label="Required"
-                  description=""
-                  value={q.required}
-                  onToggle={(v) => updateQuestion(qIdx, { required: v })}
-                  c={c}
-                />
-              </View>
-            ))}
-
-            {/* Add question */}
-            {questions.length < 20 && (
+            <View style={styles.questionActions}>
               <TouchableOpacity
-                onPress={addQuestion}
-                style={[styles.addQuestionBtn, { borderColor: c.border }]}
+                onPress={() => moveQuestion(qIdx, -1)}
+                disabled={qIdx === 0}
                 accessibilityRole="button"
-                accessibilityLabel="Add another question"
+                accessibilityLabel={`Move question ${qIdx + 1} up`}
+                hitSlop={6}
               >
-                <Ionicons name="add-circle-outline" size={22} color={c.accent} />
-                <ThemedText style={[styles.addQuestionText, { color: c.accent }]}>
-                  Add Question
-                </ThemedText>
+                <Ionicons
+                  name="chevron-up"
+                  size={ms(18)}
+                  color={qIdx === 0 ? c.border : c.text}
+                  accessible={false}
+                />
               </TouchableOpacity>
-            )}
-
-            {/* Results visibility */}
-            <View style={[styles.sectionHeader, { borderTopColor: c.border, marginTop: s(16) }]}>
-              <ThemedText style={[styles.label, { color: c.text }]}>
-                Results Visibility
-              </ThemedText>
-            </View>
-            <SegmentedControl
-              options={VISIBILITY_OPTIONS}
-              selectedIndex={visIdx}
-              onSelect={setVisIdx}
-            />
-
-            {/* Closing time */}
-            <ThemedText style={[styles.label, { color: c.text, marginTop: s(16) }]}>
-              Closing Time
-            </ThemedText>
-            <View style={styles.presets}>
-              {PRESETS.map((p, idx) => (
-                <TouchableOpacity
-                  key={p.label}
-                  onPress={() => selectPreset(idx)}
-                  style={[
-                    styles.presetChip,
-                    {
-                      backgroundColor: presetIdx === idx ? c.accent : c.cardAlt,
-                      borderColor: presetIdx === idx ? c.accent : c.border,
-                    },
-                  ]}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: presetIdx === idx }}
-                  accessibilityLabel={`Close survey in ${p.label}`}
-                >
-                  <Text
-                    style={{
-                      color: presetIdx === idx ? c.statusText : c.text,
-                      fontSize: ms(13),
-                      fontWeight: '600',
-                    }}
-                  >
-                    {p.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
               <TouchableOpacity
-                onPress={handleCustomPress}
+                onPress={() => moveQuestion(qIdx, 1)}
+                disabled={qIdx === questions.length - 1}
+                accessibilityRole="button"
+                accessibilityLabel={`Move question ${qIdx + 1} down`}
+                hitSlop={6}
+              >
+                <Ionicons
+                  name="chevron-down"
+                  size={ms(18)}
+                  color={qIdx === questions.length - 1 ? c.border : c.text}
+                  accessible={false}
+                />
+              </TouchableOpacity>
+              {questions.length > 1 && (
+                <TouchableOpacity
+                  onPress={() => removeQuestion(qIdx)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove question ${qIdx + 1}`}
+                  hitSlop={6}
+                >
+                  <Ionicons name="trash-outline" size={ms(16)} color={c.secondaryText} accessible={false} />
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+
+          {/* Type selector */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.typeScroll}
+          >
+            {QUESTION_TYPES.map((qt) => (
+              <TouchableOpacity
+                key={qt.value}
+                onPress={() => {
+                  updateQuestion(qIdx, { type: qt.value });
+                  if (!needsOptions(qt.value)) {
+                    updateQuestion(qIdx, { type: qt.value, options: ['', ''] });
+                  }
+                  if (qt.value === 'ranked_choice' && q.options.length < 3) {
+                    updateQuestion(qIdx, {
+                      type: qt.value,
+                      options: [...q.options, ...Array(3 - q.options.length).fill('')],
+                    });
+                  }
+                }}
                 style={[
-                  styles.presetChip,
+                  styles.typeChip,
                   {
-                    backgroundColor: customDate ? c.accent : c.cardAlt,
-                    borderColor: customDate ? c.accent : c.border,
+                    backgroundColor: q.type === qt.value ? c.gold : c.card,
+                    borderColor: q.type === qt.value ? c.gold : c.border,
                   },
                 ]}
                 accessibilityRole="radio"
-                accessibilityState={{ selected: !!customDate }}
-                accessibilityLabel="Set custom closing time"
+                accessibilityState={{ selected: q.type === qt.value }}
+                accessibilityLabel={qt.label}
               >
-                <Text
-                  style={{
-                    color: customDate ? c.statusText : c.text,
-                    fontSize: ms(13),
-                    fontWeight: '600',
-                  }}
+                <ThemedText
+                  style={[
+                    styles.typeChipText,
+                    { color: q.type === qt.value ? Brand.ink : c.text },
+                  ]}
                 >
-                  Custom
-                </Text>
+                  {qt.label.toUpperCase()}
+                </ThemedText>
               </TouchableOpacity>
-            </View>
-            {showDatePicker && (
-              <DateTimePicker
-                value={customDate ?? new Date()}
-                mode="datetime"
-                minimumDate={new Date()}
-                onChange={(_, date) => {
-                  if (Platform.OS === 'android') setShowDatePicker(false);
-                  if (date) setCustomDate(date);
-                }}
-                display={Platform.OS === 'ios' ? 'inline' : 'default'}
-              />
-            )}
-            {closesAt && (
-              <ThemedText style={[styles.closesLabel, { color: c.secondaryText }]}>
-                Closes: {closesAt.toLocaleString()}
-              </ThemedText>
-            )}
-
-            {/* Spacer for bottom button */}
-            <View style={{ height: s(80) }} />
+            ))}
           </ScrollView>
-        </KeyboardAvoidingView>
 
-        {/* Create button */}
-        <View style={[styles.bottomBar, { backgroundColor: c.card, borderTopColor: c.border }]}>
-          <TouchableOpacity
-            onPress={handleCreate}
-            disabled={!canSubmit}
-            style={[
-              styles.createBtn,
-              { backgroundColor: canSubmit ? c.accent : c.buttonDisabled },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="Create survey"
-            accessibilityState={{ disabled: !canSubmit }}
-          >
-            {createSurvey.isPending ? (
-              <LogoSpinner size={18} />
-            ) : (
-              <Text style={[styles.createBtnText, { color: c.statusText }]}>Create Survey</Text>
-            )}
-          </TouchableOpacity>
+          {/* Prompt */}
+          <TextInput
+            accessibilityLabel={`Question ${qIdx + 1} prompt`}
+            style={[styles.qInput, { color: c.text, backgroundColor: c.card, borderColor: c.border }]}
+            placeholder="Ask a question…"
+            placeholderTextColor={c.secondaryText}
+            value={q.prompt}
+            onChangeText={(t) => updateQuestion(qIdx, { prompt: t.slice(0, 500) })}
+            multiline
+            maxLength={500}
+            textAlignVertical="top"
+          />
+
+          {/* Options (for MC and ranked choice) */}
+          {needsOptions(q.type) && (
+            <View style={styles.optionsSection}>
+              {q.options.map((opt, oIdx) => (
+                <View key={oIdx} style={styles.optionInputRow}>
+                  <TextInput
+                    accessibilityLabel={`Question ${qIdx + 1}, option ${oIdx + 1}`}
+                    style={[
+                      styles.optionInput,
+                      { color: c.text, backgroundColor: c.card, borderColor: c.border },
+                    ]}
+                    placeholder={`Option ${oIdx + 1}`}
+                    placeholderTextColor={c.secondaryText}
+                    value={opt}
+                    onChangeText={(t) => updateOption(qIdx, oIdx, t)}
+                    maxLength={200}
+                  />
+                  {q.options.length > 2 && (
+                    <TouchableOpacity
+                      onPress={() => removeOption(qIdx, oIdx)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove option ${oIdx + 1}`}
+                    >
+                      <Ionicons name="close-circle" size={ms(20)} color={c.secondaryText} accessible={false} />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ))}
+              {q.options.length < 10 && (
+                <TouchableOpacity
+                  onPress={() => addOption(qIdx)}
+                  style={styles.addOptBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add option"
+                >
+                  <Ionicons name="add-circle-outline" size={ms(16)} color={c.gold} accessible={false} />
+                  <ThemedText style={[styles.addOptText, { color: c.gold }]}>
+                    ADD OPTION
+                  </ThemedText>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+
+          {/* Required toggle */}
+          <ToggleRow
+            icon="alert-circle-outline"
+            label="Required"
+            description=""
+            value={q.required}
+            onToggle={(v) => updateQuestion(qIdx, { required: v })}
+            c={c}
+          />
         </View>
+      ))}
+
+      {/* Add question */}
+      {questions.length < 20 && (
+        <TouchableOpacity
+          onPress={addQuestion}
+          style={[styles.addQuestionBtn, { borderColor: c.border }]}
+          accessibilityRole="button"
+          accessibilityLabel="Add another question"
+        >
+          <Ionicons name="add-circle-outline" size={ms(20)} color={c.gold} accessible={false} />
+          <ThemedText style={[styles.addQuestionText, { color: c.gold }]}>
+            ADD QUESTION
+          </ThemedText>
+        </TouchableOpacity>
+      )}
+
+      {/* Results visibility */}
+      <View style={[styles.sectionHeader, { borderTopColor: c.border }]}>
+        <ThemedText type="varsitySmall" style={[styles.label, { color: c.secondaryText }]}>
+          RESULTS VISIBILITY
+        </ThemedText>
       </View>
-    </Modal>
+      <SegmentedControl
+        options={VISIBILITY_OPTIONS}
+        selectedIndex={visIdx}
+        onSelect={setVisIdx}
+      />
+
+      {/* Closing time */}
+      <ThemedText
+        type="varsitySmall"
+        style={[styles.label, styles.labelSpaced, { color: c.secondaryText }]}
+      >
+        CLOSING TIME
+      </ThemedText>
+      <View style={styles.presets}>
+        {PRESETS.map((p, idx) => (
+          <TouchableOpacity
+            key={p.label}
+            onPress={() => selectPreset(idx)}
+            style={[
+              styles.presetChip,
+              {
+                backgroundColor: presetIdx === idx ? c.gold : c.cardAlt,
+                borderColor: presetIdx === idx ? c.gold : c.border,
+              },
+            ]}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: presetIdx === idx }}
+            accessibilityLabel={`Close survey in ${p.label}`}
+          >
+            <ThemedText
+              style={[
+                styles.presetChipText,
+                { color: presetIdx === idx ? Brand.ink : c.text },
+              ]}
+            >
+              {p.label.toUpperCase()}
+            </ThemedText>
+          </TouchableOpacity>
+        ))}
+        <TouchableOpacity
+          onPress={handleCustomPress}
+          style={[
+            styles.presetChip,
+            {
+              backgroundColor: customDate ? c.gold : c.cardAlt,
+              borderColor: customDate ? c.gold : c.border,
+            },
+          ]}
+          accessibilityRole="radio"
+          accessibilityState={{ selected: !!customDate }}
+          accessibilityLabel="Set custom closing time"
+        >
+          <ThemedText
+            style={[
+              styles.presetChipText,
+              { color: customDate ? Brand.ink : c.text },
+            ]}
+          >
+            CUSTOM
+          </ThemedText>
+        </TouchableOpacity>
+      </View>
+      {showDatePicker && (
+        <DateTimePicker
+          value={customDate ?? new Date()}
+          mode="datetime"
+          minimumDate={new Date()}
+          onChange={(_, date) => {
+            if (Platform.OS === 'android') setShowDatePicker(false);
+            if (date) setCustomDate(date);
+          }}
+          display={Platform.OS === 'ios' ? 'inline' : 'default'}
+        />
+      )}
+      {closesAt && (
+        <ThemedText style={[styles.closesLabel, { color: c.secondaryText }]}>
+          Closes: {closesAt.toLocaleString()}
+        </ThemedText>
+      )}
+    </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: s(16),
-    paddingTop: s(56),
-    paddingBottom: s(12),
-    borderBottomWidth: 1,
+  label: {
+    fontSize: ms(11),
+    letterSpacing: 1.2,
+    marginBottom: s(6),
   },
-  scroll: { flex: 1, paddingHorizontal: s(16), paddingTop: s(16) },
-  label: { fontSize: ms(14), fontWeight: '600', marginBottom: s(6) },
+  labelSpaced: {
+    marginTop: s(16),
+  },
   input: {
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: 10,
     padding: s(12),
     fontSize: ms(15),
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 2,
-    elevation: 1,
   },
   multiline: { minHeight: s(60) },
-  counter: { fontSize: ms(11), textAlign: 'right', marginTop: s(2) },
+  counter: {
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(10),
+    letterSpacing: 0.6,
+    textAlign: 'right',
+    marginTop: s(2),
+  },
   sectionHeader: {
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingTop: s(14),
+    marginTop: s(16),
     marginBottom: s(10),
   },
-  sectionTitle: { fontSize: ms(16), fontWeight: '700' },
+  sectionTitle: {
+    fontSize: ms(11),
+    letterSpacing: 1.2,
+  },
   // Question card
   questionCard: {
     borderWidth: 1,
@@ -656,7 +627,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  questionNum: { fontSize: ms(14), fontWeight: '700' },
+  questionNum: {
+    fontFamily: Fonts.display,
+    fontSize: ms(15),
+    letterSpacing: -0.2,
+  },
   questionActions: { flexDirection: 'row', alignItems: 'center', gap: s(10) },
   typeScroll: { marginBottom: s(4) },
   typeChip: {
@@ -666,9 +641,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginRight: s(6),
   },
+  typeChipText: {
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(10),
+    letterSpacing: 1.0,
+  },
   qInput: {
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: 10,
     padding: s(10),
     fontSize: ms(14),
     minHeight: s(44),
@@ -682,7 +662,7 @@ const styles = StyleSheet.create({
   optionInput: {
     flex: 1,
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: 10,
     paddingHorizontal: s(10),
     paddingVertical: s(7),
     fontSize: ms(14),
@@ -693,7 +673,11 @@ const styles = StyleSheet.create({
     gap: s(4),
     paddingVertical: s(4),
   },
-  addOptText: { fontSize: ms(13), fontWeight: '600' },
+  addOptText: {
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(11),
+    letterSpacing: 1.0,
+  },
   // Add question button
   addQuestionBtn: {
     flexDirection: 'row',
@@ -706,7 +690,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: s(10),
   },
-  addQuestionText: { fontSize: ms(14), fontWeight: '600' },
+  addQuestionText: {
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(12),
+    letterSpacing: 1.2,
+  },
   // Presets
   presets: {
     flexDirection: 'row',
@@ -720,17 +708,16 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
   },
-  closesLabel: { fontSize: ms(12), marginBottom: s(8) },
-  // Bottom bar
-  bottomBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingHorizontal: s(16),
-    paddingTop: s(10),
-    paddingBottom: s(34),
-    borderTopWidth: StyleSheet.hairlineWidth,
+  presetChipText: {
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(11),
+    letterSpacing: 1.0,
+  },
+  closesLabel: {
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(10),
+    letterSpacing: 0.8,
+    marginBottom: s(8),
   },
   createBtn: {
     borderRadius: 10,
@@ -738,7 +725,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   createBtnText: {
-    fontSize: ms(16),
-    fontWeight: '600',
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(13),
+    letterSpacing: 1.2,
   },
 });

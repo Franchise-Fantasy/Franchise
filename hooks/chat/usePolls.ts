@@ -58,7 +58,9 @@ export function usePollResults(
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [pollId, queryClient]);
+    // queryClient is a stable singleton — omitting prevents unnecessary channel teardown.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pollId]);
 
   return useQuery<PollResults>({
     queryKey: queryKeys.pollResults(pollId!),
@@ -98,8 +100,11 @@ export function usePollResults(
         if (votes && votes.length > 0) {
           votersByOption = poll.options.map((_: string, idx: number) => {
             return votes
-              .filter((v: any) => (v.selections as number[]).includes(idx))
-              .map((v: any) => (v.teams as any)?.name ?? 'Unknown');
+              .filter((v) => ((v.selections as number[] | null) ?? []).includes(idx))
+              .map((v) => {
+                const teams = Array.isArray(v.teams) ? v.teams[0] ?? null : v.teams;
+                return teams?.name ?? 'Unknown';
+              });
           });
         }
       }

@@ -2,31 +2,23 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
   Alert,
-  Modal,
-  Pressable,
-  ScrollView,
   StyleSheet,
   Switch,
-  Text,
-  TouchableOpacity,
-  useWindowDimensions,
   View,
 } from 'react-native';
 
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { BottomSheet } from '@/components/ui/BottomSheet';
+import { BrandButton } from '@/components/ui/BrandButton';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
 import { DEFAULT_CATEGORIES, DEFAULT_SCORING } from '@/constants/LeagueDefaults';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
 import { ms, s } from '@/utils/scale';
 
-
-
 function statLabel(stat: string): string {
-  return DEFAULT_SCORING.find((s) => s.stat_name === stat)?.label
-    ?? DEFAULT_CATEGORIES.find((c) => c.stat_name === stat)?.label
+  return DEFAULT_SCORING.find((d) => d.stat_name === stat)?.label
+    ?? DEFAULT_CATEGORIES.find((d) => d.stat_name === stat)?.label
     ?? stat;
 }
 
@@ -39,10 +31,8 @@ interface EditScoringModalProps {
 }
 
 export function EditScoringModal({ visible, onClose, leagueId, scoring, scoringType }: EditScoringModalProps) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const queryClient = useQueryClient();
-  const { height: screenHeight } = useWindowDimensions();
   const isCategories = scoringType === 'h2h_categories';
 
   const [editScoring, setEditScoring] = useState<{ stat_name: string; point_value: number }[]>([]);
@@ -78,18 +68,18 @@ export function EditScoringModal({ visible, onClose, leagueId, scoring, scoringT
 
     const rows = isCategories
       ? editCategories
-          .filter((c) => c.is_enabled)
-          .map((c) => ({
+          .filter((cat) => cat.is_enabled)
+          .map((cat) => ({
             league_id: leagueId,
-            stat_name: c.stat_name,
+            stat_name: cat.stat_name,
             point_value: 0,
             is_enabled: true,
-            inverse: c.inverse,
+            inverse: cat.inverse,
           }))
-      : editScoring.map((s) => ({
+      : editScoring.map((row) => ({
           league_id: leagueId,
-          stat_name: s.stat_name,
-          point_value: s.point_value,
+          stat_name: row.stat_name,
+          point_value: row.point_value,
           is_enabled: true,
           inverse: false,
         }));
@@ -102,96 +92,81 @@ export function EditScoringModal({ visible, onClose, leagueId, scoring, scoringT
   }
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close" />
-        <View style={[styles.sheet, { backgroundColor: c.card }]} accessibilityViewIsModal={true}>
-          <View style={[styles.handle, { backgroundColor: c.border }]} />
-
-          <View style={styles.titleRow}>
-            <ThemedText accessibilityRole="header" style={styles.title}>
-              {isCategories ? 'Edit Categories' : 'Edit Scoring'}
-            </ThemedText>
-          </View>
-
-          <ScrollView style={[styles.scroll, { maxHeight: screenHeight * 0.55 }]} showsVerticalScrollIndicator={false}>
-            {isCategories ? (
-              editCategories.map((cat, idx) => (
-                <View key={cat.stat_name} style={[styles.catRow, { borderBottomColor: c.border }, idx === editCategories.length - 1 && { borderBottomWidth: 0 }]}>
-                  <View style={styles.catLeft}>
-                    <ThemedText style={styles.catLabel}>{cat.stat_name}</ThemedText>
-                    <ThemedText style={[styles.catSublabel, { color: c.secondaryText }]}>
-                      {statLabel(cat.stat_name)}
-                      {cat.inverse ? ' (lower wins)' : ''}
-                    </ThemedText>
-                  </View>
-                  <Switch
-                    value={cat.is_enabled}
-                    onValueChange={(v) => {
-                      const next = [...editCategories];
-                      next[idx] = { ...cat, is_enabled: v };
-                      setEditCategories(next);
-                    }}
-                    trackColor={{ false: c.border, true: c.accent }}
-                    accessibilityLabel={`${statLabel(cat.stat_name)}, ${cat.is_enabled ? 'enabled' : 'disabled'}`}
-                    accessibilityState={{ checked: cat.is_enabled }}
-                  />
-                </View>
-              ))
-            ) : (
-              editScoring.map((s, idx) => (
-                <NumberStepper
-                  key={s.stat_name}
-                  label={statLabel(s.stat_name)}
-                  value={s.point_value}
-                  onValueChange={(v) => {
-                    const next = [...editScoring];
-                    next[idx] = { ...s, point_value: v };
-                    setEditScoring(next);
-                  }}
-                  min={-10}
-                  max={10}
-                  step={0.5}
-                />
-              ))
-            )}
-          </ScrollView>
-
-          <View style={styles.footer}>
-            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Cancel" style={[styles.btn, { backgroundColor: c.cardAlt }]} onPress={onClose}>
-              <ThemedText style={styles.btnText}>Cancel</ThemedText>
-            </TouchableOpacity>
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel="Save"
-              accessibilityState={{ disabled: saving }}
-              style={[styles.btn, { backgroundColor: saving ? c.buttonDisabled : c.accent }]}
-              onPress={handleSave}
-              disabled={saving}
-            >
-              {saving ? (
-                <LogoSpinner size={18} />
-              ) : (
-                <Text style={[styles.btnText, { color: c.accentText }]}>Save</Text>
-              )}
-            </TouchableOpacity>
-          </View>
+    <BottomSheet
+      visible={visible}
+      onClose={onClose}
+      title={isCategories ? 'Edit Categories' : 'Edit Scoring'}
+      footer={
+        <View style={styles.footer}>
+          <BrandButton
+            label="Cancel"
+            variant="secondary"
+            size="large"
+            onPress={onClose}
+            fullWidth
+            style={styles.footerBtn}
+            accessibilityLabel="Cancel"
+          />
+          <BrandButton
+            label="Save"
+            variant="primary"
+            size="large"
+            onPress={handleSave}
+            loading={saving}
+            fullWidth
+            style={styles.footerBtn}
+            accessibilityLabel="Save"
+          />
         </View>
-      </View>
-    </Modal>
+      }
+    >
+      {isCategories ? (
+        editCategories.map((cat, idx) => (
+          <View key={cat.stat_name} style={[styles.catRow, { borderBottomColor: c.border }, idx === editCategories.length - 1 && { borderBottomWidth: 0 }]}>
+            <View style={styles.catLeft}>
+              <ThemedText style={styles.catLabel}>{cat.stat_name}</ThemedText>
+              <ThemedText style={[styles.catSublabel, { color: c.secondaryText }]}>
+                {statLabel(cat.stat_name)}
+                {cat.inverse ? ' (lower wins)' : ''}
+              </ThemedText>
+            </View>
+            <Switch
+              value={cat.is_enabled}
+              onValueChange={(v) => {
+                const next = [...editCategories];
+                next[idx] = { ...cat, is_enabled: v };
+                setEditCategories(next);
+              }}
+              trackColor={{ false: c.border, true: c.accent }}
+              accessibilityLabel={`${statLabel(cat.stat_name)}, ${cat.is_enabled ? 'enabled' : 'disabled'}`}
+              accessibilityState={{ checked: cat.is_enabled }}
+            />
+          </View>
+        ))
+      ) : (
+        editScoring.map((row, idx) => (
+          <NumberStepper
+            key={row.stat_name}
+            label={statLabel(row.stat_name)}
+            value={row.point_value}
+            onValueChange={(v) => {
+              const next = [...editScoring];
+              next[idx] = { ...row, point_value: v };
+              setEditScoring(next);
+            }}
+            min={-10}
+            max={10}
+            step={0.5}
+          />
+        ))
+      )}
+    </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'transparent', justifyContent: 'flex-end' },
-  sheet: { borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingTop: s(12), paddingBottom: s(40), maxHeight: '85%' },
-  handle: { width: s(40), height: s(4), borderRadius: 2, alignSelf: 'center', marginBottom: s(12) },
-  titleRow: { flexDirection: 'row', justifyContent: 'center', paddingHorizontal: s(16), marginBottom: s(16) },
-  title: { fontSize: ms(17), fontWeight: '600' },
-  scroll: { paddingHorizontal: s(16) },
-  footer: { flexDirection: 'row', gap: s(12), paddingHorizontal: s(16), paddingTop: s(16) },
-  btn: { flex: 1, paddingVertical: s(14), borderRadius: 10, alignItems: 'center' },
-  btnText: { fontSize: ms(15), fontWeight: '600' },
+  footer: { flexDirection: 'row', gap: s(12) },
+  footerBtn: { flex: 1 },
   catRow: {
     flexDirection: 'row',
     alignItems: 'center',

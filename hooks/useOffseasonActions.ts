@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Alert } from 'react-native';
 
 import { queryKeys } from '@/constants/queryKeys';
+import { useConfirm } from '@/context/ConfirmProvider';
 import { supabase } from '@/lib/supabase';
 
 type Args = {
@@ -22,6 +23,7 @@ type Args = {
 export function useOffseasonActions({ leagueId, season, isDynasty }: Args) {
   const queryClient = useQueryClient();
   const router = useRouter();
+  const confirm = useConfirm();
   const [loading, setLoading] = useState(false);
 
   const goToLotteryRoom = () => {
@@ -32,35 +34,33 @@ export function useOffseasonActions({ leagueId, season, isDynasty }: Args) {
   // `advance-season` edge function which archives stats, clears pending
   // moves, and flips `offseason_step` to 'season_complete'.
   const advanceSeason = () => {
-    Alert.alert(
-      'Advance to Offseason',
-      "This will:\n\n- Archive this season's stats\n- Reset W/L records\n- Cancel pending trades, waivers, & queued moves\n- Begin the offseason process\n\nThis cannot be undone. Continue?",
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Advance',
-          style: 'destructive',
-          onPress: async () => {
-            setLoading(true);
-            try {
-              const { error } = await supabase.functions.invoke('advance-season', {
-                body: { league_id: leagueId },
-              });
-              if (error) throw error;
-              queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId) });
-              Alert.alert('Season Advanced', 'The offseason has begun!');
-            } catch (err: unknown) {
-              Alert.alert(
-                'Error',
-                (err instanceof Error && err.message) || 'Failed to advance season',
-              );
-            } finally {
-              setLoading(false);
-            }
-          },
+    confirm({
+      title: 'Advance to Offseason',
+      message:
+        "This will:\n\n- Archive this season's stats\n- Reset W/L records\n- Cancel pending trades, waivers, & queued moves\n- Begin the offseason process\n\nThis cannot be undone. Continue?",
+      action: {
+        label: 'Advance',
+        destructive: true,
+        onPress: async () => {
+          setLoading(true);
+          try {
+            const { error } = await supabase.functions.invoke('advance-season', {
+              body: { league_id: leagueId },
+            });
+            if (error) throw error;
+            queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId) });
+            Alert.alert('Season Advanced', 'The offseason has begun!');
+          } catch (err: unknown) {
+            Alert.alert(
+              'Error',
+              (err instanceof Error && err.message) || 'Failed to advance season',
+            );
+          } finally {
+            setLoading(false);
+          }
         },
-      ],
-    );
+      },
+    });
   };
 
   const handleCreateRookieDraft = async () => {
@@ -85,36 +85,33 @@ export function useOffseasonActions({ leagueId, season, isDynasty }: Args) {
   };
 
   const handleFinalizeKeepers = () => {
-    Alert.alert(
-      'Finalize Keepers',
-      'This will release all non-kept players to free agency. This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Finalize',
-          style: 'destructive',
-          onPress: async () => {
-            setLoading(true);
-            try {
-              const { error } = await supabase.functions.invoke('finalize-keepers', {
-                body: { league_id: leagueId },
-              });
-              if (error) throw error;
-              queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId) });
-              queryClient.invalidateQueries({ queryKey: ['keeperDeclarations'] });
-              Alert.alert('Keepers Finalized', 'Non-kept players have been released.');
-            } catch (err: unknown) {
-              Alert.alert(
-                'Error',
-                (err instanceof Error && err.message) || 'Failed to finalize keepers',
-              );
-            } finally {
-              setLoading(false);
-            }
-          },
+    confirm({
+      title: 'Finalize Keepers',
+      message: 'This will release all non-kept players to free agency. This cannot be undone.',
+      action: {
+        label: 'Finalize',
+        destructive: true,
+        onPress: async () => {
+          setLoading(true);
+          try {
+            const { error } = await supabase.functions.invoke('finalize-keepers', {
+              body: { league_id: leagueId },
+            });
+            if (error) throw error;
+            queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId) });
+            queryClient.invalidateQueries({ queryKey: ['keeperDeclarations'] });
+            Alert.alert('Keepers Finalized', 'Non-kept players have been released.');
+          } catch (err: unknown) {
+            Alert.alert(
+              'Error',
+              (err instanceof Error && err.message) || 'Failed to finalize keepers',
+            );
+          } finally {
+            setLoading(false);
+          }
         },
-      ],
-    );
+      },
+    });
   };
 
   const handleCreateSeasonDraft = async () => {
@@ -196,33 +193,30 @@ export function useOffseasonActions({ leagueId, season, isDynasty }: Args) {
       }
     }
 
-    Alert.alert(
-      'Start New Season',
-      `This will generate the schedule for ${season} and begin the new season. Continue?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Start Season',
-          onPress: async () => {
-            setLoading(true);
-            try {
-              const { error } = await supabase.functions.invoke('generate-schedule', {
-                body: { league_id: leagueId },
-              });
-              if (error) throw error;
-              queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId) });
-            } catch (err: unknown) {
-              Alert.alert(
-                'Error',
-                (err instanceof Error && err.message) || 'Failed to start season',
-              );
-            } finally {
-              setLoading(false);
-            }
-          },
+    confirm({
+      title: 'Start New Season',
+      message: `This will generate the schedule for ${season} and begin the new season. Continue?`,
+      action: {
+        label: 'Start Season',
+        onPress: async () => {
+          setLoading(true);
+          try {
+            const { error } = await supabase.functions.invoke('generate-schedule', {
+              body: { league_id: leagueId },
+            });
+            if (error) throw error;
+            queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId) });
+          } catch (err: unknown) {
+            Alert.alert(
+              'Error',
+              (err instanceof Error && err.message) || 'Failed to start season',
+            );
+          } finally {
+            setLoading(false);
+          }
         },
-      ],
-    );
+      },
+    });
   };
 
   return {

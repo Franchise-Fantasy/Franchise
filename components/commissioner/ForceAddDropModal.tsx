@@ -4,7 +4,6 @@ import { useState } from 'react';
 import {
   Alert,
   FlatList,
-  Modal,
   StyleSheet,
   Text,
   TextInput,
@@ -12,17 +11,18 @@ import {
   View,
 } from 'react-native';
 
+import { BottomSheet } from '@/components/ui/BottomSheet';
+import { BrandButton } from '@/components/ui/BrandButton';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
+import { useConfirm } from '@/context/ConfirmProvider';
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats } from '@/types/player';
 import { getInjuryBadge } from '@/utils/nba/injuryBadge';
 import { ms, s } from '@/utils/scale';
-
 
 interface Props {
   visible: boolean;
@@ -34,8 +34,8 @@ interface Props {
 type Step = 'team' | 'action' | 'player';
 
 export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
+  const confirm = useConfirm();
   const sport = useActiveLeagueSport(leagueId);
   const queryClient = useQueryClient();
 
@@ -56,10 +56,8 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
   function goBack() {
     if (step === 'player') { setStep('action'); setSearch(''); }
     else if (step === 'action') { setStep('team'); setSelectedTeam(null); }
-    else handleClose();
   }
 
-  // Fetch team roster (for drop)
   const { data: teamRoster, isLoading: rosterLoading } = useQuery<
     (PlayerSeasonStats & { roster_slot: string })[]
   >({
@@ -118,18 +116,15 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
   function handleSelectPlayer(player: PlayerSeasonStats) {
     const verb = action === 'add' ? 'add' : 'drop';
     const preposition = action === 'add' ? 'to' : 'from';
-    Alert.alert(
-      `Force ${verb.charAt(0).toUpperCase() + verb.slice(1)}`,
-      `${verb === 'add' ? 'Add' : 'Drop'} ${player.name} ${preposition} ${selectedTeam!.name}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Confirm',
-          style: 'destructive',
-          onPress: () => executeAction(player),
-        },
-      ]
-    );
+    confirm({
+      title: `Force ${verb.charAt(0).toUpperCase() + verb.slice(1)}`,
+      message: `${verb === 'add' ? 'Add' : 'Drop'} ${player.name} ${preposition} ${selectedTeam!.name}?`,
+      action: {
+        label: 'Confirm',
+        destructive: true,
+        onPress: () => executeAction(player),
+      },
+    });
   }
 
   async function executeAction(player: PlayerSeasonStats) {
@@ -167,136 +162,141 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
     p.name.toLowerCase().includes(search.toLowerCase())
   );
 
-  return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={handleClose}>
-      <View style={styles.overlay}>
-        <View style={[styles.content, { backgroundColor: c.card }]} accessibilityViewIsModal={true}>
-          <View style={styles.header}>
-            <TouchableOpacity accessibilityRole="button" accessibilityLabel={step === 'team' ? 'Close' : 'Go back'} onPress={goBack}>
-              <Ionicons name={step === 'team' ? 'close' : 'arrow-back'} size={24} color={c.text} />
-            </TouchableOpacity>
-            <ThemedText accessibilityRole="header" type="subtitle">
-              {step === 'team' ? 'Select Team' : step === 'action' ? selectedTeam?.name : `${action === 'add' ? 'Add' : 'Drop'} Player`}
-            </ThemedText>
-            <View style={{ width: s(24) }} />
-          </View>
+  const title =
+    step === 'team'
+      ? 'Select Team'
+      : step === 'action'
+        ? selectedTeam?.name ?? 'Action'
+        : `${action === 'add' ? 'Add' : 'Drop'} Player`;
 
-          {step === 'team' && (
+  const headerAction = step !== 'team' ? (
+    <TouchableOpacity
+      onPress={goBack}
+      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      accessibilityRole="button"
+      accessibilityLabel="Go back"
+    >
+      <Ionicons name="arrow-back" size={ms(22)} color={c.secondaryText} />
+    </TouchableOpacity>
+  ) : undefined;
+
+  return (
+    <BottomSheet
+      visible={visible}
+      onClose={handleClose}
+      title={title}
+      headerAction={headerAction}
+      height="92%"
+      scrollableBody={false}
+    >
+      {step === 'team' && (
+        <FlatList
+          data={teams}
+          keyExtractor={(t) => t.id}
+          renderItem={({ item, index }) => (
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel={item.name}
+              style={[styles.row, { borderBottomColor: c.border }, index === teams.length - 1 && { borderBottomWidth: 0 }]}
+              onPress={() => { setSelectedTeam(item); setStep('action'); }}
+            >
+              <ThemedText>{item.name}</ThemedText>
+              <Ionicons name="chevron-forward" size={18} color={c.secondaryText} />
+            </TouchableOpacity>
+          )}
+        />
+      )}
+
+      {step === 'action' && (
+        <View style={styles.actionButtons}>
+          <BrandButton
+            label="Add Player"
+            variant="primary"
+            size="large"
+            icon="person-add"
+            onPress={() => { setAction('add'); setStep('player'); }}
+            fullWidth
+          />
+          <BrandButton
+            label="Drop Player"
+            variant="secondary"
+            size="large"
+            icon="person-remove"
+            onPress={() => { setAction('drop'); setStep('player'); }}
+            fullWidth
+          />
+        </View>
+      )}
+
+      {step === 'player' && (
+        <>
+          <TextInput
+            accessibilityLabel="Search players"
+            style={[styles.searchInput, { backgroundColor: c.cardAlt, color: c.text, borderColor: c.border }]}
+            placeholder="Search players..."
+            placeholderTextColor={c.secondaryText}
+            value={search}
+            onChangeText={setSearch}
+          />
+          {loading ? (
+            <View style={{ marginTop: s(20) }}><LogoSpinner /></View>
+          ) : filtered.length === 0 ? (
+            <ThemedText style={[styles.empty, { color: c.secondaryText }]}>No players found.</ThemedText>
+          ) : (
             <FlatList
-              data={teams}
-              keyExtractor={(t) => t.id}
-              renderItem={({ item, index }) => (
-                <TouchableOpacity
-                  accessibilityRole="button"
-                  accessibilityLabel={item.name}
-                  style={[styles.row, { borderBottomColor: c.border }, index === teams.length - 1 && { borderBottomWidth: 0 }]}
-                  onPress={() => { setSelectedTeam(item); setStep('action'); }}
-                >
-                  <ThemedText>{item.name}</ThemedText>
-                  <Ionicons name="chevron-forward" size={18} color={c.secondaryText} />
-                </TouchableOpacity>
-              )}
+              data={filtered}
+              keyExtractor={(p) => p.player_id}
+              renderItem={({ item, index }) => {
+                const badge = getInjuryBadge(item.status);
+                return (
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel={`${item.name}, ${item.position}, ${item.pro_team}`}
+                    style={[styles.row, { borderBottomColor: c.border }, index === filtered.length - 1 && { borderBottomWidth: 0 }]}
+                    onPress={() => handleSelectPlayer(item)}
+                    disabled={processing}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(6) }}>
+                        <ThemedText style={{ fontWeight: '600' }}>{item.name}</ThemedText>
+                        {badge && (
+                          <View style={[styles.badge, { backgroundColor: badge.color + '22' }]}>
+                            <Text style={{ color: badge.color, fontSize: ms(10), fontWeight: '700' }}>{badge.label}</Text>
+                          </View>
+                        )}
+                      </View>
+                      <ThemedText style={[styles.sub, { color: c.secondaryText }]}>
+                        {item.position} · {item.pro_team}
+                        {action === 'drop' && (item as any).roster_slot ? ` · ${(item as any).roster_slot}` : ''}
+                      </ThemedText>
+                    </View>
+                    <ThemedText style={[styles.stat, { color: c.secondaryText }]}>
+                      {(item as any).avg_pts?.toFixed(1) ?? '—'}
+                    </ThemedText>
+                  </TouchableOpacity>
+                );
+              }}
             />
           )}
+        </>
+      )}
 
-          {step === 'action' && (
-            <View style={styles.actionButtons}>
-              <TouchableOpacity
-                accessibilityRole="button"
-                accessibilityLabel="Add player"
-                style={[styles.actionBtn, { backgroundColor: c.accent }]}
-                onPress={() => { setAction('add'); setStep('player'); }}
-              >
-                <Ionicons name="person-add" size={20} color={c.accentText} />
-                <Text style={{ color: c.accentText, fontWeight: '600', marginLeft: s(8) }}>Add Player</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                accessibilityRole="button"
-                accessibilityLabel="Drop player"
-                style={[styles.actionBtn, { backgroundColor: c.danger }]}
-                onPress={() => { setAction('drop'); setStep('player'); }}
-              >
-                <Ionicons name="person-remove" size={20} color={c.statusText} />
-                <Text style={{ color: c.statusText, fontWeight: '600', marginLeft: s(8) }}>Drop Player</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {step === 'player' && (
-            <>
-              <TextInput
-                accessibilityLabel="Search players"
-                style={[styles.searchInput, { backgroundColor: c.cardAlt, color: c.text, borderColor: c.border }]}
-                placeholder="Search players..."
-                placeholderTextColor={c.secondaryText}
-                value={search}
-                onChangeText={setSearch}
-              />
-              {loading ? (
-                <View style={{ marginTop: s(20) }}><LogoSpinner /></View>
-              ) : filtered.length === 0 ? (
-                <ThemedText style={[styles.empty, { color: c.secondaryText }]}>No players found.</ThemedText>
-              ) : (
-                <FlatList
-                  data={filtered}
-                  keyExtractor={(p) => p.player_id}
-                  renderItem={({ item, index }) => {
-                    const badge = getInjuryBadge(item.status);
-                    return (
-                      <TouchableOpacity
-                        accessibilityRole="button"
-                        accessibilityLabel={`${item.name}, ${item.position}, ${item.pro_team}`}
-                        style={[styles.row, { borderBottomColor: c.border }, index === filtered.length - 1 && { borderBottomWidth: 0 }]}
-                        onPress={() => handleSelectPlayer(item)}
-                        disabled={processing}
-                      >
-                        <View style={{ flex: 1 }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(6) }}>
-                            <ThemedText style={{ fontWeight: '600' }}>{item.name}</ThemedText>
-                            {badge && (
-                              <View style={[styles.badge, { backgroundColor: badge.color + '22' }]}>
-                                <Text style={{ color: badge.color, fontSize: ms(10), fontWeight: '700' }}>{badge.label}</Text>
-                              </View>
-                            )}
-                          </View>
-                          <ThemedText style={[styles.sub, { color: c.secondaryText }]}>
-                            {item.position} · {item.pro_team}
-                            {action === 'drop' && (item as any).roster_slot ? ` · ${(item as any).roster_slot}` : ''}
-                          </ThemedText>
-                        </View>
-                        <ThemedText style={[styles.stat, { color: c.secondaryText }]}>
-                          {(item as any).avg_pts?.toFixed(1) ?? '—'}
-                        </ThemedText>
-                      </TouchableOpacity>
-                    );
-                  }}
-                />
-              )}
-            </>
-          )}
-
-          {processing && (
-            <View style={styles.processingOverlay}>
-              <LogoSpinner />
-            </View>
-          )}
+      {processing && (
+        <View style={styles.processingOverlay}>
+          <LogoSpinner />
         </View>
-      </View>
-    </Modal>
+      )}
+    </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: 'flex-end' },
-  content: { borderTopLeftRadius: 14, borderTopRightRadius: 14, padding: s(20), paddingBottom: s(32), minHeight: '60%', maxHeight: '92%', overflow: 'hidden' as const },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: s(16) },
   row: { flexDirection: 'row', alignItems: 'center', paddingVertical: s(12), borderBottomWidth: StyleSheet.hairlineWidth },
   actionButtons: { gap: s(12), marginTop: s(12) },
-  actionBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: s(14), borderRadius: 10 },
   searchInput: { borderWidth: 1, borderRadius: 8, paddingHorizontal: s(12), paddingVertical: s(10), fontSize: ms(14), marginBottom: s(8) },
   sub: { fontSize: ms(12), marginTop: s(2) },
   stat: { fontSize: ms(14), fontWeight: '500', marginLeft: s(8) },
   badge: { paddingHorizontal: s(5), paddingVertical: 1, borderRadius: 4 },
   empty: { textAlign: 'center', marginTop: s(24), fontSize: ms(14) },
-  processingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center', borderRadius: 16 },
+  processingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center' },
 });

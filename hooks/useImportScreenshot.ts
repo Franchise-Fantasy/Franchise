@@ -1,6 +1,7 @@
 import { useMutation } from '@tanstack/react-query';
 
 import { supabase } from '@/lib/supabase';
+import { logger } from '@/utils/logger';
 
 // --- Types ---
 
@@ -176,7 +177,7 @@ export function useExtractHistory() {
         if (msg === 'History extraction failed' && res.data?.error) {
           msg = res.data.error;
         }
-        console.warn('extract_history error:', JSON.stringify(res.error), 'data:', JSON.stringify(res.data));
+        logger.warn('extract_history error', { error: res.error, data: res.data });
         throw new Error(msg);
       }
       return res.data as HistoryExtractionResult;

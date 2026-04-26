@@ -55,6 +55,9 @@ const RATE_LIMITS: Record<string, RateLimitConfig> = {
   // Account: very tight
   'delete-account':           { maxRequests: 1,  windowSeconds: 3600 },
 
+  // Trust & safety: tight (each report is a real human moderator action downstream)
+  'report-message':           { maxRequests: 5,  windowSeconds: 300 },
+
   // Admin
   'manage-subscription':      { maxRequests: 5,  windowSeconds: 300 },
 };

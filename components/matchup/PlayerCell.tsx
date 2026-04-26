@@ -1,7 +1,7 @@
+import { Image } from "expo-image";
 import React, { useEffect, useRef } from "react";
 import {
   Animated,
-  Image,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -19,7 +19,7 @@ import {
   liveToGameLog,
 } from "@/utils/nba/nbaLive";
 import { formatGameTime, ScheduleEntry } from "@/utils/nba/nbaSchedule";
-import { getPlayerHeadshotUrl } from "@/utils/nba/playerHeadshot";
+import { getPlayerHeadshotUrl, PLAYER_SILHOUETTE } from "@/utils/nba/playerHeadshot";
 import { ms, s } from "@/utils/scale";
 import { calculateGameFantasyPoints, formatScore } from "@/utils/scoring/fantasyPoints";
 
@@ -253,7 +253,7 @@ export const PlayerCell = React.memo(function PlayerCell({
     : { accessibilityLabel: `${player.name}, ${player.position}` };
 
   const headshotUrl = getPlayerHeadshotUrl(player.external_id_nba, sport);
-  const headshotEl = headshotUrl ? (
+  const headshotEl = (
     <View
       style={[
         pStyles.headshotCircle,
@@ -262,13 +262,14 @@ export const PlayerCell = React.memo(function PlayerCell({
       accessibilityLabel={`${player.name} headshot`}
     >
       <Image
-        source={{ uri: headshotUrl }}
+        source={headshotUrl ? { uri: headshotUrl } : PLAYER_SILHOUETTE}
         style={pStyles.headshotImg}
-        resizeMode="cover"
+        contentFit="cover"
+        cachePolicy="memory-disk"
+        recyclingKey={headshotUrl ?? "silhouette"}
+        placeholder={PLAYER_SILHOUETTE}
       />
     </View>
-  ) : (
-    <View style={pStyles.headshotPlaceholder} />
   );
 
   // ── Render helper for the fpts value (inline or touchable for breakdown) ──
@@ -640,5 +641,4 @@ export const pStyles = StyleSheet.create({
     right: 0,
     height: s(34),
   },
-  headshotPlaceholder: { width: s(40) },
 });

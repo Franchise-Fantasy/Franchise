@@ -1,6 +1,6 @@
+import { Image } from "expo-image";
 import { useCallback, useMemo } from "react";
 import {
-  Image,
   Modal,
   ScrollView,
   StyleSheet,
@@ -18,7 +18,7 @@ import { PlayerSeasonStats } from "@/types/player";
 import { formatPosition } from "@/utils/formatting";
 import { getInjuryBadge } from "@/utils/nba/injuryBadge";
 import { formatGameTime, ScheduleEntry } from "@/utils/nba/nbaSchedule";
-import { getPlayerHeadshotUrl } from "@/utils/nba/playerHeadshot";
+import { getPlayerHeadshotUrl, PLAYER_SILHOUETTE } from "@/utils/nba/playerHeadshot";
 import { slotLabel } from "@/utils/roster/rosterSlots";
 import { ms, s } from "@/utils/scale";
 
@@ -204,9 +204,15 @@ export function SlotPickerModal({
           {occ ? (
             <>
               <View style={[styles.rowHeadshot, { borderColor: cc.gold, backgroundColor: cc.cardAlt }]}>
-                {occUrl && (
-                  <Image source={{ uri: occUrl }} style={styles.rowHeadshotImg} resizeMode="cover" accessible={false} />
-                )}
+                <Image
+                  source={occUrl ? { uri: occUrl } : PLAYER_SILHOUETTE}
+                  style={styles.rowHeadshotImg}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  recyclingKey={occUrl ?? "silhouette"}
+                  placeholder={PLAYER_SILHOUETTE}
+                  accessible={false}
+                />
               </View>
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: s(4) }}>
@@ -277,9 +283,15 @@ export function SlotPickerModal({
                   </Text>
                 </View>
                 <View style={[styles.rowHeadshot, { borderColor: cc.gold, backgroundColor: cc.cardAlt }]}>
-                  {itemUrl && (
-                    <Image source={{ uri: itemUrl }} style={styles.rowHeadshotImg} resizeMode="cover" accessible={false} />
-                  )}
+                  <Image
+                    source={itemUrl ? { uri: itemUrl } : PLAYER_SILHOUETTE}
+                    style={styles.rowHeadshotImg}
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
+                    recyclingKey={itemUrl ?? "silhouette"}
+                    placeholder={PLAYER_SILHOUETTE}
+                    accessible={false}
+                  />
                 </View>
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: s(4) }}>
@@ -387,14 +399,15 @@ export function SlotPickerModal({
                           { borderColor: c.heritageGold, backgroundColor: c.cardAlt },
                         ]}
                       >
-                        {url && (
-                          <Image
-                            source={{ uri: url }}
-                            style={styles.headshotImg}
-                            resizeMode="cover"
-                            accessible={false}
-                          />
-                        )}
+                        <Image
+                          source={url ? { uri: url } : PLAYER_SILHOUETTE}
+                          style={styles.headshotImg}
+                          contentFit="cover"
+                          cachePolicy="memory-disk"
+                          recyclingKey={url ?? "silhouette"}
+                          placeholder={PLAYER_SILHOUETTE}
+                          accessible={false}
+                        />
                       </View>
                     );
                   })()}

@@ -1,42 +1,32 @@
-import { useQuery , useQueryClient } from '@tanstack/react-query';
-import { useRouter , useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import {
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import {
+  MatchupCard,
+  type MatchupCardStatus,
+  type MatchupCardTeam,
+} from '@/components/scoreboard/MatchupCard';
+import { WeekRail, type RailWeek, type WeekStatus } from '@/components/scoreboard/WeekRail';
+import { BrandButton } from '@/components/ui/BrandButton';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors, cardShadow } from '@/constants/Colors';
+import { Fonts } from '@/constants/Colors';
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { useLeague } from '@/hooks/useLeague';
 import { useWeekScores } from '@/hooks/useWeekScores';
 import { supabase } from '@/lib/supabase';
-import { toDateStr, parseLocalDate } from '@/utils/dates';
+import { toDateStr } from '@/utils/dates';
+import { calcRounds, getPlayoffRoundLabel } from '@/utils/league/playoff';
 import { ms, s } from '@/utils/scale';
 import { formatScore } from '@/utils/scoring/fantasyPoints';
-
-
-
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-interface Week {
-  id: string;
-  week_number: number;
-  start_date: string;
-  end_date: string;
-  is_playoff: boolean;
-}
 
 interface ScoreboardMatchup {
   id: string;
@@ -48,35 +38,25 @@ interface ScoreboardMatchup {
   home_category_wins: number | null;
   away_category_wins: number | null;
   category_ties: number | null;
+  playoff_bracket: { is_third_place: boolean }[] | null;
 }
 
 interface LeagueTeam {
   id: string;
   name: string;
+  logo_key: string | null;
   wins: number;
   losses: number;
   ties: number;
 }
 
-type WeekState = 'past' | 'live' | 'future';
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function formatWeekRange(start: string, end: string): string {
-  const fmt = (d: Date) =>
-    d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  return `${fmt(parseLocalDate(start))} – ${fmt(parseLocalDate(end))}`;
-}
-
-function getWeekState(week: Week, today: string): WeekState {
+function getWeekStatus(week: RailWeek, today: string): WeekStatus {
   if (week.start_date > today) return 'future';
   if (week.end_date < today) return 'past';
   return 'live';
 }
 
-// ─── Data fetching ───────────────────────────────────────────────────────────
-
-async function fetchWeeks(leagueId: string): Promise<Week[]> {
+async function fetchWeeks(leagueId: string): Promise<RailWeek[]> {
   const { data, error } = await supabase
     .from('league_schedule')
     .select('id, week_number, start_date, end_date, is_playoff')
@@ -89,13 +69,14 @@ async function fetchWeeks(leagueId: string): Promise<Week[]> {
 async function fetchMatchups(scheduleId: string): Promise<ScoreboardMatchup[]> {
   const { data, error } = await supabase
     .from('league_matchups')
-    .select('id, home_team_id, away_team_id, home_score, away_score, playoff_round, home_category_wins, away_category_wins, category_ties')
+    .select(
+      'id, home_team_id, away_team_id, home_score, away_score, playoff_round, home_category_wins, away_category_wins, category_ties, playoff_bracket(is_third_place)',
+    )
     .eq('schedule_id', scheduleId);
   if (error) throw error;
   return data ?? [];
 }
 
-// Fetch seeds for playoff week (team_id → seed number)
 async function fetchPlayoffSeeds(
   leagueId: string,
   season: string,
@@ -116,10 +97,12 @@ async function fetchPlayoffSeeds(
   return map;
 }
 
-async function fetchLeagueTeams(leagueId: string): Promise<Record<string, LeagueTeam>> {
+async function fetchLeagueTeams(
+  leagueId: string,
+): Promise<Record<string, LeagueTeam>> {
   const { data, error } = await supabase
     .from('teams')
-    .select('id, name, wins, losses, ties')
+    .select('id, name, logo_key, wins, losses, ties')
     .eq('league_id', leagueId);
   if (error) throw error;
   const map: Record<string, LeagueTeam> = {};
@@ -127,15 +110,14 @@ async function fetchLeagueTeams(leagueId: string): Promise<Record<string, League
     map[t.id] = {
       id: t.id,
       name: t.name,
+      logo_key: t.logo_key ?? null,
       wins: t.wins ?? 0,
       losses: t.losses ?? 0,
-      ties: t.ties,
+      ties: t.ties ?? 0,
     };
   }
   return map;
 }
-
-// ─── Hooks ───────────────────────────────────────────────────────────────────
 
 function useWeeks(leagueId: string | null) {
   return useQuery({
@@ -147,21 +129,19 @@ function useWeeks(leagueId: string | null) {
 }
 
 function useScoreboardData(
-  week: Week | null,
+  week: RailWeek | null,
   leagueId: string | null,
-  weekState: WeekState,
+  weekStatus: WeekStatus,
   season: string,
 ) {
-  // Matchups for the selected week
   const matchupsQuery = useQuery({
     queryKey: queryKeys.scoreboardMatchups(week?.id ?? ''),
     queryFn: () => fetchMatchups(week!.id),
     enabled: !!week,
     staleTime: 1000 * 60 * 5,
-    refetchInterval: weekState === 'live' ? 150_000 : false,
+    refetchInterval: weekStatus === 'live' ? 150_000 : false,
   });
 
-  // All teams in the league
   const teamsQuery = useQuery({
     queryKey: queryKeys.leagueTeamsRecord(leagueId!),
     queryFn: () => fetchLeagueTeams(leagueId!),
@@ -169,12 +149,10 @@ function useScoreboardData(
     staleTime: 1000 * 60 * 10,
   });
 
-  // Determine playoff round from matchups
   const playoffRound = week?.is_playoff
-    ? matchupsQuery.data?.[0]?.playoff_round ?? null
+    ? (matchupsQuery.data?.[0]?.playoff_round ?? null)
     : null;
 
-  // Playoff seeds for the current round
   const seedsQuery = useQuery({
     queryKey: queryKeys.playoffSeeds(leagueId!, season, playoffRound!),
     queryFn: () => fetchPlayoffSeeds(leagueId!, season, playoffRound!),
@@ -191,12 +169,9 @@ function useScoreboardData(
   };
 }
 
-// ─── Component ───────────────────────────────────────────────────────────────
-
 export default function ScoreboardScreen() {
   const router = useRouter();
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const { leagueId, teamId } = useAppState();
 
   const queryClient = useQueryClient();
@@ -204,18 +179,17 @@ export default function ScoreboardScreen() {
   const { data: weeks, isLoading: weeksLoading } = useWeeks(leagueId);
   const season = league?.season ?? CURRENT_NBA_SEASON;
 
-  // Refresh scoreboard data every time the screen is focused
   useFocusEffect(
     useCallback(() => {
       queryClient.invalidateQueries({ queryKey: ['scoreboardMatchups'] });
       queryClient.invalidateQueries({ queryKey: ['weekScores'] });
       queryClient.invalidateQueries({ queryKey: ['leagueTeamsRecord'] });
-    }, [queryClient])
+    }, [queryClient]),
   );
 
   const [selectedWeekIndex, setSelectedWeekIndex] = useState<number | null>(null);
 
-  // Auto-select current week on load
+  // Auto-select current week (or most recent past week) on first load.
   useEffect(() => {
     if (!weeks || weeks.length === 0 || selectedWeekIndex !== null) return;
     const today = toDateStr(new Date());
@@ -230,439 +204,284 @@ export default function ScoreboardScreen() {
     }
   }, [weeks, selectedWeekIndex]);
 
-  const selectedWeek = weeks && selectedWeekIndex !== null ? weeks[selectedWeekIndex] : null;
+  const selectedWeek =
+    weeks && selectedWeekIndex !== null ? weeks[selectedWeekIndex] : null;
   const today = toDateStr(new Date());
-  const weekState: WeekState = selectedWeek ? getWeekState(selectedWeek, today) : 'past';
+  const weekStatus: WeekStatus = selectedWeek
+    ? getWeekStatus(selectedWeek, today)
+    : 'past';
 
   const { matchups, teamMap, seedMap, isPlayoff, isLoading } = useScoreboardData(
     selectedWeek,
     leagueId,
-    weekState,
+    weekStatus,
     season,
   );
 
-  // Server-authoritative week scores
-  const weekIsLive = weekState === 'live';
+  const weekIsLive = weekStatus === 'live';
   const { data: weekScores } = useWeekScores({
     leagueId,
     scheduleId: selectedWeek?.id ?? null,
     weekIsLive,
   });
 
-  // Determine if a matchup involves the current user's team
-  const isMyMatchup = (m: ScoreboardMatchup) =>
-    m.home_team_id === teamId || m.away_team_id === teamId;
-
   const isCategories = league?.scoring_type === 'h2h_categories';
+  const isOffseason = !!league?.offseason_step;
 
-  // Get score for a team — from server-computed scores, fallback to stored matchup scores
-  const getScore = (m: ScoreboardMatchup, teamIdToCheck: string): number => {
-    if (weekScores && weekState !== 'future') {
-      return weekScores[teamIdToCheck] ?? 0;
-    }
-    return teamIdToCheck === m.home_team_id ? m.home_score ?? 0 : m.away_score ?? 0;
+  // Sort: user's matchup floats to the top.
+  const sortedMatchups = useMemo(() => {
+    if (!matchups) return [];
+    const isMine = (m: ScoreboardMatchup) =>
+      m.home_team_id === teamId || m.away_team_id === teamId;
+    return [...matchups].sort((a, b) => {
+      if (isMine(a) && !isMine(b)) return -1;
+      if (!isMine(a) && isMine(b)) return 1;
+      return 0;
+    });
+  }, [matchups, teamId]);
+
+  const cardStatus: MatchupCardStatus =
+    weekStatus === 'live' ? 'live' : weekStatus === 'past' ? 'final' : 'upcoming';
+
+  // For playoff weeks, derive a per-matchup round label
+  // ("Finals", "Semifinals", "Quarterfinals", "3rd Place Game", "Round N").
+  const totalPlayoffRounds = calcRounds(league?.playoff_teams ?? 8);
+  const labelFor = (m: ScoreboardMatchup): string | null => {
+    if (!isPlayoff || m.playoff_round == null) return null;
+    const isThirdPlace = m.playoff_bracket?.[0]?.is_third_place ?? false;
+    return getPlayoffRoundLabel(m.playoff_round, totalPlayoffRounds, isThirdPlace);
   };
 
-  // Get formatted score display string
-  const getScoreDisplay = (m: ScoreboardMatchup, teamIdToCheck: string): string => {
+  const buildTeam = (
+    matchup: ScoreboardMatchup,
+    sideTeamId: string,
+  ): MatchupCardTeam | null => {
+    const team = teamMap?.[sideTeamId];
+    if (!team) return null;
+
+    const score =
+      weekScores && weekStatus !== 'future'
+        ? (weekScores[sideTeamId] ?? 0)
+        : sideTeamId === matchup.home_team_id
+          ? (matchup.home_score ?? 0)
+          : (matchup.away_score ?? 0);
+
+    let display: string;
     if (isCategories) {
-      if (m.home_category_wins != null) {
-        const catTies = m.category_ties ?? 0;
-        const homeW = m.home_category_wins ?? 0;
-        const awayW = m.away_category_wins ?? 0;
-        const isHome = teamIdToCheck === m.home_team_id;
+      if (matchup.home_category_wins != null) {
+        const ties = matchup.category_ties ?? 0;
+        const homeW = matchup.home_category_wins ?? 0;
+        const awayW = matchup.away_category_wins ?? 0;
+        const isHome = sideTeamId === matchup.home_team_id;
         const myW = isHome ? homeW : awayW;
         const oppW = isHome ? awayW : homeW;
-        return catTies > 0 ? `${myW}-${oppW}-${catTies}` : `${myW}-${oppW}`;
+        display = ties > 0 ? `${myW}-${oppW}-${ties}` : `${myW}-${oppW}`;
+      } else {
+        display = '—';
       }
-      return '—';
+    } else {
+      display = formatScore(score);
     }
-    return formatScore(getScore(m, teamIdToCheck));
+
+    return {
+      id: team.id,
+      name: team.name,
+      logoKey: team.logo_key,
+      record: `${team.wins}-${team.losses}${
+        team.ties > 0 ? `-${team.ties}` : ''
+      }`,
+      score,
+      display,
+      seed: isPlayoff ? (seedMap[sideTeamId] ?? null) : null,
+    };
   };
 
-  // Sort matchups: user's matchup first
-  const sortedMatchups = matchups
-    ? [...matchups].sort((a, b) => {
-        if (isMyMatchup(a) && !isMyMatchup(b)) return -1;
-        if (!isMyMatchup(a) && isMyMatchup(b)) return 1;
-        return 0;
-      })
-    : [];
+  if (isOffseason) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
+        <PageHeader title="Scoreboard" />
+        <View
+          style={styles.offseason}
+          accessible
+          accessibilityRole="text"
+          accessibilityLabel="It's the offseason. Games will return next season."
+        >
+          <View style={[styles.emptyRule, { backgroundColor: c.gold }]} />
+          <Ionicons
+            name="sunny-outline"
+            size={ms(40)}
+            color={c.secondaryText}
+            accessible={false}
+          />
+          <ThemedText
+            type="display"
+            style={[styles.emptyTitle, { color: c.text }]}
+          >
+            Offseason.
+          </ThemedText>
+          <ThemedText
+            type="varsitySmall"
+            style={[styles.emptySub, { color: c.secondaryText }]}
+          >
+            GAMES RETURN NEXT SEASON
+          </ThemedText>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
       <PageHeader title="Scoreboard" />
 
-      {/* Week Selector */}
-      {weeks && weeks.length > 0 && selectedWeek && (
-        <View style={[styles.weekNav, { borderBottomColor: c.border }]}>
-          <TouchableOpacity
-            onPress={() => setSelectedWeekIndex((i) => Math.max(0, (i ?? 0) - 1))}
-            disabled={selectedWeekIndex === 0}
-            style={styles.arrowBtn}
-            accessibilityRole="button"
-            accessibilityLabel="Previous week"
-            accessibilityState={{ disabled: selectedWeekIndex === 0 }}
-          >
-            <Text
-              style={[
-                styles.arrow,
-                { color: selectedWeekIndex === 0 ? c.buttonDisabled : c.text },
-              ]}
-            >
-              {'‹'}
-            </Text>
-          </TouchableOpacity>
-          <View style={styles.weekInfo}>
-            <ThemedText type="defaultSemiBold" style={styles.weekLabel}>
-              {selectedWeek.is_playoff ? 'Playoffs · ' : ''}Week{' '}
-              {selectedWeek.week_number}
-            </ThemedText>
-            <Text style={[styles.weekRange, { color: c.secondaryText }]}>
-              {formatWeekRange(selectedWeek.start_date, selectedWeek.end_date)}
-            </Text>
-          </View>
-          <TouchableOpacity
-            onPress={() =>
-              setSelectedWeekIndex((i) =>
-                Math.min(weeks.length - 1, (i ?? 0) + 1),
-              )
-            }
-            disabled={selectedWeekIndex === weeks.length - 1}
-            style={styles.arrowBtn}
-            accessibilityRole="button"
-            accessibilityLabel="Next week"
-            accessibilityState={{ disabled: selectedWeekIndex === weeks.length - 1 }}
-          >
-            <Text
-              style={[
-                styles.arrow,
-                {
-                  color:
-                    selectedWeekIndex === weeks.length - 1
-                      ? c.buttonDisabled
-                      : c.text,
-                },
-              ]}
-            >
-              {'›'}
-            </Text>
-          </TouchableOpacity>
-        </View>
+      {weeks && weeks.length > 0 && selectedWeekIndex !== null && selectedWeek && (
+        <WeekRail
+          weeks={weeks}
+          selectedIndex={selectedWeekIndex}
+          onSelect={setSelectedWeekIndex}
+          status={weekStatus}
+        />
       )}
 
-      {/* Content */}
       <ScrollView
-        style={styles.scrollView}
+        style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
       >
         {weeksLoading || isLoading ? (
-          <View style={styles.loader}><LogoSpinner /></View>
+          <View style={styles.loader}>
+            <LogoSpinner />
+          </View>
         ) : !weeks || weeks.length === 0 ? (
-          <View style={styles.emptyState}>
+          <View style={styles.empty}>
             <ThemedText style={{ color: c.secondaryText }}>
-              Season schedule not generated yet
+              Season schedule not generated yet.
             </ThemedText>
           </View>
         ) : sortedMatchups.length === 0 ? (
-          <View style={styles.emptyState}>
-            <ThemedText style={{ color: c.secondaryText }}>
+          <View style={styles.empty}>
+            <ThemedText style={{ color: c.secondaryText, textAlign: 'center' }}>
               {isPlayoff
                 ? 'Bye round — top seeds advance automatically.'
-                : 'No matchups this week'}
+                : 'No matchups this week.'}
             </ThemedText>
             {isPlayoff && (
-              <TouchableOpacity
-                style={[styles.bracketBtn, { backgroundColor: c.accent }]}
+              <BrandButton
+                label="View Full Bracket"
                 onPress={() => router.push('/playoff-bracket' as any)}
-                accessibilityRole="button"
-                accessibilityLabel="View Full Bracket"
-              >
-                <Text style={[styles.bracketBtnText, { color: c.accentText }]}>
-                  View Full Bracket
-                </Text>
-              </TouchableOpacity>
+                variant="secondary"
+                style={styles.bracketBtnSpacing}
+              />
             )}
           </View>
         ) : (
-          sortedMatchups.map((matchup) => {
-            const mine = isMyMatchup(matchup);
-            const homeTeam = teamMap?.[matchup.home_team_id];
-            const awayTeam = matchup.away_team_id
-              ? teamMap?.[matchup.away_team_id]
-              : null;
-            const isBye = !matchup.away_team_id;
-            const homeScore = getScore(matchup, matchup.home_team_id);
-            const awayScore = matchup.away_team_id
-              ? getScore(matchup, matchup.away_team_id)
-              : 0;
-            // For category leagues, use category wins to determine who's leading
-            const homeWinning =
-              weekState !== 'future' && !isBye && (
-                isCategories
-                  ? (matchup.home_category_wins ?? 0) > (matchup.away_category_wins ?? 0)
-                  : homeScore > awayScore
-              );
-            const awayWinning =
-              weekState !== 'future' && !isBye && (
-                isCategories
-                  ? (matchup.away_category_wins ?? 0) > (matchup.home_category_wins ?? 0)
-                  : awayScore > homeScore
-              );
+          <>
+            {sortedMatchups.map((matchup) => {
+              const home = buildTeam(matchup, matchup.home_team_id);
+              const away = matchup.away_team_id
+                ? buildTeam(matchup, matchup.away_team_id)
+                : null;
 
-            return (
-              <TouchableOpacity
-                key={matchup.id}
-                style={[
-                  styles.matchupCard,
-                  {
-                    backgroundColor: mine ? c.activeCard : c.card,
-                    borderColor: mine ? c.activeBorder : c.border,
-                  },
-                  mine && styles.myMatchupCard,
-                ]}
-                activeOpacity={0.7}
-                onPress={() => router.push(`/matchup-detail/${matchup.id}` as any)}
-                accessibilityRole="button"
-                accessibilityLabel={`${homeTeam?.name ?? 'Unknown'} ${weekState !== 'future' ? formatScore(homeScore) : ''} vs ${isBye ? 'BYE' : `${awayTeam?.name ?? 'Unknown'} ${weekState !== 'future' ? formatScore(awayScore) : ''}`}${mine ? ', your matchup' : ''}`}
-                accessibilityHint="View matchup details"
-              >
-                {/* Status badge */}
-                {weekState === 'live' && (
-                  <View style={styles.statusRow}>
-                    <View style={[styles.inProgressBadge, { backgroundColor: c.danger }]}>
-                      <Text style={[styles.inProgressText, { color: c.statusText }]}>IN PROGRESS</Text>
-                    </View>
-                  </View>
-                )}
-                {weekState === 'future' && (
-                  <View style={styles.statusRow}>
-                    <Text style={[styles.upcomingText, { color: c.secondaryText }]}>
-                      Upcoming
-                    </Text>
-                  </View>
-                )}
+              if (!home) return null;
 
-                {/* Home team row */}
-                <View style={styles.teamRow}>
-                  <View style={styles.teamInfo}>
-                    {isPlayoff && seedMap?.[matchup.home_team_id] && (
-                      <Text style={[styles.seedBadge, { color: c.secondaryText }]}>
-                        #{seedMap[matchup.home_team_id]}
-                      </Text>
-                    )}
-                    <ThemedText style={styles.teamName} numberOfLines={1}>
-                      {homeTeam?.name ?? 'Unknown'}
-                    </ThemedText>
-                    <Text style={[styles.record, { color: c.secondaryText }]}>
-                      {homeTeam
-                        ? `${homeTeam.wins}-${homeTeam.losses}${homeTeam.ties > 0 ? `-${homeTeam.ties}` : ''}`
-                        : ''}
-                    </Text>
-                  </View>
-                  {weekState !== 'future' && (
-                    <ThemedText
-                      style={[
-                        styles.score,
-                        homeWinning && { color: c.accent },
-                      ]}
-                    >
-                      {getScoreDisplay(matchup, matchup.home_team_id)}
-                    </ThemedText>
-                  )}
-                </View>
+              const isMine =
+                matchup.home_team_id === teamId ||
+                matchup.away_team_id === teamId;
 
-                {/* Divider */}
-                <View
-                  style={[styles.divider, { backgroundColor: c.border }]}
+              // Winning side calculation. Categories use category-win counts;
+              // points leagues use the live score.
+              let winningSide: 'home' | 'away' | null = null;
+              if (away && weekStatus !== 'future') {
+                if (isCategories) {
+                  const hWins = matchup.home_category_wins ?? 0;
+                  const aWins = matchup.away_category_wins ?? 0;
+                  if (hWins > aWins) winningSide = 'home';
+                  else if (aWins > hWins) winningSide = 'away';
+                } else {
+                  if (home.score > away.score) winningSide = 'home';
+                  else if (away.score > home.score) winningSide = 'away';
+                }
+              }
+
+              return (
+                <MatchupCard
+                  key={matchup.id}
+                  home={home}
+                  away={away}
+                  status={cardStatus}
+                  isMine={isMine}
+                  hideScores={weekStatus === 'future'}
+                  isCategories={isCategories}
+                  winningSide={winningSide}
+                  roundLabel={labelFor(matchup)}
+                  onPress={() =>
+                    router.push(`/matchup-detail/${matchup.id}` as any)
+                  }
                 />
+              );
+            })}
 
-                {/* Away team row */}
-                {isBye ? (
-                  <View style={styles.teamRow}>
-                    <ThemedText
-                      style={[
-                        styles.teamName,
-                        { color: c.secondaryText, fontStyle: 'italic' },
-                      ]}
-                    >
-                      BYE
-                    </ThemedText>
-                  </View>
-                ) : (
-                  <View style={styles.teamRow}>
-                    <View style={styles.teamInfo}>
-                      {isPlayoff && matchup.away_team_id && seedMap?.[matchup.away_team_id] && (
-                        <Text style={[styles.seedBadge, { color: c.secondaryText }]}>
-                          #{seedMap[matchup.away_team_id]}
-                        </Text>
-                      )}
-                      <ThemedText style={styles.teamName} numberOfLines={1}>
-                        {awayTeam?.name ?? 'Unknown'}
-                      </ThemedText>
-                      <Text style={[styles.record, { color: c.secondaryText }]}>
-                        {awayTeam
-                          ? `${awayTeam.wins}-${awayTeam.losses}${awayTeam.ties > 0 ? `-${awayTeam.ties}` : ''}`
-                          : ''}
-                      </Text>
-                    </View>
-                    {weekState !== 'future' && (
-                      <ThemedText
-                        style={[
-                          styles.score,
-                          awayWinning && { color: c.accent },
-                        ]}
-                      >
-                        {matchup.away_team_id ? getScoreDisplay(matchup, matchup.away_team_id) : '0.00'}
-                      </ThemedText>
-                    )}
-                  </View>
-                )}
-              </TouchableOpacity>
-            );
-          })
-        )}
-
-        {/* Bracket link on playoff weeks */}
-        {isPlayoff && sortedMatchups.length > 0 && (
-          <TouchableOpacity
-            style={[styles.bracketBtn, { backgroundColor: c.accent }]}
-            onPress={() => router.push('/playoff-bracket' as any)}
-            accessibilityRole="button"
-            accessibilityLabel="View Full Bracket"
-          >
-            <Text style={[styles.bracketBtnText, { color: c.accentText }]}>
-              View Full Bracket
-            </Text>
-          </TouchableOpacity>
+            {isPlayoff && (
+              <View style={styles.bracketBtnWrap}>
+                <BrandButton
+                  label="View Full Bracket"
+                  onPress={() => router.push('/playoff-bracket' as any)}
+                  variant="secondary"
+                />
+              </View>
+            )}
+          </>
         )}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-// ─── Styles ──────────────────────────────────────────────────────────────────
-
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  weekNav: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: s(8),
-    paddingVertical: s(10),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  arrowBtn: {
-    width: s(44),
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: s(4),
-  },
-  arrow: {
-    fontSize: ms(28),
-    fontWeight: '300',
-  },
-  weekInfo: {
-    alignItems: 'center',
-  },
-  weekLabel: {
-    fontSize: ms(15),
-  },
-  weekRange: {
-    fontSize: ms(11),
-    marginTop: s(2),
-  },
-  scrollView: {
-    flex: 1,
-  },
+  container: { flex: 1 },
+  scroll: { flex: 1 },
   scrollContent: {
     paddingHorizontal: s(16),
-    paddingTop: s(12),
+    paddingTop: s(14),
     paddingBottom: s(40),
   },
   loader: {
     marginTop: s(40),
+    alignItems: 'center',
   },
-  emptyState: {
+  empty: {
     alignItems: 'center',
     paddingTop: s(40),
+    gap: s(16),
   },
-  matchupCard: {
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: s(14),
-    paddingVertical: s(12),
-    marginBottom: s(12),
-    ...cardShadow,
+  offseason: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: s(32),
+    gap: s(10),
   },
-  myMatchupCard: {
-    borderWidth: 1.5,
-    marginBottom: s(14),
-    paddingVertical: s(14),
-  },
-  statusRow: {
+  emptyRule: {
+    height: 2,
+    width: s(48),
     marginBottom: s(8),
   },
-  inProgressBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: s(8),
-    paddingVertical: s(3),
-    borderRadius: 6,
+  emptyTitle: {
+    fontFamily: Fonts.display,
+    fontSize: ms(22),
+    lineHeight: ms(26),
+    letterSpacing: -0.2,
+    textAlign: 'center',
   },
-  inProgressText: {
-    fontSize: ms(9),
-    fontWeight: '800',
-    letterSpacing: 0.8,
-  },
-  upcomingText: {
+  emptySub: {
     fontSize: ms(11),
-    fontWeight: '600',
+    letterSpacing: 1.3,
+    textAlign: 'center',
   },
-  teamRow: {
-    flexDirection: 'row',
+  bracketBtnWrap: {
     alignItems: 'center',
-    paddingVertical: s(6),
+    marginTop: s(8),
   },
-  teamInfo: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(8),
-    marginRight: s(12),
-  },
-  teamName: {
-    fontSize: ms(14),
-    fontWeight: '600',
-    flexShrink: 1,
-  },
-  record: {
-    fontSize: ms(12),
-  },
-  score: {
-    fontSize: ms(18),
-    fontWeight: '700',
-    fontVariant: ['tabular-nums'] as any,
-  },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-  },
-  seedBadge: {
-    fontSize: ms(11),
-    fontWeight: '700',
-  },
-  bracketBtn: {
-    alignSelf: 'center',
-    paddingVertical: s(12),
-    paddingHorizontal: s(24),
-    borderRadius: 10,
-    marginTop: s(16),
-    ...cardShadow,
-  },
-  bracketBtnText: {
-    fontSize: ms(14),
-    fontWeight: '600',
+  bracketBtnSpacing: {
+    marginTop: s(8),
   },
 });

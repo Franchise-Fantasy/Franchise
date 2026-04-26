@@ -47,6 +47,7 @@ import {
   SEEDING_TO_DB,
   type ScoringTypeOption,
 } from '@/constants/LeagueDefaults';
+import { useConfirm } from '@/context/ConfirmProvider';
 import { useToast } from '@/context/ToastProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import {
@@ -377,6 +378,7 @@ export default function ImportLeague() {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const { showToast } = useToast();
+  const confirm = useConfirm();
 
   const [source, setSource] = useState<ImportSource>(null);
   const [state, dispatch] = useReducer(reducer, initialState);
@@ -581,18 +583,12 @@ export default function ImportLeague() {
       router.back();
       return;
     }
-    Alert.alert(
-      'Exit Import?',
-      'Your progress is saved — you can come back and pick up where you left off.',
-      [
-        { text: 'Keep Editing', style: 'cancel' },
-        {
-          text: 'Exit',
-          style: 'destructive',
-          onPress: () => router.back(),
-        },
-      ],
-    );
+    confirm({
+      title: 'Exit Import?',
+      message: 'Your progress is saved — you can come back and pick up where you left off.',
+      cancelLabel: 'Keep Editing',
+      action: { label: 'Exit', destructive: true, onPress: () => router.back() },
+    });
   };
 
   // ─── Persistence ─────────────────────────────────────────────
@@ -617,29 +613,24 @@ export default function ImportLeague() {
           return;
         }
 
-        Alert.alert(
-          'Resume Import?',
-          `You have a saved Sleeper import for "${parsed.wizardState?.name?.trim() || 'Unnamed league'}". Pick up where you left off?`,
-          [
-            {
-              text: 'Start Over',
-              style: 'destructive',
-              onPress: () => {
-                AsyncStorage.removeItem(SLEEPER_STORAGE_KEY).catch(() => {});
-                hasRestoredRef.current = true;
-              },
+        confirm({
+          title: 'Resume Import?',
+          message: `You have a saved Sleeper import for "${parsed.wizardState?.name?.trim() || 'Unnamed league'}". Pick up where you left off?`,
+          cancelLabel: 'Start Over',
+          onCancel: () => {
+            AsyncStorage.removeItem(SLEEPER_STORAGE_KEY).catch(() => {});
+            hasRestoredRef.current = true;
+          },
+          action: {
+            label: 'Resume',
+            onPress: () => {
+              dispatch({ type: 'HYDRATE', state: deserializeSleeperState(parsed) });
+              setStep(parsed.step ?? STEP_FETCH);
+              if (parsed.source) setSource(parsed.source);
+              hasRestoredRef.current = true;
             },
-            {
-              text: 'Resume',
-              onPress: () => {
-                dispatch({ type: 'HYDRATE', state: deserializeSleeperState(parsed) });
-                setStep(parsed.step ?? STEP_FETCH);
-                if (parsed.source) setSource(parsed.source);
-                hasRestoredRef.current = true;
-              },
-            },
-          ],
-        );
+          },
+        });
       } catch {
         hasRestoredRef.current = true;
       }

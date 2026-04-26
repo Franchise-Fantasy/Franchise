@@ -1,28 +1,23 @@
 import { useQuery } from '@tanstack/react-query';
 import { useCallback, useMemo, useState } from 'react';
-import {
-  FlatList,
-  RefreshControl,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { FlatList, RefreshControl, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { NewsCard } from '@/components/player/NewsCard';
+import { BrandTextInput } from '@/components/ui/BrandTextInput';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Fonts } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { useLeague } from '@/hooks/useLeague';
 import { useTeamNews } from '@/hooks/useTeamNews';
 import { supabase } from '@/lib/supabase';
 import type { PlayerNewsArticle } from '@/types/news';
-import { ms } from "@/utils/scale";
+import { ms, s } from '@/utils/scale';
 
 type FilterMode = 'team' | 'matchup' | 'all';
 
@@ -32,14 +27,21 @@ const FILTERS: { key: FilterMode; label: string }[] = [
   { key: 'all', label: 'All Players' },
 ];
 
+const FILTER_LABELS = FILTERS.map((f) => f.label);
+
+const EMPTY_MESSAGES: Record<FilterMode, { title: string; sub: string }> = {
+  team: { title: 'Quiet on your bench.', sub: 'NO ROSTER NEWS · CHECK BACK SOON' },
+  matchup: { title: 'Quiet matchup.', sub: 'NO RECENT NEWS · BOTH SIDES' },
+  all: { title: 'No news yet.', sub: 'CHECK BACK SOON' },
+};
+
 export default function NewsScreen() {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const { leagueId, teamId } = useAppState();
-  const [filter, setFilter] = useState<FilterMode>('team');
+  const [filterIndex, setFilterIndex] = useState(0);
+  const filter = FILTERS[filterIndex].key;
   const [searchText, setSearchText] = useState('');
 
-  // Fetch player IDs for user's team
   const { data: myPlayerIds = [] } = useQuery<string[]>({
     queryKey: queryKeys.newsRosterIds(leagueId!, teamId!),
     queryFn: async () => {
@@ -55,14 +57,11 @@ export default function NewsScreen() {
     staleTime: 1000 * 60 * 5,
   });
 
-  // Fetch opponent player IDs for matchup filter
   const { data: matchupPlayerIds = [] } = useQuery<string[]>({
     queryKey: queryKeys.newsMatchupIds(leagueId!, teamId!),
     queryFn: async () => {
-      // Get current date for week lookup
       const today = new Date().toISOString().slice(0, 10);
 
-      // Find current week
       const { data: weeks } = await supabase
         .from('league_schedule')
         .select('id')
@@ -74,7 +73,6 @@ export default function NewsScreen() {
 
       if (!weeks) return myPlayerIds;
 
-      // Find matchup
       const { data: matchup } = await supabase
         .from('league_matchups')
         .select('home_team_id, away_team_id')
@@ -84,13 +82,13 @@ export default function NewsScreen() {
 
       if (!matchup) return myPlayerIds;
 
-      const opponentId = matchup.home_team_id === teamId
-        ? matchup.away_team_id
-        : matchup.home_team_id;
+      const opponentId =
+        matchup.home_team_id === teamId
+          ? matchup.away_team_id
+          : matchup.home_team_id;
 
       const teamIds = opponentId ? [teamId!, opponentId] : [teamId!];
 
-      // Fetch both teams' player IDs
       const { data: players } = await supabase
         .from('league_players')
         .select('player_id')
@@ -103,7 +101,6 @@ export default function NewsScreen() {
     staleTime: 1000 * 60 * 5,
   });
 
-  // Determine which player IDs to use
   const activePlayerIds = useMemo(() => {
     if (filter === 'team') return myPlayerIds;
     if (filter === 'matchup') return matchupPlayerIds;
@@ -111,43 +108,44 @@ export default function NewsScreen() {
   }, [filter, myPlayerIds, matchupPlayerIds]);
 
   const { data: league } = useLeague();
-  const newsMode = filter === 'all' ? 'all' as const : 'filtered' as const;
-  const newsQuery = useTeamNews(activePlayerIds, newsMode, league?.sport as 'nba' | 'wnba' | undefined);
+  const newsMode = filter === 'all' ? ('all' as const) : ('filtered' as const);
+  const newsQuery = useTeamNews(
+    activePlayerIds,
+    newsMode,
+    league?.sport as 'nba' | 'wnba' | undefined,
+  );
 
-  // Client-side text search across article titles and mentioned player names
   const filteredNews = useMemo(() => {
     const articles = newsQuery.data ?? [];
     if (!searchText.trim()) return articles;
     const q = searchText.trim().toLowerCase();
-    return articles.filter(a =>
-      a.title.toLowerCase().includes(q) ||
-      a.mentioned_players?.some(p => p.name.toLowerCase().includes(q)),
+    return articles.filter(
+      (a) =>
+        a.title.toLowerCase().includes(q) ||
+        a.mentioned_players?.some((p) => p.name.toLowerCase().includes(q)),
     );
   }, [newsQuery.data, searchText]);
 
-  const emptyMessages: Record<FilterMode, string> = {
-    team: 'No recent news for your rostered players',
-    matchup: 'No recent news for matchup players',
-    all: 'No recent news available',
-  };
-
   const renderNews = useCallback(
-    ({ item }: { item: PlayerNewsArticle }) => <NewsCard article={item} showHeadshots />,
+    ({ item }: { item: PlayerNewsArticle }) => (
+      <NewsCard article={item} showHeadshots />
+    ),
     [],
   );
   const keyExtractor = useCallback((item: PlayerNewsArticle) => item.id, []);
-  const handleRefresh = useCallback(() => { newsQuery.refetch(); }, [newsQuery]);
+  const handleRefresh = useCallback(() => {
+    newsQuery.refetch();
+  }, [newsQuery]);
+
+  const empty = EMPTY_MESSAGES[filter];
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
       <PageHeader title="Player News" />
 
-      {/* Search bar */}
-      <View style={[styles.searchRow, { borderColor: c.border }]}>
-        <TextInput
-          style={[styles.searchInput, { color: c.text, borderColor: c.border, backgroundColor: c.card }]}
+      <View style={styles.controls}>
+        <BrandTextInput
           placeholder="Search player or team news..."
-          placeholderTextColor={c.secondaryText}
           value={searchText}
           onChangeText={setSearchText}
           autoCorrect={false}
@@ -155,37 +153,26 @@ export default function NewsScreen() {
           clearButtonMode="while-editing"
           accessibilityLabel="Search news"
         />
+        <View style={styles.segmentWrap}>
+          <SegmentedControl
+            options={FILTER_LABELS}
+            selectedIndex={filterIndex}
+            onSelect={setFilterIndex}
+            accessibilityLabel="Filter news"
+          />
+        </View>
       </View>
 
-      {/* Filter chips */}
-      <View style={styles.filterRow}>
-        {FILTERS.map(({ key, label }) => {
-          const active = filter === key;
-          return (
-            <TouchableOpacity
-              key={key}
-              onPress={() => setFilter(key)}
-              style={[styles.chip, { borderColor: c.border }, active && { backgroundColor: c.accent }]}
-              accessibilityRole="button"
-              accessibilityLabel={`Filter: ${label}`}
-              accessibilityState={{ selected: active }}
-            >
-              <ThemedText style={[styles.chipText, active && { color: c.statusText }]}>
-                {label}
-              </ThemedText>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      {/* News list */}
       {newsQuery.isLoading ? (
-        <View style={styles.loader}><LogoSpinner /></View>
+        <View style={styles.loader}>
+          <LogoSpinner />
+        </View>
       ) : (
         <FlatList
           data={filteredNews}
           keyExtractor={keyExtractor}
           renderItem={renderNews}
+          ItemSeparatorComponent={ItemGap}
           refreshControl={
             <RefreshControl
               refreshing={newsQuery.isRefetching}
@@ -199,9 +186,21 @@ export default function NewsScreen() {
           maxToRenderPerBatch={6}
           windowSize={7}
           ListEmptyComponent={
-            <ThemedText style={[styles.empty, { color: c.secondaryText }]}>
-              {emptyMessages[filter]}
-            </ThemedText>
+            <View style={styles.empty}>
+              <View style={[styles.emptyRule, { backgroundColor: c.gold }]} />
+              <ThemedText
+                type="display"
+                style={[styles.emptyTitle, { color: c.text }]}
+              >
+                {empty.title}
+              </ThemedText>
+              <ThemedText
+                type="varsitySmall"
+                style={[styles.emptySub, { color: c.secondaryText }]}
+              >
+                {empty.sub}
+              </ThemedText>
+            </View>
           }
         />
       )}
@@ -209,33 +208,58 @@ export default function NewsScreen() {
   );
 }
 
+function ItemGap() {
+  return <View style={styles.itemGap} />;
+}
+
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  searchRow: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
+  container: {
+    flex: 1,
   },
-  searchInput: {
-    fontSize: ms(14),
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
+  controls: {
+    paddingHorizontal: s(16),
+    paddingTop: s(10),
+    paddingBottom: s(12),
+    gap: s(10),
   },
-  filterRow: {
-    flexDirection: 'row',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+  segmentWrap: {
+    // SegmentedControl already owns its own border, no extra wrapping needed.
   },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    borderWidth: 1,
+  loader: {
+    marginTop: s(40),
+    alignItems: 'center',
   },
-  chipText: { fontSize: ms(13) },
-  loader: { marginTop: 40 },
-  list: { padding: 16, gap: 12 },
-  empty: { textAlign: 'center', marginTop: 40, fontSize: ms(14), opacity: 0.6 },
+  list: {
+    paddingHorizontal: s(16),
+    paddingBottom: s(24),
+    flexGrow: 1,
+  },
+  itemGap: {
+    height: s(10),
+  },
+  empty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: s(10),
+    paddingHorizontal: s(32),
+    paddingTop: s(60),
+  },
+  emptyRule: {
+    height: 2,
+    width: s(48),
+    marginBottom: s(8),
+  },
+  emptyTitle: {
+    fontFamily: Fonts.display,
+    fontSize: ms(22),
+    lineHeight: ms(26),
+    letterSpacing: -0.2,
+    textAlign: 'center',
+  },
+  emptySub: {
+    fontSize: ms(11),
+    letterSpacing: 1.3,
+    textAlign: 'center',
+  },
 });

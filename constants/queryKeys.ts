@@ -136,6 +136,8 @@ export const queryKeys = {
   // ── Player ───────────────────────────────────────────────
   playerSeasonStats: (excludePlayerIds: string[]) =>
     ["playerSeasonStats", excludePlayerIds] as const,
+  playerSeasonStat: (playerId: string, sport: string) =>
+    ["playerSeasonStat", playerId, sport] as const,
   playerGameLog: (playerId: string) => ["playerGameLog", playerId] as const,
   playerHistoricalStats: (playerId: string) =>
     ["playerHistoricalStats", playerId] as const,
@@ -154,8 +156,8 @@ export const queryKeys = {
   playerOnWaivers: (leagueId: string, playerId: string | undefined) =>
     ["playerOnWaivers", leagueId, playerId] as const,
   upcomingGames: (nbaTeam: string) => ["upcomingGames", nbaTeam] as const,
-  teamNews: (mode: string, playerIds: string[]) =>
-    ["teamNews", mode, playerIds] as const,
+  teamNews: (mode: string, playerIds: string[], sport: string | undefined) =>
+    ["teamNews", mode, playerIds, sport ?? null] as const,
   watchlist: (userId: string) => ["watchlist", userId] as const,
 
   // ── News ─────────────────────────────────────────────────

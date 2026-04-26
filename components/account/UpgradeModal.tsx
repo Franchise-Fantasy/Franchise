@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
   Alert,
@@ -76,6 +77,7 @@ export function UpgradeModal({
   const c = Colors[scheme];
   const isDark = scheme === "dark";
   const queryClient = useQueryClient();
+  const router = useRouter();
   const {
     individualTier,
     individualPeriod,
@@ -362,6 +364,15 @@ export function UpgradeModal({
           </TouchableOpacity>
         </View>
 
+        {/* Auto-renew disclosure — required by App Store Guideline 3.1.2.
+            Apple wants this visible near the price selector, not buried. */}
+        <Text
+          style={[styles.autoRenewText, { color: c.secondaryText }]}
+          accessibilityLabel="Subscription auto-renews. Cancel anytime in your device settings."
+        >
+          Subscription auto-renews until cancelled. Manage or cancel anytime in your device's subscription settings.
+        </Text>
+
         <ScrollView
           style={styles.scrollArea}
           contentContainerStyle={styles.scrollContent}
@@ -528,18 +539,49 @@ export function UpgradeModal({
           </View>
         </ScrollView>
 
-        {/* Restore link */}
-        <TouchableOpacity
-          style={styles.restoreButton}
-          onPress={handleRestore}
-          disabled={!!purchasing}
-          accessibilityRole="button"
-          accessibilityLabel="Restore purchases"
-        >
-          <Text style={[styles.restoreText, { color: c.secondaryText }]}>
-            Restore Purchases
-          </Text>
-        </TouchableOpacity>
+        {/* Restore + legal links — Apple wants Terms and Privacy reachable
+            from inside the paywall, not just from a separate menu. */}
+        <View style={styles.footer}>
+          <TouchableOpacity
+            onPress={handleRestore}
+            disabled={!!purchasing}
+            accessibilityRole="button"
+            accessibilityLabel="Restore purchases"
+            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+          >
+            <Text style={[styles.footerLink, { color: c.secondaryText }]}>
+              Restore Purchases
+            </Text>
+          </TouchableOpacity>
+          <Text style={[styles.footerSeparator, { color: c.secondaryText }]}>·</Text>
+          <TouchableOpacity
+            onPress={() => {
+              onClose();
+              router.push('/legal?tab=terms' as any);
+            }}
+            accessibilityRole="link"
+            accessibilityLabel="Terms of Service"
+            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+          >
+            <Text style={[styles.footerLink, { color: c.secondaryText }]}>
+              Terms
+            </Text>
+          </TouchableOpacity>
+          <Text style={[styles.footerSeparator, { color: c.secondaryText }]}>·</Text>
+          <TouchableOpacity
+            onPress={() => {
+              onClose();
+              router.push('/legal?tab=privacy' as any);
+            }}
+            accessibilityRole="link"
+            accessibilityLabel="Privacy Policy"
+            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+          >
+            <Text style={[styles.footerLink, { color: c.secondaryText }]}>
+              Privacy
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </Modal>
   );
@@ -656,12 +698,26 @@ const styles = StyleSheet.create({
     fontSize: ms(16),
     fontWeight: "700",
   },
-  restoreButton: {
+  autoRenewText: {
+    fontSize: ms(11),
+    lineHeight: ms(15),
+    paddingHorizontal: s(20),
+    marginBottom: s(12),
+    textAlign: "center",
+  },
+  footer: {
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
+    gap: s(6),
     paddingVertical: s(14),
     paddingBottom: s(24),
   },
-  restoreText: {
+  footerLink: {
+    fontSize: ms(13),
+    fontWeight: "500",
+  },
+  footerSeparator: {
     fontSize: ms(13),
     fontWeight: "500",
   },

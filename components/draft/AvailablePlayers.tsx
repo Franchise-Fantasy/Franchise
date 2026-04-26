@@ -1,9 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
+import { Image } from "expo-image";
 import { useCallback, useMemo, useState } from "react";
 import {
   FlatList,
-  Image,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -25,7 +25,7 @@ import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
 import { formatPosition } from "@/utils/formatting";
 import { getInjuryBadge } from "@/utils/nba/injuryBadge";
-import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
+import { getPlayerHeadshotUrl, getTeamLogoUrl, PLAYER_SILHOUETTE } from "@/utils/nba/playerHeadshot";
 import { ms, s } from "@/utils/scale";
 import { calculateAvgFantasyPoints } from "@/utils/scoring/fantasyPoints";
 
@@ -362,21 +362,24 @@ export function AvailablePlayers({
         >
           <View style={styles.portraitWrap}>
             <View style={[styles.headshotCircle, { borderColor: c.heritageGold, backgroundColor: c.cardAlt }]}>
-              {headshotUrl ? (
-                <Image
-                  source={{ uri: headshotUrl }}
-                  style={styles.headshotImg}
-                  resizeMode="cover"
-                  accessible={false}
-                />
-              ) : null}
+              <Image
+                source={headshotUrl ? { uri: headshotUrl } : PLAYER_SILHOUETTE}
+                style={styles.headshotImg}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                recyclingKey={headshotUrl ?? "silhouette"}
+                placeholder={PLAYER_SILHOUETTE}
+                accessible={false}
+              />
             </View>
             <View style={styles.teamPill}>
               {logoUrl && (
                 <Image
                   source={{ uri: logoUrl }}
                   style={styles.teamPillLogo}
-                  resizeMode="contain"
+                  contentFit="contain"
+                  cachePolicy="memory-disk"
+                  recyclingKey={logoUrl}
                   accessible={false}
                 />
               )}

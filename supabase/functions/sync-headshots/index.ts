@@ -19,6 +19,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { Image as ImgScript } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 import type { Sport } from "../_shared/bdl.ts";
 
@@ -29,10 +30,22 @@ const supabase = createClient(
 
 const jsonHeaders = { ...CORS_HEADERS, "Content-Type": "application/json" };
 
+// Match scripts/seed-pro-assets.mjs — headshots are rendered at ≤200px on the
+// largest surface, so 256x192 is plenty at retina density and ~10× smaller than
+// the source PNG.
+const HEADSHOT_W = 256;
+const HEADSHOT_H = 192;
+
 const HEADSHOT_SOURCES: Record<Sport, (id: string) => string> = {
   nba:  (id) => `https://cdn.nba.com/headshots/nba/latest/1040x760/${id}.png`,
   wnba: (id) => `https://a.espncdn.com/i/headshots/wnba/players/full/${id}.png`,
 };
+
+async function resizeHeadshot(buf: Uint8Array): Promise<Uint8Array> {
+  const decoded = await ImgScript.decode(buf);
+  const resized = decoded.resize(HEADSHOT_W, HEADSHOT_H);
+  return await resized.encode();
+}
 
 /**
  * Pulls every existing object name in a given sport's headshot subdir.
@@ -89,9 +102,14 @@ async function syncSport(sport: Sport, force: boolean): Promise<{
         if (!res.ok) throw new Error(`${res.status} ${sourceUrl(id)}`);
         const buf = new Uint8Array(await res.arrayBuffer());
         if (buf.byteLength === 0) throw new Error("empty body");
+        const resized = await resizeHeadshot(buf);
         const { error: upErr } = await supabase.storage
           .from("player-headshots")
-          .upload(`${sport}/${id}.png`, buf, { contentType: "image/png", upsert: true });
+          .upload(`${sport}/${id}.png`, resized, {
+            contentType: "image/png",
+            upsert: true,
+            cacheControl: "31536000",
+          });
         if (upErr) throw new Error(upErr.message);
         uploaded++;
       } catch (e) {

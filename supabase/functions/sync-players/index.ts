@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { CORS_HEADERS } from '../_shared/cors.ts';
 import { bdlFetchAll, coerceBdlPosition, type Sport } from '../_shared/bdl.ts';
+import { recordHeartbeat } from '../_shared/heartbeat.ts';
 import { normalizeName } from '../_shared/normalize.ts';
 
 const supabase = createClient(
@@ -432,6 +433,7 @@ Deno.serve(async (req: Request) => {
     if (refreshErr) console.error('Mat view refresh error:', refreshErr.message);
 
     const sampleNames = newPlayers.slice(0, 15).map((p) => p.name);
+    await recordHeartbeat(supabase, `sync-players:${sport}`, 'ok');
     return new Response(
       JSON.stringify({
         ok: true,
@@ -451,6 +453,7 @@ Deno.serve(async (req: Request) => {
     );
   } catch (err: any) {
     console.error('sync-players error:', err?.message ?? err);
+    await recordHeartbeat(supabase, `sync-players:${sport}`, 'error', err?.message ?? String(err));
     return new Response(
       JSON.stringify({ error: err?.message ?? String(err) }),
       { status: 500, headers: jsonHeaders },

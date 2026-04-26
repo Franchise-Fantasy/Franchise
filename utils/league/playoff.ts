@@ -29,6 +29,27 @@ export function calcRounds(playoffTeams: number): number {
 }
 
 /**
+ * Human-readable label for a playoff round. Matches the conventions used in
+ * schedule, scoreboard, and matchup-detail views.
+ *   round === totalRounds       → "Finals"
+ *   round === totalRounds - 1   → "Semifinals"
+ *   round === totalRounds - 2   → "Quarterfinals"
+ *   isThirdPlace overrides everything → "3rd Place Game"
+ *   else                         → "Playoff Round N"
+ */
+export function getPlayoffRoundLabel(
+  round: number,
+  totalRounds: number,
+  isThirdPlace: boolean,
+): string {
+  if (isThirdPlace) return '3rd Place Game';
+  if (round === totalRounds) return 'Finals';
+  if (round === totalRounds - 1) return 'Semifinals';
+  if (round === totalRounds - 2) return 'Quarterfinals';
+  return `Playoff Round ${round}`;
+}
+
+/**
  * Seed the top N teams from standings.
  * Input must already be sorted by wins DESC, points_for DESC.
  */

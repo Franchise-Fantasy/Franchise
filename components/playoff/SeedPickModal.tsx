@@ -23,7 +23,7 @@ interface Props {
   visible: boolean;
   onClose: () => void;
   pick: PlayoffSeedPick;
-  teamMap: Map<string, string>;
+  teamMap: Map<string, { name: string; logoKey: string | null }>;
   season: string;
 }
 
@@ -123,7 +123,7 @@ export function SeedPickModal({ visible, onClose, pick, teamMap, season }: Props
                     <TouchableOpacity
                       key={tid}
                       accessibilityRole="button"
-                      accessibilityLabel={teamMap.get(tid) ?? 'Unknown'}
+                      accessibilityLabel={teamMap.get(tid)?.name ?? 'Unknown'}
                       accessibilityState={{ selected: isSelected }}
                       style={[
                         styles.opponentRow,
@@ -133,7 +133,7 @@ export function SeedPickModal({ visible, onClose, pick, teamMap, season }: Props
                       onPress={() => setSelectedOpponent(tid)}
                     >
                       <ThemedText style={[styles.opponentName, isSelected && { color: c.accent }]}>
-                        {teamMap.get(tid) ?? 'Unknown'}
+                        {teamMap.get(tid)?.name ?? 'Unknown'}
                       </ThemedText>
                     </TouchableOpacity>
                   );

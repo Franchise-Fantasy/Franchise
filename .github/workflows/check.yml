@@ -1,0 +1,54 @@
+name: Check
+
+# Runs the same `npm run check` that lefthook runs locally — typecheck (app +
+# edge), lint, realtime-channel scanner. Lefthook is bypassable with
+# `--no-verify` and only runs on the dev's machine; this Action is the
+# unbypassable backstop.
+#
+# Triggers:
+#   - push to main (catches direct pushes from any machine)
+#   - pull_request to main (covers branches if you ever switch from trunk-only)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel any in-flight check on the same ref (typically: rapid pushes to main)
+# so the latest commit is what gets reported, not the stale one mid-run.
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      # `typecheck:edge` shells out to Deno. Pin to a known-good major;
+      # Supabase Edge Functions runtime is on Deno 1.x as of this commit.
+      - uses: denoland/setup-deno@v1
+        with:
+          deno-version: v1.x
+
+      - name: Cache Deno modules
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/deno
+          key: deno-${{ runner.os }}-${{ hashFiles('supabase/functions/deno.lock') }}
+          restore-keys: |
+            deno-${{ runner.os }}-
+
+      - name: Run full check (typecheck + edge typecheck + lint + realtime scanner)
+        run: npm run check

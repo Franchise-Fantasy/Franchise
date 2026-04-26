@@ -1,14 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Alert, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
+import { useConfirm } from '@/context/ConfirmProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
 
 
-interface TradeActionBarProps {
+export interface TradeActionState {
   processing: boolean;
   status: string;
   isInvolved: boolean;
@@ -22,6 +23,9 @@ interface TradeActionBarProps {
   dropsReady: boolean;
   needsMyDrop: boolean;
   canLeak: boolean;
+}
+
+export interface TradeActionHandlers {
   onAccept: () => void;
   onReject: () => void;
   onCancel: () => void;
@@ -34,33 +38,42 @@ interface TradeActionBarProps {
   onLeakToChat: () => void;
 }
 
-export function TradeActionBar({
-  processing,
-  status,
-  isInvolved,
-  isProposer,
-  isEditable,
-  isCommissioner,
-  myTeamStatus,
-  hasVoted,
-  vetoType,
-  showDropPicker,
-  dropsReady,
-  needsMyDrop,
-  canLeak,
-  onAccept,
-  onReject,
-  onCancel,
-  onEdit,
-  onCounteroffer,
-  onCommissionerApprove,
-  onCommissionerVeto,
-  onVoteToVeto,
-  onSubmitDrop,
-  onLeakToChat,
-}: TradeActionBarProps) {
+interface TradeActionBarProps {
+  state: TradeActionState;
+  actions: TradeActionHandlers;
+}
+
+export function TradeActionBar({ state, actions }: TradeActionBarProps) {
+  const {
+    processing,
+    status,
+    isInvolved,
+    isProposer,
+    isEditable,
+    isCommissioner,
+    myTeamStatus,
+    hasVoted,
+    vetoType,
+    showDropPicker,
+    dropsReady,
+    needsMyDrop,
+    canLeak,
+  } = state;
+  const {
+    onAccept,
+    onReject,
+    onCancel,
+    onEdit,
+    onCounteroffer,
+    onCommissionerApprove,
+    onCommissionerVeto,
+    onVoteToVeto,
+    onSubmitDrop,
+    onLeakToChat,
+  } = actions;
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const confirm = useConfirm();
 
   if (processing) {
     return (
@@ -79,14 +92,11 @@ export function TradeActionBar({
           icon="checkmark-circle"
           color={dropsReady ? c.success : c.secondaryText}
           disabled={!dropsReady}
-          onPress={() => Alert.alert(
-            'Confirm Drop',
-            'Drop the selected player and complete the trade?',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Confirm', onPress: onSubmitDrop },
-            ],
-          )}
+          onPress={() => confirm({
+            title: 'Confirm Drop',
+            message: 'Drop the selected player and complete the trade?',
+            action: { label: 'Confirm', onPress: onSubmitDrop },
+          })}
           primary
         />
       </View>
@@ -104,14 +114,11 @@ export function TradeActionBar({
             icon="checkmark-circle"
             color={dropsReady ? c.success : c.secondaryText}
             disabled={!dropsReady}
-            onPress={() => Alert.alert(
-              'Accept Trade',
-              'Accept this trade and drop the selected player?',
-              [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Accept', onPress: onAccept },
-              ],
-            )}
+            onPress={() => confirm({
+              title: 'Accept Trade',
+              message: 'Accept this trade and drop the selected player?',
+              action: { label: 'Accept', onPress: onAccept },
+            })}
             primary
           />
         ) : (
@@ -119,10 +126,11 @@ export function TradeActionBar({
             label="Accept"
             icon="checkmark-circle"
             color={c.success}
-            onPress={() => Alert.alert('Accept Trade', 'Accept this trade?', [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Accept', onPress: onAccept },
-            ])}
+            onPress={() => confirm({
+              title: 'Accept Trade',
+              message: 'Accept this trade?',
+              action: { label: 'Accept', onPress: onAccept },
+            })}
             primary
           />
         )}
@@ -141,10 +149,11 @@ export function TradeActionBar({
             label="Decline"
             icon="close-circle"
             color={c.danger}
-            onPress={() => Alert.alert('Decline Trade', 'Decline this trade?', [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Decline', style: 'destructive', onPress: onReject },
-            ])}
+            onPress={() => confirm({
+              title: 'Decline Trade',
+              message: 'Decline this trade?',
+              action: { label: 'Decline', destructive: true, onPress: onReject },
+            })}
           />
         </View>
 
@@ -171,16 +180,18 @@ export function TradeActionBar({
             label={isProposer ? 'Withdraw' : 'Back Out'}
             icon="arrow-undo"
             color={c.secondaryText}
-            onPress={() => Alert.alert(
-              isProposer ? 'Withdraw Trade' : 'Back Out',
-              isProposer
+            onPress={() => confirm({
+              title: isProposer ? 'Withdraw Trade' : 'Back Out',
+              message: isProposer
                 ? 'Withdraw this trade proposal?'
                 : 'Back out and cancel this trade for all parties?',
-              [
-                { text: 'No', style: 'cancel' },
-                { text: isProposer ? 'Withdraw' : 'Back Out', style: 'destructive', onPress: onCancel },
-              ],
-            )}
+              cancelLabel: 'No',
+              action: {
+                label: isProposer ? 'Withdraw' : 'Back Out',
+                destructive: true,
+                onPress: onCancel,
+              },
+            })}
           />
         </View>
 
@@ -198,19 +209,21 @@ export function TradeActionBar({
             label="Approve"
             icon="checkmark-circle"
             color={c.success}
-            onPress={() => Alert.alert('Approve Trade', 'Approve and execute this trade now?', [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Approve', onPress: onCommissionerApprove },
-            ])}
+            onPress={() => confirm({
+              title: 'Approve Trade',
+              message: 'Approve and execute this trade now?',
+              action: { label: 'Approve', onPress: onCommissionerApprove },
+            })}
           />
           <ActionButton
             label="Veto"
             icon="ban"
             color={c.danger}
-            onPress={() => Alert.alert('Veto Trade', 'Veto this trade?', [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Veto', style: 'destructive', onPress: onCommissionerVeto },
-            ])}
+            onPress={() => confirm({
+              title: 'Veto Trade',
+              message: 'Veto this trade?',
+              action: { label: 'Veto', destructive: true, onPress: onCommissionerVeto },
+            })}
           />
         </View>
       </View>
@@ -235,10 +248,11 @@ export function TradeActionBar({
           label="Vote to Veto"
           icon="ban"
           color={c.danger}
-          onPress={() => Alert.alert('Vote to Veto', 'Cast a veto vote on this trade?', [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Veto', style: 'destructive', onPress: onVoteToVeto },
-          ])}
+          onPress={() => confirm({
+            title: 'Vote to Veto',
+            message: 'Cast a veto vote on this trade?',
+            action: { label: 'Veto', destructive: true, onPress: onVoteToVeto },
+          })}
           primary
         />
       </View>

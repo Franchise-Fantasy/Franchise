@@ -4,6 +4,7 @@ import * as Clipboard from 'expo-clipboard';
 import { Alert, Share, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { Colors, cardShadow } from '@/constants/Colors';
+import { useConfirm } from '@/context/ConfirmProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { generateInviteCode } from '@/utils/league/inviteCode';
@@ -24,6 +25,7 @@ export function InviteSection({ isCommissioner, inviteCode, leagueId, isFull }: 
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
 
   if (!isCommissioner || isFull || !inviteCode) return null;
 
@@ -41,29 +43,27 @@ export function InviteSection({ isCommissioner, inviteCode, leagueId, isFull }: 
   };
 
   const handleRegenerate = () => {
-    Alert.alert(
-      'Regenerate Invite Code',
-      'This will invalidate the current code. Anyone with the old code will no longer be able to join.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Regenerate',
-          style: 'destructive',
-          onPress: async () => {
-            const newCode = generateInviteCode();
-            const { error } = await supabase
-              .from('leagues')
-              .update({ invite_code: newCode })
-              .eq('id', leagueId);
-            if (error) {
-              Alert.alert('Error', error.message);
-            } else {
-              queryClient.invalidateQueries({ queryKey: ['league', leagueId] });
-            }
-          },
+    confirm({
+      title: 'Regenerate Invite Code',
+      message:
+        'This will invalidate the current code. Anyone with the old code will no longer be able to join.',
+      action: {
+        label: 'Regenerate',
+        destructive: true,
+        onPress: async () => {
+          const newCode = generateInviteCode();
+          const { error } = await supabase
+            .from('leagues')
+            .update({ invite_code: newCode })
+            .eq('id', leagueId);
+          if (error) {
+            Alert.alert('Error', error.message);
+          } else {
+            queryClient.invalidateQueries({ queryKey: ['league', leagueId] });
+          }
         },
-      ],
-    );
+      },
+    });
   };
 
   return (

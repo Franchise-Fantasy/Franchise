@@ -125,13 +125,14 @@ export function useChampions(leagueId: string | null) {
       if (error) throw error;
 
       const byS = new Map<string, ChampionEntry>();
-      for (const row of (data ?? []) as any[]) {
+      for (const row of data ?? []) {
         if (!byS.has(row.season)) {
           byS.set(row.season, { season: row.season, champion: null, runnerUp: null });
         }
         const entry = byS.get(row.season)!;
-        if (row.playoff_result === 'champion') entry.champion = row.team;
-        else entry.runnerUp = row.team;
+        const team = Array.isArray(row.team) ? row.team[0] ?? null : row.team;
+        if (row.playoff_result === 'champion') entry.champion = team;
+        else entry.runnerUp = team;
       }
       return [...byS.values()];
     },
@@ -208,16 +209,19 @@ export function useAllTimeRecords(leagueId: string | null) {
       if (teamSeasonsRes.error) throw teamSeasonsRes.error;
       if (teamsRes.error) throw teamsRes.error;
 
-      const teamSeasons = (teamSeasonsRes.data ?? []) as any[];
+      const teamSeasons = (teamSeasonsRes.data ?? []).map((row) => ({
+        ...row,
+        team: Array.isArray(row.team) ? row.team[0] ?? null : row.team,
+      }));
       const teamNameMap = new Map((teamsRes.data ?? []).map((t) => [t.id, t.name]));
       const records: RecordEntry[] = [];
 
       // Most points in a season
       if (teamSeasons.length > 0) {
-        const best = teamSeasons.reduce((a, b) => (b.points_for > a.points_for ? b : a));
+        const best = teamSeasons.reduce((a, b) => ((b.points_for ?? 0) > (a.points_for ?? 0) ? b : a));
         records.push({
           label: 'Most Points (Season)',
-          value: best.points_for.toFixed(1),
+          value: (best.points_for ?? 0).toFixed(1),
           teamName: best.team?.name ?? 'Unknown',
           detail: best.season,
         });
@@ -284,7 +288,7 @@ export function useAllTimeRecords(leagueId: string | null) {
       }
 
       // Merge stored high-water-mark records (e.g. highest scoring day)
-      const storedRecords = (storedRecordsRes.data ?? []) as any[];
+      const storedRecords = storedRecordsRes.data ?? [];
       for (const sr of storedRecords) {
         if (sr.record_type === 'highest_scoring_day') {
           records.push({
@@ -440,8 +444,8 @@ export function useBracketHistory(leagueId: string | null) {
       );
 
       const bracketsBySeason = new Map<string, BracketSlotHistory[]>();
-      for (const row of (bracketRes.data ?? []) as any[]) {
-        const m = row.matchup;
+      for (const row of bracketRes.data ?? []) {
+        const m = Array.isArray(row.matchup) ? row.matchup[0] ?? null : row.matchup;
         let team_a_score: number | null = null;
         let team_b_score: number | null = null;
         if (m) {

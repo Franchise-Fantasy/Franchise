@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import React from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
@@ -8,7 +9,7 @@ import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { TradeItemRow } from '@/hooks/useTrades';
 import { formatPickLabel } from '@/types/trade';
-import { getPlayerHeadshotUrl } from '@/utils/nba/playerHeadshot';
+import { getPlayerHeadshotUrl, PLAYER_SILHOUETTE } from '@/utils/nba/playerHeadshot';
 import { ms, s } from '@/utils/scale';
 
 
@@ -98,11 +99,14 @@ export function TradeAssetRow({ item, avgFpts, externalIdNba, isNew, teamNameMap
       accessibilityLabel={`${item.player_name ?? 'Unknown'}${avgFpts != null ? `, ${avgFpts.toFixed(1)} fantasy points per game` : ''}`}
     >
       <View style={[styles.headshot, { borderColor: c.border, backgroundColor: c.cardAlt }]}>
-        {headshotUrl ? (
-          <Image source={{ uri: headshotUrl }} style={styles.headshotImg} resizeMode="cover" />
-        ) : (
-          <Ionicons name="person" size={16} color={c.secondaryText} style={{ alignSelf: 'center', marginTop: s(5) }} />
-        )}
+        <Image
+          source={headshotUrl ? { uri: headshotUrl } : PLAYER_SILHOUETTE}
+          style={styles.headshotImg}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          recyclingKey={headshotUrl ?? "silhouette"}
+          placeholder={PLAYER_SILHOUETTE}
+        />
       </View>
       <View style={styles.info}>
         <ThemedText style={styles.playerName} numberOfLines={1}>{item.player_name ?? 'Unknown'}</ThemedText>

@@ -95,6 +95,24 @@ export type Database = {
           },
         ]
       }
+      app_config: {
+        Row: {
+          key: string
+          updated_at: string
+          value: Json
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          value: Json
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          value?: Json
+        }
+        Relationships: []
+      }
       chat_conversations: {
         Row: {
           created_at: string
@@ -514,6 +532,33 @@ export type Database = {
           },
         ]
       }
+      cron_job_runs: {
+        Row: {
+          expected_interval: string
+          job_name: string
+          last_error: string | null
+          last_run_at: string | null
+          last_status: string
+          last_success_at: string | null
+        }
+        Insert: {
+          expected_interval: string
+          job_name: string
+          last_error?: string | null
+          last_run_at?: string | null
+          last_status?: string
+          last_success_at?: string | null
+        }
+        Update: {
+          expected_interval?: string
+          job_name?: string
+          last_error?: string | null
+          last_run_at?: string | null
+          last_status?: string
+          last_success_at?: string | null
+        }
+        Relationships: []
+      }
       daily_lineups: {
         Row: {
           created_at: string | null
@@ -572,6 +617,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      dead_letter_alerts: {
+        Row: {
+          created_at: string
+          function_name: string | null
+          id: number
+          original_msg_id: number
+          original_queue: string
+          payload: Json | null
+          reason: string
+          resolved_at: string | null
+          resolved_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          function_name?: string | null
+          id?: never
+          original_msg_id: number
+          original_queue: string
+          payload?: Json | null
+          reason: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          function_name?: string | null
+          id?: never
+          original_msg_id?: number
+          original_queue?: string
+          payload?: Json | null
+          reason?: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+        }
+        Relationships: []
       }
       draft_picks: {
         Row: {
@@ -1888,6 +1969,50 @@ export type Database = {
           },
         ]
       }
+      message_reports: {
+        Row: {
+          created_at: string
+          details: string | null
+          id: string
+          message_id: string
+          reason: string
+          reporter_id: string
+          resolved_at: string | null
+          resolved_by: string | null
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          details?: string | null
+          id?: string
+          message_id: string
+          reason: string
+          reporter_id: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          details?: string | null
+          id?: string
+          message_id?: string
+          reason?: string
+          reporter_id?: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "message_reports_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "chat_messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pending_transactions: {
         Row: {
           action_type: string
@@ -2568,6 +2693,7 @@ export type Database = {
           email: string
           favorite_league_id: string | null
           id: string
+          is_admin: boolean
           username: string | null
         }
         Insert: {
@@ -2575,6 +2701,7 @@ export type Database = {
           email: string
           favorite_league_id?: string | null
           id?: string
+          is_admin?: boolean
           username?: string | null
         }
         Update: {
@@ -2582,6 +2709,7 @@ export type Database = {
           email?: string
           favorite_league_id?: string | null
           id?: string
+          is_admin?: boolean
           username?: string | null
         }
         Relationships: [
@@ -3336,6 +3464,24 @@ export type Database = {
           },
         ]
       }
+      user_blocks: {
+        Row: {
+          blocked_id: string
+          blocker_id: string
+          created_at: string
+        }
+        Insert: {
+          blocked_id: string
+          blocker_id: string
+          created_at?: string
+        }
+        Update: {
+          blocked_id?: string
+          blocker_id?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
       user_subscriptions: {
         Row: {
           auto_renew: boolean | null
@@ -3730,6 +3876,7 @@ export type Database = {
         Args: { p_updates: Json }
         Returns: undefined
       }
+      can_view_message: { Args: { p_message_id: string }; Returns: boolean }
       check_bidding_wars: {
         Args: { p_league_id: string; p_proposal_id: string }
         Returns: undefined
@@ -3745,6 +3892,7 @@ export type Database = {
       }
       claim_imported_team: { Args: { team_id_input: string }; Returns: string }
       cleanup_rate_limits: { Args: never; Returns: undefined }
+      cron_watchdog: { Args: never; Returns: number }
       execute_draft_pick: {
         Args: {
           p_draft_id: string
@@ -4030,6 +4178,10 @@ export type Database = {
         Args: { p_league_id: string; p_team_id: string }
         Returns: number
       }
+      get_trade_proposals_for_league: {
+        Args: { p_league_id: string }
+        Returns: Json
+      }
       get_user_tier: {
         Args: { p_league_id?: string; p_user_id: string }
         Returns: string
@@ -4051,11 +4203,16 @@ export type Database = {
         }
         Returns: undefined
       }
+      is_conversation_member: {
+        Args: { p_conversation_id: string }
+        Returns: boolean
+      }
       is_league_commissioner: {
         Args: { p_league_id: string }
         Returns: boolean
       }
       is_league_member: { Args: { p_league_id: string }; Returns: boolean }
+      is_team_blocked_by_me: { Args: { p_team_id: string }; Returns: boolean }
       is_team_present: {
         Args: { p_draft_id: string; p_team_id: string }
         Returns: boolean
@@ -4110,6 +4267,10 @@ export type Database = {
           p_team_name?: string
         }
         Returns: string
+      }
+      record_cron_heartbeat: {
+        Args: { p_error?: string; p_job: string; p_status: string }
+        Returns: undefined
       }
       refresh_player_season_stats: { Args: never; Returns: undefined }
       set_autopick: {

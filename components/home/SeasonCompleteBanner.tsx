@@ -7,6 +7,7 @@ import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors, cardShadow } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
+import { useConfirm } from '@/context/ConfirmProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { calcRounds } from '@/utils/league/playoff';
@@ -29,6 +30,7 @@ export function SeasonCompleteBanner({ leagueId, season, playoffTeams, isCommiss
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
   const [advancing, setAdvancing] = useState(false);
 
   const totalRounds = calcRounds(playoffTeams);
@@ -56,31 +58,29 @@ export function SeasonCompleteBanner({ leagueId, season, playoffTeams, isCommiss
   if (!championshipComplete) return null;
 
   const handleAdvanceSeason = () => {
-    Alert.alert(
-      'Start Offseason',
-      'This will archive the current season, crown the champion, and begin the offseason process. Continue?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Start Offseason',
-          onPress: async () => {
-            setAdvancing(true);
-            try {
-              const { error } = await supabase.functions.invoke('advance-season', {
-                body: { league_id: leagueId },
-              });
-              if (error) throw error;
-              queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId) });
-              queryClient.invalidateQueries({ queryKey: ['championship-check', leagueId] });
-            } catch (err: any) {
-              Alert.alert('Error', err.message ?? 'Failed to advance season');
-            } finally {
-              setAdvancing(false);
-            }
-          },
+    confirm({
+      title: 'Start Offseason',
+      message:
+        'This will archive the current season, crown the champion, and begin the offseason process. Continue?',
+      action: {
+        label: 'Start Offseason',
+        onPress: async () => {
+          setAdvancing(true);
+          try {
+            const { error } = await supabase.functions.invoke('advance-season', {
+              body: { league_id: leagueId },
+            });
+            if (error) throw error;
+            queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId) });
+            queryClient.invalidateQueries({ queryKey: ['championship-check', leagueId] });
+          } catch (err: any) {
+            Alert.alert('Error', err.message ?? 'Failed to advance season');
+          } finally {
+            setAdvancing(false);
+          }
         },
-      ],
-    );
+      },
+    });
   };
 
   return (

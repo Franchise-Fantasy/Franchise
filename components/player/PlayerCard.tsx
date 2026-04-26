@@ -1,5 +1,6 @@
+import { Image } from "expo-image";
 import { ReactNode } from "react";
-import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
@@ -8,7 +9,7 @@ import { useColorScheme } from "@/hooks/useColorScheme";
 import { PlayerSeasonStats } from "@/types/player";
 import { formatPosition } from "@/utils/formatting";
 import { getInjuryBadge } from "@/utils/nba/injuryBadge";
-import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
+import { getPlayerHeadshotUrl, getTeamLogoUrl, PLAYER_SILHOUETTE } from "@/utils/nba/playerHeadshot";
 import { ms, s } from "@/utils/scale";
 
 
@@ -41,7 +42,7 @@ export function PlayerCard({
       </ThemedText>
       {(() => {
         const url = getPlayerHeadshotUrl(player.external_id_nba, sport);
-        return url ? (
+        return (
           <View
             style={[
               styles.headshotCircle,
@@ -50,12 +51,15 @@ export function PlayerCard({
             accessibilityLabel={`${player.name} headshot`}
           >
             <Image
-              source={{ uri: url }}
+              source={url ? { uri: url } : PLAYER_SILHOUETTE}
               style={styles.headshotImg}
-              resizeMode="cover"
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              recyclingKey={url ?? "silhouette"}
+              placeholder={PLAYER_SILHOUETTE}
             />
           </View>
-        ) : null;
+        );
       })()}
       <View style={styles.info}>
         <View style={styles.nameRow}>
@@ -82,7 +86,9 @@ export function PlayerCard({
               <Image
                 source={{ uri: logoUrl }}
                 style={styles.teamLogo}
-                resizeMode="contain"
+                contentFit="contain"
+                cachePolicy="memory-disk"
+                recyclingKey={logoUrl}
               />
             ) : null;
           })()}

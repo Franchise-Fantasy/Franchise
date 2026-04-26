@@ -2,23 +2,18 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
   Alert,
-  Modal,
-  ScrollView,
   StyleSheet,
-  TouchableOpacity,
   View,
 } from 'react-native';
 
 import { TeamLogo } from '@/components/team/TeamLogo';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { BottomSheet } from '@/components/ui/BottomSheet';
+import { BrandButton } from '@/components/ui/BrandButton';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
 import { ms, s } from '@/utils/scale';
-
-
 
 interface Team {
   id: string;
@@ -45,8 +40,7 @@ export function AssignDivisionsModal({
   division2Name,
   teams,
 }: AssignDivisionsModalProps) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const queryClient = useQueryClient();
 
   const [assignments, setAssignments] = useState<Record<string, 1 | 2>>({});
@@ -105,133 +99,73 @@ export function AssignDivisionsModal({
   const divNames = [division1Name, division2Name];
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <View style={[styles.sheet, { backgroundColor: c.card }]} accessibilityViewIsModal={true}>
-          <View style={[styles.handle, { backgroundColor: c.border }]} />
+    <BottomSheet
+      visible={visible}
+      onClose={onClose}
+      title="Assign Divisions"
+      subtitle={`${division1Name}: ${div1Count}  •  ${division2Name}: ${div2Count}`}
+      footer={
+        <View style={styles.footer}>
+          <BrandButton
+            label="Randomize"
+            variant="ghost"
+            size="large"
+            onPress={handleRandomize}
+            style={styles.footerBtn}
+            accessibilityLabel="Randomize division assignments"
+          />
+          <BrandButton
+            label="Cancel"
+            variant="secondary"
+            size="large"
+            onPress={onClose}
+            style={styles.footerBtn}
+            accessibilityLabel="Cancel"
+          />
+          <BrandButton
+            label="Save"
+            variant="primary"
+            size="large"
+            onPress={handleSave}
+            loading={saving}
+            disabled={!isBalanced}
+            style={styles.footerSaveBtn}
+            accessibilityLabel="Save"
+          />
+        </View>
+      }
+    >
+      {!isBalanced && (
+        <ThemedText style={[styles.balanceWarn, { color: c.danger }]}>
+          Divisions must be balanced (±1)
+        </ThemedText>
+      )}
 
-          <View style={styles.titleRow}>
-            <ThemedText accessibilityRole="header" style={styles.title}>Assign Divisions</ThemedText>
+      {teams.map((team) => (
+        <View key={team.id} style={[styles.teamRow, { borderBottomColor: c.border }]}>
+          <View style={styles.teamInfo}>
+            <TeamLogo logoKey={team.logo_key} teamName={team.name} tricode={team.tricode ?? undefined} size="small" />
+            <ThemedText style={styles.teamName} numberOfLines={1}>{team.name}</ThemedText>
           </View>
-
-          {/* Balance indicator */}
-          <View style={[styles.balanceRow, { backgroundColor: c.cardAlt }]}>
-            <ThemedText style={[styles.balanceText, { color: c.secondaryText }]}>
-              {division1Name}: {div1Count}  •  {division2Name}: {div2Count}
-            </ThemedText>
-            {!isBalanced && (
-              <ThemedText style={[styles.balanceWarn, { color: c.danger }]}>
-                Divisions must be balanced (±1)
-              </ThemedText>
-            )}
-          </View>
-
-          <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} nestedScrollEnabled>
-            {teams.map((team) => (
-              <View key={team.id} style={[styles.teamRow, { borderBottomColor: c.border }]}>
-                <View style={styles.teamInfo}>
-                  <TeamLogo logoKey={team.logo_key} teamName={team.name} tricode={team.tricode ?? undefined} size="small" />
-                  <ThemedText style={styles.teamName} numberOfLines={1}>{team.name}</ThemedText>
-                </View>
-                <View style={styles.segmentWrap}>
-                  <SegmentedControl
-                    options={divNames}
-                    selectedIndex={(assignments[team.id] ?? 1) - 1}
-                    onSelect={(i) => setAssignments(prev => ({ ...prev, [team.id]: (i + 1) as 1 | 2 }))}
-                  />
-                </View>
-              </View>
-            ))}
-          </ScrollView>
-
-          <View style={styles.footer}>
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel="Randomize division assignments"
-              style={[styles.btn, { backgroundColor: c.cardAlt }]}
-              onPress={handleRandomize}
-            >
-              <ThemedText style={styles.btnText}>Randomize</ThemedText>
-            </TouchableOpacity>
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel="Cancel"
-              style={[styles.btn, { backgroundColor: c.cardAlt }]}
-              onPress={onClose}
-            >
-              <ThemedText style={styles.btnText}>Cancel</ThemedText>
-            </TouchableOpacity>
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel="Save"
-              accessibilityState={{ disabled: saving || !isBalanced }}
-              style={[styles.btn, styles.saveBtnWide, { backgroundColor: saving || !isBalanced ? c.buttonDisabled : c.accent }]}
-              onPress={handleSave}
-              disabled={saving || !isBalanced}
-            >
-              {saving ? (
-                <LogoSpinner size={18} />
-              ) : (
-                <ThemedText style={[styles.btnText, { color: c.accentText }]}>Save</ThemedText>
-              )}
-            </TouchableOpacity>
+          <View style={styles.segmentWrap}>
+            <SegmentedControl
+              options={divNames}
+              selectedIndex={(assignments[team.id] ?? 1) - 1}
+              onSelect={(i) => setAssignments(prev => ({ ...prev, [team.id]: (i + 1) as 1 | 2 }))}
+            />
           </View>
         </View>
-      </View>
-    </Modal>
+      ))}
+    </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'transparent',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingTop: s(12),
-    paddingBottom: s(40),
-    maxHeight: '85%',
-  },
-  handle: {
-    width: s(40),
-    height: s(4),
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: s(12),
-  },
-  titleRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    paddingHorizontal: s(16),
-    marginBottom: s(8),
-  },
-  title: {
-    fontSize: ms(17),
-    fontWeight: '600',
-  },
-  balanceRow: {
-    paddingHorizontal: s(16),
-    paddingVertical: s(8),
-    marginHorizontal: s(16),
-    borderRadius: 8,
-    marginBottom: s(8),
-    alignItems: 'center',
-  },
-  balanceText: {
-    fontSize: ms(13),
-    fontWeight: '500',
-  },
   balanceWarn: {
     fontSize: ms(12),
     fontWeight: '600',
-    marginTop: s(4),
-  },
-  scroll: {
-    flexShrink: 1,
-    paddingHorizontal: s(16),
+    marginBottom: s(8),
+    textAlign: 'center',
   },
   teamRow: {
     flexDirection: 'row',
@@ -258,20 +192,12 @@ const styles = StyleSheet.create({
   footer: {
     flexDirection: 'row',
     gap: s(8),
-    paddingHorizontal: s(16),
-    paddingTop: s(16),
-  },
-  btn: {
-    flex: 1,
-    paddingVertical: s(14),
-    borderRadius: 10,
     alignItems: 'center',
   },
-  saveBtnWide: {
-    flex: 1.5,
+  footerBtn: {
+    flex: 1,
   },
-  btnText: {
-    fontSize: ms(14),
-    fontWeight: '600',
+  footerSaveBtn: {
+    flex: 1.5,
   },
 });

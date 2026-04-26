@@ -113,26 +113,18 @@ export default function SurveyScreen() {
       return;
     }
 
-    Alert.alert('Submit Survey', 'Are you sure? You cannot change your answers after submitting.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Submit',
-        onPress: () => {
-          const answerArray = Array.from(answers.entries()).map(([question_id, value]) => ({
-            question_id,
-            value,
-          }));
-          submitMutation.mutate(answerArray, {
-            onSuccess: () => {
-              setMode('results');
-            },
-            onError: (err: any) => {
-              Alert.alert('Error', err.message ?? 'Failed to submit survey');
-            },
-          });
-        },
+    const answerArray = Array.from(answers.entries()).map(([question_id, value]) => ({
+      question_id,
+      value,
+    }));
+    submitMutation.mutate(answerArray, {
+      onSuccess: () => {
+        setMode('results');
       },
-    ]);
+      onError: (err: any) => {
+        Alert.alert('Error', err.message ?? 'Failed to submit survey');
+      },
+    });
   }
 
   // Loading state

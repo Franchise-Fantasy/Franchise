@@ -4,25 +4,24 @@ import { useState } from 'react';
 import {
   Alert,
   FlatList,
-  Modal,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 
+import { BottomSheet } from '@/components/ui/BottomSheet';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useConfirm } from '@/context/ConfirmProvider';
+import { useColors } from '@/hooks/useColors';
 import { useLeagueRosterConfig } from '@/hooks/useLeagueRosterConfig';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats } from '@/types/player';
 import { getInjuryBadge } from '@/utils/nba/injuryBadge';
 import { isEligibleForSlot, slotLabel } from '@/utils/roster/rosterSlots';
 import { ms, s } from '@/utils/scale';
-
 
 interface Props {
   visible: boolean;
@@ -38,8 +37,8 @@ interface RosterPlayer extends PlayerSeasonStats {
 }
 
 export function ForceRosterMoveModal({ visible, leagueId, teams, onClose }: Props) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
   const { data: rosterConfig } = useLeagueRosterConfig(leagueId);
 
@@ -58,7 +57,6 @@ export function ForceRosterMoveModal({ visible, leagueId, teams, onClose }: Prop
   function goBack() {
     if (step === 'slot') { setStep('player'); setSelectedPlayer(null); }
     else if (step === 'player') { setStep('team'); setSelectedTeam(null); }
-    else handleClose();
   }
 
   // Fetch team roster with slots
@@ -109,170 +107,175 @@ export function ForceRosterMoveModal({ visible, leagueId, teams, onClose }: Prop
 
   async function handleMoveToSlot(targetSlot: string) {
     if (!selectedPlayer || !selectedTeam) return;
-    Alert.alert(
-      'Force Roster Move',
-      `Move ${selectedPlayer.name} from ${slotLabel(selectedPlayer.roster_slot)} to ${slotLabel(targetSlot)}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Confirm',
-          onPress: async () => {
-            setProcessing(true);
-            try {
-              const { error } = await supabase.functions.invoke('commissioner-action', {
-                body: {
-                  action: 'force_move',
-                  league_id: leagueId,
-                  team_id: selectedTeam.id,
-                  player_id: selectedPlayer.player_id,
-                  target_slot: targetSlot,
-                },
-              });
-              if (error) throw new Error(error.message);
+    confirm({
+      title: 'Force Roster Move',
+      message: `Move ${selectedPlayer.name} from ${slotLabel(selectedPlayer.roster_slot)} to ${slotLabel(targetSlot)}?`,
+      action: {
+        label: 'Confirm',
+        onPress: async () => {
+          setProcessing(true);
+          try {
+            const { error } = await supabase.functions.invoke('commissioner-action', {
+              body: {
+                action: 'force_move',
+                league_id: leagueId,
+                team_id: selectedTeam.id,
+                player_id: selectedPlayer.player_id,
+                target_slot: targetSlot,
+              },
+            });
+            if (error) throw new Error(error.message);
 
-              Alert.alert('Done', `${selectedPlayer.name} moved to ${slotLabel(targetSlot)}.`);
-              queryClient.invalidateQueries({ queryKey: ['teamRoster'] });
-              queryClient.invalidateQueries({ queryKey: ['transactions'] });
-              queryClient.invalidateQueries({ queryKey: ['commishRosterMove'] });
-              handleClose();
-            } catch (e: any) {
-              Alert.alert('Error', e.message);
-            } finally {
-              setProcessing(false);
-            }
-          },
+            Alert.alert('Done', `${selectedPlayer.name} moved to ${slotLabel(targetSlot)}.`);
+            queryClient.invalidateQueries({ queryKey: ['teamRoster'] });
+            queryClient.invalidateQueries({ queryKey: ['transactions'] });
+            queryClient.invalidateQueries({ queryKey: ['commishRosterMove'] });
+            handleClose();
+          } catch (e: any) {
+            Alert.alert('Error', e.message);
+          } finally {
+            setProcessing(false);
+          }
         },
-      ]
-    );
+      },
+    });
   }
 
-  return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={handleClose}>
-      <View style={styles.overlay}>
-        <View style={[styles.content, { backgroundColor: c.card }]} accessibilityViewIsModal={true}>
-          <View style={styles.header}>
-            <TouchableOpacity accessibilityRole="button" accessibilityLabel={step === 'team' ? 'Close' : 'Go back'} onPress={goBack}>
-              <Ionicons name={step === 'team' ? 'close' : 'arrow-back'} size={24} color={c.text} />
-            </TouchableOpacity>
-            <ThemedText accessibilityRole="header" type="subtitle">
-              {step === 'team' ? 'Select Team' : step === 'player' ? selectedTeam?.name : selectedPlayer?.name}
-            </ThemedText>
-            <View style={{ width: s(24) }} />
-          </View>
+  const title =
+    step === 'team'
+      ? 'Select Team'
+      : step === 'player'
+        ? selectedTeam?.name ?? 'Roster'
+        : selectedPlayer?.name ?? 'Move Player';
 
-          {step === 'team' && (
+  const headerAction = step !== 'team' ? (
+    <TouchableOpacity
+      onPress={goBack}
+      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      accessibilityRole="button"
+      accessibilityLabel="Go back"
+    >
+      <Ionicons name="arrow-back" size={ms(22)} color={c.secondaryText} />
+    </TouchableOpacity>
+  ) : undefined;
+
+  return (
+    <BottomSheet
+      visible={visible}
+      onClose={handleClose}
+      title={title}
+      headerAction={headerAction}
+      height="92%"
+      scrollableBody={false}
+    >
+      {step === 'team' && (
+        <FlatList
+          data={teams}
+          keyExtractor={(t) => t.id}
+          renderItem={({ item, index }) => (
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel={item.name}
+              style={[styles.row, { borderBottomColor: c.border }, index === teams.length - 1 && { borderBottomWidth: 0 }]}
+              onPress={() => { setSelectedTeam(item); setStep('player'); }}
+            >
+              <ThemedText>{item.name}</ThemedText>
+              <Ionicons name="chevron-forward" size={18} color={c.secondaryText} />
+            </TouchableOpacity>
+          )}
+        />
+      )}
+
+      {step === 'player' && (
+        <>
+          {isLoading ? (
+            <View style={{ marginTop: s(20) }}><LogoSpinner /></View>
+          ) : !roster || roster.length === 0 ? (
+            <ThemedText style={[styles.empty, { color: c.secondaryText }]}>No players on roster.</ThemedText>
+          ) : (
             <FlatList
-              data={teams}
-              keyExtractor={(t) => t.id}
-              renderItem={({ item, index }) => (
+              data={roster}
+              keyExtractor={(p) => p.player_id}
+              renderItem={({ item, index }) => {
+                const badge = getInjuryBadge(item.status);
+                return (
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel={`${item.name}, ${item.position}, current slot ${slotLabel(item.roster_slot)}`}
+                    style={[styles.row, { borderBottomColor: c.border }, index === (roster ?? []).length - 1 && { borderBottomWidth: 0 }]}
+                    onPress={() => { setSelectedPlayer(item); setStep('slot'); }}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(6) }}>
+                        <ThemedText style={{ fontWeight: '600' }}>{item.name}</ThemedText>
+                        {badge && (
+                          <View style={[styles.badge, { backgroundColor: badge.color + '22' }]}>
+                            <Text style={{ color: badge.color, fontSize: ms(10), fontWeight: '700' }}>{badge.label}</Text>
+                          </View>
+                        )}
+                      </View>
+                      <ThemedText style={[styles.sub, { color: c.secondaryText }]}>
+                        {item.position} · {item.pro_team}
+                      </ThemedText>
+                    </View>
+                    <View style={[styles.slotBadge, { backgroundColor: c.cardAlt }]}>
+                      <ThemedText style={{ fontSize: ms(12), fontWeight: '600' }}>
+                        {slotLabel(item.roster_slot)}
+                      </ThemedText>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={c.secondaryText} style={{ marginLeft: s(8) }} />
+                  </TouchableOpacity>
+                );
+              }}
+            />
+          )}
+        </>
+      )}
+
+      {step === 'slot' && (
+        <>
+          <ThemedText style={[styles.slotHeader, { color: c.secondaryText }]}>
+            Current: {slotLabel(selectedPlayer?.roster_slot ?? '')}
+          </ThemedText>
+          {availableSlots.length === 0 ? (
+            <ThemedText style={[styles.empty, { color: c.secondaryText }]}>
+              No other eligible slots.
+            </ThemedText>
+          ) : (
+            <FlatList
+              data={availableSlots}
+              keyExtractor={(slot) => slot}
+              renderItem={({ item: slot, index }) => (
                 <TouchableOpacity
                   accessibilityRole="button"
-                  accessibilityLabel={item.name}
-                  style={[styles.row, { borderBottomColor: c.border }, index === teams.length - 1 && { borderBottomWidth: 0 }]}
-                  onPress={() => { setSelectedTeam(item); setStep('player'); }}
+                  accessibilityLabel={`Move to ${slotLabel(slot)}`}
+                  style={[styles.row, { borderBottomColor: c.border }, index === availableSlots.length - 1 && { borderBottomWidth: 0 }]}
+                  onPress={() => handleMoveToSlot(slot)}
+                  disabled={processing}
                 >
-                  <ThemedText>{item.name}</ThemedText>
-                  <Ionicons name="chevron-forward" size={18} color={c.secondaryText} />
+                  <ThemedText style={{ fontWeight: '600' }}>{slotLabel(slot)}</ThemedText>
                 </TouchableOpacity>
               )}
             />
           )}
+        </>
+      )}
 
-          {step === 'player' && (
-            <>
-              {isLoading ? (
-                <View style={{ marginTop: s(20) }}><LogoSpinner /></View>
-              ) : !roster || roster.length === 0 ? (
-                <ThemedText style={[styles.empty, { color: c.secondaryText }]}>No players on roster.</ThemedText>
-              ) : (
-                <FlatList
-                  data={roster}
-                  keyExtractor={(p) => p.player_id}
-                  renderItem={({ item, index }) => {
-                    const badge = getInjuryBadge(item.status);
-                    return (
-                      <TouchableOpacity
-                        accessibilityRole="button"
-                        accessibilityLabel={`${item.name}, ${item.position}, current slot ${slotLabel(item.roster_slot)}`}
-                        style={[styles.row, { borderBottomColor: c.border }, index === (roster ?? []).length - 1 && { borderBottomWidth: 0 }]}
-                        onPress={() => { setSelectedPlayer(item); setStep('slot'); }}
-                      >
-                        <View style={{ flex: 1 }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(6) }}>
-                            <ThemedText style={{ fontWeight: '600' }}>{item.name}</ThemedText>
-                            {badge && (
-                              <View style={[styles.badge, { backgroundColor: badge.color + '22' }]}>
-                                <Text style={{ color: badge.color, fontSize: ms(10), fontWeight: '700' }}>{badge.label}</Text>
-                              </View>
-                            )}
-                          </View>
-                          <ThemedText style={[styles.sub, { color: c.secondaryText }]}>
-                            {item.position} · {item.pro_team}
-                          </ThemedText>
-                        </View>
-                        <View style={[styles.slotBadge, { backgroundColor: c.cardAlt }]}>
-                          <ThemedText style={{ fontSize: ms(12), fontWeight: '600' }}>
-                            {slotLabel(item.roster_slot)}
-                          </ThemedText>
-                        </View>
-                        <Ionicons name="chevron-forward" size={18} color={c.secondaryText} style={{ marginLeft: s(8) }} />
-                      </TouchableOpacity>
-                    );
-                  }}
-                />
-              )}
-            </>
-          )}
-
-          {step === 'slot' && (
-            <>
-              <ThemedText style={[styles.slotHeader, { color: c.secondaryText }]}>
-                Current: {slotLabel(selectedPlayer?.roster_slot ?? '')}
-              </ThemedText>
-              {availableSlots.length === 0 ? (
-                <ThemedText style={[styles.empty, { color: c.secondaryText }]}>
-                  No other eligible slots.
-                </ThemedText>
-              ) : (
-                <FlatList
-                  data={availableSlots}
-                  keyExtractor={(s) => s}
-                  renderItem={({ item: slot, index }) => (
-                    <TouchableOpacity
-                      accessibilityRole="button"
-                      accessibilityLabel={`Move to ${slotLabel(slot)}`}
-                      style={[styles.row, { borderBottomColor: c.border }, index === availableSlots.length - 1 && { borderBottomWidth: 0 }]}
-                      onPress={() => handleMoveToSlot(slot)}
-                      disabled={processing}
-                    >
-                      <ThemedText style={{ fontWeight: '600' }}>{slotLabel(slot)}</ThemedText>
-                    </TouchableOpacity>
-                  )}
-                />
-              )}
-            </>
-          )}
-
-          {processing && (
-            <View style={styles.processingOverlay}>
-              <LogoSpinner />
-            </View>
-          )}
+      {processing && (
+        <View style={styles.processingOverlay}>
+          <LogoSpinner />
         </View>
-      </View>
-    </Modal>
+      )}
+    </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: 'flex-end' },
-  content: { borderTopLeftRadius: 14, borderTopRightRadius: 14, padding: s(20), paddingBottom: s(32), minHeight: '60%', maxHeight: '92%', overflow: 'hidden' as const },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: s(16) },
   row: { flexDirection: 'row', alignItems: 'center', paddingVertical: s(12), borderBottomWidth: StyleSheet.hairlineWidth },
   sub: { fontSize: ms(12), marginTop: s(2) },
   badge: { paddingHorizontal: s(5), paddingVertical: s(1), borderRadius: 4 },
   slotBadge: { paddingHorizontal: s(8), paddingVertical: s(3), borderRadius: 6 },
   slotHeader: { fontSize: ms(13), marginBottom: s(12) },
   empty: { textAlign: 'center', marginTop: s(24), fontSize: ms(14) },
-  processingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center', borderRadius: 16 },
+  processingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center' },
 });

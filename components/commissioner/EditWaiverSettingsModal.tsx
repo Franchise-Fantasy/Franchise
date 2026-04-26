@@ -2,26 +2,19 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
   Alert,
-  Modal,
-  Pressable,
-  ScrollView,
   StyleSheet,
-  Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
 
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { BottomSheet } from '@/components/ui/BottomSheet';
+import { BrandButton } from '@/components/ui/BrandButton';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
 import { PLAYER_LOCK_DISPLAY, PLAYER_LOCK_OPTIONS, PLAYER_LOCK_TO_DB, WAIVER_DAY_LABELS, WAIVER_TYPE_OPTIONS } from '@/constants/LeagueDefaults';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
 import { ms, s } from '@/utils/scale';
-
-
 
 const WAIVER_DISPLAY: Record<string, string> = { standard: 'Standard', faab: 'FAAB', none: 'None' };
 const WAIVER_TO_DB: Record<string, string> = { Standard: 'standard', FAAB: 'faab', None: 'none' };
@@ -34,8 +27,7 @@ interface EditWaiverSettingsModalProps {
 }
 
 export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: EditWaiverSettingsModalProps) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const queryClient = useQueryClient();
 
   const [waiverType, setWaiverType] = useState('Standard');
@@ -78,136 +70,121 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
   const typeIndex = WAIVER_TYPE_OPTIONS.indexOf(waiverType as any);
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={[styles.sheet, { backgroundColor: c.card }]} onPress={() => {}} accessibilityViewIsModal={true}>
-          {/* Handle */}
-          <View style={[styles.handle, { backgroundColor: c.border }]} />
+    <BottomSheet
+      visible={visible}
+      onClose={onClose}
+      title="Waiver Settings"
+      footer={
+        <View style={styles.footer}>
+          <BrandButton
+            label="Cancel"
+            variant="secondary"
+            size="large"
+            onPress={onClose}
+            fullWidth
+            style={styles.footerBtn}
+            accessibilityLabel="Cancel"
+          />
+          <BrandButton
+            label="Save"
+            variant="primary"
+            size="large"
+            onPress={handleSave}
+            loading={saving}
+            fullWidth
+            style={styles.footerBtn}
+            accessibilityLabel="Save"
+          />
+        </View>
+      }
+    >
+      {/* Waiver Type */}
+      <View style={[styles.editRow, { borderBottomColor: c.border }]}>
+        <ThemedText style={styles.rowLabel}>Waiver Type</ThemedText>
+      </View>
+      <View style={{ paddingVertical: s(8) }}>
+        <SegmentedControl
+          options={WAIVER_TYPE_OPTIONS}
+          selectedIndex={typeIndex >= 0 ? typeIndex : 0}
+          onSelect={(i) => setWaiverType(WAIVER_TYPE_OPTIONS[i])}
+        />
+      </View>
 
-          {/* Title */}
-          <View style={styles.titleRow}>
-            <ThemedText accessibilityRole="header" style={styles.title}>Waiver Settings</ThemedText>
+      {/* Waiver Period (not shown for 'None') */}
+      {waiverType !== 'None' && (
+        <NumberStepper
+          label="Waiver Period"
+          value={waiverPeriod}
+          onValueChange={setWaiverPeriod}
+          min={1}
+          max={5}
+          suffix=" days"
+        />
+      )}
+
+      {/* Process Day (FAAB only) */}
+      {waiverType === 'FAAB' && (
+        <>
+          <View style={[styles.editRow, { borderBottomColor: c.border }]}>
+            <ThemedText style={styles.rowLabel}>Process Day</ThemedText>
           </View>
-
-          <ScrollView style={styles.scroll} bounces={false} nestedScrollEnabled>
-            {/* Waiver Type */}
-            <View style={[styles.editRow, { borderBottomColor: c.border }]}>
-              <ThemedText style={styles.rowLabel}>Waiver Type</ThemedText>
-            </View>
-            <View style={{ paddingVertical: s(8) }}>
-              <SegmentedControl
-                options={WAIVER_TYPE_OPTIONS}
-                selectedIndex={typeIndex >= 0 ? typeIndex : 0}
-                onSelect={(i) => setWaiverType(WAIVER_TYPE_OPTIONS[i])}
-              />
-            </View>
-
-            {/* Waiver Period (not shown for 'None') */}
-            {waiverType !== 'None' && (
-              <NumberStepper
-                label="Waiver Period"
-                value={waiverPeriod}
-                onValueChange={setWaiverPeriod}
-                min={1}
-                max={5}
-                suffix=" days"
-              />
-            )}
-
-            {/* Process Day (FAAB only) */}
-            {waiverType === 'FAAB' && (
-              <>
-                <View style={[styles.editRow, { borderBottomColor: c.border }]}>
-                  <ThemedText style={styles.rowLabel}>Process Day</ThemedText>
-                </View>
-                <View style={{ paddingVertical: s(8) }}>
-                  <SegmentedControl
-                    options={WAIVER_DAY_LABELS}
-                    selectedIndex={waiverDay}
-                    onSelect={setWaiverDay}
-                  />
-                </View>
-              </>
-            )}
-
-            {/* FAAB Budget (FAAB only) */}
-            {waiverType === 'FAAB' && (
-              <NumberStepper
-                label="FAAB Budget"
-                value={faabBudget}
-                onValueChange={setFaabBudget}
-                min={10}
-                max={1000}
-                step={10}
-                suffix="$"
-              />
-            )}
-
-            {/* Weekly Acquisition Limit */}
-            <NumberStepper
-              label="Weekly Add Limit"
-              value={weeklyLimit}
-              onValueChange={setWeeklyLimit}
-              min={0}
-              max={20}
-              suffix={weeklyLimit === 0 ? ' (unlimited)' : ' per week'}
-              accessibilityLabel="Weekly acquisition limit, 0 means unlimited"
+          <View style={{ paddingVertical: s(8) }}>
+            <SegmentedControl
+              options={WAIVER_DAY_LABELS}
+              selectedIndex={waiverDay}
+              onSelect={setWaiverDay}
             />
-
-            {/* Player Lock */}
-            <View style={[styles.editRow, { borderBottomColor: c.border }]}>
-              <ThemedText style={styles.rowLabel}>Player Lock</ThemedText>
-            </View>
-            <View style={{ paddingVertical: s(8) }}>
-              <SegmentedControl
-                options={PLAYER_LOCK_OPTIONS}
-                selectedIndex={PLAYER_LOCK_OPTIONS.indexOf(playerLock as any)}
-                onSelect={(i) => setPlayerLock(PLAYER_LOCK_OPTIONS[i])}
-              />
-            </View>
-            <ThemedText style={{ fontSize: ms(13), color: c.secondaryText, marginBottom: s(12) }}>
-              {playerLock === 'Daily'
-                ? 'Once the first NBA game starts each day, adds process the next day'
-                : 'Players whose games have started cannot be added or dropped'}
-            </ThemedText>
-          </ScrollView>
-
-          {/* Footer */}
-          <View style={[styles.footer, { borderTopColor: c.border }]}>
-            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Cancel" style={[styles.btn, { backgroundColor: c.cardAlt }]} onPress={onClose}>
-              <ThemedText style={styles.btnText}>Cancel</ThemedText>
-            </TouchableOpacity>
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel="Save"
-              accessibilityState={{ disabled: saving }}
-              style={[styles.btn, { backgroundColor: saving ? c.buttonDisabled : c.accent }]}
-              onPress={handleSave}
-              disabled={saving}
-            >
-              {saving ? (
-                <LogoSpinner size={18} />
-              ) : (
-                <Text style={[styles.btnText, { color: c.accentText }]}>Save</Text>
-              )}
-            </TouchableOpacity>
           </View>
-        </Pressable>
-      </Pressable>
-    </Modal>
+        </>
+      )}
+
+      {/* FAAB Budget (FAAB only) */}
+      {waiverType === 'FAAB' && (
+        <NumberStepper
+          label="FAAB Budget"
+          value={faabBudget}
+          onValueChange={setFaabBudget}
+          min={10}
+          max={1000}
+          step={10}
+          suffix="$"
+        />
+      )}
+
+      {/* Weekly Acquisition Limit */}
+      <NumberStepper
+        label="Weekly Add Limit"
+        value={weeklyLimit}
+        onValueChange={setWeeklyLimit}
+        min={0}
+        max={20}
+        suffix={weeklyLimit === 0 ? ' (unlimited)' : ' per week'}
+        accessibilityLabel="Weekly acquisition limit, 0 means unlimited"
+      />
+
+      {/* Player Lock */}
+      <View style={[styles.editRow, { borderBottomColor: c.border }]}>
+        <ThemedText style={styles.rowLabel}>Player Lock</ThemedText>
+      </View>
+      <View style={{ paddingVertical: s(8) }}>
+        <SegmentedControl
+          options={PLAYER_LOCK_OPTIONS}
+          selectedIndex={PLAYER_LOCK_OPTIONS.indexOf(playerLock as any)}
+          onSelect={(i) => setPlayerLock(PLAYER_LOCK_OPTIONS[i])}
+        />
+      </View>
+      <ThemedText style={{ fontSize: ms(13), color: c.secondaryText, marginBottom: s(12) }}>
+        {playerLock === 'Daily'
+          ? 'Once the first NBA game starts each day, adds process the next day'
+          : 'Players whose games have started cannot be added or dropped'}
+      </ThemedText>
+    </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'transparent', justifyContent: 'flex-end' },
-  sheet: { borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingTop: s(12), paddingBottom: s(40), maxHeight: '85%' },
-  handle: { width: s(40), height: s(4), borderRadius: 2, alignSelf: 'center', marginBottom: s(12) },
-  titleRow: { flexDirection: 'row', justifyContent: 'center', paddingHorizontal: s(16), marginBottom: s(16) },
-  title: { fontSize: ms(17), fontWeight: '600' },
-  scroll: { flexShrink: 1, paddingHorizontal: s(16) },
+  footer: { flexDirection: 'row', gap: s(12) },
+  footerBtn: { flex: 1 },
   editRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: s(12), borderBottomWidth: StyleSheet.hairlineWidth },
   rowLabel: { fontSize: ms(14) },
-  footer: { flexDirection: 'row', gap: s(12), paddingHorizontal: s(16), paddingTop: s(16) },
-  btn: { flex: 1, paddingVertical: s(14), borderRadius: 10, alignItems: 'center' },
-  btnText: { fontSize: ms(15), fontWeight: '600' },
 });

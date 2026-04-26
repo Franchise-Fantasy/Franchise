@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
+import { Image } from "expo-image";
 import { useState } from "react";
 import {
-  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -20,7 +20,7 @@ import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
 import { formatPosition } from "@/utils/formatting";
 import { getInjuryBadge } from "@/utils/nba/injuryBadge";
-import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
+import { getPlayerHeadshotUrl, getTeamLogoUrl, PLAYER_SILHOUETTE } from "@/utils/nba/playerHeadshot";
 import { slotLabel } from "@/utils/roster/rosterSlots";
 import { ms, s } from "@/utils/scale";
 import { calculateAvgFantasyPoints } from "@/utils/scoring/fantasyPoints";
@@ -265,13 +265,14 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
                       { borderColor: c.heritageGold, backgroundColor: c.cardAlt },
                     ]}
                   >
-                    {url ? (
-                      <Image
-                        source={{ uri: url }}
-                        style={styles.headshotImg}
-                        resizeMode="cover"
-                      />
-                    ) : null}
+                    <Image
+                      source={url ? { uri: url } : PLAYER_SILHOUETTE}
+                      style={styles.headshotImg}
+                      contentFit="cover"
+                      cachePolicy="memory-disk"
+                      recyclingKey={url ?? "silhouette"}
+                      placeholder={PLAYER_SILHOUETTE}
+                    />
                   </View>
                 );
               })()}
@@ -283,7 +284,9 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
                       <Image
                         source={{ uri: logoUrl }}
                         style={styles.teamPillLogo}
-                        resizeMode="contain"
+                        contentFit="contain"
+                        cachePolicy="memory-disk"
+                        recyclingKey={logoUrl}
                       />
                     )}
                     <Text style={[styles.teamPillText, { color: c.statusText }]}>

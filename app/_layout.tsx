@@ -21,6 +21,7 @@ import {
   QueryClient,
   QueryClientProvider,
 } from "@tanstack/react-query";
+import Constants from "expo-constants";
 import { useFonts } from "expo-font";
 import * as Linking from "expo-linking";
 import * as Notifications from "expo-notifications";
@@ -34,7 +35,7 @@ import {
   usePostHog,
 } from "posthog-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Animated, AppState, Image, StyleSheet } from "react-native";
+import { Alert, Animated, AppState, Image, Platform, StyleSheet } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import "react-native-reanimated";
@@ -42,6 +43,7 @@ import "react-native-reanimated";
 import { AnnouncementBanner } from "@/components/banners/AnnouncementBanner";
 import { MatchupResultModal } from "@/components/banners/MatchupResultModal";
 import { OfflineBanner } from "@/components/banners/OfflineBanner";
+import { ForceUpdateScreen } from "@/components/ForceUpdateScreen";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { Colors } from "@/constants/Colors";
 import { AppStateProvider, useAppState } from "@/context/AppStateProvider";
@@ -50,6 +52,7 @@ import {
   useAuthInitialized,
   useSession,
 } from "@/context/AuthProvider";
+import { ConfirmProvider, useConfirm } from "@/context/ConfirmProvider";
 import { globalToastRef, ToastProvider } from "@/context/ToastProvider";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { isDraftRoomOpen } from "@/lib/activeScreen";
@@ -57,16 +60,40 @@ import { posthog, setPostHogAdmin } from "@/lib/posthog";
 import { registerSplashReadyHandler } from "@/lib/splashReady";
 import { supabase } from "@/lib/supabase";
 import { isExpoGo } from "@/utils/buildConfig";
+import { logger } from "@/utils/logger";
 
 // Keep the native splash screen visible until we explicitly hide it.
 SplashScreen.preventAutoHideAsync();
 
+// Compare two dot-separated semver-ish strings ("1.2.3" vs "1.2.10"). Returns
+// negative if a < b, 0 if equal, positive if a > b. Inline because we only
+// need numeric comparison — no prerelease handling, no need for the full
+// `semver` package.
+function compareVersions(a: string, b: string): number {
+  const aParts = a.split('.').map((n) => parseInt(n, 10) || 0);
+  const bParts = b.split('.').map((n) => parseInt(n, 10) || 0);
+  const len = Math.max(aParts.length, bParts.length);
+  for (let i = 0; i < len; i++) {
+    const av = aParts[i] ?? 0;
+    const bv = bParts[i] ?? 0;
+    if (av !== bv) return av - bv;
+  }
+  return 0;
+}
+
 // Sentry requires native modules — only initialize in TestFlight / production builds.
+// Bind release to the version in app.json so crashes bucket per release in Sentry's
+// dashboard. Without this every crash showed up under the same release name forever
+// and there was no way to tell new regressions from carried-over noise.
 if (!isExpoGo) {
   try {
     const Sentry = require("@sentry/react-native");
     if (process.env.EXPO_PUBLIC_SENTRY_DSN) {
-      Sentry.init({ dsn: process.env.EXPO_PUBLIC_SENTRY_DSN });
+      Sentry.init({
+        dsn: process.env.EXPO_PUBLIC_SENTRY_DSN,
+        release: Constants.expoConfig?.version,
+        dist: String(Constants.expoConfig?.ios?.buildNumber ?? Constants.expoConfig?.android?.versionCode ?? ''),
+      });
     }
   } catch {
     // Sentry native module not available — skip silently
@@ -157,6 +184,36 @@ const NOTIF_ROUTES: Record<string, string> = {
   chat: "/chat",
   "lottery-room": "/lottery-room",
 };
+
+/**
+ * Checks for an OTA update on launch and prompts via ConfirmModal.
+ * Lives as a child of ConfirmProvider so `useConfirm` is in scope —
+ * the OTA check used to be a useEffect inside RootLayout itself, which
+ * couldn't reach the provider.
+ */
+function OtaUpdateChecker() {
+  const confirm = useConfirm();
+  useEffect(() => {
+    if (isExpoGo) return;
+    (async () => {
+      try {
+        const update = await Updates.checkForUpdateAsync();
+        if (update.isAvailable) {
+          await Updates.fetchUpdateAsync();
+          confirm({
+            title: 'Update Available',
+            message: 'A new version is ready to install.',
+            cancelLabel: 'Later',
+            action: { label: 'Install', onPress: () => Updates.reloadAsync() },
+          });
+        }
+      } catch {
+        // No-op in case Updates API isn't available
+      }
+    })();
+  }, [confirm]);
+  return null;
+}
 
 /** Switch league/team context when a league_id is provided via notification or deep link.
  *  Returns true if the user has a team in the league (membership confirmed). */
@@ -400,7 +457,7 @@ function NotificationAndLinkHandler() {
         if (response) handleNotificationResponse(response);
       })
       .catch((err) => {
-        console.warn("getLastNotificationResponseAsync failed", err);
+        logger.warn("getLastNotificationResponseAsync failed", err);
       });
   }, [handleNotificationResponse]);
 
@@ -442,7 +499,7 @@ function NotificationAndLinkHandler() {
                 }
               })
               .catch((err) => {
-                console.warn("setSession (recovery) failed", err);
+                logger.warn("setSession (recovery) failed", err);
               });
             return;
           }
@@ -474,7 +531,7 @@ function NotificationAndLinkHandler() {
         if (url) handleUrl({ url });
       })
       .catch((err) => {
-        console.warn("Linking.getInitialURL failed", err);
+        logger.warn("Linking.getInitialURL failed", err);
       });
 
     // URLs received while the app is already open
@@ -497,30 +554,31 @@ export default function RootLayout() {
     Inter_700Bold,
   });
 
-  // Check for OTA updates when the app launches (only in TestFlight / production)
-  // Pre-fetches the bundle so "Install" triggers a near-instant reload,
-  // minimizing the splash-screen flash between themes.
+
+  // Forced-upgrade gate: query the public app_config table for the minimum
+  // supported version. If the installed binary is below it, render
+  // ForceUpdateScreen instead of the normal app — gives operators a "kill
+  // old clients" lever before shipping a breaking schema/RPC change. Fails
+  // open: any error (network, RLS, missing row) lets the app boot normally.
+  const [forcedUpdate, setForcedUpdate] = useState<{ installed: string; minimum: string } | null>(null);
   useEffect(() => {
-    if (isExpoGo) return;
     (async () => {
       try {
-        const update = await Updates.checkForUpdateAsync();
-        if (update.isAvailable) {
-          await Updates.fetchUpdateAsync();
-          Alert.alert(
-            "Update Available",
-            "A new version is ready to install.",
-            [
-              { text: "Later" },
-              {
-                text: "Install",
-                onPress: () => Updates.reloadAsync(),
-              },
-            ],
-          );
+        const installed = Constants.expoConfig?.version ?? '0.0.0';
+        const { data } = await supabase
+          .from('app_config')
+          .select('value')
+          .eq('key', 'min_supported_version')
+          .maybeSingle();
+        const cfg = data?.value as { ios?: string; android?: string } | null;
+        const platformKey: 'ios' | 'android' = Platform.OS === 'ios' ? 'ios' : 'android';
+        const minimum = cfg?.[platformKey];
+        if (!minimum) return;
+        if (compareVersions(installed, minimum) < 0) {
+          setForcedUpdate({ installed, minimum });
         }
-      } catch {
-        // No-op in case Updates API isn't available
+      } catch (err) {
+        logger.warn('min_supported_version check failed (failing open)', err);
       }
     })();
   }, []);
@@ -544,6 +602,8 @@ export default function RootLayout() {
               <ToastProvider>
                 <AuthProvider>
                   <AppStateProvider>
+                    <ConfirmProvider>
+                    <OtaUpdateChecker />
                     <PostHogIdentifier />
                     <ScreenTracker />
                     <NotificationAndLinkHandler />
@@ -551,6 +611,12 @@ export default function RootLayout() {
                     <AnnouncementBanner />
                     <MatchupResultModal />
                     <ErrorBoundary>
+                    {forcedUpdate ? (
+                      <ForceUpdateScreen
+                        installedVersion={forcedUpdate.installed}
+                        minimumVersion={forcedUpdate.minimum}
+                      />
+                    ) : (
                     <Stack
                       screenOptions={{
                         contentStyle: {
@@ -686,6 +752,10 @@ export default function RootLayout() {
                         options={{ headerShown: false }}
                       />
                       <Stack.Screen
+                        name="blocked-users"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
                         name="auth"
                         options={{ headerShown: false }}
                       />
@@ -699,11 +769,13 @@ export default function RootLayout() {
                       />
                       <Stack.Screen name="+not-found" />
                     </Stack>
+                    )}
                     </ErrorBoundary>
                     {/* Splash overlay lives at the end so it renders on
                         top of the Stack — gives us the cross-fade from
                         native splash → JS UI without a hard cut. */}
                     <SplashGate />
+                    </ConfirmProvider>
                   </AppStateProvider>
                   <StatusBar style="auto" />
                 </AuthProvider>

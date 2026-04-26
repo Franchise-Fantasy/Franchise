@@ -10,9 +10,10 @@ import {
 
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Brand, Fonts } from '@/constants/Colors';
+import { useConfirm } from '@/context/ConfirmProvider';
 import { useClosePoll, usePoll, usePollResults, useVotePoll } from '@/hooks/chat';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { ms, s } from '@/utils/scale';
 
 interface Props {
@@ -23,18 +24,18 @@ interface Props {
 
 function formatCountdown(closesAt: string): string {
   const diff = new Date(closesAt).getTime() - Date.now();
-  if (diff <= 0) return 'Closed';
+  if (diff <= 0) return 'CLOSED';
   const mins = Math.floor(diff / 60_000);
-  if (mins < 60) return `Closes in ${mins}m`;
+  if (mins < 60) return `CLOSES IN ${mins}M`;
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `Closes in ${hrs}h ${mins % 60}m`;
+  if (hrs < 24) return `CLOSES IN ${hrs}H ${mins % 60}M`;
   const days = Math.floor(hrs / 24);
-  return `Closes in ${days}d ${hrs % 24}h`;
+  return `CLOSES IN ${days}D ${hrs % 24}H`;
 }
 
 export const PollBubble = React.memo(function PollBubble({ pollId, teamId, isCommissioner }: Props) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
   const { data: poll } = usePoll(pollId);
   const { data: results } = usePollResults(pollId, poll, teamId);
@@ -64,7 +65,6 @@ export const PollBubble = React.memo(function PollBubble({ pollId, teamId, isCom
     setCountdown(formatCountdown(poll.closes_at));
     const interval = setInterval(() => {
       setCountdown(formatCountdown(poll.closes_at));
-      // One-time refetch when poll transitions from open → closed
       const nowClosed = new Date(poll.closes_at) <= new Date();
       if (nowClosed && !wasClosed.current) {
         wasClosed.current = true;
@@ -98,23 +98,18 @@ export const PollBubble = React.memo(function PollBubble({ pollId, teamId, isCom
   }, [selected, voteMutation]);
 
   if (!poll || !results) {
-    // Skeleton that approximates a typical poll's height to prevent layout jump
     return (
       <View
         style={[styles.container, { backgroundColor: c.cardAlt, borderColor: c.border }]}
         accessibilityLabel="Loading poll"
       >
-        {/* Header skeleton */}
         <View style={[styles.skeletonBar, styles.skeletonHeader, { backgroundColor: c.border }]} />
-        {/* Question skeleton */}
         <View style={[styles.skeletonBar, styles.skeletonQuestion, { backgroundColor: c.border }]} />
-        {/* Option skeletons (3 typical options) */}
         <View style={styles.skeletonOptions}>
           <View style={[styles.skeletonBar, styles.skeletonOption, { backgroundColor: c.border }]} />
           <View style={[styles.skeletonBar, styles.skeletonOption, { backgroundColor: c.border }]} />
           <View style={[styles.skeletonBar, styles.skeletonOption, { backgroundColor: c.border }]} />
         </View>
-        {/* Footer skeleton */}
         <View style={[styles.skeletonBar, styles.skeletonFooter, { backgroundColor: c.border }]} />
       </View>
     );
@@ -128,17 +123,21 @@ export const PollBubble = React.memo(function PollBubble({ pollId, teamId, isCom
       accessibilityRole="summary"
       accessibilityLabel={`Commissioner poll: ${poll.question}`}
     >
-      {/* Header */}
-      <View style={styles.header}>
-        <Ionicons name="bar-chart-outline" size={16} color={c.accent} accessible={false} />
-        <ThemedText style={[styles.headerLabel, { color: c.accent }]}>
-          Commissioner Poll
+      {/* Eyebrow */}
+      <View style={styles.headerRow}>
+        <View style={[styles.eyebrowRule, { backgroundColor: c.gold }]} />
+        <Ionicons name="bar-chart-outline" size={ms(12)} color={c.gold} accessible={false} />
+        <ThemedText
+          type="varsitySmall"
+          style={[styles.eyebrow, { color: c.gold }]}
+        >
+          COMMISSIONER POLL
         </ThemedText>
         {poll.is_anonymous && (
           <View style={styles.anonBadge}>
-            <Ionicons name="lock-closed" size={12} color={c.secondaryText} accessible={false} />
+            <Ionicons name="lock-closed" size={ms(11)} color={c.secondaryText} accessible={false} />
             <ThemedText style={[styles.badgeText, { color: c.secondaryText }]}>
-              Anonymous
+              ANONYMOUS
             </ThemedText>
           </View>
         )}
@@ -151,7 +150,7 @@ export const PollBubble = React.memo(function PollBubble({ pollId, teamId, isCom
 
       {/* Poll type indicator */}
       <ThemedText style={[styles.typeHint, { color: c.secondaryText }]}>
-        {poll.poll_type === 'multi' ? 'Select all that apply' : 'Select one'}
+        {poll.poll_type === 'multi' ? 'SELECT ALL THAT APPLY' : 'SELECT ONE'}
       </ThemedText>
 
       {/* Options */}
@@ -175,7 +174,7 @@ export const PollBubble = React.memo(function PollBubble({ pollId, teamId, isCom
                 styles.optionRow,
                 {
                   borderColor: isMyVote
-                    ? c.accent
+                    ? c.gold
                     : isSelected
                       ? c.activeBorder
                       : c.border,
@@ -195,14 +194,13 @@ export const PollBubble = React.memo(function PollBubble({ pollId, teamId, isCom
                   : `${option}${isMyVote ? ', your vote' : ''}`
               }
             >
-              {/* Selection indicator */}
               {canVote && (
                 <View
                   style={[
                     poll.poll_type === 'single' ? styles.radio : styles.checkbox,
                     {
-                      borderColor: isSelected ? c.accent : c.border,
-                      backgroundColor: isSelected ? c.accent : 'transparent',
+                      borderColor: isSelected ? c.gold : c.border,
+                      backgroundColor: isSelected ? c.gold : 'transparent',
                     },
                   ]}
                 >
@@ -210,18 +208,16 @@ export const PollBubble = React.memo(function PollBubble({ pollId, teamId, isCom
                     <Ionicons
                       name={poll.poll_type === 'single' ? 'ellipse' : 'checkmark'}
                       size={poll.poll_type === 'single' ? 8 : 12}
-                      color={c.statusText}
+                      color={Brand.ink}
                     />
                   )}
                 </View>
               )}
 
-              {/* Voted checkmark */}
               {hasVoted && isMyVote && (
-                <Ionicons name="checkmark-circle" size={18} color={c.accent} style={styles.votedIcon} />
+                <Ionicons name="checkmark-circle" size={ms(18)} color={c.gold} style={styles.votedIcon} accessible={false} />
               )}
 
-              {/* Option text + result bar */}
               <View style={styles.optionContent}>
                 <View style={styles.optionTextRow}>
                   <ThemedText
@@ -243,7 +239,7 @@ export const PollBubble = React.memo(function PollBubble({ pollId, teamId, isCom
                         styles.barFill,
                         {
                           width: `${barWidth}%`,
-                          backgroundColor: isMyVote ? c.accent : c.activeBorder,
+                          backgroundColor: isMyVote ? c.gold : c.activeBorder,
                         },
                       ]}
                     />
@@ -286,7 +282,7 @@ export const PollBubble = React.memo(function PollBubble({ pollId, teamId, isCom
             styles.voteBtn,
             {
               backgroundColor:
-                selected.length > 0 ? c.accent : c.buttonDisabled,
+                selected.length > 0 ? c.gold : c.buttonDisabled,
             },
           ]}
           accessibilityRole="button"
@@ -296,7 +292,7 @@ export const PollBubble = React.memo(function PollBubble({ pollId, teamId, isCom
           {voteMutation.isPending ? (
             <LogoSpinner size={18} />
           ) : (
-            <ThemedText style={[styles.voteBtnText, { color: c.statusText }]}>Vote</ThemedText>
+            <ThemedText style={[styles.voteBtnText, { color: Brand.ink }]}>VOTE</ThemedText>
           )}
         </TouchableOpacity>
       )}
@@ -305,23 +301,24 @@ export const PollBubble = React.memo(function PollBubble({ pollId, teamId, isCom
       {isCommissioner && !isClosed && (
         <TouchableOpacity
           onPress={() => {
-            Alert.alert('Close Poll', 'Close this poll now? Voting will end immediately.', [
-              { text: 'Cancel', style: 'cancel' },
-              {
-                text: 'Close Poll',
-                style: 'destructive',
+            confirm({
+              title: 'Close Poll',
+              message: 'Close this poll now? Voting will end immediately.',
+              action: {
+                label: 'Close Poll',
+                destructive: true,
                 onPress: () => closeMutation.mutate(),
               },
-            ]);
+            });
           }}
           disabled={closeMutation.isPending}
           style={[styles.closeBtn, { borderColor: c.border }]}
           accessibilityRole="button"
           accessibilityLabel="Close poll early"
         >
-          <Ionicons name="lock-closed" size={14} color={c.secondaryText} accessible={false} />
+          <Ionicons name="lock-closed" size={ms(12)} color={c.secondaryText} accessible={false} />
           <ThemedText style={[styles.closeBtnText, { color: c.secondaryText }]}>
-            {closeMutation.isPending ? 'Closing...' : 'Close Poll'}
+            {closeMutation.isPending ? 'CLOSING…' : 'CLOSE POLL'}
           </ThemedText>
         </TouchableOpacity>
       )}
@@ -329,19 +326,19 @@ export const PollBubble = React.memo(function PollBubble({ pollId, teamId, isCom
       {/* Footer */}
       <View style={styles.footer}>
         <ThemedText style={[styles.footerText, { color: c.secondaryText }]}>
-          {isClosed ? 'Poll closed' : countdown}
+          {isClosed ? 'POLL CLOSED' : countdown}
         </ThemedText>
         <ThemedText style={[styles.footerText, { color: c.secondaryText }]}>
-          {results.totalVotes} vote{results.totalVotes !== 1 ? 's' : ''}
+          {results.totalVotes} {results.totalVotes === 1 ? 'VOTE' : 'VOTES'}
         </ThemedText>
       </View>
 
       {/* Non-anonymous warning */}
       {!poll.is_anonymous && !isClosed && (
         <View style={styles.visibilityNote}>
-          <Ionicons name="eye-outline" size={12} color={c.secondaryText} accessible={false} />
+          <Ionicons name="eye-outline" size={ms(11)} color={c.secondaryText} accessible={false} />
           <ThemedText style={[styles.visibilityText, { color: c.secondaryText }]}>
-            Votes are visible to all members
+            VOTES VISIBLE TO ALL MEMBERS
           </ThemedText>
         </View>
       )}
@@ -357,17 +354,19 @@ const styles = StyleSheet.create({
     marginVertical: s(4),
     width: '100%',
   },
-  header: {
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: s(6),
     marginBottom: s(8),
   },
-  headerLabel: {
-    fontSize: ms(12),
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+  eyebrowRule: {
+    height: 2,
+    width: s(20),
+  },
+  eyebrow: {
+    fontSize: ms(11),
+    letterSpacing: 1.4,
   },
   anonBadge: {
     flexDirection: 'row',
@@ -376,17 +375,21 @@ const styles = StyleSheet.create({
     marginLeft: 'auto',
   },
   badgeText: {
-    fontSize: ms(11),
-    fontWeight: '600',
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(10),
+    letterSpacing: 1.0,
   },
   question: {
-    fontSize: ms(16),
-    fontWeight: '600',
+    fontFamily: Fonts.display,
+    fontSize: ms(17),
     lineHeight: ms(22),
+    letterSpacing: -0.2,
     marginBottom: s(4),
   },
   typeHint: {
-    fontSize: ms(12),
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(10),
+    letterSpacing: 1.0,
     marginBottom: s(10),
   },
   options: {
@@ -433,8 +436,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   pctText: {
-    fontSize: ms(12),
-    fontWeight: '600',
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(11),
+    letterSpacing: 0.6,
     marginLeft: s(8),
   },
   barBg: {
@@ -466,8 +470,9 @@ const styles = StyleSheet.create({
     marginTop: s(10),
   },
   voteBtnText: {
-    fontSize: ms(15),
-    fontWeight: '600',
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(13),
+    letterSpacing: 1.0,
   },
   closeBtn: {
     flexDirection: 'row',
@@ -480,8 +485,9 @@ const styles = StyleSheet.create({
     marginTop: s(10),
   },
   closeBtnText: {
-    fontSize: ms(13),
-    fontWeight: '600',
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(11),
+    letterSpacing: 1.0,
   },
   footer: {
     flexDirection: 'row',
@@ -489,7 +495,9 @@ const styles = StyleSheet.create({
     marginTop: s(10),
   },
   footerText: {
-    fontSize: ms(11),
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(10),
+    letterSpacing: 0.8,
   },
   visibilityNote: {
     flexDirection: 'row',
@@ -499,7 +507,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   visibilityText: {
-    fontSize: ms(11),
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(9),
+    letterSpacing: 0.8,
   },
   // Skeleton styles
   skeletonBar: {

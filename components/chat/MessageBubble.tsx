@@ -9,7 +9,7 @@ import Animated, {
   interpolate,
   useAnimatedStyle,
   useSharedValue,
-  withSpring,
+  withTiming,
   type SharedValue,
 } from "react-native-reanimated";
 
@@ -20,8 +20,8 @@ import { TradeBubble } from "@/components/chat/TradeBubble";
 import { TradeUpdateBubble } from "@/components/chat/TradeUpdateBubble";
 import { TeamLogo } from "@/components/team/TeamLogo";
 import { ThemedText } from "@/components/ui/ThemedText";
-import { Colors } from "@/constants/Colors";
-import { useColorScheme } from "@/hooks/useColorScheme";
+import { Fonts } from "@/constants/Colors";
+import { useColors } from "@/hooks/useColors";
 import type { TradeUpdateContent, TradeUpdateEvent , ChatMessage, ReactionGroup } from "@/types/chat";
 import { ms, s } from "@/utils/scale";
 
@@ -48,8 +48,7 @@ function ReactionBadges({
   isOwnMessage: boolean;
   onReactionPress: (emoji: string) => void;
 }) {
-  const scheme = useColorScheme() ?? "light";
-  const c = Colors[scheme];
+  const c = useColors();
 
   if (reactions.length === 0) return null;
 
@@ -73,7 +72,7 @@ function ReactionBadges({
               styles.reactionBadge,
               {
                 backgroundColor: c.card,
-                borderColor: rr.reacted_by_me ? c.accent : c.border,
+                borderColor: rr.reacted_by_me ? c.gold : c.border,
               },
             ]}
             accessibilityRole="button"
@@ -129,20 +128,16 @@ export function MessageBubble({
   isSelected = false,
   isPinned = false,
 }: Props) {
-  const scheme = useColorScheme() ?? "light";
-  const c = Colors[scheme];
+  const c = useColors();
   const handleLongPress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onLongPress();
   };
 
-  // iMessage-style scale-up when selected
+  // Subtle scale-up when selected — withTiming for a clean lift, no spring overshoot.
   const selectedScale = useSharedValue(1);
   useEffect(() => {
-    selectedScale.value = withSpring(isSelected ? 1.05 : 1, {
-      damping: 20,
-      stiffness: 300,
-    });
+    selectedScale.value = withTiming(isSelected ? 1.03 : 1, { duration: 140 });
   }, [isSelected, selectedScale]);
 
   const selectedStyle = useAnimatedStyle(() => ({
@@ -230,7 +225,7 @@ export function MessageBubble({
       >
         {isPinned && (
           <View style={styles.pinSideFullWidth} accessibilityLabel="Pinned message">
-            <Ionicons name="pin" size={12} color={c.accent} />
+            <Ionicons name="pin" size={ms(12)} color={c.gold} />
           </View>
         )}
         <View style={styles.swipeRow}>
@@ -317,7 +312,7 @@ export function MessageBubble({
       >
         {isPinned && (
           <View style={styles.pinSideFullWidth} accessibilityLabel="Pinned message">
-            <Ionicons name="pin" size={12} color={c.accent} />
+            <Ionicons name="pin" size={ms(12)} color={c.gold} />
           </View>
         )}
         <View style={styles.swipeRow}>
@@ -375,9 +370,11 @@ export function MessageBubble({
         ]}
       >
         {showSender && !isOwnMessage && isFirstInGroup && (
-          <ThemedText style={[styles.sender, { color: c.secondaryText }]}>
-            {message.team_name}
-          </ThemedText>
+          <Animated.View style={slideStyle}>
+            <ThemedText style={[styles.sender, { color: c.secondaryText }]}>
+              {message.team_name}
+            </ThemedText>
+          </Animated.View>
         )}
 
         <View
@@ -417,7 +414,7 @@ export function MessageBubble({
                 styles.mediaBubble,
                 bubbleRadii,
                 isOwnMessage
-                  ? { backgroundColor: c.accent }
+                  ? { backgroundColor: c.gold }
                   : { backgroundColor: c.cardAlt },
               ]}
               accessibilityLabel={label}
@@ -539,9 +536,11 @@ export function MessageBubble({
       ]}
     >
       {showSender && !isOwnMessage && isFirstInGroup && (
-        <ThemedText style={[styles.sender, { color: c.secondaryText }]}>
-          {message.team_name}
-        </ThemedText>
+        <Animated.View style={slideStyle}>
+          <ThemedText style={[styles.sender, { color: c.secondaryText }]}>
+            {message.team_name}
+          </ThemedText>
+        </Animated.View>
       )}
 
       <View
@@ -553,7 +552,7 @@ export function MessageBubble({
         {/* Pin icon on the far side of the bubble */}
         {isPinned && isOwnMessage && (
           <View style={styles.pinSide} accessibilityLabel="Pinned message">
-            <Ionicons name="pin" size={12} color={c.accent} />
+            <Ionicons name="pin" size={ms(12)} color={c.gold} />
           </View>
         )}
 
@@ -589,7 +588,7 @@ export function MessageBubble({
               styles.bubble,
               bubbleRadii,
               isOwnMessage
-                ? { backgroundColor: c.accent }
+                ? { backgroundColor: c.gold }
                 : { backgroundColor: c.cardAlt },
             ]}
             accessibilityLabel={`${isOwnMessage ? "You" : message.team_name}: ${message.content}`}
@@ -609,7 +608,7 @@ export function MessageBubble({
         {/* Pin icon on the far side of the bubble */}
         {isPinned && !isOwnMessage && (
           <View style={styles.pinSide} accessibilityLabel="Pinned message">
-            <Ionicons name="pin" size={12} color={c.accent} />
+            <Ionicons name="pin" size={ms(12)} color={c.gold} />
           </View>
         )}
 
@@ -667,10 +666,12 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   sender: {
-    fontSize: ms(11),
-    fontWeight: "600",
-    marginBottom: s(2),
-    marginLeft: s(10),
+    fontFamily: Fonts.display,
+    fontSize: ms(12),
+    lineHeight: ms(15),
+    letterSpacing: -0.2,
+    marginBottom: s(3),
+    marginLeft: s(40),
   },
   bubble: {
     paddingHorizontal: s(14),
@@ -735,7 +736,8 @@ const styles = StyleSheet.create({
     width: s(60),
   },
   swipeTimeText: {
-    fontSize: ms(10),
-    fontWeight: "500",
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(9),
+    letterSpacing: 0.8,
   },
 });

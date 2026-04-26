@@ -1,19 +1,19 @@
 import { Pressable, StyleSheet } from 'react-native';
 
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { Brand, Fonts } from '@/constants/Colors';
+import { useColors } from '@/hooks/useColors';
 import type { TradeUpdateEvent } from '@/types/chat';
 import { ms, s } from '@/utils/scale';
 
 const EVENT_CONFIG: Record<TradeUpdateEvent, { icon: string; label: string; color: string }> = {
-  proposed:  { icon: '📨', label: 'proposed a trade',  color: '#3B82F6' },
-  countered: { icon: '↩️', label: 'countered',         color: '#8B5CF6' },
-  accepted:  { icon: '✅', label: 'accepted',           color: '#22C55E' },
-  rejected:  { icon: '❌', label: 'declined',           color: '#EF4444' },
-  cancelled: { icon: '🚫', label: 'withdrew the trade', color: '#9CA3AF' },
-  completed: { icon: '🤝', label: 'Trade completed',    color: '#22C55E' },
-  vetoed:    { icon: '🛑', label: 'Trade vetoed',       color: '#EF4444' },
+  proposed:  { icon: '📨', label: 'PROPOSED A TRADE',  color: Brand.sapphire },
+  countered: { icon: '↩️', label: 'COUNTERED',          color: Brand.vintageGold },
+  accepted:  { icon: '✅', label: 'ACCEPTED',           color: Brand.turfGreen },
+  rejected:  { icon: '❌', label: 'DECLINED',           color: Brand.merlot },
+  cancelled: { icon: '🚫', label: 'WITHDREW THE TRADE', color: 'rgba(20, 16, 16, 0.45)' },
+  completed: { icon: '🤝', label: 'TRADE COMPLETED',    color: Brand.turfGreen },
+  vetoed:    { icon: '🛑', label: 'TRADE VETOED',       color: Brand.merlot },
 };
 
 interface Props {
@@ -23,15 +23,13 @@ interface Props {
 }
 
 export function TradeUpdateBubble({ event, teamName, onPress }: Props) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
 
   const config = EVENT_CONFIG[event] ?? EVENT_CONFIG.proposed;
 
-  // System-level events (completed, vetoed) don't show a team name
   const text = teamName
-    ? `${config.icon} ${teamName} ${config.label}`
-    : `${config.icon} ${config.label}`;
+    ? `${config.icon}  ${teamName.toUpperCase()} ${config.label}`
+    : `${config.icon}  ${config.label}`;
 
   return (
     <Pressable
@@ -57,8 +55,9 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   text: {
-    fontSize: ms(13),
-    fontWeight: '600',
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(11),
+    letterSpacing: 1.0,
     textAlign: 'center',
   },
 });

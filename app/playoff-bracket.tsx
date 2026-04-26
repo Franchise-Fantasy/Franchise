@@ -1,24 +1,21 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
-import {
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PlayoffBracket } from '@/components/playoff/PlayoffBracket';
 import { SeedPickModal } from '@/components/playoff/SeedPickModal';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { Colors } from '@/constants/Colors';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Brand, Fonts } from '@/constants/Colors';
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { useLeague } from '@/hooks/useLeague';
-import { usePlayoffBracket, usePendingSeedPick } from '@/hooks/usePlayoffBracket';
+import { usePendingSeedPick, usePlayoffBracket } from '@/hooks/usePlayoffBracket';
 import { supabase } from '@/lib/supabase';
 import { PlayoffBracketSlot } from '@/types/playoff';
 import {
@@ -29,7 +26,7 @@ import {
   nextPowerOf2,
   seedTeams,
 } from '@/utils/league/playoff';
-import { ms } from "@/utils/scale";
+import { ms, s } from '@/utils/scale';
 
 /** Convert bracket pairings into PlayoffBracketSlot[] for the bracket component. */
 function pairingsToSlots(
@@ -84,24 +81,22 @@ function fillFutureRounds(
   const totalRounds = calcRounds(playoffTeams);
   const bracketSize = nextPowerOf2(playoffTeams);
 
-  // Index existing slots by round
   const byRound = new Map<number, PlayoffBracketSlot[]>();
-  for (const s of slots) {
-    if (!byRound.has(s.round)) byRound.set(s.round, []);
-    byRound.get(s.round)!.push(s);
+  for (const slot of slots) {
+    if (!byRound.has(slot.round)) byRound.set(slot.round, []);
+    byRound.get(slot.round)!.push(slot);
   }
 
   const allSlots = [...slots];
 
   for (let r = 2; r <= totalRounds; r++) {
-    if (byRound.has(r)) continue; // round already populated from DB
+    if (byRound.has(r)) continue;
 
     const prevSlots = byRound.get(r - 1);
     const matchupsInRound = bracketSize / Math.pow(2, r);
     const roundSlots: PlayoffBracketSlot[] = [];
 
     for (let pos = 1; pos <= matchupsInRound; pos++) {
-      // Adjacent feeder positions from previous round
       const feederA = prevSlots?.find((s) => s.bracket_position === pos * 2 - 1);
       const feederB = prevSlots?.find((s) => s.bracket_position === pos * 2);
 
@@ -142,10 +137,9 @@ function fillFutureRounds(
       });
     }
 
-    // Add 3rd place placeholder on the finals round if previous round had 2+ non-bye matchups
     if (r === totalRounds && r > 1) {
       const prevNonBye = (byRound.get(r - 1) ?? []).filter(
-        (s) => !s.is_bye && !s.is_third_place,
+        (slot) => !slot.is_bye && !slot.is_third_place,
       );
       if (prevNonBye.length >= 2) {
         roundSlots.push({
@@ -174,8 +168,7 @@ function fillFutureRounds(
 }
 
 export default function PlayoffBracketScreen() {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const { leagueId } = useAppState();
 
   const { data: league } = useLeague();
@@ -186,13 +179,12 @@ export default function PlayoffBracketScreen() {
 
   const [seedPickVisible, setSeedPickVisible] = useState(false);
 
-  // Fetch team names + standings for projected bracket
   const { data: teamsData } = useQuery({
     queryKey: queryKeys.bracketTeamData(leagueId!),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('teams')
-        .select('id, name, wins, losses, ties, points_for')
+        .select('id, name, logo_key, wins, losses, ties, points_for')
         .eq('league_id', leagueId!);
       if (error) throw error;
       return data ?? [];
@@ -202,8 +194,10 @@ export default function PlayoffBracketScreen() {
   });
 
   const teamMap = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const t of teamsData ?? []) map.set(t.id, t.name);
+    const map = new Map<string, { name: string; logoKey: string | null }>();
+    for (const t of teamsData ?? []) {
+      map.set(t.id, { name: t.name, logoKey: t.logo_key ?? null });
+    }
     return map;
   }, [teamsData]);
 
@@ -212,7 +206,6 @@ export default function PlayoffBracketScreen() {
 
   const hasRealBracket = (bracketSlots?.length ?? 0) > 0;
 
-  // Build projected bracket from current standings when no real bracket exists
   const projectedSlots = useMemo(() => {
     if (hasRealBracket || !teamsData || !leagueId || playoffTeams < 2) return null;
 
@@ -226,21 +219,22 @@ export default function PlayoffBracketScreen() {
     });
 
     const seeds = seedTeams(
-      sorted.map((t) => ({ id: t.id, wins: t.wins ?? 0, points_for: parseFloat(String(t.points_for)) })),
+      sorted.map((t) => ({
+        id: t.id,
+        wins: t.wins ?? 0,
+        points_for: parseFloat(String(t.points_for)),
+      })),
       Math.min(playoffTeams, sorted.length),
     );
 
     if (seeds.length < 2) return null;
 
     const pairings =
-      format === 'fixed'
-        ? buildFixedRound1(seeds)
-        : buildStandardRound1(seeds);
+      format === 'fixed' ? buildFixedRound1(seeds) : buildStandardRound1(seeds);
 
     return buildFullProjectedBracket(pairings, leagueId, season, seeds.length);
   }, [hasRealBracket, teamsData, leagueId, playoffTeams, format, season]);
 
-  // Fill in future rounds for real brackets so the full tree is always visible
   const filledSlots = useMemo(() => {
     if (!hasRealBracket || !bracketSlots || !leagueId) return null;
     return fillFutureRounds(bracketSlots, playoffTeams, leagueId, season);
@@ -251,37 +245,99 @@ export default function PlayoffBracketScreen() {
     ? playoffTeams
     : Math.min(playoffTeams, teamsData?.length ?? playoffTeams);
 
+  const isOffseason = !!league?.offseason_step;
+
+  if (isOffseason) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
+        <PageHeader title="Playoff Bracket" />
+        <View
+          style={styles.empty}
+          accessible
+          accessibilityRole="text"
+          accessibilityLabel="It's the offseason. The bracket will return when next season's playoffs begin."
+        >
+          <View style={[styles.emptyRule, { backgroundColor: c.gold }]} />
+          <Ionicons
+            name="sunny-outline"
+            size={ms(40)}
+            color={c.secondaryText}
+            accessible={false}
+          />
+          <ThemedText
+            type="display"
+            style={[styles.emptyTitle, { color: c.text }]}
+          >
+            Offseason.
+          </ThemedText>
+          <ThemedText
+            type="varsitySmall"
+            style={[styles.emptySub, { color: c.secondaryText }]}
+          >
+            BRACKET RETURNS NEXT POSTSEASON
+          </ThemedText>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
       <PageHeader title="Playoff Bracket" />
 
-      {/* Projected banner */}
+      {/* Projected banner — gold rule + varsity caps. Reads as a preview
+          header rather than a warning. */}
       {!hasRealBracket && displaySlots.length > 0 && (
-        <View style={[styles.projectedBanner, { backgroundColor: c.warningMuted, borderBottomColor: c.warning }]}>
-          <Text style={[styles.projectedText, { color: c.warning }]}>
-            PROJECTED — Based on current standings
-          </Text>
+        <View
+          style={[
+            styles.projectedBanner,
+            { backgroundColor: c.cardAlt, borderBottomColor: c.border },
+          ]}
+        >
+          <View style={[styles.projectedRule, { backgroundColor: c.gold }]} />
+          <ThemedText
+            type="varsitySmall"
+            style={[styles.projectedText, { color: c.text }]}
+          >
+            PROJECTED · BASED ON CURRENT STANDINGS
+          </ThemedText>
+          <View style={[styles.projectedRule, { backgroundColor: c.gold }]} />
         </View>
       )}
 
-      {/* Seed pick banner */}
+      {/* Seed pick CTA banner — turfGreen broadcast surface, ecru text */}
       {pendingPick && (
         <TouchableOpacity
-          style={[styles.pickBanner, { backgroundColor: c.accent }]}
+          style={[styles.pickBanner, { backgroundColor: Brand.turfGreen }]}
           onPress={() => setSeedPickVisible(true)}
           accessibilityRole="button"
           accessibilityLabel="It's your turn to pick an opponent"
           accessibilityHint="Tap to select your playoff opponent"
         >
-          <Text style={[styles.pickBannerText, { color: c.accentText }]}>
-            It's your turn to pick an opponent! Tap here.
-          </Text>
+          <View style={styles.pickBannerInner}>
+            <View style={styles.pickBannerText}>
+              <ThemedText
+                type="varsitySmall"
+                style={[styles.pickBannerEyebrow, { color: c.gold }]}
+              >
+                YOUR PICK
+              </ThemedText>
+              <ThemedText
+                type="display"
+                style={[styles.pickBannerTitle, { color: Brand.ecru }]}
+              >
+                Choose your opponent.
+              </ThemedText>
+            </View>
+            <Ionicons name="chevron-forward" size={ms(22)} color={c.gold} />
+          </View>
         </TouchableOpacity>
       )}
 
-      {/* Bracket */}
       {bracketLoading ? (
-        <View style={styles.loader}><LogoSpinner /></View>
+        <View style={styles.loader}>
+          <LogoSpinner />
+        </View>
       ) : (
         <PlayoffBracket
           slots={displaySlots}
@@ -290,7 +346,6 @@ export default function PlayoffBracketScreen() {
         />
       )}
 
-      {/* Seed pick modal */}
       {pendingPick && teamMap && (
         <SeedPickModal
           visible={seedPickVisible}
@@ -309,27 +364,71 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   projectedBanner: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+    flexDirection: 'row',
     alignItems: 'center',
-    borderBottomWidth: 1,
+    gap: s(10),
+    paddingHorizontal: s(16),
+    paddingVertical: s(10),
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  projectedRule: {
+    flex: 1,
+    height: 2,
   },
   projectedText: {
-    fontSize: ms(12),
-    fontWeight: '700',
-    letterSpacing: 0.5,
+    fontSize: ms(11),
+    letterSpacing: 1.4,
   },
   pickBanner: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingHorizontal: s(16),
+    paddingVertical: s(14),
+  },
+  pickBannerInner: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: s(12),
   },
   pickBannerText: {
-    fontSize: ms(14),
-    fontWeight: '600',
+    flex: 1,
+  },
+  pickBannerEyebrow: {
+    fontSize: ms(11),
+    letterSpacing: 1.4,
+    marginBottom: s(2),
+  },
+  pickBannerTitle: {
+    fontFamily: Fonts.display,
+    fontSize: ms(20),
+    lineHeight: ms(24),
+    letterSpacing: -0.2,
   },
   loader: {
-    marginTop: 40,
+    marginTop: s(40),
+    alignItems: 'center',
+  },
+  empty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: s(32),
+    gap: s(10),
+  },
+  emptyRule: {
+    height: 2,
+    width: s(48),
+    marginBottom: s(8),
+  },
+  emptyTitle: {
+    fontFamily: Fonts.display,
+    fontSize: ms(22),
+    lineHeight: ms(26),
+    letterSpacing: -0.2,
+    textAlign: 'center',
+  },
+  emptySub: {
+    fontSize: ms(11),
+    letterSpacing: 1.3,
+    textAlign: 'center',
   },
 });
 

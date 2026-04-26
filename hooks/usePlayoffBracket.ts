@@ -25,15 +25,17 @@ export function usePlayoffBracket(season: string) {
 
       const scheduleIdSet = new Set<string>();
 
-      const slots = (data ?? []).map((row: any) => {
-        const m = row.league_matchups;
-        const slot: PlayoffBracketSlot = { ...row };
-        delete (slot as any).league_matchups;
-        if (m) {
-          const homeIsA = m.home_team_id === row.team_a_id;
-          slot.team_a_score = homeIsA ? m.home_score : m.away_score;
-          slot.team_b_score = homeIsA ? m.away_score : m.home_score;
-          if (m.schedule_id && !row.winner_id) scheduleIdSet.add(m.schedule_id);
+      const slots = (data ?? []).map((row) => {
+        const matchupEmbed = Array.isArray(row.league_matchups)
+          ? row.league_matchups[0] ?? null
+          : row.league_matchups;
+        const { league_matchups: _ignored, ...rest } = row;
+        const slot: PlayoffBracketSlot = { ...rest };
+        if (matchupEmbed) {
+          const homeIsA = matchupEmbed.home_team_id === row.team_a_id;
+          slot.team_a_score = homeIsA ? matchupEmbed.home_score : matchupEmbed.away_score;
+          slot.team_b_score = homeIsA ? matchupEmbed.away_score : matchupEmbed.home_score;
+          if (matchupEmbed.schedule_id && !row.winner_id) scheduleIdSet.add(matchupEmbed.schedule_id);
         }
         return slot;
       });

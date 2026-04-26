@@ -1,8 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from '../_shared/cors.ts';
+import { recordHeartbeat } from '../_shared/heartbeat.ts';
 import { normalizeName } from '../_shared/normalize.ts';
-import { getTokensForUsers, sendPush } from '../_shared/push.ts';
+import { notifyUsersBulk, type BulkUserNotification } from '../_shared/push.ts';
+import { fetchWithRetry } from '../_shared/retry.ts';
 import type { Sport } from '../_shared/bdl.ts';
 
 const supabase = createClient(
@@ -12,12 +14,17 @@ const supabase = createClient(
 
 const jsonHeaders = { ...CORS_HEADERS, 'Content-Type': 'application/json' };
 
-const RSS_FEEDS_BY_SPORT: Record<Sport, { url: string; source: string }[]> = {
+// `expectedChannelTag` is matched against the feed's <title> as a guard against
+// Rotowire 301'ing an unrecognized sport param to the generic /rss/news.php feed
+// (which during NFL Draft season streams football items). Drop items if the
+// channel title doesn't include the tag — auto-recovers if RotoWire reactivates
+// the endpoint.
+const RSS_FEEDS_BY_SPORT: Record<Sport, { url: string; source: string; expectedChannelTag: string }[]> = {
   nba: [
-    { url: 'https://www.rotowire.com/rss/news.php?sport=NBA', source: 'rotowire' },
+    { url: 'https://www.rotowire.com/rss/news.php?sport=NBA', source: 'rotowire', expectedChannelTag: 'NBA' },
   ],
   wnba: [
-    { url: 'https://www.rotowire.com/rss/news.php?sport=WNBA', source: 'rotowire' },
+    { url: 'https://www.rotowire.com/rss/news.php?sport=WNBA', source: 'rotowire', expectedChannelTag: 'WNBA' },
   ],
 };
 
@@ -26,6 +33,7 @@ const RSS_FEEDS_BY_SPORT: Record<Sport, { url: string; source: string }[]> = {
 interface RssItem {
   title: string;
   link: string;
+  guid: string;
   description: string;
   pubDate: string;
   source: string;
@@ -48,7 +56,17 @@ function stripHtml(html: string): string {
     .replace(/&nbsp;/g, ' ').trim();
 }
 
-function parseRssFeed(xml: string, source: string): RssItem[] {
+function parseRssFeed(xml: string, source: string, expectedChannelTag: string): RssItem[] {
+  // Channel title sits in the <channel><title> wrapper, e.g.
+  // "RotoWire.com Latest NBA News". If it doesn't include the expected tag,
+  // we were redirected to a different sport's feed — drop everything.
+  const channelTitleMatch = xml.match(/<channel>[\s\S]*?<title[^>]*>([\s\S]*?)<\/title>/i);
+  const channelTitle = channelTitleMatch ? stripHtml(channelTitleMatch[1]) : '';
+  if (!new RegExp(`\\b${expectedChannelTag}\\b`, 'i').test(channelTitle)) {
+    console.warn(`Feed ${source} channel title "${channelTitle}" missing tag "${expectedChannelTag}" — skipping`);
+    return [];
+  }
+
   const items: RssItem[] = [];
   const itemRe = /<item>([\s\S]*?)<\/item>/gi;
   let match;
@@ -56,12 +74,16 @@ function parseRssFeed(xml: string, source: string): RssItem[] {
     const block = match[1];
     const title = stripHtml(extractTag(block, 'title'));
     const link = stripHtml(extractTag(block, 'link'));
+    // RotoWire's <link> is the player page URL — identical across every article
+    // for the same player. <guid> (e.g. "nba529909") is unique per article and
+    // is what we hash for external_id. Fall back to link only if guid is absent.
+    const guid = stripHtml(extractTag(block, 'guid')) || link;
     const description = stripHtml(extractTag(block, 'description'))
       .replace(/\s*Visit RotoWire\.com for more analysis on this update\.?/i, '')
       .trim();
     const pubDate = extractTag(block, 'pubDate');
     if (title && link) {
-      items.push({ title, link, description, pubDate, source });
+      items.push({ title, link, guid, description, pubDate, source });
     }
   }
   return items;
@@ -185,37 +207,38 @@ Deno.serve(async (req: Request) => {
     //    30s, 45s) and deduplicate by link.
     const POLL_ROUNDS = 4;
     const POLL_INTERVAL_MS = 15_000;
-    const seenLinks = new Set<string>();
+    const seenGuids = new Set<string>();
     const allItems: RssItem[] = [];
 
     for (let round = 0; round < POLL_ROUNDS; round++) {
       if (round > 0) await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
 
       const feedResults = await Promise.allSettled(
-        RSS_FEEDS.map(async ({ url, source }) => {
-          const res = await fetch(url, {
-            headers: { 'User-Agent': 'Franchise-Fantasy-App/1.0' },
-          });
-          if (!res.ok) {
-            console.warn(`Feed ${source} returned ${res.status} (round ${round})`);
-            return [];
-          }
+        RSS_FEEDS.map(async ({ url, source, expectedChannelTag }) => {
+          // RSS endpoints flake periodically — retry transient failures so
+          // one bad tick doesn't drop the whole round
+          const res = await fetchWithRetry(
+            url,
+            { headers: { 'User-Agent': 'Franchise-Fantasy-App/1.0' } },
+            { attempts: 3, baseMs: 300, maxMs: 2500 },
+          );
           const xml = await res.text();
-          return parseRssFeed(xml, source);
+          return parseRssFeed(xml, source, expectedChannelTag);
         }),
       );
 
       for (const result of feedResults) {
         if (result.status !== 'fulfilled') continue;
         for (const item of result.value) {
-          if (seenLinks.has(item.link)) continue;
-          seenLinks.add(item.link);
+          if (seenGuids.has(item.guid)) continue;
+          seenGuids.add(item.guid);
           allItems.push(item);
         }
       }
     }
 
     if (allItems.length === 0) {
+      await recordHeartbeat(supabase, `poll-news:${sport}`, 'ok');
       return new Response(JSON.stringify({ message: 'No items fetched', inserted: 0 }), {
         headers: jsonHeaders,
       });
@@ -253,7 +276,7 @@ Deno.serve(async (req: Request) => {
       const publishedAt = item.pubDate ? new Date(item.pubDate) : new Date();
       if (isNaN(publishedAt.getTime())) continue;
 
-      const externalId = await hashExternalId(item.source, item.link);
+      const externalId = await hashExternalId(item.source, item.guid);
       const fullText = `${item.title} ${item.description}`;
       const normalizedText = normalizeName(fullText);
 
@@ -378,13 +401,11 @@ Deno.serve(async (req: Request) => {
           userNotifs.set(team.user_id, existing);
         }
 
-        // Send one push per user (preference-filtered across any of their leagues)
+        // Build all notifications and send in one bulk batch (3 DB queries +
+        // ceil(N/100) Expo POSTs, vs. previous N×3 DB queries + N Expo POSTs).
+        const bulkNotifs: BulkUserNotification[] = [];
         for (const [userId, { playerNames, leagueIds }] of userNotifs) {
-          // Use the first league for preference resolution
           const leagueId = [...leagueIds][0];
-          const tokens = await getTokensForUsers(supabase, [userId], 'player_news', undefined, leagueId);
-          if (tokens.length === 0) continue;
-
           const names = [...playerNames];
           const title = names.length === 1
             ? `${names[0]} — New Update`
@@ -392,19 +413,16 @@ Deno.serve(async (req: Request) => {
           const body = names.length === 1
             ? (newArticleTitles.get(names[0]) ?? 'Tap to read the latest news')
             : `News about ${names.slice(0, 3).join(', ')}${names.length > 3 ? ` +${names.length - 3} more` : ''}`;
-
-          const dead = await sendPush(tokens.map(to => ({
-            to,
+          bulkNotifs.push({
+            userId,
+            leagueId,
             title,
             body,
-            data: { screen: 'news', channelId: 'player_news' },
-            channelId: 'player_news',
-          })));
-          if (dead.length > 0) {
-            await supabase.from('push_tokens').delete().in('token', dead);
-          }
-          notificationsSent++;
+            data: { screen: 'news' },
+          });
         }
+        await notifyUsersBulk(supabase, 'player_news', bulkNotifs);
+        notificationsSent = bulkNotifs.length;
       }
     }
 
@@ -417,9 +435,11 @@ Deno.serve(async (req: Request) => {
     };
     console.log('poll-news complete:', JSON.stringify(summary));
 
+    await recordHeartbeat(supabase, `poll-news:${sport}`, 'ok');
     return new Response(JSON.stringify(summary), { headers: jsonHeaders });
   } catch (err: any) {
     console.error('poll-news error:', err?.message ?? err);
+    await recordHeartbeat(supabase, `poll-news:${sport}`, 'error', err?.message ?? String(err));
     return new Response(
       JSON.stringify({ error: err?.message ?? 'Internal error' }),
       { status: 500, headers: jsonHeaders },

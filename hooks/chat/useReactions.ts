@@ -33,7 +33,8 @@ export function useReactions(
         if (!grouped[r.message_id]) grouped[r.message_id] = [];
         const groups = grouped[r.message_id];
         const existing = groups.find((g) => g.emoji === r.emoji);
-        const tName = (r as any).teams?.name ?? 'Unknown';
+        const teams = Array.isArray(r.teams) ? r.teams[0] ?? null : r.teams;
+        const tName = teams?.name ?? 'Unknown';
         const isMine = r.team_id === myTeamId;
         if (existing) {
           existing.count++;

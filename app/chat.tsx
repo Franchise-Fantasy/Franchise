@@ -16,20 +16,20 @@ import { NewDMPicker } from '@/components/chat/NewDMPicker';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Fonts } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
 import { useConversations, useCreateDM } from '@/hooks/chat';
 import { readReceiptSeedKey, fetchReadReceiptSeed } from '@/hooks/chat/useReadReceipts';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
 import type { ChatMessage, ConversationPreview } from '@/types/chat';
+import { logger } from '@/utils/logger';
 import { ms, s } from "@/utils/scale";
 
 export default function ChatList() {
   const router = useRouter();
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const { leagueId, teamId } = useAppState();
 
   const queryClient = useQueryClient();
@@ -109,7 +109,7 @@ export default function ChatList() {
         });
         router.push(`/chat/${conversationId}`);
       } catch (err) {
-        console.error('Failed to create DM:', err);
+        logger.error('Failed to create DM', err);
       }
     },
     [createDM, teamId, router],
@@ -126,7 +126,7 @@ export default function ChatList() {
   );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
       <PageHeader
         title="Chat"
         rightAction={
@@ -136,7 +136,7 @@ export default function ChatList() {
             accessibilityRole="button"
             accessibilityLabel="New conversation"
           >
-            <Ionicons name="create-outline" size={22} color={c.accent} accessible={false} />
+            <Ionicons name="create-outline" size={22} color={c.gold} accessible={false} />
           </TouchableOpacity>
         }
       />
@@ -145,9 +145,25 @@ export default function ChatList() {
         <View style={styles.loader}><LogoSpinner /></View>
       ) : !conversations || conversations.length === 0 ? (
         <View style={styles.empty}>
-          <Ionicons name="chatbubbles-outline" size={40} color={c.secondaryText} accessible={false} />
-          <ThemedText style={[styles.emptyText, { color: c.secondaryText }]}>
-            No conversations yet
+          <View style={[styles.emptyRule, { backgroundColor: c.gold }]} />
+          <Ionicons
+            name="chatbubbles-outline"
+            size={ms(40)}
+            color={c.secondaryText}
+            style={{ marginVertical: s(4) }}
+            accessible={false}
+          />
+          <ThemedText
+            type="display"
+            style={[styles.emptyTitle, { color: c.text }]}
+          >
+            No conversations yet.
+          </ThemedText>
+          <ThemedText
+            type="varsitySmall"
+            style={[styles.emptySub, { color: c.secondaryText }]}
+          >
+            START A DM OR CHECK BACK AFTER A LEAGUE MOVE
           </ThemedText>
         </View>
       ) : (
@@ -175,26 +191,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 8,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  headerBtn: {
-    width: 70,
-    paddingHorizontal: 8,
-  },
-  backText: {
-    fontSize: ms(16),
-    fontWeight: '500',
-  },
-  title: {
-    fontSize: ms(16),
-    textAlign: 'center',
-  },
   loader: {
     marginTop: 40,
   },
@@ -202,12 +198,27 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 12,
+    gap: s(10),
+    paddingHorizontal: s(32),
   },
-  emptyText: {
-    fontSize: ms(15),
+  emptyRule: {
+    height: 2,
+    width: s(48),
+    marginBottom: s(8),
+  },
+  emptyTitle: {
+    fontFamily: Fonts.display,
+    fontSize: ms(22),
+    lineHeight: ms(26),
+    letterSpacing: -0.2,
+    textAlign: 'center',
+  },
+  emptySub: {
+    fontSize: ms(11),
+    letterSpacing: 1.3,
+    textAlign: 'center',
   },
   list: {
-    paddingVertical: s(8),
+    paddingVertical: s(6),
   },
 });

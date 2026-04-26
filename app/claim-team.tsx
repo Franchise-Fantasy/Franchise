@@ -20,6 +20,7 @@ import { useAppState } from '@/context/AppStateProvider';
 import { useToast } from '@/context/ToastProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
+import { logger } from "@/utils/logger";
 import { ms } from "@/utils/scale";
 
 interface UnclaimedTeam {
@@ -100,7 +101,7 @@ export default function ClaimTeamScreen() {
       switchLeague(leagueId!, team.id);
       router.replace('/(tabs)');
     } catch (err: any) {
-      console.error('Claim team error:', err);
+      logger.error('Claim team error', err);
       Alert.alert('Error', err.message ?? 'Failed to claim team.');
     } finally {
       setClaiming(false);

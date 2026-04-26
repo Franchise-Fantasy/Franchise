@@ -16,6 +16,7 @@ import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { TradeBlockPlayer, TradeBlockTeamGroup, useToggleTradeBlockInterest } from '@/hooks/useTrades';
+import { logger } from '@/utils/logger';
 import { ms, s } from '@/utils/scale';
 
 interface TradeBlockSheetProps {
@@ -46,10 +47,10 @@ export function TradeBlockSheet({ visible, tradeBlock, leagueId, teamId, onClose
         try {
           setHiddenPlayers(new Set(JSON.parse(raw)));
         } catch (e) {
-          console.warn('Parse hidden trade-block list failed:', e);
+          logger.warn('Parse hidden trade-block list failed', e);
         }
       })
-      .catch((e) => console.warn('Load hidden trade-block list failed:', e));
+      .catch((e) => logger.warn('Load hidden trade-block list failed', e));
     return () => {
       cancelled = true;
     };

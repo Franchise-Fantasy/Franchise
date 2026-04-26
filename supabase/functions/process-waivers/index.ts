@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { notifyTeams, notifyLeague } from '../_shared/push.ts';
+import { notifyTeams, notifyLeague, notifyTeamsBulk, type BulkTeamsNotification } from '../_shared/push.ts';
 import { snapshotBeforeDrop } from '../_shared/snapshotBeforeDrop.ts';
 import { checkPositionLimits } from '../_shared/positionLimits.ts';
 import { createLogger } from '../_shared/log.ts';
@@ -133,17 +133,18 @@ Deno.serve(async (req: Request) => {
                 .eq('league_id', waiver.league_id).eq('player_id', waiver.player_id)
                 .eq('status', 'pending').neq('id', claim.id);
 
-              // Notify losers
+              // Notify losers (bulk — single round trip rather than N sequential)
               const failedClaims = (claims ?? []).filter(c => c.id !== claim.id);
-              for (const fc of failedClaims) {
+              if (failedClaims.length > 0) {
                 try {
                   const lnLost = league.name ?? 'Your League';
-                  await notifyTeams(supabase, [fc.team_id], 'waivers',
-                    `${lnLost} — Waiver Claim Lost`,
-                    'Your waiver claim was not awarded.',
-                    { screen: 'free-agents' }
-                  );
-                } catch (err) { log.warn('Notification failed (non-fatal)', { error: String(err) }); }
+                  await notifyTeamsBulk(supabase, 'waivers', failedClaims.map(fc => ({
+                    teamIds: [fc.team_id],
+                    title: `${lnLost} — Waiver Claim Lost`,
+                    body: 'Your waiver claim was not awarded.',
+                    data: { screen: 'free-agents' },
+                  })));
+                } catch (err) { log.warn('Bulk notification failed (non-fatal)', { error: String(err) }); }
               }
 
               processed++;

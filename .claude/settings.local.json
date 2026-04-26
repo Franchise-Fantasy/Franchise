@@ -365,7 +365,9 @@
       "PowerShell(supabase functions deploy execute-trade --no-verify-jwt --project-ref iuqbossmnsezzgocpcbo)",
       "PowerShell(npx supabase functions deploy execute-trade --no-verify-jwt --project-ref iuqbossmnsezzgocpcbo)",
       "PowerShell(winget install -e --id DenoLand.Deno --accept-package-agreements --accept-source-agreements 2>&1)",
-      "PowerShell(Get-Command deno -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source; if \\(-not $?\\) { Get-ChildItem \"$env:LOCALAPPDATA\\\\Microsoft\\\\WinGet\\\\Packages\" -Recurse -Filter \"deno.exe\" -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName })"
+      "PowerShell(Get-Command deno -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source; if \\(-not $?\\) { Get-ChildItem \"$env:LOCALAPPDATA\\\\Microsoft\\\\WinGet\\\\Packages\" -Recurse -Filter \"deno.exe\" -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName })",
+      "PowerShell(supabase functions deploy poll-news --no-verify-jwt --project-ref iuqbossmnsezzgocpcbo 2>&1)",
+      "PowerShell(gh workflow list)"
     ],
     "additionalDirectories": [
       "c:\\Users\\jjspo\\OneDrive\\Desktop\\Franchise Wiki\\Franchise Wiki\\Pages",

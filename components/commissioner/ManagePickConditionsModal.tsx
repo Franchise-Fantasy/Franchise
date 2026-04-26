@@ -4,25 +4,24 @@ import { useState } from 'react';
 import {
   Alert,
   FlatList,
-  Modal,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
   View,
 } from 'react-native';
 
+import { BottomSheet } from '@/components/ui/BottomSheet';
+import { BrandButton } from '@/components/ui/BrandButton';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useConfirm } from '@/context/ConfirmProvider';
+import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
 import { formatPickLabel } from '@/types/trade';
 import { ms, s } from '@/utils/scale';
-
-
 
 interface Props {
   visible: boolean;
@@ -34,8 +33,8 @@ interface Props {
 type Step = 'choose' | 'protection_pick' | 'protection_edit' | 'swap_edit';
 
 export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }: Props) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
 
   const [step, setStep] = useState<Step>('choose');
@@ -65,7 +64,6 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
   function goBack() {
     if (step === 'protection_edit') { setStep('protection_pick'); setSelectedPick(null); }
     else if (step === 'protection_pick' || step === 'swap_edit') setStep('choose');
-    else handleClose();
   }
 
   const { data: leagueSettings } = useQuery({
@@ -89,8 +87,8 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
   const validSeasons = (() => {
     const leagueSeason = leagueSettings?.season ?? CURRENT_NBA_SEASON;
     const leagueStartYear = parseInt(leagueSeason.split('-')[0], 10);
-    const step = leagueSettings?.offseason_step as string | null;
-    const draftDone = !step || step === 'rookie_draft_complete';
+    const stepKey = leagueSettings?.offseason_step as string | null;
+    const draftDone = !stepKey || stepKey === 'rookie_draft_complete';
     const startYear = draftDone ? leagueStartYear + 1 : leagueStartYear;
     const seasons: string[] = [];
     const count = draftDone ? maxFuture : maxFuture + 1;
@@ -226,309 +224,293 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
     }
   };
 
+  const title =
+    step === 'choose'
+      ? 'Pick Conditions'
+      : step === 'swap_edit'
+        ? 'Manage Swaps'
+        : 'Manage Protection';
+
+  const headerAction = step !== 'choose' ? (
+    <TouchableOpacity
+      onPress={goBack}
+      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      accessibilityRole="button"
+      accessibilityLabel="Go back"
+    >
+      <Ionicons name="arrow-back" size={ms(22)} color={c.secondaryText} />
+    </TouchableOpacity>
+  ) : undefined;
+
   return (
-    <Modal visible={visible} animationType="slide" transparent>
-      <View style={styles.overlay}>
-        <View style={[styles.sheet, { backgroundColor: c.background }]} accessibilityViewIsModal={true}>
-          {/* Header */}
-          <View style={[styles.header, { borderBottomColor: c.border }]}>
-            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Go back" onPress={goBack} style={styles.backBtn}>
-              <Ionicons name="arrow-back" size={20} color={c.accent} />
-            </TouchableOpacity>
-            <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.headerTitle}>
-              {step === 'choose' ? 'Pick Conditions' : step === 'swap_edit' ? 'Manage Swaps' : 'Manage Protection'}
+    <BottomSheet
+      visible={visible}
+      onClose={handleClose}
+      title={title}
+      headerAction={headerAction}
+      height="92%"
+      scrollableBody={step === 'choose' || step === 'protection_edit' || step === 'swap_edit'}
+    >
+      {/* Step: Choose */}
+      {step === 'choose' && (
+        <View style={styles.chooseContainer}>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Manage Protection. Add or remove top-N protections on draft picks"
+            style={[styles.chooseBtn, { backgroundColor: c.card, borderColor: c.border }]}
+            onPress={() => setStep('protection_pick')}
+          >
+            <Ionicons name="shield-checkmark-outline" size={24} color={c.accent} />
+            <ThemedText type="defaultSemiBold">Manage Protection</ThemedText>
+            <ThemedText style={[styles.chooseDesc, { color: c.secondaryText }]}>
+              Add or remove top-N protections on draft picks
             </ThemedText>
-            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close" onPress={handleClose}>
-              <ThemedText style={styles.closeText}>✕</ThemedText>
-            </TouchableOpacity>
-          </View>
+          </TouchableOpacity>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Manage Swaps. Create or delete pick swap agreements"
+            style={[styles.chooseBtn, { backgroundColor: c.card, borderColor: c.border }]}
+            onPress={() => { setStep('swap_edit'); setSwapSeason(validSeasons[0]); }}
+          >
+            <Ionicons name="swap-horizontal-outline" size={24} color={c.accent} />
+            <ThemedText type="defaultSemiBold">Manage Swaps</ThemedText>
+            <ThemedText style={[styles.chooseDesc, { color: c.secondaryText }]}>
+              Create or delete pick swap agreements
+            </ThemedText>
+          </TouchableOpacity>
+        </View>
+      )}
 
-          {/* Step: Choose */}
-          {step === 'choose' && (
-            <View style={styles.chooseContainer}>
+      {/* Step: Pick a pick for protection */}
+      {step === 'protection_pick' && (
+        picksLoading ? (
+          <View style={styles.loading}><LogoSpinner /></View>
+        ) : (
+          <FlatList
+            data={allPicks}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item, index }) => (
               <TouchableOpacity
                 accessibilityRole="button"
-                accessibilityLabel="Manage Protection. Add or remove top-N protections on draft picks"
-                style={[styles.chooseBtn, { backgroundColor: c.card, borderColor: c.border }]}
-                onPress={() => setStep('protection_pick')}
+                accessibilityLabel={`${formatPickLabel(item.season, item.round)}, Owner: ${teamNameMap[item.current_team_id ?? ''] ?? 'Unknown'}${item.protection_threshold ? `, Top-${item.protection_threshold} protected` : ''}`}
+                style={[styles.pickRow, { borderBottomColor: c.border }, index === (allPicks ?? []).length - 1 && { borderBottomWidth: 0 }]}
+                onPress={() => {
+                  setSelectedPick(item);
+                  setProtThreshold(item.protection_threshold ?? 3);
+                  setProtOwnerId(item.protection_owner_id ?? item.current_team_id ?? '');
+                  setStep('protection_edit');
+                }}
               >
-                <Ionicons name="shield-checkmark-outline" size={24} color={c.accent} />
-                <ThemedText type="defaultSemiBold">Manage Protection</ThemedText>
-                <ThemedText style={[styles.chooseDesc, { color: c.secondaryText }]}>
-                  Add or remove top-N protections on draft picks
-                </ThemedText>
-              </TouchableOpacity>
-              <TouchableOpacity
-                accessibilityRole="button"
-                accessibilityLabel="Manage Swaps. Create or delete pick swap agreements"
-                style={[styles.chooseBtn, { backgroundColor: c.card, borderColor: c.border }]}
-                onPress={() => { setStep('swap_edit'); setSwapSeason(validSeasons[0]); }}
-              >
-                <Ionicons name="swap-horizontal-outline" size={24} color={c.accent} />
-                <ThemedText type="defaultSemiBold">Manage Swaps</ThemedText>
-                <ThemedText style={[styles.chooseDesc, { color: c.secondaryText }]}>
-                  Create or delete pick swap agreements
-                </ThemedText>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* Step: Pick a pick for protection */}
-          {step === 'protection_pick' && (
-            picksLoading ? (
-              <View style={styles.loading}><LogoSpinner /></View>
-            ) : (
-              <FlatList
-                data={allPicks}
-                keyExtractor={(item) => item.id}
-                contentContainerStyle={styles.listContent}
-                renderItem={({ item, index }) => (
-                  <TouchableOpacity
-                    accessibilityRole="button"
-                    accessibilityLabel={`${formatPickLabel(item.season, item.round)}, Owner: ${teamNameMap[item.current_team_id ?? ''] ?? 'Unknown'}${item.protection_threshold ? `, Top-${item.protection_threshold} protected` : ''}`}
-                    style={[styles.pickRow, { borderBottomColor: c.border }, index === (allPicks ?? []).length - 1 && { borderBottomWidth: 0 }]}
-                    onPress={() => {
-                      setSelectedPick(item);
-                      setProtThreshold(item.protection_threshold ?? 3);
-                      setProtOwnerId(item.protection_owner_id ?? item.current_team_id ?? '');
-                      setStep('protection_edit');
-                    }}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <ThemedText style={{ fontSize: ms(14) }}>
-                        {formatPickLabel(item.season, item.round)}
-                      </ThemedText>
-                      <ThemedText style={[styles.pickSub, { color: c.secondaryText }]}>
-                        Owner: {teamNameMap[item.current_team_id ?? ''] ?? '?'} · via {teamNameMap[item.original_team_id ?? ''] ?? '?'}
-                      </ThemedText>
-                    </View>
-                    {item.protection_threshold && (
-                      <View style={[styles.protBadge, { backgroundColor: c.goldMuted }]}>
-                        <ThemedText style={[styles.protBadgeText, { color: c.gold }]}>Top-{item.protection_threshold}</ThemedText>
-                      </View>
-                    )}
-                    <Ionicons name="chevron-forward" size={16} color={c.secondaryText} />
-                  </TouchableOpacity>
-                )}
-              />
-            )
-          )}
-
-          {/* Step: Edit protection */}
-          {step === 'protection_edit' && selectedPick && (
-            <ScrollView contentContainerStyle={styles.editContainer}>
-              <ThemedText type="defaultSemiBold" style={{ marginBottom: 4 }}>
-                {formatPickLabel(selectedPick.season, selectedPick.round)}
-              </ThemedText>
-              <ThemedText style={[styles.pickSub, { color: c.secondaryText, marginBottom: 16 }]}>
-                Owner: {teamNameMap[selectedPick.current_team_id] ?? '?'}
-              </ThemedText>
-
-              <NumberStepper
-                label="Protection Threshold"
-                value={protThreshold}
-                onValueChange={setProtThreshold}
-                min={1}
-                max={teamCount - 1}
-              />
-              <ThemedText style={[styles.pickSub, { color: c.secondaryText, marginTop: 4, marginBottom: 16 }]}>
-                If the pick lands in positions 1-{protThreshold}, it stays with the protected owner
-              </ThemedText>
-
-              <ThemedText style={[styles.pickSub, { marginBottom: 8 }]}>Protected Owner</ThemedText>
-              {teams.map((t) => (
-                <TouchableOpacity
-                  key={t.id}
-                  accessibilityRole="button"
-                  accessibilityLabel={t.name}
-                  accessibilityState={{ selected: protOwnerId === t.id }}
-                  style={[
-                    styles.teamOption,
-                    { borderColor: c.border },
-                    protOwnerId === t.id && { backgroundColor: c.accent + '20', borderColor: c.accent },
-                  ]}
-                  onPress={() => setProtOwnerId(t.id)}
-                >
-                  <ThemedText style={{ fontSize: ms(14) }}>{t.name}</ThemedText>
-                  {protOwnerId === t.id && <Ionicons name="checkmark" size={18} color={c.accent} />}
-                </TouchableOpacity>
-              ))}
-
-              <View style={styles.editButtons}>
-                <TouchableOpacity
-                  accessibilityRole="button"
-                  accessibilityLabel={selectedPick.protection_threshold ? 'Update protection' : 'Add protection'}
-                  accessibilityState={{ disabled: processing }}
-                  style={[styles.actionBtn, { backgroundColor: c.accent }]}
-                  onPress={handleSetProtection}
-                  disabled={processing}
-                >
-                  {processing ? <LogoSpinner size={18} /> : (
-                    <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>
-                      {selectedPick.protection_threshold ? 'Update Protection' : 'Add Protection'}
-                    </ThemedText>
-                  )}
-                </TouchableOpacity>
-                {selectedPick.protection_threshold && (
-                  <TouchableOpacity
-                    accessibilityRole="button"
-                    accessibilityLabel="Remove protection"
-                    accessibilityState={{ disabled: processing }}
-                    style={[styles.actionBtn, { backgroundColor: c.danger }]}
-                    onPress={() => Alert.alert('Remove Protection', 'Remove protection from this pick?', [
-                      { text: 'Cancel', style: 'cancel' },
-                      { text: 'Remove', style: 'destructive', onPress: handleRemoveProtection },
-                    ])}
-                    disabled={processing}
-                  >
-                    <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Remove</ThemedText>
-                  </TouchableOpacity>
-                )}
-              </View>
-            </ScrollView>
-          )}
-
-          {/* Step: Swap management */}
-          {step === 'swap_edit' && (
-            <ScrollView contentContainerStyle={styles.editContainer}>
-              <ThemedText accessibilityRole="header" type="defaultSemiBold" style={{ marginBottom: 12 }}>Create Swap</ThemedText>
-
-              {/* Season selector */}
-              <ThemedText style={[styles.pickSub, { marginBottom: 6 }]}>Season</ThemedText>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12, flexGrow: 0 }}>
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                  {validSeasons.map((s) => (
-                    <TouchableOpacity
-                      key={s}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Season ${parseInt(s.split('-')[0], 10)}`}
-                      accessibilityState={{ selected: swapSeason === s }}
-                      style={[styles.pill, { backgroundColor: swapSeason === s ? c.accent : c.cardAlt, borderColor: swapSeason === s ? c.accent : c.border }]}
-                      onPress={() => setSwapSeason(s)}
-                    >
-                      <ThemedText style={{ fontSize: ms(13), color: swapSeason === s ? c.accentText : c.text }}>
-                        {parseInt(s.split('-')[0], 10)}
-                      </ThemedText>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </ScrollView>
-
-              <NumberStepper label="Round" value={swapRound} onValueChange={setSwapRound} min={1} max={rookieDraftRounds} />
-
-              {/* Beneficiary */}
-              <ThemedText accessibilityRole="header" style={[styles.pickSub, { marginTop: 12, marginBottom: 6 }]}>Beneficiary (gets better pick)</ThemedText>
-              {teams.map((t) => (
-                <TouchableOpacity
-                  key={t.id}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Beneficiary: ${t.name}`}
-                  accessibilityState={{ selected: swapBeneficiary === t.id }}
-                  style={[
-                    styles.teamOption,
-                    { borderColor: c.border },
-                    swapBeneficiary === t.id && { backgroundColor: c.accent + '20', borderColor: c.accent },
-                  ]}
-                  onPress={() => setSwapBeneficiary(t.id)}
-                >
-                  <ThemedText style={{ fontSize: ms(13) }}>{t.name}</ThemedText>
-                  {swapBeneficiary === t.id && <Ionicons name="checkmark" size={16} color={c.accent} />}
-                </TouchableOpacity>
-              ))}
-
-              {/* Counterparty */}
-              <ThemedText accessibilityRole="header" style={[styles.pickSub, { marginTop: 12, marginBottom: 6 }]}>Counterparty (gives up advantage)</ThemedText>
-              {teams.map((t) => (
-                <TouchableOpacity
-                  key={t.id}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Counterparty: ${t.name}`}
-                  accessibilityState={{ selected: swapCounterparty === t.id }}
-                  style={[
-                    styles.teamOption,
-                    { borderColor: c.border },
-                    swapCounterparty === t.id && { backgroundColor: c.accent + '20', borderColor: c.accent },
-                  ]}
-                  onPress={() => setSwapCounterparty(t.id)}
-                >
-                  <ThemedText style={{ fontSize: ms(13) }}>{t.name}</ThemedText>
-                  {swapCounterparty === t.id && <Ionicons name="checkmark" size={16} color={c.accent} />}
-                </TouchableOpacity>
-              ))}
-
-              <TouchableOpacity
-                accessibilityRole="button"
-                accessibilityLabel="Create swap"
-                accessibilityState={{ disabled: processing }}
-                style={[styles.actionBtn, { backgroundColor: c.accent, marginTop: 16 }]}
-                onPress={handleCreateSwap}
-                disabled={processing}
-              >
-                {processing ? <LogoSpinner size={18} /> : (
-                  <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Create Swap</ThemedText>
-                )}
-              </TouchableOpacity>
-
-              {/* Existing swaps */}
-              {(existingSwaps ?? []).length > 0 && (
-                <>
-                  <ThemedText accessibilityRole="header" type="defaultSemiBold" style={{ marginTop: 20, marginBottom: 8 }}>
-                    Existing Swaps
+                <View style={{ flex: 1 }}>
+                  <ThemedText style={{ fontSize: ms(14) }}>
+                    {formatPickLabel(item.season, item.round)}
                   </ThemedText>
-                  {existingSwaps!.map((sw) => (
-                    <View key={sw.id} style={[styles.swapRow, { borderColor: c.border }]}>
-                      <View style={{ flex: 1 }}>
-                        <ThemedText style={{ fontSize: ms(13) }}>
-                          {formatPickLabel(sw.season, sw.round)} swap
-                        </ThemedText>
-                        <ThemedText style={[styles.pickSub, { color: c.secondaryText }]}>
-                          {teamNameMap[sw.beneficiary_team_id] ?? '?'} gets better vs {teamNameMap[sw.counterparty_team_id] ?? '?'}
-                        </ThemedText>
-                      </View>
-                      <TouchableOpacity
-                        accessibilityRole="button"
-                        accessibilityLabel={`Delete swap: ${formatPickLabel(sw.season, sw.round)}`}
-                        onPress={() => Alert.alert('Delete Swap', 'Remove this swap?', [
-                          { text: 'Cancel', style: 'cancel' },
-                          { text: 'Delete', style: 'destructive', onPress: () => handleDeleteSwap(sw.id) },
-                        ])}
-                      >
-                        <Ionicons name="trash-outline" size={18} color={c.danger} />
-                      </TouchableOpacity>
-                    </View>
-                  ))}
-                </>
-              )}
-            </ScrollView>
+                  <ThemedText style={[styles.pickSub, { color: c.secondaryText }]}>
+                    Owner: {teamNameMap[item.current_team_id ?? ''] ?? '?'} · via {teamNameMap[item.original_team_id ?? ''] ?? '?'}
+                  </ThemedText>
+                </View>
+                {item.protection_threshold && (
+                  <View style={[styles.protBadge, { backgroundColor: c.goldMuted }]}>
+                    <ThemedText style={[styles.protBadgeText, { color: c.gold }]}>Top-{item.protection_threshold}</ThemedText>
+                  </View>
+                )}
+                <Ionicons name="chevron-forward" size={16} color={c.secondaryText} />
+              </TouchableOpacity>
+            )}
+          />
+        )
+      )}
+
+      {/* Step: Edit protection */}
+      {step === 'protection_edit' && selectedPick && (
+        <View>
+          <ThemedText type="defaultSemiBold" style={{ marginBottom: 4 }}>
+            {formatPickLabel(selectedPick.season, selectedPick.round)}
+          </ThemedText>
+          <ThemedText style={[styles.pickSub, { color: c.secondaryText, marginBottom: 16 }]}>
+            Owner: {teamNameMap[selectedPick.current_team_id] ?? '?'}
+          </ThemedText>
+
+          <NumberStepper
+            label="Protection Threshold"
+            value={protThreshold}
+            onValueChange={setProtThreshold}
+            min={1}
+            max={teamCount - 1}
+          />
+          <ThemedText style={[styles.pickSub, { color: c.secondaryText, marginTop: 4, marginBottom: 16 }]}>
+            If the pick lands in positions 1-{protThreshold}, it stays with the protected owner
+          </ThemedText>
+
+          <ThemedText style={[styles.pickSub, { marginBottom: 8 }]}>Protected Owner</ThemedText>
+          {teams.map((t) => (
+            <TouchableOpacity
+              key={t.id}
+              accessibilityRole="button"
+              accessibilityLabel={t.name}
+              accessibilityState={{ selected: protOwnerId === t.id }}
+              style={[
+                styles.teamOption,
+                { borderColor: c.border },
+                protOwnerId === t.id && { backgroundColor: c.accent + '20', borderColor: c.accent },
+              ]}
+              onPress={() => setProtOwnerId(t.id)}
+            >
+              <ThemedText style={{ fontSize: ms(14) }}>{t.name}</ThemedText>
+              {protOwnerId === t.id && <Ionicons name="checkmark" size={18} color={c.accent} />}
+            </TouchableOpacity>
+          ))}
+
+          <View style={styles.editButtons}>
+            <BrandButton
+              label={selectedPick.protection_threshold ? 'Update Protection' : 'Add Protection'}
+              variant="primary"
+              size="large"
+              onPress={handleSetProtection}
+              loading={processing}
+              fullWidth
+              style={{ flex: 1 }}
+              accessibilityLabel={selectedPick.protection_threshold ? 'Update protection' : 'Add protection'}
+            />
+            {selectedPick.protection_threshold && (
+              <BrandButton
+                label="Remove"
+                variant="secondary"
+                size="large"
+                onPress={() => confirm({
+                  title: 'Remove Protection',
+                  message: 'Remove protection from this pick?',
+                  action: { label: 'Remove', destructive: true, onPress: handleRemoveProtection },
+                })}
+                disabled={processing}
+                fullWidth
+                style={{ flex: 1 }}
+                accessibilityLabel="Remove protection"
+              />
+            )}
+          </View>
+        </View>
+      )}
+
+      {/* Step: Swap management */}
+      {step === 'swap_edit' && (
+        <View>
+          <ThemedText accessibilityRole="header" type="defaultSemiBold" style={{ marginBottom: 12 }}>Create Swap</ThemedText>
+
+          {/* Season selector */}
+          <ThemedText style={[styles.pickSub, { marginBottom: 6 }]}>Season</ThemedText>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12, flexGrow: 0 }}>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {validSeasons.map((season) => (
+                <TouchableOpacity
+                  key={season}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Season ${parseInt(season.split('-')[0], 10)}`}
+                  accessibilityState={{ selected: swapSeason === season }}
+                  style={[styles.pill, { backgroundColor: swapSeason === season ? c.accent : c.cardAlt, borderColor: swapSeason === season ? c.accent : c.border }]}
+                  onPress={() => setSwapSeason(season)}
+                >
+                  <ThemedText style={{ fontSize: ms(13), color: swapSeason === season ? c.accentText : c.text }}>
+                    {parseInt(season.split('-')[0], 10)}
+                  </ThemedText>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+
+          <NumberStepper label="Round" value={swapRound} onValueChange={setSwapRound} min={1} max={rookieDraftRounds} />
+
+          {/* Beneficiary */}
+          <ThemedText accessibilityRole="header" style={[styles.pickSub, { marginTop: 12, marginBottom: 6 }]}>Beneficiary (gets better pick)</ThemedText>
+          {teams.map((t) => (
+            <TouchableOpacity
+              key={t.id}
+              accessibilityRole="button"
+              accessibilityLabel={`Beneficiary: ${t.name}`}
+              accessibilityState={{ selected: swapBeneficiary === t.id }}
+              style={[
+                styles.teamOption,
+                { borderColor: c.border },
+                swapBeneficiary === t.id && { backgroundColor: c.accent + '20', borderColor: c.accent },
+              ]}
+              onPress={() => setSwapBeneficiary(t.id)}
+            >
+              <ThemedText style={{ fontSize: ms(13) }}>{t.name}</ThemedText>
+              {swapBeneficiary === t.id && <Ionicons name="checkmark" size={16} color={c.accent} />}
+            </TouchableOpacity>
+          ))}
+
+          {/* Counterparty */}
+          <ThemedText accessibilityRole="header" style={[styles.pickSub, { marginTop: 12, marginBottom: 6 }]}>Counterparty (gives up advantage)</ThemedText>
+          {teams.map((t) => (
+            <TouchableOpacity
+              key={t.id}
+              accessibilityRole="button"
+              accessibilityLabel={`Counterparty: ${t.name}`}
+              accessibilityState={{ selected: swapCounterparty === t.id }}
+              style={[
+                styles.teamOption,
+                { borderColor: c.border },
+                swapCounterparty === t.id && { backgroundColor: c.accent + '20', borderColor: c.accent },
+              ]}
+              onPress={() => setSwapCounterparty(t.id)}
+            >
+              <ThemedText style={{ fontSize: ms(13) }}>{t.name}</ThemedText>
+              {swapCounterparty === t.id && <Ionicons name="checkmark" size={16} color={c.accent} />}
+            </TouchableOpacity>
+          ))}
+
+          <BrandButton
+            label="Create Swap"
+            variant="primary"
+            size="large"
+            onPress={handleCreateSwap}
+            loading={processing}
+            fullWidth
+            style={{ marginTop: s(16) }}
+            accessibilityLabel="Create swap"
+          />
+
+          {/* Existing swaps */}
+          {(existingSwaps ?? []).length > 0 && (
+            <>
+              <ThemedText accessibilityRole="header" type="defaultSemiBold" style={{ marginTop: 20, marginBottom: 8 }}>
+                Existing Swaps
+              </ThemedText>
+              {existingSwaps!.map((sw) => (
+                <View key={sw.id} style={[styles.swapRow, { borderColor: c.border }]}>
+                  <View style={{ flex: 1 }}>
+                    <ThemedText style={{ fontSize: ms(13) }}>
+                      {formatPickLabel(sw.season, sw.round)} swap
+                    </ThemedText>
+                    <ThemedText style={[styles.pickSub, { color: c.secondaryText }]}>
+                      {teamNameMap[sw.beneficiary_team_id] ?? '?'} gets better vs {teamNameMap[sw.counterparty_team_id] ?? '?'}
+                    </ThemedText>
+                  </View>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel={`Delete swap: ${formatPickLabel(sw.season, sw.round)}`}
+                    onPress={() => confirm({
+                      title: 'Delete Swap',
+                      message: 'Remove this swap?',
+                      action: { label: 'Delete', destructive: true, onPress: () => handleDeleteSwap(sw.id) },
+                    })}
+                  >
+                    <Ionicons name="trash-outline" size={18} color={c.danger} />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </>
           )}
         </View>
-      </View>
-    </Modal>
+      )}
+    </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: 'flex-end' },
-  sheet: {
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
-    maxHeight: '90%',
-    minHeight: '50%',
-    paddingBottom: s(32),
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: s(14),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  backBtn: { width: s(36) },
-  headerTitle: { fontSize: ms(16), flex: 1, textAlign: 'center' },
-  closeText: { fontSize: ms(18), padding: s(4) },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: s(40) },
-  listContent: { paddingVertical: s(4) },
-  chooseContainer: { padding: s(16), gap: s(12) },
+  chooseContainer: { gap: s(12) },
   chooseBtn: {
     borderWidth: 1,
     borderRadius: 12,
@@ -540,7 +522,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: s(12),
-    paddingHorizontal: s(16),
     borderBottomWidth: StyleSheet.hairlineWidth,
     gap: s(8),
   },
@@ -551,15 +532,7 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
   },
   protBadgeText: { fontSize: ms(10), fontWeight: '600' },
-  editContainer: { padding: s(16), paddingBottom: s(40) },
   editButtons: { flexDirection: 'row', gap: s(10), marginTop: s(20) },
-  actionBtn: {
-    flex: 1,
-    paddingVertical: s(12),
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  actionBtnText: { fontSize: ms(15), fontWeight: '600' },
   teamOption: {
     flexDirection: 'row',
     justifyContent: 'space-between',

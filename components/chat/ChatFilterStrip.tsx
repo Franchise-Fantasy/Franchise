@@ -1,11 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import { ScrollView, StyleSheet, TouchableOpacity } from "react-native";
-import Animated, { SlideInRight, SlideOutRight } from "react-native-reanimated";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 
 import { ThemedText } from "@/components/ui/ThemedText";
-import { Colors } from "@/constants/Colors";
-import { useColorScheme } from "@/hooks/useColorScheme";
+import { Brand, Fonts } from "@/constants/Colors";
+import { useColors } from "@/hooks/useColors";
 import { ms, s } from "@/utils/scale";
 
 export type ChatFilter = "all" | "chat" | "trade" | "rumor" | "poll" | "survey";
@@ -14,6 +18,8 @@ interface ChatFilterStripProps {
   activeFilter: ChatFilter;
   onFilterChange: (filter: ChatFilter) => void;
   counts: Record<ChatFilter, number>;
+  /** When false the strip slides out to the right and fades. */
+  visible: boolean;
 }
 
 const FILTERS: { key: ChatFilter; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
@@ -25,26 +31,49 @@ const FILTERS: { key: ChatFilter; label: string; icon: keyof typeof Ionicons.gly
   { key: "survey", label: "Surveys", icon: "clipboard-outline" },
 ];
 
+// Slide distance in pixels — overshoots the spacer's width comfortably so
+// the strip is fully off-screen when hidden, regardless of layout width.
+const SLIDE_DISTANCE = 240;
+const ANIM_DURATION = 200;
+
 export function ChatFilterStrip({
   activeFilter,
   onFilterChange,
   counts,
+  visible,
 }: ChatFilterStripProps) {
-  const scheme = useColorScheme() ?? "light";
-  const c = Colors[scheme];
+  const c = useColors();
 
   const visibleFilters = useMemo(
     () => FILTERS.filter((f) => f.key === "all" || counts[f.key] > 0),
     [counts],
   );
 
+  // Controlled translate + opacity so collapse plays the reverse of expand,
+  // even though the parent's conditional render pattern would normally tear
+  // the strip down before a layout-animation exit could play.
+  const translateX = useSharedValue(visible ? 0 : SLIDE_DISTANCE);
+  const opacity = useSharedValue(visible ? 1 : 0);
+
+  useEffect(() => {
+    translateX.value = withTiming(visible ? 0 : SLIDE_DISTANCE, {
+      duration: ANIM_DURATION,
+    });
+    opacity.value = withTiming(visible ? 1 : 0, { duration: ANIM_DURATION });
+  }, [visible, translateX, opacity]);
+
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+    opacity: opacity.value,
+  }));
+
   return (
     <Animated.View
-      entering={SlideInRight.duration(200)}
-      exiting={SlideOutRight.duration(150)}
-      style={styles.wrapper}
+      style={[styles.wrapper, animStyle]}
+      pointerEvents={visible ? "auto" : "none"}
       accessibilityRole="tablist"
       accessibilityLabel="Filter messages by type"
+      accessibilityState={{ expanded: visible }}
     >
       <ScrollView
         horizontal
@@ -61,8 +90,8 @@ export function ChatFilterStrip({
               style={[
                 styles.chip,
                 {
-                  backgroundColor: isActive ? c.accent : c.card,
-                  borderColor: isActive ? c.accent : c.border,
+                  backgroundColor: isActive ? c.gold : c.card,
+                  borderColor: isActive ? c.gold : c.border,
                 },
               ]}
               activeOpacity={0.7}
@@ -72,18 +101,28 @@ export function ChatFilterStrip({
             >
               <Ionicons
                 name={f.icon}
-                size={13}
-                color={isActive ? c.accentText : c.secondaryText}
+                size={ms(12)}
+                color={isActive ? Brand.ink : c.secondaryText}
                 accessible={false}
               />
               <ThemedText
                 style={[
                   styles.chipLabel,
-                  { color: isActive ? c.accentText : c.text },
+                  { color: isActive ? Brand.ink : c.text },
                 ]}
               >
-                {f.label} {count}
+                {f.label.toUpperCase()}
               </ThemedText>
+              {count > 0 && (
+                <ThemedText
+                  style={[
+                    styles.chipCount,
+                    { color: isActive ? Brand.ink : c.secondaryText },
+                  ]}
+                >
+                  {count}
+                </ThemedText>
+              )}
             </TouchableOpacity>
           );
         })}
@@ -108,13 +147,20 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: s(4),
-    paddingHorizontal: s(9),
-    paddingVertical: s(4),
-    borderRadius: 999,
+    height: s(26),
+    paddingHorizontal: s(10),
+    borderRadius: s(13),
     borderWidth: StyleSheet.hairlineWidth,
   },
   chipLabel: {
-    fontSize: ms(12),
-    fontWeight: "600",
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(10),
+    letterSpacing: 1.0,
+  },
+  chipCount: {
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(10),
+    letterSpacing: 0.5,
+    marginLeft: s(1),
   },
 });

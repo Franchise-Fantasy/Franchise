@@ -5,6 +5,7 @@ import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
 import { posthog } from '@/lib/posthog';
 import { supabase } from '@/lib/supabase';
+import { logger } from '@/utils/logger';
 
 
 // ─── Mark read ───────────────────────────────────────────────
@@ -50,7 +51,7 @@ export function useMarkRead(
         queryClient.invalidateQueries({ queryKey: queryKeys.chatUnread(leagueId!) });
       }, (err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
-        console.warn('useMarkRead update failed:', message);
+        logger.warn('useMarkRead update failed', { message });
         posthog.capture('$exception', {
           $exception_message: message,
           $exception_type: 'ChatMarkReadError',

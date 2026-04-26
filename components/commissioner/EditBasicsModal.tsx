@@ -2,31 +2,22 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
   Alert,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
   StyleSheet,
-  Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from 'react-native';
 
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { BottomSheet } from '@/components/ui/BottomSheet';
+import { BrandButton } from '@/components/ui/BrandButton';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { generateDraftPicks, generateFutureDraftPicks } from '@/lib/draft';
 import { supabase } from '@/lib/supabase';
 import { sanitizeHandle } from '@/utils/league/paymentLinks';
 import { containsBlockedContent } from '@/utils/moderation';
 import { ms, s } from '@/utils/scale';
-
-
 
 interface EditBasicsModalProps {
   visible: boolean;
@@ -38,8 +29,7 @@ interface EditBasicsModalProps {
 }
 
 export function EditBasicsModal({ visible, onClose, league, leagueId, canChangeSize = false, currentTeamCount = 0 }: EditBasicsModalProps) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const queryClient = useQueryClient();
 
   const [name, setName] = useState('');
@@ -69,7 +59,7 @@ export function EditBasicsModal({ visible, onClose, league, leagueId, canChangeS
       return;
     }
     if (containsBlockedContent(name)) {
-      Alert.alert('Invalid name', 'That league name contains language that isn\u2019t allowed.');
+      Alert.alert('Invalid name', 'That league name contains language that isn’t allowed.');
       return;
     }
     setSaving(true);
@@ -162,149 +152,136 @@ export function EditBasicsModal({ visible, onClose, league, leagueId, canChangeS
   }
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={[styles.sheet, { backgroundColor: c.card }]} onPress={() => {}} accessibilityViewIsModal={true}>
-          <View style={[styles.handle, { backgroundColor: c.border }]} />
+    <BottomSheet
+      visible={visible}
+      onClose={onClose}
+      title="League Basics"
+      keyboardAvoiding
+      footer={
+        <View style={styles.footer}>
+          <BrandButton
+            label="Cancel"
+            variant="secondary"
+            size="large"
+            onPress={onClose}
+            fullWidth
+            style={styles.footerBtn}
+            accessibilityLabel="Cancel"
+          />
+          <BrandButton
+            label="Save"
+            variant="primary"
+            size="large"
+            onPress={handleSave}
+            loading={saving}
+            fullWidth
+            style={styles.footerBtn}
+            accessibilityLabel="Save"
+          />
+        </View>
+      }
+    >
+      <View style={[styles.editRow, { borderBottomColor: c.border }]}>
+        <ThemedText style={styles.rowLabel}>Name</ThemedText>
+        <TextInput
+          accessibilityLabel="League name"
+          style={[styles.textInput, { color: c.text, backgroundColor: c.input, borderColor: c.border }]}
+          value={name}
+          onChangeText={setName}
+          placeholder="League name"
+          placeholderTextColor={c.secondaryText}
+        />
+      </View>
 
-          <View style={styles.titleRow}>
-            <ThemedText accessibilityRole="header" style={styles.title}>League Basics</ThemedText>
-          </View>
+      <View style={[styles.editRow, { borderBottomColor: c.border }]}>
+        <ThemedText style={styles.rowLabel}>Visibility</ThemedText>
+        <View style={{ width: s(160) }}>
+          <SegmentedControl
+            options={['Public', 'Private']}
+            selectedIndex={isPrivate ? 1 : 0}
+            onSelect={(i) => setIsPrivate(i === 1)}
+          />
+        </View>
+      </View>
 
-          <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} nestedScrollEnabled>
-            <View style={[styles.editRow, { borderBottomColor: c.border }]}>
-              <ThemedText style={styles.rowLabel}>Name</ThemedText>
-              <TextInput
-                accessibilityLabel="League name"
-                style={[styles.textInput, { color: c.text, backgroundColor: c.input, borderColor: c.border }]}
-                value={name}
-                onChangeText={setName}
-                placeholder="League name"
-                placeholderTextColor={c.secondaryText}
-              />
-            </View>
+      {canChangeSize && (
+        <NumberStepper
+          label="League Size"
+          value={maxTeams}
+          onValueChange={setMaxTeams}
+          min={Math.max(2, currentTeamCount)}
+          max={30}
+          step={1}
+        />
+      )}
 
-            <View style={[styles.editRow, { borderBottomColor: c.border }]}>
-              <ThemedText style={styles.rowLabel}>Visibility</ThemedText>
-              <View style={{ width: s(160) }}>
-                <SegmentedControl
-                  options={['Public', 'Private']}
-                  selectedIndex={isPrivate ? 1 : 0}
-                  onSelect={(i) => setIsPrivate(i === 1)}
-                />
-              </View>
-            </View>
+      <NumberStepper
+        label="Buy-In ($)"
+        value={buyIn}
+        onValueChange={setBuyIn}
+        min={0}
+        max={1000}
+        step={5}
+      />
 
-            {canChangeSize && (
-              <NumberStepper
-                label="League Size"
-                value={maxTeams}
-                onValueChange={setMaxTeams}
-                min={Math.max(2, currentTeamCount)}
-                max={30}
-                step={1}
-              />
-            )}
+      {buyIn > 0 && (
+        <>
+          <ThemedText style={[styles.sectionLabel, { color: c.secondaryText }]}>
+            Payment Methods
+          </ThemedText>
 
-            <NumberStepper
-              label="Buy-In ($)"
-              value={buyIn}
-              onValueChange={setBuyIn}
-              min={0}
-              max={1000}
-              step={5}
+          <View style={[styles.editRow, { borderBottomColor: c.border }]}>
+            <ThemedText style={styles.rowLabel}>Venmo</ThemedText>
+            <TextInput
+              accessibilityLabel="Venmo username"
+              style={[styles.textInput, { color: c.text, backgroundColor: c.input, borderColor: c.border }]}
+              value={venmoUsername}
+              onChangeText={setVenmoUsername}
+              placeholder="username (no @)"
+              placeholderTextColor={c.secondaryText}
+              autoCapitalize="none"
+              autoCorrect={false}
             />
-
-            {buyIn > 0 && (
-              <>
-                <ThemedText style={[styles.sectionLabel, { color: c.secondaryText }]}>
-                  Payment Methods
-                </ThemedText>
-
-                <View style={[styles.editRow, { borderBottomColor: c.border }]}>
-                  <ThemedText style={styles.rowLabel}>Venmo</ThemedText>
-                  <TextInput
-                    accessibilityLabel="Venmo username"
-                    style={[styles.textInput, { color: c.text, backgroundColor: c.input, borderColor: c.border }]}
-                    value={venmoUsername}
-                    onChangeText={setVenmoUsername}
-                    placeholder="username (no @)"
-                    placeholderTextColor={c.secondaryText}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-                </View>
-
-                <View style={[styles.editRow, { borderBottomColor: c.border }]}>
-                  <ThemedText style={styles.rowLabel}>Cash App</ThemedText>
-                  <TextInput
-                    accessibilityLabel="Cash App tag"
-                    style={[styles.textInput, { color: c.text, backgroundColor: c.input, borderColor: c.border }]}
-                    value={cashappTag}
-                    onChangeText={setCashappTag}
-                    placeholder="cashtag (no $)"
-                    placeholderTextColor={c.secondaryText}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-                </View>
-
-                <View style={[styles.editRow, { borderBottomColor: c.border }]}>
-                  <ThemedText style={styles.rowLabel}>PayPal</ThemedText>
-                  <TextInput
-                    accessibilityLabel="PayPal username"
-                    style={[styles.textInput, { color: c.text, backgroundColor: c.input, borderColor: c.border }]}
-                    value={paypalUsername}
-                    onChangeText={setPaypalUsername}
-                    placeholder="username"
-                    placeholderTextColor={c.secondaryText}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-                </View>
-              </>
-            )}
-          </ScrollView>
-
-          <View style={styles.footer}>
-            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Cancel" style={[styles.btn, { backgroundColor: c.cardAlt }]} onPress={onClose}>
-              <ThemedText style={styles.btnText}>Cancel</ThemedText>
-            </TouchableOpacity>
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel="Save"
-              accessibilityState={{ disabled: saving }}
-              style={[styles.btn, { backgroundColor: saving ? c.buttonDisabled : c.accent }]}
-              onPress={handleSave}
-              disabled={saving}
-            >
-              {saving ? (
-                <LogoSpinner size={18} />
-              ) : (
-                <Text style={[styles.btnText, { color: c.accentText }]}>Save</Text>
-              )}
-            </TouchableOpacity>
           </View>
-        </Pressable>
-      </Pressable>
-      </KeyboardAvoidingView>
-    </Modal>
+
+          <View style={[styles.editRow, { borderBottomColor: c.border }]}>
+            <ThemedText style={styles.rowLabel}>Cash App</ThemedText>
+            <TextInput
+              accessibilityLabel="Cash App tag"
+              style={[styles.textInput, { color: c.text, backgroundColor: c.input, borderColor: c.border }]}
+              value={cashappTag}
+              onChangeText={setCashappTag}
+              placeholder="cashtag (no $)"
+              placeholderTextColor={c.secondaryText}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+
+          <View style={[styles.editRow, { borderBottomColor: c.border }]}>
+            <ThemedText style={styles.rowLabel}>PayPal</ThemedText>
+            <TextInput
+              accessibilityLabel="PayPal username"
+              style={[styles.textInput, { color: c.text, backgroundColor: c.input, borderColor: c.border }]}
+              value={paypalUsername}
+              onChangeText={setPaypalUsername}
+              placeholder="username"
+              placeholderTextColor={c.secondaryText}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+        </>
+      )}
+    </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'transparent', justifyContent: 'flex-end' },
-  sheet: { borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingTop: s(12), paddingBottom: s(40), maxHeight: '85%' },
-  handle: { width: s(40), height: s(4), borderRadius: 2, alignSelf: 'center', marginBottom: s(12) },
-  titleRow: { flexDirection: 'row', justifyContent: 'center', paddingHorizontal: s(16), marginBottom: s(16) },
-  title: { fontSize: ms(17), fontWeight: '600' },
-  scroll: { flexShrink: 1, paddingHorizontal: s(16) },
   editRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: s(12), borderBottomWidth: StyleSheet.hairlineWidth },
   rowLabel: { fontSize: ms(14) },
   sectionLabel: { fontSize: ms(12), fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: s(16), marginBottom: s(4) },
   textInput: { flex: 1, marginLeft: s(12), borderWidth: 1, borderRadius: 8, paddingHorizontal: s(10), paddingVertical: s(8), fontSize: ms(14) },
-  footer: { flexDirection: 'row', gap: s(12), paddingHorizontal: s(16), paddingTop: s(16) },
-  btn: { flex: 1, paddingVertical: s(14), borderRadius: 10, alignItems: 'center' },
-  btnText: { fontSize: ms(15), fontWeight: '600' },
+  footer: { flexDirection: 'row', gap: s(12) },
+  footerBtn: { flex: 1 },
 });

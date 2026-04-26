@@ -10,7 +10,7 @@ export function useTeamRosterForTrade(teamId: string | null, leagueId: string | 
   return useQuery<TradeRosterPlayer[]>({
     queryKey: queryKeys.teamRosterForTrade(teamId!, leagueId!),
     queryFn: async () => {
-      const { data, error } = await supabase.rpc('get_team_roster_for_trade' as any, {
+      const { data, error } = await supabase.rpc('get_team_roster_for_trade', {
         p_league_id: leagueId!,
         p_team_id: teamId!,
       });

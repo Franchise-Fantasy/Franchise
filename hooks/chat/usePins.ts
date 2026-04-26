@@ -35,7 +35,9 @@ export function usePinnedMessages(conversationId: string | null) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [conversationId, queryClient]);
+    // queryClient is a stable singleton — omitting prevents unnecessary channel teardown.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId]);
 
   return useQuery<ChatMessage[]>({
     queryKey: queryKeys.pinnedMessages(conversationId!),
@@ -57,41 +59,41 @@ export function usePinnedMessages(conversationId: string | null) {
 
       if (msgError) throw msgError;
 
-      const mapped = (messages ?? []).map((m: any) => ({
-        ...m,
-        team_name: m.teams?.name ?? undefined,
-        teams: undefined,
-      }));
+      const rawMessages = messages ?? [];
 
-      // Enrich poll/survey messages with their titles
-      const pollMsgs = mapped.filter((m) => m.type === 'poll');
-      const surveyMsgs = mapped.filter((m) => m.type === 'survey');
+      // Look up poll/survey titles up-front so we can fold them into the mapped
+      // result rather than mutating it after construction.
+      const pollIds = rawMessages.filter((m) => m.type === 'poll').map((m) => m.content);
+      const surveyIds = rawMessages.filter((m) => m.type === 'survey').map((m) => m.content);
 
-      if (pollMsgs.length > 0) {
-        const pollIds = pollMsgs.map((m) => m.content);
+      const pollMap = new Map<string, string>();
+      if (pollIds.length > 0) {
         const { data: polls } = await supabase
           .from('commissioner_polls')
           .select('id, question')
           .in('id', pollIds);
-        const pollMap = new Map((polls ?? []).map((p: any) => [p.id, p.question]));
-        for (const m of pollMsgs) {
-          (m as any).poll_question = pollMap.get(m.content) ?? null;
-        }
+        for (const p of polls ?? []) pollMap.set(p.id, p.question);
       }
 
-      if (surveyMsgs.length > 0) {
-        const surveyIds = surveyMsgs.map((m) => m.content);
+      const surveyMap = new Map<string, string>();
+      if (surveyIds.length > 0) {
         const { data: surveys } = await supabase
           .from('commissioner_surveys')
           .select('id, title')
           .in('id', surveyIds);
-        const surveyMap = new Map((surveys ?? []).map((s: any) => [s.id, s.title]));
-        for (const m of surveyMsgs) {
-          (m as any).survey_title = surveyMap.get(m.content) ?? null;
-        }
+        for (const s of surveys ?? []) surveyMap.set(s.id, s.title);
       }
 
-      return mapped;
+      return rawMessages.map((m) => {
+        const teams = Array.isArray(m.teams) ? m.teams[0] ?? null : m.teams;
+        return {
+          ...m,
+          team_name: teams?.name ?? undefined,
+          teams: undefined,
+          poll_question: m.type === 'poll' ? pollMap.get(m.content) ?? null : null,
+          survey_title: m.type === 'survey' ? surveyMap.get(m.content) ?? null : null,
+        };
+      }) as ChatMessage[];
     },
     enabled: !!conversationId,
     staleTime: 60_000,

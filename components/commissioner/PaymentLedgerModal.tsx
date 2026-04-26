@@ -1,18 +1,18 @@
 import { Ionicons } from '@expo/vector-icons';
 import {
-  Alert,
   FlatList,
-  Modal,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 
+import { BottomSheet } from '@/components/ui/BottomSheet';
+import { type ModalAction } from '@/components/ui/InlineAction';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useActionPicker, useConfirm } from '@/context/ConfirmProvider';
+import { useColors } from '@/hooks/useColors';
 import {
   PaymentStatus,
   usePaymentLedger,
@@ -21,7 +21,6 @@ import {
 } from '@/hooks/usePaymentLedger';
 import { openPaymentConfirmed } from '@/utils/league/paymentLinks';
 import { ms, s } from '@/utils/scale';
-
 
 interface Props {
   visible: boolean;
@@ -52,12 +51,13 @@ export function PaymentLedgerModal({
   isCommissioner,
   onClose,
 }: Props) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
 
   const { data: payments, isLoading } = usePaymentLedger(visible ? leagueId : null, season);
   const togglePayment = useTogglePayment(leagueId, season);
   const selfReport = useSelfReportPayment(leagueId, season);
+  const pickAction = useActionPicker();
+  const confirm = useConfirm();
 
   const paymentMap = new Map((payments ?? []).map((p) => [p.team_id, p]));
   const confirmedCount = (payments ?? []).filter((p) => p.status === 'confirmed').length;
@@ -73,52 +73,60 @@ export function PaymentLedgerModal({
     return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   }
 
+  const payWithActions: ModalAction[] = [
+    {
+      id: 'venmo',
+      label: 'Venmo',
+      icon: 'wallet-outline',
+      hidden: !venmoUsername,
+      onPress: () =>
+        openPaymentConfirmed('venmo', venmoUsername!, {
+          amount: buyInAmount ?? undefined,
+          note: leagueName ? `${leagueName} buy-in` : undefined,
+        }),
+    },
+    {
+      id: 'paypal',
+      label: 'PayPal',
+      icon: 'card-outline',
+      hidden: !paypalUsername,
+      onPress: () =>
+        openPaymentConfirmed('paypal', paypalUsername!, { amount: buyInAmount ?? undefined }),
+    },
+    {
+      id: 'cashapp',
+      label: 'Cash App',
+      icon: 'cash-outline',
+      hidden: !cashappTag,
+      onPress: () => openPaymentConfirmed('cashapp', cashappTag!),
+    },
+  ];
+
   function handlePayNow() {
-    const methods: { text: string; onPress: () => void }[] = [];
-
-    if (venmoUsername) {
-      methods.push({
-        text: 'Venmo',
-        onPress: () =>
-          openPaymentConfirmed('venmo', venmoUsername, {
-            amount: buyInAmount ?? undefined,
-            note: leagueName ? `${leagueName} buy-in` : undefined,
-          }),
-      });
-    }
-    if (paypalUsername) {
-      methods.push({
-        text: 'PayPal',
-        onPress: () =>
-          openPaymentConfirmed('paypal', paypalUsername, { amount: buyInAmount ?? undefined }),
-      });
-    }
-    if (cashappTag) {
-      methods.push({
-        text: 'Cash App',
-        onPress: () => openPaymentConfirmed('cashapp', cashappTag),
-      });
-    }
-
-    if (methods.length === 1) {
-      methods[0].onPress();
+    const visibleMethods = payWithActions.filter((m) => !m.hidden);
+    if (visibleMethods.length === 1) {
+      visibleMethods[0]!.onPress();
     } else {
-      Alert.alert('Pay With', 'Choose a payment method', [
-        ...methods,
-        { text: 'Cancel', style: 'cancel' },
-      ]);
+      pickAction({
+        title: 'Pay With',
+        subtitle: 'CHOOSE A PAYMENT METHOD',
+        actions: payWithActions,
+      });
     }
   }
 
   function handleSelfReport() {
     if (!myTeamId) return;
-    Alert.alert('Mark as Paid?', 'The commissioner will be notified to confirm your payment.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'I Paid', onPress: () => selfReport.mutate({ teamId: myTeamId }) },
-    ]);
+    confirm({
+      title: 'Mark as Paid?',
+      message: 'The commissioner will be notified to confirm your payment.',
+      action: {
+        label: 'I Paid',
+        onPress: () => selfReport.mutate({ teamId: myTeamId }),
+      },
+    });
   }
 
-  // ── Status badge ───────────────────────────────────────────────
   function StatusBadge({ status }: { status: PaymentStatus }) {
     const bg =
       status === 'confirmed'
@@ -142,7 +150,6 @@ export function PaymentLedgerModal({
     );
   }
 
-  // ── Row renderer ───────────────────────────────────────────────
   function renderRow({ item, index }: { item: { id: string; name: string }; index: number }) {
     const status = getStatus(item.id);
     const payment = paymentMap.get(item.id);
@@ -241,74 +248,33 @@ export function PaymentLedgerModal({
     );
   }
 
+  const subtitle = buyInAmount
+    ? `BUY-IN $${buyInAmount}  ·  ${confirmedCount}/${teams.length} PAID`
+    : `${confirmedCount}/${teams.length} PAID`;
+
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View style={[styles.content, { backgroundColor: c.card }]} accessibilityViewIsModal>
-          <View style={styles.header}>
-            <ThemedText accessibilityRole="header" type="subtitle">
-              Payment Ledger
-            </ThemedText>
-            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close" onPress={onClose}>
-              <Ionicons name="close" size={24} color={c.text} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Summary */}
-          <View style={[styles.summary, { backgroundColor: c.cardAlt, borderColor: c.border }]}>
-            {buyInAmount ? (
-              <ThemedText style={styles.summaryText}>
-                Buy-In: <Text style={{ fontWeight: '700', color: c.success }}>${buyInAmount}</Text>
-                {'  ·  '}
-                {confirmedCount}/{teams.length} paid
-              </ThemedText>
-            ) : (
-              <ThemedText style={styles.summaryText}>
-                {confirmedCount}/{teams.length} paid
-              </ThemedText>
-            )}
-          </View>
-
-          {isLoading ? (
-            <View style={{ marginTop: s(20) }}><LogoSpinner /></View>
-          ) : (
-            <FlatList
-              data={teams}
-              keyExtractor={(item) => item.id}
-              renderItem={renderRow}
-            />
-          )}
-        </View>
-      </View>
-    </Modal>
+    <BottomSheet
+      visible={visible}
+      onClose={onClose}
+      title="Payment Ledger"
+      subtitle={subtitle}
+      height="85%"
+      scrollableBody={false}
+    >
+      {isLoading ? (
+        <View style={{ marginTop: s(20) }}><LogoSpinner /></View>
+      ) : (
+        <FlatList
+          data={teams}
+          keyExtractor={(item) => item.id}
+          renderItem={renderRow}
+        />
+      )}
+    </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: 'flex-end' },
-  content: {
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
-    padding: s(20),
-    paddingBottom: s(32),
-    minHeight: '50%',
-    maxHeight: '85%',
-    overflow: 'hidden' as const,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: s(16),
-  },
-  summary: {
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: s(12),
-    marginBottom: s(16),
-    alignItems: 'center',
-  },
-  summaryText: { fontSize: ms(15) },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

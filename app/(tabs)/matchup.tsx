@@ -982,6 +982,7 @@ export default function MatchupScreen() {
   const scheme = useColorScheme() ?? "light";
   const c = Colors[scheme];
 
+  const queryClient = useQueryClient();
   const { data: weeks, isLoading: weeksLoading } = useWeeks(leagueId);
   const { data: league } = useLeague();
   const { data: scoring } = useLeagueScoring(leagueId ?? "");
@@ -1015,12 +1016,21 @@ export default function MatchupScreen() {
   const [liveActivityId, setLiveActivityId] = useState<string | null>(null);
 
   const handlePlayerPress = async (playerId: string) => {
-    const { data } = await supabase
-      .from("player_season_stats")
-      .select("*")
-      .eq("player_id", playerId)
-      .maybeSingle();
-    if (data) setSelectedPlayer(data as PlayerSeasonStats);
+    // Cached so repeat taps on the same player serve from React Query
+    const data = await queryClient.fetchQuery({
+      queryKey: queryKeys.playerSeasonStat(playerId, sport),
+      queryFn: async () => {
+        const { data } = await supabase
+          .from("player_season_stats")
+          .select("*")
+          .eq("player_id", playerId)
+          .eq("sport", sport)
+          .maybeSingle();
+        return data as PlayerSeasonStats | null;
+      },
+      staleTime: 1000 * 60 * 5,
+    });
+    if (data) setSelectedPlayer(data);
   };
 
   const handleGoLive = async () => {
@@ -1247,8 +1257,6 @@ export default function MatchupScreen() {
     enabled: isToday || isFutureDate,
     staleTime: 1000 * 60 * 60,
   });
-
-  const queryClient = useQueryClient();
 
   // Prefetch adjacent days to reduce pop-in when navigating
   useEffect(() => {

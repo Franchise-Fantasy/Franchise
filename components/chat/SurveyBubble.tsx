@@ -4,9 +4,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Brand, Fonts } from '@/constants/Colors';
 import { useSurvey, useSurveyResponseCount, useSurveyStatus } from '@/hooks/chat/useSurveys';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { useLeague } from '@/hooks/useLeague';
 import { ms, s } from '@/utils/scale';
 
@@ -26,13 +26,13 @@ interface Props {
 
 function formatCountdown(closesAt: string): string {
   const diff = new Date(closesAt).getTime() - Date.now();
-  if (diff <= 0) return 'Closed';
+  if (diff <= 0) return 'CLOSED';
   const mins = Math.floor(diff / 60_000);
-  if (mins < 60) return `${mins}m left`;
+  if (mins < 60) return `${mins}M LEFT`;
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ${mins % 60}m left`;
+  if (hrs < 24) return `${hrs}H ${mins % 60}M LEFT`;
   const days = Math.floor(hrs / 24);
-  return `${days}d ${hrs % 24}h left`;
+  return `${days}D ${hrs % 24}H LEFT`;
 }
 
 export const SurveyBubble = React.memo(function SurveyBubble({
@@ -41,8 +41,7 @@ export const SurveyBubble = React.memo(function SurveyBubble({
   isCommissioner,
   embedded,
 }: Props) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const router = useRouter();
 
   const { data: surveyData } = useSurvey(surveyId);
@@ -116,11 +115,15 @@ export const SurveyBubble = React.memo(function SurveyBubble({
       accessibilityRole="summary"
       accessibilityLabel={`Commissioner survey: ${title}`}
     >
-      {/* Header */}
-      <View style={styles.header}>
-        <Ionicons name="clipboard-outline" size={16} color={c.accent} accessible={false} />
-        <ThemedText style={[styles.headerLabel, { color: c.accent }]}>
-          Commissioner Survey
+      {/* Eyebrow */}
+      <View style={styles.headerRow}>
+        <View style={[styles.eyebrowRule, { backgroundColor: c.gold }]} />
+        <Ionicons name="clipboard-outline" size={ms(12)} color={c.gold} accessible={false} />
+        <ThemedText
+          type="varsitySmall"
+          style={[styles.eyebrow, { color: c.gold }]}
+        >
+          COMMISSIONER SURVEY
         </ThemedText>
       </View>
 
@@ -140,11 +143,11 @@ export const SurveyBubble = React.memo(function SurveyBubble({
       {/* Meta row */}
       <View style={styles.metaRow}>
         <ThemedText style={[styles.metaText, { color: c.secondaryText }]}>
-          {questionCount} question{questionCount !== 1 ? 's' : ''}
+          {questionCount} {questionCount === 1 ? 'QUESTION' : 'QUESTIONS'}
         </ThemedText>
         <ThemedText style={[styles.metaDot, { color: c.secondaryText }]}>·</ThemedText>
         <ThemedText style={[styles.metaText, { color: c.secondaryText }]}>
-          {isClosed ? 'Closed' : countdown}
+          {isClosed ? 'CLOSED' : countdown}
         </ThemedText>
         {isCommissioner && responseCount != null && (
           <>
@@ -153,7 +156,7 @@ export const SurveyBubble = React.memo(function SurveyBubble({
               style={[styles.metaText, { color: c.secondaryText }]}
               accessibilityLabel={`${responseCount} of ${league?.league_teams?.length ?? '?'} responses`}
             >
-              {responseCount}/{league?.league_teams?.length ?? '?'} responded
+              {responseCount}/{league?.league_teams?.length ?? '?'} RESPONDED
             </ThemedText>
           </>
         )}
@@ -168,7 +171,7 @@ export const SurveyBubble = React.memo(function SurveyBubble({
         style={[
           styles.actionBtn,
           {
-            backgroundColor: btnDisabled ? c.buttonDisabled : c.accent,
+            backgroundColor: btnDisabled ? c.buttonDisabled : c.gold,
           },
         ]}
         accessibilityRole="button"
@@ -176,9 +179,11 @@ export const SurveyBubble = React.memo(function SurveyBubble({
         accessibilityState={{ disabled: btnDisabled }}
       >
         {hasSubmitted && !isClosed && (
-          <Ionicons name="checkmark-circle" size={18} color={c.statusText} style={{ marginRight: s(4) }} />
+          <Ionicons name="checkmark-circle" size={ms(16)} color={Brand.ink} style={{ marginRight: s(4) }} accessible={false} />
         )}
-        <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>{btnLabel}</ThemedText>
+        <ThemedText style={[styles.actionBtnText, { color: Brand.ink }]}>
+          {btnLabel.toUpperCase()}
+        </ThemedText>
       </TouchableOpacity>
     </View>
   );
@@ -192,36 +197,44 @@ const styles = StyleSheet.create({
     marginVertical: s(4),
     width: '100%',
   },
-  header: {
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: s(6),
     marginBottom: s(8),
   },
-  headerLabel: {
-    fontSize: ms(12),
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+  eyebrowRule: {
+    height: 2,
+    width: s(20),
+  },
+  eyebrow: {
+    fontSize: ms(11),
+    letterSpacing: 1.4,
   },
   title: {
-    fontSize: ms(16),
-    fontWeight: '600',
+    fontFamily: Fonts.display,
+    fontSize: ms(17),
     lineHeight: ms(22),
-    marginBottom: s(2),
+    letterSpacing: -0.2,
+    marginBottom: s(4),
   },
   description: {
     fontSize: ms(13),
     lineHeight: ms(18),
-    marginBottom: s(4),
+    marginBottom: s(6),
   },
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: s(6),
-    marginBottom: s(10),
+    marginBottom: s(12),
+    flexWrap: 'wrap',
   },
-  metaText: { fontSize: ms(12) },
+  metaText: {
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(10),
+    letterSpacing: 0.8,
+  },
   metaDot: { fontSize: ms(12) },
   actionBtn: {
     borderRadius: 10,
@@ -231,8 +244,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   actionBtnText: {
-    fontSize: ms(15),
-    fontWeight: '600',
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(13),
+    letterSpacing: 1.0,
   },
   // Skeleton
   skeletonBar: { borderRadius: 6, opacity: 0.4 },

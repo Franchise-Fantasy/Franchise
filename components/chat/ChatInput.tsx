@@ -1,16 +1,19 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActionSheetIOS, Platform, StyleSheet, TextInput, View , TouchableOpacity } from 'react-native';
+import { Alert, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
 
+import { type ModalAction } from '@/components/ui/InlineAction';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { Brand } from '@/constants/Colors';
+import { useActionPicker } from '@/context/ConfirmProvider';
+import { useColors } from '@/hooks/useColors';
+import { logger } from '@/utils/logger';
 import { containsBlockedContent } from '@/utils/moderation';
 import { ms, s } from '@/utils/scale';
 
@@ -31,8 +34,8 @@ interface Props {
 const DRAFT_PREFIX = 'chat_draft_';
 
 export function ChatInput({ conversationId, onSend, sending, isCommissioner, isLeagueChat, onCreatePoll, onCreateSurvey, onPickImage, onOpenGifPicker, isUploading }: Props) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
+  const pickAction = useActionPicker();
   const [text, setText] = useState('');
   const draftLoaded = useRef(false);
 
@@ -45,7 +48,7 @@ export function ChatInput({ conversationId, onSend, sending, isCommissioner, isL
         if (saved) setText(saved);
         draftLoaded.current = true;
       })
-      .catch((e) => console.warn('Restore chat draft failed:', e));
+      .catch((e) => logger.warn('Restore chat draft failed', e));
     return () => {
       cancelled = true;
     };
@@ -72,7 +75,7 @@ export function ChatInput({ conversationId, onSend, sending, isCommissioner, isL
   const sendScale = useSharedValue(0.6);
   useEffect(() => {
     sendScale.value = withTiming(canSend ? 1 : 0.6, { duration: 200 });
-  }, [canSend]);
+  }, [canSend, sendScale]);
 
   const sendAnimStyle = useAnimatedStyle(() => ({
     transform: [{ scale: sendScale.value }],
@@ -83,8 +86,7 @@ export function ChatInput({ conversationId, onSend, sending, isCommissioner, isL
     if (!canSend) return;
     const msg = text.trim();
     if (containsBlockedContent(msg)) {
-      const { Alert } = require('react-native');
-      Alert.alert('Message blocked', 'Your message contains language that isn\u2019t allowed.');
+      Alert.alert('Message blocked', 'Your message contains language that isn’t allowed.');
       return;
     }
     if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -93,52 +95,44 @@ export function ChatInput({ conversationId, onSend, sending, isCommissioner, isL
     onSend(msg);
   };
 
-  const handleAttachPress = useCallback(() => {
-    const options: string[] = ['Photo Library', 'Take Photo', 'GIF'];
-    if (isCommissioner && isLeagueChat) {
-      if (onCreatePoll) options.push('Poll');
-      if (onCreateSurvey) options.push('Survey');
-    }
-    options.push('Cancel');
-    const cancelIndex = options.length - 1;
-
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        { options, cancelButtonIndex: cancelIndex },
-        (idx) => handleAttachOption(options[idx]),
-      );
-    } else {
-      // On Android, use a simple alert-based menu
-      const { Alert } = require('react-native');
-      Alert.alert('Attach', undefined, [
-        ...options.slice(0, -1).map((label: string) => ({
-          text: label,
-          onPress: () => handleAttachOption(label),
-        })),
-        { text: 'Cancel', style: 'cancel' as const },
-      ]);
-    }
-  }, [isCommissioner, isLeagueChat, onCreatePoll, onCreateSurvey, onPickImage, onOpenGifPicker]);
-
-  const handleAttachOption = useCallback((option: string) => {
-    switch (option) {
-      case 'Photo Library':
-        onPickImage?.('gallery');
-        break;
-      case 'Take Photo':
-        onPickImage?.('camera');
-        break;
-      case 'GIF':
-        onOpenGifPicker?.();
-        break;
-      case 'Poll':
-        onCreatePoll?.();
-        break;
-      case 'Survey':
-        onCreateSurvey?.();
-        break;
-    }
-  }, [onPickImage, onOpenGifPicker, onCreatePoll, onCreateSurvey]);
+  const showCommishOptions = !!(isCommissioner && isLeagueChat);
+  const openAttachPicker = () => {
+    const attachActions: ModalAction[] = [
+      {
+        id: 'gallery',
+        label: 'Photo Library',
+        icon: 'images-outline',
+        onPress: () => onPickImage?.('gallery'),
+      },
+      {
+        id: 'camera',
+        label: 'Take Photo',
+        icon: 'camera-outline',
+        onPress: () => onPickImage?.('camera'),
+      },
+      {
+        id: 'gif',
+        label: 'GIF',
+        icon: 'film-outline',
+        onPress: () => onOpenGifPicker?.(),
+      },
+      {
+        id: 'poll',
+        label: 'Poll',
+        icon: 'bar-chart-outline',
+        hidden: !showCommishOptions || !onCreatePoll,
+        onPress: () => onCreatePoll?.(),
+      },
+      {
+        id: 'survey',
+        label: 'Survey',
+        icon: 'clipboard-outline',
+        hidden: !showCommishOptions || !onCreateSurvey,
+        onPress: () => onCreateSurvey?.(),
+      },
+    ];
+    pickAction({ title: 'Attach', actions: attachActions });
+  };
 
   return (
     <View style={[styles.container, { borderTopColor: c.border }]}>
@@ -148,12 +142,12 @@ export function ChatInput({ conversationId, onSend, sending, isCommissioner, isL
         </View>
       ) : (
         <TouchableOpacity
-          onPress={handleAttachPress}
+          onPress={openAttachPicker}
           style={styles.attachBtn}
           accessibilityRole="button"
           accessibilityLabel="Attach photo, GIF, or more"
         >
-          <Ionicons name="add-circle" size={28} color={c.accent} />
+          <Ionicons name="add-circle" size={ms(28)} color={c.gold} accessible={false} />
         </TouchableOpacity>
       )}
       <TextInput
@@ -165,7 +159,7 @@ export function ChatInput({ conversationId, onSend, sending, isCommissioner, isL
             color: c.text,
           },
         ]}
-        placeholder="Message..."
+        placeholder="Message…"
         placeholderTextColor={c.secondaryText}
         value={text}
         onChangeText={handleTextChange}
@@ -180,15 +174,16 @@ export function ChatInput({ conversationId, onSend, sending, isCommissioner, isL
           disabled={!canSend}
           style={[
             styles.sendBtn,
-            { backgroundColor: canSend ? c.accent : c.buttonDisabled },
+            { backgroundColor: canSend ? c.gold : c.buttonDisabled },
           ]}
           accessibilityRole="button"
           accessibilityLabel="Send message"
           accessibilityState={{ disabled: !canSend }}
         >
-          <Ionicons name="arrow-up" size={20} color="#FFFFFF" />
+          <Ionicons name="arrow-up" size={ms(20)} color={Brand.ink} accessible={false} />
         </TouchableOpacity>
       </Animated.View>
+
     </View>
   );
 }

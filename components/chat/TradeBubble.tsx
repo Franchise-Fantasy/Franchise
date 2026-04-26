@@ -3,8 +3,8 @@ import { StyleSheet, View } from 'react-native';
 import Animated, { ZoomIn } from 'react-native-reanimated';
 
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { Brand, Fonts } from '@/constants/Colors';
+import { useColors } from '@/hooks/useColors';
 import type { TradeSummary } from '@/types/chat';
 import { ms, s } from '@/utils/scale';
 
@@ -37,8 +37,7 @@ const TIER_CONFIG = {
 } as const;
 
 export function TradeBubble({ tradeSummary }: Props) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
 
   // Group moves by receiving team
   const receiveGroups = useMemo(() => {
@@ -59,7 +58,15 @@ export function TradeBubble({ tradeSummary }: Props) {
         accessibilityRole="summary"
         accessibilityLabel="Trade completed"
       >
-        <ThemedText style={styles.headerText}>🤝 Trade Completed</ThemedText>
+        <View style={styles.headerRow}>
+          <View style={[styles.eyebrowRule, { backgroundColor: c.gold }]} />
+          <ThemedText
+            type="varsitySmall"
+            style={[styles.eyebrow, { color: c.secondaryText }]}
+          >
+            🤝 TRADE COMPLETED
+          </ThemedText>
+        </View>
       </View>
     );
   }
@@ -71,11 +78,11 @@ export function TradeBubble({ tradeSummary }: Props) {
   const borderColor = config.goldBorder
     ? c.gold
     : config.accentBorder
-      ? c.accent
+      ? c.gold
       : c.border;
 
   const bgColor = isBlockbuster
-    ? scheme === 'dark' ? 'rgba(212, 160, 23, 0.08)' : 'rgba(212, 160, 23, 0.06)'
+    ? c.goldMuted
     : c.cardAlt;
 
   const a11yLabel = `${config.label}. ${Object.entries(receiveGroups)
@@ -100,8 +107,15 @@ export function TradeBubble({ tradeSummary }: Props) {
       accessibilityLabel={a11yLabel}
     >
       {/* Header */}
-      <View style={styles.header}>
-        <ThemedText style={[styles.headerText, isBlockbuster && styles.headerBlockbuster]}>
+      <View style={styles.headerRow}>
+        <View style={[styles.eyebrowRule, { backgroundColor: isBlockbuster ? c.gold : c.secondaryText, opacity: isBlockbuster ? 1 : 0.5 }]} />
+        <ThemedText
+          type="varsitySmall"
+          style={[
+            styles.eyebrow,
+            { color: isBlockbuster ? c.gold : c.secondaryText },
+          ]}
+        >
           {config.emoji} {config.label}
         </ThemedText>
       </View>
@@ -112,7 +126,7 @@ export function TradeBubble({ tradeSummary }: Props) {
         return (
           <View key={teamName} style={styles.teamSection}>
             <ThemedText style={[styles.teamLabel, { color: c.secondaryText }]}>
-              {teamName} receives:
+              {teamName.toUpperCase()} RECEIVES
             </ThemedText>
             {moves.map((move, i) => (
               <View key={`${move.asset}-${i}`} style={styles.moveRow}>
@@ -141,35 +155,26 @@ const styles = StyleSheet.create({
     padding: s(14),
     gap: s(8),
   },
-  header: {
+  headerRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    gap: s(8),
   },
-  headerText: {
-    fontSize: ms(14),
-    fontWeight: '700',
+  eyebrowRule: {
+    height: 2,
+    width: s(20),
   },
-  headerBlockbuster: {
-    fontSize: ms(15),
-    letterSpacing: 0.5,
-  },
-  tierBadge: {
-    paddingHorizontal: s(8),
-    paddingVertical: s(3),
-    borderRadius: 4,
-  },
-  tierBadgeText: {
-    fontSize: ms(10),
-    fontWeight: '800',
-    letterSpacing: 0.5,
+  eyebrow: {
+    fontSize: ms(11),
+    letterSpacing: 1.4,
   },
   teamSection: {
     gap: s(2),
   },
   teamLabel: {
-    fontSize: ms(12),
-    fontWeight: '600',
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(10),
+    letterSpacing: 1.0,
     marginBottom: s(2),
   },
   moveRow: {
@@ -181,6 +186,7 @@ const styles = StyleSheet.create({
   bullet: {
     fontSize: ms(14),
     lineHeight: ms(20),
+    color: Brand.vintageGold,
   },
   moveText: {
     fontSize: ms(14),

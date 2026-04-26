@@ -23,7 +23,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeague } from '@/hooks/useLeague';
 import { supabase } from '@/lib/supabase';
 import { toDateStr, parseLocalDate } from '@/utils/dates';
-import { calcRounds } from '@/utils/league/playoff';
+import { calcRounds, getPlayoffRoundLabel } from '@/utils/league/playoff';
 import { ms, s } from '@/utils/scale';
 import { formatScore } from '@/utils/scoring/fantasyPoints';
 
@@ -69,18 +69,6 @@ function getWeekState(week: Week, today: string): WeekState {
   if (week.start_date > today) return 'future';
   if (week.end_date < today) return 'past';
   return 'live';
-}
-
-function getPlayoffRoundLabel(
-  round: number,
-  totalRounds: number,
-  isThirdPlace: boolean,
-): string {
-  if (isThirdPlace) return '3rd Place Game';
-  if (round === totalRounds) return 'Finals';
-  if (round === totalRounds - 1) return 'Semifinals';
-  if (round === totalRounds - 2) return 'Quarterfinals';
-  return `Playoff Round ${round}`;
 }
 
 // ─── Data fetching ───────────────────────────────────────────────────────────

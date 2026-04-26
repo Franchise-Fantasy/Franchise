@@ -1,10 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Image } from "expo-image";
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   FlatList,
-  Image,
   ScrollView,
   Text,
   TouchableOpacity,
@@ -21,9 +21,11 @@ import {
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import { PlayerFilterBar } from "@/components/player/PlayerFilterBar";
 import { InfoModal } from "@/components/ui/InfoModal";
+import { type ModalAction } from "@/components/ui/InlineAction";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
 import { queryKeys } from "@/constants/queryKeys";
+import { useActionPicker } from "@/context/ConfirmProvider";
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
@@ -59,6 +61,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     useState<PlayerSeasonStats | null>(null);
   const [openAsDropPicker, setOpenAsDropPicker] = useState(false);
   const [addingPlayerId, setAddingPlayerId] = useState<string | null>(null);
+  const pickAction = useActionPicker();
   const [expandedRibbon, setExpandedRibbon] = useState<
     "claims" | "waivers" | null
   >(null);
@@ -804,26 +807,30 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   ) => {
     // Warn if roster is full and no drop player selected
     if (rosterIsFull && !dropPlayerId) {
-      Alert.alert(
-        "Roster Full",
-        "Your roster is full and this claim has no drop player. It will fail when processed. Add a drop player?",
-        [
-          {
-            text: "Add Drop Player",
-            onPress: () => {
-              setClaimWithDropPlayer(player);
-              setOpenAsDropPicker(true);
-              setSelectedPlayer(player);
-            },
+      const rosterFullActions: ModalAction[] = [
+        {
+          id: "add-drop",
+          label: "Add Drop Player",
+          icon: "person-remove-outline",
+          onPress: () => {
+            setClaimWithDropPlayer(player);
+            setOpenAsDropPicker(true);
+            setSelectedPlayer(player);
           },
-          {
-            text: "Submit Anyway",
-            style: "destructive",
-            onPress: () => submitClaim(player, undefined),
-          },
-          { text: "Cancel", style: "cancel" },
-        ],
-      );
+        },
+        {
+          id: "submit-anyway",
+          label: "Submit Anyway",
+          icon: "arrow-forward-outline",
+          destructive: true,
+          onPress: () => submitClaim(player, undefined),
+        },
+      ];
+      pickAction({
+        title: "Roster Full",
+        subtitle: "THIS CLAIM HAS NO DROP PLAYER",
+        actions: rosterFullActions,
+      });
       return;
     }
     submitClaim(player, dropPlayerId);
@@ -1083,20 +1090,20 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
               { borderColor: c.heritageGold, backgroundColor: c.cardAlt },
             ]}
           >
-            {headshotUrl ? (
-              <FadeInImage
-                uri={headshotUrl}
-                style={styles.headshotImg}
-                resizeMode="cover"
-              />
-            ) : null}
+            <FadeInImage
+              uri={headshotUrl}
+              style={styles.headshotImg}
+              contentFit="cover"
+            />
           </View>
           <View style={styles.teamPill}>
             {logoUrl && (
               <Image
                 source={{ uri: logoUrl }}
                 style={styles.teamPillLogo}
-                resizeMode="contain"
+                contentFit="contain"
+                cachePolicy="memory-disk"
+                recyclingKey={logoUrl}
               />
             )}
             <Text style={[styles.teamPillText, { color: c.statusText }]}>{item.pro_team}</Text>
@@ -1625,6 +1632,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         title="Player Stats"
         message={"The numbers shown for each player are:\n\nPTS / REB / AST\n(points, rebounds, assists per game)"}
       />
+
     </View>
   );
 }

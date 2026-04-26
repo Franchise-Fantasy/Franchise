@@ -1,7 +1,7 @@
+import { Image } from 'expo-image';
 import { useState } from 'react';
 import {
   FlatList,
-  Image,
   StyleSheet,
   Text,
   TextInput,
@@ -18,7 +18,7 @@ import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { TradeRosterPlayer, useTeamRosterForTrade } from '@/hooks/useTeamRosterForTrade';
 import { formatPosition } from '@/utils/formatting';
 import { getInjuryBadge } from '@/utils/nba/injuryBadge';
-import { getPlayerHeadshotUrl, getTeamLogoUrl } from '@/utils/nba/playerHeadshot';
+import { getPlayerHeadshotUrl, getTeamLogoUrl, PLAYER_SILHOUETTE } from '@/utils/nba/playerHeadshot';
 import { ms, s } from '@/utils/scale';
 import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
 
@@ -86,13 +86,24 @@ export function TradePlayerPicker({
         {/* Headshot + team pill */}
         <View style={styles.portraitWrap}>
           <View style={[styles.headshotCircle, { borderColor: c.heritageGold, backgroundColor: c.cardAlt }]}>
-            {headshotUrl ? (
-              <Image source={{ uri: headshotUrl }} style={styles.headshotImg} resizeMode="cover" />
-            ) : null}
+            <Image
+              source={headshotUrl ? { uri: headshotUrl } : PLAYER_SILHOUETTE}
+              style={styles.headshotImg}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              recyclingKey={headshotUrl ?? "silhouette"}
+              placeholder={PLAYER_SILHOUETTE}
+            />
           </View>
           <View style={styles.teamPill}>
             {logoUrl && (
-              <Image source={{ uri: logoUrl }} style={styles.teamPillLogo} resizeMode="contain" />
+              <Image
+                source={{ uri: logoUrl }}
+                style={styles.teamPillLogo}
+                contentFit="contain"
+                cachePolicy="memory-disk"
+                recyclingKey={logoUrl}
+              />
             )}
             <Text style={[styles.teamPillText, { color: c.statusText }]}>{item.pro_team}</Text>
           </View>

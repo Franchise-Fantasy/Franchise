@@ -1,24 +1,19 @@
-import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Dimensions,
   FlatList,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
   StyleSheet,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 
+import { BottomSheet } from '@/components/ui/BottomSheet';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { GIPHY_API_KEY } from '@/constants/ApiKeys';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { ms, s } from '@/utils/scale';
 
 const GIPHY_BASE = 'https://api.giphy.com/v1/gifs';
@@ -63,8 +58,7 @@ interface Props {
 }
 
 export function GifPicker({ visible, onSelect, onClose }: Props) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const [query, setQuery] = useState('');
   const [gifs, setGifs] = useState<GiphyGif[]>([]);
   const [loading, setLoading] = useState(false);
@@ -133,112 +127,89 @@ export function GifPicker({ visible, onSelect, onClose }: Props) {
   const keyExtractor = useCallback((item: GiphyGif) => item.id, []);
 
   return (
-    <Modal
+    <BottomSheet
       visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
+      onClose={onClose}
+      title="GIFs"
+      subtitle="POWERED BY GIPHY"
+      height="70%"
+      keyboardAvoiding
+      scrollableBody={false}
     >
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <Pressable style={styles.overlay} onPress={onClose} />
-        <View style={[styles.sheet, { backgroundColor: c.background, borderColor: c.border }]}>
-          <View style={styles.header}>
-            <ThemedText type="defaultSemiBold" style={styles.title}>
-              GIFs
+      <View style={styles.body}>
+        <TextInput
+          style={[
+            styles.searchInput,
+            {
+              backgroundColor: c.input,
+              borderColor: c.border,
+              color: c.text,
+            },
+          ]}
+          placeholder="Search GIFs…"
+          placeholderTextColor={c.secondaryText}
+          value={query}
+          onChangeText={setQuery}
+          autoCorrect={false}
+          autoCapitalize="none"
+          returnKeyType="search"
+          accessibilityLabel="Search GIFs"
+        />
+
+        {loading && gifs.length === 0 ? (
+          <View style={styles.loader}><LogoSpinner /></View>
+        ) : gifs.length === 0 ? (
+          <View style={styles.empty}>
+            <ThemedText style={[styles.emptyText, { color: c.secondaryText }]}>
+              {query.trim() ? 'No GIFs found' : 'No trending GIFs available'}
             </ThemedText>
-            <TouchableOpacity
-              onPress={onClose}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel="Close GIF picker"
-            >
-              <Ionicons name="close" size={22} color={c.text} />
-            </TouchableOpacity>
           </View>
-
-          <TextInput
-            style={[
-              styles.searchInput,
-              {
-                backgroundColor: c.input,
-                borderColor: c.border,
-                color: c.text,
-              },
-            ]}
-            placeholder="Search GIFs..."
-            placeholderTextColor={c.secondaryText}
-            value={query}
-            onChangeText={setQuery}
-            autoCorrect={false}
-            returnKeyType="search"
-            accessibilityLabel="Search GIFs"
+        ) : (
+          <FlatList
+            data={gifs}
+            keyExtractor={keyExtractor}
+            renderItem={renderItem}
+            numColumns={NUM_COLUMNS}
+            contentContainerStyle={styles.grid}
+            columnWrapperStyle={styles.columnWrapper}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
           />
-
-          {loading && gifs.length === 0 ? (
-            <View style={styles.loader}><LogoSpinner /></View>
-          ) : (
-            <FlatList
-              data={gifs}
-              keyExtractor={keyExtractor}
-              renderItem={renderItem}
-              numColumns={NUM_COLUMNS}
-              contentContainerStyle={styles.grid}
-              columnWrapperStyle={styles.columnWrapper}
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-            />
-          )}
-
-          <ThemedText style={[styles.attribution, { color: c.secondaryText }]}>
-            Powered by GIPHY
-          </ThemedText>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
+        )}
+      </View>
+    </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  overlay: {
+  body: {
     flex: 1,
   },
-  sheet: {
-    height: '60%',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingBottom: s(8),
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: s(16),
-    paddingTop: s(12),
-    paddingBottom: s(8),
-  },
-  title: {
-    fontSize: ms(17),
-  },
   searchInput: {
-    marginHorizontal: s(12),
+    height: s(40),
     borderRadius: 10,
     borderWidth: 1,
     paddingHorizontal: s(12),
-    paddingVertical: s(8),
+    paddingVertical: 0, // height-driven so the text caret stays visible
     fontSize: ms(15),
-    marginBottom: s(8),
+    marginBottom: s(10),
   },
   loader: {
     flex: 1,
     justifyContent: 'center',
   },
+  empty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: s(20),
+  },
+  emptyText: {
+    fontSize: ms(13),
+    textAlign: 'center',
+  },
   grid: {
-    paddingHorizontal: s(12),
+    paddingBottom: s(8),
   },
   columnWrapper: {
     gap: s(4),
@@ -248,10 +219,5 @@ const styles = StyleSheet.create({
     width: ITEM_SIZE,
     height: ITEM_SIZE,
     borderRadius: 8,
-  },
-  attribution: {
-    textAlign: 'center',
-    fontSize: ms(11),
-    paddingVertical: s(4),
   },
 });

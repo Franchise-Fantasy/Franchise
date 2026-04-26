@@ -6,10 +6,10 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
+import { Image } from "expo-image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
-  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -35,11 +35,13 @@ import {
 import { useRosterShare } from "@/components/roster/useRosterShare";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { InfoModal } from "@/components/ui/InfoModal";
+import { type ModalAction } from "@/components/ui/InlineAction";
 import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
 import { queryKeys } from "@/constants/queryKeys";
 import { useAppState } from "@/context/AppStateProvider";
+import { useActionPicker } from "@/context/ConfirmProvider";
 import { useToast } from "@/context/ToastProvider";
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from "@/hooks/useColorScheme";
@@ -54,6 +56,7 @@ import { PlayerSeasonStats } from "@/types/player";
 import type { PlayerGameLog } from "@/types/player";
 import { addDays, formatDayLabel, toDateStr, useToday } from "@/utils/dates";
 import { formatPosition } from "@/utils/formatting";
+import { logger } from "@/utils/logger";
 import { hasAnyGameStarted, isGameStarted, useTodayGameTimes } from "@/utils/nba/gameStarted";
 import { getInjuryBadge } from "@/utils/nba/injuryBadge";
 import {
@@ -66,7 +69,7 @@ import {
   formatGameTime,
   ScheduleEntry,
 } from "@/utils/nba/nbaSchedule";
-import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
+import { getPlayerHeadshotUrl, getTeamLogoUrl, PLAYER_SILHOUETTE } from "@/utils/nba/playerHeadshot";
 import { isOnline } from "@/utils/network";
 import { LineupPlayer, optimizeLineup } from "@/utils/roster/autoLineup";
 import { fetchTeamSlots } from "@/utils/roster/fetchTeamSlots";
@@ -318,6 +321,7 @@ export default function RosterScreen() {
   const [activeSlot, setActiveSlot] = useState<SlotEntry | null>(null);
   const [isAssigning, setIsAssigning] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
+  const pickAction = useActionPicker();
 
 
   const isPastDate = selectedDate < today;
@@ -363,7 +367,7 @@ export default function RosterScreen() {
         if (!cancelled && !seen) setShowMoveHint(true);
       })
       .catch((err) => {
-        console.warn("rosterTapHint read failed", err);
+        logger.warn("rosterTapHint read failed", err);
       });
     return () => {
       cancelled = true;
@@ -373,7 +377,7 @@ export default function RosterScreen() {
     setShowMoveHint(false);
     if (teamId) {
       AsyncStorage.setItem(`rosterTapHint:seen:${teamId}`, "1").catch((e) =>
-        console.warn("Persist rosterTapHint failed:", e),
+        logger.warn("Persist rosterTapHint failed", e),
       );
     }
   };
@@ -1002,11 +1006,25 @@ export default function RosterScreen() {
     )
       return;
 
-    Alert.alert("Auto-Lineup", "Optimize for today only or the rest of the week?", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Today", onPress: () => runAutoLineup("today") },
-      { text: "Week", onPress: () => runAutoLineup("week") },
-    ]);
+    const autoLineupActions: ModalAction[] = [
+      {
+        id: "today",
+        label: "Today Only",
+        icon: "today-outline",
+        onPress: () => runAutoLineup("today"),
+      },
+      {
+        id: "week",
+        label: "Rest of Week",
+        icon: "calendar-outline",
+        onPress: () => runAutoLineup("week"),
+      },
+    ];
+    pickAction({
+      title: "Auto-Lineup",
+      subtitle: "OPTIMIZE THE STARTING LINEUP",
+      actions: autoLineupActions,
+    });
   };
 
   const runAutoLineup = async (mode: "today" | "week") => {
@@ -1532,14 +1550,15 @@ export default function RosterScreen() {
                     ]}
                     accessible={false}
                   >
-                    {url ? (
-                      <Image
-                        source={{ uri: url }}
-                        style={styles.rosterHeadshotImg}
-                        resizeMode="cover"
-                        accessible={false}
-                      />
-                    ) : null}
+                    <Image
+                      source={url ? { uri: url } : PLAYER_SILHOUETTE}
+                      style={styles.rosterHeadshotImg}
+                      contentFit="cover"
+                      cachePolicy="memory-disk"
+                      recyclingKey={url ?? "silhouette"}
+                      placeholder={PLAYER_SILHOUETTE}
+                      accessible={false}
+                    />
                   </View>
                 );
               })()}
@@ -1551,7 +1570,9 @@ export default function RosterScreen() {
                       <Image
                         source={{ uri: logoUrl }}
                         style={styles.rosterTeamPillLogo}
-                        resizeMode="contain"
+                        contentFit="contain"
+                        cachePolicy="memory-disk"
+                        recyclingKey={logoUrl}
                       />
                     )}
                     <Text style={[styles.rosterTeamPillText, { color: c.statusText }]}>
@@ -2031,6 +2052,7 @@ export default function RosterScreen() {
           scoringWeights={scoringWeights}
         />
       )}
+
     </SafeAreaView>
   );
 }

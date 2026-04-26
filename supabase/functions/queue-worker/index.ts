@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { recordHeartbeat } from "../_shared/heartbeat.ts";
 
 // Generic queue worker that dequeues messages from pgmq and dispatches them
 // to the appropriate edge function. Called every minute by pg_cron.
@@ -8,10 +9,13 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 //
 // On success: archives the message.
 // On failure: message becomes visible again after visibility timeout (120s).
-// After MAX_RETRIES failures: moved to the dead_letter queue.
+// After MAX_RETRIES failures: moved to the dead_letter queue, recorded in
+// dead_letter_alerts, and admins are pushed.
 
 const MAX_RETRIES = 5;
 const VISIBILITY_TIMEOUT = 120; // seconds
+const BATCH_QTY = 5;            // messages per queue per cron tick
+const TIME_BUDGET_MS = 50_000;  // soft budget — break out before next cron tick
 
 const QUEUES = [
   "process_waivers",
@@ -20,6 +24,8 @@ const QUEUES = [
   "update_standings",
   "update_daily_records",
 ];
+
+const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -68,6 +74,7 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  const startedAt = Date.now();
   const results: Array<{
     queue: string;
     msg_id?: number;
@@ -75,12 +82,16 @@ Deno.serve(async (req: Request) => {
     error?: string;
   }> = [];
 
-  // Process one message per queue per invocation to keep execution time short
   for (const queue of QUEUES) {
+    if (Date.now() - startedAt > TIME_BUDGET_MS) {
+      results.push({ queue, status: "skipped_time_budget" });
+      continue;
+    }
+
     try {
       const { data: messages, error: readErr } = await supabase.rpc(
         "pgmq_read",
-        { queue_name: queue, visibility_timeout: VISIBILITY_TIMEOUT, qty: 1 },
+        { queue_name: queue, visibility_timeout: VISIBILITY_TIMEOUT, qty: BATCH_QTY },
       );
 
       if (readErr) {
@@ -94,8 +105,13 @@ Deno.serve(async (req: Request) => {
         continue;
       }
 
-      const msg = messages[0] as QueueMessage;
-      await processMessage(queue, msg, results);
+      for (const raw of messages as QueueMessage[]) {
+        if (Date.now() - startedAt > TIME_BUDGET_MS) {
+          // Leave remaining messages visible-on-timeout for next tick
+          break;
+        }
+        await processMessage(queue, raw, results);
+      }
     } catch (err) {
       console.error(`Queue ${queue} processing error:`, err);
       results.push({
@@ -106,6 +122,7 @@ Deno.serve(async (req: Request) => {
     }
   }
 
+  await recordHeartbeat(supabase, 'queue-worker', 'ok');
   return new Response(JSON.stringify({ ok: true, results }), {
     status: 200,
     headers: { "Content-Type": "application/json" },
@@ -126,9 +143,8 @@ async function processMessage(
     return;
   }
 
-  // Too many retries — move to dead letter queue
   if (read_ct > MAX_RETRIES) {
-    await moveToDeadLetter(queue, msg_id, message);
+    await moveToDeadLetter(queue, msg_id, message, "max_retries_exceeded");
     results.push({ queue, msg_id, status: "dead_lettered" });
     return;
   }
@@ -139,8 +155,6 @@ async function processMessage(
     await archiveMessage(queue, msg_id);
     results.push({ queue, msg_id, status: "success" });
   } else {
-    // Leave the message in the queue — it becomes visible again after
-    // VISIBILITY_TIMEOUT expires, allowing automatic retry
     console.warn(
       `Queue ${queue} msg ${msg_id} failed (attempt ${read_ct}/${MAX_RETRIES}):`,
       result.error,
@@ -166,18 +180,83 @@ async function moveToDeadLetter(
   queue: string,
   msgId: number,
   message: Record<string, unknown>,
+  reason: string,
 ) {
-  // Send to dead_letter queue with metadata for debugging
-  const { error } = await supabase.rpc("pgmq_send", {
+  const deadLetteredAt = new Date().toISOString();
+
+  const { error: dlErr } = await supabase.rpc("pgmq_send", {
     queue_name: "dead_letter",
     message: {
       original_queue: queue,
       original_msg_id: msgId,
       message,
-      dead_lettered_at: new Date().toISOString(),
+      reason,
+      dead_lettered_at: deadLetteredAt,
     },
   });
-  if (error) console.warn(`Failed to dead-letter msg ${msgId}:`, error.message);
+  if (dlErr) console.warn(`Failed to dead-letter msg ${msgId}:`, dlErr.message);
 
   await archiveMessage(queue, msgId);
+
+  // Record audit row + page admins. Failures here must NOT block the dead-letter
+  // path itself, so each call is independently try/catch'd.
+  try {
+    await supabase.from("dead_letter_alerts").insert({
+      original_queue: queue,
+      original_msg_id: msgId,
+      function_name: (message as any)?.function ?? null,
+      reason,
+      payload: message,
+    });
+  } catch (e) {
+    console.warn("dead_letter_alerts insert failed:", e instanceof Error ? e.message : e);
+  }
+
+  try {
+    await pushAdmins(
+      `Queue ${queue} dead-lettered`,
+      `msg #${msgId} (${(message as any)?.function ?? "unknown"}): ${reason}`,
+    );
+  } catch (e) {
+    console.warn("admin push failed:", e instanceof Error ? e.message : e);
+  }
+}
+
+async function pushAdmins(title: string, body: string) {
+  const { data: admins } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("is_admin", true);
+  if (!admins || admins.length === 0) return;
+
+  const adminIds = (admins as any[]).map(a => a.id);
+  const { data: tokens } = await supabase
+    .from("push_tokens")
+    .select("token")
+    .in("user_id", adminIds);
+  if (!tokens || tokens.length === 0) return;
+
+  const messages = (tokens as any[]).map(t => ({
+    to: t.token,
+    title,
+    body,
+    sound: "default",
+    priority: "high",
+    data: { screen: "activity", channelId: "commissioner" },
+    channelId: "commissioner",
+  }));
+
+  // Expo accepts up to 100 per request
+  for (let i = 0; i < messages.length; i += 100) {
+    const batch = messages.slice(i, i + 100);
+    try {
+      await fetch(EXPO_PUSH_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(batch),
+      });
+    } catch (err) {
+      console.warn("Expo push (admin) failed:", err);
+    }
+  }
 }

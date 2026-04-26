@@ -14,8 +14,8 @@ import { useSharedValue } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ChatInput } from '@/components/chat/ChatInput';
+import { MessageActionMenu } from '@/components/chat/MessageActionMenu';
 import { MessageBubble } from '@/components/chat/MessageBubble';
-import { ReactionPicker } from '@/components/chat/ReactionPicker';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
@@ -385,10 +385,11 @@ export function DraftChatModal({
         </KeyboardAvoidingView>
 
         {reactionTargetId && (
-          <ReactionPicker
+          <MessageActionMenu
             visible
-            onSelect={handleReactionSelect}
+            onReactionSelect={handleReactionSelect}
             onClose={() => setReactionTargetId(null)}
+            actions={[]}
             existingReactions={reactionsMap?.[reactionTargetId]}
           />
         )}

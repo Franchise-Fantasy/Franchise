@@ -1,17 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
-import {
-  FlatList,
-  Modal,
-  Pressable,
-  StyleSheet,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
+import { TeamLogo } from '@/components/team/TeamLogo';
+import { BottomSheet } from '@/components/ui/BottomSheet';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { Fonts } from '@/constants/Colors';
+import { useColors } from '@/hooks/useColors';
 import { useLeague } from '@/hooks/useLeague';
 import { ms, s } from '@/utils/scale';
 
@@ -23,8 +18,7 @@ interface Props {
 }
 
 export function NewDMPicker({ visible, currentTeamId, onSelect, onClose }: Props) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const { data: league, isLoading } = useLeague();
 
   const teams = (league?.league_teams ?? []).filter(
@@ -32,83 +26,85 @@ export function NewDMPicker({ visible, currentTeamId, onSelect, onClose }: Props
   );
 
   return (
-    <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
-      <Pressable style={styles.overlay} onPress={onClose}>
-        <View style={[styles.content, { backgroundColor: c.card }]} onStartShouldSetResponder={() => true} accessibilityViewIsModal={true}>
-          <View style={styles.header}>
-            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close" onPress={onClose}>
-              <Ionicons name="close" size={24} color={c.text} />
-            </TouchableOpacity>
-            <ThemedText accessibilityRole="header" type="subtitle">New Message</ThemedText>
-            <View style={{ width: s(24) }} />
-          </View>
-
-          {isLoading ? (
-            <View style={{ marginTop: s(20) }}><LogoSpinner /></View>
-          ) : teams.length === 0 ? (
-            <ThemedText style={[styles.empty, { color: c.secondaryText }]}>
-              No other teams in this league
-            </ThemedText>
-          ) : (
-            <FlatList
-              data={teams}
-              keyExtractor={(item: any) => item.id}
-              renderItem={({ item, index }: { item: any; index: number }) => (
-                <TouchableOpacity
-                  accessibilityRole="button"
-                  accessibilityLabel={`Message ${item.name}`}
-                  style={[styles.row, { borderBottomColor: c.border }, index === teams.length - 1 && { borderBottomWidth: 0 }]}
-                  onPress={() => onSelect(item.id)}
-                  activeOpacity={0.7}
-                >
-                  <ThemedText style={styles.teamName}>{item.name}</ThemedText>
-                  <Ionicons name="chevron-forward" size={18} color={c.secondaryText} />
-                </TouchableOpacity>
-              )}
+    <BottomSheet
+      visible={visible}
+      onClose={onClose}
+      title="New Message"
+      subtitle={teams.length > 0 ? `${teams.length} TEAMS` : undefined}
+    >
+      {isLoading ? (
+        <View style={styles.loader}><LogoSpinner /></View>
+      ) : teams.length === 0 ? (
+        <ThemedText style={[styles.empty, { color: c.secondaryText }]}>
+          No other teams in this league
+        </ThemedText>
+      ) : (
+        teams.map((item: any, index: number) => (
+          <TouchableOpacity
+            key={item.id}
+            accessibilityRole="button"
+            accessibilityLabel={`Message ${item.name}`}
+            style={[
+              styles.row,
+              { borderBottomColor: c.border },
+              index === teams.length - 1 && { borderBottomWidth: 0 },
+            ]}
+            onPress={() => onSelect(item.id)}
+            activeOpacity={0.65}
+          >
+            <TeamLogo
+              logoKey={item.logo_key}
+              teamName={item.name}
+              tricode={item.tricode ?? undefined}
+              size="medium"
             />
-          )}
-        </View>
-      </Pressable>
-    </Modal>
+            <View style={styles.rowText}>
+              <ThemedText style={[styles.teamName, { color: c.text }]} numberOfLines={1}>
+                {item.name}
+              </ThemedText>
+              {item.tricode ? (
+                <ThemedText
+                  type="varsitySmall"
+                  style={[styles.teamTricode, { color: c.secondaryText }]}
+                >
+                  {item.tricode}
+                </ThemedText>
+              ) : null}
+            </View>
+            <Ionicons name="chevron-forward" size={ms(18)} color={c.secondaryText} accessible={false} />
+          </TouchableOpacity>
+        ))
+      )}
+    </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.4)',
-  },
-  content: {
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
-    padding: s(20),
-    paddingBottom: s(32),
-    minHeight: '40%',
-    maxHeight: '70%',
-    overflow: 'hidden' as const,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  loader: {
+    paddingVertical: s(28),
     alignItems: 'center',
-    marginBottom: s(16),
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: s(12),
     paddingVertical: s(12),
-    borderBottomWidth: 1,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  rowText: {
+    flex: 1,
+    minWidth: 0,
   },
   teamName: {
+    fontFamily: Fonts.display,
     fontSize: ms(15),
-    fontWeight: '500',
-    flex: 1,
+    lineHeight: ms(19),
+    letterSpacing: -0.2,
+  },
+  teamTricode: {
+    fontSize: ms(10),
+    letterSpacing: 1.2,
+    marginTop: s(1),
   },
   empty: {
     textAlign: 'center',

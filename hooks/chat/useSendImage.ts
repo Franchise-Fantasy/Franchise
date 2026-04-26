@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react';
 
 import { globalToastRef } from '@/context/ToastProvider';
 import { supabase } from '@/lib/supabase';
+import { logger } from '@/utils/logger';
 
 import { useSendMessage } from './useMessages';
 
@@ -91,7 +92,7 @@ export function useSendImage(
         const { media_url } = await res.json();
         sendMessage.mutate({ content: media_url, type: 'image' });
       } catch (err: any) {
-        console.error('Image send error:', err);
+        logger.error('Image send error', err);
         globalToastRef.current?.(
           'error',
           err.message?.includes('flagged')

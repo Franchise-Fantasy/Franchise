@@ -42,6 +42,7 @@ import { queryKeys } from '@/constants/queryKeys';
 import { TIER_LABELS } from '@/constants/Subscriptions';
 import { useAppState } from '@/context/AppStateProvider';
 import { useSession } from '@/context/AuthProvider';
+import { useTextPrompt } from '@/context/ConfirmProvider';
 import { useAnnouncements } from '@/hooks/useAnnouncements';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeague } from '@/hooks/useLeague';
@@ -94,6 +95,7 @@ export default function LeagueInfoScreen() {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const queryClient = useQueryClient();
+  const promptInput = useTextPrompt();
   const { leagueId, teamId } = useAppState();
 
   const { data: league, isLoading: leagueLoading } = useLeague();
@@ -462,20 +464,23 @@ export default function LeagueInfoScreen() {
                     accessibilityLabel={`Team name: ${team.name}${isMine ? ', tap to edit' : ''}`}
                     onPress={() => {
                       if (!isMine) return;
-                      Alert.prompt(
-                        'Edit Team Name',
-                        'Enter your new team name',
-                        async (value) => {
-                          const name = (value ?? '').trim();
-                          if (!name) return;
-                          if (name.length > 30) { Alert.alert('Too long', 'Team name must be 30 characters or fewer.'); return; }
-                          const { error } = await supabase.from('teams').update({ name }).eq('id', team.id);
-                          if (error) { Alert.alert('Error', error.message); return; }
-                          queryClient.invalidateQueries({ queryKey: ['league'] });
+                      promptInput({
+                        title: 'Edit Team Name',
+                        message: 'Enter your new team name',
+                        defaultValue: team.name ?? '',
+                        maxLength: 30,
+                        action: {
+                          label: 'Save',
+                          onSubmit: async (value) => {
+                            const name = value.trim();
+                            if (!name) return;
+                            if (name.length > 30) { Alert.alert('Too long', 'Team name must be 30 characters or fewer.'); return; }
+                            const { error } = await supabase.from('teams').update({ name }).eq('id', team.id);
+                            if (error) { Alert.alert('Error', error.message); return; }
+                            queryClient.invalidateQueries({ queryKey: ['league'] });
+                          },
                         },
-                        'plain-text',
-                        team.name ?? '',
-                      );
+                      });
                     }}
                   >
                     <View style={styles.memberNameRow}>
@@ -488,22 +493,26 @@ export default function LeagueInfoScreen() {
                     accessibilityLabel={`Tricode: ${team.tricode ?? 'not set'}${isMine ? ', tap to edit' : ''}`}
                     onPress={() => {
                       if (!isMine) return;
-                      Alert.prompt(
-                        'Edit Tricode',
-                        '2-4 characters (letters/numbers)',
-                        async (value) => {
-                          const code = (value ?? '').trim().toUpperCase();
-                          if (!code || code.length < 2 || code.length > 4 || !/^[A-Z0-9]+$/.test(code)) {
-                            Alert.alert('Invalid tricode', 'Must be 2-4 letters/numbers.');
-                            return;
-                          }
-                          const { error } = await supabase.from('teams').update({ tricode: code }).eq('id', team.id);
-                          if (error) { Alert.alert('Error', error.message); return; }
-                          queryClient.invalidateQueries({ queryKey: ['league'] });
+                      promptInput({
+                        title: 'Edit Tricode',
+                        message: '2-4 characters (letters/numbers)',
+                        defaultValue: team.tricode ?? '',
+                        maxLength: 4,
+                        autoCapitalize: 'characters',
+                        action: {
+                          label: 'Save',
+                          onSubmit: async (value) => {
+                            const code = value.trim().toUpperCase();
+                            if (!code || code.length < 2 || code.length > 4 || !/^[A-Z0-9]+$/.test(code)) {
+                              Alert.alert('Invalid tricode', 'Must be 2-4 letters/numbers.');
+                              return;
+                            }
+                            const { error } = await supabase.from('teams').update({ tricode: code }).eq('id', team.id);
+                            if (error) { Alert.alert('Error', error.message); return; }
+                            queryClient.invalidateQueries({ queryKey: ['league'] });
+                          },
                         },
-                        'plain-text',
-                        team.tricode ?? '',
-                      );
+                      });
                     }}
                     disabled={!isMine}
                     activeOpacity={isMine ? 0.6 : 1}

@@ -42,7 +42,9 @@ export function useLatestAnnouncement(leagueId: string | null) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [leagueId, queryClient]);
+    // queryClient is a stable singleton — omitting prevents unnecessary channel teardown.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leagueId]);
 
   return useQuery<Announcement | null>({
     queryKey: queryKeys.latestAnnouncement(leagueId!),
@@ -73,7 +75,7 @@ export function useAnnouncements(leagueId: string | null) {
         .order('created_at', { ascending: false })
         .limit(20);
       if (error) throw error;
-      return ((data ?? []) as any[]).map((row) => ({
+      return (data ?? []).map((row) => ({
         ...row,
         teams: Array.isArray(row.teams) ? row.teams[0] ?? null : row.teams,
       })) as Announcement[];

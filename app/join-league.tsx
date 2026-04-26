@@ -22,6 +22,7 @@ import { Colors } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
+import { logger } from '@/utils/logger';
 import { ms, s } from '@/utils/scale';
 
 interface League {
@@ -154,7 +155,7 @@ export default function JoinLeagueScreen() {
         params: { leagueId: league.id, isCommissioner: 'false' },
       });
     } catch (err) {
-      console.error('Error joining by code:', err);
+      logger.error('Error joining by code', err);
       Alert.alert('Error', 'Something went wrong. Please try again.');
     } finally {
       setJoining(false);
@@ -203,7 +204,7 @@ export default function JoinLeagueScreen() {
         params: { leagueId: league.id, isCommissioner: 'false' },
       });
     } catch (error) {
-      console.error('Error joining league:', error);
+      logger.error('Error joining league', error);
       Alert.alert('Error', 'Failed to join league');
     }
   };

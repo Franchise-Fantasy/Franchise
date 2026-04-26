@@ -206,3 +206,176 @@ export async function notifyLeague(
   })));
   await cleanDeadTokens(supabase, dead);
 }
+
+export interface BulkTeamsNotification {
+  teamIds: string[];
+  title: string;
+  body: string;
+  data?: Record<string, unknown>;
+  excludeUserIds?: string[];
+}
+
+// Fan-out helper for sending many distinct notifications to overlapping
+// sets of teams in a single round-trip. Use this when looping over
+// claims/matchups/etc. — replaces N×(token query + expo POST) with
+// 3 DB queries + ceil(messages/100) batched expo POSTs.
+export async function notifyTeamsBulk(
+  supabase: SupabaseClient,
+  category: NotifCategory,
+  notifications: BulkTeamsNotification[],
+  opts?: NotifyOptions,
+): Promise<void> {
+  if (notifications.length === 0) return;
+
+  const allTeamIds = [...new Set(notifications.flatMap(n => n.teamIds))];
+  if (allTeamIds.length === 0) return;
+
+  const { data: teams } = await supabase
+    .from('teams')
+    .select('id, user_id, league_id')
+    .in('id', allTeamIds);
+  if (!teams || teams.length === 0) return;
+
+  const teamMap = new Map<string, { user_id: string; league_id: string }>();
+  for (const t of teams as any[]) {
+    teamMap.set(t.id, { user_id: t.user_id, league_id: t.league_id });
+  }
+
+  const allUserIds = [...new Set((teams as any[]).map(t => t.user_id))];
+  const allLeagueIds = [...new Set((teams as any[]).map(t => t.league_id))];
+
+  const [{ data: tokenRows }, { data: leaguePrefs }] = await Promise.all([
+    supabase
+      .from('push_tokens')
+      .select('user_id, token, preferences, mute_all')
+      .in('user_id', allUserIds),
+    supabase
+      .from('league_notification_prefs')
+      .select('user_id, league_id, overrides')
+      .in('user_id', allUserIds)
+      .in('league_id', allLeagueIds),
+  ]);
+  if (!tokenRows || tokenRows.length === 0) return;
+
+  const overridesMap = new Map<string, Record<string, boolean>>();
+  for (const row of (leaguePrefs ?? []) as any[]) {
+    overridesMap.set(`${row.user_id}:${row.league_id}`, row.overrides ?? {});
+  }
+
+  const tokenByUser = new Map<string, { token: string; mute_all: boolean; preferences: Record<string, boolean> }[]>();
+  for (const row of tokenRows as any[]) {
+    const arr = tokenByUser.get(row.user_id) ?? [];
+    arr.push({ token: row.token, mute_all: row.mute_all, preferences: row.preferences ?? {} });
+    tokenByUser.set(row.user_id, arr);
+  }
+
+  const channelId = CHANNEL_MAP[category] ?? category;
+  const messages: PushMessage[] = [];
+
+  for (const notif of notifications) {
+    const excluded = new Set(notif.excludeUserIds ?? []);
+    for (const teamId of notif.teamIds) {
+      const team = teamMap.get(teamId);
+      if (!team || excluded.has(team.user_id)) continue;
+      const tokens = tokenByUser.get(team.user_id) ?? [];
+      for (const tk of tokens) {
+        if (tk.mute_all) continue;
+        const stored = tk.preferences[category];
+        const globalEnabled = stored !== undefined ? stored === true : (DEFAULT_PREFS[category] ?? false);
+        const leagueOverride = overridesMap.get(`${team.user_id}:${team.league_id}`)?.[category];
+        if (!globalEnabled) continue;
+        if (leagueOverride === false) continue;
+
+        messages.push({
+          to: tk.token,
+          title: notif.title,
+          body: notif.body,
+          data: { ...notif.data, league_id: team.league_id, channelId },
+          channelId,
+          ...(opts?.subtitle ? { subtitle: opts.subtitle } : {}),
+          ...(opts?.priority ? { priority: opts.priority } : {}),
+        });
+      }
+    }
+  }
+
+  if (messages.length === 0) return;
+  const dead = await sendPush(messages);
+  await cleanDeadTokens(supabase, dead);
+}
+
+// Same idea for direct user fan-out (used by poll-news where notifications
+// are personalized per-user but cross multiple leagues).
+export interface BulkUserNotification {
+  userId: string;
+  leagueId: string;
+  title: string;
+  body: string;
+  data?: Record<string, unknown>;
+}
+
+export async function notifyUsersBulk(
+  supabase: SupabaseClient,
+  category: NotifCategory,
+  notifications: BulkUserNotification[],
+  opts?: NotifyOptions,
+): Promise<void> {
+  if (notifications.length === 0) return;
+
+  const allUserIds = [...new Set(notifications.map(n => n.userId))];
+  const allLeagueIds = [...new Set(notifications.map(n => n.leagueId))];
+
+  const [{ data: tokenRows }, { data: leaguePrefs }] = await Promise.all([
+    supabase
+      .from('push_tokens')
+      .select('user_id, token, preferences, mute_all')
+      .in('user_id', allUserIds),
+    supabase
+      .from('league_notification_prefs')
+      .select('user_id, league_id, overrides')
+      .in('user_id', allUserIds)
+      .in('league_id', allLeagueIds),
+  ]);
+  if (!tokenRows || tokenRows.length === 0) return;
+
+  const overridesMap = new Map<string, Record<string, boolean>>();
+  for (const row of (leaguePrefs ?? []) as any[]) {
+    overridesMap.set(`${row.user_id}:${row.league_id}`, row.overrides ?? {});
+  }
+
+  const tokenByUser = new Map<string, { token: string; mute_all: boolean; preferences: Record<string, boolean> }[]>();
+  for (const row of tokenRows as any[]) {
+    const arr = tokenByUser.get(row.user_id) ?? [];
+    arr.push({ token: row.token, mute_all: row.mute_all, preferences: row.preferences ?? {} });
+    tokenByUser.set(row.user_id, arr);
+  }
+
+  const channelId = CHANNEL_MAP[category] ?? category;
+  const messages: PushMessage[] = [];
+
+  for (const notif of notifications) {
+    const tokens = tokenByUser.get(notif.userId) ?? [];
+    for (const tk of tokens) {
+      if (tk.mute_all) continue;
+      const stored = tk.preferences[category];
+      const globalEnabled = stored !== undefined ? stored === true : (DEFAULT_PREFS[category] ?? false);
+      const leagueOverride = overridesMap.get(`${notif.userId}:${notif.leagueId}`)?.[category];
+      if (!globalEnabled) continue;
+      if (leagueOverride === false) continue;
+
+      messages.push({
+        to: tk.token,
+        title: notif.title,
+        body: notif.body,
+        data: { ...notif.data, league_id: notif.leagueId, channelId },
+        channelId,
+        ...(opts?.subtitle ? { subtitle: opts.subtitle } : {}),
+        ...(opts?.priority ? { priority: opts.priority } : {}),
+      });
+    }
+  }
+
+  if (messages.length === 0) return;
+  const dead = await sendPush(messages);
+  await cleanDeadTokens(supabase, dead);
+}

@@ -1,231 +1,108 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { SectionList, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { TeamLogo } from '@/components/team/TeamLogo';
+import { TransactionCard } from '@/components/activity/TransactionCard';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { Transaction, TransactionItem, useTransactions } from '@/hooks/useTransactions';
-import { formatPickLabelShort } from '@/types/trade';
-import { ms } from "@/utils/scale";
+import { Fonts } from '@/constants/Colors';
+import { useColors } from '@/hooks/useColors';
+import { type Transaction, useTransactions } from '@/hooks/useTransactions';
+import { ms, s } from '@/utils/scale';
 
-const FILTER_OPTIONS: { key: string | undefined; label: string }[] = [
+const FILTER_OPTIONS = [
   { key: undefined, label: 'All' },
   { key: 'trade', label: 'Trades' },
   { key: 'waiver', label: 'Add/Drop' },
-  { key: 'commissioner', label: 'Commissioner' },
-];
+  { key: 'commissioner', label: 'Commish' },
+] as const;
 
-// Waiver amber matches the waiver badge in FreeAgentList so the two screens feel like the same system.
-const WAIVER_COLOR = '#D4A017';
-const WAIVER_BG = '#D4A01720';
+const SEGMENT_LABELS = FILTER_OPTIONS.map((o) => o.label);
 
-function getTransactionIcon(type: string): keyof typeof Ionicons.glyphMap {
-  switch (type) {
-    case 'trade':
-      return 'swap-horizontal';
-    case 'waiver':
-      return 'person-add';
-    case 'commissioner':
-      return 'shield';
-    default:
-      return 'document-text';
-  }
+interface DaySection {
+  title: string;
+  data: Transaction[];
 }
 
-function getTransactionLabel(type: string): string {
-  switch (type) {
-    case 'trade':
-      return 'Trade';
-    case 'waiver':
-      return 'Add/Drop';
-    case 'commissioner':
-      return 'Commissioner';
-    default:
-      return type.charAt(0).toUpperCase() + type.slice(1);
-  }
-}
-
-function getTypeColors(type: string, c: typeof Colors.light): { fg: string; bg: string } {
-  switch (type) {
-    case 'trade':
-      return { fg: c.accent, bg: c.warningMuted };
-    case 'waiver':
-      return { fg: WAIVER_COLOR, bg: WAIVER_BG };
-    case 'commissioner':
-      return { fg: c.danger, bg: c.dangerMuted };
-    default:
-      return { fg: c.secondaryText, bg: c.cardAlt };
-  }
-}
-
-type TeamRef = { name: string; logo_key: string | null };
-
-function getTradeTeams(items: TransactionItem[]): TeamRef[] {
-  const map = new Map<string, TeamRef>();
-  for (const item of items) {
-    for (const team of [item.team_from, item.team_to]) {
-      if (team?.name && !map.has(team.name)) map.set(team.name, team);
-    }
-  }
-  return Array.from(map.values());
-}
-
-function formatItemDescription(item: TransactionItem): string | null {
-  const playerName = item.player?.name;
-  if (!playerName && !item.draft_pick) return null;
-
-  const assetName = playerName ?? (item.draft_pick ? formatPickLabelShort(item.draft_pick.season, item.draft_pick.round) : null);
-  if (!assetName) return null;
-
-  const toTeam = item.team_to?.name;
-  const fromTeam = item.team_from?.name;
-
-  if (fromTeam && toTeam) return `${assetName} → ${toTeam} (from ${fromTeam})`;
-  if (toTeam) return `${assetName} added by ${toTeam}`;
-  if (fromTeam) return `${assetName} dropped by ${fromTeam}`;
-  return `${assetName} dropped`;
-}
-
-function buildTradeSummary(items: TransactionItem[]): { team: string; assets: string[] }[] {
-  // Count unique sending teams to detect multi-team trades
-  const uniqueFromTeams = new Set(items.map((i) => i.team_from_id).filter(Boolean));
-  const isMultiTeam = uniqueFromTeams.size > 2;
-
-  const sendsByTeam: Record<string, string[]> = {};
-  for (const item of items) {
-    const from = item.team_from?.name ?? 'Unknown';
-    if (!sendsByTeam[from]) sendsByTeam[from] = [];
-    const toSuffix = isMultiTeam && item.team_to?.name ? ` → ${item.team_to.name}` : '';
-    if (item.player?.name) {
-      sendsByTeam[from].push(item.player.name + toSuffix);
-    } else if (item.draft_pick) {
-      sendsByTeam[from].push(formatPickLabelShort(item.draft_pick.season, item.draft_pick.round) + toSuffix);
-    }
-  }
-  return Object.entries(sendsByTeam).map(([team, assets]) => ({ team, assets }));
-}
-
-function formatDate(dateStr: string): string {
+function formatDayHeader(dateStr: string): string {
   const d = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diffDays = Math.floor(
+    (today.getTime() - new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()) /
+      86400000,
+  );
 
-  if (diffMins < 1) return 'Just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffDays === 0) return 'TODAY';
+  if (diffDays === 1) return 'YESTERDAY';
 
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const month = d.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
+  const day = d.getDate();
+  const weekday = d.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
+  return `${month} ${day} · ${weekday}`;
+}
+
+function groupByDay(transactions: Transaction[]): DaySection[] {
+  if (transactions.length === 0) return [];
+  const sections: DaySection[] = [];
+  let currentKey: string | null = null;
+  let currentSection: DaySection | null = null;
+
+  for (const txn of transactions) {
+    const d = new Date(txn.created_at);
+    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    if (key !== currentKey) {
+      currentSection = { title: formatDayHeader(txn.created_at), data: [] };
+      sections.push(currentSection);
+      currentKey = key;
+    }
+    currentSection!.data.push(txn);
+  }
+  return sections;
 }
 
 export default function Activity() {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
-  const [typeFilter, setTypeFilter] = useState<string | undefined>(undefined);
+  const c = useColors();
+  const [filterIndex, setFilterIndex] = useState(0);
+  const typeFilter = FILTER_OPTIONS[filterIndex].key;
 
-  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage, refetch } = useTransactions(typeFilter);
+  const {
+    data,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    refetch,
+  } = useTransactions(typeFilter);
   const [refreshing, setRefreshing] = useState(false);
   const lastRefresh = useRef(0);
 
   const transactions = useMemo(() => data?.pages.flat() ?? [], [data?.pages]);
-  const keyExtractor = useCallback((item: Transaction) => item.id, []);
+  const sections = useMemo(() => groupByDay(transactions), [transactions]);
 
   const renderItem = useCallback(
-    ({ item }: { item: Transaction }) => {
-      const icon = getTransactionIcon(item.type);
-      const label = getTransactionLabel(item.type);
-      const typeColors = getTypeColors(item.type, c);
-      const txnItems = item.league_transaction_items ?? [];
-      const isTrade = item.type === 'trade' && txnItems.length > 0;
-      const tradeSummary = isTrade ? buildTradeSummary(txnItems) : [];
-      const tradeTeams = isTrade ? getTradeTeams(txnItems) : [];
-      const descriptions = isTrade ? [] : txnItems.map(formatItemDescription).filter(Boolean) as string[];
+    ({ item }: { item: Transaction }) => <TransactionCard txn={item} />,
+    [],
+  );
 
-      // Logo cluster: for trades, show every involved team logo; otherwise use the initiator.
-      const headerLogos: TeamRef[] = isTrade
-        ? tradeTeams
-        : item.initiator
-          ? [item.initiator]
-          : [];
-
-      return (
-        <View
-          style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}
-          accessibilityLabel={`${label}${item.initiator ? ` by ${item.initiator.name}` : ''}, ${formatDate(item.created_at)}${isTrade ? `, ${tradeSummary.map(g => `${g.team} sends ${g.assets.join(', ')}`).join('; ')}` : descriptions.length > 0 ? `, ${descriptions.join(', ')}` : ''}`}
+  const renderSectionHeader = useCallback(
+    ({ section }: { section: DaySection }) => (
+      <View style={[styles.dayHeader, { backgroundColor: c.background }]}>
+        <View style={[styles.dayRule, { backgroundColor: c.gold }]} />
+        <ThemedText
+          type="varsity"
+          style={[styles.dayLabel, { color: c.text }]}
+          accessibilityRole="header"
         >
-          <View style={[styles.stripe, { backgroundColor: typeColors.fg }]} />
-          <View style={styles.cardInner}>
-            <View style={styles.headerRow}>
-              <View style={styles.logoCluster}>
-                {headerLogos.length > 0 ? (
-                  headerLogos.map((team, idx) => (
-                    <View key={`${team.name}-${idx}`} style={idx > 0 ? styles.logoStacked : undefined}>
-                      <TeamLogo logoKey={team.logo_key} teamName={team.name} size="small" />
-                    </View>
-                  ))
-                ) : (
-                  <View style={[styles.iconCircle, { backgroundColor: typeColors.bg }]}>
-                    <Ionicons name={icon} size={18} color={typeColors.fg} accessible={false} />
-                  </View>
-                )}
-                {!isTrade && item.initiator && (
-                  <ThemedText style={[styles.initiatorName, { color: c.text }]} numberOfLines={1}>
-                    {item.initiator.name}
-                  </ThemedText>
-                )}
-              </View>
-              <View style={styles.headerMeta}>
-                <View style={[styles.typePill, { backgroundColor: typeColors.bg }]}>
-                  <Ionicons name={icon} size={12} color={typeColors.fg} accessible={false} />
-                  <ThemedText style={[styles.typePillText, { color: typeColors.fg }]}>
-                    {label}
-                  </ThemedText>
-                </View>
-                <ThemedText style={[styles.time, { color: c.secondaryText }]}>
-                  {formatDate(item.created_at)}
-                </ThemedText>
-              </View>
-            </View>
-
-            <View style={styles.body}>
-              {isTrade ? (
-                tradeSummary.map((group, gi) => (
-                  <View key={gi} style={styles.tradeSummaryGroup}>
-                    <ThemedText style={[styles.tradeSummaryTeam, { color: c.text }]} numberOfLines={1}>
-                      {group.team} sends
-                    </ThemedText>
-                    {group.assets.map((asset, ai) => (
-                      <ThemedText key={ai} style={[styles.assetLine, { color: c.text }]} numberOfLines={1}>
-                        •  {asset}
-                      </ThemedText>
-                    ))}
-                  </View>
-                ))
-              ) : descriptions.length > 0 ? (
-                descriptions.map((desc, i) => (
-                  <ThemedText key={i} style={[styles.assetLine, { color: c.text }]}>
-                    {desc}
-                  </ThemedText>
-                ))
-              ) : item.notes ? (
-                <ThemedText style={[styles.notes, { color: c.secondaryText }]}>
-                  {item.notes}
-                </ThemedText>
-              ) : null}
-            </View>
-          </View>
-        </View>
-      );
-    },
-    [c]
+          {section.title}
+        </ThemedText>
+        <View style={[styles.dayRule, { backgroundColor: c.border }]} />
+      </View>
+    ),
+    [c],
   );
 
   const onRefresh = useCallback(async () => {
@@ -241,51 +118,53 @@ export default function Activity() {
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: c.background }]}
+    >
       <PageHeader title="Transactions" />
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.filterRow}
-        style={styles.filterScroll}
-      >
-        {FILTER_OPTIONS.map((opt) => {
-          const active = typeFilter === opt.key;
-          return (
-            <Pressable
-              key={opt.label}
-              onPress={() => setTypeFilter(opt.key)}
-              style={[
-                styles.filterChip,
-                { borderColor: active ? c.accent : c.border, backgroundColor: active ? c.accent : c.card },
-              ]}
-              accessibilityRole="button"
-              accessibilityState={{ selected: active }}
-              accessibilityLabel={`Filter by ${opt.label}`}
-            >
-              <ThemedText style={[styles.filterChipText, { color: active ? '#fff' : c.text }]}>
-                {opt.label}
-              </ThemedText>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+      <View style={styles.filterWrap}>
+        <SegmentedControl
+          options={SEGMENT_LABELS}
+          selectedIndex={filterIndex}
+          onSelect={setFilterIndex}
+          accessibilityLabel="Filter transactions by type"
+        />
+      </View>
 
       {isLoading ? (
-        <View style={styles.loader}><LogoSpinner /></View>
+        <View style={styles.loader}>
+          <LogoSpinner />
+        </View>
       ) : transactions.length === 0 ? (
         <View style={styles.empty}>
-          <Ionicons name="document-text-outline" size={40} color={c.secondaryText} accessible={false} />
-          <ThemedText style={[styles.emptyText, { color: c.secondaryText }]}>
-            No transactions yet
+          <View style={[styles.emptyRule, { backgroundColor: c.gold }]} />
+          <Ionicons
+            name="document-text-outline"
+            size={ms(40)}
+            color={c.secondaryText}
+            accessible={false}
+          />
+          <ThemedText
+            type="display"
+            style={[styles.emptyTitle, { color: c.text }]}
+          >
+            No moves yet.
+          </ThemedText>
+          <ThemedText
+            type="varsitySmall"
+            style={[styles.emptySub, { color: c.secondaryText }]}
+          >
+            TRADES · ADDS · DROPS WILL LAND HERE
           </ThemedText>
         </View>
       ) : (
-        <FlatList
-          data={transactions}
-          keyExtractor={keyExtractor}
+        <SectionList
+          sections={sections}
+          keyExtractor={(item) => item.id}
           renderItem={renderItem}
+          renderSectionHeader={renderSectionHeader}
+          stickySectionHeadersEnabled={false}
           contentContainerStyle={styles.list}
           onEndReached={onEndReached}
           onEndReachedThreshold={0.5}
@@ -296,7 +175,11 @@ export default function Activity() {
           maxToRenderPerBatch={6}
           windowSize={7}
           ListFooterComponent={
-            isFetchingNextPage ? <View style={styles.footerLoader}><LogoSpinner size={18} /></View> : null
+            isFetchingNextPage ? (
+              <View style={styles.footerLoader}>
+                <LogoSpinner size={18} />
+              </View>
+            ) : null
           }
         />
       )}
@@ -308,129 +191,60 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  filterWrap: {
+    paddingHorizontal: s(16),
+    paddingTop: s(12),
+    paddingBottom: s(10),
+  },
   loader: {
-    marginTop: 40,
+    marginTop: s(40),
+    alignItems: 'center',
   },
   empty: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 12,
+    gap: s(10),
+    paddingHorizontal: s(32),
   },
-  emptyText: {
-    fontSize: ms(15),
+  emptyRule: {
+    height: 2,
+    width: s(48),
+    marginBottom: s(8),
+  },
+  emptyTitle: {
+    fontFamily: Fonts.display,
+    fontSize: ms(22),
+    lineHeight: ms(26),
+    letterSpacing: -0.2,
+    textAlign: 'center',
+  },
+  emptySub: {
+    fontSize: ms(11),
+    letterSpacing: 1.3,
+    textAlign: 'center',
   },
   list: {
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    gap: 10,
+    paddingHorizontal: s(16),
+    paddingBottom: s(24),
   },
-  card: {
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
+  dayHeader: {
     flexDirection: 'row',
-    overflow: 'hidden',
+    alignItems: 'center',
+    gap: s(10),
+    paddingTop: s(14),
+    paddingBottom: s(8),
   },
-  stripe: {
-    width: 4,
-  },
-  cardInner: {
+  dayRule: {
     flex: 1,
-    padding: 12,
+    height: StyleSheet.hairlineWidth,
   },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 8,
-  },
-  logoCluster: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexShrink: 1,
-    gap: 8,
-  },
-  logoStacked: {
-    marginLeft: -8,
-  },
-  iconCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  typePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    height: 22,
-    borderRadius: 11,
-  },
-  typePillText: {
+  dayLabel: {
+    fontFamily: Fonts.varsityBold,
     fontSize: ms(11),
-    fontWeight: '700',
-    letterSpacing: 0.2,
-  },
-  time: {
-    fontSize: ms(12),
-  },
-  initiatorName: {
-    fontSize: ms(14),
-    fontWeight: '700',
-    flexShrink: 1,
-  },
-  body: {
-    marginTop: 6,
-  },
-  notes: {
-    fontSize: ms(13),
-    lineHeight: 18,
-  },
-  assetLine: {
-    fontSize: ms(13),
-    lineHeight: 19,
-  },
-  tradeSummaryGroup: {
-    marginTop: 6,
-  },
-  tradeSummaryTeam: {
-    fontSize: ms(12),
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-    marginBottom: 2,
+    letterSpacing: 1.4,
   },
   footerLoader: {
-    paddingVertical: 16,
-  },
-  filterScroll: {
-    flexGrow: 0,
-  },
-  filterRow: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 8,
-    gap: 8,
-    alignItems: 'center',
-  },
-  filterChip: {
-    paddingHorizontal: 14,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  filterChipText: {
-    fontSize: ms(13),
-    fontWeight: '600',
-    lineHeight: 16,
+    paddingVertical: s(16),
   },
 });

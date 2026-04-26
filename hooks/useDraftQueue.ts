@@ -18,7 +18,7 @@ export function useDraftQueue(draftId: string, teamId: string, leagueId: string)
   const { data: queue = [], isLoading } = useQuery<QueuedPlayer[]>({
     queryKey,
     queryFn: async () => {
-      const { data, error } = await supabase.rpc('get_draft_queue' as any, {
+      const { data, error } = await supabase.rpc('get_draft_queue', {
         p_draft_id: draftId,
         p_team_id: teamId,
         p_league_id: leagueId,
@@ -26,11 +26,11 @@ export function useDraftQueue(draftId: string, teamId: string, leagueId: string)
       if (error) throw error;
       if (!data || data.length === 0) return [];
 
-      return (data as any[]).map((row) => ({
+      return data.map((row) => ({
         queue_id: row.queue_id,
         player_id: row.player_id,
         priority: row.priority,
-        player: row as PlayerSeasonStats,
+        player: row as unknown as PlayerSeasonStats,
       }));
     },
     enabled: !!draftId && !!teamId,

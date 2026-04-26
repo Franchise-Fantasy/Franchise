@@ -2,25 +2,19 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
   Alert,
-  Modal,
-  Pressable,
-  ScrollView,
   StyleSheet,
-  Text,
-  TouchableOpacity,
-  useWindowDimensions,
   View,
 } from 'react-native';
 
 import { LotteryOddsEditor } from '@/components/create-league/LotteryOddsEditor';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { BottomSheet } from '@/components/ui/BottomSheet';
+import { BrandButton } from '@/components/ui/BrandButton';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ToggleRow } from '@/components/ui/ToggleRow';
-import { Colors } from '@/constants/Colors';
 import { DRAFT_TYPE_OPTIONS, INITIAL_DRAFT_ORDER_DISPLAY, INITIAL_DRAFT_ORDER_OPTIONS, INITIAL_DRAFT_ORDER_TO_DB, ROOKIE_DRAFT_ORDER_OPTIONS, TIME_PER_PICK_OPTIONS } from '@/constants/LeagueDefaults';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
 import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/league/lottery';
 import { ms, s } from '@/utils/scale';
@@ -54,10 +48,8 @@ export function EditDraftSettingsModal({
   draft,
   teamCount,
 }: EditDraftSettingsModalProps) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const queryClient = useQueryClient();
-  const { height: screenHeight } = useWindowDimensions();
 
   const isDynasty = (league?.league_type ?? 'dynasty') === 'dynasty';
 
@@ -150,212 +142,162 @@ export function EditDraftSettingsModal({
   );
 
   return (
-    <Modal
+    <BottomSheet
       visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
-    >
-      <View style={styles.backdrop}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close" />
-        <View
-          style={[styles.sheet, { backgroundColor: c.card }]}
-          accessibilityViewIsModal={true}
-        >
-          {/* Handle */}
-          <View style={[styles.handle, { backgroundColor: c.border }]} />
-
-          {/* Title */}
-          <View style={styles.titleRow}>
-            <ThemedText accessibilityRole="header" style={styles.title}>Draft Settings</ThemedText>
-          </View>
-
-          <ScrollView
-            style={[styles.scroll, { maxHeight: screenHeight * 0.55 }]}
-            showsVerticalScrollIndicator={false}
-          >
-            {/* Draft Type */}
-            <View style={[styles.editRow, { borderBottomColor: c.border }]}>
-              <ThemedText style={styles.rowLabel}>Type</ThemedText>
-            </View>
-            <View style={{ paddingVertical: s(8) }}>
-              <SegmentedControl
-                options={DRAFT_TYPE_OPTIONS}
-                selectedIndex={draftTypeIndex >= 0 ? draftTypeIndex : 0}
-                onSelect={(i) => setDraftType(DRAFT_TYPE_OPTIONS[i])}
-              />
-            </View>
-
-            {/* Time Per Pick */}
-            <View style={[styles.editRow, { borderBottomColor: c.border }]}>
-              <ThemedText style={styles.rowLabel}>Time Per Pick</ThemedText>
-            </View>
-            <View style={{ paddingVertical: s(8) }}>
-              <SegmentedControl
-                options={TIME_LABELS}
-                selectedIndex={timeIndex >= 0 ? timeIndex : 1}
-                onSelect={(i) => setTimePick(TIME_PER_PICK_OPTIONS[i])}
-              />
-            </View>
-
-            {/* Draft Order */}
-            <View style={[styles.editRow, { borderBottomColor: c.border }]}>
-              <ThemedText style={styles.rowLabel}>Draft Order</ThemedText>
-            </View>
-            <View style={{ paddingVertical: s(8) }}>
-              <SegmentedControl
-                options={[...INITIAL_DRAFT_ORDER_OPTIONS]}
-                selectedIndex={initialOrderIndex >= 0 ? initialOrderIndex : 0}
-                onSelect={(i) => setInitialOrder(INITIAL_DRAFT_ORDER_OPTIONS[i])}
-              />
-            </View>
-            <ThemedText style={[styles.helperText, { color: c.secondaryText, marginBottom: s(8) }]}>
-              {initialOrder === 'Random'
-                ? 'Teams are randomly assigned a draft position when all teams join.'
-                : 'The commissioner will set the draft order before the draft begins.'}
-            </ThemedText>
-
-            {isDynasty && (
-              <>
-                {/* Future Draft Years */}
-                <NumberStepper
-                  label="Future Draft Years"
-                  value={maxYears}
-                  onValueChange={setMaxYears}
-                  min={1}
-                  max={10}
-                />
-
-                {/* Rookie Draft Rounds */}
-                <NumberStepper
-                  label="Rookie Draft Rounds"
-                  value={rookieRounds}
-                  onValueChange={setRookieRounds}
-                  min={1}
-                  max={5}
-                />
-
-                {/* Rookie Draft Order */}
-                <View style={[styles.editRow, { borderBottomColor: c.border }]}>
-                  <ThemedText style={styles.rowLabel}>Rookie Draft Order</ThemedText>
-                </View>
-                <View style={{ paddingVertical: s(8) }}>
-                  <SegmentedControl
-                    options={ROOKIE_DRAFT_ORDER_OPTIONS}
-                    selectedIndex={orderIndex >= 0 ? orderIndex : 0}
-                    onSelect={(i) => setRookieOrder(ROOKIE_DRAFT_ORDER_OPTIONS[i])}
-                  />
-                </View>
-
-                {/* Lottery settings (conditional) */}
-                {rookieOrder === 'Lottery' && (
-                  <>
-                    {lotteryPool <= 0 ? (
-                      <ThemedText
-                        style={[styles.helperText, { color: c.secondaryText, marginBottom: s(8) }]}
-                      >
-                        All teams make playoffs — no lottery pool.
-                      </ThemedText>
-                    ) : (
-                      <>
-                        <ThemedText
-                          style={[styles.helperText, { color: c.secondaryText, marginBottom: s(8) }]}
-                        >
-                          {lotteryPool} non-playoff team(s) in the lottery
-                        </ThemedText>
-
-                        <NumberStepper
-                          label="Lottery Draws"
-                          value={lotteryDraws}
-                          onValueChange={setLotteryDraws}
-                          min={1}
-                          max={lotteryPool}
-                        />
-
-                        <View style={{ marginTop: s(12) }}>
-                          <LotteryOddsEditor
-                            odds={lotteryOdds ?? generateDefaultOdds(lotteryPool)}
-                            onChange={setLotteryOdds}
-                            lotteryTeams={lotteryPool}
-                          />
-                        </View>
-                      </>
-                    )}
-                  </>
-                )}
-
-                {/* Draft Pick Trading */}
-                <ToggleRow
-                  icon="swap-horizontal-outline"
-                  label="Initial Draft Pick Trading"
-                  description="Allow trading of startup draft picks before and during the draft"
-                  value={draftPickTrading}
-                  onToggle={setDraftPickTrading}
-                  c={c}
-                />
-              </>
-            )}
-          </ScrollView>
-
-          {/* Footer */}
-          <View style={styles.footer}>
-            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Cancel" style={[styles.btn, { backgroundColor: c.cardAlt }]} onPress={onClose}>
-              <ThemedText style={styles.btnText}>Cancel</ThemedText>
-            </TouchableOpacity>
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel="Save"
-              accessibilityState={{ disabled: saving }}
-              style={[
-                styles.btn,
-                { backgroundColor: saving ? c.buttonDisabled : c.accent },
-              ]}
-              onPress={handleSave}
-              disabled={saving}
-            >
-              {saving ? (
-                <LogoSpinner size={18} />
-              ) : (
-                <Text style={[styles.btnText, { color: c.accentText }]}>
-                  Save
-                </Text>
-              )}
-            </TouchableOpacity>
-          </View>
+      onClose={onClose}
+      title="Draft Settings"
+      footer={
+        <View style={styles.footer}>
+          <BrandButton
+            label="Cancel"
+            variant="secondary"
+            size="large"
+            onPress={onClose}
+            fullWidth
+            style={styles.footerBtn}
+            accessibilityLabel="Cancel"
+          />
+          <BrandButton
+            label="Save"
+            variant="primary"
+            size="large"
+            onPress={handleSave}
+            loading={saving}
+            fullWidth
+            style={styles.footerBtn}
+            accessibilityLabel="Save"
+          />
         </View>
+      }
+    >
+      {/* Draft Type */}
+      <View style={[styles.editRow, { borderBottomColor: c.border }]}>
+        <ThemedText style={styles.rowLabel}>Type</ThemedText>
       </View>
-    </Modal>
+      <View style={{ paddingVertical: s(8) }}>
+        <SegmentedControl
+          options={DRAFT_TYPE_OPTIONS}
+          selectedIndex={draftTypeIndex >= 0 ? draftTypeIndex : 0}
+          onSelect={(i) => setDraftType(DRAFT_TYPE_OPTIONS[i])}
+        />
+      </View>
+
+      {/* Time Per Pick */}
+      <View style={[styles.editRow, { borderBottomColor: c.border }]}>
+        <ThemedText style={styles.rowLabel}>Time Per Pick</ThemedText>
+      </View>
+      <View style={{ paddingVertical: s(8) }}>
+        <SegmentedControl
+          options={TIME_LABELS}
+          selectedIndex={timeIndex >= 0 ? timeIndex : 1}
+          onSelect={(i) => setTimePick(TIME_PER_PICK_OPTIONS[i])}
+        />
+      </View>
+
+      {/* Draft Order */}
+      <View style={[styles.editRow, { borderBottomColor: c.border }]}>
+        <ThemedText style={styles.rowLabel}>Draft Order</ThemedText>
+      </View>
+      <View style={{ paddingVertical: s(8) }}>
+        <SegmentedControl
+          options={[...INITIAL_DRAFT_ORDER_OPTIONS]}
+          selectedIndex={initialOrderIndex >= 0 ? initialOrderIndex : 0}
+          onSelect={(i) => setInitialOrder(INITIAL_DRAFT_ORDER_OPTIONS[i])}
+        />
+      </View>
+      <ThemedText style={[styles.helperText, { color: c.secondaryText, marginBottom: s(8) }]}>
+        {initialOrder === 'Random'
+          ? 'Teams are randomly assigned a draft position when all teams join.'
+          : 'The commissioner will set the draft order before the draft begins.'}
+      </ThemedText>
+
+      {isDynasty && (
+        <>
+          {/* Future Draft Years */}
+          <NumberStepper
+            label="Future Draft Years"
+            value={maxYears}
+            onValueChange={setMaxYears}
+            min={1}
+            max={10}
+          />
+
+          {/* Rookie Draft Rounds */}
+          <NumberStepper
+            label="Rookie Draft Rounds"
+            value={rookieRounds}
+            onValueChange={setRookieRounds}
+            min={1}
+            max={5}
+          />
+
+          {/* Rookie Draft Order */}
+          <View style={[styles.editRow, { borderBottomColor: c.border }]}>
+            <ThemedText style={styles.rowLabel}>Rookie Draft Order</ThemedText>
+          </View>
+          <View style={{ paddingVertical: s(8) }}>
+            <SegmentedControl
+              options={ROOKIE_DRAFT_ORDER_OPTIONS}
+              selectedIndex={orderIndex >= 0 ? orderIndex : 0}
+              onSelect={(i) => setRookieOrder(ROOKIE_DRAFT_ORDER_OPTIONS[i])}
+            />
+          </View>
+
+          {/* Lottery settings (conditional) */}
+          {rookieOrder === 'Lottery' && (
+            <>
+              {lotteryPool <= 0 ? (
+                <ThemedText
+                  style={[styles.helperText, { color: c.secondaryText, marginBottom: s(8) }]}
+                >
+                  All teams make playoffs — no lottery pool.
+                </ThemedText>
+              ) : (
+                <>
+                  <ThemedText
+                    style={[styles.helperText, { color: c.secondaryText, marginBottom: s(8) }]}
+                  >
+                    {lotteryPool} non-playoff team(s) in the lottery
+                  </ThemedText>
+
+                  <NumberStepper
+                    label="Lottery Draws"
+                    value={lotteryDraws}
+                    onValueChange={setLotteryDraws}
+                    min={1}
+                    max={lotteryPool}
+                  />
+
+                  <View style={{ marginTop: s(12) }}>
+                    <LotteryOddsEditor
+                      odds={lotteryOdds ?? generateDefaultOdds(lotteryPool)}
+                      onChange={setLotteryOdds}
+                      lotteryTeams={lotteryPool}
+                    />
+                  </View>
+                </>
+              )}
+            </>
+          )}
+
+          {/* Draft Pick Trading */}
+          <ToggleRow
+            icon="swap-horizontal-outline"
+            label="Initial Draft Pick Trading"
+            description="Allow trading of startup draft picks before and during the draft"
+            value={draftPickTrading}
+            onToggle={setDraftPickTrading}
+            c={c}
+          />
+        </>
+      )}
+    </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'transparent',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingTop: s(12),
-    paddingBottom: s(40),
-    maxHeight: '85%',
-  },
-  handle: {
-    width: s(40),
-    height: s(4),
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: s(12),
-  },
-  titleRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    paddingHorizontal: s(16),
-    marginBottom: s(16),
-  },
-  title: { fontSize: ms(17), fontWeight: '600' },
-  scroll: { paddingHorizontal: s(16) },
+  footer: { flexDirection: 'row', gap: s(12) },
+  footerBtn: { flex: 1 },
   editRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -365,17 +307,4 @@ const styles = StyleSheet.create({
   },
   rowLabel: { fontSize: ms(14) },
   helperText: { fontSize: ms(13), marginTop: s(2) },
-  footer: {
-    flexDirection: 'row',
-    gap: s(12),
-    paddingHorizontal: s(16),
-    paddingTop: s(16),
-  },
-  btn: {
-    flex: 1,
-    paddingVertical: s(14),
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  btnText: { fontSize: ms(15), fontWeight: '600' },
 });

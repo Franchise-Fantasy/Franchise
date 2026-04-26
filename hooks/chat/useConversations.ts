@@ -36,7 +36,9 @@ function useChatMessageSubscription(leagueId: string | null) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [leagueId, queryClient]);
+    // queryClient is a stable singleton — omitting prevents unnecessary channel teardown.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leagueId]);
 }
 
 // ─── Conversation list ───────────────────────────────────────

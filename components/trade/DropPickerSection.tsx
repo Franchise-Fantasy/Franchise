@@ -1,12 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Image } from 'expo-image';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { PlayerSeasonStats } from '@/types/player';
-import { getPlayerHeadshotUrl } from '@/utils/nba/playerHeadshot';
+import { getPlayerHeadshotUrl, PLAYER_SILHOUETTE } from '@/utils/nba/playerHeadshot';
 import { ms, s } from '@/utils/scale';
 
 
@@ -78,11 +79,14 @@ export function DropPickerSection({ roster, selectedPlayerIds, maxSelections, on
               activeOpacity={0.7}
             >
               <View style={[styles.headshot, { borderColor: c.border, backgroundColor: c.cardAlt }]}>
-                {headshotUrl ? (
-                  <Image source={{ uri: headshotUrl }} style={styles.headshotImg} resizeMode="cover" />
-                ) : (
-                  <Ionicons name="person" size={16} color={c.secondaryText} style={{ alignSelf: 'center', marginTop: s(5) }} />
-                )}
+                <Image
+                  source={headshotUrl ? { uri: headshotUrl } : PLAYER_SILHOUETTE}
+                  style={styles.headshotImg}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  recyclingKey={headshotUrl ?? "silhouette"}
+                  placeholder={PLAYER_SILHOUETTE}
+                />
               </View>
               <View style={styles.info}>
                 <ThemedText type="defaultSemiBold" style={styles.name} numberOfLines={1}>

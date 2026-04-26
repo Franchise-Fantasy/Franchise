@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Alert,
   FlatList,
   Modal,
   Platform,
@@ -27,17 +28,19 @@ import { ChatInput } from '@/components/chat/ChatInput';
 import { CreatePollModal } from '@/components/chat/CreatePollModal';
 import { CreateSurveyModal } from '@/components/chat/CreateSurveyModal';
 import { GifPicker } from '@/components/chat/GifPicker';
+import { MessageActionMenu, type MessageAction } from '@/components/chat/MessageActionMenu';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { PresenceAvatars } from '@/components/chat/PresenceAvatars';
-import { ReactionPicker } from '@/components/chat/ReactionPicker';
+import { PresenceListSheet } from '@/components/chat/PresenceListSheet';
 import { ReadReceiptIndicator } from '@/components/chat/ReadReceiptIndicator';
-import { TeamLogo } from '@/components/team/TeamLogo';
+import { ReportReasonSheet, type ReportReason } from '@/components/chat/ReportReasonSheet';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Brand, Fonts } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
+import { useConfirm } from '@/context/ConfirmProvider';
 import {
   useChatSubscription,
   useMarkRead,
@@ -53,9 +56,10 @@ import {
   useUnsendMessage,
 } from '@/hooks/chat';
 import type { ReadReceipt } from '@/hooks/chat/useReadReceipts';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
 import type { ChatMessage, ReactionGroup } from '@/types/chat';
+import { logger } from '@/utils/logger';
 import { ms, s } from '@/utils/scale';
 
 
@@ -185,9 +189,14 @@ const ChatItem = React.memo(function ChatItem({
     <View>
       {meta.showTimeHeader && (
         <View style={styles.dateHeader}>
-          <ThemedText style={[styles.dateHeaderText, { color: secondaryTextColor }]}>
-            {meta.timeHeader}
+          <View style={[styles.dateRule, { backgroundColor: secondaryTextColor, opacity: 0.25 }]} />
+          <ThemedText
+            type="varsitySmall"
+            style={[styles.dateHeaderText, { color: secondaryTextColor }]}
+          >
+            {meta.timeHeader.toUpperCase()}
           </ThemedText>
+          <View style={[styles.dateRule, { backgroundColor: secondaryTextColor, opacity: 0.25 }]} />
         </View>
       )}
       <MessageBubble
@@ -218,9 +227,9 @@ const ChatItem = React.memo(function ChatItem({
 
 export default function ConversationScreen() {
   const { id: conversationId } = useLocalSearchParams<{ id: string }>();
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const { teamId, leagueId } = useAppState();
+  const confirm = useConfirm();
 
   // Fetch conversation metadata to show the right title
   const { data: convMeta, isError: isConvError } = useQuery({
@@ -313,6 +322,7 @@ export default function ConversationScreen() {
   const [showGifPicker, setShowGifPicker] = useState(false);
   const [activeFilter, setActiveFilter] = useState<ChatFilter>('all');
   const [filterExpanded, setFilterExpanded] = useState(false);
+  const [reportingMessageId, setReportingMessageId] = useState<string | null>(null);
 
   // Refresh messages when screen gains focus (catches messages missed by realtime)
   useFocusEffect(
@@ -556,6 +566,79 @@ export default function ConversationScreen() {
     setReactionTargetId(null);
   }, [reactionTargetId, unsendMessage]);
 
+  // Open the reason sheet for the currently-selected message.
+  const handleReport = useCallback(() => {
+    if (!reactionTargetId) return;
+    setReportingMessageId(reactionTargetId);
+    setReactionTargetId(null);
+  }, [reactionTargetId]);
+
+  const handleSubmitReport = useCallback(
+    async (reason: ReportReason) => {
+      const messageId = reportingMessageId;
+      setReportingMessageId(null);
+      if (!messageId) return;
+      try {
+        const { error } = await supabase.functions.invoke('report-message', {
+          body: { message_id: messageId, reason },
+        });
+        if (error) throw error;
+        Alert.alert('Thanks for reporting', 'Your league commissioner has been notified.');
+      } catch (err: any) {
+        logger.error('report-message invoke failed', err);
+        Alert.alert(
+          'Could not submit report',
+          err?.message ?? 'Please try again in a moment.',
+        );
+      }
+    },
+    [reportingMessageId],
+  );
+
+  // Block the user behind a message's team_id. Resolves user_id, inserts into
+  // user_blocks, then invalidates the messages query so the chat re-renders
+  // without the now-blocked sender's posts.
+  const handleBlock = useCallback(async () => {
+    if (!reactionTargetId) return;
+    const target = messages.find((m) => m.id === reactionTargetId);
+    setReactionTargetId(null);
+    if (!target?.team_id || target.team_id === teamId) return;
+
+    confirm({
+      title: 'Block user?',
+      message:
+        'You will no longer see their messages or reactions in any league chat or DM. You can unblock them from your profile.',
+      action: {
+        label: 'Block',
+        destructive: true,
+        onPress: async () => {
+          try {
+            const { data: team, error: teamErr } = await supabase
+              .from('teams')
+              .select('user_id')
+              .eq('id', target.team_id!)
+              .single();
+            if (teamErr || !team?.user_id) throw teamErr ?? new Error('Team not found');
+
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) throw new Error('Not signed in');
+            if (team.user_id === user.id) return;
+
+            const { error: insertErr } = await supabase
+              .from('user_blocks')
+              .insert({ blocker_id: user.id, blocked_id: team.user_id });
+            if (insertErr && insertErr.code !== '23505') throw insertErr;
+
+            await queryClient.invalidateQueries({ queryKey: queryKeys.messages(conversationId!) });
+          } catch (err: any) {
+            logger.error('Block user failed', err);
+            Alert.alert('Could not block user', err?.message ?? 'Please try again.');
+          }
+        },
+      },
+    });
+  }, [reactionTargetId, messages, teamId, queryClient, conversationId, confirm]);
+
   const handleItemReactionPress = useCallback(
     (messageId: string, emoji: string) => {
       if (!teamId) return;
@@ -620,11 +703,12 @@ export default function ConversationScreen() {
 
   const keyExtractor = useCallback((item: ChatMessage) => item.id, []);
 
-  // +1 for ourselves (we're always online when viewing)
-  const onlineCount = readReceipts.filter((r) => r.online).length + 1;
   const onlineTeams = readReceipts.filter((r) => r.online);
 
-  if (!isLoading && (isConvError || !convMeta) && conversationId && teamId) {
+  // Only render the error fallback on a real fetch error — checking only
+  // `!convMeta` raced with the initial query and flashed "Conversation not
+  // found" for a frame on every chat open.
+  if (isConvError && conversationId && teamId) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
         <PageHeader title="Chat" />
@@ -667,34 +751,33 @@ export default function ConversationScreen() {
               exiting={FadeOut.duration(120)}
             >
               <TouchableOpacity
-                style={[styles.pinnedPill, { backgroundColor: c.accent }]}
+                style={[styles.pinnedPill, { backgroundColor: c.gold }]}
                 onPress={() => setShowPinnedSheet(true)}
                 activeOpacity={0.7}
                 accessibilityRole="button"
                 accessibilityLabel={`${pinnedMessages.length} pinned message${pinnedMessages.length !== 1 ? 's' : ''}, tap to view`}
               >
-                <Ionicons name="pin" size={12} color={c.accentText} accessible={false} />
-                <ThemedText style={[styles.pinnedPillCount, { color: c.accentText }]}>
+                <Ionicons name="pin" size={ms(12)} color={Brand.ink} accessible={false} />
+                <ThemedText style={[styles.pinnedPillCount, { color: Brand.ink }]}>
                   {pinnedMessages.length}
                 </ThemedText>
               </TouchableOpacity>
             </Animated.View>
           )}
           <View style={styles.utilitySpacer}>
-            {filterExpanded && (
-              <ChatFilterStrip
-                activeFilter={activeFilter}
-                onFilterChange={setActiveFilter}
-                counts={filterCounts}
-              />
-            )}
+            <ChatFilterStrip
+              activeFilter={activeFilter}
+              onFilterChange={setActiveFilter}
+              counts={filterCounts}
+              visible={filterExpanded}
+            />
           </View>
           <TouchableOpacity
             style={[
               styles.filterIconButton,
               {
-                backgroundColor: filterExpanded || activeFilter !== 'all' ? c.accent : c.card,
-                borderColor: filterExpanded || activeFilter !== 'all' ? c.accent : c.border,
+                backgroundColor: filterExpanded || activeFilter !== 'all' ? c.gold : c.card,
+                borderColor: filterExpanded || activeFilter !== 'all' ? c.gold : c.border,
               },
             ]}
             onPress={() => setFilterExpanded((prev) => !prev)}
@@ -705,8 +788,8 @@ export default function ConversationScreen() {
           >
             <Ionicons
               name={filterExpanded ? 'close' : 'funnel-outline'}
-              size={14}
-              color={filterExpanded || activeFilter !== 'all' ? c.accentText : c.secondaryText}
+              size={ms(12)}
+              color={filterExpanded || activeFilter !== 'all' ? Brand.ink : c.secondaryText}
               accessible={false}
             />
           </TouchableOpacity>
@@ -777,49 +860,70 @@ export default function ConversationScreen() {
         />
       </KeyboardAvoidingView>
 
-      {reactionTargetId && (
-        <ReactionPicker
-          visible
-          onSelect={handleReactionSelect}
-          onClose={() => setReactionTargetId(null)}
-          existingReactions={reactionsMap?.[reactionTargetId]}
-          extraActions={
-            <>
-              {isCommissioner && isLeagueChat && (
-                <TouchableOpacity
-                  style={[styles.pinAction, { backgroundColor: c.card, borderColor: c.border }]}
-                  onPress={handleTogglePin}
-                  accessibilityRole="button"
-                  accessibilityLabel={pinnedIds.has(reactionTargetId) ? 'Unpin message' : 'Pin message'}
-                >
-                  <Ionicons
-                    name={pinnedIds.has(reactionTargetId) ? 'pin-outline' : 'pin'}
-                    size={18}
-                    color={pinnedIds.has(reactionTargetId) ? c.secondaryText : c.accent}
-                    accessible={false}
-                  />
-                  <ThemedText style={{ fontSize: ms(15), fontWeight: '600', color: pinnedIds.has(reactionTargetId) ? c.secondaryText : c.accent }}>
-                    {pinnedIds.has(reactionTargetId) ? 'Unpin' : 'Pin'}
-                  </ThemedText>
-                </TouchableOpacity>
-              )}
-              {messages.find((m) => m.id === reactionTargetId)?.team_id === teamId && (
-                <TouchableOpacity
-                  style={[styles.pinAction, { backgroundColor: c.card, borderColor: c.border }]}
-                  onPress={handleUnsend}
-                  accessibilityRole="button"
-                  accessibilityLabel="Unsend message"
-                >
-                  <Ionicons name="trash-outline" size={18} color={c.danger} accessible={false} />
-                  <ThemedText style={{ fontSize: ms(15), fontWeight: '600', color: c.danger }}>
-                    Unsend
-                  </ThemedText>
-                </TouchableOpacity>
-              )}
-            </>
-          }
-        />
-      )}
+      {reactionTargetId && (() => {
+        const targetMessage = messages.find((m) => m.id === reactionTargetId);
+        const isOwnTarget = targetMessage?.team_id === teamId;
+        const isPinnedTarget = pinnedIds.has(reactionTargetId);
+        // Trade announcements, trade-update events, and rumors are
+        // system-authored even though they carry a team_id — they shouldn't
+        // be unsendable since deleting them would erase auditable league
+        // history (and the rumor mill is anonymized fiction anyway).
+        const isUnsendable =
+          targetMessage?.type !== 'trade' &&
+          targetMessage?.type !== 'trade_update' &&
+          targetMessage?.type !== 'rumor';
+
+        const actions: MessageAction[] = [];
+        if (isCommissioner && isLeagueChat) {
+          actions.push({
+            id: 'pin',
+            label: isPinnedTarget ? 'Unpin' : 'Pin',
+            icon: isPinnedTarget ? 'pin-outline' : 'pin',
+            onPress: handleTogglePin,
+          });
+        }
+        if (isOwnTarget && isUnsendable) {
+          actions.push({
+            id: 'unsend',
+            label: 'Unsend',
+            icon: 'trash-outline',
+            onPress: handleUnsend,
+            destructive: true,
+          });
+        }
+        if (!isOwnTarget && targetMessage?.team_id != null) {
+          actions.push({
+            id: 'report',
+            label: 'Report',
+            icon: 'flag-outline',
+            onPress: handleReport,
+          });
+          actions.push({
+            id: 'block',
+            label: 'Block User',
+            icon: 'ban-outline',
+            onPress: handleBlock,
+            destructive: true,
+          });
+        }
+
+        return (
+          <MessageActionMenu
+            visible
+            onClose={() => setReactionTargetId(null)}
+            onReactionSelect={handleReactionSelect}
+            actions={actions}
+            existingReactions={reactionsMap?.[reactionTargetId]}
+          />
+        );
+      })()}
+
+      <ReportReasonSheet
+        visible={!!reportingMessageId}
+        onClose={() => setReportingMessageId(null)}
+        onSubmit={handleSubmitReport}
+      />
+
 
       {showCreatePoll && leagueId && conversationId && teamId && (
         <CreatePollModal
@@ -848,44 +952,16 @@ export default function ConversationScreen() {
       />
 
 
-      <Modal
+      <PresenceListSheet
         visible={showPresenceList}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowPresenceList(false)}
-      >
-        <Pressable style={styles.presenceOverlay} onPress={() => setShowPresenceList(false)}>
-          <View style={[styles.presenceModal, { backgroundColor: c.card, borderColor: c.border }]}>
-            <ThemedText type="defaultSemiBold" style={{ marginBottom: 8 }}>
-              Online ({onlineCount}/{convMeta?.memberCount ?? '?'})
-            </ThemedText>
-            <FlatList
-              data={[
-                { team_id: teamId!, team_name: myTeamName ?? 'Me', tricode: myTricode ?? '', online: true, last_read_message_id: null },
-                ...readReceipts,
-              ]}
-              keyExtractor={(item) => item.team_id}
-              renderItem={({ item, index }) => (
-                <View style={[styles.presenceRow, { borderBottomColor: c.border }, index === readReceipts.length && { borderBottomWidth: 0 }]}>
-                  <TeamLogo
-                    logoKey={teamLogoMap?.[item.team_id] ?? null}
-                    teamName={item.team_name}
-                    tricode={item.tricode}
-                    size="small"
-                  />
-                  <ThemedText
-                    style={[!item.online && { opacity: 0.5 }]}
-                    accessibilityLabel={`${item.team_name} is ${item.online ? 'online' : 'offline'}`}
-                  >
-                    {item.team_name}
-                  </ThemedText>
-                  {item.online && <View style={[styles.onlineDot, { backgroundColor: c.success }]} />}
-                </View>
-              )}
-            />
-          </View>
-        </Pressable>
-      </Modal>
+        onClose={() => setShowPresenceList(false)}
+        readReceipts={readReceipts}
+        myTeamId={teamId!}
+        myTeamName={myTeamName ?? 'Me'}
+        myTricode={myTricode}
+        teamLogoMap={teamLogoMap}
+        memberCount={convMeta?.memberCount}
+      />
 
       {/* Pinned messages sheet */}
       <Modal
@@ -1018,37 +1094,25 @@ const styles = StyleSheet.create({
     paddingVertical: s(16),
   },
   dateHeader: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: s(10),
     paddingVertical: s(12),
+    paddingHorizontal: s(20),
+  },
+  dateRule: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
   },
   dateHeaderText: {
-    fontSize: ms(12),
-    fontWeight: '500',
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(10),
+    letterSpacing: 1.2,
   },
   onlineDot: {
     width: s(8),
     height: s(8),
     borderRadius: 4,
-  },
-  presenceOverlay: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
-  presenceModal: {
-    width: s(300),
-    maxHeight: '70%',
-    borderRadius: 12,
-    padding: s(16),
-    borderWidth: 1,
-  },
-  presenceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(8),
-    paddingVertical: s(8),
-    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   utilityRow: {
     flexDirection: 'row',
@@ -1062,6 +1126,7 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     justifyContent: 'flex-end',
+    overflow: 'hidden',
   },
   pinnedPill: {
     flexDirection: 'row',
@@ -1072,8 +1137,9 @@ const styles = StyleSheet.create({
     borderRadius: s(13),
   },
   pinnedPillCount: {
-    fontSize: ms(12),
-    fontWeight: '700',
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(10),
+    letterSpacing: 0.5,
   },
   filterIconButton: {
     width: s(26),
@@ -1128,20 +1194,5 @@ const styles = StyleSheet.create({
   },
   pinnedItemDate: {
     fontSize: ms(11),
-  },
-  pinAction: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(8),
-    paddingHorizontal: s(16),
-    paddingVertical: s(12),
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    marginTop: s(8),
-    elevation: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
   },
 });

@@ -13,6 +13,7 @@ import { Colors, cardShadow } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
+import { logger } from '@/utils/logger';
 import { ms, s } from '@/utils/scale';
 
 interface Draft {
@@ -125,7 +126,7 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
       .eq('id', draft.id);
 
     if (error) {
-      console.error('Draft scheduling error:', error);
+      logger.error('Draft scheduling failed', error);
       Alert.alert('Error', 'Failed to schedule draft');
       return;
     }
