@@ -4,11 +4,11 @@ import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { ArchiveTeamLogo } from '@/components/playoff-archive/ArchiveTeamLogo';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Fonts } from '@/constants/Colors';
+import { useArchiveColors } from '@/hooks/useArchiveColors';
 import {
   useArchiveAwards,
   useArchiveBracket,
 } from '@/hooks/useArchivePlayoffs';
-import { useArchiveColors } from '@/hooks/useArchiveColors';
 import type {
   ArchiveAwardEntry,
   ArchiveFranchiseSeason,
@@ -190,7 +190,7 @@ function SoloAwardRow({
   const Wrapper = onPress ? TouchableOpacity : View;
   return (
     <Wrapper
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-explicit-any
+       
       {...(onPress ? ({ onPress, activeOpacity: 0.7 } as any) : {})}
       style={[
         styles.soloRow,

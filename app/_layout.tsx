@@ -720,6 +720,10 @@ export default function RootLayout() {
                         options={{ headerShown: false }}
                       />
                       <Stack.Screen
+                        name="playoff-archive-nhl"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
                         name="lottery-room"
                         options={{ headerShown: false }}
                       />

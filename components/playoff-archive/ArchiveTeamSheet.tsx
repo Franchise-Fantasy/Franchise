@@ -7,8 +7,8 @@ import { BottomSheet } from '@/components/ui/BottomSheet';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Brand, Fonts } from '@/constants/Colors';
-import { useArchiveAwards, useArchiveTeamRun } from '@/hooks/useArchivePlayoffs';
 import { useArchiveColors } from '@/hooks/useArchiveColors';
+import { useArchiveAwards, useArchiveTeamRun } from '@/hooks/useArchivePlayoffs';
 import type {
   ArchiveAwardEntry,
   ArchiveSeries,

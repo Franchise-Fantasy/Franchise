@@ -5,8 +5,8 @@ import { FlatList, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { ArchiveTeamLogo } from '@/components/playoff-archive/ArchiveTeamLogo';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { ThemedText } from '@/components/ui/ThemedText';
-import type { ArchiveSeasonRow } from '@/hooks/useArchivePlayoffs';
 import { useArchiveColors } from '@/hooks/useArchiveColors';
+import type { ArchiveSeasonRow } from '@/hooks/useArchivePlayoffs';
 import { ms, s } from '@/utils/scale';
 
 interface Props {
