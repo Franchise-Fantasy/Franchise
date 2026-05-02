@@ -13,12 +13,12 @@ import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { useSession } from '@/context/AuthProvider';
+import { useArchiveColors } from '@/hooks/useArchiveColors';
 import {
   useArchiveBracket,
   useArchiveSeasons,
   useArchiveStandings,
 } from '@/hooks/useArchivePlayoffs';
-import { useArchiveColors } from '@/hooks/useArchiveColors';
 import { isArchiveFlagOn } from '@/utils/featureFlags';
 import { s } from '@/utils/scale';
 

@@ -529,7 +529,17 @@ export function ProposeTradeModal({
   };
 
   const handleAddSwap = (forTeamId: string, season: string, round: number, beneficiaryTeamId?: string) => {
-    const beneficiaryId = beneficiaryTeamId ?? allTradeTeamIds.find((id) => id !== forTeamId) ?? teamId;
+    // Guard against the empty-string case from the swap picker — `??` only
+    // coalesces null/undefined, so a falsy `''` would otherwise leak through.
+    // No valid beneficiary means the swap can't be added at all.
+    const beneficiaryId =
+      (beneficiaryTeamId && beneficiaryTeamId !== forTeamId ? beneficiaryTeamId : null)
+      ?? allTradeTeamIds.find((id) => id !== forTeamId)
+      ?? null;
+    if (!beneficiaryId) {
+      Alert.alert('Add a partner first', 'Pick swaps need at least one other team in the trade.');
+      return;
+    }
     dispatch({
       type: 'ADD_SWAP',
       teamId: forTeamId,

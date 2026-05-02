@@ -103,7 +103,7 @@ export function TradeLane({
               onPress={() => onAddChipPress('pick')}
               accessibilityLabel={`Add pick from ${team.team_name}`}
             />
-            {pickConditionsEnabled && (
+            {pickConditionsEnabled && partnerTeams.length > 0 && (
               <BrandButton
                 label="Swap"
                 icon="add"
