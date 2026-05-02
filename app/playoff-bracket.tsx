@@ -308,7 +308,7 @@ export default function PlayoffBracketScreen() {
       {/* Seed pick CTA banner — turfGreen broadcast surface, ecru text */}
       {pendingPick && (
         <TouchableOpacity
-          style={[styles.pickBanner, { backgroundColor: Brand.turfGreen }]}
+          style={[styles.pickBanner, { backgroundColor: c.primary }]}
           onPress={() => setSeedPickVisible(true)}
           accessibilityRole="button"
           accessibilityLabel="It's your turn to pick an opponent"

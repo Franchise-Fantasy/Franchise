@@ -117,7 +117,7 @@ export default function BlockedUsersScreen() {
       style={[styles.container, { backgroundColor: c.background }]}
       edges={['top']}
     >
-      <PageHeader title="Blocked Users" hideSport />
+      <PageHeader title="Blocked Users" />
       <ScrollView contentContainerStyle={styles.content}>
         <ThemedText style={[styles.intro, { color: c.secondaryText }]}>
           Blocked users can't message you in DMs, and their messages and reactions are hidden in any league chat you share. They aren't notified.

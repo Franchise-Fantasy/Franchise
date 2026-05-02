@@ -1,30 +1,23 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
-import {
-  Animated,
-  Dimensions,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { useState } from 'react';
+import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { DropPickerSection } from '@/components/trade/DropPickerSection';
 import { LeakRumorSheet } from '@/components/trade/LeakRumorSheet';
 import { TradeActionBar } from '@/components/trade/TradeActionBar';
 import { TradeFairnessBar } from '@/components/trade/TradeFairnessBar';
 import { TradeSideSummary } from '@/components/trade/TradeSideSummary';
+import { TradeStatusBadge } from '@/components/trade/TradeStatusBadge';
 import { TradeStatusTimeline } from '@/components/trade/TradeStatusTimeline';
+import { Badge } from '@/components/ui/Badge';
+import { BottomSheet } from '@/components/ui/BottomSheet';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useCanLeak } from '@/hooks/chat/useLeakRumor';
 import { useGetTradeConversation } from '@/hooks/chat/useTradeChat';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { useTradeDetailActions } from '@/hooks/useTradeDetailActions';
 import { TradeItemRow, TradeProposalRow, useTradeVotes } from '@/hooks/useTrades';
@@ -52,24 +45,6 @@ function getNewItemKeys(items: TradeItemRow[], originalItems?: TradeItemRow[]): 
     if (!origKeys.has(key)) newKeys.add(key);
   }
   return newKeys;
-}
-
-function getStatusLabel(status: string): string {
-  return status.replace(/_/g, ' ');
-}
-
-function getStatusColors(c: typeof Colors['light']): Record<string, string> {
-  return {
-    pending: c.warning,
-    accepted: c.link,
-    in_review: c.link,
-    pending_drops: c.warning,
-    completed: c.success,
-    rejected: c.danger,
-    cancelled: c.secondaryText,
-    vetoed: c.danger,
-    reversed: c.secondaryText,
-  };
 }
 
 function computeFairness(
@@ -123,30 +98,12 @@ interface TradeDetailModalProps {
 // ── Component ────────────────────────────────────────────────────────────
 
 export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounteroffer, onEdit }: TradeDetailModalProps) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
 
   const router = useRouter();
   const [showLeakSheet, setShowLeakSheet] = useState(false);
   const [showDropPicker, setShowDropPicker] = useState(false);
   const [selectedDropPlayerIds, setSelectedDropPlayerIds] = useState<string[]>([]);
-
-  const slideAnim = useRef(new Animated.Value(Dimensions.get('window').height)).current;
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 1, duration: 250, useNativeDriver: true }),
-      Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, bounciness: 0, speed: 14 }),
-    ]).start();
-  }, []);
-
-  const handleClose = () => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
-      Animated.timing(slideAnim, { toValue: Dimensions.get('window').height, duration: 200, useNativeDriver: true }),
-    ]).start(() => onClose());
-  };
 
   // ── Derived state ──
 
@@ -366,8 +323,23 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
 
   const vetoCount = (votes ?? []).filter((v: any) => v.vote === 'veto').length;
   const hasVoted = (votes ?? []).some((v: any) => v.team_id === teamId);
-  const STATUS_COLORS = getStatusColors(c);
-  const statusColor = STATUS_COLORS[proposal.status] ?? c.secondaryText;
+
+  // Terminal banner color — picked from the brand palette per outcome.
+  // Solid surfaces for affirmative finals (turfGreen for completed),
+  // merlot for negative finals (rejected, vetoed), neutral for cancelled
+  // / reversed.
+  const terminalBg =
+    proposal.status === 'completed'
+      ? c.successMuted
+      : proposal.status === 'rejected' || proposal.status === 'vetoed'
+        ? c.dangerMuted
+        : c.cardAlt;
+  const terminalFg =
+    proposal.status === 'completed'
+      ? c.success
+      : proposal.status === 'rejected' || proposal.status === 'vetoed'
+        ? c.danger
+        : c.secondaryText;
 
   const leakPlayers = proposal.items
     .filter((i) => i.player_id && i.player_name)
@@ -382,7 +354,7 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
       { proposalId: proposal.id, teamIds },
       {
         onSuccess: (conversationId) => {
-          handleClose();
+          onClose();
           setTimeout(() => router.push(`/chat/${conversationId}`), 300);
         },
       },
@@ -390,92 +362,99 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
   };
 
   // ── Render ──
+  // The shell is the shared `BottomSheet` primitive: handle pill, gold rule,
+  // built-in close button, and footer slot for the action bar. The leak
+  // view replaces the body and footer; back-arrow `headerAction` returns
+  // to the trade view without dismissing the whole sheet.
+
+  const headerAction = showLeakSheet ? (
+    <TouchableOpacity
+      onPress={() => setShowLeakSheet(false)}
+      accessibilityRole="button"
+      accessibilityLabel="Back to trade details"
+      hitSlop={12}
+      style={styles.headerActionBtn}
+    >
+      <Ionicons name="arrow-back" size={22} color={c.text} />
+    </TouchableOpacity>
+  ) : (
+    <View style={styles.headerActionRow}>
+      <TradeStatusBadge status={proposal.status} />
+      {isCounteroffer && <Badge label="Counteroffer" variant="gold" />}
+      {isInvolved && (
+        <TouchableOpacity
+          onPress={handleOpenChat}
+          accessibilityRole="button"
+          accessibilityLabel="Open trade chat"
+          hitSlop={12}
+          style={styles.headerActionBtn}
+        >
+          <Ionicons
+            name="chatbubble-ellipses-outline"
+            size={20}
+            color={c.icon}
+            accessible={false}
+          />
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+
+  const footer = !showLeakSheet ? (
+    <TradeActionBar
+      state={{
+        processing: actions.processing,
+        status: proposal.status,
+        isInvolved,
+        isProposer,
+        isEditable,
+        isCommissioner: isCommissioner ?? false,
+        myTeamStatus,
+        hasVoted,
+        vetoType: leagueSettings?.trade_veto_type,
+        showDropPicker,
+        dropsReady: selectedDropPlayerIds.length >= dropsNeeded && dropsNeeded > 0,
+        needsMyDrop,
+        canLeak: !!(canLeak && !isTerminal && isInvolved && proposal.counteroffer_of && leakPlayers.length > 0),
+      }}
+      actions={{
+        onAccept: () => actions.handleAccept(() => setShowDropPicker(true)),
+        onReject: actions.handleReject,
+        onCancel: actions.handleCancel,
+        onEdit: onEdit ? () => onEdit(proposal) : undefined,
+        onCounteroffer: onCounteroffer ? () => onCounteroffer(proposal) : undefined,
+        onCommissionerApprove: actions.handleCommissionerApprove,
+        onCommissionerVeto: actions.handleCommissionerVeto,
+        onVoteToVeto: actions.handleVoteToVeto,
+        onSubmitDrop: actions.handleSubmitDrop,
+        onLeakToChat: () => setShowLeakSheet(true),
+      }}
+    />
+  ) : null;
 
   return (
-    <Modal visible animationType="none" transparent onRequestClose={handleClose}>
-      <View style={styles.overlay}>
-        <Animated.View style={[styles.scrim, { opacity: fadeAnim }]}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} accessibilityRole="button" accessibilityLabel="Close trade details" />
-        </Animated.View>
-        <Animated.View style={[styles.sheet, { backgroundColor: c.background, transform: [{ translateY: slideAnim }] }, showLeakSheet && styles.sheetExpanded]} accessibilityViewIsModal>
-
-          {/* ── Header ── */}
-          <View style={[styles.header, { borderBottomColor: c.border }]}>
-            <View style={styles.headerLeft}>
-              {showLeakSheet ? (
-                <TouchableOpacity
-                  onPress={() => setShowLeakSheet(false)}
-                  accessibilityRole="button"
-                  accessibilityLabel="Back to trade details"
-                  hitSlop={12}
-                >
-                  <Ionicons name="arrow-back" size={22} color={c.text} />
-                </TouchableOpacity>
-              ) : null}
-              <View>
-                {showLeakSheet ? (
-                  <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.headerTitle}>
-                    Leak to Chat
-                  </ThemedText>
-                ) : (
-                  <View style={styles.headerTitleRow}>
-                    <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.headerTitle}>
-                      Trade Details
-                    </ThemedText>
-                    <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-                      <ThemedText style={[styles.statusText, { color: c.statusText }]}>
-                        {getStatusLabel(proposal.status)}
-                      </ThemedText>
-                    </View>
-                    {isCounteroffer && (
-                      <View style={[styles.statusBadge, { backgroundColor: c.accent }]}>
-                        <ThemedText style={[styles.statusText, { color: c.statusText }]}>counteroffer</ThemedText>
-                      </View>
-                    )}
-                  </View>
-                )}
-              </View>
-            </View>
-            <View style={styles.headerRight}>
-              {!showLeakSheet && isInvolved && (
-                <TouchableOpacity
-                  onPress={handleOpenChat}
-                  accessibilityRole="button"
-                  accessibilityLabel="Open trade chat"
-                  hitSlop={12}
-                  style={[styles.chatBtn, { backgroundColor: c.accent }]}
-                >
-                  <Ionicons name="chatbubble-ellipses" size={15} color={c.statusText} />
-                  <ThemedText style={[styles.chatBtnLabel, { color: c.statusText }]}>Chat</ThemedText>
-                </TouchableOpacity>
-              )}
-              <TouchableOpacity
-                onPress={handleClose}
-                accessibilityRole="button"
-                accessibilityLabel="Close trade details"
-                hitSlop={12}
-                style={[styles.closeBtn, { backgroundColor: c.cardAlt }]}
-              >
-                <Ionicons name="close" size={18} color={c.secondaryText} />
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* ── Leak sheet ── */}
-          {showLeakSheet ? (
-            <LeakRumorSheet
-              proposalId={proposal.id}
-              leagueId={leagueId}
-              teamId={teamId}
-              players={leakPlayers}
-              onDone={() => setShowLeakSheet(false)}
-            />
-          ) : (
-            <>
-              <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-
-                {/* Status timeline */}
-                <TradeStatusTimeline status={proposal.status} reviewCountdown={reviewCountdown} />
+    <BottomSheet
+      visible
+      onClose={onClose}
+      title={showLeakSheet ? 'Leak to Chat' : 'Trade Details'}
+      headerAction={headerAction}
+      height="85%"
+      scrollableBody={false}
+      bodyStyle={styles.body}
+      footer={footer}
+    >
+      {showLeakSheet ? (
+        <LeakRumorSheet
+          proposalId={proposal.id}
+          leagueId={leagueId}
+          teamId={teamId}
+          players={leakPlayers}
+          onDone={() => setShowLeakSheet(false)}
+        />
+      ) : (
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          {/* Status timeline */}
+          <TradeStatusTimeline status={proposal.status} reviewCountdown={reviewCountdown} />
 
                 {/* Veto info */}
                 {proposal.status === 'in_review' && leagueSettings?.trade_veto_type === 'league_vote' && (
@@ -550,17 +529,25 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
                   />
                 )}
 
-                {/* Trade note */}
+                {/* Trade note — gold-rule "NOTE" eyebrow + body. */}
                 {proposal.notes && (
                   <View style={[styles.noteCard, { backgroundColor: c.cardAlt, borderColor: c.border }]}>
-                    <ThemedText style={[styles.noteLabel, { color: c.secondaryText }]}>Note</ThemedText>
-                    <ThemedText style={styles.noteText}>{proposal.notes}</ThemedText>
+                    <View style={styles.noteEyebrowRow}>
+                      <View style={[styles.noteEyebrowRule, { backgroundColor: c.gold }]} />
+                      <ThemedText
+                        type="varsitySmall"
+                        style={[styles.noteEyebrow, { color: c.gold }]}
+                      >
+                        Note
+                      </ThemedText>
+                    </View>
+                    <ThemedText style={[styles.noteText, { color: c.text }]}>{proposal.notes}</ThemedText>
                   </View>
                 )}
 
-                {/* Terminal status explanation */}
+                {/* Terminal status banner — brand-tinted by outcome. */}
                 {isTerminal && (
-                  <View style={[styles.terminalBanner, { backgroundColor: statusColor + '18' }]}>
+                  <View style={[styles.terminalBanner, { backgroundColor: terminalBg }]}>
                     <Ionicons
                       name={
                         proposal.status === 'completed' ? 'checkmark-circle'
@@ -569,9 +556,9 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
                         : 'arrow-undo'
                       }
                       size={18}
-                      color={statusColor}
+                      color={terminalFg}
                     />
-                    <ThemedText style={[styles.terminalText, { color: statusColor }]}>
+                    <ThemedText style={[styles.terminalText, { color: terminalFg }]}>
                       {proposal.status === 'completed' ? 'This trade has been completed.'
                        : proposal.status === 'rejected' ? 'This trade was declined.'
                        : proposal.status === 'vetoed' ? 'This trade was vetoed.'
@@ -579,126 +566,37 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
                        : 'This trade was reversed.'}
                     </ThemedText>
                   </View>
-                )}
-              </ScrollView>
-
-              {/* ── Action bar ── */}
-              <TradeActionBar
-                state={{
-                  processing: actions.processing,
-                  status: proposal.status,
-                  isInvolved,
-                  isProposer,
-                  isEditable,
-                  isCommissioner: isCommissioner ?? false,
-                  myTeamStatus,
-                  hasVoted,
-                  vetoType: leagueSettings?.trade_veto_type,
-                  showDropPicker,
-                  dropsReady: selectedDropPlayerIds.length >= dropsNeeded && dropsNeeded > 0,
-                  needsMyDrop,
-                  canLeak: !!(canLeak && !isTerminal && isInvolved && proposal.counteroffer_of && leakPlayers.length > 0),
-                }}
-                actions={{
-                  onAccept: () => actions.handleAccept(() => setShowDropPicker(true)),
-                  onReject: actions.handleReject,
-                  onCancel: actions.handleCancel,
-                  onEdit: onEdit ? () => onEdit(proposal) : undefined,
-                  onCounteroffer: onCounteroffer ? () => onCounteroffer(proposal) : undefined,
-                  onCommissionerApprove: actions.handleCommissionerApprove,
-                  onCommissionerVeto: actions.handleCommissionerVeto,
-                  onVoteToVeto: actions.handleVoteToVeto,
-                  onSubmitDrop: actions.handleSubmitDrop,
-                  onLeakToChat: () => setShowLeakSheet(true),
-                }}
-              />
-            </>
           )}
-        </Animated.View>
-      </View>
-    </Modal>
+        </ScrollView>
+      )}
+    </BottomSheet>
   );
 }
 
 // ── Styles ──────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  scrim: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
-  sheet: {
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    maxHeight: '92%',
-    paddingBottom: s(32),
-  },
-  sheetExpanded: {
+  // BottomSheet body inherits the primitive's chrome — keep no horizontal
+  // padding here so children can drive their own.
+  body: {
+    paddingHorizontal: 0,
+    paddingBottom: 0,
     flex: 1,
   },
 
-  // Header
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    padding: s(16),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  headerLeft: {
+  // Header chip cluster — status badge + counteroffer + chat button
+  // (or a back arrow when leaking).
+  headerActionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: s(10),
-    flex: 1,
+    gap: s(6),
   },
-  headerTitle: {
-    fontSize: ms(18),
-  },
-  headerTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(8),
-  },
-  statusBadge: {
-    paddingHorizontal: s(8),
-    paddingVertical: s(3),
-    borderRadius: 5,
-  },
-  statusText: {
-    fontSize: ms(11),
-    fontWeight: '700',
-    textTransform: 'capitalize',
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(8),
-  },
-  chatBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(4),
-    paddingHorizontal: s(10),
-    paddingVertical: s(6),
-    borderRadius: 8,
-  },
-  chatBtnLabel: {
-    fontSize: ms(13),
-    fontWeight: '600',
-  },
-  closeBtn: {
-    width: s(30),
-    height: s(30),
-    borderRadius: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
+  headerActionBtn: {
+    padding: s(4),
   },
 
-  // Content
+  // Body content — padding lives here so the BottomSheet's body wrapper
+  // stays neutral.
   content: {
     padding: s(16),
     gap: s(14),
@@ -753,18 +651,23 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
-  // Note
+  // Note — gold-rule "NOTE" eyebrow + body, brand chrome consistent with
+  // the eyebrow rhythm used in TradeSideSummary's receives blocks.
   noteCard: {
-    borderWidth: 1,
-    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 8,
     padding: s(12),
-    gap: s(4),
+    gap: s(6),
   },
-  noteLabel: {
-    fontSize: ms(11),
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+  noteEyebrowRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(8),
+  },
+  noteEyebrowRule: { height: 2, width: s(14) },
+  noteEyebrow: {
+    fontSize: ms(9),
+    letterSpacing: 1.4,
   },
   noteText: {
     fontSize: ms(14),

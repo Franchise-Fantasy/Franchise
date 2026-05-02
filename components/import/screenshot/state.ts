@@ -4,6 +4,7 @@ import {
   DEFAULT_CATEGORIES,
   DEFAULT_ROSTER_SLOTS,
   DEFAULT_SCORING,
+  getCurrentSeason,
   type LeagueWizardState,
 } from '@/constants/LeagueDefaults';
 import type {
@@ -125,7 +126,7 @@ export const initialWizard: LeagueWizardState = {
   waiverPeriodDays: 2,
   faabBudget: 100,
   waiverDayOfWeek: 3,
-  season: CURRENT_NBA_SEASON,
+  season: getCurrentSeason('nba'),
   seasonStartDate: null,
   regularSeasonWeeks: Math.max(1, maxWeeks - 3),
   playoffWeeks: 3,
@@ -168,8 +169,24 @@ export function reducer(state: ScreenshotImportState, action: Action): Screensho
     case 'HYDRATE':
       return action.state;
 
-    case 'SET_WIZARD_FIELD':
-      return { ...state, wizardState: { ...state.wizardState, [action.field]: action.value } };
+    case 'SET_WIZARD_FIELD': {
+      const next = { ...state.wizardState, [action.field]: action.value };
+      // When sport changes, snap the season string to that sport's default and
+      // recompute week boundaries from the new season's start date. Mirrors
+      // the create-league reducer.
+      if (action.field === 'sport') {
+        const newSport = action.value as 'nba' | 'wnba';
+        const newSeason = getCurrentSeason(newSport);
+        const newMax = computeMaxWeeks(newSeason, newSport);
+        const playoffWeeks = Math.min(next.playoffWeeks, Math.max(1, newMax - 1));
+        const regularSeasonWeeks = Math.min(next.regularSeasonWeeks, Math.max(1, newMax - playoffWeeks));
+        return {
+          ...state,
+          wizardState: { ...next, season: newSeason, seasonStartDate: null, regularSeasonWeeks, playoffWeeks },
+        };
+      }
+      return { ...state, wizardState: next };
+    }
 
     case 'SET_SCORING': {
       const scoring = [...state.wizardState.scoring];

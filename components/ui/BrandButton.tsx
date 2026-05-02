@@ -9,7 +9,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 
-import { Brand, Colors } from '@/constants/Colors';
+import { Colors } from '@/constants/Colors';
 import { useColors } from '@/hooks/useColors';
 import { ms, s } from '@/utils/scale';
 
@@ -114,10 +114,11 @@ export function BrandButton({
 function resolveColors(variant: BrandButtonVariant, c: typeof Colors.light) {
   switch (variant) {
     case 'primary':
-      // Filled turfGreen on light surfaces — the brand's structural
-      // authority color. Ecru text mirrors the landing-page hero CTA
-      // ("JOIN WAITLIST" — green fill, cream text, varsity caps).
-      return { bg: Brand.turfGreen, fg: Brand.ecru, border: 'transparent' };
+      // Filled with the active league's primary brand color (turfGreen
+      // for NBA, merlot for WNBA) — the structural authority color.
+      // Ecru text mirrors the landing-page hero CTA ("JOIN WAITLIST" —
+      // green fill, cream text, varsity caps).
+      return { bg: c.primary, fg: c.onPrimary, border: 'transparent' };
     case 'secondary':
       // Outlined, transparent fill. Text + border share the theme's
       // primary text color so the button reads as "same weight as

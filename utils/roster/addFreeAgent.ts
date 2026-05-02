@@ -25,6 +25,21 @@ export async function addFreeAgent(params: {
   // Block the add if this team has any healthy player parked on IR.
   await assertNoIllegalIR(leagueId, teamId);
 
+  // Block the add if pending trades would push the team over its roster
+  // size after this player is added (counting already-queued drops).
+  const { error: guardError } = await supabase.rpc("assert_can_add_free_agent", {
+    p_league_id: leagueId,
+    p_team_id: teamId,
+  });
+  if (guardError) {
+    if (guardError.message?.includes("pending_trades_would_overflow_roster")) {
+      throw new Error(
+        "You have a pending trade that would put you over your roster limit. Resolve the trade or drop a player first.",
+      );
+    }
+    throw guardError;
+  }
+
   // Determine if the add is locked
   let locked = false;
   if (playerLockType === "daily") {

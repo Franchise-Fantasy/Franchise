@@ -237,6 +237,19 @@ export function getSeasonEnd(sport: Sport, season: string): string | undefined {
   return sport === 'wnba' ? WNBA_SEASON_END[season] : NBA_SEASON_END[season];
 }
 
+// Format a season string from its starting calendar year, sport-aware.
+// NBA seasons span two years ('2025-26'); WNBA seasons are single-year ('2026').
+export function formatSeason(startYear: number, sport: Sport): string {
+  if (sport === 'wnba') return String(startYear);
+  return `${startYear}-${String((startYear + 1) % 100).padStart(2, '0')}`;
+}
+
+// Inverse of formatSeason — extracts the starting calendar year. Works for
+// both formats since WNBA has no dash (split('-')[0] returns the whole string).
+export function parseSeasonStartYear(season: string): number {
+  return parseInt(season.split('-')[0], 10);
+}
+
 export type DraftType = (typeof DRAFT_TYPE_OPTIONS)[number];
 export type TimePerPick = (typeof TIME_PER_PICK_OPTIONS)[number];
 
@@ -283,7 +296,7 @@ export interface LeagueWizardState {
   venmoUsername: string;
   cashappTag: string;
   paypalUsername: string;
-  /** null = no max, 1 = rookies only, 2-4 = max years of NBA experience */
+  /** null = no max, 1 = rookies only, 2-4 = max years of pro experience */
   taxiMaxExperience: number | null;
   /** null = unlimited, positive = max adds per matchup week */
   weeklyAcquisitionLimit: number | null;

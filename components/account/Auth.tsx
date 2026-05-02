@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import {
   Alert,
   AppState,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -92,6 +93,7 @@ export default function Auth() {
   const [otpToken, setOtpToken] = useState('');
   const [pendingVerification, setPendingVerification] = useState(false);
   const [modeLabel, setModeLabel] = useState<ModeLabel>('Sign In');
+  const [showPassword, setShowPassword] = useState(false);
   const isSignUp = modeLabel === 'Create Account';
 
   async function signInWithEmail() {
@@ -131,6 +133,10 @@ export default function Auth() {
       .maybeSingle();
 
     capture('sign_in', { method: 'email' });
+    // Dismiss keyboard before navigating so the focused TextInput resigns while
+    // the auth screen is still mounted — avoids a UIKit/MobileKeyBag crash on
+    // resignFirstResponder during unmount (seen via react-native-keyboard-controller).
+    Keyboard.dismiss();
     router.replace(team?.league_id ? '/(tabs)' : '/(setup)');
     setLoading(false);
   }
@@ -185,6 +191,7 @@ export default function Auth() {
       setLoading(false);
       return;
     }
+    Keyboard.dismiss();
     router.replace('/(setup)');
     setLoading(false);
   }
@@ -243,6 +250,7 @@ export default function Auth() {
         .single();
 
       capture('sign_in', { method: 'google' });
+      Keyboard.dismiss();
       router.replace(team?.league_id ? '/(tabs)' : '/(setup)');
     } catch (err: any) {
       if (
@@ -304,6 +312,7 @@ export default function Auth() {
         .single();
 
       capture('sign_in', { method: 'apple' });
+      Keyboard.dismiss();
       router.replace(team?.league_id ? '/(tabs)' : '/(setup)');
     } catch (err: any) {
       if (err.code === 'ERR_REQUEST_CANCELED') {
@@ -433,10 +442,25 @@ export default function Auth() {
                   value={password}
                   onChangeText={setPassword}
                   placeholder="Password"
-                  secureTextEntry
+                  secureTextEntry={!showPassword}
                   autoCapitalize="none"
                   textContentType={isSignUp ? 'newPassword' : 'password'}
                   accessibilityLabel="Password"
+                  rightAccessory={
+                    <TouchableOpacity
+                      onPress={() => setShowPassword((v) => !v)}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                      accessibilityState={{ selected: showPassword }}
+                    >
+                      <Ionicons
+                        name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                        size={ms(20)}
+                        color={c.secondaryText}
+                      />
+                    </TouchableOpacity>
+                  }
                 />
               </View>
 

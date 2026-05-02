@@ -1,8 +1,7 @@
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Brand, Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { ms, s } from '@/utils/scale';
 
 interface BrandSegmentedProps<T extends string> {
@@ -34,8 +33,7 @@ export function BrandSegmented<T extends string>({
   onSelect,
   noBaseline = false,
 }: BrandSegmentedProps<T>) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
 
   return (
     <View
@@ -72,7 +70,7 @@ export function BrandSegmented<T extends string>({
             <View
               style={[
                 styles.indicator,
-                isSelected && { backgroundColor: Brand.turfGreen },
+                isSelected && { backgroundColor: c.primary },
               ]}
             />
           </TouchableOpacity>

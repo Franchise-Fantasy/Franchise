@@ -4,9 +4,9 @@ import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-nati
 import { TeamLogo } from '@/components/team/TeamLogo';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Brand, Colors, Fonts } from '@/constants/Colors';
+import { Brand, Fonts } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { useSeasonStandings } from '@/hooks/useLeagueHistory';
 import { ms, s } from '@/utils/scale';
 
@@ -15,8 +15,7 @@ interface StandingsHistoryProps {
 }
 
 export function StandingsHistory({ leagueId }: StandingsHistoryProps) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const { teamId } = useAppState();
   const { data: standings, isLoading } = useSeasonStandings(leagueId);
   const [selectedSeason, setSelectedSeason] = useState<string | null>(null);
@@ -66,7 +65,7 @@ export function StandingsHistory({ leagueId }: StandingsHistoryProps) {
                 styles.pill,
                 { borderColor: c.border },
                 isSelected
-                  ? { backgroundColor: Brand.turfGreen, borderColor: Brand.turfGreen }
+                  ? { backgroundColor: c.primary, borderColor: c.primary }
                   : { backgroundColor: c.cardAlt },
               ]}
               onPress={() => setSelectedSeason(season)}

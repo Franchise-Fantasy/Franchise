@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
+import { formatSeason, getCurrentSeason, parseSeasonStartYear, type Sport } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { sendNotification } from '@/lib/notifications';
 import { supabase } from '@/lib/supabase';
@@ -46,6 +46,42 @@ export interface TradeProposalRow {
   original_items?: TradeItemRow[];
 }
 
+/**
+ * Batched lookup of `external_id_nba` for every player referenced across
+ * a list of proposals. One round-trip, deduped across all cards on the
+ * same surface, so list views (the trades page, league history, chat)
+ * can render player headshots without N+1 queries.
+ */
+export function useTradeProposalsHeadshots(proposals: TradeProposalRow[] | undefined) {
+  const playerIds = [
+    ...new Set(
+      (proposals ?? [])
+        .flatMap((p) => p.items)
+        .map((i) => i.player_id)
+        .filter((id): id is string => !!id),
+    ),
+  ].sort();
+
+  return useQuery<Record<string, string | null>>({
+    queryKey: ['tradePlayerHeadshots', playerIds.join(',')],
+    queryFn: async () => {
+      if (playerIds.length === 0) return {};
+      const { data, error } = await supabase
+        .from('player_season_stats')
+        .select('player_id, external_id_nba')
+        .in('player_id', playerIds);
+      if (error) throw error;
+      const map: Record<string, string | null> = {};
+      for (const row of data ?? []) {
+        if (row.player_id) map[row.player_id] = row.external_id_nba ?? null;
+      }
+      return map;
+    },
+    enabled: playerIds.length > 0,
+    staleTime: 1000 * 60 * 10,
+  });
+}
+
 export function useTradeProposals(leagueId: string | null) {
   return useQuery<TradeProposalRow[]>({
     queryKey: queryKeys.tradeProposals(leagueId!),
@@ -88,11 +124,12 @@ export function useTeamTradablePicks(teamId: string | null, leagueId: string | n
       // Get max_future_seasons + offseason state from league
       const { data: league, error: leagueError } = await supabase
         .from('leagues')
-        .select('max_future_seasons, offseason_step, lottery_status')
+        .select('max_future_seasons, offseason_step, lottery_status, season, sport')
         .eq('id', leagueId!)
         .single();
       if (leagueError) throw leagueError;
 
+      const sport = (league?.sport as Sport | null) ?? 'nba';
       const offseasonStep = league?.offseason_step as string | null;
       const lotteryComplete =
         league?.lottery_status === 'complete' ||
@@ -102,16 +139,13 @@ export function useTeamTradablePicks(teamId: string | null, leagueId: string | n
         offseasonStep === 'ready_for_new_season';
 
       const maxFuture = league?.max_future_seasons ?? 3;
-      // Parse current season start year (e.g., '2025-26' -> 2025)
-      const currentStartYear = parseInt(CURRENT_NBA_SEASON.split('-')[0], 10);
+      const currentStartYear = parseSeasonStartYear(league?.season ?? getCurrentSeason(sport));
 
       // Current season (for in-progress initial draft) + future rookie drafts.
       // max_future_seasons=3 means the next 3 rookie drafts (offset 1..3 from current season).
       const validSeasons: string[] = [];
       for (let i = 0; i <= maxFuture; i++) {
-        const startYear = currentStartYear + i;
-        const endYear = (startYear + 1) % 100;
-        validSeasons.push(`${startYear}-${String(endYear).padStart(2, '0')}`);
+        validSeasons.push(formatSeason(currentStartYear + i, sport));
       }
 
       // Fetch picks owned by this team that haven't been used

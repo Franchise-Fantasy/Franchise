@@ -39,6 +39,7 @@ import { type ModalAction } from "@/components/ui/InlineAction";
 import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
+import { getCurrentSeason } from "@/constants/LeagueDefaults";
 import { queryKeys } from "@/constants/queryKeys";
 import { useAppState } from "@/context/AppStateProvider";
 import { useActionPicker } from "@/context/ConfirmProvider";
@@ -1062,10 +1063,14 @@ export default function RosterScreen() {
         return;
       }
 
-      // 2. Batch-fetch NBA schedule for the entire date range
+      // 2. Batch-fetch the league's pro schedule for the date range. Sport +
+      // season filters are required so a WNBA league doesn't pull NBA games
+      // (and vice-versa) for tricodes that collide across both pools.
       const { data: nbaGames } = await supabase
         .from("game_schedule")
         .select("game_date, home_team, away_team")
+        .eq("sport", sport)
+        .eq("season", getCurrentSeason(sport))
         .not("game_id", "like", "001%")
         .gte("game_date", dates[0])
         .lte("game_date", dates[dates.length - 1]);

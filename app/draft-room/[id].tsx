@@ -2,18 +2,20 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, FlatList, Modal, Pressable, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Alert, FlatList, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PresenceAvatars } from '@/components/chat/PresenceAvatars';
+import { PresenceListSheet, type PresenceEntry } from '@/components/chat/PresenceListSheet';
 import { AvailablePlayers } from '@/components/draft/AvailablePlayers';
 import { DraftChatModal } from '@/components/draft/DraftChatModal';
 import { DraftOrder, PresenceTeam } from '@/components/draft/DraftOrder';
 import { DraftQueue } from '@/components/draft/DraftQueue';
 import { TeamRoster } from '@/components/draft/TeamRoster';
-import { TeamLogo } from '@/components/team/TeamLogo';
 import { ProposeTradeModal } from '@/components/trade/ProposeTradeModal';
 import { TradeDetailModal } from '@/components/trade/TradeDetailModal';
+import { Badge } from '@/components/ui/Badge';
+import { BrandButton } from '@/components/ui/BrandButton';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ThemedView } from '@/components/ui/ThemedView';
@@ -31,6 +33,51 @@ import { CurrentPick, DraftState } from '@/types/draft';
 import { ms, s } from '@/utils/scale';
 
 type ViewMode = 'players' | 'roster' | 'queue' | 'trades';
+
+/**
+ * Bottom-bar tab — varsity caps with gold-underline active. Subordinate
+ * to the page header chrome above; matches the within-tab filter pattern
+ * used in ByYearTab + ProspectsTab so the room reads as one consistent
+ * surface rather than competing pill rows.
+ */
+function ToggleTab({
+  label,
+  active,
+  onPress,
+  colors,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+  colors: typeof Colors.light;
+}) {
+  return (
+    <TouchableOpacity
+      style={styles.toggleButton}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ selected: active }}
+      activeOpacity={0.7}
+    >
+      <ThemedText
+        type="varsity"
+        style={[
+          styles.toggleText,
+          { color: active ? colors.text : colors.secondaryText },
+        ]}
+      >
+        {label}
+      </ThemedText>
+      <View
+        style={[
+          styles.toggleUnderline,
+          { backgroundColor: active ? colors.gold : 'transparent' },
+        ]}
+      />
+    </TouchableOpacity>
+  );
+}
 
 
 
@@ -67,9 +114,15 @@ export default function DraftRoomScreen() {
     },
   });
 
-  // Derive convenience accessors from the init RPC
+  // Derive convenience accessors from the init RPC.
+  // teamData is memoized because it feeds the presenceEntries useMemo
+  // below — without memoization a new object identity every render
+  // would invalidate the entries list and force re-renders downstream.
   const draftData = initData ? { league_id: initData.draft.league_id, type: initData.draft.type } : undefined;
-  const teamData = initData?.team ? { ...initData.team, isCommissioner: initData.team.is_commissioner } : undefined;
+  const teamData = useMemo(
+    () => (initData?.team ? { ...initData.team, isCommissioner: initData.team.is_commissioner } : undefined),
+    [initData?.team],
+  );
   const isRookieDraft = draftData?.type === 'rookie';
   const draftPickTradingEnabled = initData?.draft_pick_trading_enabled ?? false;
 
@@ -143,6 +196,34 @@ export default function DraftRoomScreen() {
     [presentTeams],
   );
 
+  // Build PresenceEntry[] for the shared "Who's Here" sheet. Self is
+  // always online (we're rendering this screen), and we tag isMe so the
+  // sheet labels us "(you)".
+  const presenceEntries: PresenceEntry[] = useMemo(() => {
+    if (!teamData) return [];
+    const seen = new Set([teamData.id]);
+    const entries: PresenceEntry[] = [
+      {
+        team_id: teamData.id,
+        team_name: teamData.name,
+        tricode: teamData.tricode ?? '',
+        online: true,
+        isMe: true,
+      },
+    ];
+    for (const t of presentTeams) {
+      if (seen.has(t.teamId)) continue;
+      seen.add(t.teamId);
+      entries.push({
+        team_id: t.teamId,
+        team_name: t.teamName,
+        tricode: t.tricode ?? '',
+        online: true,
+      });
+    }
+    return entries;
+  }, [presentTeams, teamData]);
+
   const { addToQueue, queuedPlayerIds } = useDraftQueue(
     draftId,
     teamData?.id || '',
@@ -177,15 +258,19 @@ export default function DraftRoomScreen() {
       // Turning ON
       const enable = async () => {
         setAutopickOn(true);
-        supabase.rpc('set_autopick', {
+        const { error } = await supabase.rpc('set_autopick', {
           p_draft_id: draftId,
           p_team_id: teamData.id,
           p_enabled: true,
-        }).then(() => {
-          if (isMyTurn) {
-            supabase.functions.invoke('trigger-autopick', { body: { draft_id: draftId } });
-          }
         });
+        if (error) {
+          setAutopickOn(false);
+          Alert.alert('Error', 'Failed to turn on autopick. Please try again.');
+          return;
+        }
+        if (isMyTurn) {
+          supabase.functions.invoke('trigger-autopick', { body: { draft_id: draftId } });
+        }
       };
 
       if (isMyTurn) {
@@ -219,18 +304,21 @@ export default function DraftRoomScreen() {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
         <ThemedView style={[styles.header, { borderBottomColor: colors.border }]}>
-          <TouchableOpacity style={styles.headerButton} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back">
-            <IconSymbol name="chevron.backward" size={20} color={colors.icon} accessible={false} />
-          </TouchableOpacity>
-          <ThemedText
-            type="varsity"
-            style={[styles.headerText, { color: colors.secondaryText }]}
-            numberOfLines={1}
-            accessibilityRole="header"
-          >
-            Draft
-          </ThemedText>
-          <View style={styles.headerButton} />
+          <View style={styles.headerLeft}>
+            <TouchableOpacity style={styles.headerButton} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back">
+              <IconSymbol name="chevron.backward" size={20} color={colors.icon} accessible={false} />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.headerTitleAbsolute} pointerEvents="none">
+            <ThemedText
+              type="varsity"
+              style={[styles.headerText, { color: colors.secondaryText }]}
+              numberOfLines={1}
+              accessibilityRole="header"
+            >
+              Draft
+            </ThemedText>
+          </View>
         </ThemedView>
         <ThemedText style={{ textAlign: 'center', marginTop: s(40), fontSize: ms(15), color: colors.secondaryText }}>
           Draft not found
@@ -241,46 +329,59 @@ export default function DraftRoomScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Header — title is absolutely centered (PageHeader rhythm) so the
+          left+right cluster widths can grow without shifting it sideways.
+          Left: back chevron → AUTO badge. Right: chat icon → presence
+          avatars. AUTO sits on the left so the right cluster stays focused
+          on communication chrome (chat + who's here) and the presence
+          avatars aren't crowded by a wide neutral pill. */}
       <ThemedView style={[styles.header, { borderBottomColor: colors.border }]}>
-        <TouchableOpacity
-          style={styles.headerButton}
-          onPress={() => router.back()}
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-        >
-          <IconSymbol name="chevron.backward" size={20} color={colors.icon} accessible={false} />
-        </TouchableOpacity>
-
-        <ThemedText
-          type="varsity"
-          style={[styles.headerText, { color: colors.secondaryText }]}
-          numberOfLines={1}
-          accessibilityRole="header"
-        >
-          {isDraftComplete
-            ? (isRookieDraft ? 'Rookie Draft Complete' : 'Draft Complete')
-            : (isRookieDraft ? 'Rookie Draft' : 'Draft Room')}
-        </ThemedText>
-
-        <View style={styles.headerRight}>
+        <View style={styles.headerLeft}>
+          <TouchableOpacity
+            style={styles.headerButton}
+            onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
+            <IconSymbol name="chevron.backward" size={20} color={colors.icon} accessible={false} />
+          </TouchableOpacity>
           {!isDraftComplete && teamData && (
             <TouchableOpacity
               onPress={handleAutopickToggle}
-              style={[
-                styles.autoBadge,
-                { borderColor: autopickOn ? colors.success : colors.border },
-                autopickOn && { backgroundColor: colors.successMuted },
-              ]}
               accessibilityRole="button"
               accessibilityLabel={autopickOn ? 'Disable autopick' : 'Enable autopick'}
               accessibilityState={{ selected: autopickOn }}
+              hitSlop={8}
+              style={styles.autoBadge}
             >
-              <ThemedText style={[
-                styles.autoBadgeText,
-                { color: autopickOn ? colors.success : colors.secondaryText },
-              ]}>
-                AUTO
-              </ThemedText>
+              <Badge label="Auto" variant={autopickOn ? 'turf' : 'neutral'} />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        <View style={styles.headerTitleAbsolute} pointerEvents="none">
+          <ThemedText
+            type="varsity"
+            style={[styles.headerText, { color: colors.secondaryText }]}
+            numberOfLines={1}
+            accessibilityRole="header"
+          >
+            {isDraftComplete
+              ? (isRookieDraft ? 'Rookie Draft Complete' : 'Draft Complete')
+              : (isRookieDraft ? 'Rookie Draft' : 'Draft Room')}
+          </ThemedText>
+        </View>
+
+        <View style={styles.headerRight}>
+          {teamData && (
+            <TouchableOpacity
+              onPress={() => setShowChat(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Open league chat"
+              hitSlop={6}
+              style={styles.chatIconButton}
+            >
+              <Ionicons name="chatbubble-ellipses-outline" size={20} color={colors.icon} />
             </TouchableOpacity>
           )}
           {!isDraftComplete && teamData && (
@@ -299,11 +400,24 @@ export default function DraftRoomScreen() {
 
       <View style={styles.content}>
         {isDraftComplete ? (
-          <View style={[styles.completeBanner, { backgroundColor: colors.activeCard, borderBottomColor: colors.activeBorder }]}>
-            <ThemedText type="defaultSemiBold" style={{ color: colors.activeText }}>
-              {isRookieDraft ? 'The rookie draft is over!' : 'The draft is over!'}
+          <View style={[styles.completeBanner, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
+            <View style={styles.completeEyebrowRow}>
+              <View style={[styles.completeRule, { backgroundColor: colors.gold }]} />
+              <ThemedText
+                type="varsitySmall"
+                style={[styles.completeEyebrow, { color: colors.gold }]}
+              >
+                {isRookieDraft ? 'Rookie Draft' : 'Final'}
+              </ThemedText>
+            </View>
+            <ThemedText
+              type="display"
+              style={[styles.completeTitle, { color: colors.text }]}
+              accessibilityRole="header"
+            >
+              {isRookieDraft ? 'Rookies are in.' : 'The draft is in.'}
             </ThemedText>
-            <ThemedText style={{ color: colors.secondaryText, fontSize: ms(13), marginTop: s(2) }}>
+            <ThemedText style={[styles.completeSubtitle, { color: colors.secondaryText }]}>
               {isRookieDraft
                 ? 'Check your new rookies. Head back to the home screen.'
                 : 'Free agency is now open. Head back to the home screen.'}
@@ -344,15 +458,16 @@ export default function DraftRoomScreen() {
             />
           ) : viewMode === 'trades' ? (
             <View style={{ flex: 1 }}>
-              <TouchableOpacity
-                style={[styles.proposeBtn, { backgroundColor: colors.accent }]}
-                onPress={() => setShowTradeModal(true)}
-                accessibilityRole="button"
-                accessibilityLabel="Propose a new trade"
-              >
-                <Ionicons name="add" size={18} color={colors.statusText} accessible={false} />
-                <ThemedText style={{ color: colors.statusText, fontWeight: '600', fontSize: ms(14) }}>Propose Trade</ThemedText>
-              </TouchableOpacity>
+              <View style={styles.proposeWrap}>
+                <BrandButton
+                  label="Propose Trade"
+                  icon="add"
+                  onPress={() => setShowTradeModal(true)}
+                  variant="primary"
+                  fullWidth
+                  accessibilityLabel="Propose a new trade"
+                />
+              </View>
               <FlatList
                 data={(tradeProposals ?? []).filter((p) => ['pending', 'in_review'].includes(p.status))}
                 keyExtractor={(item) => item.id}
@@ -367,26 +482,31 @@ export default function DraftRoomScreen() {
                     (t) => t.team_id === teamData?.id && t.status === 'pending',
                   ) && item.proposed_by_team_id !== teamData?.id;
                   const teamNames = item.teams.map((t) => t.team_name).join(' ↔ ');
+                  const pickCount = item.items.filter((i) => i.draft_pick_id).length;
+                  const playerCount = item.items.filter((i) => i.player_id).length;
                   return (
                     <TouchableOpacity
-                      style={[styles.tradeRow, { borderBottomColor: colors.border }, needsResponse && { backgroundColor: colors.activeCard }]}
+                      style={[styles.tradeRow, { borderBottomColor: colors.border }]}
                       onPress={() => setSelectedProposal(item)}
                       accessibilityRole="button"
                       accessibilityLabel={`Trade between ${teamNames}${needsResponse ? ', needs your response' : ''}`}
                     >
                       <View style={{ flex: 1 }}>
-                        <ThemedText type="defaultSemiBold" style={{ fontSize: ms(14) }} numberOfLines={1}>
+                        <ThemedText type="defaultSemiBold" style={styles.tradeRowTitle} numberOfLines={1}>
                           {teamNames}
                         </ThemedText>
-                        <ThemedText style={{ fontSize: ms(12), color: colors.secondaryText, marginTop: s(2) }}>
-                          {item.items.filter((i) => i.draft_pick_id).length} pick(s) · {item.items.filter((i) => i.player_id).length} player(s)
+                        <ThemedText style={[styles.tradeRowMeta, { color: colors.secondaryText }]}>
+                          <ThemedText style={[styles.tradeRowCount, { color: colors.secondaryText }]}>
+                            {pickCount}
+                          </ThemedText>
+                          {`  pick${pickCount === 1 ? '' : 's'}  ·  `}
+                          <ThemedText style={[styles.tradeRowCount, { color: colors.secondaryText }]}>
+                            {playerCount}
+                          </ThemedText>
+                          {`  player${playerCount === 1 ? '' : 's'}`}
                         </ThemedText>
                       </View>
-                      {needsResponse && (
-                        <View style={[styles.responseBadge, { backgroundColor: colors.accent }]}>
-                          <ThemedText style={{ color: colors.statusText, fontSize: ms(10), fontWeight: '800' }}>RESPOND</ThemedText>
-                        </View>
-                      )}
+                      {needsResponse && <Badge label="Respond" variant="merlot" size="small" />}
                       <Ionicons name="chevron-forward" size={16} color={colors.secondaryText} accessible={false} />
                     </TouchableOpacity>
                   );
@@ -401,113 +521,56 @@ export default function DraftRoomScreen() {
           )}
         </View>
 
-        {/* Toggle Buttons — bottom bar */}
+        {/* Bottom toggle bar — varsity caps with gold-underline active.
+            Matches the within-tab filter rhythm used in ByYearTab and
+            ProspectsTab so the room reads as one consistent surface. */}
         <View style={[styles.toggleContainer, { borderTopColor: colors.border, backgroundColor: colors.background }]}>
-          <TouchableOpacity
-            style={[
-              styles.toggleButton,
-              viewMode === 'players' && { backgroundColor: colors.activeCard }
-            ]}
+          <ToggleTab
+            label="Players"
+            active={viewMode === 'players'}
             onPress={() => setViewMode('players')}
-            accessibilityRole="button"
-            accessibilityLabel="Available Players"
-            accessibilityState={{ selected: viewMode === 'players' }}
-          >
-            <ThemedText style={[
-              { color: colors.secondaryText },
-              viewMode === 'players' && { color: colors.activeText, fontWeight: 'bold' }
-            ]}>
-              Players
-            </ThemedText>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.toggleButton,
-              viewMode === 'queue' && { backgroundColor: colors.activeCard }
-            ]}
+            colors={colors}
+          />
+          <ToggleTab
+            label="Queue"
+            active={viewMode === 'queue'}
             onPress={() => setViewMode('queue')}
-            accessibilityRole="button"
-            accessibilityLabel="Draft Queue"
-            accessibilityState={{ selected: viewMode === 'queue' }}
-          >
-            <ThemedText style={[
-              { color: colors.secondaryText },
-              viewMode === 'queue' && { color: colors.activeText, fontWeight: 'bold' }
-            ]}>
-              Queue
-            </ThemedText>
-          </TouchableOpacity>
+            colors={colors}
+          />
           {showTradeButton && (
-            <TouchableOpacity
-              style={[
-                styles.toggleButton,
-                viewMode === 'trades' && { backgroundColor: colors.activeCard },
-              ]}
+            <ToggleTab
+              label={myPendingCount > 0 ? `Trades (${myPendingCount})` : 'Trades'}
+              active={viewMode === 'trades'}
               onPress={() => setViewMode('trades')}
-              accessibilityRole="button"
-              accessibilityLabel="Trades"
-              accessibilityState={{ selected: viewMode === 'trades' }}
-            >
-              <ThemedText style={[
-                { color: colors.secondaryText },
-                viewMode === 'trades' && { color: colors.activeText, fontWeight: 'bold' },
-              ]}>
-                Trades{myPendingCount > 0 ? ` (${myPendingCount})` : ''}
-              </ThemedText>
-            </TouchableOpacity>
+              colors={colors}
+            />
           )}
-          <TouchableOpacity
-            style={[
-              styles.toggleButton,
-              viewMode === 'roster' && { backgroundColor: colors.activeCard }
-            ]}
+          <ToggleTab
+            label="My Team"
+            active={viewMode === 'roster'}
             onPress={() => setViewMode('roster')}
-            accessibilityRole="button"
-            accessibilityLabel="My Team"
-            accessibilityState={{ selected: viewMode === 'roster' }}
-          >
-            <ThemedText style={[
-              { color: colors.secondaryText },
-              viewMode === 'roster' && { color: colors.activeText, fontWeight: 'bold' }
-            ]}>
-              My Team
-            </ThemedText>
-          </TouchableOpacity>
+            colors={colors}
+          />
         </View>
       </View>
 
-      <Modal
-        visible={showPresenceList}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowPresenceList(false)}
-      >
-        <Pressable style={styles.presenceOverlay} onPress={() => setShowPresenceList(false)}>
-          <View style={[styles.presenceModal, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <ThemedText type="defaultSemiBold" style={{ marginBottom: s(8) }}>
-              Online ({presentTeams.length}/{draftState?.picks_per_round ?? '?'})
-            </ThemedText>
-            <FlatList
-              data={presentTeams}
-              keyExtractor={(item) => item.teamId}
-              renderItem={({ item, index }) => (
-                <View style={[styles.presenceRow, { borderBottomColor: colors.border }, index === presentTeams.length - 1 && { borderBottomWidth: 0 }]}>
-                  <TeamLogo
-                    logoKey={item.logoKey}
-                    teamName={item.teamName}
-                    tricode={item.tricode}
-                    size="small"
-                  />
-                  <ThemedText accessibilityLabel={`${item.teamName} is online`}>
-                    {item.teamName}
-                  </ThemedText>
-                  <View style={[styles.onlineDot, { backgroundColor: colors.success }]} />
-                </View>
-              )}
-            />
-          </View>
-        </Pressable>
-      </Modal>
+      {/* Presence list — same BottomSheet treatment as the league chat
+          ("Who's Here"). Online teams come from Supabase channel presence;
+          offline teams aren't tracked here so the sheet shows online-only,
+          which is consistent with the in-room expectation that a team is
+          either subscribed to the draft channel or not. */}
+      {teamData && (
+        <PresenceListSheet
+          visible={showPresenceList}
+          onClose={() => setShowPresenceList(false)}
+          entries={presenceEntries}
+          myTeamId={teamData.id}
+          myTeamName={teamData.name}
+          myTricode={teamData.tricode ?? ''}
+          teamLogoMap={presenceLogoMap}
+          memberCount={draftState?.picks_per_round ?? presentTeams.length}
+        />
+      )}
 
       {showTradeModal && draftData?.league_id && teamData?.id && (
         <ProposeTradeModal
@@ -534,19 +597,9 @@ export default function DraftRoomScreen() {
         />
       )}
 
-      {/* Floating chat button */}
-      {teamData && (
-        <TouchableOpacity
-          style={[styles.chatFab, { backgroundColor: colors.accent }]}
-          onPress={() => setShowChat(true)}
-          activeOpacity={0.8}
-          accessibilityRole="button"
-          accessibilityLabel="Open league chat"
-        >
-          <Ionicons name="chatbubble-ellipses" size={22} color={colors.statusText} />
-        </TouchableOpacity>
-      )}
-
+      {/* Chat is opened from the header icon (top-right). The previous
+          floating FAB lived above the bottom toggle bar and competed with
+          it visually, so it's been folded into the header chrome. */}
       {draftData?.league_id && teamData?.id && (
         <DraftChatModal
           visible={showChat}
@@ -567,91 +620,105 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    padding: s(8),
+    paddingHorizontal: s(8),
+    paddingVertical: s(8),
     borderBottomWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     height: s(50),
     justifyContent: 'space-between',
   },
+  // Title is absolutely centered (matches the PageHeader pattern) so the
+  // right cluster's width can grow without shifting the title off-center.
+  headerTitleAbsolute: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   headerText: {
-    flex: 1,
-    textAlign: 'center',
     fontFamily: Fonts.varsityBold,
     fontSize: ms(12),
     letterSpacing: 1.2,
-    marginHorizontal: s(40),
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(4),
   },
   headerButton: {
     padding: s(8),
     width: s(36),
     alignItems: 'center',
   },
+  autoBadge: {
+    marginLeft: s(2),
+  },
   content: {
     flex: 1,
   },
   toggleContainer: {
     flexDirection: 'row',
-    padding: s(8),
+    paddingHorizontal: s(8),
+    paddingTop: s(6),
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   toggleButton: {
     flex: 1,
-    paddingVertical: s(10),
     alignItems: 'center',
-    borderRadius: 8,
+    paddingTop: s(8),
+  },
+  toggleText: {
+    fontSize: ms(11),
+    letterSpacing: 1.0,
+  },
+  toggleUnderline: {
+    marginTop: s(6),
+    height: 2,
+    width: '100%',
+    minWidth: s(28),
   },
   mainContent: {
     flex: 1,
   },
+  // Complete banner — gold-rule eyebrow + Alfa Slab title in the brand voice
   completeBanner: {
-    padding: s(12),
-    borderBottomWidth: 1,
+    paddingHorizontal: s(16),
+    paddingVertical: s(16),
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  completeEyebrowRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: s(10),
+    marginBottom: s(6),
+  },
+  completeRule: { height: 2, width: s(18) },
+  completeEyebrow: { fontSize: ms(10), letterSpacing: 1.4 },
+  completeTitle: {
+    fontSize: ms(20),
+    lineHeight: ms(24),
+    letterSpacing: -0.3,
+  },
+  completeSubtitle: {
+    fontSize: ms(12),
+    lineHeight: ms(16),
+    marginTop: s(4),
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: s(8),
   },
-  onlineDot: {
-    width: s(8),
-    height: s(8),
-    borderRadius: 4,
+  chatIconButton: {
+    padding: s(4),
   },
-  presenceOverlay: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
-  presenceModal: {
-    width: s(300),
-    maxHeight: '70%',
-    borderRadius: 12,
-    padding: s(16),
-    borderWidth: 1,
-  },
-  presenceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(8),
-    paddingVertical: s(8),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  autoBadge: {
-    paddingHorizontal: s(8),
-    paddingVertical: s(3),
-    borderRadius: 6,
-    borderWidth: 1.5,
-  },
-  proposeBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: s(6),
-    margin: s(12),
-    paddingVertical: s(10),
-    borderRadius: 8,
+  proposeWrap: {
+    paddingHorizontal: s(12),
+    paddingTop: s(12),
+    paddingBottom: s(8),
   },
   tradeRow: {
     flexDirection: 'row',
@@ -659,31 +726,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: s(16),
     paddingVertical: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
-    gap: s(8),
+    gap: s(10),
   },
-  responseBadge: {
-    paddingHorizontal: s(8),
-    paddingVertical: s(3),
-    borderRadius: 6,
-  },
-  autoBadgeText: {
-    fontSize: ms(10),
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  chatFab: {
-    position: 'absolute',
-    right: s(16),
-    bottom: s(60),
-    width: s(48),
-    height: s(48),
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
+  tradeRowTitle: { fontSize: ms(14) },
+  tradeRowMeta: { fontSize: ms(12), marginTop: s(2) },
+  tradeRowCount: {
+    fontFamily: Fonts.mono,
+    fontSize: ms(12),
   },
 });

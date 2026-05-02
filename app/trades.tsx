@@ -6,7 +6,6 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -16,6 +15,8 @@ import { ProposeTradeModal } from "@/components/trade/ProposeTradeModal";
 import { TradeBlockSheet } from "@/components/trade/TradeBlockSheet";
 import { TradeCard } from "@/components/trade/TradeCard";
 import { TradeDetailModal } from "@/components/trade/TradeDetailModal";
+import { Badge } from "@/components/ui/Badge";
+import { BrandButton } from "@/components/ui/BrandButton";
 import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
@@ -29,6 +30,7 @@ import {
   TradeProposalRow,
   useTradeBlock,
   useTradeProposals,
+  useTradeProposalsHeadshots,
 } from "@/hooks/useTrades";
 import { supabase } from "@/lib/supabase";
 import { ms } from "@/utils/scale";
@@ -90,6 +92,10 @@ export default function Trades() {
 
   const { data: proposals, isLoading, refetch: refetchProposals } = useTradeProposals(leagueId);
   const { data: tradeBlock, refetch: refetchTradeBlock } = useTradeBlock(leagueId);
+  // Single batched fetch of every player headshot referenced across all
+  // visible proposals — pushed down to each TradeCard so cards don't
+  // each issue their own query.
+  const { data: playerHeadshotMap } = useTradeProposalsHeadshots(proposals);
   const [refreshing, setRefreshing] = useState(false);
   const lastRefresh = useRef(0);
 
@@ -161,39 +167,65 @@ export default function Trades() {
     <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
       <PageHeader title="Trade Room" />
 
-      {/* Propose Trade Button / Deadline Banner */}
-      {isPastDeadline ? (
-        <View
-          style={[
-            styles.deadlineBanner,
-            { backgroundColor: c.card, borderColor: c.border },
-          ]}
-        >
+      {/* Trade Floor banner — strong type on the page surface, no
+          turfGreen card (HomeHero stays sacred to the home page). The
+          identity here is a giant outlined swap-arrow watermark behind a
+          centered Alfa Slab "Make a Move." plus a large filled CTA. */}
+      <View style={styles.dealSection}>
+        <View style={styles.dealWatermarkWrap} pointerEvents="none">
           <Ionicons
-            name="lock-closed"
-            size={14}
-            color={c.secondaryText}
+            name="swap-horizontal"
+            size={ms(170)}
+            color={c.gold}
+            style={styles.dealWatermark}
             accessible={false}
           />
-          <ThemedText style={[styles.deadlineText, { color: c.secondaryText }]}>
-            The trade deadline has passed. No new trades can be proposed.
-          </ThemedText>
         </View>
-      ) : (
-        <TouchableOpacity
-          style={[styles.proposeBtn, { backgroundColor: c.accent }]}
-          onPress={() => setShowPropose(true)}
-          activeOpacity={0.8}
-          accessibilityRole="button"
-          accessibilityLabel="Propose Trade"
-        >
-          <Text style={[styles.proposeBtnText, { color: c.accentText }]}>
-            + Propose Trade
-          </Text>
-        </TouchableOpacity>
-      )}
 
-      {/* Trade Block pill */}
+        <View style={styles.dealEyebrowRow}>
+          <View style={[styles.dealRule, { backgroundColor: c.gold }]} />
+          <ThemedText
+            type="varsitySmall"
+            style={[styles.dealEyebrow, { color: c.gold }]}
+            numberOfLines={1}
+          >
+            Front Office
+          </ThemedText>
+          <View style={[styles.dealRule, styles.dealRuleFlex, { backgroundColor: c.gold }]} />
+        </View>
+
+        <ThemedText
+          type="display"
+          style={[styles.dealTitle, { color: c.text }]}
+          accessibilityRole="header"
+        >
+          Make a Move.
+        </ThemedText>
+
+        {isPastDeadline ? (
+          <View style={[styles.dealDeadlineRow, { borderColor: c.border, backgroundColor: c.cardAlt }]}>
+            <Ionicons name="lock-closed" size={14} color={c.secondaryText} accessible={false} />
+            <ThemedText style={[styles.dealDeadlineText, { color: c.secondaryText }]}>
+              The trade deadline has passed. No new trades can be proposed.
+            </ThemedText>
+          </View>
+        ) : (
+          <View style={styles.dealCta}>
+            <BrandButton
+              label="Propose Trade"
+              icon="swap-horizontal"
+              variant="primary"
+              size="large"
+              fullWidth
+              onPress={() => setShowPropose(true)}
+              accessibilityLabel="Propose trade"
+            />
+          </View>
+        )}
+      </View>
+
+      {/* Trade Block pill — gold-rule eyebrow chip when trade block has
+          listings. Tap to open the BottomSheet of available players. */}
       {tab === 0 && hasTradeBlock && (
         <TouchableOpacity
           style={[
@@ -205,22 +237,23 @@ export default function Trades() {
           accessibilityRole="button"
           accessibilityLabel={`Trade Block, ${(tradeBlock ?? []).reduce((sum, g) => sum + g.players.length, 0)} players`}
         >
-          <View style={styles.tradeBlockPillIcon}>
-            <Ionicons
-              name="megaphone-outline"
-              size={13}
-              color={c.accent}
-              accessible={false}
-            />
-          </View>
-          <ThemedText style={styles.tradeBlockPillText}>Trade Block</ThemedText>
-          <View style={[styles.tradeBlockBadge, { backgroundColor: c.accent }]}>
-            <ThemedText
-              style={[styles.tradeBlockBadgeText, { color: c.accentText }]}
-            >
-              {(tradeBlock ?? []).reduce((sum, g) => sum + g.players.length, 0)}
-            </ThemedText>
-          </View>
+          <Ionicons
+            name="megaphone-outline"
+            size={13}
+            color={c.gold}
+            accessible={false}
+          />
+          <ThemedText
+            type="varsitySmall"
+            style={[styles.tradeBlockPillText, { color: c.gold }]}
+          >
+            Trade Block
+          </ThemedText>
+          <Badge
+            label={String((tradeBlock ?? []).reduce((sum, g) => sum + g.players.length, 0))}
+            variant="gold"
+            size="small"
+          />
         </TouchableOpacity>
       )}
 
@@ -252,6 +285,7 @@ export default function Trades() {
                 key={item.id}
                 proposal={item}
                 onPress={() => setSelectedProposal(item)}
+                playerHeadshotMap={playerHeadshotMap}
               />
             ))}
           </View>
@@ -343,31 +377,63 @@ const styles = StyleSheet.create({
     fontSize: ms(16),
     textAlign: "center",
   },
-  proposeBtn: {
-    marginHorizontal: 16,
-    marginTop: 10,
-    marginBottom: 6,
-    paddingVertical: 12,
-    borderRadius: 10,
+  // Trade Floor banner — type-driven, no surface card. The big outlined
+  // swap-horizontal icon sits behind the title at low opacity as a brand
+  // watermark, anchoring the section visually without copying HomeHero's
+  // turfGreen recipe.
+  dealSection: {
+    position: "relative",
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 14,
+    overflow: "hidden",
+  },
+  dealWatermarkWrap: {
+    position: "absolute",
+    right: -20,
+    top: -10,
+    bottom: 0,
+    width: 200,
+    alignItems: "flex-end",
+    justifyContent: "center",
+  },
+  dealWatermark: {
+    opacity: 0.08,
+  },
+  dealEyebrowRow: {
+    flexDirection: "row",
     alignItems: "center",
+    gap: 10,
+    marginBottom: 8,
   },
-  proposeBtnText: {
-    fontSize: ms(15),
-    fontWeight: "700",
+  dealRule: {
+    height: 2,
+    width: 18,
   },
-  deadlineBanner: {
+  dealRuleFlex: { flex: 1 },
+  dealEyebrow: {
+    fontSize: ms(10),
+    letterSpacing: 1.4,
+  },
+  dealTitle: {
+    fontSize: ms(32),
+    lineHeight: ms(36),
+    letterSpacing: -0.4,
+    marginBottom: 14,
+  },
+  dealCta: {
+    // BrandButton large + fullWidth carries its own size — no extra wrap.
+  },
+  dealDeadlineRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginHorizontal: 16,
-    marginTop: 10,
-    marginBottom: 6,
     paddingVertical: 12,
     paddingHorizontal: 14,
     borderRadius: 10,
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  deadlineText: {
+  dealDeadlineText: {
     fontSize: ms(13),
     flex: 1,
   },
@@ -375,41 +441,23 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
-  // Trade Block pill
+  // Trade Block pill — chip with gold accents matching the brand's
+  // varsity-caps eyebrow rhythm.
   tradeBlockPill: {
     flexDirection: "row",
     alignItems: "center",
     alignSelf: "flex-start",
-    gap: 6,
+    gap: 8,
     marginHorizontal: 16,
     marginBottom: 6,
     paddingVertical: 7,
     paddingHorizontal: 12,
     borderRadius: 20,
-    borderWidth: 1,
-  },
-  tradeBlockPillIcon: {
-    width: 14,
-    height: 14,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   tradeBlockPillText: {
-    fontSize: ms(13),
-    fontWeight: "600",
-  },
-  tradeBlockBadge: {
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 5,
-  },
-  tradeBlockBadgeText: {
-    fontSize: ms(11),
-    fontWeight: "700",
-    lineHeight: 20,
+    fontSize: ms(10),
+    letterSpacing: 1.2,
   },
 
   // Trade list

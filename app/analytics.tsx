@@ -27,6 +27,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { CatAnalytics } from "@/components/analytics/CatAnalytics";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
+import { Badge, type BadgeVariant } from "@/components/ui/Badge";
 import { InfoModal } from "@/components/ui/InfoModal";
 import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -34,8 +35,9 @@ import { ThemedText } from "@/components/ui/ThemedText";
 import {
   type PositionCurve,
 } from "@/constants/agingCurves";
-import { Colors } from "@/constants/Colors";
+import { Brand, Fonts, cardShadow } from "@/constants/Colors";
 import { useAppState } from "@/context/AppStateProvider";
+import { useColors } from "@/hooks/useColors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { useLeague } from "@/hooks/useLeague";
 import { useLeagueRosterStats } from "@/hooks/useLeagueRosterStats";
@@ -49,7 +51,6 @@ import {
   buildLeagueComparison,
   buildScatterData,
   calculateRosterAgeProfile,
-  getInsightText,
 } from "@/utils/roster/rosterAge";
 import { ms, s } from "@/utils/scale";
 import { getPositionCurveKey } from "@/utils/scoring/agingCurve";
@@ -60,9 +61,25 @@ const PAD = { top: s(16), right: s(12), bottom: s(36), left: s(40) };
 const CHART_HEIGHT = s(400);
 const DOT_RADIUS = s(6);
 
+// Maps an age bucket to the brand Badge variant. Rising → vintageGold,
+// prime → turfGreen, vet → merlot — same palette as AGE_BUCKET_COLORS.
+function bucketBadgeVariant(bucket: 'rising' | 'prime' | 'vet'): BadgeVariant {
+  if (bucket === 'rising') return 'gold';
+  if (bucket === 'prime') return 'turf';
+  return 'merlot';
+}
+
+// Same helper AnalyticsPreviewCard uses — keeps the ordinal text identical
+// across the home preview and the full analytics screen ("3rd", "1st", etc).
+function ordinalSuffix(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return s[(v - 20) % 10] || s[v] || s[0]!;
+}
+
 export default function AnalyticsScreen() {
   const scheme = useColorScheme() ?? "light";
-  const c = Colors[scheme];
+  const c = useColors();
   const isDark = scheme === "dark";
   const { leagueId, teamId } = useAppState();
 
@@ -107,11 +124,6 @@ export default function AnalyticsScreen() {
     if (!allPlayers?.length || !weights?.length || !teamId) return null;
     return buildLeagueComparison(allPlayers as any, weights, teamId);
   }, [allPlayers, weights, teamId]);
-
-  const insight = useMemo(() => {
-    if (!profile) return "";
-    return getInsightText(profile, comparison);
-  }, [profile, comparison]);
 
   // Detail card animation
   const detailOpacity = useSharedValue(0);
@@ -234,8 +246,18 @@ export default function AnalyticsScreen() {
             />
           ) : (
             <View style={styles.emptyState}>
-              <ThemedText style={{ color: c.secondaryText }}>
-                Not enough data to display analytics
+              <View style={[styles.emptyRule, { backgroundColor: c.gold }]} />
+              <ThemedText
+                type="display"
+                style={[styles.emptyTitle, { color: c.text }]}
+              >
+                Nothing to chart yet.
+              </ThemedText>
+              <ThemedText
+                type="varsitySmall"
+                style={[styles.emptySub, { color: c.secondaryText }]}
+              >
+                NO LEAGUE DATA · CHECK BACK SOON
               </ThemedText>
             </View>
           )
@@ -243,219 +265,178 @@ export default function AnalyticsScreen() {
           <View style={styles.loading}><LogoSpinner /></View>
         ) : !profile || profile.totalWithAge < 3 ? (
           <View style={styles.emptyState}>
-            <ThemedText style={{ color: c.secondaryText }}>
-              Not enough age data to display analytics
+            <View style={[styles.emptyRule, { backgroundColor: c.gold }]} />
+            <ThemedText
+              type="display"
+              style={[styles.emptyTitle, { color: c.text }]}
+            >
+              Not enough age data.
+            </ThemedText>
+            <ThemedText
+              type="varsitySmall"
+              style={[styles.emptySub, { color: c.secondaryText }]}
+            >
+              NEED AT LEAST 3 PLAYERS WITH AGES
             </ThemedText>
           </View>
         ) : (
           <>
-            {/* ── Narrative Card ── */}
+            {/* ── Narrative Card ── matches AnalyticsPreviewCard chrome
+                (heritage-gold surface + turf notch + column-divider-column),
+                adapted to three stat columns. */}
             <View
               style={[
-                styles.windowCard,
+                styles.narrativeCard,
                 {
-                  backgroundColor: isDark
-                    ? "rgba(96,165,250,0.06)"
-                    : "rgba(96,165,250,0.05)",
-                  borderColor: isDark
-                    ? "rgba(96,165,250,0.15)"
-                    : "rgba(96,165,250,0.2)",
+                  backgroundColor: c.heritageGoldMuted,
+                  borderColor: c.border,
+                  ...cardShadow,
                 },
               ]}
             >
-              <Text
-                style={[
-                  styles.windowLabel,
-                  { color: isDark ? "#60A5FA" : "#2563EB" },
-                ]}
+              <View style={[styles.topNotch, { backgroundColor: c.primary }]} />
+
+              <ThemedText
+                type="varsitySmall"
+                style={[styles.eyebrow, { color: c.primary }]}
               >
                 CHAMPIONSHIP WINDOW
-              </Text>
+              </ThemedText>
 
-              <View style={styles.agePillRow}>
-                {/* Weighted Age pill */}
-                <View
-                  style={[
-                    styles.agePill,
-                    {
-                      backgroundColor: skewsOlder
-                        ? isDark
-                          ? "rgba(129,140,248,0.08)"
-                          : "rgba(99,102,241,0.06)"
-                        : isDark
-                          ? "rgba(96,165,250,0.08)"
-                          : "rgba(37,99,235,0.06)",
-                      borderWidth: 1,
-                      borderColor: skewsOlder
-                        ? isDark
-                          ? "rgba(129,140,248,0.15)"
-                          : "rgba(99,102,241,0.15)"
-                        : isDark
-                          ? "rgba(96,165,250,0.15)"
-                          : "rgba(37,99,235,0.15)",
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[styles.agePillLabel, { color: c.secondaryText }]}
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                  >
-                    WEIGHTED AGE
-                  </Text>
-                  <Text style={[styles.agePillValue, { color: prodColor }]}>
-                    {profile.weightedProductionAge}
-                  </Text>
-                </View>
+              {(() => {
+                // Same two-column shape AnalyticsPreviewCard uses on the
+                // home screen — Weighted Age + League Position. Phrased
+                // from whichever end of the age scale is shorter so the
+                // ordinal stays small and easily-parsed.
+                const vsLeague = comparison
+                  ? profile.weightedProductionAge - comparison.leagueAvgWeightedAge
+                  : null;
+                let rankValue = '—';
+                let rankSub = '';
+                if (comparison) {
+                  const total = comparison.totalTeams;
+                  const fromYoungest = comparison.weightedAgeRank <= Math.ceil(total / 2);
+                  const n = fromYoungest
+                    ? comparison.weightedAgeRank
+                    : total - comparison.weightedAgeRank + 1;
+                  rankValue = `${n}${ordinalSuffix(n)}`;
+                  rankSub = `${fromYoungest ? 'youngest' : 'oldest'} of ${total}`;
+                }
+                return (
+                  <View style={styles.columnsRow}>
+                    <View style={styles.column}>
+                      <ThemedText
+                        type="varsitySmall"
+                        style={[styles.columnLabel, { color: c.secondaryText }]}
+                      >
+                        WEIGHTED AGE
+                      </ThemedText>
+                      <ThemedText
+                        type="display"
+                        style={[styles.columnBig, { color: c.text }]}
+                        numberOfLines={1}
+                      >
+                        {profile.weightedProductionAge}
+                      </ThemedText>
+                      {vsLeague !== null ? (
+                        <ThemedText
+                          type="varsitySmall"
+                          style={[styles.columnSub, { color: c.secondaryText }]}
+                        >
+                          {`${vsLeague >= 0 ? '+' : ''}${vsLeague.toFixed(1)}YR VS AVG`}
+                        </ThemedText>
+                      ) : null}
+                    </View>
 
-                {/* Age rank pill */}
-                <View
-                  style={[
-                    styles.agePill,
-                    {
-                      backgroundColor: isDark
-                        ? "rgba(255,255,255,0.04)"
-                        : "rgba(0,0,0,0.03)",
-                    },
-                  ]}
-                  accessibilityLabel={
-                    comparison
-                      ? `Age rank ${comparison.weightedAgeRank} of ${comparison.totalTeams}, youngest to oldest`
-                      : "Age rank unavailable"
-                  }
-                >
-                  <Text
-                    style={[styles.agePillLabel, { color: c.secondaryText }]}
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                  >
-                    AGE RANK
-                  </Text>
-                  <ThemedText style={styles.agePillValue}>
-                    {comparison
-                      ? `#${comparison.weightedAgeRank}`
-                      : "—"}
-                  </ThemedText>
-                  {comparison && (
-                    <Text
-                      style={[styles.agePillSub, { color: c.secondaryText }]}
-                      numberOfLines={1}
-                      adjustsFontSizeToFit
+                    <View style={[styles.columnDivider, { backgroundColor: c.border }]} />
+
+                    <View
+                      style={styles.column}
+                      accessibilityLabel={
+                        comparison
+                          ? `${rankValue} ${rankSub}`
+                          : 'League position unavailable'
+                      }
                     >
-                      youngest → oldest
-                    </Text>
-                  )}
-                </View>
-
-                {/* VS League pill */}
-                <View
-                  style={[
-                    styles.agePill,
-                    {
-                      backgroundColor: isDark
-                        ? "rgba(255,255,255,0.04)"
-                        : "rgba(0,0,0,0.03)",
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[styles.agePillLabel, { color: c.secondaryText }]}
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                  >
-                    VS LEAGUE
-                  </Text>
-                  <ThemedText style={styles.agePillValue}>
-                    {comparison
-                      ? `${(profile.weightedProductionAge - comparison.leagueAvgWeightedAge) >= 0 ? "+" : ""}${(profile.weightedProductionAge - comparison.leagueAvgWeightedAge).toFixed(1)}`
-                      : "—"}
-                  </ThemedText>
-                  {comparison && (
-                    <Text
-                      style={[styles.agePillSub, { color: c.secondaryText }]}
-                      numberOfLines={1}
-                      adjustsFontSizeToFit
-                    >
-                      yr
-                    </Text>
-                  )}
-                </View>
-              </View>
-
-              <Text style={[styles.windowInsight, { color: c.secondaryText }]}>
-                {insight}
-              </Text>
-
-              <View style={styles.bucketRow}>
-                <Text
-                  style={[styles.bucketText, { color: BUCKET_COLORS.rising }]}
-                >
-                  {profile.risingCount} rising
-                </Text>
-                <Text style={[styles.bucketDot, { color: c.secondaryText }]}>
-                  {" · "}
-                </Text>
-                <Text
-                  style={[styles.bucketText, { color: BUCKET_COLORS.prime }]}
-                >
-                  {profile.primeCount} prime
-                </Text>
-                <Text style={[styles.bucketDot, { color: c.secondaryText }]}>
-                  {" · "}
-                </Text>
-                <Text style={[styles.bucketText, { color: BUCKET_COLORS.vet }]}>
-                  {profile.vetCount} veteran
-                </Text>
-              </View>
+                      <ThemedText
+                        type="varsitySmall"
+                        style={[styles.columnLabel, { color: c.secondaryText }]}
+                      >
+                        LEAGUE POSITION
+                      </ThemedText>
+                      <ThemedText
+                        type="display"
+                        style={[styles.columnBig, { color: c.text }]}
+                        numberOfLines={1}
+                      >
+                        {rankValue}
+                      </ThemedText>
+                      {rankSub ? (
+                        <ThemedText
+                          type="varsitySmall"
+                          style={[styles.columnSub, { color: c.secondaryText }]}
+                        >
+                          {rankSub.toUpperCase()}
+                        </ThemedText>
+                      ) : null}
+                    </View>
+                  </View>
+                );
+              })()}
             </View>
 
-            {/* ── Position Curve Toggle ── */}
+            {/* ── Position Curve Toggle + Info ── WeekRail-style chips on
+                the left, info button on the far right (replaces the old
+                chart-overlay icon). */}
             <View style={styles.curveToggleRow}>
-              {(["ALL", "PG", "SG", "SF", "PF", "C"] as PositionCurve[]).map(
-                (key) => {
-                  const active = selectedCurve === key;
-                  return (
-                    <TouchableOpacity
-                      key={key}
-                      style={[
-                        styles.curveTogglePill,
-                        {
-                          backgroundColor: active
-                            ? isDark
-                              ? "rgba(255,255,255,0.12)"
-                              : "rgba(0,0,0,0.08)"
-                            : "transparent",
-                          borderColor: active
-                            ? isDark
-                              ? "rgba(255,255,255,0.2)"
-                              : "rgba(0,0,0,0.15)"
-                            : isDark
-                              ? "rgba(255,255,255,0.06)"
-                              : "rgba(0,0,0,0.06)",
-                        },
-                      ]}
-                      onPress={() => setSelectedCurve(key)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Show ${key === "ALL" ? "all positions" : key} aging curve`}
-                      accessibilityState={{ selected: active }}
-                    >
-                      <Text
+              <View style={styles.curveToggleChips}>
+                {(["ALL", "PG", "SG", "SF", "PF", "C"] as PositionCurve[]).map(
+                  (key) => {
+                    const active = selectedCurve === key;
+                    return (
+                      <TouchableOpacity
+                        key={key}
                         style={[
-                          styles.curveToggleText,
+                          styles.curveTogglePill,
                           {
-                            color: active
-                              ? c.text
-                              : c.secondaryText,
-                            fontWeight: active ? "700" : "500",
+                            backgroundColor: active ? c.gold : "transparent",
+                            borderColor: active ? c.gold : c.border,
                           },
                         ]}
+                        onPress={() => setSelectedCurve(key)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Show ${key === "ALL" ? "all positions" : key} aging curve`}
+                        accessibilityState={{ selected: active }}
+                        activeOpacity={0.7}
                       >
-                        {key}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                },
-              )}
+                        <ThemedText
+                          type="varsity"
+                          style={[
+                            styles.curveToggleText,
+                            { color: active ? Brand.ink : c.secondaryText },
+                          ]}
+                        >
+                          {key}
+                        </ThemedText>
+                      </TouchableOpacity>
+                    );
+                  },
+                )}
+              </View>
+              <TouchableOpacity
+                onPress={() => setInfoModalVisible(true)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="How to read this chart"
+                style={styles.curveToggleInfo}
+              >
+                <Ionicons
+                  name="information-circle-outline"
+                  size={ms(20)}
+                  color={c.secondaryText}
+                  accessible={false}
+                />
+              </TouchableOpacity>
             </View>
 
             {/* ── Chart ── */}
@@ -749,38 +730,19 @@ export default function AnalyticsScreen() {
                     onStartShouldSetResponder={() => true}
                     onResponderRelease={handleTap}
                   />
-
-                  {/* Info icon — top right of chart */}
-                  <TouchableOpacity
-                    style={styles.infoIcon}
-                    onPress={() => setInfoModalVisible(true)}
-                    activeOpacity={0.7}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    accessibilityRole="button"
-                    accessibilityLabel="How to read this chart"
-                  >
-                    <Ionicons
-                      name="information-circle-outline"
-                      size={20}
-                      color={isDark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.3)"}
-                      accessible={false}
-                    />
-                  </TouchableOpacity>
                 </>
               ) : null}
             </View>
 
-            {/* ── Player Detail Card (always same size) ── */}
+            {/* ── Player Detail Card (always same size) — gold rule
+                eyebrow + Alfa Slab name + Badge for bucket. ── */}
             <View
               style={[
                 styles.detailCard,
                 {
-                  backgroundColor: isDark
-                    ? "rgba(255,255,255,0.04)"
-                    : "rgba(0,0,0,0.02)",
-                  borderColor: isDark
-                    ? "rgba(255,255,255,0.06)"
-                    : "rgba(0,0,0,0.06)",
+                  backgroundColor: c.card,
+                  borderColor: c.border,
+                  ...cardShadow,
                 },
               ]}
             >
@@ -797,71 +759,70 @@ export default function AnalyticsScreen() {
                   accessibilityLabel={`View ${selectedPlayer.name} details`}
                 >
                   <Animated.View style={detailStyle}>
+                    <View style={styles.detailEyebrowRow}>
+                      <View style={[styles.detailRule, { backgroundColor: c.gold }]} />
+                      <ThemedText
+                        type="varsitySmall"
+                        style={[styles.detailEyebrow, { color: c.secondaryText }]}
+                      >
+                        PLAYER DETAIL
+                      </ThemedText>
+                    </View>
+
                     <View style={styles.detailHeader}>
-                      <View>
-                        <ThemedText style={styles.detailName}>
+                      <View style={styles.detailHeaderLeft}>
+                        <ThemedText
+                          type="display"
+                          style={[styles.detailName, { color: c.text }]}
+                          numberOfLines={1}
+                        >
                           {selectedPlayer.name}
                         </ThemedText>
-                        <Text
+                        <ThemedText
+                          type="varsitySmall"
                           style={[styles.detailMeta, { color: c.secondaryText }]}
                         >
-                          {selectedPlayer.position} · Age {selectedPlayer.age}
-                        </Text>
+                          {selectedPlayer.position} · AGE {selectedPlayer.age}
+                        </ThemedText>
+                        <View style={styles.detailBadges}>
+                          <Badge
+                            label={
+                              ageBucket(selectedPlayer.age) === 'rising'
+                                ? 'RISING'
+                                : ageBucket(selectedPlayer.age) === 'prime'
+                                  ? 'PRIME'
+                                  : 'VETERAN'
+                            }
+                            variant={bucketBadgeVariant(ageBucket(selectedPlayer.age))}
+                            size="small"
+                          />
+                        </View>
                       </View>
                       <View style={styles.detailFpts}>
-                        <Text
-                          style={[
-                            styles.detailFptsValue,
-                            {
-                              color: BUCKET_COLORS[ageBucket(selectedPlayer.age)],
-                            },
-                          ]}
+                        <ThemedText
+                          type="display"
+                          style={[styles.detailFptsValue, { color: c.text }]}
                         >
                           {selectedPlayer.avgFpts}
-                        </Text>
-                        <Text
-                          style={[
-                            styles.detailFptsLabel,
-                            { color: c.secondaryText },
-                          ]}
+                        </ThemedText>
+                        <ThemedText
+                          type="varsitySmall"
+                          style={[styles.detailFptsLabel, { color: c.secondaryText }]}
                         >
                           FPTS/G
-                        </Text>
-                      </View>
-                    </View>
-                    <View style={styles.detailBadges}>
-                      <View
-                        style={[
-                          styles.badge,
-                          {
-                            backgroundColor:
-                              BUCKET_COLORS[ageBucket(selectedPlayer.age)] + "18",
-                          },
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.badgeText,
-                            {
-                              color: BUCKET_COLORS[ageBucket(selectedPlayer.age)],
-                            },
-                          ]}
-                        >
-                          {ageBucket(selectedPlayer.age) === "rising"
-                            ? "Rising"
-                            : ageBucket(selectedPlayer.age) === "prime"
-                              ? "Prime"
-                              : "Veteran"}
-                        </Text>
+                        </ThemedText>
                       </View>
                     </View>
                   </Animated.View>
                 </TouchableOpacity>
               ) : (
                 <View style={styles.detailHintWrap}>
-                  <Text style={[styles.detailHint, { color: c.secondaryText }]}>
-                    Tap a player to see details
-                  </Text>
+                  <ThemedText
+                    type="varsitySmall"
+                    style={[styles.detailHint, { color: c.secondaryText }]}
+                  >
+                    TAP A PLAYER TO SEE DETAILS
+                  </ThemedText>
                 </View>
               )}
             </View>
@@ -943,59 +904,112 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { flex: 1, paddingHorizontal: s(16), paddingTop: s(10) },
   loading: { marginTop: s(40) },
-  emptyState: { alignItems: "center", marginTop: s(40) },
+  emptyState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: s(10),
+    paddingHorizontal: s(32),
+    paddingTop: s(40),
+  },
+  emptyRule: {
+    height: 2,
+    width: s(48),
+    marginBottom: s(8),
+  },
+  emptyTitle: {
+    fontFamily: Fonts.display,
+    fontSize: ms(22),
+    lineHeight: ms(26),
+    letterSpacing: -0.2,
+    textAlign: "center",
+  },
+  emptySub: {
+    fontSize: ms(11),
+    letterSpacing: 1.3,
+    textAlign: "center",
+  },
 
-  // Narrative Card
-  windowCard: {
+  // Narrative Card — mirrors AnalyticsPreviewCard chrome
+  narrativeCard: {
+    position: "relative",
     borderWidth: 1,
     borderRadius: 14,
-    padding: s(14),
-    marginBottom: s(10),
+    paddingHorizontal: s(16),
+    paddingTop: s(18),
+    paddingBottom: s(14),
+    marginBottom: s(14),
+    overflow: "hidden",
   },
-  windowLabel: {
-    fontSize: ms(11),
-    fontWeight: "700",
-    letterSpacing: 1.5,
-    textTransform: "uppercase",
+  topNotch: {
+    position: "absolute",
+    top: 0,
+    left: s(16),
+    height: 3,
+    width: s(44),
+  },
+  eyebrow: {
+    fontSize: ms(10),
+    letterSpacing: 1.3,
     marginBottom: s(12),
   },
-  agePillRow: { flexDirection: "row", gap: s(8), marginBottom: s(12) },
-  agePill: {
+  columnsRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+  },
+  column: {
     flex: 1,
-    borderRadius: 10,
-    paddingVertical: s(8),
-    paddingHorizontal: s(6),
+    alignItems: "flex-start",
+    justifyContent: "center",
+    paddingHorizontal: s(2),
+  },
+  columnLabel: {
+    fontSize: ms(9.5),
+    letterSpacing: 1.2,
+    marginBottom: s(4),
+  },
+  columnBig: {
+    fontFamily: Fonts.display,
+    fontSize: ms(22),
+    lineHeight: ms(26),
+    letterSpacing: -0.3,
+    marginBottom: s(2),
+  },
+  columnSub: {
+    fontSize: ms(9.5),
+    letterSpacing: 1.0,
+  },
+  columnDivider: {
+    width: 1,
+    marginHorizontal: s(8),
+  },
+  curveToggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: s(12),
+    paddingHorizontal: 2,
+    gap: s(8),
+  },
+  curveToggleChips: {
+    flex: 1,
+    flexDirection: "row",
+    gap: s(6),
+  },
+  curveToggleInfo: {
+    padding: s(2),
+  },
+  curveTogglePill: {
+    minWidth: s(40),
+    paddingHorizontal: s(10),
+    paddingVertical: s(6),
+    borderRadius: 6,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
-  agePillLabel: {
-    fontSize: ms(8),
-    fontWeight: "600",
-    letterSpacing: 0.5,
-    textTransform: "uppercase",
-    marginBottom: 3,
-  },
-  agePillValue: { fontSize: ms(20), fontWeight: "700" },
-  agePillSub: { fontSize: ms(8), fontWeight: "500", marginTop: 1 },
-  windowInsight: { fontSize: ms(12), lineHeight: ms(18), marginBottom: s(8) },
-  bucketRow: { flexDirection: "row", alignItems: "center" },
-  bucketText: { fontSize: ms(12), fontWeight: "600" },
-  bucketDot: { fontSize: ms(12) },
-  curveToggleRow: {
-    flexDirection: "row",
-    gap: s(6),
-    marginBottom: s(10),
-    paddingHorizontal: 2,
-  },
-  curveTogglePill: {
-    paddingVertical: s(4),
-    paddingHorizontal: s(10),
-    borderRadius: 12,
-    borderWidth: 1,
-  },
   curveToggleText: {
     fontSize: ms(11),
-    letterSpacing: 0.3,
+    letterSpacing: 1.0,
   },
 
   // Chart — positioned relative so text overlays work
@@ -1023,42 +1037,80 @@ const styles = StyleSheet.create({
     fontSize: ms(9),
   },
 
-  // Detail Card
+  // Detail Card — gold-rule eyebrow + Alfa Slab name + Badge.
   detailCard: {
     borderWidth: 1,
     borderRadius: 12,
     padding: s(14),
     marginBottom: s(8),
     marginTop: s(8),
-    height: s(96),
+    minHeight: s(112),
+    justifyContent: "center",
+  },
+  detailEyebrowRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: s(8),
+    marginBottom: s(8),
+  },
+  detailRule: {
+    height: 2,
+    width: s(18),
+  },
+  detailEyebrow: {
+    fontSize: ms(9.5),
+    letterSpacing: 1.3,
   },
   detailHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
+    gap: s(10),
   },
-  detailName: { fontSize: ms(15), fontWeight: "700" },
-  detailMeta: { fontSize: ms(12), marginTop: 2 },
-  detailFpts: { alignItems: "flex-end" },
-  detailFptsValue: { fontSize: ms(18), fontWeight: "700" },
-  detailFptsLabel: { fontSize: ms(9), fontWeight: "600", letterSpacing: 0.5 },
-  detailBadges: { flexDirection: "row", gap: s(8), marginTop: s(8) },
-  badge: { paddingVertical: s(3), paddingHorizontal: s(8), borderRadius: 6 },
-  badgeText: { fontSize: ms(11), fontWeight: "600" },
+  detailHeaderLeft: {
+    flex: 1,
+    minWidth: 0,
+  },
+  detailName: {
+    fontFamily: Fonts.display,
+    fontSize: ms(18),
+    lineHeight: ms(22),
+    letterSpacing: -0.2,
+  },
+  detailMeta: {
+    fontSize: ms(10),
+    letterSpacing: 1.2,
+    marginTop: s(2),
+  },
+  detailFpts: {
+    alignItems: "flex-end",
+  },
+  detailFptsValue: {
+    fontFamily: Fonts.display,
+    fontSize: ms(22),
+    lineHeight: ms(26),
+    letterSpacing: -0.3,
+  },
+  detailFptsLabel: {
+    fontSize: ms(9),
+    letterSpacing: 1.0,
+    marginTop: s(1),
+  },
+  detailBadges: {
+    flexDirection: "row",
+    gap: s(8),
+    marginTop: s(8),
+  },
   detailHintWrap: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+    paddingVertical: s(20),
   },
-  detailHint: { fontSize: ms(12), textAlign: "center" },
-
-  // Info icon on chart
-  infoIcon: {
-    position: "absolute",
-    top: s(4),
-    right: s(4),
-    zIndex: 20,
-    padding: s(4),
+  detailHint: {
+    fontSize: ms(10),
+    letterSpacing: 1.2,
+    textAlign: "center",
   },
 
   // Info modal content (rendered inside shared InfoModal)

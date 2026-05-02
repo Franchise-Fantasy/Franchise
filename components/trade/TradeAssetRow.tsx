@@ -1,17 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
+import { Badge } from '@/components/ui/Badge';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { Fonts } from '@/constants/Colors';
+import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
+import { useColors } from '@/hooks/useColors';
 import { TradeItemRow } from '@/hooks/useTrades';
 import { formatPickLabel } from '@/types/trade';
 import { getPlayerHeadshotUrl, PLAYER_SILHOUETTE } from '@/utils/nba/playerHeadshot';
 import { ms, s } from '@/utils/scale';
-
 
 interface TradeAssetRowProps {
   item: TradeItemRow;
@@ -23,66 +23,91 @@ interface TradeAssetRowProps {
   isNew?: boolean;
   /** Team name map for pick swap display */
   teamNameMap?: Record<string, string>;
-  /** Sending team name — shown in multi-team trades */
+  /** Sending team name — shown in multi-team trades as `from TEAM` eyebrow */
   fromTeamName?: string;
 }
 
-export function TradeAssetRow({ item, avgFpts, externalIdNba, isNew, teamNameMap, fromTeamName }: TradeAssetRowProps) {
+/**
+ * Single asset chip in a receives block. Player rows use a headshot anchor;
+ * pick + swap rows use a brand icon circle with a gold-on-card glyph. The
+ * `from TEAM` / `via TEAM` annotations and counteroffer NEW pill all run
+ * through the shared brand `Badge`/varsity-caps system so this row reads
+ * the same chrome as ByYearTab pick rows and the lottery slot list.
+ */
+export function TradeAssetRow({
+  item,
+  avgFpts,
+  externalIdNba,
+  isNew,
+  teamNameMap,
+  fromTeamName,
+}: TradeAssetRowProps) {
   const sport = useActiveLeagueSport();
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
 
-  // Pick swap
+  // ─── Pick swap ─────────────────────────────────────────────
   if (item.pick_swap_season) {
     const toTeamName = teamNameMap?.[item.to_team_id] ?? '?';
+    const label = `${formatPickLabel(item.pick_swap_season, item.pick_swap_round!)} Swap`;
     return (
-      <View style={styles.row} accessibilityLabel={`Pick swap: ${toTeamName} gets the better pick`}>
-        <View style={[styles.iconCircle, { backgroundColor: c.cardAlt, borderColor: c.border }]}>
-          <Ionicons name="swap-horizontal" size={18} color={c.accent} />
-        </View>
+      <View
+        style={styles.row}
+        accessibilityLabel={`Pick swap: ${toTeamName} gets the better pick`}
+      >
+        <AssetIcon name="swap-horizontal" c={c} />
         <View style={styles.info}>
           <View style={styles.nameRow}>
-            <ThemedText style={styles.name} numberOfLines={1}>
-              {formatPickLabel(item.pick_swap_season, item.pick_swap_round!)} Swap
+            <ThemedText style={[styles.name, { color: c.text }]} numberOfLines={1}>
+              {label}
             </ThemedText>
-            {isNew && <NewBadge />}
+            {isNew && <Badge label="New" variant="gold" size="small" />}
           </View>
-          <ThemedText style={[styles.sub, { color: c.secondaryText }]}>
-            {toTeamName} gets the better pick
+          <ThemedText
+            type="varsitySmall"
+            style={[styles.eyebrow, { color: c.gold }]}
+            numberOfLines={1}
+          >
+            Better pick → {toTeamName}
           </ThemedText>
         </View>
       </View>
     );
   }
 
-  // Draft pick
+  // ─── Draft pick ────────────────────────────────────────────
   if (item.draft_pick_id || item.pick_season) {
     const label = formatPickLabel(item.pick_season!, item.pick_round!);
     const via = item.pick_original_team_name ? `via ${item.pick_original_team_name}` : null;
-
+    const protA11y = item.protection_threshold ? `, top ${item.protection_threshold} protected` : '';
     return (
-      <View style={styles.row} accessibilityLabel={`Draft pick: ${label}${item.protection_threshold ? `, top ${item.protection_threshold} protected` : ''}${via ? `, ${via}` : ''}`}>
-        <View style={[styles.iconCircle, { backgroundColor: c.cardAlt, borderColor: c.border }]}>
-          {item.protection_threshold ? (
-            <Ionicons name="shield-half-outline" size={16} color={c.accent} />
-          ) : (
-            <Ionicons name="ticket-outline" size={16} color={c.accent} />
-          )}
-        </View>
+      <View
+        style={styles.row}
+        accessibilityLabel={`Draft pick: ${label}${protA11y}${via ? `, ${via}` : ''}`}
+      >
+        <AssetIcon name="ticket-outline" c={c} />
         <View style={styles.info}>
           <View style={styles.nameRow}>
-            <ThemedText style={styles.name} numberOfLines={1}>{label}</ThemedText>
-            {isNew && <NewBadge />}
+            <ThemedText style={[styles.name, { color: c.text }]} numberOfLines={1}>
+              {label}
+            </ThemedText>
+            {item.protection_threshold != null && (
+              <Badge
+                label={`Top ${item.protection_threshold}`}
+                variant="gold"
+                size="small"
+              />
+            )}
+            {isNew && <Badge label="New" variant="gold" size="small" />}
           </View>
-          {item.protection_threshold != null && (
-            <View style={styles.protInline}>
-              <Ionicons name="shield-half-outline" size={9} color={c.secondaryText} />
-              <Text style={[styles.protText, { color: c.secondaryText }]}>Top {item.protection_threshold}</Text>
-            </View>
-          )}
-          {via && (
-            <ThemedText style={[styles.sub, { color: c.secondaryText }]} numberOfLines={1}>
-              {via}
+          {(via || fromTeamName) && (
+            <ThemedText
+              type="varsitySmall"
+              style={[styles.eyebrow, { color: c.gold }]}
+              numberOfLines={1}
+            >
+              {[fromTeamName ? `from ${fromTeamName}` : null, via]
+                .filter(Boolean)
+                .join(' · ')}
             </ThemedText>
           )}
         </View>
@@ -90,9 +115,8 @@ export function TradeAssetRow({ item, avgFpts, externalIdNba, isNew, teamNameMap
     );
   }
 
-  // Player
+  // ─── Player ────────────────────────────────────────────────
   const headshotUrl = getPlayerHeadshotUrl(externalIdNba, sport);
-
   return (
     <View
       style={styles.row}
@@ -104,32 +128,49 @@ export function TradeAssetRow({ item, avgFpts, externalIdNba, isNew, teamNameMap
           style={styles.headshotImg}
           contentFit="cover"
           cachePolicy="memory-disk"
-          recyclingKey={headshotUrl ?? "silhouette"}
+          recyclingKey={headshotUrl ?? 'silhouette'}
           placeholder={PLAYER_SILHOUETTE}
         />
       </View>
       <View style={styles.info}>
-        <ThemedText style={styles.playerName} numberOfLines={1}>{item.player_name ?? 'Unknown'}</ThemedText>
         <View style={styles.nameRow}>
-          <ThemedText style={[styles.playerSub, { color: c.secondaryText }]} numberOfLines={1}>
-            {[fromTeamName ? `from ${fromTeamName}` : null, avgFpts != null ? `${avgFpts.toFixed(1)} FPTS` : null].filter(Boolean).join('  ·  ')}
+          <ThemedText style={[styles.name, { color: c.text }]} numberOfLines={1}>
+            {item.player_name ?? 'Unknown'}
           </ThemedText>
-          {isNew && <NewBadge />}
+          {isNew && <Badge label="New" variant="gold" size="small" />}
+        </View>
+        <View style={styles.metaRow}>
+          {fromTeamName && (
+            <ThemedText
+              type="varsitySmall"
+              style={[styles.eyebrow, { color: c.gold }]}
+              numberOfLines={1}
+            >
+              from {fromTeamName}
+            </ThemedText>
+          )}
+          {avgFpts != null && (
+            <ThemedText style={[styles.fpts, { color: c.secondaryText }]} numberOfLines={1}>
+              {avgFpts.toFixed(1)} <ThemedText type="varsitySmall" style={[styles.fptsLabel, { color: c.secondaryText }]}>FPTS</ThemedText>
+            </ThemedText>
+          )}
         </View>
       </View>
     </View>
   );
 }
 
-function NewBadge() {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+// Small reusable icon medallion used by pick + swap rows.
+function AssetIcon({
+  name,
+  c,
+}: {
+  name: React.ComponentProps<typeof Ionicons>['name'];
+  c: ReturnType<typeof useColors>;
+}) {
   return (
-    <View
-      style={[styles.newBadge, { backgroundColor: c.link }]}
-      accessibilityLabel="Newly added in counteroffer"
-    >
-      <Text style={[styles.newBadgeText, { color: c.statusText }]}>NEW</Text>
+    <View style={[styles.iconCircle, { backgroundColor: c.cardAlt, borderColor: c.border }]}>
+      <Ionicons name={name} size={16} color={c.gold} accessible={false} />
     </View>
   );
 }
@@ -163,48 +204,37 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  protInline: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(2),
-  },
-  protText: {
-    fontSize: ms(10),
-    fontWeight: '600',
-  },
   info: {
     flex: 1,
+    minWidth: 0,
     gap: 1,
   },
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: s(4),
+    gap: s(6),
+    flexShrink: 1,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(6),
   },
   name: {
     fontSize: ms(13),
     fontWeight: '600',
     flexShrink: 1,
   },
-  playerName: {
-    fontSize: ms(13),
-    fontWeight: '600',
+  eyebrow: {
+    fontSize: ms(9),
+    letterSpacing: 1.0,
   },
-  playerSub: {
+  fpts: {
+    fontFamily: Fonts.mono,
     fontSize: ms(11),
   },
-  sub: {
-    fontSize: ms(11),
-  },
-  newBadge: {
-    paddingHorizontal: s(4),
-    paddingVertical: 1,
-    borderRadius: 3,
-    marginLeft: s(2),
-  },
-  newBadgeText: {
-    fontSize: ms(7),
-    fontWeight: '800',
-    letterSpacing: 0.3,
+  fptsLabel: {
+    fontSize: ms(9),
+    letterSpacing: 1.0,
   },
 });

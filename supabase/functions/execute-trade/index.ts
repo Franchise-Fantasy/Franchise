@@ -259,6 +259,11 @@ Deno.serve(async (req) => {
     const waiverDays = league?.waiver_period_days ?? 2;
     const dropsPayload: Array<{ team_id: string; player_id: string; waiver_until: string | null }> = [];
     const dropsByTeam = new Map<string, string[]>();
+    // Queued drops that turned out to be unnecessary at execution time —
+    // typically because the manager dropped a different player after queuing,
+    // freeing space without needing the queued drop. We skip those drops and
+    // notify the team so the spared player isn't a surprise on their roster.
+    const skippedDropsByTeam = new Map<string, string[]>();
 
     if (playerItems.length > 0) {
       const netPlayersByTeam = new Map<string, number>();
@@ -320,12 +325,18 @@ Deno.serve(async (req) => {
       }
 
       const teamsNeedingDrops: string[] = [];
-      for (const [tid, netGain] of netPlayersByTeam) {
-        if (netGain <= 0) continue;
-        // Each selected (still-valid) drop offsets one gained player
-        const dropOffset = dropsByTeam.get(tid)?.length ?? 0;
-        const effectiveGain = netGain - dropOffset;
-        if (effectiveGain <= 0) continue;
+      // Check every team that's gaining players OR has queued drops. The
+      // "has queued drops" branch catches the swapped-drop case: manager
+      // queued PlayerX, then dropped a different player independently, so
+      // the queued drop is no longer needed.
+      const teamsToCheck = new Set<string>([
+        ...netPlayersByTeam.keys(),
+        ...dropsByTeam.keys(),
+      ]);
+      for (const tid of teamsToCheck) {
+        const netGain = netPlayersByTeam.get(tid) ?? 0;
+        const queued = dropsByTeam.get(tid) ?? [];
+        if (netGain <= 0 && queued.length === 0) continue;
 
         const [allRes, irRes] = await Promise.all([
           supabaseAdmin.from('league_players').select('id', { count: 'exact', head: true })
@@ -334,8 +345,39 @@ Deno.serve(async (req) => {
             .eq('league_id', proposal.league_id).eq('team_id', tid).eq('roster_slot', 'IR'),
         ]);
         const activeCount = (allRes.count ?? 0) - (irRes.count ?? 0);
-        if (activeCount + effectiveGain > rosterSize) {
+
+        // How many drops the team actually needs to fit the trade.
+        const requiredDrops = Math.max(0, activeCount + netGain - rosterSize);
+
+        if (queued.length > requiredDrops) {
+          // Queued more than needed — keep the first `requiredDrops` and
+          // record the rest as skipped so we can notify the team.
+          const toKeep = queued.slice(0, requiredDrops);
+          const toSkip = queued.slice(requiredDrops);
+          skippedDropsByTeam.set(tid, toSkip);
+          if (toKeep.length === 0) {
+            dropsByTeam.delete(tid);
+          } else {
+            dropsByTeam.set(tid, toKeep);
+          }
+        }
+
+        const finalQueued = dropsByTeam.get(tid)?.length ?? 0;
+        if (finalQueued < requiredDrops) {
           teamsNeedingDrops.push(tid);
+        }
+      }
+
+      // If we trimmed any drops, persist the trimmed list to
+      // trade_proposal_teams so the post-trade history reflects what
+      // actually happened.
+      if (skippedDropsByTeam.size > 0) {
+        for (const tid of skippedDropsByTeam.keys()) {
+          await supabaseAdmin
+            .from('trade_proposal_teams')
+            .update({ drop_player_ids: dropsByTeam.get(tid) ?? [] })
+            .eq('proposal_id', proposal_id)
+            .eq('team_id', tid);
         }
       }
 
@@ -785,6 +827,26 @@ Deno.serve(async (req) => {
           type: 'trade_update',
           league_id: proposal.league_id,
         });
+
+        // If we trimmed any queued drops because they weren't needed,
+        // post a chat update so the negotiation thread shows what
+        // changed at execution time.
+        if (skippedDropsByTeam.size > 0) {
+          const skippedRows: Array<{ team_name: string; player_names: string[] }> = [];
+          for (const [tid, pids] of skippedDropsByTeam) {
+            skippedRows.push({
+              team_name: teamNameMap[tid] ?? 'Unknown',
+              player_names: pids.map((pid) => playerNameMap[pid] ?? 'Unknown Player'),
+            });
+          }
+          await supabaseAdmin.from('chat_messages').insert({
+            conversation_id: tradeConv.id,
+            team_id: null,
+            content: JSON.stringify({ event: 'drops_skipped', proposal_id, skipped: skippedRows }),
+            type: 'trade_update',
+            league_id: proposal.league_id,
+          });
+        }
       }
     } catch (summaryErr) {
       log.warn('Trade summary/chat post failed (non-fatal)', { error: String(summaryErr) });
@@ -805,6 +867,23 @@ Deno.serve(async (req) => {
       );
     } catch (notifyErr) {
       log.warn('Push notification failed (non-fatal)', { error: String(notifyErr) });
+    }
+
+    // Targeted push to any team whose queued drop was unnecessary, so
+    // the spared player isn't a surprise on their roster afterwards.
+    if (skippedDropsByTeam.size > 0) {
+      try {
+        for (const [tid, pids] of skippedDropsByTeam) {
+          const names = pids.map((pid) => playerNameMap[pid] ?? 'a player').join(', ');
+          await notifyTeams(supabaseAdmin, [tid], 'trades',
+            'Trade Drop Skipped',
+            `Your trade went through without dropping ${names} — your roster already had room.`,
+            { screen: 'trades', proposal_id }
+          );
+        }
+      } catch (notifyErr) {
+        log.warn('Skipped-drop push failed (non-fatal)', { error: String(notifyErr) });
+      }
     }
 
     return new Response(

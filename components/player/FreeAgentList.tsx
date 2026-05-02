@@ -303,6 +303,48 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     enabled: !!leagueId,
   });
 
+  // Net incoming players from this team's active pending trades. Used to
+  // warn before adding a free agent that would push them over the limit
+  // once a pending trade resolves. Mirrors the SQL in
+  // assert_can_add_free_agent so the client surfaces the same answer.
+  const { data: pendingTradeImpact } = useQuery({
+    queryKey: queryKeys.pendingTradeRosterImpact(leagueId, teamId),
+    queryFn: async () => {
+      const ACTIVE_STATUSES = [
+        "pending",
+        "accepted",
+        "in_review",
+        "delayed",
+        "pending_drops",
+      ];
+      const { data: proposals } = await supabase
+        .from("trade_proposals")
+        .select(
+          "id, items:trade_proposal_items(player_id, from_team_id, to_team_id), teams:trade_proposal_teams(team_id, drop_player_ids)",
+        )
+        .eq("league_id", leagueId)
+        .is("transaction_id", null)
+        .in("status", ACTIVE_STATUSES);
+
+      let netIncoming = 0;
+      let queuedDrops = 0;
+      for (const p of proposals ?? []) {
+        for (const item of p.items ?? []) {
+          if (!item.player_id) continue;
+          if (item.to_team_id === teamId) netIncoming += 1;
+          if (item.from_team_id === teamId) netIncoming -= 1;
+        }
+        for (const t of p.teams ?? []) {
+          if (t.team_id === teamId) {
+            queuedDrops += t.drop_player_ids?.length ?? 0;
+          }
+        }
+      }
+      return { netIncoming, queuedDrops };
+    },
+    enabled: !!leagueId && !!teamId,
+  });
+
   // Fetch pending claims for this team
   const { data: pendingClaims } = useQuery({
     queryKey: queryKeys.pendingClaims(leagueId, teamId),
@@ -663,6 +705,25 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         });
         setOpenAsDropPicker(true);
         setSelectedPlayer(player);
+        setAddingPlayerId(null);
+        return;
+      }
+
+      // Pending-trade roster guard: block when an active pending trade
+      // would push the team over the roster limit after this add. The
+      // server-side RPC enforces the same rule; this gives a friendlier
+      // pre-add message instead of an error toast after the round trip.
+      const netIncoming = pendingTradeImpact?.netIncoming ?? 0;
+      const queuedDrops = pendingTradeImpact?.queuedDrops ?? 0;
+      const projected = activeCount + 1 + netIncoming - queuedDrops;
+      if (projected > maxSize) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.pendingTradeRosterImpact(leagueId, teamId),
+        });
+        Alert.alert(
+          "Pending Trade Blocks Add",
+          "You have a pending trade that would put you over your roster limit. Resolve the trade or drop a player first.",
+        );
         setAddingPlayerId(null);
         return;
       }

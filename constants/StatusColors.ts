@@ -12,11 +12,12 @@ export const INJURY_COLORS = {
   probable: '#51cf66',
 } as const;
 
-// Roster age buckets (scatter chart)
+// Roster age buckets (scatter chart). Brand palette: vintage gold for
+// rising youth, turf green for in-prime production, merlot for vets.
 export const AGE_BUCKET_COLORS = {
-  rising: '#17a2b8',
-  prime: '#28a745',
-  vet: '#e67e22',
+  rising: '#B57B30', // Brand.vintageGold
+  prime: '#1C552E',  // Brand.turfGreen
+  vet: '#671A1E',    // Brand.merlot
 } as const;
 
 // Player performance trends
@@ -28,9 +29,12 @@ export const TREND_COLORS = {
   frigid: '#6f42c1',
 } as const;
 
-// Subscription tier badges
+// Subscription tier badges — brand palette.
+// Free = hardwood (neutral warmth, clearly not a tier worth paying for).
+// Pro = turfGreen (structural authority, "the analyst").
+// Premium = merlot (commanding top tier, "the edge").
 export const TIER_COLORS = {
-  free: '#687076',
-  pro: '#007AFF',
-  premium: '#FFB800',
+  free: '#B8A06A',
+  pro: '#1C552E',
+  premium: '#671A1E',
 } as const;

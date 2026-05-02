@@ -16,7 +16,7 @@ import { ListRow } from '@/components/ui/ListRow';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Brand, Colors } from '@/constants/Colors';
+import { Brand, Colors, Fonts } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -124,6 +124,7 @@ export default function ScheduleScreen() {
   const selectedTeamName = activeTeamId ? teamMap[activeTeamId]?.name ?? 'Select Team' : 'Select Team';
 
   const isCategories = league?.scoring_type === 'h2h_categories';
+  const isOffseason = !!league?.offseason_step;
 
   useFocusEffect(
     useCallback(() => {
@@ -355,6 +356,40 @@ export default function ScheduleScreen() {
   // ─── Main render ────────────────────────────────────────────────────────
 
   const isLoading = weeksLoading || matchupsLoading;
+
+  if (isOffseason) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
+        <PageHeader title="Schedule" />
+        <View
+          style={styles.offseason}
+          accessible
+          accessibilityRole="text"
+          accessibilityLabel="It's the offseason. The schedule will return next season."
+        >
+          <View style={[styles.offseasonRule, { backgroundColor: c.gold }]} />
+          <Ionicons
+            name="sunny-outline"
+            size={ms(40)}
+            color={c.secondaryText}
+            accessible={false}
+          />
+          <ThemedText
+            type="display"
+            style={[styles.offseasonTitle, { color: c.text }]}
+          >
+            Offseason.
+          </ThemedText>
+          <ThemedText
+            type="varsitySmall"
+            style={[styles.offseasonSub, { color: c.secondaryText }]}
+          >
+            SCHEDULE RETURNS NEXT SEASON
+          </ThemedText>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
@@ -593,6 +628,30 @@ const styles = StyleSheet.create({
   emptyState: {
     alignItems: 'center',
     paddingTop: s(40),
+  },
+  offseason: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: s(32),
+    gap: s(10),
+  },
+  offseasonRule: {
+    height: 2,
+    width: s(48),
+    marginBottom: s(8),
+  },
+  offseasonTitle: {
+    fontFamily: Fonts.display,
+    fontSize: ms(22),
+    lineHeight: ms(26),
+    letterSpacing: -0.2,
+    textAlign: 'center',
+  },
+  offseasonSub: {
+    fontSize: ms(11),
+    letterSpacing: 1.3,
+    textAlign: 'center',
   },
   // Modal
   modalOverlay: {

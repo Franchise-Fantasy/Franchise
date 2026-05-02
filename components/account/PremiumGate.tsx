@@ -4,7 +4,7 @@ import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { UpgradeModal } from '@/components/account/UpgradeModal';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Brand, Colors } from '@/constants/Colors';
 import {
   SubscriptionTier,
   TIER_LABELS,
@@ -64,31 +64,43 @@ export function PremiumGate({
           {children}
         </View>
 
-        {/* Lock overlay */}
+        {/* Lock overlay — gold-rule eyebrow + tier-colored Unlock pill */}
         <View
           style={[
             styles.teaserOverlay,
             {
               backgroundColor: scheme === 'dark'
-                ? 'rgba(0,0,0,0.6)'
-                : 'rgba(255,255,255,0.7)',
+                ? 'rgba(0,0,0,0.65)'
+                : 'rgba(233, 226, 203, 0.85)', // ecru wash
             },
           ]}
           accessibilityRole="summary"
           accessibilityLabel={`${label ?? 'This feature'} requires ${TIER_LABELS[requiredTier]}`}
         >
-          <Ionicons name="lock-closed" size={22} color={tierColor} accessible={false} />
-          <ThemedText type="defaultSemiBold" style={styles.teaserLabel}>
-            {TIER_LABELS[requiredTier]}
-          </ThemedText>
+          <View style={styles.eyebrowRow}>
+            <View style={[styles.eyebrowRule, { backgroundColor: c.gold }]} />
+            <ThemedText
+              type="varsitySmall"
+              style={[styles.eyebrowText, { color: c.gold }]}
+            >
+              {`${TIER_LABELS[requiredTier]} Required`}
+            </ThemedText>
+          </View>
+          <Ionicons
+            name="lock-closed"
+            size={20}
+            color={tierColor}
+            accessible={false}
+            style={styles.teaserLock}
+          />
           <TouchableOpacity
-            style={[styles.teaserButton, { borderColor: tierColor }]}
-            activeOpacity={0.7}
+            style={[styles.teaserButton, { backgroundColor: tierColor }]}
+            activeOpacity={0.85}
             onPress={() => setUpgradeVisible(true)}
             accessibilityRole="button"
             accessibilityLabel={`Upgrade to ${TIER_LABELS[requiredTier]}`}
           >
-            <ThemedText style={[styles.teaserButtonText, { color: tierColor }]}>
+            <ThemedText type="varsity" style={styles.teaserButtonText}>
               Unlock
             </ThemedText>
           </TouchableOpacity>
@@ -103,32 +115,57 @@ export function PremiumGate({
     );
   }
 
-  // Block mode (default)
+  // Block mode (default) — full card with eyebrow + display title + tier-colored CTA
   return (
     <>
-      <View
-        style={[styles.container, { backgroundColor: c.card, borderColor: c.border }]}
-        accessibilityRole="summary"
-        accessibilityLabel={`${label ?? 'This feature'} requires ${TIER_LABELS[requiredTier]}`}
-      >
-        <Ionicons name="lock-closed" size={28} color={tierColor} accessible={false} />
-        <ThemedText type="defaultSemiBold" style={styles.title}>
-          {label ?? 'Premium Feature'}
-        </ThemedText>
-        <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>
-          Upgrade to {TIER_LABELS[requiredTier]} to unlock
-        </ThemedText>
-        <TouchableOpacity
-          style={[styles.button, { backgroundColor: tierColor }]}
-          activeOpacity={0.7}
-          onPress={() => setUpgradeVisible(true)}
-          accessibilityRole="button"
-          accessibilityLabel={`Upgrade to ${TIER_LABELS[requiredTier]}`}
-        >
-          <ThemedText style={[styles.buttonText, { color: c.statusText }]}>
-            Upgrade to {TIER_LABELS[requiredTier]}
+      <View style={styles.blockWrap}>
+        <View style={styles.eyebrowRow}>
+          <View style={[styles.eyebrowRule, { backgroundColor: c.gold }]} />
+          <ThemedText
+            type="varsitySmall"
+            style={[styles.eyebrowText, { color: c.gold }]}
+          >
+            {`${TIER_LABELS[requiredTier]} Required`}
           </ThemedText>
-        </TouchableOpacity>
+        </View>
+        <View
+          style={[styles.blockCard, { backgroundColor: c.card, borderColor: c.border }]}
+          accessibilityRole="summary"
+          accessibilityLabel={`${label ?? 'This feature'} requires ${TIER_LABELS[requiredTier]}`}
+        >
+          {/* Tier accent rule — full-width top edge in the tier color */}
+          <View style={[styles.blockAccent, { backgroundColor: tierColor }]} />
+
+          <View style={styles.blockBody}>
+            <Ionicons
+              name="lock-closed"
+              size={28}
+              color={tierColor}
+              accessible={false}
+            />
+            <ThemedText
+              type="display"
+              style={[styles.blockTitle, { color: c.text }]}
+              accessibilityRole="header"
+            >
+              {label ?? 'Premium Feature'}
+            </ThemedText>
+            <ThemedText style={[styles.blockSubtitle, { color: c.secondaryText }]}>
+              Unlock with {TIER_LABELS[requiredTier]} to dig in.
+            </ThemedText>
+            <TouchableOpacity
+              style={[styles.blockButton, { backgroundColor: tierColor }]}
+              activeOpacity={0.85}
+              onPress={() => setUpgradeVisible(true)}
+              accessibilityRole="button"
+              accessibilityLabel={`Upgrade to ${TIER_LABELS[requiredTier]}`}
+            >
+              <ThemedText type="varsity" style={styles.blockButtonText}>
+                Upgrade to {TIER_LABELS[requiredTier]}
+              </ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
 
       <UpgradeModal
@@ -141,61 +178,88 @@ export function PremiumGate({
 }
 
 const styles = StyleSheet.create({
-  // Block mode
-  container: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: s(24),
+  // Eyebrow — same gold-rule + varsity caps pattern as Section primitive
+  eyebrowRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: s(10),
+    marginBottom: s(8),
+  },
+  eyebrowRule: { height: 2, width: s(18) },
+  eyebrowText: { fontSize: ms(10), letterSpacing: 1.4 },
+
+  // Block mode — full lock card
+  blockWrap: {
+    paddingTop: s(4),
+  },
+  blockCard: {
+    borderWidth: 1,
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  blockAccent: {
+    height: s(4),
+  },
+  blockBody: {
+    alignItems: 'center',
+    paddingHorizontal: s(20),
+    paddingVertical: s(24),
     gap: s(8),
   },
-  title: {
-    fontSize: ms(17),
+  blockTitle: {
+    fontSize: ms(20),
+    lineHeight: ms(24),
+    letterSpacing: -0.3,
+    textAlign: 'center',
     marginTop: s(4),
   },
-  subtitle: {
-    fontSize: ms(14),
+  blockSubtitle: {
+    fontSize: ms(13),
     textAlign: 'center',
+    marginBottom: s(4),
   },
-  button: {
-    marginTop: s(8),
+  blockButton: {
+    marginTop: s(10),
     paddingHorizontal: s(20),
-    paddingVertical: s(10),
-    borderRadius: 8,
+    paddingVertical: s(11),
+    borderRadius: 10,
+    alignItems: 'center',
   },
-  buttonText: {
-    fontSize: ms(15),
-    fontWeight: '600',
+  blockButtonText: {
+    color: Brand.ecru,
+    fontSize: ms(12),
+    letterSpacing: 1.0,
   },
 
-  // Teaser mode
+  // Teaser mode — overlay on dimmed children
   teaserContainer: {
     position: 'relative',
     overflow: 'hidden',
     borderRadius: 12,
   },
   teaserContent: {
-    opacity: 0.15,
+    opacity: 0.18,
   },
   teaserOverlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: s(6),
+    paddingVertical: s(16),
+    paddingHorizontal: s(20),
     borderRadius: 12,
   },
-  teaserLabel: {
-    fontSize: ms(14),
+  teaserLock: {
+    marginVertical: s(6),
   },
   teaserButton: {
-    marginTop: s(4),
-    paddingHorizontal: s(16),
-    paddingVertical: s(6),
+    marginTop: s(2),
+    paddingHorizontal: s(18),
+    paddingVertical: s(8),
     borderRadius: 8,
-    borderWidth: 1.5,
   },
   teaserButtonText: {
-    fontSize: ms(13),
-    fontWeight: '600',
+    color: Brand.ecru,
+    fontSize: ms(11),
+    letterSpacing: 1.0,
   },
 });

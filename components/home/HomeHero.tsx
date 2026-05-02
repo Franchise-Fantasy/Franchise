@@ -4,7 +4,8 @@ import { Animated, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Brand, heroShadow } from '@/constants/Colors';
+import { Brand } from '@/constants/Colors';
+import { useColors } from '@/hooks/useColors';
 import { ms, s } from '@/utils/scale';
 
 // The embroidered F patch is used as a static watermark — bundled at
@@ -121,6 +122,7 @@ export function HomeHero({
   onCopyInvite,
   onShareInvite,
 }: Props) {
+  const colors = useColors();
   const Wrapper = onPress ? TouchableOpacity : View;
   const wrapperProps = onPress
     ? {
@@ -131,7 +133,10 @@ export function HomeHero({
     : {};
 
   return (
-    <Wrapper style={[styles.card, heroShadow]} {...wrapperProps}>
+    <Wrapper
+      style={[styles.card, { backgroundColor: colors.heroSurface }, colors.heroShadow]}
+      {...wrapperProps}
+    >
       <Image
         source={PATCH_SOURCE}
         style={styles.patch}
@@ -721,7 +726,6 @@ const styles = StyleSheet.create({
     paddingBottom: s(20),
     marginBottom: s(18),
     overflow: 'hidden',
-    backgroundColor: Brand.turfGreen,
   },
   topRule: {
     position: 'absolute',

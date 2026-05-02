@@ -13,9 +13,10 @@ import { PremiumGate } from '@/components/account/PremiumGate';
 import { ProspectCard } from '@/components/prospects/ProspectCard';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
+import { Colors, Fonts } from '@/constants/Colors';
+import { getCurrentSeason, parseSeasonStartYear } from '@/constants/LeagueDefaults';
 import { useSession } from '@/context/AuthProvider';
+import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useAddToBoard, useProspectBoard } from '@/hooks/useProspectBoard';
 import { useProspects } from '@/hooks/useProspects';
@@ -24,13 +25,6 @@ import type { ProspectCardData } from '@/types/prospect';
 import { ms, s } from '@/utils/scale';
 
 
-const nextDraftYear = parseInt(CURRENT_NBA_SEASON.split('-')[1]!, 10) + 2000;
-const DRAFT_YEARS = [
-  `${nextDraftYear}`,
-  `${nextDraftYear + 1}`,
-  `${nextDraftYear + 2}`,
-  `${nextDraftYear + 3}+`,
-];
 const POSITIONS = ['All', 'PG', 'SG', 'SF', 'PF', 'C'];
 
 export function ProspectsTab() {
@@ -44,6 +38,17 @@ export function ProspectsTab() {
   // `subLoading` keeps the fetch ready-to-fire during the tier resolution flash
   // so paying users don't see an extra spinner.
   const hasAccess = subLoading || canAccess('prospects');
+  const sport = useActiveLeagueSport();
+
+  // Next draft year is one calendar year after the current season's start year.
+  // NBA '2025-26' → 2026; WNBA '2026' → 2027.
+  const nextDraftYear = parseSeasonStartYear(getCurrentSeason(sport)) + 1;
+  const DRAFT_YEARS = useMemo(() => [
+    `${nextDraftYear}`,
+    `${nextDraftYear + 1}`,
+    `${nextDraftYear + 2}`,
+    `${nextDraftYear + 3}+`,
+  ], [nextDraftYear]);
 
   const [draftYear, setDraftYear] = useState(DRAFT_YEARS[0]);
   const [position, setPosition] = useState('All');
@@ -106,92 +111,102 @@ export function ProspectsTab() {
       return new Date(dates[0]!).toLocaleDateString('en-US', {
         month: 'short',
         day: 'numeric',
-        year: 'numeric',
       });
     } catch {
       return null;
     }
   }, [prospects]);
 
+  const eyebrowText = lastUpdated
+    ? `Staff Rankings · Updated ${lastUpdated}`
+    : 'Staff Rankings';
+
   return (
     <PremiumGate feature="prospects" mode="teaser">
-      {/* Subtitle */}
-      <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>
-        NBA · Dynasty Rankings
-      </ThemedText>
-
-      {/* Draft year tabs */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.tabsRow}
-        contentContainerStyle={styles.tabsContent}
-      >
-        {DRAFT_YEARS.map(year => (
-          <TouchableOpacity
-            key={year}
-            style={[
-              styles.tab,
-              { borderColor: c.border },
-              draftYear === year && { backgroundColor: c.accent, borderColor: c.accent },
-            ]}
-            onPress={() => setDraftYear(year)}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: draftYear === year }}
-            accessibilityLabel={`${year} draft class`}
-          >
-            <ThemedText
-              style={[
-                styles.tabText,
-                { color: c.secondaryText },
-                draftYear === year && styles.tabTextActive,
-              ]}
-            >
-              {year}
-            </ThemedText>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      {/* Position filter */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.posRow}
-        contentContainerStyle={styles.tabsContent}
-      >
-        {POSITIONS.map(pos => (
-          <TouchableOpacity
-            key={pos}
-            style={[
-              styles.posTab,
-              { borderColor: c.border },
-              position === pos && { backgroundColor: c.cardAlt, borderColor: c.accent },
-            ]}
-            onPress={() => setPosition(pos)}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: position === pos }}
-            accessibilityLabel={`Filter by ${pos === 'All' ? 'all positions' : pos}`}
-          >
-            <ThemedText
-              style={[
-                styles.posText,
-                { color: c.secondaryText },
-                position === pos && { color: c.accent, fontWeight: '600' },
-              ]}
-            >
-              {pos}
-            </ThemedText>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      {/* Staff rankings timestamp */}
-      {lastUpdated && (
-        <ThemedText style={[styles.updated, { color: c.secondaryText }]}>
-          Staff rankings · Updated {lastUpdated}
+      {/* Eyebrow — gold rule + varsity caps source/freshness line.
+          Replaces the floating "NBA · Dynasty Rankings" subtitle and
+          "Updated …" tail; one anchor in the brand voice. */}
+      <View style={styles.eyebrowRow}>
+        <View style={[styles.eyebrowRule, { backgroundColor: c.gold }]} />
+        <ThemedText
+          type="varsitySmall"
+          style={[styles.eyebrowText, { color: c.gold }]}
+        >
+          {eyebrowText}
         </ThemedText>
-      )}
+      </View>
+
+      {/* Year selector — underline-active, Alfa Slab year. Matches the
+          ByYearTab pattern so within-tab filters share one chrome. */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.yearSelector}
+        contentContainerStyle={styles.yearRow}
+      >
+        {DRAFT_YEARS.map(year => {
+          const active = draftYear === year;
+          return (
+            <TouchableOpacity
+              key={year}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={`${year} draft class`}
+              style={styles.yearTab}
+              onPress={() => setDraftYear(year)}
+              activeOpacity={0.7}
+            >
+              <ThemedText
+                style={[
+                  styles.yearLabel,
+                  {
+                    fontFamily: active ? Fonts.display : Fonts.bodyMedium,
+                    color: active ? c.text : c.secondaryText,
+                  },
+                ]}
+              >
+                {year}
+              </ThemedText>
+              <View
+                style={[
+                  styles.yearUnderline,
+                  { backgroundColor: active ? c.gold : 'transparent' },
+                ]}
+              />
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+
+      {/* Position filter — varsity caps, gold-bold active. Lighter than
+          the year row above so the visual layers stay distinct. */}
+      <View style={styles.posRow}>
+        {POSITIONS.map(pos => {
+          const active = position === pos;
+          return (
+            <TouchableOpacity
+              key={pos}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={`Filter by ${pos === 'All' ? 'all positions' : pos}`}
+              onPress={() => setPosition(pos)}
+              activeOpacity={0.7}
+              hitSlop={6}
+              style={styles.posTab}
+            >
+              <ThemedText
+                type="varsity"
+                style={[
+                  styles.posText,
+                  { color: active ? c.gold : c.secondaryText },
+                ]}
+              >
+                {pos}
+              </ThemedText>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
 
       {/* Prospect list */}
       {isLoading ? (
@@ -235,46 +250,59 @@ const getItemLayout = (_: unknown, index: number) => ({
 });
 
 const styles = StyleSheet.create({
-  subtitle: {
-    fontSize: ms(11),
-    textAlign: 'center',
-    marginTop: s(4),
-    marginBottom: s(4),
-  },
-  tabsRow: { flexGrow: 0 },
-  tabsContent: {
-    paddingHorizontal: s(12),
-    paddingVertical: s(8),
-    gap: s(6),
-  },
-  tab: {
-    paddingHorizontal: s(14),
-    paddingVertical: s(5),
-    borderRadius: 20,
-    borderWidth: 1,
-  },
-  tabText: {
-    fontSize: ms(12),
-    fontWeight: '500',
-  },
-  tabTextActive: {
-    color: '#fff',
-  },
-  posRow: { flexGrow: 0 },
-  posTab: {
-    paddingHorizontal: s(10),
-    paddingVertical: s(3),
-    borderRadius: 20,
-    borderWidth: 1,
-  },
-  posText: {
-    fontSize: ms(11),
-  },
-  updated: {
-    fontSize: ms(9),
-    paddingHorizontal: s(14),
+  // Eyebrow — matches the Section primitive's gold rule + sectionLabel
+  // rhythm at a smaller scale, since the page already has a tabs row above.
+  eyebrowRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(10),
+    paddingHorizontal: s(16),
+    paddingTop: s(10),
     paddingBottom: s(6),
   },
+  eyebrowRule: { height: 2, width: s(18) },
+  eyebrowText: { fontSize: ms(10), letterSpacing: 1.4 },
+
+  // Year selector — text + gold-underline active (mirrors ByYearTab)
+  yearSelector: { flexGrow: 0 },
+  yearRow: {
+    paddingHorizontal: s(16),
+    paddingTop: s(2),
+    paddingBottom: s(4),
+    gap: s(20),
+  },
+  yearTab: {
+    alignItems: 'center',
+    paddingTop: s(2),
+  },
+  yearLabel: {
+    fontSize: ms(18),
+    lineHeight: ms(22),
+    letterSpacing: -0.2,
+  },
+  yearUnderline: {
+    marginTop: s(4),
+    height: 2,
+    width: '100%',
+    minWidth: s(28),
+  },
+
+  // Position filter — varsity caps, gold-bold active (lighter than year)
+  posRow: {
+    flexDirection: 'row',
+    paddingHorizontal: s(16),
+    paddingTop: s(10),
+    paddingBottom: s(10),
+    gap: s(16),
+  },
+  posTab: {
+    paddingVertical: s(2),
+  },
+  posText: {
+    fontSize: ms(12),
+    letterSpacing: 1.2,
+  },
+
   center: {
     flex: 1,
     alignItems: 'center',

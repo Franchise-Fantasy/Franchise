@@ -4,10 +4,13 @@ import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { TradeCard } from '@/components/trade/TradeCard';
 import { TradeDetailModal } from '@/components/trade/TradeDetailModal';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Brand, Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { TradeProposalRow, useTradeProposals } from '@/hooks/useTrades';
+import { useColors } from '@/hooks/useColors';
+import {
+  TradeProposalRow,
+  useTradeProposals,
+  useTradeProposalsHeadshots,
+} from '@/hooks/useTrades';
 import { ms, s } from '@/utils/scale';
 
 interface TradeHistoryProps {
@@ -17,8 +20,7 @@ interface TradeHistoryProps {
 const HISTORICAL_STATUSES = new Set(['completed', 'reversed']);
 
 export function TradeHistory({ leagueId }: TradeHistoryProps) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const { teamId } = useAppState();
   const { data: allProposals } = useTradeProposals(leagueId);
   const [selectedTeam, setSelectedTeam] = useState<string | null>(null);
@@ -46,6 +48,9 @@ export function TradeHistory({ leagueId }: TradeHistoryProps) {
     );
   }, [historicalTrades, selectedTeam]);
 
+  // Single batched headshot fetch for every player on every visible card.
+  const { data: playerHeadshotMap } = useTradeProposalsHeadshots(filteredTrades);
+
   if (historicalTrades.length === 0) {
     return (
       <ThemedText style={[styles.emptyText, { color: c.secondaryText }]}>
@@ -54,7 +59,9 @@ export function TradeHistory({ leagueId }: TradeHistoryProps) {
     );
   }
 
-  const renderPill = (id: string | null, label: string) => {
+  // Underline-active varsity-caps filter — same rhythm as ByYearTab,
+  // ProspectsTab, prospect-board, draft-room toggle bar, DraftBoard.
+  const renderFilter = (id: string | null, label: string) => {
     const isActive = selectedTeam === id;
     return (
       <TouchableOpacity
@@ -62,25 +69,26 @@ export function TradeHistory({ leagueId }: TradeHistoryProps) {
         accessibilityRole="button"
         accessibilityLabel={label}
         accessibilityState={{ selected: isActive }}
-        style={[
-          styles.pill,
-          { borderColor: c.border },
-          isActive
-            ? { backgroundColor: Brand.turfGreen, borderColor: Brand.turfGreen }
-            : { backgroundColor: c.cardAlt },
-        ]}
+        style={styles.filterBtn}
         onPress={() => setSelectedTeam(id)}
+        activeOpacity={0.7}
       >
         <ThemedText
-          type="varsitySmall"
+          type="varsity"
           style={[
-            styles.pillText,
-            { color: isActive ? Brand.ecru : c.secondaryText },
+            styles.filterText,
+            { color: isActive ? c.text : c.secondaryText },
           ]}
           numberOfLines={1}
         >
           {label}
         </ThemedText>
+        <View
+          style={[
+            styles.filterUnderline,
+            { backgroundColor: isActive ? c.gold : 'transparent' },
+          ]}
+        />
       </TouchableOpacity>
     );
   };
@@ -93,15 +101,15 @@ export function TradeHistory({ leagueId }: TradeHistoryProps) {
         contentContainerStyle={styles.filterRowContent}
         style={styles.filterRow}
       >
-        {renderPill(null, 'All')}
-        {teams.map((t) => renderPill(t.id, t.name))}
+        {renderFilter(null, 'All')}
+        {teams.map((t) => renderFilter(t.id, t.name))}
       </ScrollView>
 
       <ThemedText
         type="varsitySmall"
         style={[styles.count, { color: c.secondaryText }]}
       >
-        {filteredTrades.length} trade{filteredTrades.length !== 1 ? 's' : ''}
+        {filteredTrades.length} Trade{filteredTrades.length !== 1 ? 's' : ''}
       </ThemedText>
 
       {filteredTrades.map((trade) => (
@@ -109,6 +117,7 @@ export function TradeHistory({ leagueId }: TradeHistoryProps) {
           key={trade.id}
           proposal={trade}
           onPress={() => setDetailProposal(trade)}
+          playerHeadshotMap={playerHeadshotMap}
         />
       ))}
 
@@ -126,26 +135,33 @@ export function TradeHistory({ leagueId }: TradeHistoryProps) {
 
 const styles = StyleSheet.create({
   emptyText: { fontSize: ms(13), textAlign: 'center', paddingVertical: s(16) },
+
   filterRow: {
-    marginHorizontal: -s(4),
-    marginBottom: s(8),
+    marginHorizontal: -s(2),
+    marginBottom: s(6),
   },
   filterRowContent: {
-    paddingHorizontal: s(4),
-    gap: s(8),
+    paddingHorizontal: s(2),
+    gap: s(20),
   },
-  pill: {
-    paddingHorizontal: s(14),
-    paddingVertical: s(7),
-    borderRadius: 8,
-    borderWidth: 1,
-    maxWidth: s(140),
+  filterBtn: {
+    alignItems: 'center',
+    paddingTop: s(4),
   },
-  pillText: {
-    fontSize: ms(10),
+  filterText: {
+    fontSize: ms(11),
+    letterSpacing: 1.0,
   },
+  filterUnderline: {
+    marginTop: s(6),
+    height: 2,
+    width: '100%',
+    minWidth: s(28),
+  },
+
   count: {
     fontSize: ms(10),
+    letterSpacing: 1.2,
     marginBottom: s(10),
   },
 });

@@ -3,8 +3,7 @@ import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Brand, Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { H2HRecord, useHeadToHead } from '@/hooks/useLeagueHistory';
 import { ms, s } from '@/utils/scale';
 
@@ -19,8 +18,7 @@ function formatRecord(r: H2HRecord): string {
 }
 
 export function HeadToHeadMatrix({ leagueId }: HeadToHeadMatrixProps) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const { data, isLoading } = useHeadToHead(leagueId);
   const [selectedPair, setSelectedPair] = useState<{ a: string; b: string } | null>(null);
 
@@ -174,7 +172,7 @@ export function HeadToHeadMatrix({ leagueId }: HeadToHeadMatrixProps) {
                               ? c.dangerMuted
                               : 'transparent',
                         },
-                        isSelected && { borderColor: Brand.turfGreen, borderWidth: 2 },
+                        isSelected && { borderColor: c.primary, borderWidth: 2 },
                       ]}
                       onPress={() =>
                         setSelectedPair(record ? { a: rowTeam.id, b: colTeam.id } : null)

@@ -1,8 +1,8 @@
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Brand, Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { Brand } from '@/constants/Colors';
+import { useColors } from '@/hooks/useColors';
 import { ms, s } from '@/utils/scale';
 
 interface SegmentedControlProps {
@@ -32,8 +32,7 @@ export function SegmentedControl({
   accessibilityLabel,
   disabled,
 }: SegmentedControlProps) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
 
   return (
     <View
@@ -57,7 +56,7 @@ export function SegmentedControl({
               // Left divider on every segment after the first — avoids
               // double borders where they meet.
               index > 0 && { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: c.border },
-              selected && { backgroundColor: Brand.turfGreen },
+              selected && { backgroundColor: c.primary },
             ]}
             activeOpacity={0.75}
             accessibilityRole="radio"

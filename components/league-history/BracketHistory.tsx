@@ -6,7 +6,7 @@ import { TeamLogo } from '@/components/team/TeamLogo';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Brand, Colors, Fonts } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { BracketSlotHistory, useBracketHistory } from '@/hooks/useLeagueHistory';
 import { ms, s } from '@/utils/scale';
 
@@ -26,8 +26,7 @@ function roundLabel(round: number, maxRound: number): string {
 }
 
 export function BracketHistory({ leagueId }: BracketHistoryProps) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const { data, isLoading } = useBracketHistory(leagueId);
   const [selectedSeason, setSelectedSeason] = useState<string | null>(null);
 
@@ -81,7 +80,7 @@ export function BracketHistory({ leagueId }: BracketHistoryProps) {
                 styles.pill,
                 { borderColor: c.border },
                 isSelected
-                  ? { backgroundColor: Brand.turfGreen, borderColor: Brand.turfGreen }
+                  ? { backgroundColor: c.primary, borderColor: c.primary }
                   : { backgroundColor: c.cardAlt },
               ]}
               onPress={() => setSelectedSeason(season)}

@@ -66,7 +66,7 @@ export function AllTimeRecords({ leagueId }: AllTimeRecordsProps) {
                   type="display"
                   style={[styles.tileValue, { color: c.text }]}
                   numberOfLines={1}
-                  adjustsFontSizeToFit
+                  ellipsizeMode="tail"
                 >
                   {rec.value}
                 </ThemedText>

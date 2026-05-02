@@ -82,7 +82,9 @@ export interface DraftHistoryPick {
   player_name: string | null;
   player_position: string | null;
   current_team_name: string;
+  current_team_tricode: string | null;
   original_team_name: string;
+  original_team_tricode: string | null;
   isTraded: boolean;
 }
 
@@ -378,8 +380,8 @@ export function useDraftHistory(leagueId: string | null) {
           id, draft_id, pick_number, round, slot_number,
           current_team_id, original_team_id, player_id,
           player:players!draft_picks_player_id_fkey(name, position),
-          current_team:teams!draft_picks_current_team_id_fkey(name),
-          original_team:teams!draft_picks_original_team_id_fkey(name)
+          current_team:teams!draft_picks_current_team_id_fkey(name, tricode),
+          original_team:teams!draft_picks_original_team_id_fkey(name, tricode)
         `)
         .in('draft_id', draftIds)
         .not('player_id', 'is', null)
@@ -397,7 +399,9 @@ export function useDraftHistory(leagueId: string | null) {
         player_name: p.player?.name ?? null,
         player_position: p.player?.position ?? null,
         current_team_name: p.current_team?.name ?? 'Unknown',
+        current_team_tricode: p.current_team?.tricode ?? null,
         original_team_name: p.original_team?.name ?? 'Unknown',
+        original_team_tricode: p.original_team?.tricode ?? null,
         isTraded: p.current_team_id !== p.original_team_id,
       }));
 

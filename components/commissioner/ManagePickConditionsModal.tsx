@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 
+import { PickConditionRow } from '@/components/draft-hub/PickConditionRow';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
@@ -20,7 +21,7 @@ import { queryKeys } from '@/constants/queryKeys';
 import { useConfirm } from '@/context/ConfirmProvider';
 import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
-import { formatPickLabel } from '@/types/trade';
+import { formatPickLabel, formatProtectionStory } from '@/types/trade';
 import { ms, s } from '@/utils/scale';
 
 interface Props {
@@ -289,34 +290,50 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
           <FlatList
             data={allPicks}
             keyExtractor={(item) => item.id}
-            renderItem={({ item, index }) => (
-              <TouchableOpacity
-                accessibilityRole="button"
-                accessibilityLabel={`${formatPickLabel(item.season, item.round)}, Owner: ${teamNameMap[item.current_team_id ?? ''] ?? 'Unknown'}${item.protection_threshold ? `, Top-${item.protection_threshold} protected` : ''}`}
-                style={[styles.pickRow, { borderBottomColor: c.border }, index === (allPicks ?? []).length - 1 && { borderBottomWidth: 0 }]}
-                onPress={() => {
-                  setSelectedPick(item);
-                  setProtThreshold(item.protection_threshold ?? 3);
-                  setProtOwnerId(item.protection_owner_id ?? item.current_team_id ?? '');
-                  setStep('protection_edit');
-                }}
-              >
-                <View style={{ flex: 1 }}>
-                  <ThemedText style={{ fontSize: ms(14) }}>
-                    {formatPickLabel(item.season, item.round)}
-                  </ThemedText>
-                  <ThemedText style={[styles.pickSub, { color: c.secondaryText }]}>
-                    Owner: {teamNameMap[item.current_team_id ?? ''] ?? '?'} · via {teamNameMap[item.original_team_id ?? ''] ?? '?'}
-                  </ThemedText>
-                </View>
-                {item.protection_threshold && (
-                  <View style={[styles.protBadge, { backgroundColor: c.goldMuted }]}>
-                    <ThemedText style={[styles.protBadgeText, { color: c.gold }]}>Top-{item.protection_threshold}</ThemedText>
+            renderItem={({ item, index }) => {
+              const ownerName = teamNameMap[item.current_team_id ?? ''] ?? '?';
+              const protectionOwnerName =
+                teamNameMap[item.protection_owner_id ?? ''] ?? ownerName;
+              return (
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel={`${formatPickLabel(item.season, item.round)}, Owner: ${ownerName}${item.protection_threshold ? `, Top-${item.protection_threshold} protected` : ''}`}
+                  style={[styles.pickCell, { borderBottomColor: c.border }, index === (allPicks ?? []).length - 1 && { borderBottomWidth: 0 }]}
+                  onPress={() => {
+                    setSelectedPick(item);
+                    setProtThreshold(item.protection_threshold ?? 3);
+                    setProtOwnerId(item.protection_owner_id ?? item.current_team_id ?? '');
+                    setStep('protection_edit');
+                  }}
+                >
+                  <View style={styles.pickRow}>
+                    <View style={{ flex: 1 }}>
+                      <ThemedText style={{ fontSize: ms(14) }}>
+                        {formatPickLabel(item.season, item.round)}
+                      </ThemedText>
+                      <ThemedText style={[styles.pickSub, { color: c.secondaryText }]}>
+                        Owner: {ownerName} · via {teamNameMap[item.original_team_id ?? ''] ?? '?'}
+                      </ThemedText>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color={c.secondaryText} />
                   </View>
-                )}
-                <Ionicons name="chevron-forward" size={16} color={c.secondaryText} />
-              </TouchableOpacity>
-            )}
+                  {item.protection_threshold ? (
+                    <View style={styles.storyLineWrap}>
+                      <PickConditionRow
+                        kind="protection_pending"
+                        badgeLabel={`TOP-${item.protection_threshold}`}
+                        storyText={formatProtectionStory(
+                          item.protection_threshold,
+                          protectionOwnerName,
+                          ownerName,
+                          'pending',
+                        )}
+                      />
+                    </View>
+                  ) : null}
+                </TouchableOpacity>
+              );
+            }}
           />
         )
       )}
@@ -518,20 +535,17 @@ const styles = StyleSheet.create({
     gap: s(4),
   },
   chooseDesc: { fontSize: ms(12) },
+  pickCell: {
+    paddingVertical: s(12),
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
   pickRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: s(12),
-    borderBottomWidth: StyleSheet.hairlineWidth,
     gap: s(8),
   },
   pickSub: { fontSize: ms(12), fontWeight: '500' },
-  protBadge: {
-    borderRadius: 4,
-    paddingHorizontal: s(5),
-    paddingVertical: 1,
-  },
-  protBadgeText: { fontSize: ms(10), fontWeight: '600' },
+  storyLineWrap: { paddingTop: s(6) },
   editButtons: { flexDirection: 'row', gap: s(10), marginTop: s(20) },
   teamOption: {
     flexDirection: 'row',

@@ -1,30 +1,32 @@
-import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { Image } from 'expo-image';
+import { useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
   StyleSheet,
-  TextInput,
-  TouchableOpacity,
   View,
-} from "react-native";
+} from 'react-native';
 
-import { LogoSpinner } from "@/components/ui/LogoSpinner";
-import { ThemedText } from "@/components/ui/ThemedText";
-import { ThemedView } from "@/components/ui/ThemedView";
-import { Colors } from "@/constants/Colors";
-import { useColorScheme } from "@/hooks/useColorScheme";
-import { supabase } from "@/lib/supabase";
-import { ms } from "@/utils/scale";
+import { BrandButton } from '@/components/ui/BrandButton';
+import { BrandTextInput } from '@/components/ui/BrandTextInput';
+import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { ThemedView } from '@/components/ui/ThemedView';
+import { Fonts } from '@/constants/Colors';
+import { useColors } from '@/hooks/useColors';
+import { supabase } from '@/lib/supabase';
+import { ms, s } from '@/utils/scale';
+
+const COLOR_PATCH = require('@/assets/images/emproidered_patch_color.png');
 
 export default function ResetPasswordScreen() {
-  const scheme = useColorScheme() ?? "light";
-  const c = Colors[scheme];
+  const c = useColors();
   const router = useRouter();
-  const [password, setPassword] = useState("");
-  const [confirm, setConfirm] = useState("");
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
   const [loading, setLoading] = useState(false);
   const [sessionReady, setSessionReady] = useState(false);
 
@@ -35,8 +37,8 @@ export default function ResetPasswordScreen() {
       if (session) {
         setSessionReady(true);
       } else {
-        Alert.alert("Invalid link", "No reset session found.", [
-          { text: "OK", onPress: () => router.replace("/auth") },
+        Alert.alert('Invalid link', 'No reset session found.', [
+          { text: 'OK', onPress: () => router.replace('/auth') },
         ]);
       }
     });
@@ -44,11 +46,11 @@ export default function ResetPasswordScreen() {
 
   async function handleUpdatePassword() {
     if (password.length < 6) {
-      Alert.alert("Password too short", "Password must be at least 6 characters.");
+      Alert.alert('Password too short', 'Password must be at least 6 characters.');
       return;
     }
     if (password !== confirm) {
-      Alert.alert("Passwords don't match", "Please make sure both passwords are the same.");
+      Alert.alert("Passwords don't match", 'Please make sure both passwords are the same.');
       return;
     }
 
@@ -57,112 +59,114 @@ export default function ResetPasswordScreen() {
 
     if (error) {
       setLoading(false);
-      Alert.alert("Error", error.message);
+      Alert.alert('Error', error.message);
       return;
     }
 
     // User already has a valid session — skip /auth and go straight to the app.
     // Avoids a racy replace chain that left the tab navigator frozen.
     const userId = data.user?.id;
-    let destination: "/(tabs)" | "/(setup)" = "/(setup)";
+    let destination: '/(tabs)' | '/(setup)' = '/(setup)';
     if (userId) {
       const { data: team } = await supabase
-        .from("teams")
-        .select("league_id")
-        .eq("user_id", userId)
+        .from('teams')
+        .select('league_id')
+        .eq('user_id', userId)
         .limit(1)
         .single();
-      destination = team?.league_id ? "/(tabs)" : "/(setup)";
+      destination = team?.league_id ? '/(tabs)' : '/(setup)';
     }
     setLoading(false);
 
-    Alert.alert("Password updated", "Your password has been reset successfully.", [
-      { text: "OK", onPress: () => router.replace(destination) },
+    Alert.alert('Password updated', 'Your password has been reset successfully.', [
+      { text: 'OK', onPress: () => router.replace(destination) },
     ]);
   }
 
   return (
     <ThemedView style={styles.container}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
       >
-        <View style={styles.content}>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Header — embroidered patch hero (matches auth.tsx) */}
           <View style={styles.header}>
-            <View style={[styles.iconCircle, { backgroundColor: c.accent }]}>
-              <Ionicons name="key-outline" size={28} color={c.accentText} />
-            </View>
-            <ThemedText type="title" style={styles.title}>
-              Reset Password
-            </ThemedText>
-            <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>
-              {sessionReady ? "Enter your new password below." : "Verifying reset link…"}
-            </ThemedText>
+            <Image
+              source={COLOR_PATCH}
+              style={styles.patch}
+              contentFit="contain"
+              cachePolicy="memory-disk"
+              accessibilityLabel="Franchise"
+              accessibilityRole="image"
+            />
           </View>
 
+          <ThemedText type="display" style={[styles.heading, { color: c.text }]}>
+            Reset password.
+          </ThemedText>
+          <ThemedText
+            type="varsitySmall"
+            style={[styles.subheading, { color: c.secondaryText }]}
+          >
+            {sessionReady ? 'Choose a new password' : 'Verifying reset link'}
+          </ThemedText>
+
           {!sessionReady ? (
-            <View style={{ marginTop: 24 }}><LogoSpinner /></View>
+            <View style={styles.spinnerWrap}>
+              <LogoSpinner />
+            </View>
           ) : (
             <>
-              <View
-                style={[styles.section, { backgroundColor: c.card, borderColor: c.border }]}
-              >
-                <View style={[styles.inputRow, { borderBottomColor: c.border }]}>
-                  <Ionicons
-                    name="lock-closed-outline"
-                    size={20}
-                    color={c.secondaryText}
-                    style={styles.inputIcon}
-                  />
-                  <TextInput
-                    style={[styles.input, { color: c.text }]}
-                    onChangeText={setPassword}
-                    value={password}
-                    secureTextEntry
-                    placeholder="New password"
-                    autoCapitalize="none"
-                    placeholderTextColor={c.secondaryText}
-                    accessibilityLabel="New password"
-                  />
-                </View>
-                <View style={styles.inputRow}>
-                  <Ionicons
-                    name="lock-closed-outline"
-                    size={20}
-                    color={c.secondaryText}
-                    style={styles.inputIcon}
-                  />
-                  <TextInput
-                    style={[styles.input, { color: c.text }]}
-                    onChangeText={setConfirm}
-                    value={confirm}
-                    secureTextEntry
-                    placeholder="Confirm new password"
-                    autoCapitalize="none"
-                    placeholderTextColor={c.secondaryText}
-                    accessibilityLabel="Confirm new password"
-                  />
-                </View>
+              <View style={styles.formField}>
+                <BrandTextInput
+                  label="New password"
+                  value={password}
+                  onChangeText={setPassword}
+                  placeholder="At least 6 characters"
+                  secureTextEntry
+                  autoCapitalize="none"
+                  textContentType="newPassword"
+                  accessibilityLabel="New password"
+                />
+              </View>
+              <View style={styles.formField}>
+                <BrandTextInput
+                  label="Confirm password"
+                  value={confirm}
+                  onChangeText={setConfirm}
+                  placeholder="Re-enter password"
+                  secureTextEntry
+                  autoCapitalize="none"
+                  textContentType="newPassword"
+                  accessibilityLabel="Confirm new password"
+                />
               </View>
 
-              <TouchableOpacity
-                style={[
-                  styles.button,
-                  { backgroundColor: loading ? c.buttonDisabled : c.accent },
-                ]}
-                disabled={loading}
+              <BrandButton
+                label="Update Password"
                 onPress={handleUpdatePassword}
-                activeOpacity={0.8}
-                accessibilityRole="button"
-                accessibilityLabel="Update password"
-              >
-                <ThemedText style={[styles.buttonText, { color: c.accentText }]}>
-                  Update Password
-                </ThemedText>
-              </TouchableOpacity>
+                loading={loading}
+                disabled={loading}
+                fullWidth
+                style={styles.primaryButton}
+              />
+
+              <View style={styles.linkRow}>
+                <BrandButton
+                  label="Back to sign in"
+                  onPress={() => router.replace('/auth')}
+                  variant="ghost"
+                  disabled={loading}
+                />
+              </View>
             </>
           )}
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </ThemedView>
   );
@@ -171,42 +175,47 @@ export default function ResetPasswordScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   keyboardView: { flex: 1 },
-  content: {
-    paddingHorizontal: 20,
-    paddingTop: 100,
-    paddingBottom: 40,
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingHorizontal: s(20),
+    paddingVertical: s(40),
   },
-  header: { alignItems: "center", marginBottom: 32 },
-  iconCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 14,
+  header: {
+    alignItems: 'center',
+    marginBottom: s(4),
   },
-  title: { marginBottom: 8 },
-  subtitle: { fontSize: ms(15), textAlign: "center" },
-  section: {
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    marginBottom: 16,
-    overflow: "hidden",
+  patch: {
+    width: s(300),
+    height: s(300) / 1.5,
   },
-  inputRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 14,
+  heading: {
+    fontFamily: Fonts.display,
+    fontSize: ms(26),
+    lineHeight: ms(30),
+    letterSpacing: -0.3,
+    textAlign: 'center',
+    marginBottom: s(6),
   },
-  inputIcon: { marginRight: 12 },
-  input: { flex: 1, fontSize: ms(16) },
-  button: {
-    borderRadius: 12,
-    paddingVertical: 15,
-    alignItems: "center",
-    marginBottom: 12,
+  subheading: {
+    fontSize: ms(11),
+    letterSpacing: 1.4,
+    textAlign: 'center',
+    marginBottom: s(20),
   },
-  buttonText: { fontSize: ms(16), fontWeight: "600" },
+  spinnerWrap: {
+    alignItems: 'center',
+    marginTop: s(16),
+  },
+  formField: {
+    marginBottom: s(12),
+  },
+  primaryButton: {
+    marginTop: s(4),
+    marginBottom: s(8),
+  },
+  linkRow: {
+    alignItems: 'center',
+    marginTop: s(4),
+  },
 });

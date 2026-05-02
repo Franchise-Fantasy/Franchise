@@ -4,10 +4,10 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
   Alert,
+  Linking,
   Modal,
   ScrollView,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -15,7 +15,7 @@ import Purchases from "react-native-purchases";
 
 import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { ThemedText } from "@/components/ui/ThemedText";
-import { Colors } from "@/constants/Colors";
+import { Brand, Colors, Fonts } from "@/constants/Colors";
 import {
   SubscriptionTier,
   TIER_COLORS,
@@ -24,6 +24,7 @@ import {
 } from "@/constants/Subscriptions";
 import { useAppState } from "@/context/AppStateProvider";
 import { useSession } from "@/context/AuthProvider";
+import { useColors } from "@/hooks/useColors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { useOfferings } from "@/hooks/useOfferings";
 import { useSubscription, waitForSubscriptionChange } from "@/hooks/useSubscription";
@@ -67,15 +68,22 @@ const PREMIUM_FEATURES = [
   "AI Weekly Digest",
 ];
 
+const TIER_TAGLINE: Record<Exclude<SubscriptionTier, 'free'>, string> = {
+  pro: "The Analyst",
+  premium: "The Edge",
+};
+
 export function UpgradeModal({
   visible,
   onClose,
   highlightFeature,
   leagueMode = false,
 }: UpgradeModalProps) {
-  const scheme = useColorScheme() ?? "light";
-  const c = Colors[scheme];
-  const isDark = scheme === "dark";
+  // `highlightFeature` is consumed by the caller's analytics tracking; the
+  // modal itself doesn't currently scroll-to-tier on it. Keep the prop so
+  // call sites stay typed correctly.
+  void highlightFeature;
+  const c = useColors();
   const queryClient = useQueryClient();
   const router = useRouter();
   const {
@@ -117,7 +125,6 @@ export function UpgradeModal({
       await Purchases.showManageSubscriptions();
     } catch {
       // Fallback to Apple's subscription URL
-      const { Linking } = require("react-native");
       Linking.openURL("https://apps.apple.com/account/subscriptions");
     }
   }
@@ -133,10 +140,6 @@ export function UpgradeModal({
     setPurchasing(tier);
     try {
       await purchasePackage(pkg);
-      // Poll the subscriptions table until the RevenueCat webhook has written
-      // the new tier or period. Without this, invalidating too early races the
-      // webhook and the UI flickers back to the paywall (or still shows
-      // "Switch to Annual" after a monthly→annual swap).
       let synced = await waitForSubscriptionChange({
         userId: session?.user?.id,
         leagueId,
@@ -145,8 +148,6 @@ export function UpgradeModal({
         expectedPeriod,
         previousPeriod: currentTier === tier ? (currentPeriod ?? undefined) : undefined,
       });
-      // Webhook didn't land in time — pull authoritative state from RC ourselves
-      // so the user isn't stuck staring at "Purchase Processing" forever.
       if (!synced) {
         await syncSubscriptionFromRC();
         synced = await waitForSubscriptionChange({
@@ -181,8 +182,6 @@ export function UpgradeModal({
   async function handleRestore() {
     setPurchasing("pro"); // just show loading
     try {
-      // restorePurchases() already calls the server-side sync, which writes the
-      // row directly. No webhook race to wait out — just invalidate and read.
       const restored = await restorePurchases();
       await queryClient.invalidateQueries({ queryKey: ["userSubscription"] });
       await queryClient.invalidateQueries({ queryKey: ["leagueSubscription"] });
@@ -210,13 +209,6 @@ export function UpgradeModal({
   const leagueLabel = leagueMode ? "League " : "";
   const selectedPeriod = annual ? "annual" : "monthly";
 
-  /**
-   * What the CTA on each plan card should do based on current tier vs target.
-   * - "owned": exact match (same tier and period) — sends to Apple manage screen.
-   * - "switch": same tier, different period — native purchase triggers Apple's swap.
-   * - "upgrade" / "buy": higher tier than current — standard purchase.
-   * - "downgrade": lower tier than current — must go through Apple's manage screen.
-   */
   type PlanCtaKind = "owned" | "switch" | "upgrade" | "buy" | "downgrade";
   function ctaFor(targetTier: SubscriptionTier): {
     kind: PlanCtaKind;
@@ -235,7 +227,7 @@ export function UpgradeModal({
       const switchTo = annual ? "Annual" : "Monthly";
       return {
         kind: "switch",
-        label: annual ? `Switch to Annual — save 40%` : `Switch to Monthly`,
+        label: annual ? `Switch to Annual — Save 40%` : `Switch to Monthly`,
         a11yLabel: `Switch ${tierLabel} to ${switchTo}`,
       };
     }
@@ -257,19 +249,18 @@ export function UpgradeModal({
   const proCta = ctaFor("pro");
   const premiumCta = ctaFor("premium");
 
-  /** owned/downgrade go to Apple's screen; switch/upgrade/buy trigger purchase. */
   const runCta = (kind: PlanCtaKind, tier: SubscriptionTier) => {
     if (kind === "owned" || kind === "downgrade") return handleManage();
     return handlePurchase(tier);
   };
 
   const headerTitle = leagueMode
-    ? currentTier === "free" ? "Upgrade Your League" : "Manage League Plan"
+    ? currentTier === "free" ? "Upgrade Your League." : "League Plan."
     : currentTier === "free"
-      ? "Upgrade to Pro"
+      ? "Build Your Edge."
       : currentTier === "pro"
-        ? "Upgrade to Premium"
-        : "Manage Plan";
+        ? "Unlock Premium."
+        : "Manage Plan.";
 
   return (
     <Modal
@@ -279,9 +270,15 @@ export function UpgradeModal({
       onRequestClose={onClose}
     >
       <View style={[styles.container, { backgroundColor: c.background }]}>
-        {/* Header */}
-        <View style={styles.header}>
-          <ThemedText type="title" style={styles.headerTitle}>
+        {/* Header row — display title on the left, close button on the right.
+            One row instead of stacking eyebrow + title + close. */}
+        <View style={styles.headerRow}>
+          <ThemedText
+            type="display"
+            style={[styles.heroTitle, { color: c.text }]}
+            accessibilityRole="header"
+            numberOfLines={1}
+          >
             {headerTitle}
           </ThemedText>
           <TouchableOpacity
@@ -289,436 +286,465 @@ export function UpgradeModal({
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             accessibilityRole="button"
             accessibilityLabel="Close"
+            style={[styles.closeBtn, { backgroundColor: c.cardAlt }]}
           >
-            <Ionicons name="close" size={24} color={c.text} />
+            <Ionicons name="close" size={18} color={c.text} />
           </TouchableOpacity>
         </View>
-
-        {leagueMode && (
-          <Text style={[styles.leagueSubtitle, { color: c.secondaryText }]}>
-            Every team in your league gets access. One purchase, whole league.
-          </Text>
-        )}
-
-        {/* Period Toggle */}
-        <View
-          style={[
-            styles.toggleRow,
-            {
-              backgroundColor: isDark
-                ? "rgba(255,255,255,0.06)"
-                : "rgba(0,0,0,0.04)",
-            },
-          ]}
-        >
-          <TouchableOpacity
-            style={[
-              styles.toggleButton,
-              !annual && {
-                backgroundColor: isDark
-                  ? "rgba(255,255,255,0.12)"
-                  : "#FFFFFF",
-              },
-            ]}
-            onPress={() => setAnnual(false)}
-            accessibilityRole="button"
-            accessibilityLabel="Monthly pricing"
-            accessibilityState={{ selected: !annual }}
-          >
-            <Text
-              style={[
-                styles.toggleText,
-                { color: !annual ? c.text : c.secondaryText },
-              ]}
-            >
-              Monthly
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.toggleButton,
-              annual && {
-                backgroundColor: isDark
-                  ? "rgba(255,255,255,0.12)"
-                  : "#FFFFFF",
-              },
-            ]}
-            onPress={() => setAnnual(true)}
-            accessibilityRole="button"
-            accessibilityLabel="Annual pricing, save 42%"
-            accessibilityState={{ selected: annual }}
-          >
-            <Text
-              style={[
-                styles.toggleText,
-                { color: annual ? c.text : c.secondaryText },
-              ]}
-            >
-              Annual
-            </Text>
-            {annual && (
-              <View style={styles.saveBadge}>
-                <Text style={styles.saveBadgeText}>Save 40%</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        </View>
-
-        {/* Auto-renew disclosure — required by App Store Guideline 3.1.2.
-            Apple wants this visible near the price selector, not buried. */}
-        <Text
-          style={[styles.autoRenewText, { color: c.secondaryText }]}
-          accessibilityLabel="Subscription auto-renews. Cancel anytime in your device settings."
-        >
-          Subscription auto-renews until cancelled. Manage or cancel anytime in your device's subscription settings.
-        </Text>
 
         <ScrollView
           style={styles.scrollArea}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {/* Pro Card */}
-          <View
-            style={[
-              styles.planCard,
-              {
-                borderColor: TIER_COLORS.pro,
-                backgroundColor: isDark
-                  ? "rgba(0,122,255,0.06)"
-                  : "rgba(0,122,255,0.04)",
-              },
-            ]}
-          >
-            <View style={styles.planHeader}>
-              <View>
-                <Text style={[styles.planName, { color: TIER_COLORS.pro }]}>
-                  {leagueLabel}Pro
-                </Text>
-                <Text style={[styles.planTagline, { color: c.secondaryText }]}>
-                  The Analyst
-                </Text>
-              </View>
-              {proDisplay ? (
-                <Text style={[styles.planPrice, { color: c.text }]}>
-                  {proDisplay}
-                </Text>
-              ) : (
-                <View style={[styles.pricePlaceholder, { backgroundColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)" }]} />
-              )}
-            </View>
+          {leagueMode && (
+            <ThemedText style={[styles.heroSubtitle, { color: c.secondaryText }]}>
+              Every team in your league gets access. One purchase, whole league.
+            </ThemedText>
+          )}
 
-            {PRO_FEATURES.map((feature) => (
-              <View style={styles.featureRow} key={feature}>
-                <Ionicons
-                  name="checkmark-circle"
-                  size={18}
-                  color={TIER_COLORS.pro}
-                  accessible={false}
-                />
-                <Text style={[styles.featureText, { color: c.text }]}>
-                  {feature}
-                </Text>
-              </View>
-            ))}
-
+          {/* Period toggle — brand-styled pill segmenter */}
+          <View style={[styles.toggleRow, { backgroundColor: c.cardAlt, borderColor: c.border }]}>
             <TouchableOpacity
               style={[
-                styles.purchaseButton,
-                {
-                  backgroundColor: proCta.kind === "owned"
-                    ? isDark ? "rgba(0,122,255,0.15)" : "rgba(0,122,255,0.1)"
-                    : TIER_COLORS.pro,
-                  opacity: (!proPackage && proCta.kind !== "owned" && proCta.kind !== "downgrade") ? 0.6 : 1,
-                },
+                styles.toggleButton,
+                !annual && [styles.toggleButtonActive, { backgroundColor: c.card, borderColor: c.border }],
               ]}
-              onPress={() => runCta(proCta.kind, "pro")}
-              disabled={
-                !!purchasing
-                || loadingOfferings
-                || (!proPackage && proCta.kind !== "owned" && proCta.kind !== "downgrade")
-              }
-              activeOpacity={0.7}
+              onPress={() => setAnnual(false)}
               accessibilityRole="button"
-              accessibilityLabel={proCta.a11yLabel}
+              accessibilityLabel="Monthly pricing"
+              accessibilityState={{ selected: !annual }}
+              activeOpacity={0.8}
             >
-              {purchasing === "pro" || (loadingOfferings && proCta.kind !== "owned") ? (
-                <LogoSpinner size={18} />
-              ) : (
-                <Text
-                  style={[
-                    styles.purchaseButtonText,
-                    proCta.kind === "owned" && { color: TIER_COLORS.pro },
-                  ]}
-                >
-                  {proCta.label}
-                </Text>
+              <ThemedText
+                type="varsity"
+                style={[
+                  styles.toggleText,
+                  { color: !annual ? c.text : c.secondaryText },
+                ]}
+              >
+                Monthly
+              </ThemedText>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.toggleButton,
+                annual && [styles.toggleButtonActive, { backgroundColor: c.card, borderColor: c.border }],
+              ]}
+              onPress={() => setAnnual(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Annual pricing, save 40%"
+              accessibilityState={{ selected: annual }}
+              activeOpacity={0.8}
+            >
+              <ThemedText
+                type="varsity"
+                style={[
+                  styles.toggleText,
+                  { color: annual ? c.text : c.secondaryText },
+                ]}
+              >
+                Annual
+              </ThemedText>
+              {annual && (
+                <View style={[styles.saveBadge, { backgroundColor: c.primary }]}>
+                  <ThemedText type="varsitySmall" style={styles.saveBadgeText}>
+                    Save 40%
+                  </ThemedText>
+                </View>
               )}
             </TouchableOpacity>
           </View>
 
-          {/* Premium Card */}
-          <View
-            style={[
-              styles.planCard,
-              {
-                borderColor: TIER_COLORS.premium,
-                backgroundColor: isDark
-                  ? "rgba(255,184,0,0.06)"
-                  : "rgba(255,184,0,0.04)",
-              },
-            ]}
+          {/* Auto-renew disclosure — required by App Store Guideline 3.1.2.
+              Apple wants this visible near the price selector, not buried. */}
+          <ThemedText
+            style={[styles.autoRenewText, { color: c.secondaryText }]}
+            accessibilityLabel="Subscription auto-renews. Cancel anytime in your device settings."
           >
-            <View style={styles.planHeader}>
-              <View>
-                <Text
-                  style={[styles.planName, { color: TIER_COLORS.premium }]}
-                >
-                  {leagueLabel}Premium
-                </Text>
-                <Text style={[styles.planTagline, { color: c.secondaryText }]}>
-                  The Edge
-                </Text>
-              </View>
-              {premiumDisplay ? (
-                <Text style={[styles.planPrice, { color: c.text }]}>
-                  {premiumDisplay}
-                </Text>
-              ) : (
-                <View style={[styles.pricePlaceholder, { backgroundColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)" }]} />
-              )}
-            </View>
+            Auto-renews until cancelled. Manage anytime in your device's subscription settings.
+          </ThemedText>
 
-            {PREMIUM_FEATURES.map((feature) => (
-              <View style={styles.featureRow} key={feature}>
-                <Ionicons
-                  name="checkmark-circle"
-                  size={18}
-                  color={TIER_COLORS.premium}
-                  accessible={false}
-                />
-                <Text style={[styles.featureText, { color: c.text }]}>
-                  {feature}
-                </Text>
-              </View>
-            ))}
+          {/* Pro Card */}
+          <PlanCard
+            tierColor={TIER_COLORS.pro}
+            label={`${leagueLabel}Pro`}
+            tagline={TIER_TAGLINE.pro}
+            price={proDisplay}
+            features={PRO_FEATURES}
+            cta={proCta}
+            disabled={
+              !!purchasing
+              || loadingOfferings
+              || (!proPackage && proCta.kind !== "owned" && proCta.kind !== "downgrade")
+            }
+            loading={purchasing === "pro" || (loadingOfferings && proCta.kind !== "owned")}
+            onPress={() => runCta(proCta.kind, "pro")}
+          />
 
+          {/* Premium Card */}
+          <PlanCard
+            tierColor={TIER_COLORS.premium}
+            label={`${leagueLabel}Premium`}
+            tagline={TIER_TAGLINE.premium}
+            price={premiumDisplay}
+            features={PREMIUM_FEATURES}
+            cta={premiumCta}
+            disabled={
+              !!purchasing
+              || loadingOfferings
+              || (!premiumPackage && premiumCta.kind !== "owned" && premiumCta.kind !== "downgrade")
+            }
+            loading={purchasing === "premium" || (loadingOfferings && premiumCta.kind !== "owned")}
+            onPress={() => runCta(premiumCta.kind, "premium")}
+          />
+
+          {/* Restore + legal links — Apple wants Terms and Privacy reachable
+              from inside the paywall, not just from a separate menu. */}
+          <View style={styles.footer}>
             <TouchableOpacity
-              style={[
-                styles.purchaseButton,
-                {
-                  backgroundColor: premiumCta.kind === "owned"
-                    ? isDark ? "rgba(255,184,0,0.15)" : "rgba(255,184,0,0.1)"
-                    : TIER_COLORS.premium,
-                  opacity: (!premiumPackage && premiumCta.kind !== "owned" && premiumCta.kind !== "downgrade") ? 0.6 : 1,
-                },
-              ]}
-              onPress={() => runCta(premiumCta.kind, "premium")}
-              disabled={
-                !!purchasing
-                || loadingOfferings
-                || (!premiumPackage && premiumCta.kind !== "owned" && premiumCta.kind !== "downgrade")
-              }
-              activeOpacity={0.7}
+              onPress={handleRestore}
+              disabled={!!purchasing}
               accessibilityRole="button"
-              accessibilityLabel={premiumCta.a11yLabel}
+              accessibilityLabel="Restore purchases"
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
             >
-              {purchasing === "premium" || (loadingOfferings && premiumCta.kind !== "owned") ? (
-                <LogoSpinner size={18} />
-              ) : (
-                <Text
-                  style={[
-                    styles.purchaseButtonText,
-                    premiumCta.kind === "owned" && { color: TIER_COLORS.premium },
-                  ]}
-                >
-                  {premiumCta.label}
-                </Text>
-              )}
+              <ThemedText
+                type="varsitySmall"
+                style={[styles.footerLink, { color: c.secondaryText }]}
+              >
+                Restore Purchases
+              </ThemedText>
+            </TouchableOpacity>
+            <ThemedText style={[styles.footerSeparator, { color: c.secondaryText }]}>·</ThemedText>
+            <TouchableOpacity
+              onPress={() => {
+                onClose();
+                router.push('/legal?tab=terms' as any);
+              }}
+              accessibilityRole="link"
+              accessibilityLabel="Terms of Service"
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            >
+              <ThemedText
+                type="varsitySmall"
+                style={[styles.footerLink, { color: c.secondaryText }]}
+              >
+                Terms
+              </ThemedText>
+            </TouchableOpacity>
+            <ThemedText style={[styles.footerSeparator, { color: c.secondaryText }]}>·</ThemedText>
+            <TouchableOpacity
+              onPress={() => {
+                onClose();
+                router.push('/legal?tab=privacy' as any);
+              }}
+              accessibilityRole="link"
+              accessibilityLabel="Privacy Policy"
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            >
+              <ThemedText
+                type="varsitySmall"
+                style={[styles.footerLink, { color: c.secondaryText }]}
+              >
+                Privacy
+              </ThemedText>
             </TouchableOpacity>
           </View>
         </ScrollView>
-
-        {/* Restore + legal links — Apple wants Terms and Privacy reachable
-            from inside the paywall, not just from a separate menu. */}
-        <View style={styles.footer}>
-          <TouchableOpacity
-            onPress={handleRestore}
-            disabled={!!purchasing}
-            accessibilityRole="button"
-            accessibilityLabel="Restore purchases"
-            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-          >
-            <Text style={[styles.footerLink, { color: c.secondaryText }]}>
-              Restore Purchases
-            </Text>
-          </TouchableOpacity>
-          <Text style={[styles.footerSeparator, { color: c.secondaryText }]}>·</Text>
-          <TouchableOpacity
-            onPress={() => {
-              onClose();
-              router.push('/legal?tab=terms' as any);
-            }}
-            accessibilityRole="link"
-            accessibilityLabel="Terms of Service"
-            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-          >
-            <Text style={[styles.footerLink, { color: c.secondaryText }]}>
-              Terms
-            </Text>
-          </TouchableOpacity>
-          <Text style={[styles.footerSeparator, { color: c.secondaryText }]}>·</Text>
-          <TouchableOpacity
-            onPress={() => {
-              onClose();
-              router.push('/legal?tab=privacy' as any);
-            }}
-            accessibilityRole="link"
-            accessibilityLabel="Privacy Policy"
-            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-          >
-            <Text style={[styles.footerLink, { color: c.secondaryText }]}>
-              Privacy
-            </Text>
-          </TouchableOpacity>
-        </View>
       </View>
     </Modal>
+  );
+}
+
+// ── Plan card ──────────────────────────────────────────────────────────
+
+interface PlanCardProps {
+  tierColor: string;
+  label: string;
+  tagline: string;
+  price: string | null;
+  features: string[];
+  cta: { kind: "owned" | "switch" | "upgrade" | "buy" | "downgrade"; label: string; a11yLabel: string };
+  disabled: boolean;
+  loading: boolean;
+  onPress: () => void;
+}
+
+function PlanCard({
+  tierColor,
+  label,
+  tagline,
+  price,
+  features,
+  cta,
+  disabled,
+  loading,
+  onPress,
+}: PlanCardProps) {
+  const scheme = useColorScheme() ?? "light";
+  const c = Colors[scheme];
+  const isOwned = cta.kind === "owned";
+
+  return (
+    <View
+      style={[
+        styles.planCard,
+        { backgroundColor: c.card, borderColor: c.border },
+      ]}
+    >
+      {/* Tier accent rule — full-width top edge in the tier color */}
+      <View style={[styles.planAccent, { backgroundColor: tierColor }]} />
+
+      <View style={styles.planBody}>
+        <View style={styles.planHeader}>
+          <View style={{ flex: 1 }}>
+            <ThemedText
+              type="varsitySmall"
+              style={[styles.planTagline, { color: tierColor }]}
+            >
+              {tagline}
+            </ThemedText>
+            <ThemedText
+              type="display"
+              style={[styles.planName, { color: c.text }]}
+            >
+              {label}.
+            </ThemedText>
+          </View>
+          {price ? (
+            <View style={styles.priceBlock}>
+              <ThemedText style={[styles.planPrice, { color: c.text }]}>
+                {price}
+              </ThemedText>
+            </View>
+          ) : (
+            <View style={[styles.pricePlaceholder, { backgroundColor: c.cardAlt }]} />
+          )}
+        </View>
+
+        {/* Gold rule between header and features (HomeHero stat-row vibe) */}
+        <View style={[styles.featureDivider, { backgroundColor: c.gold }]} />
+
+        {features.map((feature) => (
+          <View style={styles.featureRow} key={feature}>
+            <Ionicons
+              name="checkmark"
+              size={12}
+              color={tierColor}
+              accessible={false}
+            />
+            <ThemedText style={[styles.featureText, { color: c.text }]}>
+              {feature}
+            </ThemedText>
+          </View>
+        ))}
+
+        <TouchableOpacity
+          style={[
+            styles.purchaseButton,
+            isOwned
+              ? { backgroundColor: 'transparent', borderColor: tierColor, borderWidth: 1 }
+              : { backgroundColor: tierColor },
+            disabled && { opacity: 0.55 },
+          ]}
+          onPress={onPress}
+          disabled={disabled}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel={cta.a11yLabel}
+        >
+          {loading ? (
+            <LogoSpinner size={18} />
+          ) : (
+            <ThemedText
+              type="varsity"
+              style={[
+                styles.purchaseButtonText,
+                { color: isOwned ? tierColor : Brand.ecru },
+              ]}
+            >
+              {cta.label}
+            </ThemedText>
+          )}
+        </TouchableOpacity>
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: s(16),
   },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+
+  // Header row — Alfa Slab title left, close button right.
+  // Title carries the brand voice; close stays out of the way on the side.
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: s(20),
-    paddingBottom: s(8),
+    paddingTop: s(12),
+    paddingBottom: s(12),
+    gap: s(12),
   },
-  headerTitle: {
-    fontSize: ms(22),
+  closeBtn: {
+    width: s(28),
+    height: s(28),
+    borderRadius: s(14),
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  leagueSubtitle: {
-    fontSize: ms(13),
-    paddingHorizontal: s(20),
-    marginBottom: s(8),
-  },
-  toggleRow: {
-    flexDirection: "row",
-    marginHorizontal: s(20),
-    borderRadius: 10,
-    padding: s(3),
-    marginBottom: s(16),
-  },
-  toggleButton: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: s(8),
-    borderRadius: 8,
-    gap: s(6),
-  },
-  toggleText: {
-    fontSize: ms(14),
-    fontWeight: "600",
-  },
-  saveBadge: {
-    backgroundColor: "#34C759",
-    paddingHorizontal: s(6),
-    paddingVertical: s(2),
-    borderRadius: 4,
-  },
-  saveBadgeText: {
-    color: "#FFFFFF",
-    fontSize: ms(10),
-    fontWeight: "700",
-  },
+
   scrollArea: {
     flex: 1,
   },
   scrollContent: {
     paddingHorizontal: s(20),
-    paddingBottom: s(16),
-    gap: s(16),
+    paddingBottom: s(20),
   },
+
+  heroTitle: {
+    flex: 1,
+    fontSize: ms(22),
+    lineHeight: ms(26),
+    letterSpacing: -0.3,
+  },
+  heroSubtitle: {
+    fontSize: ms(12),
+    lineHeight: ms(16),
+    marginBottom: s(8),
+  },
+
+  // Period toggle — brand pill segmenter (tightened)
+  toggleRow: {
+    flexDirection: 'row',
+    borderRadius: 10,
+    borderWidth: 1,
+    padding: s(3),
+    marginBottom: s(6),
+  },
+  toggleButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: s(7),
+    borderRadius: 8,
+    gap: s(8),
+  },
+  toggleButtonActive: {
+    borderWidth: 1,
+  },
+  toggleText: {
+    fontSize: ms(11),
+    letterSpacing: 1.0,
+  },
+  saveBadge: {
+    paddingHorizontal: s(6),
+    paddingVertical: s(1.5),
+    borderRadius: 4,
+  },
+  saveBadgeText: {
+    color: Brand.ecru,
+    fontSize: ms(8),
+    letterSpacing: 0.8,
+  },
+
+  autoRenewText: {
+    fontSize: ms(9),
+    lineHeight: ms(13),
+    marginBottom: s(10),
+    textAlign: 'center',
+  },
+
+  // Plan card — tighter padding + smaller header so two cards stack in view
   planCard: {
-    borderWidth: 1.5,
-    borderRadius: 16,
-    padding: s(18),
-    gap: s(10),
+    borderWidth: 1,
+    borderRadius: 14,
+    overflow: 'hidden',
+    marginBottom: s(10),
+  },
+  planAccent: {
+    height: s(3),
+  },
+  planBody: {
+    padding: s(14),
+    gap: s(4),
   },
   planHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: s(4),
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: s(10),
+  },
+  planTagline: {
+    fontSize: ms(9),
+    letterSpacing: 1.4,
+    marginBottom: s(1),
   },
   planName: {
     fontSize: ms(20),
-    fontWeight: "700",
+    lineHeight: ms(24),
+    letterSpacing: -0.3,
   },
-  planTagline: {
-    fontSize: ms(12),
-    fontWeight: "500",
-    marginTop: s(2),
-  },
+  priceBlock: { alignItems: 'flex-end' },
   planPrice: {
-    fontSize: ms(18),
-    fontWeight: "700",
+    fontFamily: Fonts.mono,
+    fontSize: ms(14),
+    letterSpacing: 0.3,
   },
   pricePlaceholder: {
-    width: s(72),
-    height: ms(18),
+    width: s(64),
+    height: ms(14),
     borderRadius: 4,
-    marginTop: s(2),
   },
+
+  featureDivider: {
+    height: 1,
+    marginVertical: s(6),
+    opacity: 0.55,
+  },
+
   featureRow: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: s(8),
+    paddingVertical: s(0),
   },
   featureText: {
-    fontSize: ms(14),
+    fontSize: ms(12),
+    lineHeight: ms(16),
     flex: 1,
   },
+
   purchaseButton: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: s(14),
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: s(10),
     borderRadius: 10,
-    marginTop: s(6),
+    marginTop: s(8),
   },
   purchaseButtonText: {
-    color: "#FFFFFF",
-    fontSize: ms(16),
-    fontWeight: "700",
+    fontSize: ms(12),
+    letterSpacing: 1.0,
   },
-  autoRenewText: {
-    fontSize: ms(11),
-    lineHeight: ms(15),
-    paddingHorizontal: s(20),
-    marginBottom: s(12),
-    textAlign: "center",
-  },
+
+  // Footer — tightened
   footer: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: s(6),
-    paddingVertical: s(14),
-    paddingBottom: s(24),
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: s(10),
+    paddingTop: s(12),
+    paddingBottom: s(8),
   },
   footerLink: {
-    fontSize: ms(13),
-    fontWeight: "500",
+    fontSize: ms(9),
+    letterSpacing: 1.2,
   },
   footerSeparator: {
-    fontSize: ms(13),
-    fontWeight: "500",
+    fontSize: ms(11),
   },
 });

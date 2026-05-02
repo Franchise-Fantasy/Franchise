@@ -15,7 +15,8 @@ import {
 
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
-import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
+import { getCurrentSeason, parseSeasonStartYear, type Sport } from '@/constants/LeagueDefaults';
+import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { InjuryFilter, POSITIONS, SortKey, TimeRange } from '@/hooks/usePlayerFilter';
 import { toDateStr } from '@/utils/dates';
@@ -28,21 +29,15 @@ const INJURY_OPTIONS: { key: InjuryFilter; label: string; icon: string }[] = [
   { key: 'injured', label: 'Out / GTD / Doubtful', icon: 'medkit-outline' },
 ];
 
-// Short label for last season, e.g. "'24-'25" when current season is "2025-26"
-const LAST_SEASON_LABEL = (() => {
-  const startYear = Number(CURRENT_NBA_SEASON.split('-')[0]);
+// Short label for the prior season — sport-aware. NBA: "'24-'25" (two-year
+// span); WNBA: "'25" (single year).
+function lastSeasonLabel(sport: Sport): string {
+  const startYear = parseSeasonStartYear(getCurrentSeason(sport));
   const prevStart = String(startYear - 1).slice(-2);
+  if (sport === 'wnba') return `'${prevStart}`;
   const prevEnd = String(startYear).slice(-2);
   return `'${prevStart}-'${prevEnd}`;
-})();
-
-const TIME_RANGE_OPTIONS: { key: TimeRange; label: string }[] = [
-  { key: 'season', label: 'Season' },
-  { key: '7d', label: '7D' },
-  { key: '14d', label: '14D' },
-  { key: '30d', label: '30D' },
-  { key: 'lastSeason', label: LAST_SEASON_LABEL },
-];
+}
 
 /** Labeled horizontal chip row that surfaces a right-aligned chevron hint only when its content overflows. */
 function ChipScrollRow({
@@ -155,6 +150,14 @@ export function PlayerFilterBar({
 }: PlayerFilterBarProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const sport = useActiveLeagueSport();
+  const TIME_RANGE_OPTIONS: { key: TimeRange; label: string }[] = [
+    { key: 'season', label: 'Season' },
+    { key: '7d', label: '7D' },
+    { key: '14d', label: '14D' },
+    { key: '30d', label: '30D' },
+    { key: 'lastSeason', label: lastSeasonLabel(sport) },
+  ];
   const [modalVisible, setModalVisible] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const closeModal = () => {

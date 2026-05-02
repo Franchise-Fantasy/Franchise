@@ -495,16 +495,16 @@ export default function LeagueInfoScreen() {
                       if (!isMine) return;
                       promptInput({
                         title: 'Edit Tricode',
-                        message: '2-4 characters (letters/numbers)',
+                        message: '2-3 characters (letters/numbers)',
                         defaultValue: team.tricode ?? '',
-                        maxLength: 4,
+                        maxLength: 3,
                         autoCapitalize: 'characters',
                         action: {
                           label: 'Save',
                           onSubmit: async (value) => {
                             const code = value.trim().toUpperCase();
-                            if (!code || code.length < 2 || code.length > 4 || !/^[A-Z0-9]+$/.test(code)) {
-                              Alert.alert('Invalid tricode', 'Must be 2-4 letters/numbers.');
+                            if (!code || code.length < 2 || code.length > 3 || !/^[A-Z0-9]+$/.test(code)) {
+                              Alert.alert('Invalid tricode', 'Must be 2-3 letters/numbers.');
                               return;
                             }
                             const { error } = await supabase.from('teams').update({ tricode: code }).eq('id', team.id);

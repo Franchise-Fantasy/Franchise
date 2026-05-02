@@ -1,5 +1,15 @@
 ## Tier 1 — Now
 
+
+- [ ] Create RevenueCat Android Key
+- [ ] Attempt Android Build again with this added (play key needed?)
+- [ ] WNBA Scoping - season starts in ~1 week.
+    - How are we Dealing with Projections?
+- [ ] Prospect --> Rookie Draft pipeline. When does BDL
+
+- [ ] General NBA Projections 
+
+
 - [ ] Build Onboarding Walkthrough — tooltip tour, scaffold now, polish closer to launch
 - Sleeper ID: 851103743612141568
 

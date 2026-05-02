@@ -33,25 +33,18 @@ function isEligibleForSlot(playerPosition: string, slotPosition: string): boolea
   return getEligiblePositions(playerPosition).some(pos => eligible.includes(pos));
 }
 
-async function findBestSlot(
-  supabaseAdmin: any,
-  leagueId: string,
-  teamId: string,
+// Pure variant: takes pre-fetched roster config + current roster so the caller
+// can batch the underlying queries with the rest of phase-2 reads.
+function findBestSlot(
+  configs: { position: string; slot_count: number }[],
+  currentPlayers: { roster_slot: string | null }[],
   playerPosition: string,
-): Promise<string> {
-  const [configResult, rosterResult] = await Promise.all([
-    supabaseAdmin.from('league_roster_config').select('position, slot_count').eq('league_id', leagueId),
-    supabaseAdmin.from('league_players').select('roster_slot').eq('team_id', teamId).eq('league_id', leagueId),
-  ]);
-
-  const configs = configResult.data ?? [];
-  const currentPlayers = rosterResult.data ?? [];
-
+): string {
   const occupiedSlots = new Set<string>(
-    currentPlayers.map((p: any) => p.roster_slot ?? 'BE'),
+    currentPlayers.map((p) => p.roster_slot ?? 'BE'),
   );
 
-  const starterConfigs = configs.filter((c: any) => c.position !== 'BE' && c.position !== 'IR');
+  const starterConfigs = configs.filter((c) => c.position !== 'BE' && c.position !== 'IR');
   for (const config of starterConfigs) {
     if (!isEligibleForSlot(playerPosition, config.position)) continue;
     if (config.position === 'UTIL') {
@@ -69,6 +62,20 @@ async function findBestSlot(
   }
 
   return 'BE';
+}
+
+// Run non-critical post-pick work after the response. Falls back to await if
+// EdgeRuntime.waitUntil isn't available (e.g. supabase functions serve locally).
+function deferWork(promise: Promise<unknown>) {
+  // @ts-ignore - EdgeRuntime is a Supabase edge runtime global
+  const edgeRuntime: { waitUntil?: (p: Promise<unknown>) => void } | undefined =
+    // @ts-ignore
+    typeof EdgeRuntime !== 'undefined' ? EdgeRuntime : undefined;
+  if (edgeRuntime?.waitUntil) {
+    edgeRuntime.waitUntil(promise.catch((err) => console.warn('Deferred autodraft work failed:', err)));
+  } else {
+    promise.catch((err) => console.warn('Deferred autodraft work failed:', err));
+  }
 }
 
 async function scheduleAutodraft(draft_id: string, pick_number: number, time_limit: number, autopick_triggered = false) {
@@ -112,92 +119,108 @@ Deno.serve(async (req) => {
       Deno.env.get('SB_SECRET_KEY') ?? ''
     );
 
-    const { data: draft, error: draftError } = await supabaseAdmin
-      .from('drafts')
-      .select('current_pick_number, rounds, picks_per_round, time_limit, league_id, type')
-      .eq('id', draft_id)
-      .single();
+    // Phase 1: parallel fetch of draft + current pick (no inter-dependency).
+    const [draftResult, pickResult] = await Promise.all([
+      supabaseAdmin
+        .from('drafts')
+        .select('current_pick_number, rounds, picks_per_round, time_limit, league_id, type')
+        .eq('id', draft_id)
+        .single(),
+      supabaseAdmin
+        .from('draft_picks')
+        .select('id, current_team_id, player_id')
+        .eq('draft_id', draft_id)
+        .eq('pick_number', pick_number)
+        .single(),
+    ]);
 
+    const { data: draft, error: draftError } = draftResult;
     if (draftError || !draft || draft.current_pick_number !== pick_number) {
       return new Response(JSON.stringify({ message: 'Pick already made or draft not found' }), { status: 200 });
     }
 
-    const { data: currentPick, error: pickError } = await supabaseAdmin
-      .from('draft_picks')
-      .select('id, current_team_id, player_id')
-      .eq('draft_id', draft_id)
-      .eq('pick_number', pick_number)
-      .single();
-
+    const { data: currentPick, error: pickError } = pickResult;
     if (pickError || !currentPick || currentPick.player_id) {
       return new Response(JSON.stringify({ message: 'Pick already made' }), { status: 200 });
     }
 
-    // If this was triggered by the autopick toggle (not the normal draft clock),
-    // re-check that the team still has autopick enabled — they may have toggled off.
-    if (autopick_triggered) {
-      const { data: teamStatus } = await supabaseAdmin
-        .from('draft_team_status')
-        .select('autopick_on')
-        .eq('draft_id', draft_id)
-        .eq('team_id', currentPick.current_team_id)
-        .maybeSingle();
-
-      if (!teamStatus?.autopick_on) {
-        // User turned off autopick before this fired — schedule normal clock instead
-        await scheduleAutodraft(draft_id, pick_number, draft.time_limit);
-        return new Response(JSON.stringify({ message: 'Autopick cancelled, normal clock scheduled' }), { status: 200 });
-      }
-    }
-
-    const { data: draftedPlayers } = await supabaseAdmin
-      .from('league_players')
-      .select('player_id')
-      .eq('league_id', draft.league_id);
-
-    const draftedIds = (draftedPlayers ?? []).map((p: { player_id: string }) => String(p.player_id));
-
-    const isRookieDraft = draft.type === 'rookie';
-
-    // Fetch league config (sport + position limits) in one round-trip.
-    const { data: leagueForLimits } = await supabaseAdmin
-      .from('leagues').select('sport, position_limits').eq('id', draft.league_id).single();
-    const sport: 'nba' | 'wnba' = leagueForLimits?.sport === 'wnba' ? 'wnba' : 'nba';
-    const posLimits = leagueForLimits?.position_limits as Record<string, number> | null;
-    let teamRoster: { position: string; roster_slot: string }[] | null = null;
-    if (posLimits && Object.keys(posLimits).length > 0) {
-      const { data } = await supabaseAdmin
+    // Phase 2: parallel fetch of everything needed to choose the player and
+    // assign a roster slot. None of these depend on each other once we have
+    // draft.league_id + currentPick.current_team_id from phase 1.
+    const [
+      draftedResult,
+      leagueResult,
+      teamRosterResult,
+      queueResult,
+      teamStatusResult,
+      rosterConfigResult,
+    ] = await Promise.all([
+      supabaseAdmin.from('league_players').select('player_id').eq('league_id', draft.league_id),
+      supabaseAdmin.from('leagues').select('sport, position_limits').eq('id', draft.league_id).single(),
+      supabaseAdmin
         .from('league_players')
         .select('position, roster_slot')
         .eq('league_id', draft.league_id)
-        .eq('team_id', currentPick.current_team_id);
-      teamRoster = data ?? [];
+        .eq('team_id', currentPick.current_team_id),
+      supabaseAdmin
+        .from('draft_queue')
+        .select('id, player_id')
+        .eq('draft_id', draft_id)
+        .eq('team_id', currentPick.current_team_id)
+        .order('priority'),
+      autopick_triggered
+        ? supabaseAdmin
+            .from('draft_team_status')
+            .select('autopick_on')
+            .eq('draft_id', draft_id)
+            .eq('team_id', currentPick.current_team_id)
+            .maybeSingle()
+        : Promise.resolve({ data: null as { autopick_on: boolean } | null }),
+      supabaseAdmin.from('league_roster_config').select('position, slot_count').eq('league_id', draft.league_id),
+    ]);
+
+    // If this was triggered by the autopick toggle (not the normal draft clock),
+    // re-check that the team still has autopick enabled — they may have toggled off.
+    if (autopick_triggered && !teamStatusResult.data?.autopick_on) {
+      // User turned off autopick before this fired — schedule normal clock instead
+      await scheduleAutodraft(draft_id, pick_number, draft.time_limit);
+      return new Response(JSON.stringify({ message: 'Autopick cancelled, normal clock scheduled' }), { status: 200 });
     }
+
+    const draftedIds = (draftedResult.data ?? []).map((p: { player_id: string }) => String(p.player_id));
+    const isRookieDraft = draft.type === 'rookie';
+
+    const sport: 'nba' | 'wnba' = leagueResult.data?.sport === 'wnba' ? 'wnba' : 'nba';
+    const posLimits = leagueResult.data?.position_limits as Record<string, number> | null;
+    const teamRoster: { position: string; roster_slot: string }[] = teamRosterResult.data ?? [];
+    const useLimits = posLimits && Object.keys(posLimits).length > 0;
+    const rosterConfigs = rosterConfigResult.data ?? [];
 
     // Check if the team has a draft queue — pick from it first
     let topPlayer: { player_id: string; position: string } | null = null;
     let usedQueueEntryId: string | null = null;
 
-    const { data: queueEntries } = await supabaseAdmin
-      .from('draft_queue')
-      .select('id, player_id')
-      .eq('draft_id', draft_id)
-      .eq('team_id', currentPick.current_team_id)
-      .order('priority');
+    const queueEntries = queueResult.data ?? [];
 
-    if (queueEntries && queueEntries.length > 0) {
+    if (queueEntries.length > 0) {
+      // Batch player_season_stats for the whole queue in one round-trip instead
+      // of N sequential .single() lookups.
+      const queuePlayerIds = queueEntries.map((e: { player_id: string }) => e.player_id);
+      const { data: queuePlayerStats } = await supabaseAdmin
+        .from('player_season_stats')
+        .select('player_id, position')
+        .in('player_id', queuePlayerIds);
+      const statsByPlayerId = new Map<string, { player_id: string; position: string }>(
+        (queuePlayerStats ?? []).map((s: { player_id: string; position: string }) => [String(s.player_id), s]),
+      );
+
       // Find first queued player that is still available and passes position limits
       for (const entry of queueEntries) {
         if (draftedIds.includes(String(entry.player_id))) continue;
-        const { data: playerStats } = await supabaseAdmin
-          .from('player_season_stats')
-          .select('player_id, position')
-          .eq('player_id', entry.player_id)
-          .single();
+        const playerStats = statsByPlayerId.get(String(entry.player_id));
         if (!playerStats) continue;
-        // Check position limits
-        if (teamRoster && posLimits) {
-          const violation = checkPositionLimits(posLimits, teamRoster, playerStats.position);
+        if (useLimits) {
+          const violation = checkPositionLimits(posLimits!, teamRoster, playerStats.position);
           if (violation) continue;
         }
         topPlayer = playerStats;
@@ -235,8 +258,8 @@ Deno.serve(async (req) => {
 
       // Find first candidate that passes position limits
       for (const candidate of candidates) {
-        if (teamRoster && posLimits) {
-          const violation = checkPositionLimits(posLimits, teamRoster, candidate.position);
+        if (useLimits) {
+          const violation = checkPositionLimits(posLimits!, teamRoster, candidate.position);
           if (violation) continue;
         }
         topPlayer = candidate;
@@ -255,7 +278,7 @@ Deno.serve(async (req) => {
       .eq('pick_number', pick_number);
     if (updatePickError) throw updatePickError;
 
-    const rosterSlot = await findBestSlot(supabaseAdmin, draft.league_id, currentPick.current_team_id, topPlayer.position);
+    const rosterSlot = findBestSlot(rosterConfigs, teamRoster, topPlayer.position);
 
     const { error: insertPlayerError } = await supabaseAdmin
       .from('league_players')
@@ -269,15 +292,6 @@ Deno.serve(async (req) => {
         roster_slot: rosterSlot,
       });
     if (insertPlayerError) throw insertPlayerError;
-
-    // Clean up draft queues: remove used entry and this player from all teams' queues
-    if (usedQueueEntryId) {
-      await supabaseAdmin.from('draft_queue').delete().eq('id', usedQueueEntryId);
-    }
-    await supabaseAdmin.from('draft_queue')
-      .delete()
-      .eq('draft_id', draft_id)
-      .eq('player_id', topPlayer.player_id);
 
     const nextPickNumber = pick_number + 1;
     const totalPicks = draft.rounds * draft.picks_per_round;
@@ -303,80 +317,89 @@ Deno.serve(async (req) => {
         .eq('id', draft.league_id);
     }
 
-    if (!isDraftComplete) {
-      try {
-        const { data: nextPick } = await supabaseAdmin
-          .from('draft_picks')
-          .select('current_team_id')
-          .eq('draft_id', draft_id)
-          .eq('pick_number', nextPickNumber)
-          .single();
-
-        let delay = draft.time_limit;
-        let nextIsAutopick = false;
-        if (nextPick) {
-          const { data: teamStatus } = await supabaseAdmin
-            .from('draft_team_status')
-            .select('autopick_on')
-            .eq('draft_id', draft_id)
-            .eq('team_id', nextPick.current_team_id)
-            .maybeSingle();
-
-          if (teamStatus?.autopick_on) {
-            delay = 1;
-            nextIsAutopick = true;
-          }
-        }
-
-        await scheduleAutodraft(draft_id, nextPickNumber, delay, nextIsAutopick);
-      } catch (schedErr) {
-        console.warn('Failed to schedule next autodraft (non-fatal):', schedErr);
+    // Defer non-critical work (queue cleanup, scheduling next pick, push
+    // notifications) so the function can return immediately after the realtime-
+    // firing UPDATEs above. These were already wrapped in non-fatal try/catch,
+    // so the failure semantics are unchanged — we just stop blocking the
+    // response on them.
+    deferWork((async () => {
+      // Clean up draft queues: remove used entry and this player from all teams' queues
+      await supabaseAdmin.from('draft_queue')
+        .delete()
+        .eq('draft_id', draft_id)
+        .eq('player_id', topPlayer!.player_id);
+      if (usedQueueEntryId) {
+        await supabaseAdmin.from('draft_queue').delete().eq('id', usedQueueEntryId);
       }
-    }
 
-    // Push notifications
-    try {
-      const [{ data: playerInfo }, { data: leagueInfo }] = await Promise.all([
-        supabaseAdmin.from('players').select('name').eq('id', topPlayer.player_id).single(),
-        supabaseAdmin.from('leagues').select('name').eq('id', draft.league_id).single(),
-      ]);
-      const ln = leagueInfo?.name ?? 'Your League';
-
-      // Notify the team that was autopicked
-      await notifyTeams(supabaseAdmin, [currentPick.current_team_id], 'draft',
-        `${ln} — Autopick Made`,
-        `${playerInfo?.name ?? 'A player'} was auto-drafted for your team.`,
-        { screen: 'draft-room', draft_id }
-      );
-
+      // Schedule next pick + collect data needed for both that and the
+      // "your turn" push in a single fetch.
+      let nextPickTeamId: string | null = null;
       if (!isDraftComplete) {
-        // Notify next picker
-        const { data: nextPick } = await supabaseAdmin
-          .from('draft_picks')
-          .select('current_team_id')
-          .eq('draft_id', draft_id)
-          .eq('pick_number', nextPickNumber)
-          .single();
+        try {
+          const { data: nextPick } = await supabaseAdmin
+            .from('draft_picks')
+            .select('current_team_id')
+            .eq('draft_id', draft_id)
+            .eq('pick_number', nextPickNumber)
+            .single();
+          nextPickTeamId = nextPick?.current_team_id ?? null;
 
-        if (nextPick) {
-          await notifyTeams(supabaseAdmin, [nextPick.current_team_id], 'draft',
+          let delay = draft.time_limit;
+          let nextIsAutopick = false;
+          if (nextPickTeamId) {
+            const { data: teamStatus } = await supabaseAdmin
+              .from('draft_team_status')
+              .select('autopick_on')
+              .eq('draft_id', draft_id)
+              .eq('team_id', nextPickTeamId)
+              .maybeSingle();
+
+            if (teamStatus?.autopick_on) {
+              delay = 1;
+              nextIsAutopick = true;
+            }
+          }
+
+          await scheduleAutodraft(draft_id, nextPickNumber, delay, nextIsAutopick);
+        } catch (schedErr) {
+          console.warn('Failed to schedule next autodraft (non-fatal):', schedErr);
+        }
+      }
+
+      // Push notifications
+      try {
+        const [{ data: playerInfo }, { data: leagueInfo }] = await Promise.all([
+          supabaseAdmin.from('players').select('name').eq('id', topPlayer!.player_id).single(),
+          supabaseAdmin.from('leagues').select('name').eq('id', draft.league_id).single(),
+        ]);
+        const ln = leagueInfo?.name ?? 'Your League';
+
+        await notifyTeams(supabaseAdmin, [currentPick.current_team_id], 'draft',
+          `${ln} — Autopick Made`,
+          `${playerInfo?.name ?? 'A player'} was auto-drafted for your team.`,
+          { screen: 'draft-room', draft_id }
+        );
+
+        if (!isDraftComplete && nextPickTeamId) {
+          await notifyTeams(supabaseAdmin, [nextPickTeamId], 'draft',
             `${ln} — Your turn to pick!`,
             'The draft clock is ticking. Make your pick.',
             { screen: 'draft-room', draft_id }
           );
+        } else if (isDraftComplete) {
+          await notifyLeague(supabaseAdmin, draft.league_id, 'draft',
+            isRookieDraft ? `${ln} — Rookie Draft Complete!` : `${ln} — Draft Complete!`,
+            isRookieDraft
+              ? 'The rookie draft has finished. Check your new players.'
+              : 'Your league\'s draft has finished. Check your roster.',
+            { screen: 'roster' }
+          );
         }
-      } else {
-        await notifyLeague(supabaseAdmin, draft.league_id, 'draft',
-          isRookieDraft ? `${ln} — Rookie Draft Complete!` : `${ln} — Draft Complete!`,
-          isRookieDraft
-            ? 'The rookie draft has finished. Check your new players.'
-            : 'Your league\'s draft has finished. Check your roster.',
-          { screen: 'roster' }
-        );
+      } catch (notifyErr) {
+        console.warn('Push notification failed (non-fatal):', notifyErr);
       }
-    } catch (notifyErr) {
-      console.warn('Push notification failed (non-fatal):', notifyErr);
-    }
+    })());
 
     return new Response(
       JSON.stringify({ message: isDraftComplete ? 'Draft complete!' : 'Autodrafted!' }),

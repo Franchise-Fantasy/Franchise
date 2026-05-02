@@ -100,7 +100,7 @@ export function WeekRail({
     <View
       style={[
         styles.wrap,
-        { backgroundColor: Brand.turfGreen, borderBottomColor: c.border },
+        { backgroundColor: c.primary, borderBottomColor: c.border },
       ]}
     >
       {/* Top gold rule */}

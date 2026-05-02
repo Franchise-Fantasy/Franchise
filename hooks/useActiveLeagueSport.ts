@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 
 import type { Sport } from '@/constants/LeagueDefaults';
-import { useAppState } from '@/context/AppStateProvider';
+import { useOptionalAppState } from '@/context/AppStateProvider';
 import { supabase } from '@/lib/supabase';
 
 /**
@@ -12,8 +12,11 @@ import { supabase } from '@/lib/supabase';
  * never block on it — every consumer should be safe to default to NBA.
  */
 export function useActiveLeagueSport(leagueIdOverride?: string | null): Sport {
-  const { leagueId: contextLeagueId } = useAppState();
-  const leagueId = leagueIdOverride ?? contextLeagueId;
+  // Non-throwing read: a few components render above AppStateProvider
+  // (e.g. PushSoftPrompt mounted by AuthProvider). Default to no league
+  // so the NBA fallback below kicks in.
+  const appState = useOptionalAppState();
+  const leagueId = leagueIdOverride ?? appState?.leagueId ?? null;
 
   const { data } = useQuery({
     queryKey: ['leagueSport', leagueId],

@@ -42,5 +42,8 @@ export const useDraftTimer = (pickStartedAt?: string, timeLimit?: number) => {
     return `${minutes}:${seconds}`;
   };
 
-  return formatTime(timeRemaining);
+  // `expired` lets the consumer swap the bare "00:00" for a "Pick is in" label
+  // during the brief window between server-side timer expiry and the realtime
+  // pick-update arriving (~0.5–1.5s of QStash delivery + edge fn + broadcast).
+  return { display: formatTime(timeRemaining), expired: timeRemaining <= 0 };
 };

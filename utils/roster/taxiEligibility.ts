@@ -1,8 +1,9 @@
 /**
  * Check if a player is eligible for a taxi squad slot.
  *
- * Eligibility is based on NBA experience: currentYear - draft_year.
- * A player drafted in 2025 has 1 year of experience in the 2025-26 season.
+ * Eligibility is based on professional experience: currentYear - draft_year.
+ * A player drafted in 2025 has 1 year of experience in the 2025-26 NBA season
+ * (or the 2026 WNBA season).
  */
 export function isTaxiEligible(
   nbaDraftYear: number | null,

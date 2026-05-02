@@ -14,6 +14,10 @@ const BRAND: Record<string, string> = {
   heritageGold: "#9E8A60",
   heritageGoldDark: "#9E8A60",
   merlot: "#671A1E",
+  // Lighter merlot for dark-mode UI accents (tab icon, tint, link, active
+  // state) where the deep merlot loses contrast against the warm dark
+  // background. Mirrors the turfGreen → turfGreenSoft pattern.
+  merlotSoft: "#8E2C36",
   turfGreen: "#1C552E",
   turfGreenDim: "#15421F",
   turfGreenSoft: "#2F6D42",
@@ -70,6 +74,23 @@ export const Colors = {
     analyticsAccent: BRAND.vintageGold,
     analyticsBg: "rgba(181, 123, 48, 0.06)",
     analyticsBorder: "rgba(181, 123, 48, 0.18)",
+    // Signature "hero" surface — deep field-green for the league/team
+    // identity strip on home + the prospect profile hero. Sport-themed
+    // (WNBA swaps to merlot via SPORT_THEMES).
+    heroSurface: BRAND.turfGreen,
+    heroShadow: {
+      shadowColor: BRAND.turfGreen,
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.18,
+      shadowRadius: 16,
+      elevation: 6,
+    },
+    // Primary brand accent — selected pills, segmented controls, brand
+    // buttons, scoreboard header, champion crowning, profile/analytics
+    // hero strips. Sport-themed (WNBA → merlot). Distinct from `success`
+    // (kept turfGreen always) and `accent` (gold family).
+    primary: BRAND.turfGreen,
+    onPrimary: BRAND.ecru,
   },
   dark: {
     text: BRAND.ecru,
@@ -107,6 +128,16 @@ export const Colors = {
     analyticsAccent: BRAND.heritageGoldDark,
     analyticsBg: "rgba(158, 138, 96, 0.10)",
     analyticsBorder: "rgba(158, 138, 96, 0.22)",
+    heroSurface: BRAND.turfGreen,
+    heroShadow: {
+      shadowColor: BRAND.turfGreen,
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.18,
+      shadowRadius: 16,
+      elevation: 6,
+    },
+    primary: BRAND.turfGreen,
+    onPrimary: BRAND.ecru,
   },
 };
 
@@ -114,10 +145,13 @@ export const Brand = BRAND;
 
 // ── Sport-keyed theme overrides ────────────────────────────────────────────
 // Each sport inherits the full Colors palette; the registry below overrides
-// only the accent family (gold / accent / tabIconSelected / warning / link /
-// analyticsAccent). Other tokens — turfGreen for active states, merlot for
-// danger, ecru/cream surfaces — stay constant so the brand identity is
-// consistent across sports.
+// the accent family (gold / accent / tabIconSelected / warning / link /
+// analyticsAccent) AND the primary brand surface family for sports that
+// want to break from the green baseline (WNBA → merlot for `primary`,
+// `heroSurface`, `heroShadow`, `tint`, `link`, `active*`). Tokens like
+// `success` (turfGreen) and `icon` are intentionally never overridden so
+// success doesn't collide with `danger` (merlot) and icon hue stays
+// stable across sports.
 //
 // To add a new sport (NFL, NHL, MLB):
 //   1. Widen `Sport` in constants/LeagueDefaults.ts
@@ -131,32 +165,60 @@ type AccentOverrides = {
 };
 
 export const SPORT_THEMES: Record<string, AccentOverrides> = {
-  // WNBA — burnt orange. Fits the heritage palette; nods to the league's
-  // W-mark orange without breaking the deck's golden-era aesthetic.
+  // WNBA — burnt orange accent + merlot for the green-baseline tokens
+  // (hero surface/shadow, active state, link, icon, tint). `success`
+  // intentionally stays turfGreen so it doesn't collide with `danger`,
+  // which is also merlot.
   wnba: {
     light: {
       accent:           '#BF5C30',
       gold:             '#BF5C30',
       goldMuted:        'rgba(191, 92, 48, 0.18)',
-      tabIconSelected:  '#BF5C30',
+      tabIconSelected:  BRAND.merlot,
       warning:          '#BF5C30',
       warningMuted:     'rgba(191, 92, 48, 0.12)',
       analyticsAccent:  '#BF5C30',
       analyticsBg:      'rgba(191, 92, 48, 0.06)',
       analyticsBorder:  'rgba(191, 92, 48, 0.18)',
+      tint:             BRAND.merlot,
+      activeBorder:     BRAND.merlot,
+      activeText:       BRAND.merlot,
+      activeCard:       'rgba(103, 26, 30, 0.10)',
+      link:             BRAND.merlot,
+      heroSurface:      BRAND.merlot,
+      heroShadow: {
+        shadowColor:   BRAND.merlot,
+        shadowOffset:  { width: 0, height: 6 },
+        shadowOpacity: 0.18,
+        shadowRadius:  16,
+        elevation:     6,
+      },
+      primary:          BRAND.merlot,
     },
     dark: {
       accent:           '#A6502A',
       gold:             '#A6502A',
       goldMuted:        'rgba(166, 80, 42, 0.25)',
-      tint:             '#A6502A',
-      tabIconSelected:  '#A6502A',
+      tint:             BRAND.merlotSoft,
+      tabIconSelected:  BRAND.merlotSoft,
       warning:          '#A6502A',
       warningMuted:     'rgba(166, 80, 42, 0.20)',
-      link:             '#A6502A',
+      link:             BRAND.merlotSoft,
       analyticsAccent:  '#A6502A',
       analyticsBg:      'rgba(166, 80, 42, 0.10)',
       analyticsBorder:  'rgba(166, 80, 42, 0.22)',
+      activeBorder:     BRAND.merlotSoft,
+      activeText:       BRAND.merlotSoft,
+      activeCard:       'rgba(142, 44, 54, 0.20)',
+      heroSurface:      BRAND.merlot,
+      heroShadow: {
+        shadowColor:   BRAND.merlot,
+        shadowOffset:  { width: 0, height: 6 },
+        shadowOpacity: 0.18,
+        shadowRadius:  16,
+        elevation:     6,
+      },
+      primary:          BRAND.merlot,
     },
   },
 
@@ -180,16 +242,6 @@ export const cardShadowMedium = {
   shadowOpacity: 0.14,
   shadowRadius: 14,
   elevation: 5,
-} as const;
-
-// Used by the signature "hero" card — the league/team identity strip at the top
-// of the home screen. Warmer, deeper shadow to lift it above info cards.
-export const heroShadow = {
-  shadowColor: BRAND.turfGreen,
-  shadowOffset: { width: 0, height: 6 },
-  shadowOpacity: 0.18,
-  shadowRadius: 16,
-  elevation: 6,
 } as const;
 
 // Brand typography tokens — set after fonts load in app/_layout.tsx.

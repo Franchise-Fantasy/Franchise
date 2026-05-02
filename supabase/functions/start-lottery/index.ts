@@ -46,17 +46,26 @@ Deno.serve(async (req) => {
 
     const season = league.season;
 
-    // Get archived standings from team_seasons (previous season)
-    const { data: archivedStats } = await supabaseAdmin
+    // Get archived standings from team_seasons. CRITICAL: filter to the most
+    // recent archived season only — for any league past year 1, querying
+    // without a season filter returns one row per team per past season,
+    // duplicating teams in the lottery pool and corrupting the draft order.
+    const { data: allArchived } = await supabaseAdmin
       .from('team_seasons')
-      .select('team_id, wins, points_for')
+      .select('team_id, wins, points_for, season')
       .eq('league_id', league_id)
-      .order('wins', { ascending: true })
-      .order('points_for', { ascending: true });
+      .order('season', { ascending: false });
 
     let orderedTeams: Array<{ id: string; name: string; wins: number; points_for: number }>;
 
-    if (archivedStats && archivedStats.length > 0) {
+    if (allArchived && allArchived.length > 0) {
+      const latestSeason = allArchived[0].season;
+      const archivedStats = allArchived
+        .filter(r => r.season === latestSeason)
+        .sort((a, b) =>
+          a.wins - b.wins || Number(a.points_for) - Number(b.points_for),
+        );
+
       const teamIds = archivedStats.map(s => s.team_id);
       const { data: teamNames } = await supabaseAdmin
         .from('teams')
@@ -98,11 +107,14 @@ Deno.serve(async (req) => {
       .upsert({ league_id, season, results: finalOrder }, { onConflict: 'league_id,season' });
     if (resultErr) throw new Error(`Failed to save lottery results: ${resultErr.message}`);
 
-    // Build full draft order: lottery teams first, then playoff teams (best record last)
+    // Build full draft order: lottery teams first, then playoff teams in
+    // worst-record-first order (worst playoff team gets the next pick after
+    // the lottery; best record picks last). `orderedTeams` is already sorted
+    // ascending by wins, and the lottery pool was the first N entries (the
+    // worst N), so filtering out the lottery teams leaves the playoff teams
+    // already in [worst-playoff, ..., best-playoff] order — no reverse needed.
     const lotteryTeamIds = new Set(finalOrder.map(e => e.team_id));
-    const playoffTeamsPicks = orderedTeams
-      .filter(t => !lotteryTeamIds.has(t.id))
-      .reverse(); // best record picks last
+    const playoffTeamsPicks = orderedTeams.filter(t => !lotteryTeamIds.has(t.id));
 
     const fullDraftOrder = [
       ...finalOrder.map(e => e.team_id),
@@ -211,12 +223,16 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Update league state
+    // Update league state. `lottery_revealing` is the intermediate step where
+    // the RNG has run and results are persisted, but the ceremony hasn't been
+    // marked done yet. The home hero shows a "Watch the Reveal" CTA visible to
+    // everyone in this state. Lottery-room's `handleDone` advances to
+    // `lottery_complete` once the commissioner closes the ceremony.
     await supabaseAdmin
       .from('leagues')
       .update({
         lottery_status: 'complete',
-        offseason_step: 'lottery_complete',
+        offseason_step: 'lottery_revealing',
       })
       .eq('id', league_id);
 
@@ -234,8 +250,9 @@ Deno.serve(async (req) => {
     );
   } catch (error) {
     console.error('start-lottery error:', error);
+    const message = error instanceof Error ? error.message : 'Internal server error';
     return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
+      JSON.stringify({ error: message }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }

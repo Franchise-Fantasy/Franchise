@@ -9,7 +9,7 @@ import type { ReadReceipt } from '@/hooks/chat/useReadReceipts';
 import { useColors } from '@/hooks/useColors';
 import { ms, s } from '@/utils/scale';
 
-type Entry = {
+export type PresenceEntry = {
   team_id: string;
   team_name: string;
   tricode: string;
@@ -20,8 +20,19 @@ type Entry = {
 interface Props {
   visible: boolean;
   onClose: () => void;
-  /** Read-receipt list for the conversation (other teams only). */
-  readReceipts: ReadReceipt[];
+  /**
+   * Read-receipt list for the conversation (other teams only). Used by the
+   * chat consumer; the draft consumer passes pre-built `entries` instead.
+   * Mutually exclusive with `entries`.
+   */
+  readReceipts?: ReadReceipt[];
+  /**
+   * Pre-built entry list. When supplied, supersedes `readReceipts` and the
+   * sheet skips the read-receipt mapping (the "you" row included). Used by
+   * the draft room, which gets its presence data from Supabase channel
+   * presence rather than read receipts.
+   */
+  entries?: PresenceEntry[];
   myTeamId: string;
   myTeamName: string;
   myTricode: string | null;
@@ -33,6 +44,7 @@ export function PresenceListSheet({
   visible,
   onClose,
   readReceipts,
+  entries,
   myTeamId,
   myTeamName,
   myTricode,
@@ -42,15 +54,17 @@ export function PresenceListSheet({
   const c = useColors();
 
   const { online, offline, onlineCount, total } = useMemo(() => {
-    const all: Entry[] = [
-      { team_id: myTeamId, team_name: myTeamName, tricode: myTricode ?? '', online: true, isMe: true },
-      ...readReceipts.map((r) => ({
-        team_id: r.team_id,
-        team_name: r.team_name,
-        tricode: r.tricode ?? '',
-        online: r.online,
-      })),
-    ];
+    const all: PresenceEntry[] = entries
+      ? entries
+      : [
+          { team_id: myTeamId, team_name: myTeamName, tricode: myTricode ?? '', online: true, isMe: true },
+          ...(readReceipts ?? []).map((r) => ({
+            team_id: r.team_id,
+            team_name: r.team_name,
+            tricode: r.tricode ?? '',
+            online: r.online,
+          })),
+        ];
     const onlineList = all.filter((e) => e.online);
     const offlineList = all.filter((e) => !e.online);
     return {
@@ -59,7 +73,7 @@ export function PresenceListSheet({
       onlineCount: onlineList.length,
       total: memberCount ?? all.length,
     };
-  }, [readReceipts, myTeamId, myTeamName, myTricode, memberCount]);
+  }, [entries, readReceipts, myTeamId, myTeamName, myTricode, memberCount]);
 
   return (
     <BottomSheet
@@ -123,7 +137,7 @@ function PresenceRow({
   textColor,
   dotColor,
 }: {
-  entry: Entry;
+  entry: PresenceEntry;
   logoKey: string | null;
   isLast: boolean;
   borderColor: string;

@@ -25,7 +25,7 @@ import { HorizontalPager } from "@/components/ui/HorizontalPager";
 import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
-import { CURRENT_NBA_SEASON } from "@/constants/LeagueDefaults";
+import { getCurrentSeason } from "@/constants/LeagueDefaults";
 import { queryKeys } from "@/constants/queryKeys";
 import { DialogHost, useConfirm } from "@/context/ConfirmProvider";
 import { useToast } from "@/context/ToastProvider";
@@ -407,14 +407,16 @@ export function PlayerDetailModal({
     weeklyAcqLimit != null && (weeklyAddsCount ?? 0) >= weeklyAcqLimit;
 
   // How many games has this player's team played so far this season?
+  const currentSeason = getCurrentSeason(sport);
   const { data: teamGamesPlayed } = useQuery({
-    queryKey: queryKeys.teamGamesPlayed(player?.pro_team ?? ''),
+    queryKey: queryKeys.teamGamesPlayed(sport, currentSeason, player?.pro_team ?? ''),
     queryFn: async () => {
       const today = new Date().toISOString().slice(0, 10);
       const { count, error } = await supabase
         .from("game_schedule")
         .select("id", { count: "exact", head: true })
-        .eq("season", CURRENT_NBA_SEASON)
+        .eq("sport", sport)
+        .eq("season", currentSeason)
         .or(`home_team.eq.${player!.pro_team},away_team.eq.${player!.pro_team}`)
         .not("game_id", "like", "001%")
         .lte("game_date", today);
@@ -437,13 +439,14 @@ export function PlayerDetailModal({
 
   // Next 3 upcoming games
   const { data: upcomingGames } = useQuery({
-    queryKey: queryKeys.upcomingGames(player?.pro_team ?? ''),
+    queryKey: queryKeys.upcomingGames(sport, currentSeason, player?.pro_team ?? ''),
     queryFn: async () => {
       const today = new Date().toISOString().slice(0, 10);
       const { data, error } = await supabase
         .from("game_schedule")
         .select("game_date, home_team, away_team, game_time_utc")
-        .eq("season", CURRENT_NBA_SEASON)
+        .eq("sport", sport)
+        .eq("season", currentSeason)
         .or(`home_team.eq.${player!.pro_team},away_team.eq.${player!.pro_team}`)
         .not("game_id", "like", "001%")
         .gte("game_date", today)

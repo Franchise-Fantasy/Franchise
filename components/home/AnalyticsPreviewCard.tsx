@@ -3,9 +3,9 @@ import { useMemo } from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
-import { Brand, Colors, cardShadow } from '@/constants/Colors';
+import { cardShadow } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { useLeagueRosterStats } from '@/hooks/useLeagueRosterStats';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import {
@@ -35,8 +35,7 @@ export function AnalyticsPreviewCard({
   leagueId: string;
   scoringType?: string;
 }) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const router = useRouter();
   const { teamId } = useAppState();
 
@@ -145,7 +144,7 @@ export function AnalyticsPreviewCard({
         ]}
         {...wrapperProps}
       >
-        <View style={[styles.topRule, { backgroundColor: Brand.turfGreen }]} />
+        <View style={[styles.topRule, { backgroundColor: c.primary }]} />
 
         {/* Fixed-height content well. All states (loading/empty/data)
             render into the same reserved box so the card doesn't flicker
@@ -159,8 +158,8 @@ export function AnalyticsPreviewCard({
                 label="Strongest"
                 bigValue={bestCategory.cat}
                 subValue={`${bestCategory.zScore >= 0 ? '+' : ''}${bestCategory.zScore.toFixed(1)}`}
-                bigColor={Brand.turfGreen}
-                subColor={Brand.turfGreen}
+                bigColor={c.primary}
+                subColor={c.primary}
                 labelColor={c.secondaryText}
               />
               <View style={[styles.divider, { backgroundColor: c.border }]} />

@@ -21,10 +21,10 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Section } from '@/components/ui/Section';
 import { StatTile } from '@/components/ui/StatTile';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Brand, Colors, Fonts } from '@/constants/Colors';
+import { Brand, Fonts } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { useLeague } from '@/hooks/useLeague';
 import { useLeagueRosterStats } from '@/hooks/useLeagueRosterStats';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
@@ -149,8 +149,7 @@ type Segment = typeof SEGMENTS[number];
 type InfoKey = 'luck' | 'allplay' | 'dependency' | 'sos';
 
 export default function StandingsScreen() {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const router = useRouter();
   const { leagueId, teamId } = useAppState();
 
@@ -1012,7 +1011,7 @@ export default function StandingsScreen() {
             )}
 
             <TouchableOpacity
-              style={[styles.modalClose, { backgroundColor: Brand.turfGreen }]}
+              style={[styles.modalClose, { backgroundColor: c.primary }]}
               onPress={() => setInfoModal(null)}
               accessibilityRole="button"
               accessibilityLabel="Got it"

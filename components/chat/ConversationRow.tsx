@@ -123,7 +123,7 @@ export function ConversationRow({ conversation, onPress }: Props) {
             {preview}
           </ThemedText>
           {hasUnread && (
-            <View style={[styles.badge, { backgroundColor: Brand.turfGreen }]}>
+            <View style={[styles.badge, { backgroundColor: c.primary }]}>
               <ThemedText style={[styles.badgeText, { color: Brand.ecru }]}>
                 {conversation.unread_count > 99
                   ? '99+'

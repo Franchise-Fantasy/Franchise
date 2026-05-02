@@ -40,6 +40,7 @@ import { ThemedView } from '@/components/ui/ThemedView';
 import { Brand, Colors, Fonts } from '@/constants/Colors';
 import {
   CURRENT_NBA_SEASON,
+  getCurrentSeason,
   DEFAULT_CATEGORIES,
   DEFAULT_ROSTER_SLOTS,
   DEFAULT_SCORING,
@@ -255,7 +256,7 @@ const initialState: ImportState = {
     waiverPeriodDays: 2,
     faabBudget: 100,
     waiverDayOfWeek: 3,
-    season: CURRENT_NBA_SEASON,
+    season: getCurrentSeason('nba'),
     seasonStartDate: null,
     regularSeasonWeeks: maxWeeks - 3,
     playoffWeeks: 3,
@@ -321,7 +322,7 @@ function reducer(state: ImportState, action: Action): ImportState {
               return new Date(sy, sm - 1, sd);
             })()
           : computeSeasonStart();
-        const newMax = computeMaxWeeks(next.season, start);
+        const newMax = computeMaxWeeks(next.season, next.sport, start);
         const playoffWeeks = Math.min(next.playoffWeeks, Math.max(1, newMax - 1));
         const regularSeasonWeeks = Math.min(next.regularSeasonWeeks, Math.max(1, newMax - playoffWeeks));
         return updateWizard(clampLotteryState({ ...next, regularSeasonWeeks, playoffWeeks }));
@@ -336,6 +337,17 @@ function reducer(state: ImportState, action: Action): ImportState {
       }
       if (action.field === 'leagueType' && action.value === 'Dynasty') {
         return updateWizard({ ...next, maxDraftYears: 3 });
+      }
+      // When sport changes, snap the season string to that sport's default and
+      // recompute week boundaries from the new season's start date. Mirrors
+      // the create-league reducer.
+      if (action.field === 'sport') {
+        const newSport = action.value as 'nba' | 'wnba';
+        const newSeason = getCurrentSeason(newSport);
+        const newMax = computeMaxWeeks(newSeason, newSport);
+        const playoffWeeks = Math.min(next.playoffWeeks, Math.max(1, newMax - 1));
+        const regularSeasonWeeks = Math.min(next.regularSeasonWeeks, Math.max(1, newMax - playoffWeeks));
+        return updateWizard(clampLotteryState({ ...next, season: newSeason, seasonStartDate: null, regularSeasonWeeks, playoffWeeks }));
       }
       return updateWizard(next);
     }

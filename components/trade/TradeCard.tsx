@@ -1,22 +1,20 @@
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
+import { TradeSideSummary } from '@/components/trade/TradeSideSummary';
+import { TradeStatusBadge } from '@/components/trade/TradeStatusBadge';
+import { Badge } from '@/components/ui/Badge';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { cardShadow, Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { cardShadow } from '@/constants/Colors';
+import { useColors } from '@/hooks/useColors';
 import { TradeItemRow, TradeProposalRow } from '@/hooks/useTrades';
-import { formatPickLabel } from '@/types/trade';
 import { ms, s } from '@/utils/scale';
 
-/** Returns a set of item keys that are new in the counteroffer vs the original */
-function getNewItemKeys(items: TradeItemRow[], originalItems?: TradeItemRow[]): Set<string> {
-  if (!originalItems) return new Set();
-  const origKeys = new Set(originalItems.map(itemKey));
-  const newKeys = new Set<string>();
-  for (const item of items) {
-    const key = itemKey(item);
-    if (!origKeys.has(key)) newKeys.add(key);
-  }
-  return newKeys;
+interface TradeCardProps {
+  proposal: TradeProposalRow;
+  onPress: () => void;
+  /** Map of player_id → external_id_nba, batched at the parent surface
+   *  so each card can render headshots without its own round-trip. */
+  playerHeadshotMap?: Record<string, string | null>;
 }
 
 function itemKey(item: TradeItemRow): string {
@@ -26,32 +24,20 @@ function itemKey(item: TradeItemRow): string {
   return item.id;
 }
 
-interface TradeCardProps {
-  proposal: TradeProposalRow;
-  onPress: () => void;
+/** Returns a set of item keys that are new in the counteroffer vs the original */
+function getNewItemKeys(
+  items: TradeItemRow[],
+  originalItems?: TradeItemRow[],
+): Set<string> {
+  if (!originalItems) return new Set();
+  const origKeys = new Set(originalItems.map(itemKey));
+  const newKeys = new Set<string>();
+  for (const item of items) {
+    const key = itemKey(item);
+    if (!origKeys.has(key)) newKeys.add(key);
+  }
+  return newKeys;
 }
-
-function getStatusColors(c: typeof Colors['light']): Record<string, string> {
-  return {
-    pending: c.warning,
-    accepted: c.link,
-    in_review: c.link,
-    completed: c.success,
-    rejected: c.danger,
-    cancelled: c.secondaryText,
-    vetoed: c.danger,
-  };
-}
-
-const STATUS_LABELS: Record<string, string> = {
-  pending: 'Pending',
-  accepted: 'Accepted',
-  in_review: 'In Review',
-  completed: 'Completed',
-  rejected: 'Rejected',
-  cancelled: 'Cancelled',
-  vetoed: 'Vetoed',
-};
 
 function formatRelativeTime(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -64,115 +50,107 @@ function formatRelativeTime(dateStr: string): string {
   return `${days}d ago`;
 }
 
-export function TradeCard({ proposal, onPress }: TradeCardProps) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+/**
+ * List-cell for a trade proposal. Status pills + relative time on top,
+ * then a tricode-arrow team line, then a stack of `TradeSideSummary`
+ * receives blocks (one per team that receives anything). All chrome
+ * routes through the shared trade primitives so the card reads the
+ * same as TradeDetailModal, league-history TradeHistory, and the chat
+ * trade message embed.
+ */
+export function TradeCard({ proposal, onPress, playerHeadshotMap }: TradeCardProps) {
+  const c = useColors();
 
-  const teamNames = proposal.teams.map((t) => t.team_name);
-  const STATUS_COLORS = getStatusColors(c);
-  const statusColor = STATUS_COLORS[proposal.status] ?? c.secondaryText;
+  const teamNameMap: Record<string, string> = {};
+  const teamStatusMap: Record<string, string> = {};
+  proposal.teams.forEach((t) => {
+    teamNameMap[t.team_id] = t.team_name;
+    teamStatusMap[t.team_id] = t.status;
+  });
+
   const isCounteroffer = !!proposal.counteroffer_of;
+  const isMultiTeam = proposal.teams.length > 2;
   const newItemKeys = getNewItemKeys(proposal.items, proposal.original_items);
-  const summary = buildTradeReceiveSummary(proposal, newItemKeys);
+
+  // Group items by receiving team — each block becomes one TradeSideSummary.
+  // Filter out teams that don't receive anything so the card stays compact.
+  const receivedByTeam: Record<string, TradeItemRow[]> = {};
+  for (const t of proposal.teams) receivedByTeam[t.team_id] = [];
+  for (const item of proposal.items) {
+    if (receivedByTeam[item.to_team_id]) {
+      receivedByTeam[item.to_team_id].push(item);
+    }
+  }
+
+  const teamsWithReceives = proposal.teams.filter(
+    (t) => (receivedByTeam[t.team_id]?.length ?? 0) > 0,
+  );
 
   return (
     <TouchableOpacity
-      style={[styles.card, { backgroundColor: c.card }]}
+      style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}
       onPress={onPress}
       activeOpacity={0.7}
       accessibilityRole="button"
-      accessibilityLabel={`${isCounteroffer ? 'Counteroffer: ' : ''}Trade: ${teamNames.join(' and ')}, ${STATUS_LABELS[proposal.status] ?? proposal.status}`}
+      accessibilityLabel={`${isCounteroffer ? 'Counteroffer: ' : ''}Trade between ${proposal.teams.map((t) => t.team_name).join(' and ')}`}
     >
-      {/* Status row */}
+      {/* Status row — pills on the left, relative time on the right. */}
       <View style={styles.statusRow}>
-        <View style={{ flexDirection: 'row', gap: s(6) }}>
-          <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-            <Text style={[styles.statusText, { color: c.statusText }]}>
-              {STATUS_LABELS[proposal.status] ?? proposal.status}
-            </Text>
-          </View>
-          {isCounteroffer && (
-            <View style={[styles.statusBadge, { backgroundColor: c.warning }]}>
-              <Text style={[styles.statusText, { color: c.statusText }]}>Counteroffer</Text>
-            </View>
-          )}
+        <View style={styles.badgeRow}>
+          <TradeStatusBadge status={proposal.status} />
+          {isCounteroffer && <Badge label="Counteroffer" variant="gold" />}
         </View>
         <ThemedText style={[styles.time, { color: c.secondaryText }]}>
           {formatRelativeTime(proposal.proposed_at)}
         </ThemedText>
       </View>
 
-      {/* Teams */}
-      <ThemedText type="defaultSemiBold" style={styles.teamsLine} numberOfLines={1}>
-        {teamNames.join('  ↔  ')}
+      {/* Teams line — tricode arrow rhythm (Team A ↔ Team B ↔ Team C). */}
+      <ThemedText
+        type="defaultSemiBold"
+        style={[styles.teamsLine, { color: c.text }]}
+        numberOfLines={1}
+      >
+        {proposal.teams.map((t) => t.team_name).join('  ↔  ')}
       </ThemedText>
 
-      {/* Asset summary */}
-      {summary.map((group, i) => (
-        <View key={i} style={styles.summaryGroup}>
-          <ThemedText style={[styles.summaryTeam, { color: c.text }]} numberOfLines={1}>
-            {group.team} received:
-          </ThemedText>
-          {group.assets.map((asset, j) => (
-            <View key={j} style={styles.assetRow}>
-              <ThemedText
-                style={[styles.summaryAsset, { color: c.secondaryText }]}
-                numberOfLines={1}
-              >
-                {'  •  '}{asset.label}
-              </ThemedText>
-              {asset.isNew && (
-                <View style={[styles.newBadge, { backgroundColor: c.link }]} accessibilityLabel="Newly added in counteroffer">
-                  <Text style={[styles.newBadgeText, { color: c.statusText }]}>NEW</Text>
-                </View>
-              )}
-            </View>
-          ))}
-        </View>
-      ))}
+      {/* Receives blocks — one per team that gets something. Surfaceless
+          so the parent card surface carries through; thin gold dividers
+          separate stacked blocks. */}
+      <View style={styles.blocks}>
+        {teamsWithReceives.map((t, idx) => (
+          <View
+            key={t.team_id}
+            style={[
+              idx > 0 && styles.blockDivider,
+              idx > 0 && { borderTopColor: c.border },
+            ]}
+          >
+            <TradeSideSummary
+              surfaceless
+              teamId={t.team_id}
+              teamName={t.team_name}
+              receivedItems={receivedByTeam[t.team_id] ?? []}
+              playerFptsMap={{}}
+              playerHeadshotMap={playerHeadshotMap ?? {}}
+              newItemKeys={newItemKeys}
+              itemKeyFn={itemKey}
+              teamNameMap={teamNameMap}
+              teamStatus={teamStatusMap[t.team_id]}
+              isMultiTeam={isMultiTeam}
+            />
+          </View>
+        ))}
+      </View>
     </TouchableOpacity>
-  );
-}
-
-interface AssetEntry { label: string; isNew: boolean }
-
-function buildTradeReceiveSummary(
-  proposal: TradeProposalRow,
-  newItemKeys: Set<string>,
-): { team: string; assets: AssetEntry[] }[] {
-  const teamNameMap: Record<string, string> = {};
-  proposal.teams.forEach((t) => {
-    teamNameMap[t.team_id] = t.team_name;
-  });
-
-  const isMultiTeam = proposal.teams.length > 2;
-
-  const receivesByTeam: Record<string, AssetEntry[]> = {};
-  for (const item of proposal.items) {
-    const to = teamNameMap[item.to_team_id] ?? 'Unknown';
-    if (!receivesByTeam[to]) receivesByTeam[to] = [];
-    const isNew = newItemKeys.has(itemKey(item));
-    const fromSuffix = isMultiTeam ? ` (from ${teamNameMap[item.from_team_id] ?? '?'})` : '';
-    if (item.player_name) {
-      receivesByTeam[to].push({ label: item.player_name + fromSuffix, isNew });
-    } else if (item.pick_swap_season && item.pick_swap_round) {
-      const from = teamNameMap[item.from_team_id] ?? '?';
-      receivesByTeam[to].push({ label: `Rd ${item.pick_swap_round} swap (from ${from})`, isNew });
-    } else if (item.pick_season && item.pick_round) {
-      const protLabel = item.protection_threshold ? ` (Top-${item.protection_threshold} P)` : '';
-      receivesByTeam[to].push({ label: formatPickLabel(item.pick_season!, item.pick_round!) + protLabel + fromSuffix, isNew });
-    }
-  }
-
-  return Object.entries(receivesByTeam).map(
-    ([team, assets]) => ({ team, assets })
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 12,
-    padding: s(14),
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingVertical: s(12),
     marginBottom: s(10),
     ...cardShadow,
   },
@@ -180,48 +158,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: s(14),
     marginBottom: s(8),
   },
-  statusBadge: {
-    paddingHorizontal: s(8),
-    paddingVertical: s(3),
-    borderRadius: 4,
-  },
-  statusText: {
-    fontSize: ms(11),
-    fontWeight: '700',
+  badgeRow: {
+    flexDirection: 'row',
+    gap: s(6),
   },
   time: {
-    fontSize: ms(12),
+    fontSize: ms(11),
   },
   teamsLine: {
     fontSize: ms(14),
-    marginBottom: s(6),
+    paddingHorizontal: s(14),
+    marginBottom: s(4),
   },
-  summaryGroup: {
+  blocks: {
+    // Surfaceless TradeSideSummary blocks stack here, separated by hairlines.
+  },
+  blockDivider: {
+    borderTopWidth: StyleSheet.hairlineWidth,
     marginTop: s(4),
-  },
-  summaryTeam: {
-    fontSize: ms(12),
-    fontWeight: '600',
-  },
-  summaryAsset: {
-    fontSize: ms(12),
-    lineHeight: ms(18),
-    flex: 1,
-  },
-  assetRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  newBadge: {
-    paddingHorizontal: s(5),
-    paddingVertical: s(1),
-    borderRadius: 3,
-    marginLeft: s(6),
-  },
-  newBadgeText: {
-    fontSize: ms(9),
-    fontWeight: '700',
+    paddingTop: s(2),
   },
 });

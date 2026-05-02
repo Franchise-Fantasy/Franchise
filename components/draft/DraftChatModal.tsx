@@ -3,22 +3,26 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   StyleSheet,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useSharedValue } from 'react-native-reanimated';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
+import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import {
+  SafeAreaProvider,
+  SafeAreaView,
+  useSafeAreaInsets,
+  useSafeAreaFrame,
+} from 'react-native-safe-area-context';
 
 import { ChatInput } from '@/components/chat/ChatInput';
 import { MessageActionMenu } from '@/components/chat/MessageActionMenu';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Colors, Fonts } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import {
   useChatSubscription,
@@ -132,6 +136,21 @@ export function DraftChatModal({
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const queryClient = useQueryClient();
+  const outerInsets = useSafeAreaInsets();
+  const outerFrame = useSafeAreaFrame();
+
+  // Drive the chat surface's bottom padding from the same shared value the
+  // keyboard animates on — guarantees the page slides in lockstep with the
+  // keyboard rather than the OS-driven keyboard preceding the JS-driven
+  // KeyboardAvoidingView. `kbHeight` is 0 when closed and -keyboardHeight
+  // when open. We subtract `insets.bottom` because the SafeAreaView already
+  // pads that much at the bottom for the home indicator — without the
+  // subtraction, the input ends up insets.bottom above the keyboard top.
+  const { height: kbHeight } = useReanimatedKeyboardAnimation();
+  const safeBottom = outerInsets.bottom;
+  const chatBodyAnim = useAnimatedStyle(() => ({
+    paddingBottom: Math.max(0, -kbHeight.value - safeBottom),
+  }));
 
   // Look up the league conversation
   const { data: conversationId } = useQuery({
@@ -224,6 +243,9 @@ export function DraftChatModal({
   const newestMessage = messages.length > 0 ? messages[0] : null;
   const newestMessageId = newestMessage?.id ?? null;
   const newestMessageCreatedAt = newestMessage?.created_at ?? null;
+  // Presence avatars are intentionally not rendered here — the draft
+  // room's header already shows them, so duplicating them in the chat
+  // sheet would be visual noise.
   const { updateReadPosition } = useReadReceipts(
     visible ? conversationId ?? null : null,
     teamId,
@@ -317,31 +339,52 @@ export function DraftChatModal({
     <Modal
       visible={visible}
       animationType="slide"
-      presentationStyle="pageSheet"
+      presentationStyle="fullScreen"
       onRequestClose={onClose}
     >
-      <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
-        {/* Header */}
+      {/* fullScreen presentation makes the modal === screen, so the
+          KeyboardAvoidingView's frame measurement aligns with screen
+          coordinates and the keyboard math works cleanly (no pageSheet
+          top-offset to compensate for). The catch: fullScreen Modals
+          don't propagate the SafeAreaProvider context, so we re-seed it
+          with the outer tree's insets/frame so the inner SafeAreaView
+          renders the X button below the notch and the ChatInput above
+          the home indicator. */}
+      <SafeAreaProvider initialMetrics={{ insets: outerInsets, frame: outerFrame }}>
+        <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
+        {/* Modal header — varsity-caps centered title + X close on the right.
+            No back chevron because this is a modal sheet, not a route. The
+            title is absolute-centered so the close button can grow without
+            displacing it. Presence avatars live in the draft room header,
+            not here, to avoid duplication. */}
         <View style={[styles.header, { borderBottomColor: c.border }]}>
-          <View style={styles.headerSpacer} />
-          <ThemedText type="defaultSemiBold" style={styles.headerTitle} accessibilityRole="header">
-            League Chat
-          </ThemedText>
+          <View style={styles.headerTitleAbsolute} pointerEvents="none">
+            <ThemedText
+              type="varsity"
+              style={[styles.headerText, { color: c.secondaryText }]}
+              accessibilityRole="header"
+            >
+              League Chat
+            </ThemedText>
+          </View>
+          <View style={styles.headerSide} />
           <TouchableOpacity
             onPress={onClose}
-            style={styles.closeButton}
+            style={styles.headerSide}
+            hitSlop={8}
             accessibilityRole="button"
             accessibilityLabel="Close chat"
           >
-            <Ionicons name="close" size={24} color={c.text} />
+            <Ionicons name="close" size={22} color={c.icon} accessible={false} />
           </TouchableOpacity>
         </View>
 
-        <KeyboardAvoidingView
-          style={styles.flex}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={0}
-        >
+        {/* Reanimated bottom padding driven directly by the keyboard's
+            shared animation value — keyboard rise/fall and chat lift run
+            on the same frame so they slide together. Replaces the
+            KeyboardAvoidingView lift, which had visibly delayed timing
+            relative to the OS-driven keyboard animation. */}
+        <Animated.View style={[styles.flex, chatBodyAnim]}>
           {isLoading || !conversationId ? (
             <View style={styles.empty}>
               <LogoSpinner />
@@ -382,7 +425,7 @@ export function DraftChatModal({
               isLeagueChat
             />
           )}
-        </KeyboardAvoidingView>
+        </Animated.View>
 
         {reactionTargetId && (
           <MessageActionMenu
@@ -393,7 +436,8 @@ export function DraftChatModal({
             existingReactions={reactionsMap?.[reactionTargetId]}
           />
         )}
-      </SafeAreaView>
+        </SafeAreaView>
+      </SafeAreaProvider>
     </Modal>
   );
 }
@@ -405,25 +449,35 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
+  // Modal header — centered title + close on the right.
   header: {
     flexDirection: 'row',
+    paddingHorizontal: s(8),
+    paddingVertical: s(8),
+    height: s(50),
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: s(16),
-    paddingVertical: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  headerSpacer: {
-    width: s(36),
-  },
-  headerTitle: {
-    fontSize: ms(17),
-    textAlign: 'center',
-    flex: 1,
-  },
-  closeButton: {
-    width: s(36),
+  headerTitleAbsolute: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerText: {
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(12),
+    letterSpacing: 1.2,
+  },
+  headerSide: {
+    width: s(36),
+    height: s(36),
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   empty: {
     flex: 1,

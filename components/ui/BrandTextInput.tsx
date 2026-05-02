@@ -26,6 +26,8 @@ type Props = Omit<TextInputProps, 'style'> & {
   containerStyle?: StyleProp<ViewStyle>;
   /** Input style override — use for font size / height adjustments. */
   inputStyle?: StyleProp<TextStyle>;
+  /** Optional element rendered inside the input on the right (e.g. password eye toggle). */
+  rightAccessory?: React.ReactNode;
 };
 
 /**
@@ -46,6 +48,7 @@ export const BrandTextInput = forwardRef<TextInput, Props>(function BrandTextInp
     onFocus,
     onBlur,
     placeholderTextColor,
+    rightAccessory,
     ...inputProps
   },
   ref,
@@ -69,32 +72,41 @@ export const BrandTextInput = forwardRef<TextInput, Props>(function BrandTextInp
           {label}
         </ThemedText>
       )}
-      <TextInput
-        ref={ref}
-        {...inputProps}
-        placeholderTextColor={placeholderTextColor ?? c.secondaryText}
-        onFocus={(e) => {
-          setFocused(true);
-          onFocus?.(e);
-        }}
-        onBlur={(e) => {
-          setFocused(false);
-          onBlur?.(e);
-        }}
-        style={[
-          styles.input,
-          {
-            color: c.text,
-            backgroundColor: c.input,
-            borderColor,
-            // Bump border to 1.5 on focus/error so the state shift is
-            // visible without the input jumping size (we reserve the
-            // space with the same 1.5 when unfocused, too).
-            borderWidth: 1.5,
-          },
-          inputStyle,
-        ]}
-      />
+      <View>
+        <TextInput
+          ref={ref}
+          {...inputProps}
+          placeholderTextColor={placeholderTextColor ?? c.secondaryText}
+          onFocus={(e) => {
+            setFocused(true);
+            onFocus?.(e);
+          }}
+          onBlur={(e) => {
+            setFocused(false);
+            onBlur?.(e);
+          }}
+          style={[
+            styles.input,
+            {
+              color: c.text,
+              backgroundColor: c.input,
+              borderColor,
+              // Bump border to 1.5 on focus/error so the state shift is
+              // visible without the input jumping size (we reserve the
+              // space with the same 1.5 when unfocused, too).
+              borderWidth: 1.5,
+            },
+            // Reserve room for the accessory so text doesn't run under it.
+            rightAccessory ? styles.inputWithAccessory : null,
+            inputStyle,
+          ]}
+        />
+        {rightAccessory && (
+          <View style={styles.accessory} pointerEvents="box-none">
+            {rightAccessory}
+          </View>
+        )}
+      </View>
       {helper && (
         <ThemedText style={[styles.helper, { color: helperColor }]}>
           {helper}
@@ -122,6 +134,16 @@ const styles = StyleSheet.create({
     // baseline to the bottom of the line-box, making the text look
     // "sunken." Padding alone handles the vertical rhythm now.
     textAlignVertical: 'center',
+  },
+  inputWithAccessory: {
+    paddingRight: s(40),
+  },
+  accessory: {
+    position: 'absolute',
+    right: s(8),
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
   },
   helper: {
     marginTop: s(4),

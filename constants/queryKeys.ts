@@ -85,8 +85,8 @@ export const queryKeys = {
     ["pendingDropPlayerIds", teamId, leagueId] as const,
   myTeamInfo: (teamId: string) => ["myTeamInfo", teamId] as const,
   teamLogos: (leagueId: string) => ["teamLogos", leagueId] as const,
-  teamGamesPlayed: (nbaTeam: string) =>
-    ["teamGamesPlayed", nbaTeam] as const,
+  teamGamesPlayed: (sport: string, season: string, proTeam: string) =>
+    ["teamGamesPlayed", sport, season, proTeam] as const,
   importedTeamStatus: (leagueId: string) =>
     ["imported-team-status", leagueId] as const,
   importedTeams: (leagueId: string) => ["imported-teams", leagueId] as const,
@@ -155,7 +155,8 @@ export const queryKeys = {
   ) => ["playerLeagueOwnership", leagueId, playerId] as const,
   playerOnWaivers: (leagueId: string, playerId: string | undefined) =>
     ["playerOnWaivers", leagueId, playerId] as const,
-  upcomingGames: (nbaTeam: string) => ["upcomingGames", nbaTeam] as const,
+  upcomingGames: (sport: string, season: string, proTeam: string) =>
+    ["upcomingGames", sport, season, proTeam] as const,
   teamNews: (mode: string, playerIds: string[], sport: string | undefined) =>
     ["teamNews", mode, playerIds, sport ?? null] as const,
   watchlist: (userId: string) => ["watchlist", userId] as const,
@@ -179,12 +180,16 @@ export const queryKeys = {
   waiverOrder: (leagueId: string) => ["waiverOrder", leagueId] as const,
   pendingClaims: (leagueId: string, teamId: string) =>
     ["pendingClaims", leagueId, teamId] as const,
+  pendingTradeRosterImpact: (leagueId: string, teamId: string) =>
+    ["pendingTradeRosterImpact", leagueId, teamId] as const,
   recentGameLogs: (leagueId: string) =>
     ["recentGameLogs", leagueId] as const,
 
   // ── Draft ────────────────────────────────────────────────
   draftRoomInit: (draftId: string) => ["draftRoomInit", draftId] as const,
   draftState: (draftId: string) => ["draftState", draftId] as const,
+  draftAutopickStatuses: (draftId: string) =>
+    ["draftAutopickStatuses", draftId] as const,
   draftOrder: (draftId: string, ...rest: (number | undefined)[]) =>
     ["draftOrder", draftId, ...rest] as const,
   draftQueue: (draftId: string, teamId: string) =>
@@ -322,4 +327,24 @@ export const queryKeys = {
     ["prospectPlayers", leagueId] as const,
   prospectBoard: (userId: string) => ["prospectBoard", userId] as const,
   prospectNews: (playerId: string) => ["prospectNews", playerId] as const,
+
+  // ── NBA Playoff Archive (beta) ───────────────────────────
+  archiveSeasons: () => ["archiveSeasons"] as const,
+  archiveBracket: (season: number) => ["archiveBracket", season] as const,
+  archiveStandings: (season: number) =>
+    ["archiveStandings", season] as const,
+  archiveTeamRun: (season: number, franchiseId: string) =>
+    ["archiveTeamRun", season, franchiseId] as const,
+  archiveAwards: (season: number) => ["archiveAwards", season] as const,
+
+  // ── NHL Playoff Archive (dev-only) ───────────────────────
+  nhlArchiveSeasons: () => ["nhlArchiveSeasons"] as const,
+  nhlArchiveBracket: (season: number) =>
+    ["nhlArchiveBracket", season] as const,
+  nhlArchiveStandings: (season: number) =>
+    ["nhlArchiveStandings", season] as const,
+  nhlArchiveTeamRun: (season: number, franchiseId: string) =>
+    ["nhlArchiveTeamRun", season, franchiseId] as const,
+  nhlArchiveAwards: (season: number) =>
+    ["nhlArchiveAwards", season] as const,
 } as const;

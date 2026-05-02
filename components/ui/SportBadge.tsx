@@ -18,14 +18,14 @@ interface Props {
  * row in the LeagueSwitcher can render its own sport color regardless of
  * which league is active.
  *
- * Used in PageHeader (for the active league) and LeagueSwitcher (one per
- * row, each league's own sport color).
+ * Uses each sport's `primary` brand color (turfGreen for NBA, merlot for
+ * WNBA) so the badge matches the rest of the league's brand surfaces.
+ *
+ * Used in LeagueSwitcher, create-team, and join-league.
  */
 export function SportBadge({ sport, style }: Props) {
   const scheme = useColorScheme() ?? 'light';
-  // Resolve the accent for THIS sport (not the active league's). Falls back
-  // to the NBA gold from the base palette when no theme override exists.
-  const bg = SPORT_THEMES[sport]?.[scheme]?.gold ?? Colors[scheme].gold;
+  const bg = SPORT_THEMES[sport]?.[scheme]?.primary ?? Colors[scheme].primary;
   const fg = Colors[scheme].statusText;
 
   return (

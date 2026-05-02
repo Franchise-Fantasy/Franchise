@@ -3,11 +3,10 @@ import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Brand, Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { Fonts } from '@/constants/Colors';
+import { useColors } from '@/hooks/useColors';
 import { DraftHistoryPick, DraftSummary, useDraftHistory } from '@/hooks/useLeagueHistory';
 import { ms, s } from '@/utils/scale';
-
 
 interface DraftBoardProps {
   leagueId: string;
@@ -22,8 +21,7 @@ function draftLabel(draft: DraftSummary): string {
 }
 
 export function DraftBoard({ leagueId }: DraftBoardProps) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const { data, isLoading } = useDraftHistory(leagueId);
 
   const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
@@ -61,11 +59,14 @@ export function DraftBoard({ leagueId }: DraftBoardProps) {
 
   return (
     <View>
+      {/* Draft selector — underline-active text-only filter, matches the
+          ByYearTab / ProspectsTab / prospect-board / draft-room rhythm.
+          Replaces the filled pill row that lived here previously. */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.pillRowContent}
-        style={styles.pillRow}
+        contentContainerStyle={styles.selectorContent}
+        style={styles.selectorRow}
       >
         {draftOptions.map((d) => {
           const isActive = activeDraft?.id === d.id;
@@ -75,24 +76,25 @@ export function DraftBoard({ leagueId }: DraftBoardProps) {
               accessibilityRole="button"
               accessibilityLabel={d.label}
               accessibilityState={{ selected: isActive }}
-              style={[
-                styles.pill,
-                { borderColor: c.border },
-                isActive
-                  ? { backgroundColor: Brand.turfGreen, borderColor: Brand.turfGreen }
-                  : { backgroundColor: c.cardAlt },
-              ]}
+              style={styles.selectorBtn}
               onPress={() => setSelectedDraftId(d.id)}
+              activeOpacity={0.7}
             >
               <ThemedText
-                type="varsitySmall"
+                type="varsity"
                 style={[
-                  styles.pillText,
-                  { color: isActive ? Brand.ecru : c.secondaryText },
+                  styles.selectorText,
+                  { color: isActive ? c.text : c.secondaryText },
                 ]}
               >
                 {d.label}
               </ThemedText>
+              <View
+                style={[
+                  styles.selectorUnderline,
+                  { backgroundColor: isActive ? c.gold : 'transparent' },
+                ]}
+              />
             </TouchableOpacity>
           );
         })}
@@ -109,62 +111,77 @@ export function DraftBoard({ leagueId }: DraftBoardProps) {
 
       {[...picksByRound.entries()].map(([round, picks]) => (
         <View key={round} style={styles.roundBlock}>
+          {/* Round header — gold-rule + Alfa Slab "Round N." matches the
+              eyebrow rhythm used across the brand surfaces. */}
           <View style={styles.roundHeader}>
-            <View style={[styles.roundRule, { backgroundColor: c.heritageGold }]} />
+            <View style={[styles.roundRule, { backgroundColor: c.gold }]} />
             <ThemedText
-              type="varsity"
-              style={[styles.roundLabel, { color: c.text }]}
+              type="varsitySmall"
+              style={[styles.roundLabel, { color: c.gold }]}
               accessibilityRole="header"
             >
               Round {round}
             </ThemedText>
           </View>
-          {picks.map((pick, idx) => (
-            <View
-              key={pick.id}
-              style={[
-                styles.pickRow,
-                { borderBottomColor: c.border },
-                idx === picks.length - 1 && { borderBottomWidth: 0 },
-              ]}
-            >
-              <ThemedText type="mono" style={[styles.pickNum, { color: c.secondaryText }]}>
-                {pick.pick_number}
-              </ThemedText>
-              <View style={styles.pickInfo}>
+          {picks.map((pick, idx) => {
+            const viaTricode = pick.original_team_tricode ?? pick.original_team_name;
+            // Round.pick-within-round notation (e.g. 2.05) — reads more
+            // naturally for a historical board than the overall pick
+            // number, especially in snake drafts where Round 2 starts at
+            // overall #6+ and the within-round position is what matters.
+            const pickInRound = String(idx + 1).padStart(2, '0');
+            return (
+              <View
+                key={pick.id}
+                style={[styles.pickRow, { borderBottomColor: c.border }]}
+              >
+                {/* Gold side-rule + Alfa Slab "round.pick" — same chrome
+                    used in the live DraftOrder and the lottery slot rows. */}
+                <View style={[styles.sideRule, { backgroundColor: c.gold }]} />
                 <ThemedText
-                  style={[styles.pickTeam, { color: c.text }]}
-                  numberOfLines={1}
+                  type="display"
+                  style={[styles.pickNumber, { color: c.text }]}
                 >
-                  {pick.current_team_name}
+                  {pick.round}.{pickInRound}
                 </ThemedText>
-                {pick.isTraded && (
+
+                <View style={styles.pickInfo}>
                   <ThemedText
-                    type="varsitySmall"
-                    style={[styles.viaLabel, { color: c.secondaryText }]}
+                    style={[styles.pickTeam, { color: c.text }]}
+                    numberOfLines={1}
                   >
-                    via {pick.original_team_name}
+                    {pick.current_team_name}
                   </ThemedText>
-                )}
-              </View>
-              <View style={styles.playerInfo}>
-                <ThemedText
-                  style={[styles.playerName, { color: c.text }]}
-                  numberOfLines={1}
-                >
-                  {pick.player_name ?? '—'}
-                </ThemedText>
-                {pick.player_position && (
+                  {pick.isTraded && (
+                    <ThemedText
+                      type="varsitySmall"
+                      style={[styles.viaLabel, { color: c.gold }]}
+                      numberOfLines={1}
+                    >
+                      via {viaTricode}
+                    </ThemedText>
+                  )}
+                </View>
+
+                <View style={styles.playerInfo}>
                   <ThemedText
-                    type="mono"
-                    style={[styles.playerPos, { color: c.secondaryText }]}
+                    style={[styles.playerName, { color: c.text }]}
+                    numberOfLines={1}
                   >
-                    {pick.player_position}
+                    {pick.player_name ?? '—'}
                   </ThemedText>
-                )}
+                  {pick.player_position && (
+                    <ThemedText
+                      type="varsitySmall"
+                      style={[styles.playerPos, { color: c.secondaryText }]}
+                    >
+                      {pick.player_position}
+                    </ThemedText>
+                  )}
+                </View>
               </View>
-            </View>
-          ))}
+            );
+          })}
         </View>
       ))}
     </View>
@@ -175,64 +192,89 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: ms(13), textAlign: 'center', paddingVertical: s(16) },
   loading: { paddingVertical: s(24) },
 
-  pillRow: {
-    marginBottom: s(10),
-    marginHorizontal: -s(4),
+  // Selector — varsity caps with gold-underline active. Mirrors the
+  // within-tab filter pattern shared across the app.
+  selectorRow: {
+    marginBottom: s(8),
+    marginHorizontal: -s(2),
   },
-  pillRowContent: {
-    paddingHorizontal: s(4),
-    gap: s(8),
+  selectorContent: {
+    paddingHorizontal: s(2),
+    gap: s(20),
   },
-  pill: {
-    paddingHorizontal: s(14),
-    paddingVertical: s(7),
-    borderRadius: 8,
-    borderWidth: 1,
+  selectorBtn: {
+    alignItems: 'center',
+    paddingTop: s(4),
   },
-  pillText: {
-    fontSize: ms(10),
+  selectorText: {
+    fontSize: ms(11),
+    letterSpacing: 1.0,
+  },
+  selectorUnderline: {
+    marginTop: s(6),
+    height: 2,
+    width: '100%',
+    minWidth: s(28),
   },
 
   draftInfo: {
     fontSize: ms(10),
+    letterSpacing: 1.2,
     marginBottom: s(14),
   },
 
   roundBlock: {
-    marginBottom: s(14),
+    marginBottom: s(18),
   },
   roundHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: s(8),
-    marginBottom: s(6),
+    gap: s(10),
+    marginBottom: s(8),
   },
-  roundRule: {
-    height: 1,
-    width: s(14),
-  },
+  roundRule: { height: 2, width: s(18) },
   roundLabel: {
-    fontSize: ms(11),
+    fontSize: ms(10),
+    letterSpacing: 1.4,
   },
 
+  // Pick row — gold side-rule (3 × 36) + Alfa Slab pick number + team /
+  // player columns. Matches the live DraftOrder pick redesign and the
+  // lottery slot chrome so the historical board reads as the same
+  // surface, frozen in time.
   pickRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: s(9),
+    paddingVertical: s(10),
     paddingHorizontal: s(4),
     borderBottomWidth: StyleSheet.hairlineWidth,
     gap: s(10),
     marginHorizontal: -s(4),
   },
-  pickNum: {
-    width: s(28),
-    fontSize: ms(12),
-    textAlign: 'center',
+  sideRule: {
+    width: 3,
+    height: s(32),
+    marginRight: s(6),
   },
-  pickInfo: { flex: 1 },
+  pickNumber: {
+    fontFamily: Fonts.display,
+    fontSize: ms(17),
+    lineHeight: ms(19),
+    letterSpacing: -0.3,
+    minWidth: s(50),
+  },
+  pickInfo: { flex: 1, minWidth: 0 },
   pickTeam: { fontSize: ms(13), fontWeight: '600' },
-  viaLabel: { fontSize: ms(9), marginTop: s(1) },
+  viaLabel: {
+    fontSize: ms(9),
+    letterSpacing: 1.2,
+    marginTop: s(2),
+  },
   playerInfo: { alignItems: 'flex-end', maxWidth: s(140) },
   playerName: { fontSize: ms(13) },
-  playerPos: { fontSize: ms(10), marginTop: s(1) },
+  playerPos: {
+    fontSize: ms(9),
+    letterSpacing: 1.2,
+    marginTop: s(2),
+  },
 });

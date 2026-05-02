@@ -1,10 +1,9 @@
-import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, View } from 'react-native';
 
 import { TradeAssetRow } from '@/components/trade/TradeAssetRow';
+import { TradeLaneShell } from '@/components/trade/TradeLaneShell';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { TradeItemRow } from '@/hooks/useTrades';
 import { ms, s } from '@/utils/scale';
 
@@ -23,12 +22,29 @@ interface TradeSideSummaryProps {
   itemKeyFn: (item: TradeItemRow) => string;
   /** Team name map for pick swap labels */
   teamNameMap: Record<string, string>;
-  /** Per-team acceptance status */
+  /** Per-team acceptance status — drives the right-aligned status glyph */
   teamStatus?: string;
   /** Whether this is a multi-team trade (shows "from Team X" on assets) */
   isMultiTeam?: boolean;
+  /**
+   * Drop the outer card surface — used when stacking multiple blocks
+   * inside a single parent card (e.g. TradeCard on the trades list).
+   * The parent provides the surface; this component only renders the
+   * header + asset rows.
+   */
+  surfaceless?: boolean;
 }
 
+/**
+ * Receives-framed lane — wraps the shared `TradeLaneShell` chrome with
+ * the per-asset row list. The shell handles the team name + gold-rule
+ * "RECEIVES" eyebrow + status glyph; this component fills the lane body.
+ *
+ * Every receives surface in the app — TradeCard, TradeDetailModal,
+ * league-history TradeHistory, chat trade messages, per-player
+ * TradeHistoryModal — should consume this component so they all read
+ * the same.
+ */
 export function TradeSideSummary({
   teamId,
   teamName,
@@ -40,42 +56,28 @@ export function TradeSideSummary({
   teamNameMap,
   teamStatus,
   isMultiTeam,
+  surfaceless,
 }: TradeSideSummaryProps) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
+  void teamId;
 
-  const statusIcon = teamStatus === 'accepted'
-    ? 'checkmark-circle'
-    : teamStatus === 'rejected'
-      ? 'close-circle'
-      : 'time-outline';
-
-  const statusColor = teamStatus === 'accepted'
-    ? c.success
-    : teamStatus === 'rejected'
-      ? c.danger
-      : c.warning;
+  const statusGlyph =
+    teamStatus === 'accepted'
+      ? 'accepted'
+      : teamStatus === 'rejected'
+        ? 'rejected'
+        : teamStatus
+          ? 'pending'
+          : null;
 
   return (
-    <View
-      style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}
-      accessibilityRole="summary"
+    <TradeLaneShell
+      teamName={teamName}
+      frame="receives"
+      statusGlyph={statusGlyph}
+      surfaceless={surfaceless}
       accessibilityLabel={`${teamName} receives ${receivedItems.length} asset${receivedItems.length !== 1 ? 's' : ''}`}
     >
-      {/* Team header */}
-      <View style={[styles.header, { borderBottomColor: c.border }]}>
-        <View style={styles.headerLeft}>
-          <ThemedText type="defaultSemiBold" style={styles.teamName} numberOfLines={1}>
-            {teamName}
-          </ThemedText>
-          <ThemedText style={[styles.receivesLabel, { color: c.secondaryText }]}>receives</ThemedText>
-        </View>
-        {teamStatus && (
-          <Ionicons name={statusIcon} size={14} color={statusColor} style={styles.statusIcon} accessibilityLabel={`Status: ${teamStatus}`} />
-        )}
-      </View>
-
-      {/* Assets */}
       <View style={styles.assets}>
         {receivedItems.map((item) => {
           const key = itemKeyFn(item);
@@ -92,42 +94,16 @@ export function TradeSideSummary({
           );
         })}
         {receivedItems.length === 0 && (
-          <ThemedText style={[styles.empty, { color: c.secondaryText }]}>No assets</ThemedText>
+          <ThemedText style={[styles.empty, { color: c.secondaryText }]}>
+            No assets
+          </ThemedText>
         )}
       </View>
-    </View>
+    </TradeLaneShell>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    borderRadius: 12,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    paddingHorizontal: s(12),
-    paddingTop: s(4),
-    paddingBottom: s(4),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  headerLeft: {
-    flex: 1,
-  },
-  teamName: {
-    fontSize: ms(13),
-  },
-  receivesLabel: {
-    fontSize: ms(10),
-    fontStyle: 'italic',
-  },
-  statusIcon: {
-    marginTop: s(2),
-    marginLeft: s(4),
-  },
   assets: {
     paddingHorizontal: s(10),
     paddingVertical: s(4),

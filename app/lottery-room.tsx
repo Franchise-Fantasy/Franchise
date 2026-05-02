@@ -1,30 +1,24 @@
-import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  Alert,
-  Animated,
-  StyleSheet,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { IconSymbol } from '@/components/ui/IconSymbol';
+import type { PickCardEntry } from '@/components/lottery/PickCard';
+import type { PickListHandle } from '@/components/lottery/PickList';
+import { PickList } from '@/components/lottery/PickList';
+import { BrandButton } from '@/components/ui/BrandButton';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors, Fonts } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
 import { useSession } from '@/context/AuthProvider';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { useLeague } from '@/hooks/useLeague';
 import { supabase } from '@/lib/supabase';
+import { generateDefaultOdds } from '@/utils/league/lottery';
 import { ms, s } from '@/utils/scale';
-
-
-
 
 interface LotteryEntry {
   team_id: string;
@@ -34,9 +28,14 @@ interface LotteryEntry {
   was_drawn: boolean;
 }
 
+interface TeamMeta {
+  id: string;
+  tricode: string | null;
+  logo_key: string | null;
+}
+
 export default function LotteryRoomScreen() {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const { leagueId } = useAppState();
   const { data: league } = useLeague();
   const session = useSession();
@@ -47,10 +46,21 @@ export default function LotteryRoomScreen() {
   const [revealedCount, setRevealedCount] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const [ceremonyStarted, setCeremonyStarted] = useState(false);
-  const flipAnims = useRef<Animated.Value[]>([]);
+  const [spinningPosition, setSpinningPosition] = useState<number | null>(null);
   const broadcastChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const pickListRef = useRef<PickListHandle>(null);
+  // True if the lottery was run in this mount of the screen. Prevents the
+  // post-completion auto-snap (revisit-style) from clobbering the just-ran
+  // ceremony, which should still play through the spin reveals.
+  const didRunInSessionRef = useRef(false);
 
-  const totalSlots = lotteryResults?.length ?? 0;
+  // Mirror lotteryResults to a ref so the broadcast handler (closed over the
+  // initial render's state) can resolve a displayIndex → lottery_position
+  // when an event arrives later.
+  const lotteryResultsRef = useRef<LotteryEntry[] | null>(null);
+  useEffect(() => {
+    lotteryResultsRef.current = lotteryResults;
+  }, [lotteryResults]);
 
   // Fetch existing lottery results (in case lottery already ran)
   const { data: existingResults } = useQuery({
@@ -63,29 +73,169 @@ export default function LotteryRoomScreen() {
         .eq('season', league!.season)
         .maybeSingle();
       if (error) throw error;
-      return data?.results as LotteryEntry[] | null;
+      // maybeSingle() returns null when no row exists; coerce to null so
+      // React Query doesn't reject `undefined` from `data?.results`.
+      return (data?.results as LotteryEntry[] | null) ?? null;
     },
     enabled: !!leagueId && !!league?.season,
   });
 
-  // If results already exist (e.g., page refresh), show them fully revealed
+  // Team metadata (logos / tricodes) for the spin reel and locked cards.
+  const { data: teams } = useQuery({
+    queryKey: queryKeys.leagueTeams(leagueId!),
+    queryFn: async (): Promise<TeamMeta[]> => {
+      const { data, error } = await supabase
+        .from('teams')
+        .select('id, tricode, logo_key')
+        .eq('league_id', leagueId!);
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: !!leagueId,
+  });
+
+  const teamsById = useMemo(() => {
+    const map = new Map<string, TeamMeta>();
+    (teams ?? []).forEach((t) => map.set(t.id, t));
+    return map;
+  }, [teams]);
+
+  // Most-recent archived season records — drives the "W-L" line on each
+  // revealed card. Mirrors the OffseasonLotteryOrder home-screen pattern:
+  // pull all team_seasons, take the latest season's rows.
+  const { data: latestSeasonRecords } = useQuery({
+    queryKey: ['lotteryRoomTeamSeasons', leagueId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('team_seasons')
+        .select('team_id, wins, losses, season')
+        .eq('league_id', leagueId!)
+        .order('season', { ascending: false });
+      if (error) throw error;
+      if (!data || data.length === 0) return [];
+      const latest = data[0].season;
+      return data.filter((r) => r.season === latest);
+    },
+    enabled: !!leagueId,
+  });
+
+  const recordsByTeamId = useMemo(() => {
+    const map = new Map<string, { wins: number; losses: number }>();
+    (latestSeasonRecords ?? []).forEach((r) => {
+      map.set(r.team_id, { wins: r.wins ?? 0, losses: r.losses ?? 0 });
+    });
+    return map;
+  }, [latestSeasonRecords]);
+
+  // Lottery odds, indexed so `oddsArray[original_standing - 1]` is the
+  // pre-lottery percentage chance for that team. Custom odds from
+  // `league.lottery_odds` override the linear default.
+  const oddsArray = useMemo<number[]>(() => {
+    if (!lotteryResults) return [];
+    const customOdds = (league as { lottery_odds?: number[] | null } | null | undefined)
+      ?.lottery_odds;
+    return customOdds ?? generateDefaultOdds(lotteryResults.length);
+  }, [lotteryResults, league]);
+
+  // Enrich the wire-format LotteryEntry rows with team metadata for the UI.
+  const enrichedResults = useMemo<PickCardEntry[] | null>(() => {
+    if (!lotteryResults) return null;
+    return lotteryResults.map((r) => {
+      const team = teamsById.get(r.team_id);
+      const record = recordsByTeamId.get(r.team_id);
+      const oddsValue = oddsArray[r.original_standing - 1];
+      return {
+        team_id: r.team_id,
+        team_name: r.team_name,
+        original_standing: r.original_standing,
+        lottery_position: r.lottery_position,
+        was_drawn: r.was_drawn,
+        tricode: team?.tricode ?? null,
+        logo_key: team?.logo_key ?? null,
+        wins: record?.wins ?? null,
+        losses: record?.losses ?? null,
+        odds_pct: oddsValue != null ? `${oddsValue}%` : null,
+      };
+    });
+  }, [lotteryResults, teamsById, recordsByTeamId, oddsArray]);
+
+  const totalSlots = lotteryResults?.length ?? 0;
+
+  // Hydrate local lotteryResults from the persisted DB row when revisiting
+  // the screen (component remounted, local state empty).
   useEffect(() => {
     if (existingResults && !lotteryResults) {
       setLotteryResults(existingResults);
-      // If lottery_status is 'complete', show all revealed
-      if (league?.lottery_status === 'complete') {
-        setRevealedCount(existingResults.length);
-        setCeremonyStarted(true);
-      }
     }
-  }, [existingResults, league?.lottery_status]);
+  }, [existingResults, lotteryResults]);
 
-  // Initialize flip animations when results are set
+  // Defensive: if the server says there's no lottery row but we still hold
+  // stale local state (e.g. an admin reset wiped the DB while this screen
+  // was open), clear it so the user sees Phase 1 instead of a "Done" button
+  // that would 500 against `create-rookie-draft`. Gated on
+  // `didRunInSessionRef` so the brief window between handleRunLottery and
+  // the next existingResults refetch doesn't trigger a wipe.
   useEffect(() => {
-    if (lotteryResults) {
-      flipAnims.current = lotteryResults.map(() => new Animated.Value(0));
+    if (
+      !didRunInSessionRef.current &&
+      existingResults === null &&
+      lotteryResults !== null
+    ) {
+      setLotteryResults(null);
+      setCeremonyStarted(false);
+      setRevealedCount(0);
+      setSpinningPosition(null);
     }
-  }, [lotteryResults?.length]);
+  }, [existingResults, lotteryResults]);
+
+  // Two-phase auto-snap, depending on offseason_step. Gated on
+  // `didRunInSessionRef` so we don't clobber the just-ran ceremony, which
+  // should still play through the spin reveals.
+  //
+  // - `lottery_revealing` (ceremony in progress): late joiner enters via the
+  //   "Watch the Reveal" home CTA. Skip Phase 2 (no "Begin Reveal" button —
+  //   they didn't start the ceremony) and go straight to Phase 3. Cards stay
+  //   sealed until the next reveal_pick broadcast force-advances them.
+  // - `lottery_complete` (ceremony already finalized): snap to fully revealed.
+  //   No replay; the result is public.
+  //
+  // Split into its own effect (separate from the lotteryResults hydrator) so
+  // a slow league refetch doesn't get blocked by an early lotteryResults
+  // arrival — they can land in any order.
+  useEffect(() => {
+    if (
+      didRunInSessionRef.current ||
+      !lotteryResults ||
+      league?.lottery_status !== 'complete' ||
+      ceremonyStarted
+    ) {
+      return;
+    }
+    setCeremonyStarted(true);
+    if (league?.offseason_step === 'lottery_complete') {
+      setRevealedCount(lotteryResults.length);
+    }
+  }, [lotteryResults, league?.lottery_status, league?.offseason_step, ceremonyStarted]);
+
+  const positionForDisplayIndex = useCallback((idx: number): number | null => {
+    const r = lotteryResultsRef.current;
+    if (!r) return null;
+    const sorted = [...r].sort((a, b) => b.lottery_position - a.lottery_position);
+    return sorted[idx]?.lottery_position ?? null;
+  }, []);
+
+  const receiveReveal = useCallback(
+    (idx: number, lp?: number) => {
+      const targetPosition = lp ?? positionForDisplayIndex(idx);
+      if (targetPosition === null) return;
+      // Force-advance: if reveals piled up while a slow client was mid-spin,
+      // snap revealedCount forward and start the new spin. Skipped slots
+      // appear instantly locked.
+      setRevealedCount((prev) => Math.max(prev, idx));
+      setSpinningPosition(targetPosition);
+    },
+    [positionForDisplayIndex],
+  );
 
   // Realtime BROADCAST channel for synchronizing reveal across clients.
   // ⚠️ DO NOT add a `-${Date.now()}` suffix here. Broadcast channels require a
@@ -106,7 +256,8 @@ export default function LotteryRoomScreen() {
       })
       .on('broadcast', { event: 'reveal_pick' }, (payload) => {
         const idx = payload.payload.index as number;
-        revealSlot(idx);
+        const lp = payload.payload.lottery_position as number | undefined;
+        receiveReveal(idx, lp);
       })
       .subscribe();
 
@@ -116,21 +267,7 @@ export default function LotteryRoomScreen() {
       supabase.removeChannel(channel);
       broadcastChannelRef.current = null;
     };
-  }, [leagueId]);
-
-  const revealSlot = useCallback((revealIndex: number) => {
-    // revealIndex is the lottery position being revealed (from last to first)
-    // So revealIndex 0 = last pick, revealIndex (total-1) = first pick
-    setRevealedCount(prev => Math.max(prev, revealIndex + 1));
-    if (flipAnims.current[revealIndex]) {
-      Animated.spring(flipAnims.current[revealIndex], {
-        toValue: 1,
-        friction: 8,
-        tension: 40,
-        useNativeDriver: true,
-      }).start();
-    }
-  }, []);
+  }, [leagueId, receiveReveal]);
 
   const handleRunLottery = async () => {
     setIsRunning(true);
@@ -140,7 +277,24 @@ export default function LotteryRoomScreen() {
       });
       if (error) throw error;
       const results = data.results as LotteryEntry[];
+      didRunInSessionRef.current = true;
       setLotteryResults(results);
+
+      // Sync the React Query caches so navigating away + back doesn't show
+      // the "Run Lottery" prompt again. Two caches must update:
+      //  • lotteryResults — was `null` from the pre-run fetch; seed the new row.
+      //  • league — `useLeague` has a 1-minute staleTime, which keeps the home
+      //    hero on "Enter Lottery" until it expires. Invalidate so the hero
+      //    refetches and advances to the next offseason step.
+      if (leagueId && league?.season != null) {
+        queryClient.setQueryData(
+          queryKeys.lotteryResults(leagueId, league.season),
+          results,
+        );
+      }
+      if (leagueId) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId) });
+      }
 
       // Broadcast results to all clients via the shared channel
       await broadcastChannelRef.current?.send({
@@ -149,7 +303,17 @@ export default function LotteryRoomScreen() {
         payload: { results },
       });
     } catch (err: any) {
-      Alert.alert('Error', err.message ?? 'Failed to run lottery');
+      // Pull the real reason out of the FunctionsHttpError body when present,
+      // so a server-side validation failure (e.g. invalid offseason state)
+      // surfaces in the alert instead of the generic non-2xx message.
+      let detail = err?.message ?? 'Failed to run lottery';
+      try {
+        const body = await (err as { context?: Response }).context?.json?.();
+        if (body?.error) detail = body.error;
+      } catch {
+        // Body wasn't JSON or context unavailable.
+      }
+      Alert.alert('Error', detail);
     } finally {
       setIsRunning(false);
     }
@@ -165,187 +329,254 @@ export default function LotteryRoomScreen() {
   };
 
   const handleRevealNext = async () => {
-    // Reveal from last pick to first pick
+    if (spinningPosition !== null) return; // mid-spin, ignore re-taps
     const nextRevealIndex = revealedCount;
     if (nextRevealIndex >= totalSlots) return;
 
-    revealSlot(nextRevealIndex);
+    const targetPosition = positionForDisplayIndex(nextRevealIndex);
+    if (targetPosition === null) return;
+
+    setSpinningPosition(targetPosition);
     await broadcastChannelRef.current?.send({
       type: 'broadcast',
       event: 'reveal_pick',
-      payload: { index: nextRevealIndex },
+      payload: { index: nextRevealIndex, lottery_position: targetPosition },
     });
   };
 
-  const handleDone = () => {
-    queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId!) });
+  const handleSpinComplete = useCallback(() => {
+    const completedPosition = spinningPosition;
+    setSpinningPosition(null);
+    setRevealedCount((prev) => prev + 1);
+    if (completedPosition === 1) {
+      pickListRef.current?.fireConfetti();
+    }
+  }, [spinningPosition]);
+
+  const handleDone = async () => {
+    // Commissioner closing the ceremony also creates the rookie draft in the
+    // same click. The user lands on the home hero with the new draft already
+    // queued (status=unscheduled), where they can pick a date. Skipping the
+    // intermediate "Create Draft" CTA — the ceremony naturally implies the
+    // draft is the next step.
+    if (isCommissioner && leagueId) {
+      const { error } = await supabase.functions.invoke('create-rookie-draft', {
+        body: { league_id: leagueId },
+      });
+      if (error) {
+        // Supabase wraps non-2xx responses in a generic FunctionsHttpError;
+        // the real message lives in the JSON body. Try to extract it so the
+        // alert shows *why* it failed instead of "edge function returned non-2xx".
+        let detail = error.message ?? String(error);
+        try {
+          const body = await (error as { context?: Response }).context?.json?.();
+          if (body?.error) detail = body.error;
+        } catch {
+          // Body wasn't JSON or context unavailable — fall back to error.message.
+        }
+        Alert.alert('Error', `Failed to create draft: ${detail}`);
+        return;
+      }
+      queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId) });
+      queryClient.invalidateQueries({ queryKey: ['rookieDraft', leagueId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.activeDraft(leagueId) });
+    } else if (leagueId) {
+      // Non-commish — just navigate back; commish click is what advances state.
+      queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId) });
+    }
     router.back();
   };
 
-  const allRevealed = revealedCount >= totalSlots && totalSlots > 0;
+  const allRevealed =
+    revealedCount >= totalSlots && totalSlots > 0 && spinningPosition === null;
 
-  // Render a single lottery slot (shown in reverse: last pick at top, first pick at bottom)
-  const renderSlot = (entry: LotteryEntry, displayIndex: number) => {
-    // displayIndex 0 = last pick (totalSlots), displayed first
-    // The reveal order goes 0, 1, 2... (last pick revealed first)
-    const isRevealed = displayIndex < revealedCount;
-    const flipAnim = flipAnims.current[displayIndex];
-    const scale = flipAnim
-      ? flipAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1, 1.1, 1] })
-      : 1;
-    const opacity = flipAnim
-      ? flipAnim.interpolate({ inputRange: [0, 0.3, 1], outputRange: [0, 0, 1] })
-      : isRevealed ? 1 : 0;
-
-    const pickNumber = totalSlots - displayIndex; // Convert display order to pick number
-
-    return (
-      <View
-        key={entry.team_id}
-        style={[styles.slot, { backgroundColor: c.card, borderColor: c.border }]}
-        accessibilityLabel={isRevealed ? `Pick ${pickNumber}: ${entry.team_name}${entry.was_drawn ? ', lottery winner' : ''}` : `Pick ${pickNumber}: not yet revealed`}
-      >
-        <View style={[styles.pickNumberBadge, { backgroundColor: pickNumber === 1 ? c.gold : c.cardAlt }]}>
-          <ThemedText style={[styles.pickNumber, pickNumber === 1 && { color: c.background }]}>
-            #{pickNumber}
-          </ThemedText>
-        </View>
-        {isRevealed ? (
-          <Animated.View style={[styles.revealedContent, { opacity, transform: [{ scale }] }]}>
-            <ThemedText type="defaultSemiBold" style={styles.teamName} numberOfLines={1}>
-              {entry.team_name}
-            </ThemedText>
-            {entry.was_drawn && (
-              <View style={[styles.drawnBadge, { backgroundColor: c.activeCard }]}>
-                <ThemedText style={[styles.drawnText, { color: c.activeText }]}>Lottery</ThemedText>
-              </View>
-            )}
-            <ThemedText style={[styles.standing, { color: c.secondaryText }]}>
-              Was #{entry.original_standing} worst
-            </ThemedText>
-          </Animated.View>
-        ) : (
-          <View style={styles.hiddenContent}>
-            <Ionicons name="help-circle" size={24} color={c.secondaryText} accessible={false} />
-          </View>
-        )}
+  // Phase 1 + 2 share a brand-pass hero pattern: gold-rule eyebrow,
+  // Alfa Slab title with deck period, body subtitle, BrandButton CTA.
+  const renderHero = ({
+    eyebrow,
+    title,
+    subtitle,
+    cta,
+  }: {
+    eyebrow: string;
+    title: string;
+    subtitle: string;
+    cta?: React.ReactNode;
+  }) => (
+    <View style={styles.heroContainer}>
+      <View style={styles.heroEyebrowRow}>
+        <View style={[styles.heroRule, { backgroundColor: c.gold }]} />
+        <ThemedText
+          type="varsitySmall"
+          style={[styles.heroEyebrow, { color: c.gold }]}
+        >
+          {eyebrow}
+        </ThemedText>
+        <View style={[styles.heroRule, { backgroundColor: c.gold }]} />
       </View>
-    );
-  };
+      <ThemedText
+        type="display"
+        style={[styles.heroTitle, { color: c.text }]}
+        accessibilityRole="header"
+      >
+        {title}
+      </ThemedText>
+      <ThemedText style={[styles.heroSubtitle, { color: c.secondaryText }]}>
+        {subtitle}
+      </ThemedText>
+      {cta ? <View style={styles.heroCta}>{cta}</View> : null}
+    </View>
+  );
 
-  // Arrange slots: display last pick first (top) → first pick last (bottom)
-  const displayOrder = lotteryResults
-    ? [...lotteryResults].sort((a, b) => b.lottery_position - a.lottery_position)
-    : [];
+  const finalPickEntry = useMemo(
+    () => lotteryResults?.find((r) => r.lottery_position === 1) ?? null,
+    [lotteryResults],
+  );
+
+  // Lottery rules footer — "Top N picks drawn at random; rest by standings."
+  // Computed from `league.lottery_draws` (with backend's `Math.min(drawCount, poolSize)`
+  // clamping, so degenerate league configs render sensibly).
+  const rulesText = useMemo(() => {
+    if (totalSlots === 0) return null;
+    const draws = Math.min(league?.lottery_draws ?? 4, totalSlots);
+    if (draws === 0) return 'No lottery — picks follow inverse standings.';
+    if (draws >= totalSlots) {
+      return `All ${totalSlots} picks drawn by weighted lottery.`;
+    }
+    if (draws === 1) {
+      return 'Pick #1 is drawn by weighted lottery. Picks #2 and beyond follow inverse standings.';
+    }
+    return `Top ${draws} picks are drawn by weighted lottery. Picks #${draws + 1}–${totalSlots} follow inverse standings.`;
+  }, [league?.lottery_draws, totalSlots]);
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
-      <View style={[styles.header, { borderBottomColor: c.border }]}>
-        <TouchableOpacity style={styles.headerButton} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back">
-          <IconSymbol name="chevron.backward" size={20} color={c.icon} accessible={false} />
-        </TouchableOpacity>
-        <ThemedText
-          type="varsity"
-          style={[styles.headerText, { color: c.secondaryText }]}
-          accessibilityRole="header"
-          numberOfLines={1}
-        >
-          Draft Lottery
-        </ThemedText>
-        <View style={styles.headerButton} />
-      </View>
+    <SafeAreaView style={[styles.container, { backgroundColor: c.background }]} edges={['top', 'bottom']}>
+      <PageHeader title="Draft Lottery" />
 
       <View style={styles.body}>
         {!lotteryResults ? (
           // Phase 1: Commissioner runs the lottery
-          <View style={styles.preStartContainer}>
-            <Ionicons name="trophy" size={64} color={c.accent} style={{ marginBottom: 16 }} accessible={false} />
-            <ThemedText type="subtitle" style={{ textAlign: 'center', marginBottom: 8 }}>
-              Draft Lottery
-            </ThemedText>
-            <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>
-              {isCommissioner
-                ? 'When everyone is ready, run the lottery to determine the rookie draft order.'
-                : 'Waiting for the commissioner to start the lottery...'}
-            </ThemedText>
-            {isCommissioner && (
-              <TouchableOpacity
-                style={[styles.actionButton, { backgroundColor: c.accent }, isRunning && { opacity: 0.6 }]}
-                onPress={handleRunLottery}
-                disabled={isRunning}
-                accessibilityRole="button"
-                accessibilityLabel={isRunning ? 'Running lottery' : 'Run Lottery'}
-                accessibilityState={{ disabled: isRunning }}
-              >
-                {isRunning ? (
-                  <LogoSpinner size={18} delay={0} />
-                ) : (
-                  <ThemedText style={[styles.actionButtonText, { color: c.statusText }]}>Run Lottery</ThemedText>
-                )}
-              </TouchableOpacity>
-            )}
-          </View>
+          renderHero({
+            eyebrow: 'Draft Night',
+            title: 'The lottery awaits.',
+            subtitle: isCommissioner
+              ? 'When everyone is ready, run the lottery to determine the rookie draft order.'
+              : 'Waiting for the commissioner to start the lottery.',
+            cta: isCommissioner ? (
+              isRunning ? (
+                <View style={styles.spinnerWrap}>
+                  <LogoSpinner size={22} delay={0} />
+                </View>
+              ) : (
+                <BrandButton
+                  label="Run Lottery"
+                  onPress={handleRunLottery}
+                  variant="primary"
+                  fullWidth
+                  accessibilityLabel="Run lottery"
+                />
+              )
+            ) : null,
+          })
         ) : !ceremonyStarted ? (
           // Phase 2: Results computed, commissioner starts the reveal ceremony
-          <View style={styles.preStartContainer}>
-            <Ionicons name="play-circle" size={64} color={c.accent} style={{ marginBottom: 16 }} accessible={false} />
-            <ThemedText type="subtitle" style={{ textAlign: 'center', marginBottom: 8 }}>
-              Results Are In!
-            </ThemedText>
-            <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>
-              {isCommissioner
-                ? 'Start the reveal ceremony when everyone is watching.'
-                : 'The lottery has been drawn. Waiting for the reveal to begin...'}
-            </ThemedText>
-            {isCommissioner && (
-              <TouchableOpacity
-                style={[styles.actionButton, { backgroundColor: c.accent }]}
+          renderHero({
+            eyebrow: 'Ready',
+            title: 'The picks are in.',
+            subtitle: isCommissioner
+              ? 'Start the reveal ceremony when everyone is watching.'
+              : 'The lottery has been drawn. Waiting for the reveal to begin.',
+            cta: isCommissioner ? (
+              <BrandButton
+                label="Begin Reveal"
                 onPress={handleStartCeremony}
-                accessibilityRole="button"
-                accessibilityLabel="Begin Reveal"
-              >
-                <ThemedText style={[styles.actionButtonText, { color: c.statusText }]}>Begin Reveal</ThemedText>
-              </TouchableOpacity>
-            )}
-          </View>
+                variant="primary"
+                fullWidth
+                accessibilityLabel="Begin reveal"
+              />
+            ) : null,
+          })
         ) : (
-          // Phase 3: Reveal ceremony
+          // Phase 3: Reveal ceremony — sealed cards spin and lock per pick.
           <View style={styles.revealContainer}>
-            <View style={styles.slotList} accessibilityRole="list" accessibilityLiveRegion="polite">
-              {displayOrder.map((entry, idx) => renderSlot(entry, idx))}
+            <View style={styles.revealEyebrowRow}>
+              <View style={[styles.heroRule, { backgroundColor: c.gold }]} />
+              <ThemedText
+                type="varsitySmall"
+                style={[styles.heroEyebrow, { color: c.gold }]}
+              >
+                Reveal Ceremony · {revealedCount} of {totalSlots}
+              </ThemedText>
             </View>
 
-            {/* Commissioner reveal button or completion */}
-            <View style={styles.bottomBar}>
+            {enrichedResults && (
+              <PickList
+                ref={pickListRef}
+                results={enrichedResults}
+                revealedCount={revealedCount}
+                spinningPosition={spinningPosition}
+                onSpinComplete={handleSpinComplete}
+              />
+            )}
+
+            <View style={[styles.bottomBar, { borderTopColor: c.border }]}>
               {allRevealed ? (
                 <>
-                  <ThemedText type="defaultSemiBold" style={{ textAlign: 'center', marginBottom: 8 }}>
-                    {displayOrder[displayOrder.length - 1]?.team_name} gets the #1 pick!
-                  </ThemedText>
-                  <TouchableOpacity
-                    style={[styles.actionButton, { backgroundColor: c.accent }]}
-                    onPress={handleDone}
-                    accessibilityRole="button"
-                    accessibilityLabel="Done"
+                  <View style={styles.heroEyebrowRow}>
+                    <View style={[styles.heroRule, { backgroundColor: c.gold }]} />
+                    <ThemedText
+                      type="varsitySmall"
+                      style={[styles.heroEyebrow, { color: c.gold }]}
+                    >
+                      Final
+                    </ThemedText>
+                    <View style={[styles.heroRule, { backgroundColor: c.gold }]} />
+                  </View>
+                  <ThemedText
+                    type="display"
+                    style={[styles.finalTitle, { color: c.text }]}
+                    accessibilityRole="header"
+                    numberOfLines={2}
                   >
-                    <ThemedText style={[styles.actionButtonText, { color: c.statusText }]}>Done</ThemedText>
-                  </TouchableOpacity>
-                </>
-              ) : isCommissioner ? (
-                <TouchableOpacity
-                  style={[styles.actionButton, { backgroundColor: c.accent }]}
-                  onPress={handleRevealNext}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Reveal Pick number ${totalSlots - revealedCount}`}
-                >
-                  <ThemedText style={[styles.actionButtonText, { color: c.statusText }]}>
-                    Reveal Pick #{totalSlots - revealedCount}
+                    {finalPickEntry?.team_name} gets the No. 1 pick.
                   </ThemedText>
-                </TouchableOpacity>
+                  <View style={styles.heroCta}>
+                    <BrandButton
+                      label="Done"
+                      onPress={handleDone}
+                      variant="primary"
+                      fullWidth
+                      accessibilityLabel="Done"
+                    />
+                  </View>
+                </>
               ) : (
-                <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>
-                  Waiting for next reveal...
-                </ThemedText>
+                <>
+                  {rulesText ? (
+                    <ThemedText
+                      style={[styles.rules, { color: c.secondaryText }]}
+                    >
+                      {rulesText}
+                    </ThemedText>
+                  ) : null}
+                  {isCommissioner ? (
+                    <BrandButton
+                      label={`Reveal Pick #${totalSlots - revealedCount}`}
+                      onPress={handleRevealNext}
+                      variant="primary"
+                      fullWidth
+                      disabled={spinningPosition !== null}
+                      accessibilityLabel={`Reveal pick number ${totalSlots - revealedCount}`}
+                    />
+                  ) : (
+                    <ThemedText
+                      type="varsitySmall"
+                      style={[styles.waiting, { color: c.secondaryText }]}
+                    >
+                      Waiting for next reveal…
+                    </ThemedText>
+                  )}
+                </>
               )}
             </View>
           </View>
@@ -357,103 +588,87 @@ export default function LotteryRoomScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    padding: s(8),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    alignItems: 'center',
-    height: s(50),
-    justifyContent: 'space-between',
-  },
-  headerText: {
-    flex: 1,
-    textAlign: 'center',
-    fontFamily: Fonts.varsityBold,
-    fontSize: ms(12),
-    letterSpacing: 1.2,
-    marginHorizontal: s(40),
-  },
-  headerButton: { padding: s(8), width: s(36), alignItems: 'center' },
   body: { flex: 1 },
-  preStartContainer: {
+
+  // Hero (phases 1 + 2) — gold-rule eyebrow framing, Alfa Slab title with
+  // deck period, body subtitle, optional CTA. Mirrors the brand voice
+  // used on prospect detail and the draft-complete banner.
+  // The paddingBottom compensates for the PageHeader's top-of-screen
+  // weight: without it, `flex:1` + `justifyContent:'center'` lands the
+  // content at the body's geometric center, which sits visibly below
+  // the screen's true center because the header eats top space.
+  heroContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: s(32),
-  },
-  subtitle: {
-    fontSize: ms(14),
-    textAlign: 'center',
-    marginBottom: s(24),
-    lineHeight: ms(20),
-  },
-  actionButton: {
     paddingHorizontal: s(32),
-    paddingVertical: s(14),
-    borderRadius: 12,
-    minWidth: s(200),
-    alignItems: 'center',
+    paddingBottom: s(80),
   },
-  actionButtonText: {
-    fontSize: ms(16),
-    fontWeight: '700',
-  },
-  revealContainer: { flex: 1 },
-  slotList: {
-    flex: 1,
-    padding: s(16),
-    gap: s(8),
-  },
-  slot: {
+  heroEyebrowRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: s(12),
-    borderRadius: 10,
-    borderWidth: 1,
-    minHeight: s(52),
+    gap: s(10),
+    marginBottom: s(10),
   },
-  pickNumberBadge: {
-    width: s(40),
-    height: s(32),
-    borderRadius: 6,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: s(12),
+  heroRule: { height: 2, width: s(18) },
+  heroEyebrow: { fontSize: ms(10), letterSpacing: 1.4 },
+  heroTitle: {
+    fontSize: ms(28),
+    lineHeight: ms(32),
+    letterSpacing: -0.4,
+    textAlign: 'center',
   },
-  pickNumber: {
+  heroSubtitle: {
     fontSize: ms(14),
-    fontWeight: '800',
+    lineHeight: ms(20),
+    textAlign: 'center',
+    marginTop: s(10),
+    marginBottom: s(20),
+    maxWidth: s(320),
   },
-  revealedContent: {
-    flex: 1,
+  heroCta: {
+    width: '100%',
+    maxWidth: s(280),
+    marginTop: s(4),
+  },
+  spinnerWrap: {
+    paddingVertical: s(16),
+  },
+
+  // Reveal phase — list of cards with bottom CTA bar
+  revealContainer: { flex: 1 },
+  revealEyebrowRow: {
     flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(10),
+    paddingHorizontal: s(16),
+    paddingTop: s(14),
+    paddingBottom: s(8),
+  },
+
+  bottomBar: {
+    paddingHorizontal: s(16),
+    paddingTop: s(12),
+    paddingBottom: s(16),
+    borderTopWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     gap: s(8),
   },
-  teamName: {
-    fontSize: ms(15),
-    flexShrink: 1,
+  finalTitle: {
+    fontSize: ms(22),
+    lineHeight: ms(26),
+    letterSpacing: -0.3,
+    textAlign: 'center',
   },
-  drawnBadge: {
-    paddingHorizontal: s(6),
-    paddingVertical: s(2),
-    borderRadius: 4,
-  },
-  drawnText: {
-    fontSize: ms(9),
-    fontWeight: '700',
-  },
-  standing: {
+  waiting: {
     fontSize: ms(11),
-    marginLeft: 'auto',
+    letterSpacing: 1.2,
+    paddingVertical: s(14),
   },
-  hiddenContent: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  bottomBar: {
-    padding: s(16),
-    alignItems: 'center',
+  rules: {
+    fontSize: ms(11),
+    lineHeight: ms(15),
+    textAlign: 'center',
+    maxWidth: s(320),
   },
 });

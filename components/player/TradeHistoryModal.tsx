@@ -8,14 +8,14 @@ import {
   View,
 } from 'react-native';
 
+import { TradeSideSummary } from '@/components/trade/TradeSideSummary';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
+import { TradeItemRow } from '@/hooks/useTrades';
 import { supabase } from '@/lib/supabase';
-import { formatPickLabel } from '@/types/trade';
-import { ms } from "@/utils/scale";
+import { ms, s } from '@/utils/scale';
 
 interface TradeHistoryModalProps {
   transactionId: string;
@@ -23,28 +23,26 @@ interface TradeHistoryModalProps {
   onClose: () => void;
 }
 
-interface TradeSummaryItem {
-  id: string;
-  playerName: string | null;
-  playerPosition: string | null;
-  pickSeason: string | null;
-  pickRound: number | null;
-  pickOriginalTeamName: string | null;
-  protectionThreshold: number | null;
-  pickSwapSeason: string | null;
-  pickSwapRound: number | null;
-  fromTeamName: string;
-  toTeamName: string;
+interface TradeSnapshot {
+  date: string;
+  items: TradeItemRow[];
+  teamNames: Record<string, string>;
+  /** All teams that participated, ordered for display */
+  teams: { id: string; name: string }[];
+  playerHeadshotMap: Record<string, string | null>;
+}
+
+function itemKey(item: TradeItemRow): string {
+  if (item.player_id) return `p:${item.player_id}:${item.from_team_id}:${item.to_team_id}`;
+  if (item.pick_swap_season) return `sw:${item.pick_swap_season}:${item.pick_swap_round}:${item.from_team_id}`;
+  if (item.draft_pick_id) return `pk:${item.draft_pick_id}:${item.from_team_id}:${item.to_team_id}`;
+  return item.id;
 }
 
 function useTradeByTransaction(transactionId: string, leagueId: string) {
   return useQuery({
     queryKey: queryKeys.tradeByTransaction(transactionId),
-    queryFn: async (): Promise<{
-      date: string;
-      items: TradeSummaryItem[];
-      teamNames: Record<string, string>;
-    } | null> => {
+    queryFn: async (): Promise<TradeSnapshot | null> => {
       // Find the trade proposal linked to this transaction
       const { data: proposal } = await supabase
         .from('trade_proposals')
@@ -55,7 +53,6 @@ function useTradeByTransaction(transactionId: string, leagueId: string) {
 
       if (!proposal) return null;
 
-      // Fetch all items with joined data
       const { data: rawItems } = await supabase
         .from('trade_proposal_items')
         .select(`
@@ -67,14 +64,14 @@ function useTradeByTransaction(transactionId: string, leagueId: string) {
           protection_threshold,
           pick_swap_season,
           pick_swap_round,
-          players ( name, position ),
+          players ( name, position, pro_team ),
           draft_picks ( season, round, original_team_id )
         `)
         .eq('proposal_id', proposal.id);
 
       if (!rawItems || rawItems.length === 0) return null;
 
-      // Collect all team IDs to resolve names
+      // Collect all team IDs (participants + via-original) to resolve names
       const teamIds = new Set<string>();
       const origTeamIds = new Set<string>();
       for (const item of rawItems) {
@@ -83,7 +80,6 @@ function useTradeByTransaction(transactionId: string, leagueId: string) {
         const dp = Array.isArray(item.draft_picks) ? item.draft_picks[0] : item.draft_picks;
         if (dp?.original_team_id) origTeamIds.add(dp.original_team_id);
       }
-      // Also add original team IDs so we can resolve "via X"
       for (const id of origTeamIds) teamIds.add(id);
 
       const { data: teams } = await supabase
@@ -94,111 +90,160 @@ function useTradeByTransaction(transactionId: string, leagueId: string) {
       const teamNames: Record<string, string> = {};
       for (const t of teams ?? []) teamNames[t.id] = t.name;
 
-      const items: TradeSummaryItem[] = rawItems.map((item) => {
+      // Headshot fetch: only for players actually in this trade.
+      const playerIds = rawItems
+        .map((i) => i.player_id)
+        .filter((id): id is string => !!id);
+      const playerHeadshotMap: Record<string, string | null> = {};
+      if (playerIds.length > 0) {
+        const { data: stats } = await supabase
+          .from('player_season_stats')
+          .select('player_id, external_id_nba')
+          .in('player_id', playerIds);
+        for (const row of stats ?? []) {
+          if (row.player_id) playerHeadshotMap[row.player_id] = row.external_id_nba ?? null;
+        }
+      }
+
+      // Reshape into TradeItemRow so we can hand it to TradeSideSummary —
+      // single shared receives chrome across every trade surface.
+      const items: TradeItemRow[] = rawItems.map((item) => {
         const player = Array.isArray(item.players) ? item.players[0] : item.players;
         const dp = Array.isArray(item.draft_picks) ? item.draft_picks[0] : item.draft_picks;
 
         return {
           id: item.id,
-          playerName: player?.name ?? null,
-          playerPosition: player?.position ?? null,
-          pickSeason: dp?.season ?? null,
-          pickRound: dp?.round ?? null,
-          pickOriginalTeamName: dp?.original_team_id ? (teamNames[dp.original_team_id] ?? null) : null,
-          protectionThreshold: item.protection_threshold,
-          pickSwapSeason: item.pick_swap_season,
-          pickSwapRound: item.pick_swap_round,
-          fromTeamName: teamNames[item.from_team_id] ?? 'Unknown',
-          toTeamName: teamNames[item.to_team_id] ?? 'Unknown',
+          player_id: item.player_id,
+          draft_pick_id: item.draft_pick_id,
+          from_team_id: item.from_team_id,
+          to_team_id: item.to_team_id,
+          player_name: player?.name ?? null,
+          player_position: player?.position ?? null,
+          player_pro_team: player?.pro_team ?? null,
+          pick_season: dp?.season ?? null,
+          pick_round: dp?.round ?? null,
+          pick_original_team_name: dp?.original_team_id
+            ? (teamNames[dp.original_team_id] ?? null)
+            : null,
+          protection_threshold: item.protection_threshold,
+          pick_swap_season: item.pick_swap_season,
+          pick_swap_round: item.pick_swap_round,
         };
       });
 
-      return { date: proposal.completed_at ?? '', items, teamNames };
+      // Order participants by who shows up first as a receiver
+      const participantIds: string[] = [];
+      for (const item of items) {
+        if (!participantIds.includes(item.to_team_id)) participantIds.push(item.to_team_id);
+      }
+      // Backfill any team that didn't receive (rare)
+      for (const item of items) {
+        if (!participantIds.includes(item.from_team_id)) participantIds.push(item.from_team_id);
+      }
+
+      return {
+        date: proposal.completed_at ?? '',
+        items,
+        teamNames,
+        teams: participantIds.map((id) => ({ id, name: teamNames[id] ?? 'Unknown' })),
+        playerHeadshotMap,
+      };
     },
     staleTime: 1000 * 60 * 30,
   });
 }
 
+/**
+ * Per-player trade history modal — shown from PlayerDetail when the player
+ * was moved in a historical trade. Reuses `TradeSideSummary` so the
+ * receives blocks read identical to the trades list, league history, and
+ * detail modal.
+ */
 export function TradeHistoryModal({ transactionId, leagueId, onClose }: TradeHistoryModalProps) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const { data: trade, isLoading } = useTradeByTransaction(transactionId, leagueId);
 
-  // Group items by from_team
-  const groupedByFrom: Record<string, TradeSummaryItem[]> = {};
-  for (const item of trade?.items ?? []) {
-    const key = item.fromTeamName;
-    if (!groupedByFrom[key]) groupedByFrom[key] = [];
-    groupedByFrom[key].push(item);
+  // Group items by receiving team for the receives blocks.
+  const receivedByTeam: Record<string, TradeItemRow[]> = {};
+  if (trade) {
+    for (const t of trade.teams) receivedByTeam[t.id] = [];
+    for (const item of trade.items) {
+      if (receivedByTeam[item.to_team_id]) {
+        receivedByTeam[item.to_team_id].push(item);
+      }
+    }
   }
-  const isMultiTeam = Object.keys(groupedByFrom).length > 2;
+  const isMultiTeam = (trade?.teams.length ?? 0) > 2;
 
   return (
     <Modal visible animationType="fade" transparent>
       <View style={styles.overlay}>
-        <View style={[styles.sheet, { backgroundColor: c.background }]} accessibilityViewIsModal>
-          {/* Header */}
+        <View
+          style={[styles.sheet, { backgroundColor: c.background, borderColor: c.border }]}
+          accessibilityViewIsModal
+        >
+          {/* Header — gold-rule eyebrow + Alfa Slab title rhythm. */}
           <View style={[styles.header, { borderBottomColor: c.border }]}>
-            <View style={styles.headerTitleRow}>
-              <View style={[styles.iconCircle, { backgroundColor: c.cardAlt }]}>
-                <Ionicons name="swap-horizontal" size={18} color={c.accent} accessibilityElementsHidden />
-              </View>
-              <View>
-                <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.headerTitle}>
-                  Trade Details
+            <View style={styles.headerLeft}>
+              <View style={styles.eyebrowRow}>
+                <View style={[styles.eyebrowRule, { backgroundColor: c.gold }]} />
+                <ThemedText
+                  type="varsitySmall"
+                  style={[styles.eyebrow, { color: c.gold }]}
+                >
+                  Trade
                 </ThemedText>
-                {trade?.date ? (
-                  <ThemedText style={[styles.dateText, { color: c.secondaryText }]}>
-                    {new Date(trade.date).toLocaleDateString('en-US', {
+              </View>
+              <ThemedText
+                accessibilityRole="header"
+                type="defaultSemiBold"
+                style={[styles.title, { color: c.text }]}
+              >
+                {trade?.date
+                  ? new Date(trade.date).toLocaleDateString('en-US', {
                       month: 'short',
                       day: 'numeric',
                       year: 'numeric',
-                    })}
-                  </ThemedText>
-                ) : null}
-              </View>
+                    })
+                  : 'Trade Details'}
+              </ThemedText>
             </View>
             <TouchableOpacity
               onPress={onClose}
               hitSlop={12}
               accessibilityRole="button"
               accessibilityLabel="Close trade details"
+              style={styles.closeBtn}
             >
-              <ThemedText style={styles.closeText}>✕</ThemedText>
+              <Ionicons name="close" size={22} color={c.icon} accessible={false} />
             </TouchableOpacity>
           </View>
 
           {isLoading ? (
-            <View style={styles.loader}><LogoSpinner /></View>
+            <View style={styles.loader}>
+              <LogoSpinner />
+            </View>
           ) : !trade ? (
             <View style={styles.emptyWrap}>
-              <ThemedText style={{ color: c.secondaryText }}>Trade details not available</ThemedText>
+              <ThemedText style={{ color: c.secondaryText }}>
+                Trade details not available
+              </ThemedText>
             </View>
           ) : (
             <ScrollView contentContainerStyle={styles.content}>
-              {Object.entries(groupedByFrom).map(([teamName, items]) => (
-                <View key={teamName} style={styles.tradeSummaryGroup}>
-                  <ThemedText
-                    accessibilityRole="header"
-                    style={[styles.tradeSummaryTeam, { color: c.text }]}
-                    numberOfLines={1}
-                  >
-                    {teamName} sends:
-                  </ThemedText>
-                  {items.map((item) => {
-                    const toSuffix = isMultiTeam ? ` → ${item.toTeamName}` : '';
-                    return (
-                      <ThemedText
-                        key={item.id}
-                        style={[styles.assetText, { color: c.secondaryText }]}
-                        numberOfLines={1}
-                        accessibilityLabel={formatItemLabel(item)}
-                      >
-                        {'  •  '}{formatItemText(item)}{toSuffix}
-                      </ThemedText>
-                    );
-                  })}
-                </View>
+              {trade.teams.map((t) => (
+                <TradeSideSummary
+                  key={t.id}
+                  teamId={t.id}
+                  teamName={t.name}
+                  receivedItems={receivedByTeam[t.id] ?? []}
+                  playerFptsMap={{}}
+                  playerHeadshotMap={trade.playerHeadshotMap}
+                  newItemKeys={new Set()}
+                  itemKeyFn={itemKey}
+                  teamNameMap={trade.teamNames}
+                  isMultiTeam={isMultiTeam}
+                />
               ))}
             </ScrollView>
           )}
@@ -208,91 +253,61 @@ export function TradeHistoryModal({ transactionId, leagueId, onClose }: TradeHis
   );
 }
 
-function formatItemText(item: TradeSummaryItem): string {
-  if (item.playerName) {
-    return `${item.playerName} (${item.playerPosition ?? '?'})`;
-  }
-  if (item.pickSwapSeason && item.pickSwapRound) {
-    return `${formatPickLabel(item.pickSwapSeason, item.pickSwapRound)} swap`;
-  }
-  if (item.pickSeason && item.pickRound) {
-    let label = formatPickLabel(item.pickSeason, item.pickRound);
-    if (item.protectionThreshold) label += ` [Top-${item.protectionThreshold} protected]`;
-    if (item.pickOriginalTeamName) label += ` (via ${item.pickOriginalTeamName})`;
-    return label;
-  }
-  return 'Unknown asset';
-}
-
-function formatItemLabel(item: TradeSummaryItem): string {
-  return `${formatItemText(item)} to ${item.toTeamName}`;
-}
-
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(20, 16, 16, 0.55)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
+    padding: s(20),
   },
   sheet: {
-    borderRadius: 16,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
     width: '100%',
-    maxHeight: '70%',
+    maxHeight: '75%',
     overflow: 'hidden',
   },
+
+  // Header — gold-rule "TRADE" eyebrow + Alfa Slab date.
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: s(16),
+    paddingVertical: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  headerTitleRow: {
+  headerLeft: {
+    flex: 1,
+    gap: s(4),
+  },
+  eyebrowRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: s(8),
   },
-  iconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
+  eyebrowRule: { height: 2, width: s(14) },
+  eyebrow: {
+    fontSize: ms(9),
+    letterSpacing: 1.4,
   },
-  headerTitle: {
-    fontSize: ms(14),
-    fontWeight: '600',
+  title: {
+    fontSize: ms(15),
   },
-  closeText: {
-    fontSize: ms(18),
-    fontWeight: '600',
+  closeBtn: {
+    padding: s(4),
   },
+
   loader: {
-    paddingVertical: 40,
+    paddingVertical: s(40),
   },
   emptyWrap: {
-    paddingVertical: 32,
+    paddingVertical: s(32),
     alignItems: 'center',
   },
   content: {
-    padding: 16,
-  },
-  tradeSummaryGroup: {
-    marginTop: 4,
-  },
-  tradeSummaryTeam: {
-    fontSize: ms(12),
-    fontWeight: '600',
-  },
-  assetText: {
-    fontSize: ms(13),
-    marginTop: 4,
-    lineHeight: 18,
-  },
-  dateText: {
-    fontSize: ms(12),
+    padding: s(16),
+    gap: s(10),
   },
 });

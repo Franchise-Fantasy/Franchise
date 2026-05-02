@@ -13,8 +13,8 @@ import {
 import { TeamLogo } from '@/components/team/TeamLogo';
 import { Badge } from '@/components/ui/Badge';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Brand, Colors, Fonts, cardShadow } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { Brand, Fonts, cardShadow } from '@/constants/Colors';
+import { useColors } from '@/hooks/useColors';
 import { PlayoffBracketSlot } from '@/types/playoff';
 import { calcRounds } from '@/utils/league/playoff';
 import { ms, s as scale } from '@/utils/scale';
@@ -190,8 +190,7 @@ function MatchupCard({
 // ─── Main component ─────────────────────────────────────────────────────────
 
 export function PlayoffBracket({ slots, teamMap, playoffTeams }: Props) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const { width: screenWidth } = useWindowDimensions();
   const scrollRef = useRef<ScrollView>(null);
 
@@ -467,7 +466,7 @@ export function PlayoffBracket({ slots, teamMap, playoffTeams }: Props) {
                 <View
                   style={[
                     styles.tabIndicator,
-                    selected && { backgroundColor: Brand.turfGreen },
+                    selected && { backgroundColor: c.primary },
                   ]}
                 />
               </TouchableOpacity>
@@ -514,13 +513,12 @@ export function PlayoffBracket({ slots, teamMap, playoffTeams }: Props) {
 // ─── Champion teaser ─────────────────────────────────────────────────────────
 
 function ChampionTeaser({ name }: { name: string }) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const hasChampion = name.length > 0;
 
   return (
     <View
-      style={[styles.championCard, { backgroundColor: Brand.turfGreen }]}
+      style={[styles.championCard, { backgroundColor: c.primary }]}
       accessibilityLabel={hasChampion ? `Champion: ${name}` : 'Champion to be crowned'}
     >
       <View style={[styles.championRule, { backgroundColor: c.gold }]} />

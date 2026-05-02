@@ -2,28 +2,46 @@ import { useRouter } from 'expo-router';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { IconSymbol } from '@/components/ui/IconSymbol';
-import { SportBadge } from '@/components/ui/SportBadge';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Fonts } from '@/constants/Colors';
-import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useColors } from '@/hooks/useColors';
 import { ms, s } from '@/utils/scale';
 
 interface PageHeaderProps {
   title: string;
+  /** Optional rich-content title; replaces the static text title when set.
+   *  Use for interactive title clusters (e.g. season picker with arrows).
+   *  pointerEvents falls through to "box-none" so back/right slot stay tappable. */
+  titleNode?: React.ReactNode;
   rightAction?: React.ReactNode;
   onBack?: () => void;
-  /** Hide the sport badge — use on screens outside league context (auth, setup). */
-  hideSport?: boolean;
 }
 
-export function PageHeader({ title, rightAction, onBack, hideSport }: PageHeaderProps) {
+export function PageHeader({ title, titleNode, rightAction, onBack }: PageHeaderProps) {
   const router = useRouter();
   const c = useColors();
-  const sport = useActiveLeagueSport();
 
   return (
     <View style={[styles.header, { borderBottomColor: c.border }]}>
+      {/* Title is absolutely centered so it stays put even when the right
+          action is wider than the back button (which would shift it under
+          the previous flex-1 layout). */}
+      <View
+        style={styles.titleAbsolute}
+        pointerEvents={titleNode ? 'box-none' : 'none'}
+      >
+        {titleNode ?? (
+          <ThemedText
+            type="varsity"
+            style={[styles.title, { color: c.secondaryText }]}
+            numberOfLines={1}
+            accessibilityRole="header"
+          >
+            {title}
+          </ThemedText>
+        )}
+      </View>
+
       <TouchableOpacity
         onPress={onBack ?? (() => router.back())}
         style={styles.side}
@@ -33,16 +51,8 @@ export function PageHeader({ title, rightAction, onBack, hideSport }: PageHeader
       >
         <IconSymbol name="chevron.backward" size={20} color={c.icon} accessible={false} />
       </TouchableOpacity>
-      <ThemedText
-        type="varsity"
-        style={[styles.title, { color: c.secondaryText }]}
-        numberOfLines={1}
-        accessibilityRole="header"
-      >
-        {title}
-      </ThemedText>
       <View style={[styles.side, styles.sideRight]}>
-        {rightAction ?? (!hideSport && sport !== 'nba' ? <SportBadge sport={sport} /> : null)}
+        {rightAction ?? null}
       </View>
     </View>
   );
@@ -56,6 +66,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     height: s(50),
     justifyContent: 'space-between',
+    position: 'relative',
   },
   side: {
     paddingHorizontal: s(8),
@@ -66,12 +77,19 @@ const styles = StyleSheet.create({
   sideRight: {
     alignItems: 'flex-end',
   },
+  titleAbsolute: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: s(56),
+  },
   title: {
-    flex: 1,
-    textAlign: 'center',
     fontFamily: Fonts.varsityBold,
     fontSize: ms(12),
     letterSpacing: 1.2,
-    marginHorizontal: s(8),
   },
 });

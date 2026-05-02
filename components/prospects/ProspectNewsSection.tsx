@@ -1,6 +1,7 @@
 import { Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { Colors } from '@/constants/Colors';
+import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useProspectNews } from '@/hooks/useProspectNews';
 import { ms, s } from '@/utils/scale';
@@ -12,8 +13,14 @@ interface ProspectNewsSectionProps {
 export function ProspectNewsSection({ playerId }: ProspectNewsSectionProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const sport = useActiveLeagueSport();
+  // poll-prospect-news pulls from NBA-only sources (247sports / On3 /
+  // Draft Network — all college men's basketball), so the section will
+  // always be empty for WNBA leagues. Hide it rather than render an
+  // empty header.
   const { data: news } = useProspectNews(playerId);
 
+  if (sport === 'wnba') return null;
   if (!news?.length) return null;
 
   return (

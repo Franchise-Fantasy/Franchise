@@ -1,19 +1,11 @@
+import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useState } from 'react';
-import {
-  FlatList,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
+import { useColors } from '@/hooks/useColors';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { TradeRosterPlayer, useTeamRosterForTrade } from '@/hooks/useTeamRosterForTrade';
 import { formatPosition } from '@/utils/formatting';
@@ -22,39 +14,51 @@ import { getPlayerHeadshotUrl, getTeamLogoUrl, PLAYER_SILHOUETTE } from '@/utils
 import { ms, s } from '@/utils/scale';
 import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
 
-interface TradePlayerPickerProps {
+interface TradePlayerPickerBodyProps {
   teamId: string;
-  teamName: string;
   leagueId: string;
   selectedPlayerIds: string[];
   lockedPlayerIds?: Set<string>;
   pendingDropPlayerIds?: Set<string>;
   onToggle: (player: TradeRosterPlayer, avgFpts: number) => void;
-  onBack: () => void;
   isCategories?: boolean;
+  /** Controlled search query — lifted to caller so collapse/reopen retains it. */
+  search: string;
+  onSearchChange: (q: string) => void;
 }
 
-export function TradePlayerPicker({
+/**
+ * The interactive body of the player picker: search input + roster list +
+ * per-row state badges (selected / IR / locked-in-other-trade / pending-drop).
+ *
+ * Extracted so two surfaces can compose it:
+ * - The full-screen `TradePlayerPicker` (header + this body).
+ * - The inline picker reveal in the upcoming `TradeFloor` rework, where
+ *   the body lives directly under a team's lane chip row with a tighter
+ *   header and capped maxHeight.
+ *
+ * Search is controlled (passed in) so the caller can persist queries
+ * across collapse/reopen — important for the inline-reveal pattern.
+ */
+export function TradePlayerPickerBody({
   teamId,
-  teamName,
   leagueId,
   selectedPlayerIds,
   lockedPlayerIds,
   pendingDropPlayerIds,
   onToggle,
-  onBack,
   isCategories,
-}: TradePlayerPickerProps) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  search,
+  onSearchChange,
+}: TradePlayerPickerBodyProps) {
+  const c = useColors();
   const sport = useActiveLeagueSport(leagueId);
-  const [search, setSearch] = useState('');
 
   const { data: roster, isLoading } = useTeamRosterForTrade(teamId, leagueId);
   const { data: scoringWeights } = useLeagueScoring(leagueId);
 
   const filtered = (roster ?? []).filter((p) =>
-    p.name.toLowerCase().includes(search.toLowerCase())
+    p.name.toLowerCase().includes(search.toLowerCase()),
   );
 
   const renderItem = ({ item, index }: { item: TradeRosterPlayer; index: number }) => {
@@ -83,7 +87,6 @@ export function TradePlayerPicker({
         ]}
         onPress={() => onToggle(item, fpts ?? 0)}
       >
-        {/* Headshot + team pill */}
         <View style={styles.portraitWrap}>
           <View style={[styles.headshotCircle, { borderColor: c.heritageGold, backgroundColor: c.cardAlt }]}>
             <Image
@@ -91,7 +94,7 @@ export function TradePlayerPicker({
               style={styles.headshotImg}
               contentFit="cover"
               cachePolicy="memory-disk"
-              recyclingKey={headshotUrl ?? "silhouette"}
+              recyclingKey={headshotUrl ?? 'silhouette'}
               placeholder={PLAYER_SILHOUETTE}
             />
           </View>
@@ -110,8 +113,12 @@ export function TradePlayerPicker({
         </View>
 
         <View style={styles.info}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(4) }}>
-            <ThemedText type="defaultSemiBold" style={[styles.playerName, { flexShrink: 1 }]} numberOfLines={1}>
+          <View style={styles.nameRow}>
+            <ThemedText
+              type="defaultSemiBold"
+              style={[styles.playerName, { flexShrink: 1 }]}
+              numberOfLines={1}
+            >
               {item.name}
             </ThemedText>
             {badge && (
@@ -145,57 +152,46 @@ export function TradePlayerPicker({
               {item.avg_pts}/{item.avg_reb}/{item.avg_ast}/{item.avg_stl}/{item.avg_blk}
             </ThemedText>
             <ThemedText style={[styles.catSubLine, { color: c.secondaryText }]}>
-              {item.avg_fga > 0
-                ? ((item.avg_fgm / item.avg_fga) * 100).toFixed(1)
-                : "0.0"}
-              % FG · {item.avg_fta > 0
-                ? ((item.avg_ftm / item.avg_fta) * 100).toFixed(1)
-                : "0.0"}
-              % FT · {item.avg_tov} TO
+              {item.avg_fga > 0 ? ((item.avg_fgm / item.avg_fga) * 100).toFixed(1) : '0.0'}% FG ·{' '}
+              {item.avg_fta > 0 ? ((item.avg_ftm / item.avg_fta) * 100).toFixed(1) : '0.0'}% FT ·{' '}
+              {item.avg_tov} TO
             </ThemedText>
           </View>
         ) : fpts !== null ? (
-          <ThemedText style={[styles.fpts, { color: c.accent }]}>
-            {fpts}
-          </ThemedText>
+          <ThemedText style={[styles.fpts, { color: c.gold }]}>{fpts}</ThemedText>
         ) : null}
-        <ThemedText style={[styles.check, { color: c.success }]}>{isSelected ? '✓' : ''}</ThemedText>
+        {isSelected ? (
+          <Ionicons name="checkmark-circle" size={20} color={c.gold} accessible={false} />
+        ) : (
+          <View style={styles.checkSpacer} />
+        )}
       </TouchableOpacity>
     );
   };
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={[styles.header, { borderBottomColor: c.border }]}>
-        <TouchableOpacity accessibilityRole="button" accessibilityLabel="Back" onPress={onBack} style={styles.backBtn}>
-          <ThemedText style={[styles.backText, { color: c.accent }]}>‹ Back</ThemedText>
-        </TouchableOpacity>
-        <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.headerTitle} numberOfLines={1}>
-          {teamName} Players
-        </ThemedText>
-        <TouchableOpacity accessibilityRole="button" accessibilityLabel="Done" onPress={onBack} style={styles.doneBtn}>
-          <ThemedText style={[styles.doneText, { color: c.accent }]}>Done</ThemedText>
-        </TouchableOpacity>
-      </View>
-
       <TextInput
         accessibilityLabel="Search players"
         style={[styles.search, { backgroundColor: c.cardAlt, color: c.text, borderColor: c.border }]}
         placeholder="Search players..."
         placeholderTextColor={c.secondaryText}
         value={search}
-        onChangeText={setSearch}
+        onChangeText={onSearchChange}
       />
 
       {isLoading ? (
-        <View style={styles.loader}><LogoSpinner /></View>
+        <View style={styles.loader}>
+          <LogoSpinner />
+        </View>
       ) : (
         <FlatList
           data={filtered}
           renderItem={renderItem}
           keyExtractor={(item) => item.player_id}
           contentContainerStyle={styles.list}
+          keyboardShouldPersistTaps="handled"
+          nestedScrollEnabled
         />
       )}
     </View>
@@ -203,50 +199,16 @@ export function TradePlayerPicker({
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: s(12),
-    paddingHorizontal: s(12),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  backBtn: {
-    width: s(60),
-  },
-  backText: {
-    fontSize: ms(16),
-    fontWeight: '500',
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: ms(16),
-    textAlign: 'center',
-  },
-  doneBtn: {
-    width: s(60),
-    alignItems: 'flex-end',
-  },
-  doneText: {
-    fontSize: ms(15),
-    fontWeight: '600',
-  },
+  container: { flex: 1 },
   search: {
     margin: s(10),
     padding: s(8),
     borderRadius: 8,
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
     fontSize: ms(14),
   },
-  loader: {
-    marginTop: s(20),
-  },
-  list: {
-    paddingBottom: s(16),
-  },
+  loader: { marginTop: s(20) },
+  list: { paddingBottom: s(16) },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -285,21 +247,19 @@ const styles = StyleSheet.create({
     paddingVertical: s(1),
     gap: s(2),
   },
-  teamPillLogo: {
-    width: s(9),
-    height: s(9),
-  },
+  teamPillLogo: { width: s(9), height: s(9) },
   teamPillText: {
     fontSize: ms(7),
     fontWeight: '700',
     letterSpacing: 0.3,
   },
-  info: {
-    flex: 1,
+  info: { flex: 1 },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(4),
   },
-  playerName: {
-    fontSize: ms(14),
-  },
+  playerName: { fontSize: ms(14) },
   injuryBadge: {
     paddingHorizontal: s(4),
     paddingVertical: s(1),
@@ -310,10 +270,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.5,
   },
-  sub: {
-    fontSize: ms(11),
-    marginTop: s(1),
-  },
+  sub: { fontSize: ms(11), marginTop: s(1) },
   fpts: {
     fontSize: ms(13),
     fontWeight: '600',
@@ -323,17 +280,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end' as const,
     marginRight: s(10),
   },
-  catStatLine: {
-    fontSize: ms(11),
-  },
-  catSubLine: {
-    fontSize: ms(9),
-    marginTop: s(1),
-  },
-  check: {
-    width: s(22),
-    fontSize: ms(16),
-    fontWeight: '700',
-    textAlign: 'center',
-  },
+  catStatLine: { fontSize: ms(11) },
+  catSubLine: { fontSize: ms(9), marginTop: s(1) },
+  checkSpacer: { width: s(20) },
 });

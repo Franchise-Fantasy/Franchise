@@ -152,14 +152,17 @@ export function FadeInImage({
   contentFit?: ImageContentFit;
   placeholder?: ImageSource | number;
 }) {
+  // The silhouette is a small centered icon on whitespace — `cover` would
+  // crop out its body. `cover` is still right for real headshots.
   return (
     <Image
       source={uri ? { uri } : placeholder}
       style={style}
-      contentFit={contentFit}
+      contentFit={uri ? contentFit : "contain"}
       cachePolicy="memory-disk"
       recyclingKey={uri ?? "silhouette"}
       placeholder={placeholder}
+      placeholderContentFit="contain"
       transition={250}
     />
   );

@@ -282,7 +282,8 @@
     }
   },
   "redirects": {
-    "https://esm.sh/@supabase/supabase-js@2": "https://esm.sh/@supabase/supabase-js@2.104.1"
+    "https://esm.sh/@supabase/supabase-js@2": "https://esm.sh/@supabase/supabase-js@2.104.1",
+    "https://esm.sh/@upstash/qstash": "https://esm.sh/@upstash/qstash@2.10.1"
   },
   "remote": {
     "https://deno.land/x/imagescript@1.2.17/ImageScript.js": "9ce10c37a0e4fe43699689088c24f386fd401874057932bd57079ac729205038",
@@ -390,6 +391,7 @@
     "https://deno.land/x/jose@v5.2.2/util/decode_protected_header.ts": "546eac15dd97d267373cb3d8d9a94ad03481f1328c4457560ffde9a5a595ebe8",
     "https://deno.land/x/jose@v5.2.2/util/errors.ts": "ca227b0dfbc2464bd0940969d2fbffcb80803d25b1dba6385dfe486e2aa0a089",
     "https://deno.land/x/jose@v5.2.2/util/runtime.ts": "088cae7df0d285065f141d880c5c21a572234997082337d1125d7f1603059642",
-    "https://esm.sh/@supabase/supabase-js@2.104.1": "bad73bfa9aac8a6d896e7a1d4449c7c2ece9a01bccca9e9569f1ed0fc76b5222"
+    "https://esm.sh/@supabase/supabase-js@2.104.1": "bad73bfa9aac8a6d896e7a1d4449c7c2ece9a01bccca9e9569f1ed0fc76b5222",
+    "https://esm.sh/@upstash/qstash@2.10.1": "9603d459138a4cc72f7fdb016afcd22c0d8e5f1d1347625054c28004ce531e97"
   }
 }

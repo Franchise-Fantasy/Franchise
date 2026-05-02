@@ -16,10 +16,12 @@ import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import {
-  CURRENT_NBA_SEASON,
+  getCurrentSeason,
+  getSeasonEnd,
   LeagueWizardState,
-  NBA_SEASON_END,
   PLAYOFF_SEEDING_OPTIONS,
+  SPORT_DISPLAY,
+  type Sport,
   TIEBREAKER_OPTIONS,
 } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -55,11 +57,13 @@ function formatDate(date: Date): string {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-/** Max weeks between season start and NBA season end.
- *  Week 1 may be partial (e.g. Tue–Sun), Week 2+ are full Mon–Sun. */
-export function computeMaxWeeks(season: string, customStart?: Date): number {
+/** Max weeks between season start and pro season end (sport-aware).
+ *  Week 1 may be partial (e.g. Tue–Sun), Week 2+ are full Mon–Sun.
+ *  `sport` defaults to 'nba' for back-compat with module-level callers
+ *  that initialize NBA wizards. */
+export function computeMaxWeeks(season: string, sport: Sport = 'nba', customStart?: Date): number {
   const start = customStart ?? computeSeasonStart();
-  const endStr = NBA_SEASON_END[season] ?? NBA_SEASON_END[CURRENT_NBA_SEASON];
+  const endStr = getSeasonEnd(sport, season) ?? getSeasonEnd(sport, getCurrentSeason(sport))!;
   const [y, m, d] = endStr.split('-').map(Number);
   const msPerDay = 24 * 60 * 60 * 1000;
 
@@ -94,12 +98,13 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
   const startDow = seasonStart.getDay(); // 0=Sun
   const shortFirstWeek = startDow !== 1; // not Monday
 
-  // NBA season boundary — parse as local midnight to avoid UTC timezone shift
-  const nbaEndStr = NBA_SEASON_END[state.season] ?? NBA_SEASON_END[CURRENT_NBA_SEASON];
-  const [y, m, d] = nbaEndStr.split('-').map(Number);
-  const nbaEnd = new Date(y, m - 1, d);
+  // Pro-league season boundary (sport-aware) — parse as local midnight to
+  // avoid UTC timezone shift.
+  const proEndStr = getSeasonEnd(state.sport, state.season) ?? getSeasonEnd(state.sport, getCurrentSeason(state.sport))!;
+  const [y, m, d] = proEndStr.split('-').map(Number);
+  const proSeasonEnd = new Date(y, m - 1, d);
 
-  const maxTotalWeeks = computeMaxWeeks(state.season, seasonStart);
+  const maxTotalWeeks = computeMaxWeeks(state.season, state.sport, seasonStart);
 
   // Earliest selectable date is today
   const today = new Date();
@@ -127,7 +132,7 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
         value: seasonStart,
         mode: 'date',
         minimumDate: today,
-        maximumDate: nbaEnd,
+        maximumDate: proSeasonEnd,
         onChange: (_e, date) => {
           if (date) commitDate(date);
         },
@@ -255,7 +260,7 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
                   mode="date"
                   display="spinner"
                   minimumDate={today}
-                  maximumDate={nbaEnd}
+                  maximumDate={proSeasonEnd}
                   onChange={handleIOSChange}
                   textColor={c.text}
                   themeVariant={scheme}
@@ -395,8 +400,8 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
         </View>
         <View style={[styles.divider, { backgroundColor: c.border }]} />
         <View style={styles.previewRow}>
-          <ThemedText style={[styles.previewLabel, { color: c.secondaryText }]}>NBA season ends</ThemedText>
-          <ThemedText style={[styles.previewValue, { color: c.secondaryText }]}>{formatDate(nbaEnd)}</ThemedText>
+          <ThemedText style={[styles.previewLabel, { color: c.secondaryText }]}>{SPORT_DISPLAY[state.sport]} season ends</ThemedText>
+          <ThemedText style={[styles.previewValue, { color: c.secondaryText }]}>{formatDate(proSeasonEnd)}</ThemedText>
         </View>
       </Section>
 

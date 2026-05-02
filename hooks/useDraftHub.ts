@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 
-import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
+import { formatSeason, getCurrentSeason, parseSeasonStartYear, type Sport } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 
@@ -41,6 +41,7 @@ export interface DraftHubTeam {
   id: string;
   name: string;
   tricode: string | null;
+  logo_key: string | null;
   wins: number;
   losses: number;
   points_for: number;
@@ -72,10 +73,12 @@ export function useDraftHub(leagueId: string | null) {
     queryFn: async (): Promise<DraftHubData> => {
       const { data: league, error: leagueError } = await supabase
         .from('leagues')
-        .select('max_future_seasons, playoff_teams, lottery_draws, lottery_odds, rookie_draft_rounds, season, pick_conditions_enabled, teams, current_teams, lottery_status, offseason_step')
+        .select('max_future_seasons, playoff_teams, lottery_draws, lottery_odds, rookie_draft_rounds, season, sport, pick_conditions_enabled, teams, current_teams, lottery_status, offseason_step')
         .eq('id', leagueId!)
         .single();
       if (leagueError) throw leagueError;
+
+      const sport = (league?.sport as Sport | null) ?? 'nba';
 
       const offseasonStep = league?.offseason_step as string | null;
       const inOffseason = offseasonStep != null;
@@ -90,15 +93,14 @@ export function useDraftHub(leagueId: string | null) {
         offseasonStep === 'ready_for_new_season';
 
       const maxFuture = league?.max_future_seasons ?? 3;
-      const currentStartYear = parseInt(CURRENT_NBA_SEASON.split('-')[0], 10);
+      const currentStartYear = parseSeasonStartYear(league?.season ?? getCurrentSeason(sport));
 
-      // Future rookie drafts: 2026 draft = 2026-27 season, 2027 draft = 2027-28, etc.
-      // max_future_seasons=3 means the next 3 rookie drafts (offset 1..3 from current season).
+      // Future rookie drafts: NBA 2026 draft = '2026-27' season, etc.
+      // WNBA seasons are single-year ('2027', '2028'). max_future_seasons=3
+      // means the next 3 rookie drafts (offset 1..3 from current season).
       const validSeasons: string[] = [];
       for (let i = 1; i <= maxFuture; i++) {
-        const startYear = currentStartYear + i;
-        const endYear = (startYear + 1) % 100;
-        validSeasons.push(`${startYear}-${String(endYear).padStart(2, '0')}`);
+        validSeasons.push(formatSeason(currentStartYear + i, sport));
       }
 
       const rookieDraftRounds = league?.rookie_draft_rounds ?? 2;
@@ -125,7 +127,7 @@ export function useDraftHub(leagueId: string | null) {
 
       const { data: liveTeams, error: teamsError } = await supabase
         .from('teams')
-        .select('id, name, tricode, wins, losses, points_for')
+        .select('id, name, tricode, logo_key, wins, losses, points_for')
         .eq('league_id', leagueId!)
         .order('wins', { ascending: false })
         .order('points_for', { ascending: false });

@@ -34,6 +34,7 @@ import {
   unregisterPushToken,
 } from '@/lib/notifications';
 import { supabase } from '@/lib/supabase';
+import { isArchiveFlagOn, isNhlArchiveFlagOn } from '@/utils/featureFlags';
 import { logger } from '@/utils/logger';
 import { containsBlockedContent } from '@/utils/moderation';
 import { ms, s } from '@/utils/scale';
@@ -233,7 +234,7 @@ export default function ProfileScreen() {
       >
         {/* ─── Identity hero ─────────────────────────────────────────────── */}
         <View
-          style={[styles.hero, { backgroundColor: Brand.turfGreen }]}
+          style={[styles.hero, { backgroundColor: c.primary }]}
           accessibilityLabel={`Profile for ${myTeamName || userEmail}${isCommissioner ? ', commissioner' : ''}`}
         >
           <View style={[styles.heroRule, { backgroundColor: c.gold }]} />
@@ -278,7 +279,7 @@ export default function ProfileScreen() {
                   <View
                     style={[
                       styles.avatarEditBadge,
-                      { backgroundColor: c.gold, borderColor: Brand.turfGreen },
+                      { backgroundColor: c.gold, borderColor: c.primary },
                     ]}
                   >
                     <Ionicons name="pencil" size={ms(11)} color={Brand.ink} />
@@ -544,6 +545,79 @@ export default function ProfileScreen() {
             </ListRow>
           )}
         </Section>
+
+        {/* ─── Beta (gated) ────────────────────────────────────────────────── */}
+        {(() => {
+          const showNba = isArchiveFlagOn(session?.user);
+          const showNhl = isNhlArchiveFlagOn(session?.user);
+          if (!showNba && !showNhl) return null;
+          const total = (showNba ? 1 : 0) + (showNhl ? 1 : 0);
+          let idx = 0;
+          return (
+            <Section title="Beta">
+              {showNba && (
+                <ListRow
+                  index={idx++}
+                  total={total}
+                  onPress={() => router.push('/playoff-archive' as any)}
+                  accessibilityLabel="NBA Playoff Archive (beta)"
+                  accessibilityHint="Opens the interactive playoff history archive"
+                >
+                  <View style={styles.rowContent}>
+                    <View style={styles.rowLeft}>
+                      <Ionicons
+                        name="trophy-outline"
+                        size={ms(18)}
+                        color={c.gold}
+                        accessible={false}
+                      />
+                      <ThemedText style={[styles.rowLabel, { color: c.text }]}>
+                        NBA Playoff Archive
+                      </ThemedText>
+                      <Badge label="BETA" variant="gold" size="small" />
+                    </View>
+                    <Ionicons
+                      name="chevron-forward"
+                      size={ms(16)}
+                      color={c.secondaryText}
+                      accessible={false}
+                    />
+                  </View>
+                </ListRow>
+              )}
+              {showNhl && (
+                <ListRow
+                  index={idx++}
+                  total={total}
+                  onPress={() => router.push('/playoff-archive-nhl' as any)}
+                  accessibilityLabel="NHL Playoff Archive (dev)"
+                  accessibilityHint="Opens the NHL playoff history archive"
+                >
+                  <View style={styles.rowContent}>
+                    <View style={styles.rowLeft}>
+                      <Ionicons
+                        name="trophy-outline"
+                        size={ms(18)}
+                        color={c.gold}
+                        accessible={false}
+                      />
+                      <ThemedText style={[styles.rowLabel, { color: c.text }]}>
+                        NHL Playoff Archive
+                      </ThemedText>
+                      <Badge label="DEV" variant="gold" size="small" />
+                    </View>
+                    <Ionicons
+                      name="chevron-forward"
+                      size={ms(16)}
+                      color={c.secondaryText}
+                      accessible={false}
+                    />
+                  </View>
+                </ListRow>
+              )}
+            </Section>
+          );
+        })()}
 
         {/* ─── Privacy & Safety ────────────────────────────────────────────── */}
         <Section title="Privacy & Safety">

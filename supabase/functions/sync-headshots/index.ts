@@ -18,10 +18,11 @@
  */
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { Image as ImgScript } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 import type { Sport } from "../_shared/bdl.ts";
+import { recordHeartbeat } from "../_shared/heartbeat.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -152,12 +153,14 @@ Deno.serve(async (req: Request) => {
     for (const s of sports) {
       results[s] = await syncSport(s, force);
     }
+    await recordHeartbeat(supabase, 'sync-headshots', 'ok');
     return new Response(
       JSON.stringify({ ok: true, force, results }),
       { status: 200, headers: jsonHeaders },
     );
   } catch (err) {
     console.error("sync-headshots error:", (err as Error)?.message ?? err);
+    await recordHeartbeat(supabase, 'sync-headshots', 'error', (err as Error)?.message ?? String(err));
     return new Response(
       JSON.stringify({ error: (err as Error)?.message ?? String(err) }),
       { status: 500, headers: jsonHeaders },

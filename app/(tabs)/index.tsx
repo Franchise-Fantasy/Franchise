@@ -72,7 +72,7 @@ function computeOffseasonState(
   };
   const lottery: Step = {
     label: 'Draft Lottery',
-    dbKeys: ['lottery_pending', 'lottery_scheduled', 'lottery_complete'],
+    dbKeys: ['lottery_pending', 'lottery_scheduled', 'lottery_revealing', 'lottery_complete'],
   };
   const keepers: Step = {
     label: 'Declare Keepers',
@@ -132,8 +132,15 @@ function computeOffseasonHeroAction({
   seasonDraft: { status: string | null } | null;
   actions: ReturnType<typeof useOffseasonActions>;
 }): { label: string; onPress: () => void } | null {
-  if (!isCommissioner) return null;
   const isDynasty = leagueType === 'dynasty';
+
+  // Lottery reveal is open to the whole league — anyone can come watch.
+  // Returned BEFORE the commish gate so non-commish members also see this CTA.
+  if (isDynasty && offseasonStep === 'lottery_revealing') {
+    return { label: 'Watch the Reveal', onPress: actions.goToLotteryRoom };
+  }
+
+  if (!isCommissioner) return null;
 
   if (isDynasty && offseasonStep === 'lottery_pending') {
     return { label: 'Enter Lottery', onPress: actions.goToLotteryRoom };

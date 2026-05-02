@@ -3,8 +3,8 @@ import { StyleSheet, View } from 'react-native';
 
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Brand, Colors, cardShadow } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { cardShadow } from '@/constants/Colors';
+import { useColors } from '@/hooks/useColors';
 import { useChampions } from '@/hooks/useLeagueHistory';
 import { ms, s } from '@/utils/scale';
 
@@ -21,8 +21,7 @@ interface TrophyCaseProps {
  * body below. Reads as ceremonial, not a utility list.
  */
 export function TrophyCase({ leagueId }: TrophyCaseProps) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const { data: champions, isLoading } = useChampions(leagueId);
 
   return (
@@ -64,7 +63,7 @@ export function TrophyCase({ leagueId }: TrophyCaseProps) {
               ]}
             >
               {/* Turf Green championship ribbon on the left edge */}
-              <View style={[styles.ribbon, { backgroundColor: Brand.turfGreen }]} />
+              <View style={[styles.ribbon, { backgroundColor: c.primary }]} />
 
               <View style={styles.pedestalContent}>
                 <View style={styles.pedestalHeader}>
@@ -80,7 +79,7 @@ export function TrophyCase({ leagueId }: TrophyCaseProps) {
                     </ThemedText>
                     <ThemedText
                       type="varsity"
-                      style={[styles.champLabel, { color: Brand.turfGreen }]}
+                      style={[styles.champLabel, { color: c.primary }]}
                     >
                       Champions
                     </ThemedText>

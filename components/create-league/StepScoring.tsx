@@ -5,9 +5,9 @@ import { FormSection } from '@/components/ui/FormSection';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Brand, Colors, Fonts } from '@/constants/Colors';
+import { Brand, Fonts } from '@/constants/Colors';
 import { LeagueWizardState, SCORING_TYPE_OPTIONS, ScoringTypeOption } from '@/constants/LeagueDefaults';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { ms, s } from '@/utils/scale';
 
 interface StepScoringProps {
@@ -27,8 +27,7 @@ export function StepScoring({
   onCategoryToggle,
   onResetCategories,
 }: StepScoringProps) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const isCategories = state.scoringType === 'H2H Categories';
   const enabledCount = state.categories.filter((cat) => cat.is_enabled).length;
 
@@ -71,8 +70,8 @@ export function StepScoring({
                   style={[
                     styles.categoryChip,
                     {
-                      backgroundColor: active ? Brand.turfGreen : 'transparent',
-                      borderColor: active ? Brand.turfGreen : c.border,
+                      backgroundColor: active ? c.primary : 'transparent',
+                      borderColor: active ? c.primary : c.border,
                     },
                   ]}
                   accessibilityRole="switch"

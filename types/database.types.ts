@@ -2013,6 +2013,443 @@ export type Database = {
           },
         ]
       }
+      nhl_franchise: {
+        Row: {
+          current_city: string
+          current_name: string
+          founded_year: number
+          id: string
+          notes: string | null
+        }
+        Insert: {
+          current_city: string
+          current_name: string
+          founded_year: number
+          id: string
+          notes?: string | null
+        }
+        Update: {
+          current_city?: string
+          current_name?: string
+          founded_year?: number
+          id?: string
+          notes?: string | null
+        }
+        Relationships: []
+      }
+      nhl_franchise_season: {
+        Row: {
+          city: string
+          conference: string
+          division: string
+          franchise_id: string
+          logo_key: string | null
+          name: string
+          primary_color: string | null
+          season: number
+          secondary_color: string | null
+          tricode: string
+        }
+        Insert: {
+          city: string
+          conference: string
+          division: string
+          franchise_id: string
+          logo_key?: string | null
+          name: string
+          primary_color?: string | null
+          season: number
+          secondary_color?: string | null
+          tricode: string
+        }
+        Update: {
+          city?: string
+          conference?: string
+          division?: string
+          franchise_id?: string
+          logo_key?: string | null
+          name?: string
+          primary_color?: string | null
+          season?: number
+          secondary_color?: string | null
+          tricode?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nhl_franchise_season_franchise_id_fkey"
+            columns: ["franchise_id"]
+            isOneToOne: false
+            referencedRelation: "nhl_franchise"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      nhl_playoff_game: {
+        Row: {
+          away_franchise_id: string | null
+          away_score: number | null
+          game_num: number
+          home_franchise_id: string | null
+          home_score: number | null
+          ot_periods: number
+          played_on: string | null
+          series_id: string
+          shootout: boolean
+        }
+        Insert: {
+          away_franchise_id?: string | null
+          away_score?: number | null
+          game_num: number
+          home_franchise_id?: string | null
+          home_score?: number | null
+          ot_periods?: number
+          played_on?: string | null
+          series_id: string
+          shootout?: boolean
+        }
+        Update: {
+          away_franchise_id?: string | null
+          away_score?: number | null
+          game_num?: number
+          home_franchise_id?: string | null
+          home_score?: number | null
+          ot_periods?: number
+          played_on?: string | null
+          series_id?: string
+          shootout?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nhl_playoff_game_away_franchise_id_fkey"
+            columns: ["away_franchise_id"]
+            isOneToOne: false
+            referencedRelation: "nhl_franchise"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nhl_playoff_game_home_franchise_id_fkey"
+            columns: ["home_franchise_id"]
+            isOneToOne: false
+            referencedRelation: "nhl_franchise"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nhl_playoff_game_series_id_fkey"
+            columns: ["series_id"]
+            isOneToOne: false
+            referencedRelation: "nhl_playoff_series"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      nhl_playoff_player_stats: {
+        Row: {
+          assists: number | null
+          franchise_id: string
+          gaa: number | null
+          goals: number | null
+          gp: number
+          hr_player_id: string
+          losses: number | null
+          pim: number | null
+          player_name: string
+          plus_minus: number | null
+          points: number | null
+          position: string
+          season: number
+          shutouts: number | null
+          sog: number | null
+          sv_pct: number | null
+          wins: number | null
+        }
+        Insert: {
+          assists?: number | null
+          franchise_id: string
+          gaa?: number | null
+          goals?: number | null
+          gp?: number
+          hr_player_id: string
+          losses?: number | null
+          pim?: number | null
+          player_name: string
+          plus_minus?: number | null
+          points?: number | null
+          position: string
+          season: number
+          shutouts?: number | null
+          sog?: number | null
+          sv_pct?: number | null
+          wins?: number | null
+        }
+        Update: {
+          assists?: number | null
+          franchise_id?: string
+          gaa?: number | null
+          goals?: number | null
+          gp?: number
+          hr_player_id?: string
+          losses?: number | null
+          pim?: number | null
+          player_name?: string
+          plus_minus?: number | null
+          points?: number | null
+          position?: string
+          season?: number
+          shutouts?: number | null
+          sog?: number | null
+          sv_pct?: number | null
+          wins?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nhl_playoff_player_stats_franchise_id_fkey"
+            columns: ["franchise_id"]
+            isOneToOne: false
+            referencedRelation: "nhl_franchise"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nhl_playoff_player_stats_season_fkey"
+            columns: ["season"]
+            isOneToOne: false
+            referencedRelation: "nhl_playoff_year"
+            referencedColumns: ["season"]
+          },
+        ]
+      }
+      nhl_playoff_series: {
+        Row: {
+          bracket_position: number
+          conference: string
+          division: string | null
+          franchise_a_id: string | null
+          franchise_b_id: string | null
+          id: string
+          round: number
+          season: number
+          seed_a: number | null
+          seed_b: number | null
+          winner_franchise_id: string | null
+          wins_a: number
+          wins_b: number
+        }
+        Insert: {
+          bracket_position: number
+          conference: string
+          division?: string | null
+          franchise_a_id?: string | null
+          franchise_b_id?: string | null
+          id: string
+          round: number
+          season: number
+          seed_a?: number | null
+          seed_b?: number | null
+          winner_franchise_id?: string | null
+          wins_a?: number
+          wins_b?: number
+        }
+        Update: {
+          bracket_position?: number
+          conference?: string
+          division?: string | null
+          franchise_a_id?: string | null
+          franchise_b_id?: string | null
+          id?: string
+          round?: number
+          season?: number
+          seed_a?: number | null
+          seed_b?: number | null
+          winner_franchise_id?: string | null
+          wins_a?: number
+          wins_b?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nhl_playoff_series_franchise_a_id_fkey"
+            columns: ["franchise_a_id"]
+            isOneToOne: false
+            referencedRelation: "nhl_franchise"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nhl_playoff_series_franchise_b_id_fkey"
+            columns: ["franchise_b_id"]
+            isOneToOne: false
+            referencedRelation: "nhl_franchise"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nhl_playoff_series_season_fkey"
+            columns: ["season"]
+            isOneToOne: false
+            referencedRelation: "nhl_playoff_year"
+            referencedColumns: ["season"]
+          },
+          {
+            foreignKeyName: "nhl_playoff_series_winner_franchise_id_fkey"
+            columns: ["winner_franchise_id"]
+            isOneToOne: false
+            referencedRelation: "nhl_franchise"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      nhl_playoff_year: {
+        Row: {
+          champion_franchise_id: string | null
+          conn_smythe_franchise_id: string | null
+          conn_smythe_hr_id: string | null
+          conn_smythe_player_name: string | null
+          conn_smythe_stat_line: string | null
+          format: string
+          num_teams: number
+          season: number
+        }
+        Insert: {
+          champion_franchise_id?: string | null
+          conn_smythe_franchise_id?: string | null
+          conn_smythe_hr_id?: string | null
+          conn_smythe_player_name?: string | null
+          conn_smythe_stat_line?: string | null
+          format: string
+          num_teams: number
+          season: number
+        }
+        Update: {
+          champion_franchise_id?: string | null
+          conn_smythe_franchise_id?: string | null
+          conn_smythe_hr_id?: string | null
+          conn_smythe_player_name?: string | null
+          conn_smythe_stat_line?: string | null
+          format?: string
+          num_teams?: number
+          season?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nhl_playoff_year_champion_franchise_id_fkey"
+            columns: ["champion_franchise_id"]
+            isOneToOne: false
+            referencedRelation: "nhl_franchise"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nhl_playoff_year_conn_smythe_franchise_id_fkey"
+            columns: ["conn_smythe_franchise_id"]
+            isOneToOne: false
+            referencedRelation: "nhl_franchise"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      nhl_regular_season_standing: {
+        Row: {
+          conference: string
+          conference_seed: number
+          division: string
+          division_seed: number
+          franchise_id: string
+          goals_against: number | null
+          goals_for: number | null
+          losses: number
+          otl: number
+          points: number
+          season: number
+          wins: number
+        }
+        Insert: {
+          conference: string
+          conference_seed: number
+          division: string
+          division_seed: number
+          franchise_id: string
+          goals_against?: number | null
+          goals_for?: number | null
+          losses: number
+          otl?: number
+          points: number
+          season: number
+          wins: number
+        }
+        Update: {
+          conference?: string
+          conference_seed?: number
+          division?: string
+          division_seed?: number
+          franchise_id?: string
+          goals_against?: number | null
+          goals_for?: number | null
+          losses?: number
+          otl?: number
+          points?: number
+          season?: number
+          wins?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nhl_regular_season_standing_franchise_id_fkey"
+            columns: ["franchise_id"]
+            isOneToOne: false
+            referencedRelation: "nhl_franchise"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nhl_regular_season_standing_season_fkey"
+            columns: ["season"]
+            isOneToOne: false
+            referencedRelation: "nhl_playoff_year"
+            referencedColumns: ["season"]
+          },
+        ]
+      }
+      nhl_season_award: {
+        Row: {
+          award_type: string
+          franchise_id: string | null
+          hr_player_id: string | null
+          player_name: string
+          position: string | null
+          rank: number
+          season: number
+          stat_line: string | null
+        }
+        Insert: {
+          award_type: string
+          franchise_id?: string | null
+          hr_player_id?: string | null
+          player_name: string
+          position?: string | null
+          rank?: number
+          season: number
+          stat_line?: string | null
+        }
+        Update: {
+          award_type?: string
+          franchise_id?: string | null
+          hr_player_id?: string | null
+          player_name?: string
+          position?: string | null
+          rank?: number
+          season?: number
+          stat_line?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nhl_season_award_franchise_id_fkey"
+            columns: ["franchise_id"]
+            isOneToOne: false
+            referencedRelation: "nhl_franchise"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nhl_season_award_season_fkey"
+            columns: ["season"]
+            isOneToOne: false
+            referencedRelation: "nhl_playoff_year"
+            referencedColumns: ["season"]
+          },
+        ]
+      }
       pending_transactions: {
         Row: {
           action_type: string
@@ -2684,6 +3121,545 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "teams"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      pro_franchise: {
+        Row: {
+          current_city: string
+          current_name: string
+          founded_year: number
+          id: string
+          notes: string | null
+        }
+        Insert: {
+          current_city: string
+          current_name: string
+          founded_year: number
+          id: string
+          notes?: string | null
+        }
+        Update: {
+          current_city?: string
+          current_name?: string
+          founded_year?: number
+          id?: string
+          notes?: string | null
+        }
+        Relationships: []
+      }
+      pro_franchise_season: {
+        Row: {
+          city: string
+          conference: string
+          franchise_id: string
+          logo_key: string | null
+          name: string
+          primary_color: string | null
+          season: number
+          secondary_color: string | null
+          tricode: string
+        }
+        Insert: {
+          city: string
+          conference: string
+          franchise_id: string
+          logo_key?: string | null
+          name: string
+          primary_color?: string | null
+          season: number
+          secondary_color?: string | null
+          tricode: string
+        }
+        Update: {
+          city?: string
+          conference?: string
+          franchise_id?: string
+          logo_key?: string | null
+          name?: string
+          primary_color?: string | null
+          season?: number
+          secondary_color?: string | null
+          tricode?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pro_franchise_season_franchise_id_fkey"
+            columns: ["franchise_id"]
+            isOneToOne: false
+            referencedRelation: "pro_franchise"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pro_playoff_game: {
+        Row: {
+          away_franchise_id: string | null
+          away_score: number | null
+          game_num: number
+          home_franchise_id: string | null
+          home_score: number | null
+          ot_periods: number
+          played_on: string | null
+          series_id: string
+          top_a_game_score: number | null
+          top_a_player_id: string | null
+          top_a_player_name: string | null
+          top_a_plus_minus: number | null
+          top_a_secondary_game_score: number | null
+          top_a_secondary_player_id: string | null
+          top_a_secondary_player_name: string | null
+          top_a_secondary_plus_minus: number | null
+          top_a_secondary_stat_line: string | null
+          top_a_stat_line: string | null
+          top_b_game_score: number | null
+          top_b_player_id: string | null
+          top_b_player_name: string | null
+          top_b_plus_minus: number | null
+          top_b_secondary_game_score: number | null
+          top_b_secondary_player_id: string | null
+          top_b_secondary_player_name: string | null
+          top_b_secondary_plus_minus: number | null
+          top_b_secondary_stat_line: string | null
+          top_b_stat_line: string | null
+          winner_franchise_id: string | null
+        }
+        Insert: {
+          away_franchise_id?: string | null
+          away_score?: number | null
+          game_num: number
+          home_franchise_id?: string | null
+          home_score?: number | null
+          ot_periods?: number
+          played_on?: string | null
+          series_id: string
+          top_a_game_score?: number | null
+          top_a_player_id?: string | null
+          top_a_player_name?: string | null
+          top_a_plus_minus?: number | null
+          top_a_secondary_game_score?: number | null
+          top_a_secondary_player_id?: string | null
+          top_a_secondary_player_name?: string | null
+          top_a_secondary_plus_minus?: number | null
+          top_a_secondary_stat_line?: string | null
+          top_a_stat_line?: string | null
+          top_b_game_score?: number | null
+          top_b_player_id?: string | null
+          top_b_player_name?: string | null
+          top_b_plus_minus?: number | null
+          top_b_secondary_game_score?: number | null
+          top_b_secondary_player_id?: string | null
+          top_b_secondary_player_name?: string | null
+          top_b_secondary_plus_minus?: number | null
+          top_b_secondary_stat_line?: string | null
+          top_b_stat_line?: string | null
+          winner_franchise_id?: string | null
+        }
+        Update: {
+          away_franchise_id?: string | null
+          away_score?: number | null
+          game_num?: number
+          home_franchise_id?: string | null
+          home_score?: number | null
+          ot_periods?: number
+          played_on?: string | null
+          series_id?: string
+          top_a_game_score?: number | null
+          top_a_player_id?: string | null
+          top_a_player_name?: string | null
+          top_a_plus_minus?: number | null
+          top_a_secondary_game_score?: number | null
+          top_a_secondary_player_id?: string | null
+          top_a_secondary_player_name?: string | null
+          top_a_secondary_plus_minus?: number | null
+          top_a_secondary_stat_line?: string | null
+          top_a_stat_line?: string | null
+          top_b_game_score?: number | null
+          top_b_player_id?: string | null
+          top_b_player_name?: string | null
+          top_b_plus_minus?: number | null
+          top_b_secondary_game_score?: number | null
+          top_b_secondary_player_id?: string | null
+          top_b_secondary_player_name?: string | null
+          top_b_secondary_plus_minus?: number | null
+          top_b_secondary_stat_line?: string | null
+          top_b_stat_line?: string | null
+          winner_franchise_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pro_playoff_game_away_franchise_id_fkey"
+            columns: ["away_franchise_id"]
+            isOneToOne: false
+            referencedRelation: "pro_franchise"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pro_playoff_game_home_franchise_id_fkey"
+            columns: ["home_franchise_id"]
+            isOneToOne: false
+            referencedRelation: "pro_franchise"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pro_playoff_game_series_id_fkey"
+            columns: ["series_id"]
+            isOneToOne: false
+            referencedRelation: "pro_playoff_series"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pro_playoff_game_winner_franchise_id_fkey"
+            columns: ["winner_franchise_id"]
+            isOneToOne: false
+            referencedRelation: "pro_franchise"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pro_playoff_game_box: {
+        Row: {
+          ast: number | null
+          blk: number | null
+          game_num: number
+          minutes_seconds: number | null
+          player_id: string | null
+          player_name: string
+          plus_minus: number | null
+          pts: number | null
+          rank: number
+          reb: number | null
+          series_id: string
+          side: string
+          stat_line: string | null
+          stl: number | null
+        }
+        Insert: {
+          ast?: number | null
+          blk?: number | null
+          game_num: number
+          minutes_seconds?: number | null
+          player_id?: string | null
+          player_name: string
+          plus_minus?: number | null
+          pts?: number | null
+          rank: number
+          reb?: number | null
+          series_id: string
+          side: string
+          stat_line?: string | null
+          stl?: number | null
+        }
+        Update: {
+          ast?: number | null
+          blk?: number | null
+          game_num?: number
+          minutes_seconds?: number | null
+          player_id?: string | null
+          player_name?: string
+          plus_minus?: number | null
+          pts?: number | null
+          rank?: number
+          reb?: number | null
+          series_id?: string
+          side?: string
+          stat_line?: string | null
+          stl?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pro_playoff_game_box_series_id_game_num_fkey"
+            columns: ["series_id", "game_num"]
+            isOneToOne: false
+            referencedRelation: "pro_playoff_game"
+            referencedColumns: ["series_id", "game_num"]
+          },
+        ]
+      }
+      pro_playoff_player_stats: {
+        Row: {
+          ast_per: number | null
+          bbref_player_id: string
+          blk_per: number | null
+          fg_pct: number | null
+          franchise_id: string
+          ft_pct: number | null
+          gp: number
+          min_per: number | null
+          player_name: string
+          pts_per: number | null
+          reb_per: number | null
+          season: number
+          stl_per: number | null
+          tp_pct: number | null
+        }
+        Insert: {
+          ast_per?: number | null
+          bbref_player_id: string
+          blk_per?: number | null
+          fg_pct?: number | null
+          franchise_id: string
+          ft_pct?: number | null
+          gp?: number
+          min_per?: number | null
+          player_name: string
+          pts_per?: number | null
+          reb_per?: number | null
+          season: number
+          stl_per?: number | null
+          tp_pct?: number | null
+        }
+        Update: {
+          ast_per?: number | null
+          bbref_player_id?: string
+          blk_per?: number | null
+          fg_pct?: number | null
+          franchise_id?: string
+          ft_pct?: number | null
+          gp?: number
+          min_per?: number | null
+          player_name?: string
+          pts_per?: number | null
+          reb_per?: number | null
+          season?: number
+          stl_per?: number | null
+          tp_pct?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pro_playoff_player_stats_franchise_id_fkey"
+            columns: ["franchise_id"]
+            isOneToOne: false
+            referencedRelation: "pro_franchise"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pro_playoff_player_stats_season_fkey"
+            columns: ["season"]
+            isOneToOne: false
+            referencedRelation: "pro_playoff_year"
+            referencedColumns: ["season"]
+          },
+        ]
+      }
+      pro_playoff_series: {
+        Row: {
+          bracket_position: number
+          conference: string
+          franchise_a_id: string | null
+          franchise_b_id: string | null
+          id: string
+          round: number
+          season: number
+          seed_a: number | null
+          seed_b: number | null
+          winner_franchise_id: string | null
+          wins_a: number
+          wins_b: number
+        }
+        Insert: {
+          bracket_position: number
+          conference: string
+          franchise_a_id?: string | null
+          franchise_b_id?: string | null
+          id: string
+          round: number
+          season: number
+          seed_a?: number | null
+          seed_b?: number | null
+          winner_franchise_id?: string | null
+          wins_a?: number
+          wins_b?: number
+        }
+        Update: {
+          bracket_position?: number
+          conference?: string
+          franchise_a_id?: string | null
+          franchise_b_id?: string | null
+          id?: string
+          round?: number
+          season?: number
+          seed_a?: number | null
+          seed_b?: number | null
+          winner_franchise_id?: string | null
+          wins_a?: number
+          wins_b?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pro_playoff_series_franchise_a_id_fkey"
+            columns: ["franchise_a_id"]
+            isOneToOne: false
+            referencedRelation: "pro_franchise"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pro_playoff_series_franchise_b_id_fkey"
+            columns: ["franchise_b_id"]
+            isOneToOne: false
+            referencedRelation: "pro_franchise"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pro_playoff_series_season_fkey"
+            columns: ["season"]
+            isOneToOne: false
+            referencedRelation: "pro_playoff_year"
+            referencedColumns: ["season"]
+          },
+          {
+            foreignKeyName: "pro_playoff_series_winner_franchise_id_fkey"
+            columns: ["winner_franchise_id"]
+            isOneToOne: false
+            referencedRelation: "pro_franchise"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pro_playoff_year: {
+        Row: {
+          champion_franchise_id: string | null
+          finals_mvp_bbref_id: string | null
+          finals_mvp_franchise_id: string | null
+          finals_mvp_player_name: string | null
+          finals_mvp_stat_line: string | null
+          first_round_format: string
+          has_play_in: boolean
+          num_teams: number
+          season: number
+        }
+        Insert: {
+          champion_franchise_id?: string | null
+          finals_mvp_bbref_id?: string | null
+          finals_mvp_franchise_id?: string | null
+          finals_mvp_player_name?: string | null
+          finals_mvp_stat_line?: string | null
+          first_round_format: string
+          has_play_in?: boolean
+          num_teams: number
+          season: number
+        }
+        Update: {
+          champion_franchise_id?: string | null
+          finals_mvp_bbref_id?: string | null
+          finals_mvp_franchise_id?: string | null
+          finals_mvp_player_name?: string | null
+          finals_mvp_stat_line?: string | null
+          first_round_format?: string
+          has_play_in?: boolean
+          num_teams?: number
+          season?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pro_playoff_year_champion_franchise_id_fkey"
+            columns: ["champion_franchise_id"]
+            isOneToOne: false
+            referencedRelation: "pro_franchise"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pro_playoff_year_finals_mvp_franchise_id_fkey"
+            columns: ["finals_mvp_franchise_id"]
+            isOneToOne: false
+            referencedRelation: "pro_franchise"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pro_regular_season_standing: {
+        Row: {
+          conference: string
+          conference_seed: number
+          franchise_id: string
+          losses: number
+          pts_allowed_per_game: number | null
+          pts_per_game: number | null
+          season: number
+          srs: number | null
+          wins: number
+        }
+        Insert: {
+          conference: string
+          conference_seed: number
+          franchise_id: string
+          losses: number
+          pts_allowed_per_game?: number | null
+          pts_per_game?: number | null
+          season: number
+          srs?: number | null
+          wins: number
+        }
+        Update: {
+          conference?: string
+          conference_seed?: number
+          franchise_id?: string
+          losses?: number
+          pts_allowed_per_game?: number | null
+          pts_per_game?: number | null
+          season?: number
+          srs?: number | null
+          wins?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pro_regular_season_standing_franchise_id_fkey"
+            columns: ["franchise_id"]
+            isOneToOne: false
+            referencedRelation: "pro_franchise"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pro_regular_season_standing_season_fkey"
+            columns: ["season"]
+            isOneToOne: false
+            referencedRelation: "pro_playoff_year"
+            referencedColumns: ["season"]
+          },
+        ]
+      }
+      pro_season_award: {
+        Row: {
+          award_type: string
+          bbref_player_id: string | null
+          franchise_id: string | null
+          player_name: string
+          rank: number
+          season: number
+          stat_line: string | null
+        }
+        Insert: {
+          award_type: string
+          bbref_player_id?: string | null
+          franchise_id?: string | null
+          player_name: string
+          rank?: number
+          season: number
+          stat_line?: string | null
+        }
+        Update: {
+          award_type?: string
+          bbref_player_id?: string | null
+          franchise_id?: string | null
+          player_name?: string
+          rank?: number
+          season?: number
+          stat_line?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pro_season_award_franchise_id_fkey"
+            columns: ["franchise_id"]
+            isOneToOne: false
+            referencedRelation: "pro_franchise"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pro_season_award_season_fkey"
+            columns: ["season"]
+            isOneToOne: false
+            referencedRelation: "pro_playoff_year"
+            referencedColumns: ["season"]
           },
         ]
       }
@@ -3868,6 +4844,10 @@ export type Database = {
         }
         Returns: Json
       }
+      assert_can_add_free_agent: {
+        Args: { p_league_id: string; p_team_id: string }
+        Returns: undefined
+      }
       batch_update_matchup_scores: {
         Args: { p_updates: Json }
         Returns: undefined
@@ -4233,6 +5213,26 @@ export type Database = {
         Returns: undefined
       }
       my_team_id: { Args: { p_league_id: string }; Returns: string }
+      nhl_archive_awards: { Args: { p_season: number }; Returns: Json }
+      nhl_archive_bracket: { Args: { p_season: number }; Returns: Json }
+      nhl_archive_seasons: {
+        Args: never
+        Returns: {
+          champion_city: string
+          champion_franchise_id: string
+          champion_logo_key: string
+          champion_name: string
+          champion_primary_color: string
+          champion_secondary_color: string
+          champion_tricode: string
+          season: number
+        }[]
+      }
+      nhl_archive_standings: { Args: { p_season: number }; Returns: Json }
+      nhl_archive_team_run: {
+        Args: { p_franchise_id: string; p_season: number }
+        Returns: Json
+      }
       pgmq_archive: {
         Args: { msg_id: number; queue_name: string }
         Returns: boolean
@@ -4267,6 +5267,26 @@ export type Database = {
           p_team_name?: string
         }
         Returns: string
+      }
+      pro_archive_awards: { Args: { p_season: number }; Returns: Json }
+      pro_archive_bracket: { Args: { p_season: number }; Returns: Json }
+      pro_archive_seasons: {
+        Args: never
+        Returns: {
+          champion_city: string
+          champion_franchise_id: string
+          champion_logo_key: string
+          champion_name: string
+          champion_primary_color: string
+          champion_secondary_color: string
+          champion_tricode: string
+          season: number
+        }[]
+      }
+      pro_archive_standings: { Args: { p_season: number }; Returns: Json }
+      pro_archive_team_run: {
+        Args: { p_franchise_id: string; p_season: number }
+        Returns: Json
       }
       record_cron_heartbeat: {
         Args: { p_error?: string; p_job: string; p_status: string }

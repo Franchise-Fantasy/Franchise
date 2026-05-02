@@ -17,8 +17,10 @@ import { ListRow } from '@/components/ui/ListRow';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Section } from '@/components/ui/Section';
+import { SportBadge } from '@/components/ui/SportBadge';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
+import { type Sport } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
@@ -32,7 +34,21 @@ interface League {
   teams: number;
   current_teams: number | null;
   imported_from: string | null;
+  sport: string;
+  league_type: string;
+  scoring_type: string;
 }
+
+const FORMAT_LABEL: Record<string, string> = {
+  dynasty: 'Dynasty',
+  keeper: 'Keeper',
+  redraft: 'Redraft',
+};
+
+const SCORING_LABEL: Record<string, string> = {
+  points: 'Points',
+  h2h_categories: 'H2H Categories',
+};
 
 export default function JoinLeagueScreen() {
   const router = useRouter();
@@ -52,7 +68,7 @@ export default function JoinLeagueScreen() {
       const [leaguesResult, myTeamsResult] = await Promise.all([
         supabase
           .from('leagues')
-          .select('id, name, created_by, teams, current_teams, imported_from')
+          .select('id, name, created_by, teams, current_teams, imported_from, sport, league_type, scoring_type')
           .eq('private', false)
           .order('created_at', { ascending: false }),
         user
@@ -278,13 +294,18 @@ export default function JoinLeagueScreen() {
           ) : (
             leagues.map((league, idx) => {
               const slots = slotsAvailable(league);
+              const formatLabel = FORMAT_LABEL[league.league_type] ?? league.league_type;
+              const scoringLabel = SCORING_LABEL[league.scoring_type] ?? league.scoring_type;
+              const a11yDetails = [formatLabel, scoringLabel, league.sport?.toUpperCase()]
+                .filter(Boolean)
+                .join(', ');
               return (
                 <ListRow
                   key={league.id}
                   index={idx}
                   total={leagues.length}
                   onPress={() => handleJoinLeague(league)}
-                  accessibilityLabel={`${league.name}, ${league.current_teams ?? 0} of ${league.teams} teams`}
+                  accessibilityLabel={`${league.name}, ${a11yDetails}, ${league.current_teams ?? 0} of ${league.teams} teams`}
                   accessibilityHint="Join this league"
                 >
                   <View style={styles.leagueInfo}>
@@ -295,6 +316,11 @@ export default function JoinLeagueScreen() {
                     >
                       {league.name}
                     </ThemedText>
+                    <View style={styles.leagueTypeRow}>
+                      {league.sport && <SportBadge sport={league.sport as Sport} />}
+                      {formatLabel && <Badge label={formatLabel} variant="neutral" size="small" />}
+                      {scoringLabel && <Badge label={scoringLabel} variant="neutral" size="small" />}
+                    </View>
                     <View style={styles.leagueMetaRow}>
                       <Ionicons name="people-outline" size={12} color={c.secondaryText} accessible={false} />
                       <ThemedText style={[styles.leagueMeta, { color: c.secondaryText }]}>
@@ -385,6 +411,12 @@ const styles = StyleSheet.create({
   leagueName: {
     fontSize: ms(15),
     lineHeight: ms(20),
+  },
+  leagueTypeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: s(6),
   },
   leagueMetaRow: {
     flexDirection: 'row',

@@ -120,23 +120,39 @@ export function TradeBubble({ tradeSummary }: Props) {
         </ThemedText>
       </View>
 
-      {/* Moves grouped by receiving team */}
+      {/* Moves grouped by receiving team — team name on its own line, then
+          a gold-rule "RECEIVES" eyebrow underneath, matching the rhythm
+          used by TradeSideSummary so the chat embed reads as the same
+          surface as the trades list and detail modal. */}
       {Object.entries(receiveGroups).map(([teamName, moves]) => {
         const isMultiTeam = (tradeSummary?.team_count ?? 2) > 2;
         return (
           <View key={teamName} style={styles.teamSection}>
-            <ThemedText style={[styles.teamLabel, { color: c.secondaryText }]}>
-              {teamName.toUpperCase()} RECEIVES
+            <ThemedText
+              type="defaultSemiBold"
+              style={[styles.teamName, { color: c.text }]}
+              numberOfLines={1}
+            >
+              {teamName}
             </ThemedText>
+            <View style={styles.receivesEyebrowRow}>
+              <View style={[styles.receivesEyebrowRule, { backgroundColor: c.gold }]} />
+              <ThemedText
+                type="varsitySmall"
+                style={[styles.receivesEyebrow, { color: c.gold }]}
+              >
+                Receives
+              </ThemedText>
+            </View>
             {moves.map((move, i) => (
               <View key={`${move.asset}-${i}`} style={styles.moveRow}>
-                <ThemedText style={styles.bullet}>•</ThemedText>
-                <ThemedText style={styles.moveText}>
+                <ThemedText style={[styles.bullet, { color: c.gold }]}>•</ThemedText>
+                <ThemedText style={[styles.moveText, { color: c.text }]}>
                   {move.asset}
                   {move.protection ? ` (${move.protection})` : ''}
                   {isMultiTeam && move.from_team_name ? (
-                    <ThemedText style={[styles.fromTeam, { color: c.secondaryText }]}>
-                      {' '}(from {move.from_team_name})
+                    <ThemedText style={[styles.fromTeam, { color: c.gold }]}>
+                      {' '}from {move.from_team_name}
                     </ThemedText>
                   ) : null}
                 </ThemedText>
@@ -171,11 +187,19 @@ const styles = StyleSheet.create({
   teamSection: {
     gap: s(2),
   },
-  teamLabel: {
-    fontFamily: Fonts.varsityBold,
-    fontSize: ms(10),
-    letterSpacing: 1.0,
+  teamName: {
+    fontSize: ms(13),
+  },
+  receivesEyebrowRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(8),
     marginBottom: s(2),
+  },
+  receivesEyebrowRule: { height: 2, width: s(14) },
+  receivesEyebrow: {
+    fontSize: ms(9),
+    letterSpacing: 1.4,
   },
   moveRow: {
     flexDirection: 'row',
@@ -186,7 +210,6 @@ const styles = StyleSheet.create({
   bullet: {
     fontSize: ms(14),
     lineHeight: ms(20),
-    color: Brand.vintageGold,
   },
   moveText: {
     fontSize: ms(14),
@@ -194,7 +217,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   fromTeam: {
-    fontSize: ms(12),
-    fontStyle: 'italic',
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(9),
+    letterSpacing: 1.0,
   },
 });

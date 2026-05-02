@@ -94,7 +94,7 @@ export default function SetupProfileScreen() {
       >
         {/* ─── Identity hero — full-bleed turfGreen banner ─────────────── */}
         <View
-          style={[styles.hero, { backgroundColor: Brand.turfGreen }]}
+          style={[styles.hero, { backgroundColor: c.primary }]}
           accessibilityLabel={`Account: ${userEmail}`}
         >
           <View style={[styles.heroRule, { backgroundColor: c.gold }]} />

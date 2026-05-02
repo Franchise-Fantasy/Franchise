@@ -1,11 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 
+import { PickConditionRow } from '@/components/draft-hub/PickConditionRow';
+import { TeamLogo } from '@/components/team/TeamLogo';
+import { BrandButton } from '@/components/ui/BrandButton';
+import { Section } from '@/components/ui/Section';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Colors, Fonts } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { DraftHubPick, DraftHubLeagueSettings, DraftHubSwap, DraftHubTeam } from '@/hooks/useDraftHub';
+import { formatProtectionStory, formatSwapStory } from '@/types/trade';
 import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/league/lottery';
 import { ms, s } from '@/utils/scale';
 
@@ -74,97 +79,11 @@ function simulateLottery(
   ];
 }
 
-/** Compact protection badge with animated ribbon that slides LEFT on tap */
-function ProtectionBadge({
-  threshold,
-  holds,
-  expanded,
-  onToggle,
-  detailText,
-  c,
-}: {
-  threshold: number;
-  holds: boolean;
-  expanded: boolean;
-  onToggle: () => void;
-  detailText: string;
-  c: (typeof Colors)['light'];
-}) {
-  const anim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.spring(anim, {
-      toValue: expanded ? 1 : 0,
-      useNativeDriver: false,
-      tension: 120,
-      friction: 14,
-    }).start();
-  }, [expanded]);
-
-  const ribbonMaxWidth = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 180] });
-  const ribbonOpacity = anim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, 0, 1] });
-  const ribbonPadH = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 6] });
-
-  const color = holds ? c.gold : c.secondaryText;
-  const bg = holds ? c.goldMuted : c.cardAlt;
-
-  return (
-    <View style={styles.protBadgeWrap}>
-      {/* Ribbon sits inline to the LEFT of the badge — team name flexShrinks to make room */}
-      <Animated.View
-        style={[
-          styles.protRibbon,
-          {
-            backgroundColor: bg,
-            maxWidth: ribbonMaxWidth,
-            opacity: ribbonOpacity,
-            paddingHorizontal: ribbonPadH,
-          },
-        ]}
-        pointerEvents={expanded ? 'auto' : 'none'}
-      >
-        <ThemedText style={[styles.protRibbonText, { color }]} numberOfLines={1}>
-          {detailText}
-        </ThemedText>
-      </Animated.View>
-      <TouchableOpacity
-        accessibilityRole="button"
-        accessibilityLabel={`Top-${threshold} protection, tap for details`}
-        onPress={onToggle}
-        style={[
-          styles.protBadge,
-          { backgroundColor: bg },
-          expanded && styles.protBadgeExpandedLeft,
-        ]}
-      >
-        <Ionicons
-          name={holds ? 'lock-closed' : 'lock-open'}
-          size={9}
-          color={color}
-          style={{ marginRight: 2 }}
-        />
-        <ThemedText style={[styles.protBadgeText, { color }]}>
-          Top-{threshold}
-        </ThemedText>
-      </TouchableOpacity>
-    </View>
-  );
-}
-
 export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }: ByYearTabProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const [selectedSeason, setSelectedSeason] = useState(validSeasons[0]);
   const [simResult, setSimResult] = useState<SimulationEntry[] | null>(null);
-  const [expandedProts, setExpandedProts] = useState<Set<string>>(new Set());
-  const toggleProt = useCallback((key: string) => {
-    setExpandedProts(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
 
   const isUpcomingSeason = selectedSeason === validSeasons[0];
 
@@ -173,9 +92,7 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
     [picks, selectedSeason],
   );
 
-  // Standings in reverse order (worst first) for lottery/draft order
   const reversedStandings = useMemo(() => [...teams].reverse(), [teams]);
-
   const lotteryPoolSize = calcLotteryPoolSize(teams.length, leagueSettings.playoffTeams);
   const lotteryPool = useMemo(() => reversedStandings.slice(0, lotteryPoolSize), [reversedStandings, lotteryPoolSize]);
   const playoffTeams = useMemo(() => reversedStandings.slice(lotteryPoolSize), [reversedStandings, lotteryPoolSize]);
@@ -184,13 +101,11 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
     [leagueSettings.lotteryOdds, lotteryPoolSize],
   );
 
-  // Swaps for the selected season
   const seasonSwaps = useMemo(
     () => swaps.filter((s) => s.season === selectedSeason),
     [swaps, selectedSeason],
   );
 
-  // Pre-apply swaps based on current standings so they display like traded picks
   const displayPicks = useMemo(() => {
     if (!leagueSettings.pickConditionsEnabled || seasonSwaps.length === 0) return seasonPicks;
     const standingOrder: Record<string, number> = {};
@@ -218,14 +133,12 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
     return result;
   }, [seasonPicks, seasonSwaps, reversedStandings, leagueSettings.pickConditionsEnabled]);
 
-  // team_id → tricode for compact display
   const tricodeMap = useMemo(() => {
     const map: Record<string, string> = {};
     for (const t of teams) map[t.id] = t.tricode ?? t.name.slice(0, 3).toUpperCase();
     return map;
   }, [teams]);
 
-  // Map original_team_id → current owner for Round 1 of the selected season (for odds table)
   const pickOwnerMap = useMemo(() => {
     const map: Record<string, { ownerName: string; ownerId: string; isTraded: boolean; protectionThreshold: number | null; protectionOwnerName: string | null; protectionOwnerId: string | null; wasSwapped: boolean }> = {};
     for (const pick of displayPicks) {
@@ -244,8 +157,26 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
     return map;
   }, [displayPicks]);
 
-  // Sort picks within each round by display_slot — this is the same value
-  // shown in the pick circle, so ordering and label always match.
+  const findSwapInfo = (
+    pick: DraftHubPick,
+  ): { isBeneficiary: boolean; beneficiaryName: string; counterpartyName: string; partnerTricode: string } | null => {
+    const swap = seasonSwaps.find(
+      (sw) =>
+        sw.round === pick.round &&
+        (sw.beneficiary_team_id === pick.original_team_id ||
+          sw.counterparty_team_id === pick.original_team_id),
+    );
+    if (!swap) return null;
+    const isBeneficiary = swap.beneficiary_team_id === pick.original_team_id;
+    const partnerId = isBeneficiary ? swap.counterparty_team_id : swap.beneficiary_team_id;
+    return {
+      isBeneficiary,
+      beneficiaryName: swap.beneficiary_team_name,
+      counterpartyName: swap.counterparty_team_name,
+      partnerTricode: tricodeMap[partnerId] ?? '—',
+    };
+  };
+
   const roundGroups = useMemo(() => {
     const groups: Record<number, DraftHubPick[]> = {};
     for (const pick of displayPicks) {
@@ -260,8 +191,6 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
       }));
   }, [displayPicks]);
 
-  // Build the lottery-odds display rows once per relevant input change rather than
-  // rebuilding the whole list every render (previously an inline IIFE inside JSX).
   type OddsRow = {
     team: DraftHubTeam;
     position: number;
@@ -332,56 +261,71 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
     setSimResult(result);
   };
 
+  const showLotteryCard =
+    isUpcomingSeason && lotteryPoolSize > 0 && !leagueSettings.rookieDraftComplete;
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
-      {/* Season selector */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.seasonSelector} contentContainerStyle={styles.seasonPills}>
+      {/* Season selector — text-only with gold underline on active. Reads as
+          a within-tab filter, subordinate to the SegmentedControl tabs above. */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.seasonSelector}
+        contentContainerStyle={styles.seasonRow}
+      >
         {validSeasons.map((season) => {
           const active = season === selectedSeason;
+          const yearLabel = parseInt(season.split('-')[0], 10);
           return (
             <TouchableOpacity
               key={season}
               accessibilityRole="button"
-              accessibilityLabel={`Season ${parseInt(season.split('-')[0], 10)}`}
+              accessibilityLabel={`Season ${yearLabel}`}
               accessibilityState={{ selected: active }}
-              style={[styles.pill, { backgroundColor: active ? c.accent : c.cardAlt, borderColor: active ? c.accent : c.border }]}
+              style={styles.yearTab}
               onPress={() => { setSelectedSeason(season); setSimResult(null); }}
+              activeOpacity={0.7}
             >
-              <ThemedText style={[styles.pillText, { color: active ? c.accentText : c.text }]}>
-                {parseInt(season.split('-')[0], 10)}
+              <ThemedText
+                style={[
+                  styles.yearLabel,
+                  {
+                    fontFamily: active ? Fonts.display : Fonts.bodyMedium,
+                    color: active ? c.text : c.secondaryText,
+                  },
+                ]}
+              >
+                {yearLabel}
               </ThemedText>
+              <View
+                style={[
+                  styles.yearUnderline,
+                  { backgroundColor: active ? c.gold : 'transparent' },
+                ]}
+              />
             </TouchableOpacity>
           );
         })}
       </ScrollView>
 
-      {/* Lottery odds / standings + simulation (upcoming season only).
-          Stays visible through lottery and rookie draft; only hides once the
-          rookie draft is complete. Sim button hides after the lottery runs. */}
-      {isUpcomingSeason && lotteryPoolSize > 0 && !leagueSettings.rookieDraftComplete && (
-        <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
-          <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.cardTitle}>
-            Lottery Odds
-          </ThemedText>
-
-          {/* Odds table header */}
-          <View style={styles.oddsHeaderRow}>
-            <ThemedText style={[styles.oddsPos, styles.oddsHeader, { color: c.secondaryText }]}>#</ThemedText>
-            <View style={styles.oddsTeamCol}>
-              <ThemedText style={[styles.oddsHeader, { color: c.secondaryText }]}>Team</ThemedText>
-            </View>
-            <ThemedText style={[styles.oddsRecord, styles.oddsHeader, { color: c.secondaryText }]}>Record</ThemedText>
-            <ThemedText style={[styles.oddsPct, styles.oddsHeader, { color: c.secondaryText }]}>Odds</ThemedText>
+      {showLotteryCard && (
+        <Section title="Lottery Odds">
+          {/* Column headers — varsitySmall caps, gold-tinted */}
+          <View style={[styles.oddsHeaderRow, { borderBottomColor: c.border }]}>
+            <ThemedText type="varsitySmall" style={[styles.colPos, styles.headerText, { color: c.gold }]}>#</ThemedText>
+            <ThemedText type="varsitySmall" style={[styles.colTeam, styles.headerText, { color: c.gold }]}>Team</ThemedText>
+            <ThemedText type="varsitySmall" style={[styles.colRecord, styles.headerText, { color: c.gold }]}>Rec</ThemedText>
+            <ThemedText type="varsitySmall" style={[styles.colOdds, styles.headerText, { color: c.gold }]}>Odds</ThemedText>
           </View>
 
-          {/* Teams in order — reordered if simulation active */}
           {displayRows.map((row, i) => {
             const ownership = pickOwnerMap[row.team.id];
 
-            // Compute effective owner based on position and protection
             let effectiveOwnerName = ownership?.ownerName;
             let effectiveIsTraded = ownership?.isTraded ?? false;
             let protectionHolds = false;
+            const hasResolvedProtection = !!simResult && !!ownership?.protectionThreshold;
             if (ownership?.protectionThreshold && ownership?.protectionOwnerId && leagueSettings.pickConditionsEnabled) {
               protectionHolds = row.position <= ownership.protectionThreshold;
               if (protectionHolds) {
@@ -390,121 +334,234 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
               }
             }
 
+            const showProtectionStory =
+              ownership?.protectionThreshold && leagueSettings.pickConditionsEnabled;
+            const showSwapStory =
+              ownership?.wasSwapped && leagueSettings.pickConditionsEnabled;
+
+            const round1Pick = displayPicks.find(
+              (p) => p.round === 1 && p.original_team_id === row.team.id,
+            );
+            const swapInfo = round1Pick ? findSwapInfo(round1Pick) : null;
+
+            const ownerTricode = effectiveOwnerName
+              ? (teams.find((t) => t.name === effectiveOwnerName)?.tricode
+                  ?? effectiveOwnerName.slice(0, 3).toUpperCase())
+              : '—';
+            const protectionOwnerTricode = ownership?.protectionOwnerName
+              ? (teams.find((t) => t.name === ownership.protectionOwnerName)?.tricode
+                  ?? ownership.protectionOwnerName.slice(0, 3).toUpperCase())
+              : ownerTricode;
+            const conveyanceTricode = ownership ? (tricodeMap[ownership.ownerId] ?? '—') : '—';
+
             return (
               <View key={row.team.id}>
-                  {/* Insert playoff cutoff divider */}
-                  {i === playoffCutoffIndex && playoffCutoffIndex > 0 && (
-                    <View style={styles.cutoffRow}>
-                      <View style={[styles.cutoffLine, { backgroundColor: c.secondaryText }]} />
-                      <ThemedText style={[styles.cutoffLabel, { color: c.secondaryText }]}>
-                        Playoff teams
+                {i === playoffCutoffIndex && playoffCutoffIndex > 0 && (
+                  <View style={styles.cutoffRow}>
+                    <View style={[styles.cutoffLine, { backgroundColor: c.gold }]} />
+                    <ThemedText
+                      type="varsitySmall"
+                      style={[styles.cutoffLabel, { color: c.gold }]}
+                    >
+                      Playoff Teams
+                    </ThemedText>
+                    <View style={[styles.cutoffLine, { backgroundColor: c.gold }]} />
+                  </View>
+                )}
+                <View style={[styles.oddsCell, { borderBottomColor: c.border }]}>
+                  <View style={styles.oddsRow}>
+                    {/* Pick number — Alfa Slab, the "draft card" treatment */}
+                    <View style={styles.colPos}>
+                      <ThemedText
+                        style={[
+                          styles.pickNumber,
+                          { color: row.isPlayoff ? c.secondaryText : c.text },
+                        ]}
+                      >
+                        {row.position}
                       </ThemedText>
-                      <View style={[styles.cutoffLine, { backgroundColor: c.secondaryText }]} />
                     </View>
-                  )}
-                  <View style={[styles.oddsRow, { borderBottomColor: c.border }]}>
-                    <ThemedText style={[styles.oddsPos, { color: c.secondaryText }]}>{row.position}</ThemedText>
-                    <View style={styles.oddsTeamCol}>
-                      <View style={styles.oddsTeamRow}>
+                    {/* Team — logo + varsity tricode (with trade arrow when relevant).
+                        Conveying team's logo is faded; recipient's is solid. */}
+                    <View style={styles.colTeam}>
+                      <View style={styles.teamLine}>
                         {effectiveIsTraded ? (
-                          <View style={styles.oddsTradeRow}>
-                            <ThemedText style={[styles.oddsTeamFaded, { color: c.secondaryText }]} numberOfLines={1}>
+                          <View style={styles.tradeRow}>
+                            <View style={styles.fadedLogoWrap}>
+                              <TeamLogo
+                                logoKey={row.team.logo_key}
+                                teamName={row.team.name}
+                                tricode={tricodeMap[row.team.id]}
+                                size="small"
+                              />
+                            </View>
+                            <ThemedText
+                              type="varsitySmall"
+                              style={[styles.tricodeFaded, { color: c.secondaryText }]}
+                              numberOfLines={1}
+                            >
                               {tricodeMap[row.team.id]}
                             </ThemedText>
-                            <Ionicons name="arrow-forward" size={10} color={c.secondaryText} />
-                            <ThemedText style={styles.oddsTeam} numberOfLines={1}>
-                              {effectiveOwnerName}
-                            </ThemedText>
+                            <Ionicons name="arrow-forward" size={ms(10)} color={c.gold} />
+                            {(() => {
+                              const ownerTeam = teams.find((t) => t.name === effectiveOwnerName);
+                              const ownerTricode =
+                                ownerTeam?.tricode
+                                ?? effectiveOwnerName?.slice(0, 3).toUpperCase()
+                                ?? '—';
+                              return (
+                                <>
+                                  <TeamLogo
+                                    logoKey={ownerTeam?.logo_key}
+                                    teamName={effectiveOwnerName ?? ownerTricode}
+                                    tricode={ownerTricode}
+                                    size="small"
+                                  />
+                                  <ThemedText
+                                    type="varsity"
+                                    style={[styles.tricodeStrong, { color: c.text }]}
+                                    numberOfLines={1}
+                                  >
+                                    {ownerTricode}
+                                  </ThemedText>
+                                </>
+                              );
+                            })()}
                           </View>
                         ) : (
-                          <ThemedText style={styles.oddsTeam} numberOfLines={1}>{row.team.name}</ThemedText>
-                        )}
-                        {ownership?.protectionThreshold && leagueSettings.pickConditionsEnabled && (
-                          <ProtectionBadge
-                            threshold={ownership.protectionThreshold}
-                            holds={protectionHolds}
-                            expanded={expandedProts.has(`odds-${row.team.id}`)}
-                            onToggle={() => toggleProt(`odds-${row.team.id}`)}
-                            detailText={protectionHolds
-                              ? `Kept by ${ownership.protectionOwnerName} · ${ownership.ownerName} misses`
-                              : `→ ${ownership.ownerName}`}
-                            c={c}
-                          />
-                        )}
-                        {ownership?.wasSwapped && leagueSettings.pickConditionsEnabled && (
-                          <View style={[styles.swapBadge, { backgroundColor: c.link + '20' }]}>
-                            <Ionicons name="swap-horizontal" size={9} color={c.accent} />
-                          </View>
+                          <>
+                            <TeamLogo
+                              logoKey={row.team.logo_key}
+                              teamName={row.team.name}
+                              tricode={tricodeMap[row.team.id]}
+                              size="small"
+                            />
+                            <ThemedText
+                              type="varsity"
+                              style={[styles.tricodeStrong, { color: row.isPlayoff ? c.secondaryText : c.text }]}
+                              numberOfLines={1}
+                            >
+                              {tricodeMap[row.team.id]}
+                            </ThemedText>
+                          </>
                         )}
                         {simResult && row.moved !== 0 && (
-                          <ThemedText style={[styles.movedBadge, { color: row.moved > 0 ? c.success : c.danger }]}>
+                          <ThemedText
+                            type="varsitySmall"
+                            style={[styles.movedBadge, { color: row.moved > 0 ? c.success : c.danger }]}
+                          >
                             {row.moved > 0 ? `▲${row.moved}` : `▼${Math.abs(row.moved)}`}
                           </ThemedText>
                         )}
                       </View>
                     </View>
-                    <ThemedText style={[styles.oddsRecord, { color: c.secondaryText }]}>
+                    {/* Record — mono tabular figures */}
+                    <ThemedText style={[styles.colRecord, styles.monoStat, { color: c.secondaryText }]}>
                       {row.team.wins}-{row.team.losses}
                     </ThemedText>
-                    <ThemedText style={[
-                      styles.oddsPct,
-                      { color: row.isPlayoff ? c.secondaryText : c.accent, fontWeight: row.isPlayoff ? '400' : '600' },
-                    ]}>
+                    {/* Odds % — mono, gold for in-lottery, faded for playoff */}
+                    <ThemedText
+                      style={[
+                        styles.colOdds,
+                        styles.monoStat,
+                        styles.oddsValue,
+                        { color: row.isPlayoff ? c.secondaryText : c.gold },
+                      ]}
+                    >
                       {row.oddsValue}
                     </ThemedText>
                   </View>
-                </View>
-              );
-            })}
 
-          {/* Simulate / Clear buttons — hidden once the lottery has been run */}
+                  {showProtectionStory ? (
+                    <View style={styles.storyLineWrap}>
+                      <PickConditionRow
+                        kind={
+                          hasResolvedProtection
+                            ? protectionHolds
+                              ? 'protection_held'
+                              : 'protection_missed'
+                            : 'protection_pending'
+                        }
+                        badgeLabel={`TOP-${ownership.protectionThreshold}`}
+                        storyText={formatProtectionStory(
+                          ownership.protectionThreshold!,
+                          protectionOwnerTricode,
+                          conveyanceTricode,
+                          hasResolvedProtection ? protectionHolds : 'pending',
+                        )}
+                      />
+                    </View>
+                  ) : null}
+                  {showSwapStory && swapInfo ? (
+                    <View style={styles.storyLineWrap}>
+                      <PickConditionRow
+                        kind="swap"
+                        badgeLabel={swapInfo.partnerTricode}
+                        storyText={formatSwapStory(
+                          tricodeMap[
+                            seasonSwaps.find(
+                              (sw) =>
+                                sw.round === 1 &&
+                                (swapInfo.isBeneficiary
+                                  ? sw.beneficiary_team_name === swapInfo.beneficiaryName
+                                  : sw.counterparty_team_name === swapInfo.counterpartyName),
+                            )?.beneficiary_team_id ?? ''
+                          ] ?? swapInfo.beneficiaryName,
+                          swapInfo.counterpartyName,
+                        )}
+                      />
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+            );
+          })}
+
           {!leagueSettings.lotteryComplete && (
             <View style={styles.simButtonRow}>
-              <TouchableOpacity
-                accessibilityRole="button"
-                accessibilityLabel={simResult ? 'Simulate again' : 'Simulate lottery'}
-                accessibilityState={{ disabled: !leagueSettings.leagueFull }}
-                accessibilityHint={!leagueSettings.leagueFull ? 'All teams must join before simulating' : undefined}
-                disabled={!leagueSettings.leagueFull}
-                style={[styles.simButton, { backgroundColor: c.accent, opacity: leagueSettings.leagueFull ? 1 : 0.4 }]}
+              <BrandButton
+                label={simResult ? 'Simulate Again' : 'Simulate Lottery'}
                 onPress={handleSimulate}
-              >
-                <Ionicons name="shuffle" size={18} color={c.accentText} accessible={false} />
-                <ThemedText style={[styles.simButtonText, { color: c.accentText }]}>
-                  {simResult ? 'Simulate Again' : 'Simulate Lottery'}
-                </ThemedText>
-              </TouchableOpacity>
+                variant="primary"
+                size="default"
+                icon="shuffle"
+                disabled={!leagueSettings.leagueFull}
+                accessibilityHint={
+                  !leagueSettings.leagueFull ? 'All teams must join before simulating' : undefined
+                }
+                fullWidth
+                style={styles.simButtonFlex}
+              />
               {simResult && (
-                <TouchableOpacity accessibilityRole="button" accessibilityLabel="Clear simulation" style={[styles.clearButton, { borderColor: c.border }]} onPress={() => setSimResult(null)}>
-                  <ThemedText style={[styles.simButtonText, { color: c.text }]}>Clear</ThemedText>
-                </TouchableOpacity>
+                <BrandButton
+                  label="Clear"
+                  onPress={() => setSimResult(null)}
+                  variant="secondary"
+                  size="default"
+                  accessibilityLabel="Clear simulation"
+                />
               )}
             </View>
           )}
-        </View>
+        </Section>
       )}
 
-      {/* Pick list by round */}
+      {/* Pick list by round — Section per round with numbered code (R / 01) */}
       {roundGroups.length === 0 ? (
-        <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
+        <Section title="Picks">
           <View style={styles.emptyState}>
             <ThemedText style={{ color: c.secondaryText }}>No picks for this season</ThemedText>
           </View>
-        </View>
+        </Section>
       ) : (
         roundGroups.map(({ round, picks: roundPicks }) => (
-          <View key={round} style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
-            <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.roundHeader}>
-              Round {round}
-            </ThemedText>
+          <Section key={round} title={`Round ${round}`}>
             {roundPicks.map((pick, idx) => {
               const pickPos = pick.display_slot;
-              // Protection position checks only meaningful when standings are known
               const protHolds = pick.protection_threshold && leagueSettings.pickConditionsEnabled && isUpcomingSeason
                 ? pickPos <= pick.protection_threshold
                 : false;
 
-              // Resolve effective owner: if protection holds, revert to protection owner
               const effectiveName = protHolds && pick.protection_owner_name
                 ? pick.protection_owner_name
                 : pick.current_team_name;
@@ -513,56 +570,154 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
                 : pick.isTraded;
 
               const hasProtection = pick.protection_threshold && leagueSettings.pickConditionsEnabled;
-              const hasBadges = hasProtection || pick.wasSwapped || effectiveIsTraded;
+              const hasResolvedProtection = !!hasProtection && isUpcomingSeason;
+
+              const swapInfo =
+                pick.wasSwapped && leagueSettings.pickConditionsEnabled
+                  ? findSwapInfo(pick)
+                  : null;
+
+              const effectiveTeam = teams.find((t) => t.name === effectiveName);
+              const effectiveTricode =
+                effectiveTeam?.tricode
+                ?? effectiveName.slice(0, 3).toUpperCase();
+              const originTeam = teams.find((t) => t.id === pick.original_team_id);
+              const originTricode =
+                originTeam?.tricode
+                ?? tricodeMap[pick.original_team_id]
+                ?? pick.original_team_name.slice(0, 3).toUpperCase();
+              const protectionOwnerTricode = pick.protection_owner_name
+                ? (teams.find((t) => t.name === pick.protection_owner_name)?.tricode
+                    ?? pick.protection_owner_name.slice(0, 3).toUpperCase())
+                : effectiveTricode;
+              const conveyanceTricode = tricodeMap[pick.current_team_id]
+                ?? pick.current_team_name.slice(0, 3).toUpperCase();
 
               return (
                 <View
                   key={pick.id}
-                  style={[styles.pickRow, idx < roundPicks.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.border }]}
+                  style={[
+                    styles.pickRow,
+                    idx < roundPicks.length - 1 && {
+                      borderBottomWidth: StyleSheet.hairlineWidth,
+                      borderBottomColor: c.border,
+                    },
+                  ]}
                 >
                   <View style={styles.pickRowLine1}>
-                    <View style={[styles.pickNum, { backgroundColor: c.cardAlt }]}>
-                      <ThemedText style={[styles.pickNumText, { color: c.secondaryText }]}>
+                    {/* Alfa Slab pick number with thin gold side-rule */}
+                    <View style={styles.pickNumColumn}>
+                      <View style={[styles.pickNumRule, { backgroundColor: c.gold }]} />
+                      <ThemedText style={[styles.pickRoundNumber, { color: c.text }]}>
                         {isUpcomingSeason ? pickPos : '?'}
                       </ThemedText>
                     </View>
-                    <ThemedText style={styles.pickTeamName} numberOfLines={1}>
-                      {effectiveName}
-                    </ThemedText>
-                  </View>
-                  {hasBadges && (
-                    <View style={styles.pickRowLine2}>
-                      {hasProtection && (
-                        <ProtectionBadge
-                          threshold={pick.protection_threshold!}
-                          holds={protHolds}
-                          expanded={expandedProts.has(`pick-${pick.id}`)}
-                          onToggle={() => toggleProt(`pick-${pick.id}`)}
-                          detailText={protHolds
-                            ? `Kept by ${pick.protection_owner_name} · ${pick.current_team_name} misses`
-                            : `→ ${pick.current_team_name}`}
-                          c={c}
-                        />
-                      )}
-                      {pick.wasSwapped && (
-                        <View style={[styles.swapBadge, { backgroundColor: c.link + '20' }]}>
-                          <Ionicons name="swap-horizontal" size={9} color={c.accent} />
-                        </View>
-                      )}
-                      {effectiveIsTraded && (
-                        <View style={styles.tradedInfo}>
-                          <Ionicons name="swap-horizontal" size={14} color={c.secondaryText} />
-                          <ThemedText style={[styles.tradedText, { color: c.secondaryText }]} numberOfLines={1}>
-                            via {pick.original_team_name}
-                          </ThemedText>
-                        </View>
-                      )}
+                    {/* Team line — both logos when traded (origin faded → effective solid). */}
+                    <View style={styles.pickTeamCol}>
+                      <View style={styles.pickTeamLine}>
+                        {effectiveIsTraded ? (
+                          <>
+                            <View style={styles.fadedLogoWrap}>
+                              <TeamLogo
+                                logoKey={originTeam?.logo_key}
+                                teamName={pick.original_team_name}
+                                tricode={originTricode}
+                                size="small"
+                              />
+                            </View>
+                            <ThemedText
+                              type="varsitySmall"
+                              style={[styles.tricodeFaded, { color: c.secondaryText }]}
+                              numberOfLines={1}
+                            >
+                              {originTricode}
+                            </ThemedText>
+                            <Ionicons name="arrow-forward" size={ms(10)} color={c.gold} />
+                            <TeamLogo
+                              logoKey={effectiveTeam?.logo_key}
+                              teamName={effectiveName}
+                              tricode={effectiveTricode}
+                              size="small"
+                            />
+                            <ThemedText
+                              type="varsity"
+                              style={[styles.tricodeStrong, { color: c.text }]}
+                              numberOfLines={1}
+                            >
+                              {effectiveTricode}
+                            </ThemedText>
+                          </>
+                        ) : (
+                          <>
+                            <TeamLogo
+                              logoKey={effectiveTeam?.logo_key}
+                              teamName={effectiveName}
+                              tricode={effectiveTricode}
+                              size="small"
+                            />
+                            <View style={styles.teamLineWide}>
+                              <ThemedText
+                                type="varsity"
+                                style={[styles.tricodeStrong, { color: c.text }]}
+                              >
+                                {effectiveTricode}
+                              </ThemedText>
+                              <ThemedText
+                                style={[styles.teamFullName, { color: c.secondaryText }]}
+                                numberOfLines={1}
+                              >
+                                {effectiveName}
+                              </ThemedText>
+                            </View>
+                          </>
+                        )}
+                      </View>
                     </View>
-                  )}
+                  </View>
+
+                  {hasProtection ? (
+                    <View style={styles.pickStoryLine}>
+                      <PickConditionRow
+                        kind={
+                          hasResolvedProtection
+                            ? protHolds
+                              ? 'protection_held'
+                              : 'protection_missed'
+                            : 'protection_pending'
+                        }
+                        badgeLabel={`TOP-${pick.protection_threshold}`}
+                        storyText={formatProtectionStory(
+                          pick.protection_threshold!,
+                          protectionOwnerTricode,
+                          conveyanceTricode,
+                          hasResolvedProtection ? protHolds : 'pending',
+                        )}
+                      />
+                    </View>
+                  ) : null}
+
+                  {swapInfo ? (
+                    <View style={styles.pickStoryLine}>
+                      <PickConditionRow
+                        kind="swap"
+                        badgeLabel={swapInfo.partnerTricode}
+                        storyText={formatSwapStory(
+                          tricodeMap[
+                            seasonSwaps.find(
+                              (sw) =>
+                                sw.round === pick.round &&
+                                sw.beneficiary_team_name === swapInfo.beneficiaryName,
+                            )?.beneficiary_team_id ?? ''
+                          ] ?? swapInfo.beneficiaryName,
+                          swapInfo.counterpartyName,
+                        )}
+                      />
+                    </View>
+                  ) : null}
                 </View>
               );
             })}
-          </View>
+          </Section>
         ))
       )}
     </ScrollView>
@@ -572,156 +727,159 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
 const styles = StyleSheet.create({
   container: { flex: 1 },
   contentContainer: { padding: s(16), paddingBottom: s(40) },
-  seasonSelector: { marginBottom: s(16), flexGrow: 0 },
-  seasonPills: { gap: s(8) },
-  pill: {
-    paddingHorizontal: s(16),
-    paddingVertical: s(8),
-    borderRadius: 20,
-    borderWidth: 1,
-  },
-  pillText: { fontSize: ms(14), fontWeight: '600' },
-  card: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: s(16),
-    marginBottom: s(16),
-  },
-  cardTitle: { marginBottom: s(12) },
-  roundHeader: { marginBottom: s(8) },
 
-  // Odds table
+  // Season selector — text + gold-underline active. Subordinate to the
+  // SegmentedControl tabs above so the page hierarchy reads cleanly.
+  seasonSelector: { marginBottom: s(14), flexGrow: 0 },
+  seasonRow: { gap: s(20), paddingHorizontal: s(2) },
+  yearTab: {
+    alignItems: 'center',
+    paddingTop: s(2),
+  },
+  yearLabel: {
+    fontSize: ms(18),
+    lineHeight: ms(22),
+    letterSpacing: -0.2,
+  },
+  yearUnderline: {
+    marginTop: s(4),
+    height: 2,
+    width: '100%',
+    minWidth: s(28),
+  },
+
+  // Lottery odds table
   oddsHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingBottom: s(6),
+    paddingTop: s(2),
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(128,128,128,0.3)',
   },
-  oddsHeader: { fontSize: ms(10), fontWeight: '600' },
+  headerText: { fontSize: ms(10), letterSpacing: 1.4 },
+  oddsCell: {
+    paddingVertical: s(10),
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
   oddsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: s(8),
-    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  oddsPos: { width: s(24), fontSize: ms(12) },
-  oddsTeamCol: { flex: 1 },
-  oddsTeamRow: { flexDirection: 'row', alignItems: 'center', gap: s(6) },
-  oddsTeam: { fontSize: ms(13), flexShrink: 1 },
-  oddsTeamFaded: { fontSize: ms(11), flexShrink: 0 },
-  oddsTradeRow: { flexDirection: 'row', alignItems: 'center', gap: s(4), flex: 1, minWidth: 0 },
-  movedBadge: { fontSize: ms(10), fontWeight: '700' },
-  oddsRecord: { width: s(48), textAlign: 'center', fontSize: ms(12) },
-  oddsPct: { width: s(48), textAlign: 'right', fontSize: ms(12) },
+  colPos: { width: s(28) },
+  colTeam: { flex: 1, paddingRight: s(6) },
+  colRecord: { width: s(50), textAlign: 'center' },
+  colOdds: { width: s(54), textAlign: 'right' },
 
-  // Cutoff
+  // Pick number — Alfa Slab "draft card" treatment
+  pickNumber: {
+    fontFamily: Fonts.display,
+    fontSize: ms(18),
+    lineHeight: ms(22),
+    letterSpacing: -0.3,
+  },
+
+  // Team line in odds row
+  teamLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(6),
+    flexShrink: 1,
+  },
+  tradeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(5),
+    flexShrink: 1,
+  },
+  tricodeFaded: { fontSize: ms(10), opacity: 0.85 },
+  fadedLogoWrap: { opacity: 0.4 },
+  tricodeStrong: { fontSize: ms(13), letterSpacing: 1.0 },
+  movedBadge: { fontSize: ms(10) },
+
+  // Mono stat columns (records, odds %)
+  monoStat: {
+    fontFamily: Fonts.mono,
+    fontSize: ms(12),
+    letterSpacing: 0.3,
+  },
+  oddsValue: { fontWeight: '600' },
+
+  storyLineWrap: {
+    paddingTop: s(8),
+    paddingLeft: s(28), // align with team column
+  },
+
+  // Cutoff between lottery and playoff teams — gold rule + caps label
   cutoffRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: s(6),
-    gap: s(8),
+    paddingVertical: s(10),
+    gap: s(10),
   },
-  cutoffLine: { flex: 1, height: 1, opacity: 0.4 },
-  cutoffLabel: { fontSize: ms(9), fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
+  cutoffLine: { flex: 1, height: 1, opacity: 0.65 },
+  cutoffLabel: { fontSize: ms(10), letterSpacing: 1.4 },
 
-  // Simulate
+  // Sim button row
   simButtonRow: {
     flexDirection: 'row',
-    gap: s(8),
-    marginTop: s(12),
+    gap: s(10),
+    marginTop: s(14),
+    marginBottom: s(4),
   },
-  simButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: s(8),
-    paddingVertical: s(10),
-    borderRadius: 8,
-  },
-  clearButton: {
-    paddingHorizontal: s(16),
-    paddingVertical: s(10),
-    borderRadius: 8,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  simButtonText: { fontSize: ms(14), fontWeight: '600' },
+  simButtonFlex: { flex: 1 },
 
-  // Pick rows
+  // Pick rows in round Sections
   pickRow: {
     flexDirection: 'column',
-    alignItems: 'stretch',
-    paddingVertical: s(8),
+    paddingVertical: s(10),
     gap: s(6),
   },
   pickRowLine1: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: s(12),
+  },
+  pickNumColumn: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: s(10),
+    width: s(46),
   },
-  pickRowLine2: {
+  pickNumRule: {
+    width: 3,
+    height: s(22),
+  },
+  pickRoundNumber: {
+    fontFamily: Fonts.display,
+    fontSize: ms(22),
+    lineHeight: ms(26),
+    letterSpacing: -0.3,
+    minWidth: s(20),
+  },
+  pickTeamCol: {
+    flex: 1,
+    minWidth: 0,
+  },
+  pickTeamLine: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'wrap',
     gap: s(8),
-    paddingLeft: s(38), // align under the team name (pickNum width 28 + gap 10)
+    flexShrink: 1,
+    minWidth: 0,
   },
-  pickNum: {
-    width: s(28),
-    height: s(28),
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pickNumText: { fontSize: ms(12), fontWeight: '700' },
-  pickTeamName: { flex: 1, fontSize: ms(14) },
-  tradedInfo: {
+  teamLineWide: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(4),
-    flexShrink: 0,
+    alignItems: 'baseline',
+    gap: s(8),
+    flexShrink: 1,
   },
-  tradedText: { fontSize: ms(12) },
-  protBadgeWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    zIndex: 10,
+  teamFullName: {
+    fontSize: ms(13),
+    flexShrink: 1,
   },
-  protBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 4,
-    paddingHorizontal: s(5),
-    paddingVertical: 1,
+  pickStoryLine: {
+    paddingLeft: s(58), // align under team-col after pick num + rule + gap
   },
-  protBadgeExpandedLeft: {
-    borderTopLeftRadius: 0,
-    borderBottomLeftRadius: 0,
-  },
-  protRibbon: {
-    overflow: 'hidden',
-    borderTopLeftRadius: 4,
-    borderBottomLeftRadius: 4,
-    borderTopRightRadius: 0,
-    borderBottomRightRadius: 0,
-    justifyContent: 'center',
-    paddingVertical: 1,
-  },
-  protRibbonText: {
-    fontSize: ms(10),
-    fontWeight: '600',
-  },
-  swapBadge: {
-    borderRadius: 4,
-    padding: s(2),
-    marginLeft: s(4),
-  },
-  protBadgeText: {
-    fontSize: ms(10),
-    fontWeight: '600',
-  },
+
   emptyState: { padding: s(20), alignItems: 'center' },
 });

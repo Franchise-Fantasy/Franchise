@@ -1301,7 +1301,7 @@ export default function MatchupScreen() {
         .limit(1);
       const round = matchups?.[0]?.playoff_round;
       if (!round) return new Map<string, number>();
-      return fetchTeamSeeds(leagueId!, CURRENT_NBA_SEASON, round);
+      return fetchTeamSeeds(leagueId!, league?.season ?? CURRENT_NBA_SEASON, round);
     },
     enabled: !!leagueId && !!currentWeek?.is_playoff,
     staleTime: 1000 * 60 * 5,

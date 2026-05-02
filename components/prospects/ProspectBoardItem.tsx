@@ -2,13 +2,16 @@ import { Ionicons } from '@expo/vector-icons';
 import { memo, useCallback } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-import { Colors, cardShadow } from '@/constants/Colors';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors, Fonts, cardShadow } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
 
 import { DynastyScoreBadge } from './DynastyScoreBadge';
 
 interface ProspectBoardItemProps {
+  /** User-rank position; rendered inside the row with the brand chrome. */
+  rank: number;
   playerId: string;
   name: string;
   position: string;
@@ -25,6 +28,7 @@ interface ProspectBoardItemProps {
 }
 
 function ProspectBoardItemBase({
+  rank,
   playerId,
   name,
   position,
@@ -63,11 +67,17 @@ function ProspectBoardItemBase({
         styles.row,
         { backgroundColor: isActive ? c.cardAlt : c.card, borderColor: c.border },
       ]}
-      accessibilityLabel={`${name}, ${position}`}
+      accessibilityLabel={`Rank ${rank}, ${name}, ${position}`}
     >
       {/* Drag handle */}
       <View style={styles.dragHandle} onTouchStart={drag}>
         <Ionicons name="reorder-three" size={20} color={c.secondaryText} />
+      </View>
+
+      {/* Rank — Alfa Slab + thin gold side-rule (matches ProspectCard / pick rows) */}
+      <View style={styles.rankCol}>
+        <View style={[styles.rankRule, { backgroundColor: c.gold }]} />
+        <Text style={[styles.rank, { color: c.text }]}>{rank}</Text>
       </View>
 
       {/* Tappable area — opens prospect detail */}
@@ -83,15 +93,27 @@ function ProspectBoardItemBase({
           <Text style={[styles.name, { color: c.text }]} numberOfLines={1}>
             {name}
           </Text>
-          <Text style={[styles.meta, { color: c.secondaryText }]}>
-            {position} · {school}
-          </Text>
+          <View style={styles.metaRow}>
+            <ThemedText
+              type="varsitySmall"
+              style={[styles.position, { color: c.gold }]}
+            >
+              {position}
+            </ThemedText>
+            <Text style={[styles.metaDot, { color: c.secondaryText }]}>·</Text>
+            <Text
+              style={[styles.metaTail, { color: c.secondaryText }]}
+              numberOfLines={1}
+            >
+              {school}
+            </Text>
+          </View>
         </View>
 
         {/* Dynasty score */}
         {dynastyScore > 0 && <DynastyScoreBadge score={dynastyScore} />}
 
-        {/* Staff comparison badge */}
+        {/* Staff comparison badge — mono numeric for tabular feel */}
         {comparisonIcon && staffRank !== undefined && (
           <View style={styles.comparison} accessibilityLabel={`Staff rank ${staffRank}`}>
             <Ionicons name={comparisonIcon as any} size={12} color={comparisonColor} />
@@ -111,33 +133,62 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: s(10),
     paddingHorizontal: s(8),
-    marginLeft: s(4),
-    marginRight: s(12),
-    marginBottom: s(4),
+    marginHorizontal: s(12),
+    marginBottom: s(6),
     borderRadius: 12,
     borderWidth: 1,
-    gap: s(6),
+    gap: s(8),
     ...cardShadow,
   },
   dragHandle: {
     padding: s(4),
   },
+  rankCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(8),
+  },
+  rankRule: {
+    width: 3,
+    height: s(20),
+  },
+  rank: {
+    fontFamily: Fonts.display,
+    fontSize: ms(18),
+    lineHeight: ms(22),
+    letterSpacing: -0.3,
+    minWidth: s(20),
+    textAlign: 'left',
+  },
   tappable: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: s(6),
+    gap: s(8),
   },
   info: {
     flex: 1,
+    minWidth: 0,
   },
   name: {
-    fontSize: ms(13),
+    fontSize: ms(14),
     fontWeight: '700',
+    letterSpacing: -0.1,
   },
-  meta: {
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(5),
+    marginTop: s(2),
+  },
+  position: {
     fontSize: ms(10),
-    marginTop: 1,
+    letterSpacing: 1.4,
+  },
+  metaDot: { fontSize: ms(10) },
+  metaTail: {
+    fontSize: ms(11),
+    flexShrink: 1,
   },
   comparison: {
     flexDirection: 'row',
@@ -145,7 +196,8 @@ const styles = StyleSheet.create({
     gap: s(2),
   },
   compText: {
+    fontFamily: Fonts.mono,
     fontSize: ms(10),
-    fontWeight: '600',
+    letterSpacing: 0.3,
   },
 });

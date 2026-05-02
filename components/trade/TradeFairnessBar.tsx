@@ -1,4 +1,11 @@
+import { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
@@ -26,35 +33,75 @@ export function TradeFairnessBar({ teams }: TradeFairnessBarProps) {
         <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.title}>Trade Fairness</ThemedText>
         <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>Avg FPTS +/-</ThemedText>
       </View>
-      {teams.map((team) => {
-        const isPositive = team.netFpts >= 0;
-        const barWidth = Math.min((Math.abs(team.netFpts) / maxAbs) * 100, 100);
+      {teams.map((team) => (
+        <FairnessRow
+          key={team.teamName}
+          team={team}
+          maxAbs={maxAbs}
+          successColor={c.success}
+          dangerColor={c.danger}
+        />
+      ))}
+    </View>
+  );
+}
 
-        return (
-          <View key={team.teamName} style={styles.row} accessibilityLabel={`${team.teamName}: ${isPositive ? '+' : ''}${team.netFpts.toFixed(1)} average fantasy points`}>
-            <ThemedText style={styles.teamName} numberOfLines={1}>{team.teamName}</ThemedText>
-            <View style={styles.barContainer}>
-              <View
-                style={[
-                  styles.bar,
-                  {
-                    width: `${barWidth}%`,
-                    backgroundColor: isPositive ? c.success : c.danger,
-                  },
-                ]}
-              />
-            </View>
-            <ThemedText
-              style={[
-                styles.value,
-                { color: isPositive ? c.success : c.danger },
-              ]}
-            >
-              {isPositive ? '+' : ''}{team.netFpts.toFixed(1)}
-            </ThemedText>
-          </View>
-        );
-      })}
+// Pulse the bar opacity briefly whenever the team's net swings >5 in
+// either direction. Reads as "the deal just tilted" without a flash.
+const PULSE_THRESHOLD = 5;
+
+function FairnessRow({
+  team,
+  maxAbs,
+  successColor,
+  dangerColor,
+}: {
+  team: TeamFairness;
+  maxAbs: number;
+  successColor: string;
+  dangerColor: string;
+}) {
+  const isPositive = team.netFpts >= 0;
+  const barWidth = Math.min((Math.abs(team.netFpts) / maxAbs) * 100, 100);
+  const opacity = useSharedValue(1);
+
+  useEffect(() => {
+    if (Math.abs(team.netFpts) > PULSE_THRESHOLD) {
+      opacity.value = withSequence(
+        withTiming(0.4, { duration: 120 }),
+        withTiming(1, { duration: 230 }),
+      );
+    }
+  }, [team.netFpts, opacity]);
+
+  const animStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+
+  return (
+    <View
+      style={styles.row}
+      accessibilityLabel={`${team.teamName}: ${isPositive ? '+' : ''}${team.netFpts.toFixed(1)} average fantasy points`}
+    >
+      <ThemedText style={styles.teamName} numberOfLines={1}>{team.teamName}</ThemedText>
+      <View style={styles.barContainer}>
+        <Animated.View
+          style={[
+            styles.bar,
+            animStyle,
+            {
+              width: `${barWidth}%`,
+              backgroundColor: isPositive ? successColor : dangerColor,
+            },
+          ]}
+        />
+      </View>
+      <ThemedText
+        style={[
+          styles.value,
+          { color: isPositive ? successColor : dangerColor },
+        ]}
+      >
+        {isPositive ? '+' : ''}{team.netFpts.toFixed(1)}
+      </ThemedText>
     </View>
   );
 }

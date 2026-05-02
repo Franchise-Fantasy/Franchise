@@ -28,7 +28,7 @@ import { ThemedView } from "@/components/ui/ThemedView";
 import { Colors } from "@/constants/Colors";
 import {
   CURRENT_NBA_SEASON,
-  CURRENT_WNBA_SEASON,
+  getCurrentSeason,
   DEFAULT_CATEGORIES,
   DEFAULT_ROSTER_SLOTS,
   DEFAULT_SCORING,
@@ -151,7 +151,7 @@ function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
         const start = action.value
           ? (() => { const [sy, sm, sd] = (action.value as string).split('-').map(Number); return new Date(sy, sm - 1, sd); })()
           : computeSeasonStart();
-        const newMax = computeMaxWeeks(next.season, start);
+        const newMax = computeMaxWeeks(next.season, next.sport, start);
         const playoffWeeks = Math.min(next.playoffWeeks, Math.max(1, newMax - 1));
         const regularSeasonWeeks = Math.min(next.regularSeasonWeeks, Math.max(1, newMax - playoffWeeks));
         return clampLotteryState({ ...next, regularSeasonWeeks, playoffWeeks });
@@ -167,8 +167,8 @@ function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
       // recompute week boundaries from the new season's start date.
       if (action.field === 'sport') {
         const newSport = action.value as 'nba' | 'wnba';
-        const newSeason = newSport === 'wnba' ? CURRENT_WNBA_SEASON : CURRENT_NBA_SEASON;
-        const newMax = computeMaxWeeks(newSeason);
+        const newSeason = getCurrentSeason(newSport);
+        const newMax = computeMaxWeeks(newSeason, newSport);
         const playoffWeeks = Math.min(next.playoffWeeks, Math.max(1, newMax - 1));
         const regularSeasonWeeks = Math.min(next.regularSeasonWeeks, Math.max(1, newMax - playoffWeeks));
         return clampLotteryState({ ...next, season: newSeason, seasonStartDate: null, regularSeasonWeeks, playoffWeeks });

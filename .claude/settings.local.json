@@ -367,7 +367,12 @@
       "PowerShell(winget install -e --id DenoLand.Deno --accept-package-agreements --accept-source-agreements 2>&1)",
       "PowerShell(Get-Command deno -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source; if \\(-not $?\\) { Get-ChildItem \"$env:LOCALAPPDATA\\\\Microsoft\\\\WinGet\\\\Packages\" -Recurse -Filter \"deno.exe\" -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName })",
       "PowerShell(supabase functions deploy poll-news --no-verify-jwt --project-ref iuqbossmnsezzgocpcbo 2>&1)",
-      "PowerShell(gh workflow list)"
+      "PowerShell(gh workflow list)",
+      "WebFetch(domain:en.wikipedia.org)",
+      "PowerShell(npx supabase db query --linked -f supabase/migrations/20260428010000_fix_set_autopick_search_path.sql 2>&1)",
+      "PowerShell(npx supabase db query --linked -f __tmp_verify.sql 2>&1)",
+      "PowerShell(Get-Process -Name \"node\" -ErrorAction SilentlyContinue)",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\Joe\\\\OneDrive\\\\Desktop\\\\franchise.v2\\\\scripts\" -Recurse | Where-Object { $_.Extension -eq '.mjs' } | Select-Object FullName)"
     ],
     "additionalDirectories": [
       "c:\\Users\\jjspo\\OneDrive\\Desktop\\Franchise Wiki\\Franchise Wiki\\Pages",

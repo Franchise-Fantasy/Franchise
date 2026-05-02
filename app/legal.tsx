@@ -35,7 +35,7 @@ You agree not to:
 
 5. Intellectual Property
 
-The App, including its design, features, and content, is owned by Franchise. NBA team names, player names, and statistics are used for informational and entertainment purposes under fair use.
+The App, including its design, features, and content, is owned by Franchise. NBA and WNBA team names, player names, and statistics are used for informational and entertainment purposes under fair use.
 
 6. Termination
 

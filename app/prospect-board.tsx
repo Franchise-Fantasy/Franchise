@@ -3,7 +3,6 @@ import { useCallback, useMemo, useState } from 'react';
 import {
   ScrollView,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -15,7 +14,7 @@ import { ProspectBoardItem } from '@/components/prospects/ProspectBoardItem';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { Colors, Fonts } from '@/constants/Colors';
 import { CURRENT_NBA_SEASON, CURRENT_WNBA_SEASON } from '@/constants/LeagueDefaults';
 import { useSession } from '@/context/AuthProvider';
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
@@ -117,79 +116,93 @@ export default function ProspectBoardScreen() {
     ({ item, drag, isActive, getIndex }: RenderItemParams<BoardEntry>) => {
       const index = getIndex() ?? 0;
       return (
-        <View style={styles.rankRow}>
-          <Text style={[styles.rankLabel, { color: c.tint }]}>{index + 1}</Text>
-          <View style={styles.rankCard}>
-            <ProspectBoardItem
-              playerId={item.playerId}
-              name={item.name}
-              position={item.position}
-              school={item.school}
-              dynastyScore={item.dynastyScore}
-              staffRank={item.staffRank}
-              userRank={index + 1}
-              drag={drag}
-              isActive={isActive}
-              onPressItem={handleOpenProspect}
-            />
-          </View>
-        </View>
+        <ProspectBoardItem
+          rank={index + 1}
+          playerId={item.playerId}
+          name={item.name}
+          position={item.position}
+          school={item.school}
+          dynastyScore={item.dynastyScore}
+          staffRank={item.staffRank}
+          userRank={index + 1}
+          drag={drag}
+          isActive={isActive}
+          onPressItem={handleOpenProspect}
+        />
       );
     },
-    [c.tint, handleOpenProspect],
+    [handleOpenProspect],
   );
+
+  const eyebrowText = boardEntries.length
+    ? `My Rankings · ${boardEntries.length} ${boardEntries.length === 1 ? 'Prospect' : 'Prospects'}`
+    : 'My Rankings';
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: c.background }]} edges={['top']}>
       <PageHeader title="My Board" />
 
       <PremiumGate feature="prospect_board" mode="teaser">
-        <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>
-          Drag to set your personal rankings
-        </ThemedText>
+        {/* Eyebrow — gold rule + varsity caps. Replaces the floating subtitle
+            and the "YOUR RANKINGS / vs staff" header row. */}
+        <View style={styles.eyebrowRow}>
+          <View style={[styles.eyebrowRule, { backgroundColor: c.gold }]} />
+          <ThemedText
+            type="varsitySmall"
+            style={[styles.eyebrowText, { color: c.gold }]}
+          >
+            {eyebrowText}
+          </ThemedText>
+          <View style={{ flex: 1 }} />
+          <ThemedText type="varsitySmall" style={[styles.vsStaff, { color: c.secondaryText }]}>
+            vs Staff
+          </ThemedText>
+        </View>
 
-        {/* Draft year tabs */}
+        {/* Year selector — underline-active (matches ByYearTab + ProspectsTab) */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          style={styles.tabsRow}
-          contentContainerStyle={styles.tabsContent}
+          style={styles.yearSelector}
+          contentContainerStyle={styles.yearRow}
         >
-          {DRAFT_YEARS.map(year => (
-            <TouchableOpacity
-              key={year}
-              style={[
-                styles.tab,
-                { borderColor: c.border },
-                draftYear === year && { backgroundColor: c.accent, borderColor: c.accent },
-              ]}
-              onPress={() => setDraftYear(year)}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: draftYear === year }}
-              accessibilityLabel={`${year} draft class`}
-            >
-              <ThemedText
-                style={[
-                  styles.tabText,
-                  { color: c.secondaryText },
-                  draftYear === year && styles.tabTextActive,
-                ]}
+          {DRAFT_YEARS.map(year => {
+            const active = draftYear === year;
+            return (
+              <TouchableOpacity
+                key={year}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={`${year} draft class`}
+                style={styles.yearTab}
+                onPress={() => setDraftYear(year)}
+                activeOpacity={0.7}
               >
-                {year}
-              </ThemedText>
-            </TouchableOpacity>
-          ))}
+                <ThemedText
+                  style={[
+                    styles.yearLabel,
+                    {
+                      fontFamily: active ? Fonts.display : Fonts.bodyMedium,
+                      color: active ? c.text : c.secondaryText,
+                    },
+                  ]}
+                >
+                  {year}
+                </ThemedText>
+                <View
+                  style={[
+                    styles.yearUnderline,
+                    { backgroundColor: active ? c.gold : 'transparent' },
+                  ]}
+                />
+              </TouchableOpacity>
+            );
+          })}
         </ScrollView>
 
-        {/* Board header */}
-        <View style={styles.headerRow}>
-          <ThemedText type="defaultSemiBold" style={[styles.yourRankings, { color: c.text }]}>
-            YOUR RANKINGS
-          </ThemedText>
-          <ThemedText style={[styles.vsStaff, { color: c.secondaryText }]}>
-            vs staff
-          </ThemedText>
-        </View>
+        <ThemedText style={[styles.helperText, { color: c.secondaryText }]}>
+          Drag to set your rankings.
+        </ThemedText>
 
         {boardLoading ? (
           <View style={styles.center}>
@@ -217,60 +230,51 @@ export default function ProspectBoardScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  subtitle: {
-    fontSize: ms(11),
-    textAlign: 'center',
-    marginTop: s(4),
-    marginBottom: s(4),
-  },
-  tabsRow: { flexGrow: 0 },
-  tabsContent: {
-    paddingHorizontal: s(12),
-    paddingVertical: s(8),
-    gap: s(6),
-  },
-  tab: {
-    paddingHorizontal: s(14),
-    paddingVertical: s(5),
-    borderRadius: 20,
-    borderWidth: 1,
-  },
-  tabText: {
-    fontSize: ms(12),
-    fontWeight: '500',
-  },
-  tabTextActive: {
-    color: '#fff',
-  },
-  headerRow: {
+
+  // Eyebrow — matches Section primitive's gold rule + sectionLabel rhythm
+  eyebrowRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    gap: s(10),
     paddingHorizontal: s(16),
-    marginTop: s(4),
-    marginBottom: s(8),
+    paddingTop: s(12),
+    paddingBottom: s(6),
   },
-  yourRankings: {
-    fontSize: ms(11),
-    letterSpacing: 0.5,
+  eyebrowRule: { height: 2, width: s(18) },
+  eyebrowText: { fontSize: ms(10), letterSpacing: 1.4 },
+  vsStaff: { fontSize: ms(10), letterSpacing: 1.2 },
+
+  // Year selector — text + gold-underline active
+  yearSelector: { flexGrow: 0 },
+  yearRow: {
+    paddingHorizontal: s(16),
+    paddingTop: s(2),
+    paddingBottom: s(4),
+    gap: s(20),
   },
-  vsStaff: {
-    fontSize: ms(10),
-  },
-  rankRow: {
-    flexDirection: 'row',
+  yearTab: {
     alignItems: 'center',
-    paddingLeft: s(12),
+    paddingTop: s(2),
   },
-  rankLabel: {
-    fontSize: ms(16),
-    fontWeight: '700',
-    width: s(26),
-    textAlign: 'center',
+  yearLabel: {
+    fontSize: ms(18),
+    lineHeight: ms(22),
+    letterSpacing: -0.2,
   },
-  rankCard: {
-    flex: 1,
+  yearUnderline: {
+    marginTop: s(4),
+    height: 2,
+    width: '100%',
+    minWidth: s(28),
   },
+
+  helperText: {
+    fontSize: ms(11),
+    paddingHorizontal: s(16),
+    paddingTop: s(6),
+    paddingBottom: s(8),
+  },
+
   center: {
     flex: 1,
     alignItems: 'center',
@@ -279,5 +283,6 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingBottom: s(100),
+    paddingTop: s(4),
   },
 });

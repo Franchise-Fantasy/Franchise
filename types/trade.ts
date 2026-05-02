@@ -67,6 +67,9 @@ export interface TradeBuilderPlayer {
   position: string;
   pro_team: string;
   avg_fpts: number;
+  /** NBA headshot external ID — populated from picker selection or
+   *  back-filled by the post-seed fetch for counteroffer/edit flows. */
+  external_id_nba?: string | null;
   to_team_id: string; // destination team for this asset
 }
 
@@ -129,4 +132,50 @@ export function formatPickLabelShort(season: string, round: number): string {
 export function formatProtection(threshold: number | undefined | null): string {
   if (!threshold) return '';
   return `Top-${threshold} protected`;
+}
+
+/**
+ * Compact continuation for the protection "story line" in
+ * `<PickConditionRow>`. Sits next to a lock-icon `Badge` (e.g. "TOP-1")
+ * and explains the consequence in arrow form using the shortest team
+ * label the caller can give (typically a tricode).
+ *
+ * Semantics — protection "holds" when the lottery slot is INSIDE the
+ * threshold (e.g. landing #1 with a Top-1 protection). When that
+ * happens, ownership reverts to `protectionOwnerLabel`. When the
+ * protection misses, the pick conveys to `currentTeamLabel`.
+ *
+ * - `holds = 'pending'`: pre-lottery — both branches with a slot range
+ *    arrow (`#1 → RH · else SPO` / `#1-4 → LAL · else OKC`).
+ * - `holds = true`: post-lottery, protection activated.
+ * - `holds = false`: post-lottery, pick conveyed.
+ */
+export function formatProtectionStory(
+  threshold: number,
+  protectionOwnerLabel: string,
+  currentTeamLabel: string,
+  holds: boolean | 'pending',
+): string {
+  // The leading "TOP-N" badge already communicates the threshold and
+  // the "if protection holds" semantic, so the story just names the two
+  // outcomes. Threshold is intentionally unused here.
+  void threshold;
+  if (holds === 'pending') {
+    return `${protectionOwnerLabel} · else ${currentTeamLabel}`;
+  }
+  if (holds) {
+    return `Kept by ${protectionOwnerLabel}`;
+  }
+  return `Conveyed to ${currentTeamLabel}`;
+}
+
+/**
+ * Compact continuation for a pick swap. Sits next to a swap-icon
+ * `Badge variant="turf"` and names where the better pick lands.
+ */
+export function formatSwapStory(
+  beneficiaryLabel: string,
+  _counterpartyLabel: string,
+): string {
+  return `Better pick → ${beneficiaryLabel}`;
 }

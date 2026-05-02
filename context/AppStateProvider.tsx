@@ -24,6 +24,17 @@ export const useAppState = () => {
   return context;
 };
 
+/**
+ * Non-throwing variant — returns null when consumed outside an
+ * AppStateProvider. Use only for components that legitimately render
+ * above the provider (e.g. PushSoftPrompt in AuthProvider) and whose
+ * downstream hooks (useColors, useActiveLeagueSport) need to fall back
+ * to a default rather than crash.
+ */
+export const useOptionalAppState = (): AppState | null => {
+  return useContext(AppStateContext);
+};
+
 export const AppStateProvider = ({ children }: { children: React.ReactNode }) => {
   const session = useSession();
   const initialized = useAuthInitialized();

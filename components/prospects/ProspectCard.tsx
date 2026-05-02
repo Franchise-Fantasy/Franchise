@@ -2,7 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { memo, useMemo } from 'react';
 import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-import { Colors, cardShadow } from '@/constants/Colors';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Colors, Fonts, cardShadow } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { ProspectCardData } from '@/types/prospect';
 import { ms, s } from '@/utils/scale';
@@ -19,7 +20,13 @@ interface ProspectCardProps {
   alreadyOnBoard?: boolean;
 }
 
-function ProspectCardBase({ prospect, rank, onOpenProspect, onAddProspectToBoard, alreadyOnBoard }: ProspectCardProps) {
+function ProspectCardBase({
+  prospect,
+  rank,
+  onOpenProspect,
+  onAddProspectToBoard,
+  alreadyOnBoard,
+}: ProspectCardProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
 
@@ -32,6 +39,11 @@ function ProspectCardBase({ prospect, rank, onOpenProspect, onAddProspectToBoard
   const handleAdd = () => onAddProspectToBoard?.(prospect);
   const showAdd = !!onAddProspectToBoard && !alreadyOnBoard;
 
+  // Meta tail (school + class year) — Inter body, secondary
+  const metaTail = prospect.classYear
+    ? `${prospect.school} · ${prospect.classYear}`
+    : prospect.school;
+
   return (
     <TouchableOpacity
       style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}
@@ -40,11 +52,16 @@ function ProspectCardBase({ prospect, rank, onOpenProspect, onAddProspectToBoard
       accessibilityRole="button"
       accessibilityLabel={`${prospect.name}, ${prospect.position}, ${prospect.school}, dynasty score ${prospect.dynastyValueScore}`}
     >
-      {/* Rank number */}
-      <Text style={[styles.rank, { color: c.tint }]}>{rank}</Text>
+      {/* Rank — Alfa Slab + thin gold side-rule (matches the ByYearTab
+          pick-row treatment). The rule keeps tight visual rhythm with
+          the draft surface. */}
+      <View style={styles.rankCol}>
+        <View style={[styles.rankRule, { backgroundColor: c.gold }]} />
+        <Text style={[styles.rank, { color: c.text }]}>{rank}</Text>
+      </View>
 
-      {/* Avatar with gold ring */}
-      <View style={[styles.avatarRing, { borderColor: c.heritageGold }]}>
+      {/* Avatar with sport-aware gold ring */}
+      <View style={[styles.avatarRing, { borderColor: c.gold }]}>
         {prospect.photoUrl ? (
           <Image
             source={{ uri: prospect.photoUrl }}
@@ -53,20 +70,31 @@ function ProspectCardBase({ prospect, rank, onOpenProspect, onAddProspectToBoard
           />
         ) : (
           <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: c.cardAlt }]}>
-            <Text style={[styles.initials, { color: c.accent }]}>{initials}</Text>
+            <Text style={[styles.initials, { color: c.text }]}>{initials}</Text>
           </View>
         )}
       </View>
 
-      {/* Player info */}
+      {/* Player info — name (bold body), then position varsity caps + school/class */}
       <View style={styles.info}>
         <Text style={[styles.name, { color: c.text }]} numberOfLines={1}>
           {prospect.name}
         </Text>
-        <Text style={[styles.meta, { color: c.secondaryText }]}>
-          {prospect.position} · {prospect.school}
-          {prospect.classYear ? ` · ${prospect.classYear}` : ''}
-        </Text>
+        <View style={styles.metaRow}>
+          <ThemedText
+            type="varsitySmall"
+            style={[styles.position, { color: c.gold }]}
+          >
+            {prospect.position}
+          </ThemedText>
+          <Text style={[styles.metaDot, { color: c.secondaryText }]}>·</Text>
+          <Text
+            style={[styles.metaTail, { color: c.secondaryText }]}
+            numberOfLines={1}
+          >
+            {metaTail}
+          </Text>
+        </View>
       </View>
 
       {/* Dynasty score pill */}
@@ -86,12 +114,17 @@ function ProspectCardBase({ prospect, rank, onOpenProspect, onAddProspectToBoard
           accessibilityRole="button"
           accessibilityLabel={`Add ${prospect.name} to my board`}
         >
-          <Ionicons name="add" size={16} color={c.accent} />
+          <Ionicons name="add" size={16} color={c.gold} />
         </TouchableOpacity>
       )}
 
       {/* Chevron */}
-      <Ionicons name="chevron-forward" size={16} color={c.secondaryText} style={styles.chevron} />
+      <Ionicons
+        name="chevron-forward"
+        size={16}
+        color={c.secondaryText}
+        style={styles.chevron}
+      />
     </TouchableOpacity>
   );
 }
@@ -120,14 +153,25 @@ const styles = StyleSheet.create({
     padding: s(10),
     flexDirection: 'row',
     alignItems: 'center',
-    gap: s(9),
+    gap: s(10),
     ...cardShadow,
   },
+  rankCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(8),
+  },
+  rankRule: {
+    width: 3,
+    height: s(22),
+  },
   rank: {
-    fontSize: ms(18),
-    fontWeight: '700',
+    fontFamily: Fonts.display,
+    fontSize: ms(20),
+    lineHeight: ms(24),
+    letterSpacing: -0.3,
     minWidth: s(22),
-    textAlign: 'center',
+    textAlign: 'left',
   },
   avatarRing: {
     width: s(40),
@@ -152,14 +196,27 @@ const styles = StyleSheet.create({
   },
   info: {
     flex: 1,
+    minWidth: 0,
   },
   name: {
-    fontSize: ms(13),
+    fontSize: ms(14),
     fontWeight: '700',
+    letterSpacing: -0.1,
   },
-  meta: {
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(5),
+    marginTop: s(2),
+  },
+  position: {
     fontSize: ms(10),
-    marginTop: 1,
+    letterSpacing: 1.4,
+  },
+  metaDot: { fontSize: ms(10) },
+  metaTail: {
+    fontSize: ms(11),
+    flexShrink: 1,
   },
   addBtn: {
     width: s(28),

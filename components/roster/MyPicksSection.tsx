@@ -5,7 +5,8 @@ import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
-import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
+import { formatSeason, getCurrentSeason, parseSeasonStartYear } from '@/constants/LeagueDefaults';
+import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useTeamTradablePicks } from '@/hooks/useTrades';
 import { formatPickLabel } from '@/types/trade';
@@ -28,12 +29,13 @@ export function MyPicksSection({ teamId, leagueId, isDynasty }: MyPicksSectionPr
   const c = Colors[scheme];
   const router = useRouter();
   const [expanded, setExpanded] = useState(false);
+  const sport = useActiveLeagueSport(leagueId);
 
   const { data: picks } = useTeamTradablePicks(teamId, leagueId, true);
 
   // The upcoming rookie draft season is the one immediately following the current season
-  const upcomingStartYear = parseInt(CURRENT_NBA_SEASON.split('-')[0], 10) + 1;
-  const upcomingSeason = `${upcomingStartYear}-${String((upcomingStartYear + 1) % 100).padStart(2, '0')}`;
+  const upcomingStartYear = parseSeasonStartYear(getCurrentSeason(sport)) + 1;
+  const upcomingSeason = formatSeason(upcomingStartYear, sport);
 
   if (!isDynasty) return null;
   if (!picks || picks.length === 0) return null;

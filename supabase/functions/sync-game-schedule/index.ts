@@ -15,9 +15,10 @@
  */
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 import { bdlFetchAll, type Sport } from "../_shared/bdl.ts";
+import { recordHeartbeat } from "../_shared/heartbeat.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -80,6 +81,7 @@ Deno.serve(async (req: Request) => {
     });
 
     if (!bdlGames || bdlGames.length === 0) {
+      await recordHeartbeat(supabase, `sync-game-schedule:${sport}`, 'ok');
       return new Response(
         JSON.stringify({ ok: true, sport, season: targetSeason, games: 0, note: "BDL returned no games" }),
         { status: 200, headers: jsonHeaders },
@@ -124,6 +126,7 @@ Deno.serve(async (req: Request) => {
       upserted += chunk.length;
     }
 
+    await recordHeartbeat(supabase, `sync-game-schedule:${sport}`, 'ok');
     return new Response(
       JSON.stringify({
         ok: true,
@@ -136,6 +139,7 @@ Deno.serve(async (req: Request) => {
     );
   } catch (err: any) {
     console.error("sync-game-schedule error:", err?.message ?? err);
+    await recordHeartbeat(supabase, `sync-game-schedule:${sport}`, 'error', err?.message ?? String(err));
     return new Response(
       JSON.stringify({ error: err?.message ?? String(err) }),
       { status: 500, headers: jsonHeaders },
