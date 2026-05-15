@@ -1,23 +1,32 @@
-// Edge-function version of illegal-IR detection.
-// Keep in sync with utils/illegalIR.ts on the client.
+// Edge-function illegal-IR detection.
+//
+// Pure helpers (constants, types, formatter, extractor) come from
+// utils/roster/illegalIRShared.ts and are byte-identical between client and
+// edge. Only the DB-touching fetcher lives here, because edge functions pass
+// their own supabase client as a parameter rather than importing the module
+// singleton like the client does.
 
-export const IR_ELIGIBLE_STATUSES = new Set(["OUT", "SUSP", "DOUBT", "QUES"]);
+import {
+  extractIllegalIRPlayers,
+  formatIllegalIRError,
+  IR_ELIGIBLE_STATUSES,
+  isIrEligibleStatus,
+  type IllegalIRPlayer,
+} from '../../../utils/roster/illegalIRShared.ts';
 
-export interface IllegalIRPlayer {
-  player_id: string;
-  name: string;
-  status: string | null;
-}
-
-export function isIrEligibleStatus(status: string | null | undefined): boolean {
-  return IR_ELIGIBLE_STATUSES.has(status ?? "");
-}
+export {
+  formatIllegalIRError,
+  IR_ELIGIBLE_STATUSES,
+  isIrEligibleStatus,
+  type IllegalIRPlayer,
+};
 
 /**
  * `exemptPlayerIds` — players to ignore when computing the illegal set. Used
  * when the caller's action already resolves the lockout for those players
  * (e.g. the pending trade drops them, or a direct-drop is dropping them).
  */
+// deno-lint-ignore no-explicit-any
 export async function fetchIllegalIRPlayers(
   supabase: any,
   leagueId: string,
@@ -41,25 +50,5 @@ export async function fetchIllegalIRPlayers(
     .in("id", playerIds);
   if (pErr) throw pErr;
 
-  const exempt = new Set(exemptPlayerIds);
-  const illegal: IllegalIRPlayer[] = [];
-  for (const p of players ?? []) {
-    if (isIrEligibleStatus(p.status)) continue;
-    if (exempt.has(p.id)) continue;
-    illegal.push({
-      player_id: p.id,
-      name: p.name ?? "Unknown",
-      status: p.status ?? null,
-    });
-  }
-  return illegal;
-}
-
-export function formatIllegalIRError(players: IllegalIRPlayer[]): string {
-  if (players.length === 0) return "";
-  const names = players.map((p) => p.name).join(", ");
-  if (players.length === 1) {
-    return `${names} is on IR but no longer injured. Move them off IR before making other roster moves.`;
-  }
-  return `${names} are on IR but no longer injured. Move them off IR before making other roster moves.`;
+  return extractIllegalIRPlayers(players ?? [], exemptPlayerIds);
 }

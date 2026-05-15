@@ -2,20 +2,22 @@ import { Alert } from "react-native";
 
 import { supabase } from "@/lib/supabase";
 
-// Injury statuses that allow a player to remain on IR.
-// Anything else (null, 'active', 'PROB') counts as "healthy enough to play"
-// and means the player is not IR-eligible.
-export const IR_ELIGIBLE_STATUSES = new Set(["OUT", "SUSP", "DOUBT", "QUES"]);
+import {
+  extractIllegalIRPlayers,
+  formatIllegalIRError,
+  IR_ELIGIBLE_STATUSES,
+  isIrEligibleStatus,
+  type IllegalIRPlayer,
+} from "@/utils/roster/illegalIRShared";
 
-export interface IllegalIRPlayer {
-  player_id: string;
-  name: string;
-  status: string | null;
-}
-
-export function isIrEligibleStatus(status: string | null | undefined): boolean {
-  return IR_ELIGIBLE_STATUSES.has(status ?? "");
-}
+// Re-export the shared pure helpers so existing client call sites
+// (`@/utils/roster/illegalIR`) keep working unchanged.
+export {
+  formatIllegalIRError,
+  IR_ELIGIBLE_STATUSES,
+  isIrEligibleStatus,
+  type IllegalIRPlayer,
+};
 
 /**
  * A player is "illegally on IR" if their roster_slot is IR but their injury
@@ -50,27 +52,7 @@ export async function fetchIllegalIRPlayers(
     .in("id", playerIds);
   if (pErr) throw pErr;
 
-  const exempt = new Set(exemptPlayerIds);
-  const illegal: IllegalIRPlayer[] = [];
-  for (const p of players ?? []) {
-    if (isIrEligibleStatus(p.status)) continue;
-    if (exempt.has(p.id)) continue;
-    illegal.push({
-      player_id: p.id,
-      name: p.name ?? "Unknown",
-      status: p.status ?? null,
-    });
-  }
-  return illegal;
-}
-
-export function formatIllegalIRError(players: IllegalIRPlayer[]): string {
-  if (players.length === 0) return "";
-  if (players.length === 1) {
-    return `${players[0].name} is on IR but no longer injured. Move them off IR before making other roster moves.`;
-  }
-  const names = players.map((p) => p.name).join(", ");
-  return `${names} are on IR but no longer injured. Move them off IR before making other roster moves.`;
+  return extractIllegalIRPlayers(players ?? [], exemptPlayerIds);
 }
 
 /**
