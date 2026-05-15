@@ -4,35 +4,7 @@ import { notifyTeams, notifyLeague } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { checkPositionLimits } from '../_shared/positionLimits.ts';
-
-// Position eligibility.
-// ⚠️ KEEP IN SYNC with utils/rosterSlots.ts and
-//    supabase/functions/autodraft/index.ts.
-// Deno edge functions can't import from the RN utils folder, so this is
-// duplicated. Update all three together or drafting will desync.
-const POSITION_SPECTRUM = ['PG', 'SG', 'SF', 'PF', 'C'];
-const SLOT_ELIGIBLE_POSITIONS: Record<string, string[]> = {
-  PG: ['PG'], SG: ['SG'], SF: ['SF'], PF: ['PF'], C: ['C'],
-  G: ['PG', 'SG'], F: ['SF', 'PF'],
-};
-
-function getEligiblePositions(playerPosition: string): string[] {
-  const parts = playerPosition.split('-');
-  const indices = parts.map(p => POSITION_SPECTRUM.indexOf(p)).filter(i => i >= 0);
-  if (indices.length === 0) return [];
-  if (indices.length === 1) return [POSITION_SPECTRUM[indices[0]]];
-  const min = Math.min(...indices);
-  const max = Math.max(...indices);
-  return POSITION_SPECTRUM.slice(min, max + 1);
-}
-
-function isEligibleForSlot(playerPosition: string, slotPosition: string): boolean {
-  const base = /^UTIL\d+$/.test(slotPosition) ? 'UTIL' : slotPosition;
-  if (['UTIL', 'BE', 'IR'].includes(base)) return true;
-  const eligible = SLOT_ELIGIBLE_POSITIONS[base];
-  if (!eligible) return false;
-  return getEligiblePositions(playerPosition).some(pos => eligible.includes(pos));
-}
+import { isEligibleForSlot } from '../../../utils/roster/rosterSlotsShared.ts';
 
 // Find the best roster_slot for a newly drafted player
 async function findBestSlot(

@@ -3,35 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { Receiver } from 'https://esm.sh/@upstash/qstash';
 import { notifyTeams, notifyLeague } from '../_shared/push.ts';
 import { checkPositionLimits } from '../_shared/positionLimits.ts';
-
-// Position eligibility.
-// ⚠️ KEEP IN SYNC with utils/rosterSlots.ts and
-//    supabase/functions/make-draft-pick/index.ts.
-// Deno edge functions can't import from the RN utils folder, so this is
-// duplicated. Update all three together or drafting will desync.
-const POSITION_SPECTRUM = ['PG', 'SG', 'SF', 'PF', 'C'];
-const SLOT_ELIGIBLE_POSITIONS: Record<string, string[]> = {
-  PG: ['PG'], SG: ['SG'], SF: ['SF'], PF: ['PF'], C: ['C'],
-  G: ['PG', 'SG'], F: ['SF', 'PF'],
-};
-
-function getEligiblePositions(playerPosition: string): string[] {
-  const parts = playerPosition.split('-');
-  const indices = parts.map(p => POSITION_SPECTRUM.indexOf(p)).filter(i => i >= 0);
-  if (indices.length === 0) return [];
-  if (indices.length === 1) return [POSITION_SPECTRUM[indices[0]]];
-  const min = Math.min(...indices);
-  const max = Math.max(...indices);
-  return POSITION_SPECTRUM.slice(min, max + 1);
-}
-
-function isEligibleForSlot(playerPosition: string, slotPosition: string): boolean {
-  const base = /^UTIL\d+$/.test(slotPosition) ? 'UTIL' : slotPosition;
-  if (['UTIL', 'BE', 'IR'].includes(base)) return true;
-  const eligible = SLOT_ELIGIBLE_POSITIONS[base];
-  if (!eligible) return false;
-  return getEligiblePositions(playerPosition).some(pos => eligible.includes(pos));
-}
+import { isEligibleForSlot } from '../../../utils/roster/rosterSlotsShared.ts';
 
 // Pure variant: takes pre-fetched roster config + current roster so the caller
 // can batch the underlying queries with the rest of phase-2 reads.
