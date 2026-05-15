@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 
 import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
-import { supabase } from '@/lib/supabase';
+import { supabase, uniqueChannelTopic } from '@/lib/supabase';
 import type { ConversationPreview } from '@/types/chat';
 
 
@@ -18,7 +18,7 @@ function useChatMessageSubscription(leagueId: string | null) {
   useEffect(() => {
     if (!leagueId) return;
     const channel = supabase
-      .channel(`chat_messages_${leagueId}-${Date.now()}`)
+      .channel(uniqueChannelTopic(`chat_messages_${leagueId}`))
       .on(
         'postgres_changes',
         {

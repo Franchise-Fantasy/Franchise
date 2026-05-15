@@ -1,25 +1,28 @@
 import { Image } from "expo-image";
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
   StyleSheet,
   Text,
+  TextStyle,
   TouchableOpacity,
   View,
 } from "react-native";
 
-import { Colors } from "@/constants/Colors";
+import { MatchupChip } from "@/components/player/MatchupChip";
+import { PlayerHeadshotImage } from "@/components/player/PlayerHeadshotImage";
+import { Colors, Fonts } from "@/constants/Colors";
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { ScoringWeight } from "@/types/player";
+import { abbreviateFirstName } from "@/utils/formatting";
 import { getInjuryBadge } from "@/utils/nba/injuryBadge";
 import {
   formatGameInfo,
   LivePlayerStats,
   liveToGameLog,
 } from "@/utils/nba/nbaLive";
-import { formatGameTime, ScheduleEntry } from "@/utils/nba/nbaSchedule";
-import { getPlayerHeadshotUrl, PLAYER_SILHOUETTE } from "@/utils/nba/playerHeadshot";
+import { ScheduleEntry } from "@/utils/nba/nbaSchedule";
 import { ms, s } from "@/utils/scale";
 import { calculateGameFantasyPoints, formatScore } from "@/utils/scoring/fantasyPoints";
 
@@ -53,23 +56,65 @@ export function round1(n: number) {
 }
 
 // Build a stat line string for a live/historical stat object.
-// Only includes stats that the league actually scores.
+// Compact single-letter labels keep the line readable in the narrow
+// per-side cell where the matchup page splits horizontal space.
+// Zero-value categories are dropped so the line shows only what the
+// player actually produced.
 export function buildStatLine(
   stats: Record<string, number>,
   _scoring: ScoringWeight[],
 ): string {
-  const LIVE_KEY: Record<string, string> = {
-    PTS: "pts",
-    REB: "reb",
-    AST: "ast",
-  };
-
-  return ["PTS", "REB", "AST"]
-    .map((key) => `${stats[LIVE_KEY[key]] ?? 0} ${key}`)
-    .join(" · ");
+  const fields: [string, string][] = [
+    ["pts", "P"],
+    ["reb", "R"],
+    ["ast", "A"],
+  ];
+  return fields
+    .filter(([key]) => (stats[key] ?? 0) > 0)
+    .map(([key, label]) => `${stats[key]}${label}`)
+    .join(" ");
 }
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
+
+// Player-name renderer that swaps to "F. LastName" only when the full name
+// would clip to a second line. A hidden Text in the same flex slot reports
+// its natural line count via onTextLayout — > 1 line means abbreviate.
+function PlayerName({
+  name,
+  style,
+  textAlign,
+}: {
+  name: string;
+  style: TextStyle | TextStyle[];
+  textAlign: "left" | "right";
+}) {
+  const [overflows, setOverflows] = useState(false);
+  const display = overflows ? abbreviateFirstName(name) : name;
+  return (
+    <View style={{ flexShrink: 1 }}>
+      {!overflows && (
+        <Text
+          style={[
+            style,
+            { position: "absolute", opacity: 0, textAlign },
+          ]}
+          onTextLayout={(e) => {
+            if (e.nativeEvent.lines.length > 1) setOverflows(true);
+          }}
+          pointerEvents="none"
+          accessibilityElementsHidden
+          importantForAccessibility="no"
+        >
+          {name}
+        </Text>
+      )}
+      <Text style={[style, { textAlign }]} numberOfLines={1}>
+        {display}
+      </Text>
+    </View>
+  );
+}
 
 // Static green dot shown when player is actively on the floor.
 function OnCourtDot() {
@@ -138,46 +183,6 @@ function AnimatedFpts({
           : formatScore(value)
         : "—"}
     </Animated.Text>
-  );
-}
-
-// ─── Sub-components: Matchup Chip ────────────────────────────────────────────
-
-function MatchupChip({
-  matchup,
-  isLive,
-  cardAlt,
-  secondaryText,
-  successColor,
-  gameTimeUtc,
-}: {
-  matchup: string;
-  isLive: boolean;
-  cardAlt: string;
-  secondaryText: string;
-  successColor: string;
-  gameTimeUtc?: string | null;
-}) {
-  const timeLabel = gameTimeUtc && !isLive ? formatGameTime(gameTimeUtc) : null;
-  const display = timeLabel ? `${matchup} · ${timeLabel}` : matchup;
-  return (
-    <View
-      style={[
-        pStyles.matchupChip,
-        { backgroundColor: cardAlt },
-        isLive && [pStyles.matchupChipLive, { borderColor: successColor }],
-      ]}
-      accessibilityLabel={`Matchup: ${matchup}${timeLabel ? `, ${timeLabel}` : ""}${isLive ? ", live" : ""}`}
-    >
-      <Text
-        style={[
-          pStyles.matchupChipText,
-          { color: isLive ? successColor : secondaryText },
-        ]}
-      >
-        {display}
-      </Text>
-    </View>
   );
 }
 
@@ -252,7 +257,6 @@ export const PlayerCell = React.memo(function PlayerCell({
       }
     : { accessibilityLabel: `${player.name}, ${player.position}` };
 
-  const headshotUrl = getPlayerHeadshotUrl(player.external_id_nba, sport);
   const headshotEl = (
     <View
       style={[
@@ -261,13 +265,10 @@ export const PlayerCell = React.memo(function PlayerCell({
       ]}
       accessibilityLabel={`${player.name} headshot`}
     >
-      <Image
-        source={headshotUrl ? { uri: headshotUrl } : PLAYER_SILHOUETTE}
+      <PlayerHeadshotImage
+        externalIdNba={player.external_id_nba}
+        sport={sport}
         style={pStyles.headshotImg}
-        contentFit="cover"
-        cachePolicy="memory-disk"
-        recyclingKey={headshotUrl ?? "silhouette"}
-        placeholder={PLAYER_SILHOUETTE}
       />
     </View>
   );
@@ -331,15 +332,11 @@ export const PlayerCell = React.memo(function PlayerCell({
                 <Text style={[pStyles.injuryText, { color: c.statusText }]}>{injuryBadge.label}</Text>
               </View>
             )}
-            <Text
-              style={[
-                pStyles.name,
-                { color: c.text, flexShrink: 1, textAlign },
-              ]}
-              numberOfLines={1}
-            >
-              {player.name}
-            </Text>
+            <PlayerName
+              name={player.name}
+              style={[pStyles.name, { color: c.text }]}
+              textAlign={textAlign}
+            />
             {side === "left" && injuryBadge && (
               <View
                 style={[
@@ -351,39 +348,42 @@ export const PlayerCell = React.memo(function PlayerCell({
               </View>
             )}
           </View>
-          {/* Line 2: matchup chip with game time */}
-          <View
-            style={[
-              pStyles.gameInfoRow,
-              { justifyContent: align, flexDirection: rowDir },
-            ]}
-          >
-            {schedEntry ? (
-              <MatchupChip
-                matchup={schedEntry.matchup}
-                isLive={false}
-                cardAlt={c.cardAlt}
-                secondaryText={c.secondaryText}
-                successColor={c.success}
-                gameTimeUtc={schedEntry.gameTimeUtc}
-              />
-            ) : (
-              <Text style={[pStyles.meta, { color: c.secondaryText }]}>
-                {player.position}
-              </Text>
-            )}
+          {/* Line 2: position label — kept visible pre-game so we don't lose
+              the at-a-glance "what does this player do" cue. */}
+          <View style={[pStyles.gameInfoRow, { justifyContent: align }]}>
+            <Text style={[pStyles.meta, { color: c.secondaryText }]}>
+              {player.position}
+            </Text>
           </View>
-          {/* Line 3: 0.0 if has game, — if not */}
-          {!isCategories && (
-            <View style={[pStyles.statsRow, { flexDirection: rowDir }]}>
-              <Text
-                style={[
-                  pStyles.pts,
-                  { color: schedEntry ? c.text : c.secondaryText, textAlign },
-                ]}
-              >
-                {schedEntry ? "0.0" : "—"}
-              </Text>
+          {/* Line 3: matchup chip + tipoff (replaces a meaningless 0.0).
+              Mirrors the roster pre-game treatment — chip in place of FPTS.
+              For CAT leagues we still want the chip (so users can see when
+              tipoff is) but drop the "—" fallback since there's no fpts to
+              stand in for. */}
+          {(schedEntry || !isCategories) && (
+            <View
+              style={[
+                pStyles.statsRow,
+                { justifyContent: align, flexDirection: rowDir },
+              ]}
+            >
+              {schedEntry ? (
+                <MatchupChip
+                  matchup={schedEntry.matchup}
+                  isLive={false}
+                  c={c}
+                  gameTimeUtc={schedEntry.gameTimeUtc}
+                />
+              ) : (
+                <Text
+                  style={[
+                    pStyles.pts,
+                    { color: c.secondaryText, textAlign },
+                  ]}
+                >
+                  —
+                </Text>
+              )}
             </View>
           )}
         </View>
@@ -430,15 +430,11 @@ export const PlayerCell = React.memo(function PlayerCell({
               </View>
             )}
             {side === "right" && liveStats.oncourt && isLive && <OnCourtDot />}
-            <Text
-              style={[
-                pStyles.name,
-                { color: c.text, flexShrink: 1, textAlign },
-              ]}
-              numberOfLines={1}
-            >
-              {player.name}
-            </Text>
+            <PlayerName
+              name={player.name}
+              style={[pStyles.name, { color: c.text }]}
+              textAlign={textAlign}
+            />
             {side === "left" && liveStats.oncourt && isLive && <OnCourtDot />}
             {side === "left" && injuryBadge && (
               <View
@@ -460,7 +456,10 @@ export const PlayerCell = React.memo(function PlayerCell({
           >
             {gameInfo ? (
               <Text
-                style={[pStyles.meta, { color: c.secondaryText }]}
+                style={[
+                  pStyles.gameInfo,
+                  { color: c.secondaryText, flexShrink: 1 },
+                ]}
                 numberOfLines={1}
               >
                 {gameInfo}
@@ -470,9 +469,7 @@ export const PlayerCell = React.memo(function PlayerCell({
               <MatchupChip
                 matchup={liveStats.matchup}
                 isLive={isLive}
-                cardAlt={c.cardAlt}
-                secondaryText={c.secondaryText}
-                successColor={c.success}
+                c={c}
               />
             ) : null}
           </View>
@@ -481,7 +478,7 @@ export const PlayerCell = React.memo(function PlayerCell({
             {statLine ? (
               <Text
                 style={[
-                  pStyles.meta,
+                  pStyles.statLine,
                   { color: c.secondaryText, flexShrink: 1 },
                 ]}
                 numberOfLines={1}
@@ -502,7 +499,10 @@ export const PlayerCell = React.memo(function PlayerCell({
   }
 
   // ── Past (no live stats) ──────────────────────────────────────────────────
-  const hasDayGame = player.dayPoints > 0;
+  // Gate on presence of a stat line / matchup, not dayPoints — bench players
+  // who played still need their stat line and matchup chip rendered even
+  // though their dayPoints stay at 0 (they don't contribute to the score).
+  const hasDayGame = !!(player.dayStatLine || player.dayMatchup);
   return (
     <Wrapper
       style={[
@@ -525,12 +525,11 @@ export const PlayerCell = React.memo(function PlayerCell({
               <Text style={[pStyles.injuryText, { color: c.statusText }]}>{injuryBadge.label}</Text>
             </View>
           )}
-          <Text
-            style={[pStyles.name, { color: c.text, flexShrink: 1, textAlign }]}
-            numberOfLines={1}
-          >
-            {player.name}
-          </Text>
+          <PlayerName
+            name={player.name}
+            style={[pStyles.name, { color: c.text }]}
+            textAlign={textAlign}
+          />
           {side === "left" && injuryBadge && (
             <View
               style={[
@@ -553,9 +552,7 @@ export const PlayerCell = React.memo(function PlayerCell({
             <MatchupChip
               matchup={player.dayMatchup}
               isLive={false}
-              cardAlt={c.cardAlt}
-              secondaryText={c.secondaryText}
-              successColor={c.success}
+              c={c}
             />
           ) : (
             <Text style={[pStyles.meta, { color: c.secondaryText }]}>
@@ -567,7 +564,7 @@ export const PlayerCell = React.memo(function PlayerCell({
         <View style={[pStyles.statsRow, { flexDirection: rowDir }]}>
           {hasDayGame && player.dayStatLine ? (
             <Text
-              style={[pStyles.meta, { color: c.secondaryText, flexShrink: 1 }]}
+              style={[pStyles.statLine, { color: c.secondaryText, flexShrink: 1 }]}
               numberOfLines={1}
             >
               {player.dayStatLine}
@@ -591,10 +588,12 @@ export const pStyles = StyleSheet.create({
   slotRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: s(6),
+    minHeight: s(64),
+    paddingVertical: s(8),
+    paddingHorizontal: s(8),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  cell: { flex: 1, paddingHorizontal: s(2) },
+  cell: { flex: 1 },
   slotCenter: { width: s(34), alignItems: "center", justifyContent: "center" },
   slotText: { fontSize: ms(10), fontWeight: "600" },
   nameRow: {
@@ -607,20 +606,53 @@ export const pStyles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: s(4),
-    marginTop: 1,
+    marginTop: s(3),
   },
   statsRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: s(6),
-    marginTop: 1,
+    gap: s(4),
+    marginTop: s(3),
   },
-  name: { fontSize: ms(12), fontWeight: "500" },
-  meta: { fontSize: ms(10) },
-  pts: { fontSize: ms(15), fontWeight: "700" },
-  matchupChip: { paddingHorizontal: s(4), paddingVertical: 1, borderRadius: 3 },
-  matchupChipLive: { borderWidth: 1 },
-  matchupChipText: { fontSize: ms(9), fontWeight: "600" },
+  // Explicit lineHeights below tighten the default text bounding boxes so
+  // the three rows in a player cell sit at visually equal vertical gaps.
+  // Default lineHeight on RN ≈ 1.3× fontSize, which makes the larger FPTS
+  // row (ms(15)) eat more vertical space than the smaller meta rows.
+  name: { fontSize: ms(12), fontWeight: "500", lineHeight: ms(14) },
+  // Position label + small body meta — Oswald varsity caps so it reads
+  // the same broadcast voice the roster page uses.
+  meta: {
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(10),
+    lineHeight: ms(13),
+    letterSpacing: 1.0,
+    textTransform: "uppercase",
+  },
+  // Live game time + score sits next to the matchup chip and competes for
+  // horizontal space, so it reads at a notch smaller than the rest of the
+  // varsity-caps voice.
+  gameInfo: {
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(8.5),
+    lineHeight: ms(11),
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  // Mono stat line ("20P 8R 5A") + FPTS — same family the roster slot uses
+  // so the two pages read as one numeric voice.
+  statLine: {
+    fontFamily: Fonts.mono,
+    fontSize: ms(10),
+    lineHeight: ms(13),
+    letterSpacing: 0.4,
+  },
+  pts: {
+    fontFamily: Fonts.mono,
+    fontSize: ms(15),
+    lineHeight: ms(16),
+    fontWeight: "700",
+    letterSpacing: 0.5,
+  },
   injuryBadge: { paddingHorizontal: s(4), paddingVertical: 1, borderRadius: 3 },
   injuryText: {
     fontSize: ms(8),

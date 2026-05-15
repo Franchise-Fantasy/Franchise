@@ -222,8 +222,63 @@ export const SPORT_THEMES: Record<string, AccentOverrides> = {
     },
   },
 
+  // NFL — league navy primary + league red accent. Dark mode lifts navy to
+  // a brighter sky-blue for tint/link so it reads against the warm dark
+  // background, and softens red so it doesn't compete with `danger`.
+  nfl: {
+    light: {
+      accent:           '#D50A0A',
+      gold:             '#D50A0A',
+      goldMuted:        'rgba(213, 10, 10, 0.18)',
+      tabIconSelected:  '#013369',
+      warning:          '#D50A0A',
+      warningMuted:     'rgba(213, 10, 10, 0.12)',
+      analyticsAccent:  '#D50A0A',
+      analyticsBg:      'rgba(213, 10, 10, 0.06)',
+      analyticsBorder:  'rgba(213, 10, 10, 0.18)',
+      tint:             '#013369',
+      activeBorder:     '#013369',
+      activeText:       '#013369',
+      activeCard:       'rgba(1, 51, 105, 0.10)',
+      link:             '#013369',
+      heroSurface:      '#013369',
+      heroShadow: {
+        shadowColor:   '#013369',
+        shadowOffset:  { width: 0, height: 6 },
+        shadowOpacity: 0.18,
+        shadowRadius:  16,
+        elevation:     6,
+      },
+      primary:          '#013369',
+    },
+    dark: {
+      accent:           '#B8332E',
+      gold:             '#B8332E',
+      goldMuted:        'rgba(184, 51, 46, 0.25)',
+      tint:             '#3A6FA8',
+      tabIconSelected:  '#3A6FA8',
+      warning:          '#B8332E',
+      warningMuted:     'rgba(184, 51, 46, 0.20)',
+      link:             '#3A6FA8',
+      analyticsAccent:  '#B8332E',
+      analyticsBg:      'rgba(184, 51, 46, 0.10)',
+      analyticsBorder:  'rgba(184, 51, 46, 0.22)',
+      activeBorder:     '#3A6FA8',
+      activeText:       '#3A6FA8',
+      activeCard:       'rgba(58, 111, 168, 0.20)',
+      heroSurface:      '#013369',
+      heroShadow: {
+        shadowColor:   '#013369',
+        shadowOffset:  { width: 0, height: 6 },
+        shadowOpacity: 0.18,
+        shadowRadius:  16,
+        elevation:     6,
+      },
+      primary:          '#013369',
+    },
+  },
+
   // ── Future sports — fill in when adding ──────────────────────────────
-  // nfl: { light: { accent: '#2A5C3D', gold: '#2A5C3D', ... }, dark: { ... } },
   // nhl: { light: { accent: '#2D7A8E', gold: '#2D7A8E', ... }, dark: { ... } },
   // mlb: { light: { accent: '#9C5A3F', gold: '#9C5A3F', ... }, dark: { ... } },
 };

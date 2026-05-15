@@ -7,7 +7,7 @@ import { NumberStepper } from '@/components/ui/NumberStepper';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ToggleRow } from '@/components/ui/ToggleRow';
 import { Colors, Fonts } from '@/constants/Colors';
-import { LeagueWizardState, NBA_POSITIONS, NbaPosition, PositionLimits, TAXI_EXPERIENCE_OPTIONS } from '@/constants/LeagueDefaults';
+import { getLimitablePositions, LeagueWizardState, LimitablePosition, PositionLimits, TAXI_EXPERIENCE_OPTIONS } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
 
@@ -23,6 +23,7 @@ export function StepRoster({ state, onSlotChange, onChange, onResetRoster }: Ste
   const c = Colors[scheme];
 
   const posLimitsEnabled = Object.keys(state.positionLimits ?? {}).length > 0;
+  const limitablePositions = getLimitablePositions(state.sport);
   const activeSlots = state.rosterSlots.filter((s) => s.position !== 'IR' && s.position !== 'TAXI');
   const irSlot = state.rosterSlots.find((s) => s.position === 'IR');
   const irIndex = state.rosterSlots.findIndex((s) => s.position === 'IR');
@@ -133,7 +134,11 @@ export function StepRoster({ state, onSlotChange, onChange, onResetRoster }: Ste
           description="Cap the total number of players at each position across your roster."
           value={posLimitsEnabled}
           onToggle={(on) => {
-            onChange('positionLimits', on ? { PG: 5, SG: 5, SF: 5, PF: 5, C: 5 } : {});
+            const seed: PositionLimits = {};
+            if (on) {
+              for (const pos of limitablePositions) seed[pos] = 5;
+            }
+            onChange('positionLimits', seed);
           }}
           c={{ border: c.border, accent: c.accent, secondaryText: c.secondaryText }}
           last
@@ -143,7 +148,7 @@ export function StepRoster({ state, onSlotChange, onChange, onResetRoster }: Ste
             <ThemedText style={[styles.extraNote, { color: c.secondaryText }]}>
               0 = no limit. Multi-position players count toward each eligible position.
             </ThemedText>
-            {NBA_POSITIONS.map((pos, i) => (
+            {limitablePositions.map((pos, i) => (
               <NumberStepper
                 key={pos}
                 label={pos}
@@ -151,15 +156,15 @@ export function StepRoster({ state, onSlotChange, onChange, onResetRoster }: Ste
                 onValueChange={(v) => {
                   const next: PositionLimits = { ...(state.positionLimits ?? {}) };
                   if (v === 0) {
-                    delete next[pos as NbaPosition];
+                    delete next[pos as LimitablePosition];
                   } else {
-                    next[pos as NbaPosition] = v;
+                    next[pos as LimitablePosition] = v;
                   }
                   onChange('positionLimits', next);
                 }}
                 min={0}
                 max={15}
-                last={i === NBA_POSITIONS.length - 1}
+                last={i === limitablePositions.length - 1}
               />
             ))}
           </View>

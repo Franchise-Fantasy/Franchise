@@ -7,12 +7,16 @@ import { BottomSheet } from '@/components/ui/BottomSheet';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { useArchiveColors } from '@/hooks/useArchiveColors';
 import type { ArchiveSeasonRow } from '@/hooks/useArchivePlayoffs';
+import type { ArchiveSport } from '@/utils/playoffArchive';
 import { ms, s } from '@/utils/scale';
 
 interface Props {
   seasons: ArchiveSeasonRow[];
   selected: number | null;
   onSelect: (season: number) => void;
+  /** Which sport's logo bucket to use for champion logos. Defaults to 'nba'.
+   *  NHL passes 'nhl' so champion logos load from pro-team-logos/nhl/. */
+  sport?: ArchiveSport;
 }
 
 // "2024–25" for season=2025.
@@ -28,7 +32,7 @@ const ROW_HEIGHT = s(56);
 // the champion in each row). Arrows step through seasons one at a time so
 // the user doesn't have to open the sheet for adjacent years — useful when
 // browsing surrounding seasons after looking at a specific bracket.
-export function SeasonDropdown({ seasons, selected, onSelect }: Props) {
+export function SeasonDropdown({ seasons, selected, onSelect, sport = 'nba' }: Props) {
   const c = useArchiveColors();
   const [open, setOpen] = useState(false);
 
@@ -135,6 +139,7 @@ export function SeasonDropdown({ seasons, selected, onSelect }: Props) {
         seasons={seasons}
         selected={selected}
         selectedIdx={selectedIdx}
+        sport={sport}
         onClose={() => setOpen(false)}
         onSelect={(season) => {
           onSelect(season);
@@ -150,6 +155,7 @@ interface SheetProps {
   seasons: ArchiveSeasonRow[];
   selected: number | null;
   selectedIdx: number;
+  sport: ArchiveSport;
   onClose: () => void;
   onSelect: (season: number) => void;
 }
@@ -162,6 +168,7 @@ function SeasonPickerSheet({
   seasons,
   selected,
   selectedIdx,
+  sport,
   onClose,
   onSelect,
 }: SheetProps) {
@@ -215,6 +222,7 @@ function SeasonPickerSheet({
           <SeasonRow
             row={item}
             isSelected={item.season === selected}
+            sport={sport}
             onPress={() => onSelect(item.season)}
           />
         )}
@@ -226,10 +234,12 @@ function SeasonPickerSheet({
 function SeasonRow({
   row,
   isSelected,
+  sport,
   onPress,
 }: {
   row: ArchiveSeasonRow;
   isSelected: boolean;
+  sport: ArchiveSport;
   onPress: () => void;
 }) {
   const c = useArchiveColors();
@@ -266,6 +276,13 @@ function SeasonRow({
             secondaryColor={row.champion_secondary_color}
             logoKey={row.champion_logo_key}
             size={s(22)}
+            sport={sport}
+            // Use the modern team logo for season-preview rows even when the
+            // champion's era branding differed (e.g. show Hurricanes logo for
+            // 1997 Whalers). The row text still carries the era-correct
+            // city/name (e.g. "Hartford Whalers"), so the user gets context
+            // without a tricode-on-color disc.
+            forceCurrentLogo
           />
         ) : null}
         <ThemedText

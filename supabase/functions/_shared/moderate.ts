@@ -50,7 +50,10 @@ export async function moderateImage(
     if (!response.ok) {
       const errText = await response.text();
       console.error("Vision API error:", response.status, errText);
-      return { safe: false, reason: "Image moderation unavailable" };
+      return {
+        safe: false,
+        reason: `Image moderation unavailable (Vision ${response.status}: ${errText.slice(0, 600)})`,
+      };
     }
 
     const data = await response.json();
@@ -59,14 +62,17 @@ export async function moderateImage(
     const imgError = data.responses?.[0]?.error;
     if (imgError) {
       console.error("Vision API image error:", JSON.stringify(imgError));
-      return { safe: false, reason: "Image moderation unavailable" };
+      return {
+        safe: false,
+        reason: `Image moderation unavailable (${imgError.message ?? JSON.stringify(imgError)})`,
+      };
     }
 
     const annotation: SafeSearchResult =
       data.responses?.[0]?.safeSearchAnnotation;
     if (!annotation) {
       console.error("Vision API returned no annotation:", JSON.stringify(data));
-      return { safe: false, reason: "Image moderation unavailable" };
+      return { safe: false, reason: "Image moderation unavailable (no annotation)" };
     }
 
     for (const [category, likelihood] of Object.entries(annotation)) {

@@ -6,7 +6,15 @@ export interface RosterSlot {
 
 export const NBA_POSITIONS = ['PG', 'SG', 'SF', 'PF', 'C'] as const;
 export type NbaPosition = (typeof NBA_POSITIONS)[number];
-export type PositionLimits = Partial<Record<NbaPosition, number | null>>;
+
+// WNBA reports bare-letter positions (G/F/C) so the spectrum used for
+// roster slots and position limits is shorter. PG/SG/SF/PF don't exist
+// as roster concepts in WNBA leagues.
+export const WNBA_POSITIONS = ['G', 'F', 'C'] as const;
+export type WnbaPosition = (typeof WNBA_POSITIONS)[number];
+
+export type LimitablePosition = NbaPosition | WnbaPosition;
+export type PositionLimits = Partial<Record<LimitablePosition, number | null>>;
 
 export interface ScoringCategory {
   stat_name: string;
@@ -27,6 +35,27 @@ export const DEFAULT_ROSTER_SLOTS: RosterSlot[] = [
   { position: 'IR', label: 'Injured Reserve', count: 0 },
   { position: 'TAXI', label: 'Taxi Squad', count: 0 },
 ];
+
+export const WNBA_DEFAULT_ROSTER_SLOTS: RosterSlot[] = [
+  { position: 'G', label: 'Guard', count: 2 },
+  { position: 'F', label: 'Forward', count: 2 },
+  { position: 'C', label: 'Center', count: 1 },
+  { position: 'UTIL', label: 'Utility', count: 2 },
+  { position: 'BE', label: 'Bench', count: 3 },
+  { position: 'IR', label: 'Injured Reserve', count: 0 },
+  { position: 'TAXI', label: 'Taxi Squad', count: 0 },
+];
+
+/** Returns the default roster slot template for the given sport. */
+export function getDefaultRosterSlots(sport: Sport): RosterSlot[] {
+  if (sport === 'wnba') return WNBA_DEFAULT_ROSTER_SLOTS.map((s) => ({ ...s }));
+  return DEFAULT_ROSTER_SLOTS.map((s) => ({ ...s }));
+}
+
+/** Positions used for per-position roster caps. WNBA omits PG/SG/SF/PF. */
+export function getLimitablePositions(sport: Sport): readonly LimitablePosition[] {
+  return sport === 'wnba' ? WNBA_POSITIONS : NBA_POSITIONS;
+}
 
 export const DEFAULT_SCORING: ScoringCategory[] = [
   { stat_name: 'PTS', label: 'Points', point_value: 1 },
@@ -231,6 +260,13 @@ export const CURRENT_WNBA_SEASON = '2026';
 
 export function getCurrentSeason(sport: Sport): string {
   return sport === 'wnba' ? CURRENT_WNBA_SEASON : CURRENT_NBA_SEASON;
+}
+
+// Previous season label, derived from CURRENT_*_SEASON.
+// NBA "2025-26" → "2024-25"; WNBA "2026" → "2025".
+export function getPreviousSeason(sport: Sport): string {
+  const startYear = parseInt(getCurrentSeason(sport).split('-')[0], 10);
+  return formatSeason(startYear - 1, sport);
 }
 
 export function getSeasonEnd(sport: Sport, season: string): string | undefined {

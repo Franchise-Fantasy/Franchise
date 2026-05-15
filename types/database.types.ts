@@ -1855,6 +1855,7 @@ export type Database = {
           game_status: number
           home_score: number
           matchup: string | null
+          min: number
           oncourt: boolean
           period: number | null
           pf: number
@@ -1882,6 +1883,7 @@ export type Database = {
           game_status?: number
           home_score?: number
           matchup?: string | null
+          min?: number
           oncourt?: boolean
           period?: number | null
           pf?: number
@@ -1909,6 +1911,7 @@ export type Database = {
           game_status?: number
           home_score?: number
           matchup?: string | null
+          min?: number
           oncourt?: boolean
           period?: number | null
           pf?: number
@@ -1930,6 +1933,60 @@ export type Database = {
           },
           {
             foreignKeyName: "live_player_stats_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      live_scoring_events: {
+        Row: {
+          game_clock: string | null
+          game_id: string
+          id: string
+          kind: string
+          occurred_at: string
+          period: number | null
+          player_id: string
+          player_name: string
+          sport: string
+          value: number
+        }
+        Insert: {
+          game_clock?: string | null
+          game_id: string
+          id?: string
+          kind: string
+          occurred_at?: string
+          period?: number | null
+          player_id: string
+          player_name: string
+          sport: string
+          value?: number
+        }
+        Update: {
+          game_clock?: string | null
+          game_id?: string
+          id?: string
+          kind?: string
+          occurred_at?: string
+          period?: number | null
+          player_id?: string
+          player_name?: string
+          sport?: string
+          value?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "live_scoring_events_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "player_season_stats"
+            referencedColumns: ["player_id"]
+          },
+          {
+            foreignKeyName: "live_scoring_events_player_id_fkey"
             columns: ["player_id"]
             isOneToOne: false
             referencedRelation: "players"
@@ -2010,6 +2067,586 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "chat_messages"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      nfl_franchise: {
+        Row: {
+          current_city: string
+          current_name: string
+          founded_year: number
+          id: string
+          notes: string | null
+        }
+        Insert: {
+          current_city: string
+          current_name: string
+          founded_year: number
+          id: string
+          notes?: string | null
+        }
+        Update: {
+          current_city?: string
+          current_name?: string
+          founded_year?: number
+          id?: string
+          notes?: string | null
+        }
+        Relationships: []
+      }
+      nfl_franchise_season: {
+        Row: {
+          city: string
+          conference: string
+          division: string
+          franchise_id: string
+          logo_key: string | null
+          name: string
+          primary_color: string | null
+          season: number
+          secondary_color: string | null
+          tricode: string
+        }
+        Insert: {
+          city: string
+          conference: string
+          division: string
+          franchise_id: string
+          logo_key?: string | null
+          name: string
+          primary_color?: string | null
+          season: number
+          secondary_color?: string | null
+          tricode: string
+        }
+        Update: {
+          city?: string
+          conference?: string
+          division?: string
+          franchise_id?: string
+          logo_key?: string | null
+          name?: string
+          primary_color?: string | null
+          season?: number
+          secondary_color?: string | null
+          tricode?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nfl_franchise_season_franchise_id_fkey"
+            columns: ["franchise_id"]
+            isOneToOne: false
+            referencedRelation: "nfl_franchise"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      nfl_playoff_game: {
+        Row: {
+          attendance: number | null
+          away_franchise_id: string | null
+          away_score: number | null
+          game_num: number
+          home_franchise_id: string | null
+          home_score: number | null
+          ot_away: number | null
+          ot_home: number | null
+          ot_periods: number
+          played_on: string | null
+          q1_away: number | null
+          q1_home: number | null
+          q2_away: number | null
+          q2_home: number | null
+          q3_away: number | null
+          q3_home: number | null
+          q4_away: number | null
+          q4_home: number | null
+          series_id: string
+          venue: string | null
+        }
+        Insert: {
+          attendance?: number | null
+          away_franchise_id?: string | null
+          away_score?: number | null
+          game_num: number
+          home_franchise_id?: string | null
+          home_score?: number | null
+          ot_away?: number | null
+          ot_home?: number | null
+          ot_periods?: number
+          played_on?: string | null
+          q1_away?: number | null
+          q1_home?: number | null
+          q2_away?: number | null
+          q2_home?: number | null
+          q3_away?: number | null
+          q3_home?: number | null
+          q4_away?: number | null
+          q4_home?: number | null
+          series_id: string
+          venue?: string | null
+        }
+        Update: {
+          attendance?: number | null
+          away_franchise_id?: string | null
+          away_score?: number | null
+          game_num?: number
+          home_franchise_id?: string | null
+          home_score?: number | null
+          ot_away?: number | null
+          ot_home?: number | null
+          ot_periods?: number
+          played_on?: string | null
+          q1_away?: number | null
+          q1_home?: number | null
+          q2_away?: number | null
+          q2_home?: number | null
+          q3_away?: number | null
+          q3_home?: number | null
+          q4_away?: number | null
+          q4_home?: number | null
+          series_id?: string
+          venue?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nfl_playoff_game_away_franchise_id_fkey"
+            columns: ["away_franchise_id"]
+            isOneToOne: false
+            referencedRelation: "nfl_franchise"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nfl_playoff_game_home_franchise_id_fkey"
+            columns: ["home_franchise_id"]
+            isOneToOne: false
+            referencedRelation: "nfl_franchise"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nfl_playoff_game_series_id_fkey"
+            columns: ["series_id"]
+            isOneToOne: false
+            referencedRelation: "nfl_playoff_series"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      nfl_playoff_game_box: {
+        Row: {
+          category: string
+          ff: number | null
+          fr: number | null
+          game_num: number
+          int_def: number | null
+          pass_att: number | null
+          pass_cmp: number | null
+          pass_int: number | null
+          pass_td: number | null
+          pass_yds: number | null
+          player_id: string | null
+          player_name: string
+          position: string | null
+          rank: number
+          rec: number | null
+          rec_td: number | null
+          rec_yds: number | null
+          rush_att: number | null
+          rush_td: number | null
+          rush_yds: number | null
+          sacks: number | null
+          series_id: string
+          side: string
+          stat_line: string
+          tackles: number | null
+          td_def: number | null
+        }
+        Insert: {
+          category: string
+          ff?: number | null
+          fr?: number | null
+          game_num: number
+          int_def?: number | null
+          pass_att?: number | null
+          pass_cmp?: number | null
+          pass_int?: number | null
+          pass_td?: number | null
+          pass_yds?: number | null
+          player_id?: string | null
+          player_name: string
+          position?: string | null
+          rank: number
+          rec?: number | null
+          rec_td?: number | null
+          rec_yds?: number | null
+          rush_att?: number | null
+          rush_td?: number | null
+          rush_yds?: number | null
+          sacks?: number | null
+          series_id: string
+          side: string
+          stat_line: string
+          tackles?: number | null
+          td_def?: number | null
+        }
+        Update: {
+          category?: string
+          ff?: number | null
+          fr?: number | null
+          game_num?: number
+          int_def?: number | null
+          pass_att?: number | null
+          pass_cmp?: number | null
+          pass_int?: number | null
+          pass_td?: number | null
+          pass_yds?: number | null
+          player_id?: string | null
+          player_name?: string
+          position?: string | null
+          rank?: number
+          rec?: number | null
+          rec_td?: number | null
+          rec_yds?: number | null
+          rush_att?: number | null
+          rush_td?: number | null
+          rush_yds?: number | null
+          sacks?: number | null
+          series_id?: string
+          side?: string
+          stat_line?: string
+          tackles?: number | null
+          td_def?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nfl_playoff_game_box_series_id_game_num_fkey"
+            columns: ["series_id", "game_num"]
+            isOneToOne: false
+            referencedRelation: "nfl_playoff_game"
+            referencedColumns: ["series_id", "game_num"]
+          },
+        ]
+      }
+      nfl_playoff_player_stats: {
+        Row: {
+          approx_value: number | null
+          ff: number | null
+          fr: number | null
+          franchise_id: string
+          gp: number
+          int_def: number | null
+          pass_int: number | null
+          pass_td: number | null
+          pass_yds: number | null
+          pfr_player_id: string
+          player_name: string
+          position: string
+          rec: number | null
+          rec_td: number | null
+          rec_yds: number | null
+          rush_td: number | null
+          rush_yds: number | null
+          sacks: number | null
+          season: number
+          stat_line: string | null
+          tackles: number | null
+          td_def: number | null
+        }
+        Insert: {
+          approx_value?: number | null
+          ff?: number | null
+          fr?: number | null
+          franchise_id: string
+          gp?: number
+          int_def?: number | null
+          pass_int?: number | null
+          pass_td?: number | null
+          pass_yds?: number | null
+          pfr_player_id: string
+          player_name: string
+          position: string
+          rec?: number | null
+          rec_td?: number | null
+          rec_yds?: number | null
+          rush_td?: number | null
+          rush_yds?: number | null
+          sacks?: number | null
+          season: number
+          stat_line?: string | null
+          tackles?: number | null
+          td_def?: number | null
+        }
+        Update: {
+          approx_value?: number | null
+          ff?: number | null
+          fr?: number | null
+          franchise_id?: string
+          gp?: number
+          int_def?: number | null
+          pass_int?: number | null
+          pass_td?: number | null
+          pass_yds?: number | null
+          pfr_player_id?: string
+          player_name?: string
+          position?: string
+          rec?: number | null
+          rec_td?: number | null
+          rec_yds?: number | null
+          rush_td?: number | null
+          rush_yds?: number | null
+          sacks?: number | null
+          season?: number
+          stat_line?: string | null
+          tackles?: number | null
+          td_def?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nfl_playoff_player_stats_franchise_id_fkey"
+            columns: ["franchise_id"]
+            isOneToOne: false
+            referencedRelation: "nfl_franchise"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nfl_playoff_player_stats_season_fkey"
+            columns: ["season"]
+            isOneToOne: false
+            referencedRelation: "nfl_playoff_year"
+            referencedColumns: ["season"]
+          },
+        ]
+      }
+      nfl_playoff_series: {
+        Row: {
+          bracket_position: number
+          conference: string
+          franchise_a_id: string | null
+          franchise_b_id: string | null
+          id: string
+          round: number
+          season: number
+          seed_a: number | null
+          seed_b: number | null
+          winner_franchise_id: string | null
+          wins_a: number
+          wins_b: number
+        }
+        Insert: {
+          bracket_position: number
+          conference: string
+          franchise_a_id?: string | null
+          franchise_b_id?: string | null
+          id: string
+          round: number
+          season: number
+          seed_a?: number | null
+          seed_b?: number | null
+          winner_franchise_id?: string | null
+          wins_a?: number
+          wins_b?: number
+        }
+        Update: {
+          bracket_position?: number
+          conference?: string
+          franchise_a_id?: string | null
+          franchise_b_id?: string | null
+          id?: string
+          round?: number
+          season?: number
+          seed_a?: number | null
+          seed_b?: number | null
+          winner_franchise_id?: string | null
+          wins_a?: number
+          wins_b?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nfl_playoff_series_franchise_a_id_fkey"
+            columns: ["franchise_a_id"]
+            isOneToOne: false
+            referencedRelation: "nfl_franchise"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nfl_playoff_series_franchise_b_id_fkey"
+            columns: ["franchise_b_id"]
+            isOneToOne: false
+            referencedRelation: "nfl_franchise"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nfl_playoff_series_season_fkey"
+            columns: ["season"]
+            isOneToOne: false
+            referencedRelation: "nfl_playoff_year"
+            referencedColumns: ["season"]
+          },
+          {
+            foreignKeyName: "nfl_playoff_series_winner_franchise_id_fkey"
+            columns: ["winner_franchise_id"]
+            isOneToOne: false
+            referencedRelation: "nfl_franchise"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      nfl_playoff_year: {
+        Row: {
+          champion_franchise_id: string | null
+          format: string
+          num_teams: number
+          sb_mvp_franchise_id: string | null
+          sb_mvp_pfr_id: string | null
+          sb_mvp_player_name: string | null
+          sb_mvp_stat_line: string | null
+          season: number
+          super_bowl_number: number | null
+        }
+        Insert: {
+          champion_franchise_id?: string | null
+          format: string
+          num_teams: number
+          sb_mvp_franchise_id?: string | null
+          sb_mvp_pfr_id?: string | null
+          sb_mvp_player_name?: string | null
+          sb_mvp_stat_line?: string | null
+          season: number
+          super_bowl_number?: number | null
+        }
+        Update: {
+          champion_franchise_id?: string | null
+          format?: string
+          num_teams?: number
+          sb_mvp_franchise_id?: string | null
+          sb_mvp_pfr_id?: string | null
+          sb_mvp_player_name?: string | null
+          sb_mvp_stat_line?: string | null
+          season?: number
+          super_bowl_number?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nfl_playoff_year_champion_franchise_id_fkey"
+            columns: ["champion_franchise_id"]
+            isOneToOne: false
+            referencedRelation: "nfl_franchise"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nfl_playoff_year_sb_mvp_franchise_id_fkey"
+            columns: ["sb_mvp_franchise_id"]
+            isOneToOne: false
+            referencedRelation: "nfl_franchise"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      nfl_regular_season_standing: {
+        Row: {
+          conference: string
+          conference_seed: number
+          division: string
+          division_seed: number
+          franchise_id: string
+          losses: number
+          points_against: number | null
+          points_for: number | null
+          season: number
+          ties: number
+          wins: number
+        }
+        Insert: {
+          conference: string
+          conference_seed: number
+          division: string
+          division_seed: number
+          franchise_id: string
+          losses: number
+          points_against?: number | null
+          points_for?: number | null
+          season: number
+          ties?: number
+          wins: number
+        }
+        Update: {
+          conference?: string
+          conference_seed?: number
+          division?: string
+          division_seed?: number
+          franchise_id?: string
+          losses?: number
+          points_against?: number | null
+          points_for?: number | null
+          season?: number
+          ties?: number
+          wins?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nfl_regular_season_standing_franchise_id_fkey"
+            columns: ["franchise_id"]
+            isOneToOne: false
+            referencedRelation: "nfl_franchise"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nfl_regular_season_standing_season_fkey"
+            columns: ["season"]
+            isOneToOne: false
+            referencedRelation: "nfl_playoff_year"
+            referencedColumns: ["season"]
+          },
+        ]
+      }
+      nfl_season_award: {
+        Row: {
+          award_type: string
+          franchise_id: string | null
+          pfr_player_id: string | null
+          player_name: string
+          position: string | null
+          rank: number
+          season: number
+          stat_line: string | null
+          unit: string
+        }
+        Insert: {
+          award_type: string
+          franchise_id?: string | null
+          pfr_player_id?: string | null
+          player_name: string
+          position?: string | null
+          rank?: number
+          season: number
+          stat_line?: string | null
+          unit?: string
+        }
+        Update: {
+          award_type?: string
+          franchise_id?: string | null
+          pfr_player_id?: string | null
+          player_name?: string
+          position?: string | null
+          rank?: number
+          season?: number
+          stat_line?: string | null
+          unit?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nfl_season_award_franchise_id_fkey"
+            columns: ["franchise_id"]
+            isOneToOne: false
+            referencedRelation: "nfl_franchise"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nfl_season_award_season_fkey"
+            columns: ["season"]
+            isOneToOne: false
+            referencedRelation: "nfl_playoff_year"
+            referencedColumns: ["season"]
           },
         ]
       }
@@ -2139,6 +2776,77 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "nhl_playoff_series"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      nhl_playoff_game_box: {
+        Row: {
+          assists: number | null
+          game_num: number
+          goals: number | null
+          goals_against: number | null
+          pim: number | null
+          player_id: string | null
+          player_name: string
+          plus_minus: number | null
+          points: number | null
+          position: string | null
+          rank: number
+          saves: number | null
+          series_id: string
+          shots_against: number | null
+          side: string
+          sog: number | null
+          stat_line: string | null
+          toi_seconds: number | null
+        }
+        Insert: {
+          assists?: number | null
+          game_num: number
+          goals?: number | null
+          goals_against?: number | null
+          pim?: number | null
+          player_id?: string | null
+          player_name: string
+          plus_minus?: number | null
+          points?: number | null
+          position?: string | null
+          rank: number
+          saves?: number | null
+          series_id: string
+          shots_against?: number | null
+          side: string
+          sog?: number | null
+          stat_line?: string | null
+          toi_seconds?: number | null
+        }
+        Update: {
+          assists?: number | null
+          game_num?: number
+          goals?: number | null
+          goals_against?: number | null
+          pim?: number | null
+          player_id?: string | null
+          player_name?: string
+          plus_minus?: number | null
+          points?: number | null
+          position?: string | null
+          rank?: number
+          saves?: number | null
+          series_id?: string
+          shots_against?: number | null
+          side?: string
+          sog?: number | null
+          stat_line?: string | null
+          toi_seconds?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nhl_playoff_game_box_series_id_game_num_fkey"
+            columns: ["series_id", "game_num"]
+            isOneToOne: false
+            referencedRelation: "nhl_playoff_game"
+            referencedColumns: ["series_id", "game_num"]
           },
         ]
       }
@@ -3185,6 +3893,71 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "pro_franchise_season_franchise_id_fkey"
+            columns: ["franchise_id"]
+            isOneToOne: false
+            referencedRelation: "pro_franchise"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pro_franchise_season_player_stats: {
+        Row: {
+          ast_per: number | null
+          bbref_player_id: string
+          blk_per: number | null
+          fg_pct: number | null
+          franchise_id: string
+          gp: number | null
+          is_all_star: boolean
+          mpg: number | null
+          player_name: string
+          pts_per: number | null
+          reb_per: number | null
+          season: number
+          stl_per: number | null
+          tp_pct: number | null
+          ts_pct: number | null
+          vorp: number | null
+        }
+        Insert: {
+          ast_per?: number | null
+          bbref_player_id: string
+          blk_per?: number | null
+          fg_pct?: number | null
+          franchise_id: string
+          gp?: number | null
+          is_all_star?: boolean
+          mpg?: number | null
+          player_name: string
+          pts_per?: number | null
+          reb_per?: number | null
+          season: number
+          stl_per?: number | null
+          tp_pct?: number | null
+          ts_pct?: number | null
+          vorp?: number | null
+        }
+        Update: {
+          ast_per?: number | null
+          bbref_player_id?: string
+          blk_per?: number | null
+          fg_pct?: number | null
+          franchise_id?: string
+          gp?: number | null
+          is_all_star?: boolean
+          mpg?: number | null
+          player_name?: string
+          pts_per?: number | null
+          reb_per?: number | null
+          season?: number
+          stl_per?: number | null
+          tp_pct?: number | null
+          ts_pct?: number | null
+          vorp?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pro_franchise_season_player_stats_franchise_id_fkey"
             columns: ["franchise_id"]
             isOneToOne: false
             referencedRelation: "pro_franchise"
@@ -5213,6 +5986,26 @@ export type Database = {
         Returns: undefined
       }
       my_team_id: { Args: { p_league_id: string }; Returns: string }
+      nfl_archive_awards: { Args: { p_season: number }; Returns: Json }
+      nfl_archive_bracket: { Args: { p_season: number }; Returns: Json }
+      nfl_archive_seasons: {
+        Args: never
+        Returns: {
+          champion_city: string
+          champion_franchise_id: string
+          champion_logo_key: string
+          champion_name: string
+          champion_primary_color: string
+          champion_secondary_color: string
+          champion_tricode: string
+          season: number
+        }[]
+      }
+      nfl_archive_standings: { Args: { p_season: number }; Returns: Json }
+      nfl_archive_team_run: {
+        Args: { p_franchise_id: string; p_season: number }
+        Returns: Json
+      }
       nhl_archive_awards: { Args: { p_season: number }; Returns: Json }
       nhl_archive_bracket: { Args: { p_season: number }; Returns: Json }
       nhl_archive_seasons: {
@@ -5270,6 +6063,18 @@ export type Database = {
       }
       pro_archive_awards: { Args: { p_season: number }; Returns: Json }
       pro_archive_bracket: { Args: { p_season: number }; Returns: Json }
+      pro_archive_franchise_history: {
+        Args: { p_franchise_id: string }
+        Returns: {
+          conference: string
+          conference_seed: number
+          losses: number
+          season: number
+          series: Json
+          top_player: Json
+          wins: number
+        }[]
+      }
       pro_archive_seasons: {
         Args: never
         Returns: {
@@ -5284,6 +6089,30 @@ export type Database = {
         }[]
       }
       pro_archive_standings: { Args: { p_season: number }; Returns: Json }
+      pro_archive_team_rotation: {
+        Args: {
+          p_franchise_id: string
+          p_min_games?: number
+          p_min_mpg?: number
+          p_season: number
+        }
+        Returns: {
+          ast_per: number
+          bbref_player_id: string
+          blk_per: number
+          fg_pct: number
+          gp: number
+          is_all_star: boolean
+          mpg: number
+          player_name: string
+          pts_per: number
+          reb_per: number
+          stl_per: number
+          tp_pct: number
+          ts_pct: number
+          vorp: number
+        }[]
+      }
       pro_archive_team_run: {
         Args: { p_franchise_id: string; p_season: number }
         Returns: Json

@@ -148,29 +148,6 @@ export const playerDetailStyles = StyleSheet.create({
   loading: {
     padding: s(20),
   },
-  dropPickerList: {
-    padding: s(8),
-  },
-  dropPickerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: s(14),
-    paddingHorizontal: s(16),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  dropPickerInfo: {
-    flex: 1,
-  },
-  dropPickerSub: {
-    fontSize: ms(12),
-    marginTop: s(2),
-  },
-  dropPickerFpts: {
-    fontSize: ms(14),
-    fontWeight: "600",
-    marginLeft: s(12),
-  },
   inlineToastWrap: {
     position: "absolute" as const,
     top: s(8),

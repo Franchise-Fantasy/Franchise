@@ -36,6 +36,34 @@ export function usePaymentLedger(leagueId: string | null, season: string | null)
   });
 }
 
+/**
+ * Count of self-reported (awaiting confirmation) payments. Drives the
+ * commissioner's League Info quicknav pip so they know to open the ledger.
+ * Pass the commissioner gate from the caller — the hook only fires the query
+ * when `enabled` is true to avoid wasted reads for non-commish members.
+ */
+export function useUnconfirmedPaymentCount(
+  leagueId: string | null,
+  season: string | null,
+  enabled: boolean,
+) {
+  return useQuery<number>({
+    queryKey: queryKeys.unconfirmedPaymentCount(leagueId!, season!),
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from('league_payments')
+        .select('id', { count: 'exact', head: true })
+        .eq('league_id', leagueId!)
+        .eq('season', season!)
+        .eq('status', 'self_reported');
+      if (error) throw error;
+      return count ?? 0;
+    },
+    enabled: enabled && !!leagueId && !!season,
+    staleTime: 1000 * 60 * 5,
+  });
+}
+
 // ── Commissioner: confirm / deny ─────────────────────────────────
 
 export function useTogglePayment(leagueId: string, season: string) {

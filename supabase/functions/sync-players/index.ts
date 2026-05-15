@@ -102,18 +102,20 @@ async function fetchSleeperPositions(): Promise<{
  *    browsers but stalls indefinitely from cloud IPs). IDs key
  *    a.espncdn.com WNBA headshots.
  */
-async function fetchStatsIds(sport: Sport, season: string): Promise<{
+interface StatsLookup {
   byNameTeam: Map<string, number>;
   byName: Map<string, number>;
-}> {
+  /** ESPN-only — birthdate (YYYY-MM-DD) keyed the same way the IDs are. */
+  birthdateByNameTeam?: Map<string, string>;
+  birthdateByName?: Map<string, string>;
+}
+
+async function fetchStatsIds(sport: Sport, season: string): Promise<StatsLookup> {
   if (sport === 'wnba') return fetchEspnWnbaAthletes();
   return fetchNbaStatsIds(season);
 }
 
-async function fetchNbaStatsIds(season: string): Promise<{
-  byNameTeam: Map<string, number>;
-  byName: Map<string, number>;
-}> {
+async function fetchNbaStatsIds(season: string): Promise<StatsLookup> {
   const byNameTeam = new Map<string, number>();
   const byName = new Map<string, number>();
 
@@ -150,12 +152,11 @@ const ESPN_WNBA_TEAMS_URL = 'https://site.api.espn.com/apis/site/v2/sports/baske
 const ESPN_WNBA_ROSTER_URL = (teamId: string) =>
   `https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/teams/${teamId}/roster`;
 
-async function fetchEspnWnbaAthletes(): Promise<{
-  byNameTeam: Map<string, number>;
-  byName: Map<string, number>;
-}> {
+async function fetchEspnWnbaAthletes(): Promise<StatsLookup> {
   const byNameTeam = new Map<string, number>();
   const byName = new Map<string, number>();
+  const birthdateByNameTeam = new Map<string, string>();
+  const birthdateByName = new Map<string, string>();
 
   const teamsRes = await fetch(ESPN_WNBA_TEAMS_URL, { signal: AbortSignal.timeout(10000) });
   if (!teamsRes.ok) throw new Error(`ESPN WNBA teams returned ${teamsRes.status}`);
@@ -178,11 +179,18 @@ async function fetchEspnWnbaAthletes(): Promise<{
         const norm = normalizeName(name);
         if (tricode) byNameTeam.set(`${norm}|${tricode}`, id);
         byName.set(norm, id);
+
+        // ESPN's dateOfBirth is ISO ("1998-04-15T07:00Z") — slice to YYYY-MM-DD.
+        const dob = typeof a.dateOfBirth === 'string' ? a.dateOfBirth.slice(0, 10) : null;
+        if (dob && /^\d{4}-\d{2}-\d{2}$/.test(dob)) {
+          if (tricode) birthdateByNameTeam.set(`${norm}|${tricode}`, dob);
+          birthdateByName.set(norm, dob);
+        }
       }
     }),
   );
 
-  return { byNameTeam, byName };
+  return { byNameTeam, byName, birthdateByNameTeam, birthdateByName };
 }
 
 Deno.serve(async (req: Request) => {
@@ -231,15 +239,16 @@ Deno.serve(async (req: Request) => {
         name,
         normName: normalizeName(name),
         pro_team: team,
-        bdl_position: coerceBdlPosition(bp.position),
+        bdl_position: coerceBdlPosition(bp.position, sport),
       });
     }
 
     // 3. Enrichment — runs in parallel, each can fail independently.
     //    - Sleeper position spectrum: NBA only (Sleeper has no WNBA support).
     //    - League Stats personId (for cdn.{nba,wnba}.com headshots): both sports.
+    //    - WNBA additionally pulls birthdates from the same ESPN endpoint.
     let sleeperPos: { byNameTeam: Map<string, string>; byName: Map<string, string> } | null = null;
-    let statsIds: { byNameTeam: Map<string, number>; byName: Map<string, number> } | null = null;
+    let statsIds: StatsLookup | null = null;
 
     const enrichmentTasks: Array<Promise<unknown>> = [];
     const sleeperIdx = sport === 'nba' ? enrichmentTasks.push(fetchSleeperPositions()) - 1 : -1;
@@ -273,11 +282,20 @@ Deno.serve(async (req: Request) => {
       return statsIds.byNameTeam.get(`${norm}|${team}`) ?? statsIds.byName.get(norm) ?? null;
     };
 
+    const lookupBirthdate = (norm: string, team: string): string | null => {
+      if (!statsIds?.birthdateByNameTeam || !statsIds.birthdateByName) return null;
+      return (
+        statsIds.birthdateByNameTeam.get(`${norm}|${team}`)
+        ?? statsIds.birthdateByName.get(norm)
+        ?? null
+      );
+    };
+
     // 4. Fetch our existing players, scoped to this sport (BDL ID namespaces
     // are separate per sport, so cross-sport name collisions don't matter).
     const { data: existing, error: fetchErr } = await supabase
       .from('players')
-      .select('id, name, position, pro_team, external_id_bdl, external_id_nba')
+      .select('id, name, position, pro_team, external_id_bdl, external_id_nba, birthdate')
       .eq('sport', sport);
     if (fetchErr) throw new Error(`Failed to fetch players: ${fetchErr.message}`);
 
@@ -287,6 +305,7 @@ Deno.serve(async (req: Request) => {
       position: string | null;
       external_id_bdl: number | null;
       external_id_nba: number | null;
+      birthdate: string | null;
     };
 
     const existingByBdlId = new Map<number, ExistingRec>();
@@ -299,6 +318,7 @@ Deno.serve(async (req: Request) => {
         position: p.position,
         external_id_bdl: p.external_id_bdl,
         external_id_nba: p.external_id_nba ? Number(p.external_id_nba) : null,
+        birthdate: (p as { birthdate?: string | null }).birthdate ?? null,
       };
       if (p.external_id_bdl) existingByBdlId.set(Number(p.external_id_bdl), rec);
       existingByName.set(normalizeName(p.name), rec);
@@ -319,6 +339,7 @@ Deno.serve(async (req: Request) => {
       external_id_bdl?: number;
       position?: string;
       external_id_nba?: number;
+      birthdate?: string;
     }> = [];
 
     for (const bp of activePlayers) {
@@ -340,14 +361,14 @@ Deno.serve(async (req: Request) => {
         update.external_id_bdl = bp.bdl_id;
         hasChange = true;
       }
-      // Back-fill position if currently NULL
-      if (!match.position) {
-        // Prefer Sleeper-derived spectrum (NBA only); fall back to BDL.
-        const pos = lookupPosition(bp.normName, bp.pro_team) ?? bp.bdl_position;
-        if (pos) {
-          update.position = pos;
-          hasChange = true;
-        }
+      // Re-sync position whenever the upstream-derived value is non-null
+      // and differs from what we have. Existing rows can hold stale values
+      // from prior coercion logic (e.g. WNBA "G" players collapsed to "SG"),
+      // and the new coercion is what we want to be authoritative.
+      const derivedPosition = lookupPosition(bp.normName, bp.pro_team) ?? bp.bdl_position;
+      if (derivedPosition && derivedPosition !== match.position) {
+        update.position = derivedPosition;
+        hasChange = true;
       }
       // Back-fill external_id_nba (the league's Stats personId) if currently NULL.
       // Used to build cdn.{nba,wnba}.com headshot URLs.
@@ -355,6 +376,15 @@ Deno.serve(async (req: Request) => {
         const nbaId = lookupNbaId(bp.normName, bp.pro_team);
         if (nbaId) {
           update.external_id_nba = nbaId;
+          hasChange = true;
+        }
+      }
+      // Back-fill birthdate from ESPN (WNBA only — NBA was seeded once
+      // from a separate one-shot script).
+      if (!match.birthdate) {
+        const dob = lookupBirthdate(bp.normName, bp.pro_team);
+        if (dob) {
+          update.birthdate = dob;
           hasChange = true;
         }
       }
@@ -387,6 +417,8 @@ Deno.serve(async (req: Request) => {
         if (pos) row.position = pos;
         const nbaId = lookupNbaId(p.normName, p.pro_team);
         if (nbaId) row.external_id_nba = nbaId;
+        const dob = lookupBirthdate(p.normName, p.pro_team);
+        if (dob) row.birthdate = dob;
         return row;
       });
       const { error: insertErr } = await supabase.from('players').insert(toInsert);
@@ -398,6 +430,7 @@ Deno.serve(async (req: Request) => {
     let updated = 0;
     let positionsBackfilled = 0;
     let nbaIdsBackfilled = 0;
+    let birthdatesBackfilled = 0;
     for (let i = 0; i < updates.length; i += 50) {
       const chunk = updates.slice(i, i + 50);
       await Promise.all(chunk.map((u) => {
@@ -411,6 +444,10 @@ Deno.serve(async (req: Request) => {
         if (u.external_id_nba !== undefined) {
           patch.external_id_nba = u.external_id_nba;
           nbaIdsBackfilled++;
+        }
+        if (u.birthdate !== undefined) {
+          patch.birthdate = u.birthdate;
+          birthdatesBackfilled++;
         }
         return supabase.from('players').update(patch).eq('id', u.id);
       }));
@@ -444,6 +481,7 @@ Deno.serve(async (req: Request) => {
         updated,
         positions_backfilled: positionsBackfilled,
         nba_ids_backfilled: nbaIdsBackfilled,
+        birthdates_backfilled: birthdatesBackfilled,
         waived_cleared: waivedCount,
         sleeper_ok: sleeperPos !== null,
         nba_stats_ok: statsIds !== null,

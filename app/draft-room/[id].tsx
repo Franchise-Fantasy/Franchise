@@ -22,7 +22,7 @@ import { ThemedView } from '@/components/ui/ThemedView';
 import { Colors, Fonts } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useConfirm } from '@/context/ConfirmProvider';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { useDraftQueue } from '@/hooks/useDraftQueue';
 import { useRosterChanges } from '@/hooks/useRosterChanges';
 import { useTradeProposals, TradeProposalRow } from '@/hooks/useTrades';
@@ -82,9 +82,8 @@ function ToggleTab({
 
 
 export default function DraftRoomScreen() {
-  const colorScheme = useColorScheme() ?? 'light';
   const confirm = useConfirm();
-  const colors = Colors[colorScheme];
+  const colors = useColors();
   const queryClient = useQueryClient();
   const { id: draftId } = useLocalSearchParams<{ id: string }>();
   const [viewMode, setViewMode] = useState<ViewMode>('players');
@@ -354,7 +353,7 @@ export default function DraftRoomScreen() {
               hitSlop={8}
               style={styles.autoBadge}
             >
-              <Badge label="Auto" variant={autopickOn ? 'turf' : 'neutral'} />
+              <Badge label="Auto" variant={autopickOn ? 'primary' : 'neutral'} />
             </TouchableOpacity>
           )}
         </View>
@@ -399,42 +398,36 @@ export default function DraftRoomScreen() {
       </ThemedView>
 
       <View style={styles.content}>
-        {isDraftComplete ? (
-          <View style={[styles.completeBanner, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
-            <View style={styles.completeEyebrowRow}>
-              <View style={[styles.completeRule, { backgroundColor: colors.gold }]} />
+        {/* Pick strip stays mounted even after the draft completes so the
+            last pick is visible. The completion notice renders below the
+            strip as a compact banner instead of replacing it. */}
+        <DraftOrder
+          draftId={draftId}
+          onCurrentPickChange={setCurrentPick}
+          teamId={teamData?.id || ''}
+          teamName={teamData?.name || ''}
+          tricode={teamData?.tricode || ''}
+          logoKey={teamData?.logo_key ?? null}
+          isCommissioner={teamData?.isCommissioner ?? false}
+          autopickPending={autopickOn}
+          onPresenceChange={handlePresenceChange}
+        />
+        {isDraftComplete && (
+          <View style={[styles.completeNotice, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
+            <View style={[styles.completeRule, { backgroundColor: colors.gold }]} />
+            <View style={styles.completeNoticeText}>
               <ThemedText
                 type="varsitySmall"
                 style={[styles.completeEyebrow, { color: colors.gold }]}
+                accessibilityRole="header"
               >
-                {isRookieDraft ? 'Rookie Draft' : 'Final'}
+                {isRookieDraft ? 'Rookie Draft Complete' : 'Draft Complete'}
+              </ThemedText>
+              <ThemedText style={[styles.completeNoticeSubtitle, { color: colors.secondaryText }]} numberOfLines={1}>
+                {isRookieDraft ? 'Rookies are in.' : 'Free agency is now open.'}
               </ThemedText>
             </View>
-            <ThemedText
-              type="display"
-              style={[styles.completeTitle, { color: colors.text }]}
-              accessibilityRole="header"
-            >
-              {isRookieDraft ? 'Rookies are in.' : 'The draft is in.'}
-            </ThemedText>
-            <ThemedText style={[styles.completeSubtitle, { color: colors.secondaryText }]}>
-              {isRookieDraft
-                ? 'Check your new rookies. Head back to the home screen.'
-                : 'Free agency is now open. Head back to the home screen.'}
-            </ThemedText>
           </View>
-        ) : (
-          <DraftOrder
-            draftId={draftId}
-            onCurrentPickChange={setCurrentPick}
-            teamId={teamData?.id || ''}
-            teamName={teamData?.name || ''}
-            tricode={teamData?.tricode || ''}
-            logoKey={teamData?.logo_key ?? null}
-            isCommissioner={teamData?.isCommissioner ?? false}
-            autopickPending={autopickOn}
-            onPresenceChange={handlePresenceChange}
-          />
         )}
 
         {/* Main Content Area */}
@@ -683,30 +676,21 @@ const styles = StyleSheet.create({
   mainContent: {
     flex: 1,
   },
-  // Complete banner — gold-rule eyebrow + Alfa Slab title in the brand voice
-  completeBanner: {
-    paddingHorizontal: s(16),
-    paddingVertical: s(16),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  completeEyebrowRow: {
+  // Compact completion notice — sits BELOW the pick strip so the last
+  // pick stays visible. Gold rule + varsity eyebrow keeps the brand voice
+  // in a single horizontal row.
+  completeNotice: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: s(10),
-    marginBottom: s(6),
+    paddingHorizontal: s(16),
+    paddingVertical: s(8),
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  completeRule: { height: 2, width: s(18) },
+  completeRule: { height: s(20), width: 2 },
+  completeNoticeText: { flex: 1 },
   completeEyebrow: { fontSize: ms(10), letterSpacing: 1.4 },
-  completeTitle: {
-    fontSize: ms(20),
-    lineHeight: ms(24),
-    letterSpacing: -0.3,
-  },
-  completeSubtitle: {
-    fontSize: ms(12),
-    lineHeight: ms(16),
-    marginTop: s(4),
-  },
+  completeNoticeSubtitle: { fontSize: ms(11), marginTop: s(1) },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -1,23 +1,29 @@
 import { StyleSheet } from "react-native";
 
+import { cardShadow, Fonts } from "@/constants/Colors";
 import { ms, s } from "@/utils/scale";
 
 export const rosterStyles = StyleSheet.create({
   container: { flex: 1 },
-  autoButton: {
+  // ── Section header action pills ────────────────────────────────────────
+  // Match the home page leagueInfoPill chrome so every action chip on the
+  // page reads as a pill, not a button-of-various-shapes.
+  headerPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: s(5),
     paddingHorizontal: s(10),
-    paddingVertical: s(4),
-    borderRadius: 6,
+    paddingVertical: s(5),
+    borderRadius: 8,
+    borderWidth: 1,
   },
-  autoButtonText: {
-    fontSize: ms(11),
+  headerPillLabel: {
+    fontSize: ms(9.5),
+    letterSpacing: 1.0,
+  },
+  headerPillValue: {
+    fontSize: ms(13),
     fontWeight: "700",
-  },
-  infoButton: {
-    padding: s(2),
-  },
-  shareButton: {
-    padding: s(4),
   },
   scrollContent: { paddingBottom: s(56) },
   centered: {
@@ -26,113 +32,63 @@ export const rosterStyles = StyleSheet.create({
     alignItems: "center",
     padding: s(20),
   },
-  dayNav: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: s(8),
-    paddingVertical: s(10),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  irLockBanner: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: s(8),
-    marginHorizontal: s(12),
-    marginTop: s(10),
-    padding: s(10),
-    borderRadius: s(8),
-    borderWidth: 1,
-  },
-  irLockBannerText: {
-    flex: 1,
-    fontSize: ms(13),
-    lineHeight: ms(17),
-  },
-  navArrow: { padding: s(12) },
-  navArrowText: { fontSize: ms(28), lineHeight: ms(32) },
-  todayChip: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    justifyContent: "center",
-    paddingHorizontal: s(4),
-  },
-  todayChipLeft: { left: s(50) },
-  todayChipRight: { right: s(50) },
-  dayInfo: { flex: 1, alignItems: "center" },
-  dayLabel: { fontSize: ms(16) },
-  daySubLabel: { fontSize: ms(11), marginTop: 2 },
   section: { padding: s(16), paddingBottom: 0 },
-  sectionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: s(8),
-  },
-  totalBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: s(8),
-    paddingVertical: s(3),
-    borderRadius: 6,
-    borderWidth: 1,
-    gap: s(5),
-  },
-  totalLabel: { fontSize: ms(10), fontWeight: "600" },
-  totalValue: {
-    fontSize: ms(16),
-    fontWeight: "700",
-    minWidth: s(44),
-    textAlign: "right",
-  },
   emptyBench: { padding: s(16), alignItems: "center" },
   card: {
-    borderRadius: 8,
+    borderRadius: 12,
     overflow: "hidden",
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
+    borderWidth: 1,
+    ...cardShadow,
   },
   slotRow: {
     flexDirection: "row",
     alignItems: "center",
-    minHeight: s(56),
+    minHeight: s(64),
+    paddingHorizontal: s(10),
+    paddingVertical: s(8),
+    gap: s(10),
   },
-  slotLabel: {
-    width: s(44),
-    alignSelf: "stretch",
-    justifyContent: "center",
+  // Refined slot pill — replaces the column-stripe slotLabel. Same tap target
+  // but reads as a chip, not a heavy left rail. Border + text colors are
+  // applied inline based on filled / active / locked state.
+  slotPill: {
+    width: s(40),
+    paddingVertical: s(6),
+    borderRadius: 8,
+    borderWidth: 1,
     alignItems: "center",
+    justifyContent: "center",
   },
-  slotLabelText: { fontSize: ms(11), fontWeight: "700" },
+  slotPillText: {
+    fontSize: ms(10),
+    letterSpacing: 1.0,
+  },
   slotPlayer: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: s(6),
-    paddingHorizontal: s(12),
+    gap: s(10),
   },
   rosterPortraitWrap: {
-    width: s(50),
-    height: s(50),
-    marginRight: s(8),
+    width: s(48),
+    height: s(48),
     alignItems: "center",
   },
-  onCourtDot: {
-    position: "absolute" as const,
-    top: s(6),
-    left: s(6),
-    width: s(8),
-    height: s(8),
-    borderRadius: 4,
-    zIndex: 2,
+  // Empty slot's headshot stand-in — dashed hairline circle with a "+" icon
+  // so empty rows keep the same horizontal rhythm as filled rows.
+  emptyHeadshot: {
+    width: s(48),
+    height: s(48),
+    borderRadius: s(24),
+    borderWidth: 1,
+    borderStyle: "dashed",
+    alignItems: "center",
+    justifyContent: "center",
   },
   rosterHeadshotCircle: {
     width: s(48),
     height: s(48),
-    borderRadius: 25,
+    borderRadius: s(24),
     borderWidth: 1.5,
     overflow: "hidden" as const,
   },
@@ -164,38 +120,69 @@ export const rosterStyles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.3,
   },
-  slotPlayerInfo: { flex: 1, marginRight: s(8) },
+  slotPlayerInfo: { flex: 1 },
   slotLine1: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: s(4),
   },
-  slotLine3: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 3,
-  },
+  slotPlayerName: { fontSize: ms(14), lineHeight: ms(18) },
+  // Matchup row container — chip + optional live game-info text beside it.
   slotMatchupRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 4,
+    gap: s(6),
+    marginTop: s(3),
   },
-  slotPlayerName: { fontSize: ms(14), lineHeight: ms(18) },
-  slotPlayerSub: { fontSize: ms(11), lineHeight: ms(15) },
-  slotFpts: { fontSize: ms(13), fontWeight: "600" },
-  emptySlotText: { fontSize: ms(13), fontStyle: "italic" },
-  todayChipText: { fontSize: ms(11), fontWeight: "600" },
-  matchupChip: {
-    paddingHorizontal: s(4),
-    paddingVertical: 1,
-    borderRadius: 3,
-  },
-  matchupChipLive: {
-    borderWidth: 1,
-  },
-  matchupChipText: {
+  // Live game info (quarter/clock/score) sits next to the matchup chip
+  // when a game is in progress.
+  matchupChipMeta: {
     fontSize: ms(9),
-    fontWeight: "600" as const,
+    letterSpacing: 1.0,
+    flexShrink: 1,
+  },
+  // Position fallback when the player has no game today — kept as inline
+  // varsitySmall caps (no chip), since there's nothing for a chip to mark.
+  slotMatchupText: {
+    fontSize: ms(9.5),
+    letterSpacing: 1.0,
+    marginTop: s(3),
+  },
+  // Mono stat line for past-day actuals — matches the Free Agents row pattern.
+  slotStatLine: {
+    fontFamily: Fonts.mono,
+    fontSize: ms(10),
+    lineHeight: ms(14),
+    letterSpacing: 0.4,
+    marginTop: s(2),
+  },
+  // Headline FPTS — same treatment as Free Agents headline FPTS (mono, gold,
+  // larger). Color is applied inline by AnimatedFpts (active vs dim).
+  slotFpts: {
+    fontFamily: Fonts.mono,
+    fontSize: ms(15),
+    fontWeight: "700",
+    letterSpacing: 0.5,
+  },
+  // Pre-game right-column stack: matchup chip on top, tipoff time below.
+  // Replaces the FPTS readout when the game hasn't started yet.
+  slotUpcoming: {
+    alignItems: "flex-end",
+    gap: s(2),
+  },
+  slotUpcomingTime: {
+    fontSize: ms(10),
+    letterSpacing: 0.6,
+  },
+  // Empty-slot eyebrow + helper text. The headshot is replaced with the
+  // dashed `emptyHeadshot` circle, and these two lines sit beside it.
+  emptySlotEyebrow: {
+    fontSize: ms(10),
+    letterSpacing: 1.2,
+  },
+  emptySlotHint: {
+    fontSize: ms(11),
+    marginTop: s(2),
   },
   liveBadge: {
     paddingHorizontal: s(4),

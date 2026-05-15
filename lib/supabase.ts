@@ -21,3 +21,29 @@ export const supabase = createClient<Database>(
     },
   },
 );
+
+// Monotonic counter guarantees uniqueness even when Date.now() + Math.random()
+// somehow collide within the same tick.
+let channelCounter = 0;
+
+/**
+ * Builds a globally-unique realtime channel topic for `postgres_changes`/`presence`
+ * subscriptions created inside React effects. Required because
+ * `supabase.channel(topic)` returns an EXISTING channel if one with the same
+ * topic is still in `realtime.channels` — which happens during fast remounts
+ * (notification taps, auth refresh, concurrent renders) since `removeChannel`
+ * is async. The old channel is still in `joined` state, so the next `.on()`
+ * throws `cannot add 'postgres_changes' callbacks ... after subscribe()`.
+ *
+ * `Date.now()` alone (the prior convention) has ms resolution which is too
+ * coarse for React render bursts. Combine with a counter + Math.random for
+ * true uniqueness.
+ *
+ * Do NOT use this for broadcast or shared-presence channels — those need
+ * deterministic names so peers can match. See `app/lottery-room.tsx` and
+ * `hooks/chat/useReadReceipts.ts` for the exempt cases.
+ */
+export function uniqueChannelTopic(base: string): string {
+  channelCounter = (channelCounter + 1) >>> 0;
+  return `${base}-${Date.now()}-${channelCounter}-${Math.random().toString(36).slice(2, 8)}`;
+}

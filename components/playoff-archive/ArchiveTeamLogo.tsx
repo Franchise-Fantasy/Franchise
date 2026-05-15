@@ -2,18 +2,33 @@ import { Image } from 'expo-image';
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { getProLogoUrl, hasHistoricalLogo } from '@/utils/playoffArchive';
+import {
+  getProLogoUrl,
+  hasHistoricalLogo,
+  type ArchiveSport,
+} from '@/utils/playoffArchive';
 
 interface Props {
   franchiseId: string;
   tricode: string;
   primaryColor: string | null;
   secondaryColor: string | null;
-  /** Per-season era key from pro_franchise_season.logo_key. When set, the
+  /** Per-season era key from {sport}_franchise_season.logo_key. When set, the
    *  historical-bucket variant of the logo is used; falls back to the
    *  modern team logo when null/empty. */
   logoKey?: string | null;
   size?: number;
+  /** Which sport's bucket subfolder to look in. Defaults to NBA for back-compat
+   *  with the original NBA archive screen. NHL passes 'nhl'. */
+  sport?: ArchiveSport;
+  /** When true, bypass the legacy-branding tricode-disc fallback and always
+   *  try to load the current-era logo from {sport}/{franchise_id}.png. The
+   *  disc fallback still kicks in if the image errors (so unfilled buckets
+   *  still degrade gracefully). Use this in surfaces where seeing the
+   *  modern logo is preferable to seeing a tricode disc — e.g. season
+   *  preview rows in the dropdown, where the row text already carries the
+   *  city/name context. */
+  forceCurrentLogo?: boolean;
 }
 
 // Picks a contrasting text color for the disc fallback. Pure-luminance check
@@ -46,15 +61,25 @@ export function ArchiveTeamLogo({
   secondaryColor,
   logoKey,
   size = 32,
+  sport = 'nba',
+  forceCurrentLogo = false,
 }: Props) {
   const [imageFailed, setImageFailed] = useState(false);
   const isLegacyBranding = tricode !== franchiseId;
   const eraHasHistoricalLogo = hasHistoricalLogo(logoKey);
 
-  if (!imageFailed && (!isLegacyBranding || eraHasHistoricalLogo)) {
+  // Render the image when:
+  //   - the image hasn't already failed to load this render, AND
+  //   - either: branding matches the current franchise (no era issue),
+  //     OR: a historical logo exists for the legacy era,
+  //     OR: the caller wants to skip the legacy disc and always try the
+  //         current-era logo.
+  const tryImage =
+    !imageFailed && (!isLegacyBranding || eraHasHistoricalLogo || forceCurrentLogo);
+  if (tryImage) {
     return (
       <Image
-        source={{ uri: getProLogoUrl(franchiseId, logoKey) }}
+        source={{ uri: getProLogoUrl(franchiseId, logoKey, sport) }}
         style={{ width: size, height: size }}
         contentFit="contain"
         cachePolicy="memory-disk"

@@ -16,11 +16,11 @@ import Animated, {
 } from "react-native-reanimated";
 
 import { LogoSpinner } from "@/components/ui/LogoSpinner";
-import { Brand, Colors, Fonts } from "@/constants/Colors";
+import { Fonts } from "@/constants/Colors";
 import { queryKeys } from "@/constants/queryKeys";
-import { useColorScheme } from "@/hooks/useColorScheme";
+import { useColors } from "@/hooks/useColors";
 import { useDraftTimer } from "@/hooks/useDraftTimer";
-import { supabase } from "@/lib/supabase";
+import { supabase, uniqueChannelTopic } from "@/lib/supabase";
 import { DraftState, Pick } from "@/types/draft";
 import { ms, s } from "@/utils/scale";
 
@@ -60,8 +60,7 @@ export function DraftOrder({
   onCurrentPickChange,
   onPresenceChange,
 }: DraftOrderProps) {
-  const colorScheme = useColorScheme() ?? "light";
-  const colors = Colors[colorScheme];
+  const colors = useColors();
   const scrollRef = useAnimatedRef<Animated.ScrollView>();
   const queryClient = useQueryClient();
   const [flashingPickId, setFlashingPickId] = useState<string | null>(null);
@@ -228,7 +227,8 @@ export function DraftOrder({
           ),
           player:player_id (
             name,
-            position
+            position,
+            pro_team
           )
         `,
         )
@@ -271,11 +271,13 @@ export function DraftOrder({
     return () => sub.remove();
   }, [catchUpDraft]);
 
-  // Update subscription to trigger flash
+  // postgres_changes channel — needs a unique suffix so React remount
+  // overlap doesn't collide on `.removeChannel`. Presence is split off
+  // onto its own deterministic channel below (presence routing requires
+  // every client to share the same channel name).
   useEffect(() => {
-    // Single channel for draft state + picks + presence (saves one connection)
     const draftChannel = supabase
-      .channel(`draft_room_${draftId}-${Date.now()}`)
+      .channel(uniqueChannelTopic(`draft_room_${draftId}`))
       .on(
         "postgres_changes",
         {
@@ -336,30 +338,7 @@ export function DraftOrder({
           });
         },
       )
-      .on("presence", { event: "sync" }, () => {
-        const state = draftChannel.presenceState();
-        const teams: PresenceTeam[] = [];
-        const seen = new Set<string>();
-        for (const key of Object.keys(state)) {
-          for (const p of state[key]) {
-            const tid = (p as any).teamId as string;
-            if (tid && !seen.has(tid)) {
-              seen.add(tid);
-              teams.push({
-                teamId: tid,
-                teamName: (p as any).teamName,
-                tricode: (p as any).tricode ?? '',
-                logoKey: (p as any).logoKey ?? null,
-              });
-            }
-          }
-        }
-        onPresenceChange?.(teams);
-      })
-      .subscribe(async (status) => {
-        if (status === "SUBSCRIBED" && teamId) {
-          await draftChannel.track({ teamId, teamName, tricode, logoKey });
-        }
+      .subscribe((status) => {
         if (status === "SUBSCRIBED" || status === "TIMED_OUT" || status === "CHANNEL_ERROR") {
           catchUpDraft();
         }
@@ -368,7 +347,49 @@ export function DraftOrder({
     return () => {
       supabase.removeChannel(draftChannel);
     };
-  }, [draftId, queryClient, teamId, teamName, tricode, logoKey, onPresenceChange, catchUpDraft]);
+  }, [draftId, queryClient, teamId, catchUpDraft]);
+
+  // Presence channel — DETERMINISTIC name (no Date.now() suffix) because
+  // Supabase routes presence by channel name and every client must share
+  // the same name to see each other. The postgres_changes uniqueness rule
+  // does not apply here. See useReadReceipts for the same pattern.
+  useEffect(() => {
+    if (!teamId) return;
+    const ch = supabase.channel(`draft_presence_${draftId}`, {
+      config: { presence: { key: teamId } },
+    });
+
+    ch.on("presence", { event: "sync" }, () => {
+      const state = ch.presenceState();
+      const teams: PresenceTeam[] = [];
+      const seen = new Set<string>();
+      for (const key of Object.keys(state)) {
+        for (const p of state[key]) {
+          const tid = (p as any).teamId as string;
+          if (tid && !seen.has(tid)) {
+            seen.add(tid);
+            teams.push({
+              teamId: tid,
+              teamName: (p as any).teamName,
+              tricode: (p as any).tricode ?? '',
+              logoKey: (p as any).logoKey ?? null,
+            });
+          }
+        }
+      }
+      onPresenceChange?.(teams);
+    });
+
+    ch.subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        await ch.track({ teamId, teamName, tricode, logoKey });
+      }
+    });
+
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, [draftId, teamId, teamName, tricode, logoKey, onPresenceChange]);
 
   // Heartbeat: ping draft_team_status so the server knows this team exists.
   // Autopick is purely user-controlled via the AUTO toggle.
@@ -410,10 +431,14 @@ export function DraftOrder({
   // Find the index of the first unmade pick
   const currentPickIndex = picks.findIndex((pick) => !pick.player_id);
 
-  // Spring-scroll so the just-picked card is leftmost (current pick visible beside it)
+  // Spring-scroll so the just-picked card is leftmost (current pick visible beside it).
+  // After the final pick lands, currentPickIndex is -1 — scroll to the end so
+  // the last pick is in view (the completion notice renders below the strip).
   useEffect(() => {
-    if (currentPickIndex < 0) return;
-    const showIndex = Math.max(0, currentPickIndex - 1);
+    const showIndex =
+      currentPickIndex < 0
+        ? Math.max(0, picks.length - 1)
+        : Math.max(0, currentPickIndex - 1);
     const targetX = Math.max(0, showIndex * (s(124) + s(4) * 2) - 2);
     // Wait for the gold flash + scale-pop to finish (≈1.12s) before the
     // strip springs to the next pick. Otherwise the strip can shift
@@ -423,7 +448,7 @@ export function DraftOrder({
       1200,
       withSpring(targetX, { damping: 120, mass: 4, stiffness: 900 }),
     );
-  }, [currentPickIndex]);
+  }, [currentPickIndex, picks.length]);
 
   // Notify parent of current pick — only expose when the draft is actually running
   useEffect(() => {
@@ -478,22 +503,23 @@ export function DraftOrder({
         const originalTricode = pick.original_team?.tricode;
 
         // Surface + foreground colors per state.
-        // - on-the-clock: filled turfGreen w/ ecru type (the broadcast
-        //   "this team is up" moment)
+        // - on-the-clock: filled with sport primary (NBA turfGreen, WNBA
+        //   merlot, NFL navy) w/ ecru type — the broadcast "this team is up"
+        //   moment, themed to the league.
         // - picked: card surface, gold rule still visible, faded slightly
         // - default: card surface, gold rule, c.text
-        const surfaceColor = isCurrentOnTheClock ? Brand.turfGreen : colors.card;
-        const borderColor = isCurrentOnTheClock ? Brand.vintageGold : colors.border;
-        const primaryColor = isCurrentOnTheClock ? Brand.ecru : colors.text;
+        const surfaceColor = isCurrentOnTheClock ? colors.primary : colors.card;
+        const borderColor = isCurrentOnTheClock ? colors.gold : colors.border;
+        const primaryColor = isCurrentOnTheClock ? colors.onPrimary : colors.text;
         const secondaryColor = isCurrentOnTheClock
           ? "rgba(233, 226, 203, 0.65)"
           : colors.secondaryText;
-        const ruleColor = isCurrentOnTheClock ? Brand.vintageGold : colors.gold;
+        const ruleColor = colors.gold;
 
         return (
           <Animated.View
             key={pick.id}
-            accessibilityLabel={`Pick ${pick.round}-${pick.pick_in_round}, ${pick.current_team?.name || 'TBD'}${isPicked ? `, ${pick.player?.name}, ${pick.player?.position}` : isCurrentOnTheClock ? ', on the clock' : ''}`}
+            accessibilityLabel={`Pick ${pick.round}-${pick.pick_in_round}, ${pick.current_team?.name || 'TBD'}${isPicked ? `, ${pick.player?.name}, ${pick.player?.position}${pick.player?.pro_team ? `, ${pick.player.pro_team}` : ''}` : isCurrentOnTheClock ? ', on the clock' : ''}`}
             style={[
               styles.pickBlock,
               {
@@ -514,7 +540,7 @@ export function DraftOrder({
                 pointerEvents="none"
                 style={[
                   StyleSheet.absoluteFill,
-                  { backgroundColor: Brand.vintageGold, opacity: 0.35 },
+                  { backgroundColor: colors.gold, opacity: 0.35 },
                   flashStyle,
                 ]}
               />
@@ -563,14 +589,16 @@ export function DraftOrder({
                     <ThemedText
                       type="varsitySmall"
                       style={[styles.playerPosition, { color: ruleColor }]}
+                      accessibilityLabel={`${pick.player?.position}${pick.player?.pro_team ? `, ${pick.player.pro_team}` : ''}`}
                     >
                       {pick.player?.position}
+                      {pick.player?.pro_team ? ` · ${pick.player.pro_team}` : ''}
                     </ThemedText>
                   </>
                 ) : autopickTeamIds.has(pick.current_team_id) ? (
                   <ThemedText
                     type="varsity"
-                    style={[styles.autopickText, { color: Brand.vintageGold }]}
+                    style={[styles.autopickText, { color: colors.gold }]}
                   >
                     Autopick
                   </ThemedText>
@@ -590,7 +618,7 @@ export function DraftOrder({
                   ) : countdownExpired ? (
                     <ThemedText
                       type="varsity"
-                      style={[styles.pickIsInText, { color: Brand.vintageGold }]}
+                      style={[styles.pickIsInText, { color: colors.gold }]}
                       accessibilityLabel="Pick is in"
                     >
                       Pick is in

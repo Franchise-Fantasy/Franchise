@@ -3,6 +3,7 @@ import { Image } from 'expo-image';
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 
+import { PlayerHeadshotImage } from '@/components/player/PlayerHeadshotImage';
 import { Badge } from '@/components/ui/Badge';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Fonts } from '@/constants/Colors';
@@ -10,7 +11,6 @@ import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useColors } from '@/hooks/useColors';
 import { TradeItemRow } from '@/hooks/useTrades';
 import { formatPickLabel } from '@/types/trade';
-import { getPlayerHeadshotUrl, PLAYER_SILHOUETTE } from '@/utils/nba/playerHeadshot';
 import { ms, s } from '@/utils/scale';
 
 interface TradeAssetRowProps {
@@ -116,20 +116,16 @@ export function TradeAssetRow({
   }
 
   // ─── Player ────────────────────────────────────────────────
-  const headshotUrl = getPlayerHeadshotUrl(externalIdNba, sport);
   return (
     <View
       style={styles.row}
       accessibilityLabel={`${item.player_name ?? 'Unknown'}${avgFpts != null ? `, ${avgFpts.toFixed(1)} fantasy points per game` : ''}`}
     >
       <View style={[styles.headshot, { borderColor: c.border, backgroundColor: c.cardAlt }]}>
-        <Image
-          source={headshotUrl ? { uri: headshotUrl } : PLAYER_SILHOUETTE}
+        <PlayerHeadshotImage
+          externalIdNba={externalIdNba}
+          sport={sport}
           style={styles.headshotImg}
-          contentFit="cover"
-          cachePolicy="memory-disk"
-          recyclingKey={headshotUrl ?? 'silhouette'}
-          placeholder={PLAYER_SILHOUETTE}
         />
       </View>
       <View style={styles.info}>

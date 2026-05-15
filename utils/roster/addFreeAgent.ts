@@ -1,5 +1,6 @@
 import { sendNotification } from "@/lib/notifications";
 import { supabase } from "@/lib/supabase";
+import { nextSlateRollover } from "@/utils/leagueTime";
 import { GameTimeMap, hasAnyGameStarted, isGameStarted } from "@/utils/nba/gameStarted";
 import { assertNoIllegalIR } from "@/utils/roster/illegalIR";
 
@@ -10,6 +11,10 @@ import { assertNoIllegalIR } from "@/utils/roster/illegalIR";
  * individual = this player's game started), acquired_at is set to tomorrow noon
  * so the player is claimed immediately but hidden from today's roster.
  *
+ * Pass `forceDefer: true` when paired with a queued drop — the add then defers
+ * to tomorrow regardless of the added player's individual lock state, so the
+ * add and drop apply atomically on the same day.
+ *
  * Returns { deferred: true } when the add was locked (caller should alert
  * "will appear tomorrow") or { deferred: false } for an immediate add.
  */
@@ -19,8 +24,9 @@ export async function addFreeAgent(params: {
   player: { player_id: string; name: string; position: string; pro_team: string };
   playerLockType: "daily" | "individual" | null;
   gameTimeMap: GameTimeMap;
+  forceDefer?: boolean;
 }): Promise<{ deferred: boolean }> {
-  const { leagueId, teamId, player, playerLockType, gameTimeMap } = params;
+  const { leagueId, teamId, player, playerLockType, gameTimeMap, forceDefer } = params;
 
   // Block the add if this team has any healthy player parked on IR.
   await assertNoIllegalIR(leagueId, teamId);
@@ -37,12 +43,19 @@ export async function addFreeAgent(params: {
         "You have a pending trade that would put you over your roster limit. Resolve the trade or drop a player first.",
       );
     }
+    if (guardError.message?.includes("roster_full")) {
+      throw new Error(
+        "Your roster is already full. Drop a player first before adding.",
+      );
+    }
     throw guardError;
   }
 
   // Determine if the add is locked
   let locked = false;
-  if (playerLockType === "daily") {
+  if (forceDefer) {
+    locked = true;
+  } else if (playerLockType === "daily") {
     locked = hasAnyGameStarted(gameTimeMap);
   } else if (playerLockType === "individual") {
     locked = isGameStarted(player.pro_team, gameTimeMap);
@@ -50,10 +63,11 @@ export async function addFreeAgent(params: {
 
   let acquiredAt: string;
   if (locked) {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(12, 0, 0, 0);
-    acquiredAt = tomorrow.toISOString();
+    // Deferred add reveals at the next slate rollover (5am ET) so every GM,
+    // regardless of TZ, sees the player appear at the same wall-clock moment.
+    const { data: leagueRow } = await supabase
+      .from("leagues").select("sport").eq("id", leagueId).single();
+    acquiredAt = nextSlateRollover(leagueRow?.sport ?? null).toISOString();
   } else {
     acquiredAt = new Date().toISOString();
   }

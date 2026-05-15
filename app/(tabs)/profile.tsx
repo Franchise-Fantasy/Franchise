@@ -1,11 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQueryClient } from '@tanstack/react-query';
+import { Image as ExpoImage } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   Alert,
   Image,
+  Platform,
   ScrollView,
   StyleSheet,
   Switch,
@@ -34,10 +36,12 @@ import {
   unregisterPushToken,
 } from '@/lib/notifications';
 import { supabase } from '@/lib/supabase';
-import { isArchiveFlagOn, isNhlArchiveFlagOn } from '@/utils/featureFlags';
+import { isArchiveFlagOn, isNflArchiveFlagOn, isNhlArchiveFlagOn } from '@/utils/featureFlags';
 import { logger } from '@/utils/logger';
 import { containsBlockedContent } from '@/utils/moderation';
 import { ms, s } from '@/utils/scale';
+
+const PATCH_SOURCE = require('../../assets/images/patch_logo.png');
 
 function tierBadgeVariant(tier: SubscriptionTier): BadgeVariant {
   if (tier === 'premium') return 'gold';
@@ -233,10 +237,20 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* ─── Identity hero ─────────────────────────────────────────────── */}
+        {/* Same chrome family as RosterHero: green heroSurface + gold corner
+            rule + patch watermark + cardShadow + rounded card. */}
         <View
-          style={[styles.hero, { backgroundColor: c.primary }]}
+          style={[styles.hero, { backgroundColor: c.heroSurface }, c.heroShadow]}
           accessibilityLabel={`Profile for ${myTeamName || userEmail}${isCommissioner ? ', commissioner' : ''}`}
         >
+          <ExpoImage
+            source={PATCH_SOURCE}
+            style={styles.heroPatch}
+            contentFit="contain"
+            cachePolicy="memory-disk"
+            transition={0}
+            accessible={false}
+          />
           <View style={[styles.heroRule, { backgroundColor: c.gold }]} />
 
           <View style={styles.heroBody}>
@@ -270,6 +284,7 @@ export default function ProfileScreen() {
                     <ThemedText
                       type="display"
                       style={[styles.avatarText, { color: Brand.ink }]}
+                      allowFontScaling={false}
                     >
                       {(myTeamName || userEmail).charAt(0).toUpperCase()}
                     </ThemedText>
@@ -314,8 +329,6 @@ export default function ProfileScreen() {
               </ThemedText>
             </View>
           </View>
-
-          <View style={[styles.heroRule, { backgroundColor: c.gold }]} />
         </View>
 
         <View style={styles.sectionsWrap}>
@@ -508,6 +521,8 @@ export default function ProfileScreen() {
                 value={notificationsEnabled}
                 onValueChange={handleNotificationsToggle}
                 trackColor={{ false: c.border, true: c.accent }}
+                thumbColor={Platform.OS === 'android' ? '#FFFFFF' : undefined}
+                ios_backgroundColor={c.border}
                 accessibilityLabel="Push Notifications"
                 accessibilityRole="switch"
                 accessibilityState={{ checked: notificationsEnabled }}
@@ -550,8 +565,9 @@ export default function ProfileScreen() {
         {(() => {
           const showNba = isArchiveFlagOn(session?.user);
           const showNhl = isNhlArchiveFlagOn(session?.user);
-          if (!showNba && !showNhl) return null;
-          const total = (showNba ? 1 : 0) + (showNhl ? 1 : 0);
+          const showNfl = isNflArchiveFlagOn(session?.user);
+          if (!showNba && !showNhl && !showNfl) return null;
+          const total = (showNba ? 1 : 0) + (showNhl ? 1 : 0) + (showNfl ? 1 : 0);
           let idx = 0;
           return (
             <Section title="Beta">
@@ -603,6 +619,36 @@ export default function ProfileScreen() {
                       />
                       <ThemedText style={[styles.rowLabel, { color: c.text }]}>
                         NHL Playoff Archive
+                      </ThemedText>
+                      <Badge label="DEV" variant="gold" size="small" />
+                    </View>
+                    <Ionicons
+                      name="chevron-forward"
+                      size={ms(16)}
+                      color={c.secondaryText}
+                      accessible={false}
+                    />
+                  </View>
+                </ListRow>
+              )}
+              {showNfl && (
+                <ListRow
+                  index={idx++}
+                  total={total}
+                  onPress={() => router.push('/playoff-archive-nfl' as any)}
+                  accessibilityLabel="NFL Playoff Archive (dev)"
+                  accessibilityHint="Opens the NFL playoff history archive"
+                >
+                  <View style={styles.rowContent}>
+                    <View style={styles.rowLeft}>
+                      <Ionicons
+                        name="american-football-outline"
+                        size={ms(18)}
+                        color={c.gold}
+                        accessible={false}
+                      />
+                      <ThemedText style={[styles.rowLabel, { color: c.text }]}>
+                        NFL Playoff Archive
                       </ThemedText>
                       <Badge label="DEV" variant="gold" size="small" />
                     </View>
@@ -893,22 +939,40 @@ const styles = StyleSheet.create({
   },
 
   // ─── Identity hero ───
+  // Aligned with the RosterHero chrome family: green heroSurface + corner
+  // gold rule (top-left, 3pt × s(40)) + patch watermark + cardShadow +
+  // rounded 16. minHeight matches RosterHero so heights stay standardized
+  // across non-Home tabs.
   hero: {
-    paddingVertical: s(8),
-    // Hero is the first thing on the page now (no PageHeader), so add a
-    // little top breathing room past the safe-area inset.
+    position: 'relative',
+    marginHorizontal: s(12),
     marginTop: s(8),
-    marginBottom: s(20),
+    marginBottom: s(16),
+    borderRadius: 16,
+    paddingHorizontal: s(16),
+    paddingVertical: s(20),
+    overflow: 'hidden',
+    minHeight: ms(140),
+    justifyContent: 'center',
   },
   heroRule: {
-    height: 2,
-    marginHorizontal: s(20),
+    position: 'absolute',
+    top: 0,
+    left: s(16),
+    height: 3,
+    width: s(40),
+  },
+  heroPatch: {
+    position: 'absolute',
+    right: s(-22),
+    bottom: s(-28),
+    width: s(130),
+    height: s(130),
+    opacity: 0.14,
   },
   heroBody: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: s(20),
-    paddingVertical: s(18),
     gap: s(16),
   },
   avatar: {
@@ -924,9 +988,12 @@ const styles = StyleSheet.create({
   },
   avatarText: {
     fontFamily: Fonts.display,
-    fontSize: ms(30),
-    lineHeight: ms(36),
-    letterSpacing: -0.3,
+    fontSize: ms(28),
+    // Alfa Slab One has tall ascenders; lineHeight must exceed fontSize or the
+    // top of the glyph clips inside the avatar circle.
+    lineHeight: ms(38),
+    letterSpacing: 0,
+    textAlign: 'center',
   },
   avatarEditBadge: {
     position: 'absolute',

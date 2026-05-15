@@ -1,9 +1,12 @@
 #!/usr/bin/env node
-// Static scan: every `.channel(...)` used with `postgres_changes` must include
-// a `-${Date.now()}` suffix. Deterministic names collide when React reconnects
-// passive effects (tab switch, auth transition, concurrent re-render); Supabase
-// throws during the overlap and Hermes crashes natively. Presence and broadcast
-// channels are exempt — they need shared names.
+// Static scan: every `.channel(...)` used with `postgres_changes` must produce
+// a globally-unique topic — either by calling `uniqueChannelTopic(...)` (from
+// lib/supabase) or by including `Date.now()` in the literal. Deterministic
+// names collide when React reconnects passive effects (tab switch, auth
+// refresh, notification tap, concurrent re-render); Supabase throws
+// `cannot add 'postgres_changes' callbacks ... after subscribe()` during the
+// overlap and Hermes crashes natively. Presence and broadcast channels are
+// exempt — they need shared names.
 //
 // Exits 1 if any violations are found so CI can gate on it.
 //
@@ -50,8 +53,8 @@ function findSourceFiles() {
  * Scan a file for `.channel(` calls. For each, capture the surrounding block
  * (up to the next blank line or `.subscribe()`) and check:
  *   - If the block contains `.on('postgres_changes'` → this is a postgres-changes channel
- *   - If so, the channel name argument must contain `Date.now()` OR be passed a
- *     template literal with `${Date.now()}`
+ *   - If so, the channel name argument must come from `uniqueChannelTopic(...)`
+ *     OR contain `Date.now()` / `crypto.randomUUID` / `performance.now()`.
  */
 function scanFile(filepath) {
   const src = readFileSync(filepath, 'utf8');
@@ -80,6 +83,7 @@ function scanFile(filepath) {
     // matching close paren, at single-line depth.
     const invocation = line.slice(line.indexOf('.channel('));
     const hasUnique =
+      invocation.includes('uniqueChannelTopic(') ||
       invocation.includes('Date.now()') ||
       invocation.includes('crypto.randomUUID') ||
       invocation.includes('performance.now()');
@@ -108,7 +112,7 @@ function main() {
   }
 
   console.error(
-    `✗ Found ${allViolations.length} postgres_changes channel(s) without a -${"$"}{Date.now()} suffix:\n`,
+    `✗ Found ${allViolations.length} postgres_changes channel(s) with a non-unique topic:\n`,
   );
   for (const v of allViolations) {
     console.error(`  ${v.file}:${v.line}`);
@@ -116,9 +120,11 @@ function main() {
     console.error();
   }
   console.error(
-    'Every postgres_changes channel created in a useEffect must include a unique\n' +
-      'suffix (e.g. -${Date.now()}). Deterministic names cause Supabase to throw\n' +
-      'during remount overlap and Hermes crashes natively. See CLAUDE.md for context.',
+    "Every postgres_changes channel created in a useEffect must use a globally\n" +
+      "unique topic. Prefer `uniqueChannelTopic('base-name')` from lib/supabase.\n" +
+      'Deterministic names cause Supabase to throw `cannot add postgres_changes\n' +
+      'callbacks ... after subscribe()` during remount overlap (notification tap,\n' +
+      'auth refresh, concurrent renders). See CLAUDE.md for context.',
   );
   process.exit(1);
 }

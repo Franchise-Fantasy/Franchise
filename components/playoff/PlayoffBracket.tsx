@@ -173,7 +173,12 @@ function MatchupCard({
   if (slot.matchup_id) {
     return (
       <TouchableOpacity
-        onPress={() => router.push(`/matchup-detail/${slot.matchup_id}`)}
+        onPress={() =>
+          router.navigate({
+            pathname: '/(tabs)/matchup',
+            params: { matchupId: slot.matchup_id! },
+          })
+        }
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
         accessibilityHint="View matchup details"

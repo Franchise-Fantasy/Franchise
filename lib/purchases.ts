@@ -1,3 +1,4 @@
+import Constants from "expo-constants";
 import { Platform } from "react-native";
 import Purchases, {
   LOG_LEVEL,
@@ -9,6 +10,11 @@ import { supabase } from "@/lib/supabase";
 
 const API_KEY_IOS = process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY ?? "";
 const API_KEY_ANDROID = process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY ?? "";
+
+// react-native-purchases ships native code that Expo Go doesn't include.
+// Skip the entire RC flow in Expo Go so dev sessions don't get spammed with
+// init/configure errors. Custom dev clients and EAS builds run normally.
+const isExpoGo = Constants.appOwnership === "expo";
 
 /**
  * Force the server to re-pull the user's subscription state from RevenueCat
@@ -55,6 +61,7 @@ export function isReady(): boolean {
  * Fails silently if RevenueCat isn't set up yet (no app configured in dashboard).
  */
 export async function initPurchases(userId: string): Promise<void> {
+  if (isExpoGo) return;
   try {
     if (isConfigured) {
       await Purchases.logIn(userId);

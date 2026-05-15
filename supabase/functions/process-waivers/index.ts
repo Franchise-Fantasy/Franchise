@@ -4,6 +4,7 @@ import { notifyTeams, notifyLeague, notifyTeamsBulk, type BulkTeamsNotification 
 import { snapshotBeforeDrop } from '../_shared/snapshotBeforeDrop.ts';
 import { checkPositionLimits } from '../_shared/positionLimits.ts';
 import { createLogger } from '../_shared/log.ts';
+import { nextSlateRollover } from '../../../utils/leagueTime.ts';
 
 const log = createLogger('process-waivers');
 
@@ -362,14 +363,10 @@ async function checkAndProcessClaim(claim: any, leagueId: string, waiverPeriodDa
       if (delErr) throw delErr;
 
       if (waiverPeriodDays > 0) {
-        const raw = new Date();
-        raw.setDate(raw.getDate() + waiverPeriodDays);
-        const until = new Date(Date.UTC(
-          raw.getUTCFullYear(), raw.getUTCMonth(), raw.getUTCDate(), 6, 0, 0, 0
-        ));
-        if (raw.getTime() > until.getTime()) {
-          until.setUTCDate(until.getUTCDate() + 1);
-        }
+        const { data: leagueRow } = await supabase
+          .from('leagues').select('sport').eq('id', leagueId).single();
+        const until = nextSlateRollover((leagueRow as any)?.sport ?? null);
+        until.setUTCDate(until.getUTCDate() + (waiverPeriodDays - 1));
         await supabase.from('league_waivers').insert({
           league_id: leagueId, player_id: claim.drop_player_id,
           on_waivers_until: until.toISOString(), dropped_by_team_id: claim.team_id,

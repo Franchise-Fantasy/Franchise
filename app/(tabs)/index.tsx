@@ -767,14 +767,21 @@ export default function HomeScreen() {
         >
           <IconSymbol name="chevron.down" size={20} color={c.icon} accessible={false} />
         </TouchableOpacity>
-        <ThemedText
-          type="varsity"
-          style={[styles.headerText, { color: c.secondaryText }]}
-          accessibilityRole="header"
-          numberOfLines={1}
+        <TouchableOpacity
+          style={styles.headerTitleHit}
+          onPress={() => setSwitcherVisible(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Switch league"
+          accessibilityHint="Opens league switcher"
         >
-          {isLoading ? 'Loading' : league?.name ?? 'Franchise'}
-        </ThemedText>
+          <ThemedText
+            type="varsity"
+            style={[styles.headerText, { color: c.secondaryText }]}
+            numberOfLines={1}
+          >
+            {isLoading ? 'Loading' : league?.name ?? 'Franchise'}
+          </ThemedText>
+        </TouchableOpacity>
         <TouchableOpacity
           style={styles.chatButton}
           onPress={handleChatPress}
@@ -936,13 +943,15 @@ const styles = StyleSheet.create({
     height: s(50),
     justifyContent: 'space-between',
   },
-  headerText: {
+  headerTitleHit: {
     flex: 1,
+    marginHorizontal: s(40),
+  },
+  headerText: {
     textAlign: 'center',
     fontFamily: Fonts.varsityBold,
     fontSize: ms(12),
     letterSpacing: 1.2,
-    marginHorizontal: s(40),
   },
   leagueSwitcher: {
     padding: s(8),

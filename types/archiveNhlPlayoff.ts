@@ -50,6 +50,26 @@ export interface NhlArchiveSeries {
   wins_b: number;
 }
 
+// One row of the per-game box (top 5 by ice time per side). Populated from
+// nhl_playoff_game_box via the bracket RPC.
+export interface NhlArchiveGameBoxLine {
+  rank: number;
+  player_id: string | null;
+  player_name: string;
+  position: string | null;
+  toi_seconds: number | null;
+  goals: number | null;
+  assists: number | null;
+  points: number | null;
+  plus_minus: number | null;
+  sog: number | null;
+  pim: number | null;
+  saves: number | null;
+  shots_against: number | null;
+  goals_against: number | null;
+  stat_line: string | null;
+}
+
 export interface NhlArchiveGame {
   series_id: string;
   game_num: number;
@@ -60,6 +80,12 @@ export interface NhlArchiveGame {
   ot_periods: number;
   shootout: boolean;
   played_on: string | null;
+  /** Top 5 box-score lines per side, ranked by ice time. side 'a'
+   *  corresponds to series.franchise_a_id, 'b' to franchise_b_id. */
+  box: {
+    a: NhlArchiveGameBoxLine[];
+    b: NhlArchiveGameBoxLine[];
+  };
 }
 
 export interface NhlArchiveBracket {

@@ -2,7 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
 import { queryKeys } from '@/constants/queryKeys';
-import { supabase } from '@/lib/supabase';
+import { supabase, uniqueChannelTopic } from '@/lib/supabase';
 
 /**
  * Single realtime channel per conversation that handles both message INSERTs
@@ -16,7 +16,7 @@ export function useChatSubscription(conversationId: string | null) {
   useEffect(() => {
     if (!conversationId) return;
     const channel = supabase
-      .channel(`chat_sub_${conversationId}-${Date.now()}`)
+      .channel(uniqueChannelTopic(`chat_sub_${conversationId}`))
       .on(
         'postgres_changes',
         {

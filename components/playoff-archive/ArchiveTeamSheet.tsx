@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { useMemo } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { ArchiveTeamLogo } from '@/components/playoff-archive/ArchiveTeamLogo';
 import { BottomSheet } from '@/components/ui/BottomSheet';
@@ -8,9 +9,14 @@ import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Brand, Fonts } from '@/constants/Colors';
 import { useArchiveColors } from '@/hooks/useArchiveColors';
-import { useArchiveAwards, useArchiveTeamRun } from '@/hooks/useArchivePlayoffs';
+import {
+  useArchiveAwards,
+  useArchiveTeamRotation,
+  useArchiveTeamRun,
+} from '@/hooks/useArchivePlayoffs';
 import type {
   ArchiveAwardEntry,
+  ArchiveRotationPlayer,
   ArchiveSeries,
   AwardType,
 } from '@/types/archivePlayoff';
@@ -86,8 +92,10 @@ const TEAM_AWARD_ORDER: { type: AwardType; label: string }[] = [
 
 export function ArchiveTeamSheet({ season, franchiseId, hasPlayIn, onClose }: Props) {
   const c = useArchiveColors();
+  const router = useRouter();
   const { data, isLoading } = useArchiveTeamRun(season, franchiseId);
   const { data: awards } = useArchiveAwards(season);
+  const { data: rotation } = useArchiveTeamRotation(season, franchiseId);
 
   // Flatten franchise-scoped awards in display order.
   const teamAwards = useMemo(() => {
@@ -160,14 +168,59 @@ export function ArchiveTeamSheet({ season, franchiseId, hasPlayIn, onClose }: Pr
                   type="varsitySmall"
                   style={[styles.heroEyebrow, { color: f.secondary_color ?? Brand.ecru }]}
                 >
-                  {isChampion ? 'NBA CHAMPION' : 'PLAYOFF RUN'}
+                  {isChampion
+                    ? 'NBA CHAMPION'
+                    : data.series.length > 0
+                      ? 'PLAYOFF PATH'
+                      : 'REGULAR SEASON'}
                 </ThemedText>
-                <ThemedText
-                  style={[styles.heroSummary, { color: '#FFFFFF' }]}
-                  numberOfLines={2}
-                >
-                  {summary}
-                </ThemedText>
+                {data.series.length > 0 ? (
+                  <View style={styles.pathChipRow}>
+                    {data.series.map((sr) => {
+                      const decided = !!sr.winner_franchise_id;
+                      const isWin = sr.winner_franchise_id === franchiseId;
+                      const myWins = sr.franchise_a_id === franchiseId ? sr.wins_a : sr.wins_b;
+                      const oppWins = sr.franchise_a_id === franchiseId ? sr.wins_b : sr.wins_a;
+                      const opponentId =
+                        sr.franchise_a_id === franchiseId
+                          ? sr.franchise_b_id
+                          : sr.franchise_a_id;
+                      // Pill style: secondary color border, faint fill, white
+                      // text. Series this team lost (their elimination)
+                      // gets a hollow look so the eye lands on losses fast.
+                      const lost = decided && !isWin;
+                      const fillColor = lost
+                        ? 'transparent'
+                        : (f.secondary_color ?? Brand.gold) + '33';
+                      return (
+                        <View
+                          key={sr.id}
+                          style={[
+                            styles.pathChip,
+                            {
+                              borderColor: f.secondary_color ?? Brand.gold,
+                              backgroundColor: fillColor,
+                            },
+                          ]}
+                        >
+                          <ThemedText style={[styles.pathChipTri, { color: '#FFFFFF' }]}>
+                            {opponentId ?? '—'}
+                          </ThemedText>
+                          <ThemedText style={[styles.pathChipScore, { color: '#FFFFFF' }]}>
+                            {myWins}–{oppWins}
+                          </ThemedText>
+                        </View>
+                      );
+                    })}
+                  </View>
+                ) : (
+                  <ThemedText
+                    style={[styles.heroSummary, { color: '#FFFFFF' }]}
+                    numberOfLines={1}
+                  >
+                    {summary}
+                  </ThemedText>
+                )}
               </View>
               {isChampion && (
                 <Ionicons
@@ -180,72 +233,142 @@ export function ArchiveTeamSheet({ season, franchiseId, hasPlayIn, onClose }: Pr
             </View>
           </View>
 
-          {/* Series list — round-by-round path */}
-          <View style={styles.section}>
+          {/* Link out to the full year-by-year franchise history page.
+              Pulled out as a standalone row so it reads as a deliberate
+              navigation, not just one more chip-strip element. */}
+          <TouchableOpacity
+            onPress={() => {
+              if (!franchiseId) return;
+              onClose();
+              router.push(`/franchise/${franchiseId}` as never);
+            }}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel={`View ${f.city} ${f.name} franchise history`}
+            style={[styles.historyLinkRow, { borderColor: c.border, backgroundColor: c.cardAlt }]}
+          >
             <ThemedText
-              type="varsity"
-              style={[styles.sectionLabel, { color: c.text }]}
-              accessibilityRole="header"
+              type="varsitySmall"
+              style={[styles.historyLinkLabel, { color: c.text }]}
             >
-              PLAYOFF PATH
+              FRANCHISE HISTORY
             </ThemedText>
-            <View style={[styles.seriesList, { borderColor: c.border }]}>
-              {data.series.length === 0 && (
-                <ThemedText style={[styles.emptyText, { color: c.secondaryText }]}>
-                  Did not make the playoffs.
-                </ThemedText>
-              )}
-              {data.series.map((sr) => {
-                const isWin = sr.winner_franchise_id === franchiseId;
-                const myWins = sr.franchise_a_id === franchiseId ? sr.wins_a : sr.wins_b;
-                const oppWins = sr.franchise_a_id === franchiseId ? sr.wins_b : sr.wins_a;
-                const opponentId =
-                  sr.franchise_a_id === franchiseId
-                    ? sr.franchise_b_id
-                    : sr.franchise_a_id;
-                return (
+            <Ionicons name="chevron-forward" size={ms(16)} color={c.secondaryText} />
+          </TouchableOpacity>
+
+          {/* Regular-season rotation — top players by VORP, filtered to
+              mpg >= 15 and gp >= 25. Sticky-name layout: the name column
+              is a fixed View on the left, the stats live inside a
+              horizontal ScrollView on the right. Row heights are explicit
+              so the two columns stay vertically aligned. */}
+          {rotation && rotation.length > 0 && (
+            <View style={styles.section}>
+              <ThemedText
+                type="varsity"
+                style={[styles.sectionLabel, { color: c.text }]}
+                accessibilityRole="header"
+              >
+                REGULAR SEASON ROTATION
+              </ThemedText>
+              <View style={[styles.rotationTable, { borderColor: c.border }]}>
+                {/* Sticky name column */}
+                <View style={[styles.rotationNameColumn, { borderRightColor: c.border }]}>
                   <View
-                    key={sr.id}
-                    style={[styles.seriesRow, { borderBottomColor: c.border }]}
+                    style={[
+                      styles.rotationNameCell,
+                      styles.rotationHeaderCell,
+                      { borderBottomColor: c.border },
+                    ]}
                   >
-                    <View style={styles.seriesLabelCol}>
-                      <ThemedText
-                        type="varsitySmall"
-                        style={[styles.seriesRound, { color: c.secondaryText }]}
+                    <ThemedText
+                      type="varsitySmall"
+                      style={[styles.rotationColLabel, { color: c.secondaryText }]}
+                    >
+                      PLAYER
+                    </ThemedText>
+                  </View>
+                  {rotation.map((p) => {
+                    const displayName = abbreviateName(p.player_name);
+                    return (
+                      <View
+                        key={p.bbref_player_id}
+                        style={[styles.rotationNameCell, { borderBottomColor: c.border }]}
                       >
-                        {ROUND_NAME[sr.round].toUpperCase()}
-                      </ThemedText>
-                      <ThemedText
-                        style={[
-                          styles.seriesOpponent,
-                          { color: c.text, fontWeight: '500' },
-                        ]}
-                      >
-                        {isWin ? 'def.' : 'lost to'} {opponentId ?? '—'}
-                      </ThemedText>
-                    </View>
+                        <View style={styles.rotationNameInner}>
+                          {p.is_all_star && (
+                            <Ionicons
+                              name="star"
+                              size={ms(11)}
+                              color={c.gold}
+                              style={styles.rotationStar}
+                              accessibilityLabel="All-Star"
+                            />
+                          )}
+                          <ThemedText
+                            style={[styles.rotationName, { color: c.text }]}
+                            numberOfLines={1}
+                          >
+                            {displayName}
+                          </ThemedText>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+                {/* Scrollable stats */}
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator
+                  style={styles.rotationStatsScroll}
+                >
+                  <View>
                     <View
                       style={[
-                        styles.scoreBadge,
-                        {
-                          backgroundColor: isWin ? Brand.turfGreen : c.cardAlt,
-                        },
+                        styles.rotationStatsRow,
+                        styles.rotationHeaderCell,
+                        { borderBottomColor: c.border },
                       ]}
                     >
-                      <ThemedText
-                        style={[
-                          styles.scoreText,
-                          { color: isWin ? Brand.ecru : c.text },
-                        ]}
-                      >
-                        {myWins}–{oppWins}
-                      </ThemedText>
+                      {ROT_COLS.map((col) => (
+                        <View
+                          key={col.key}
+                          style={[
+                            styles.rotationStatCol,
+                            col.wide && styles.rotationStatColWide,
+                          ]}
+                        >
+                          <ThemedText
+                            type="varsitySmall"
+                            style={[styles.rotationColLabel, { color: c.secondaryText }]}
+                          >
+                            {col.label}
+                          </ThemedText>
+                        </View>
+                      ))}
                     </View>
+                    {rotation.map((p) => (
+                      <View
+                        key={p.bbref_player_id}
+                        style={[styles.rotationStatsRow, { borderBottomColor: c.border }]}
+                      >
+                        <CompactStat value={p.gp} c={c} integer />
+                        <CompactStat value={p.vorp} c={c} emphasize />
+                        <CompactStat value={p.mpg} c={c} />
+                        <CompactStat value={p.pts_per} c={c} />
+                        <CompactStat value={p.reb_per} c={c} />
+                        <CompactStat value={p.ast_per} c={c} />
+                        <CompactStat value={p.stl_per} c={c} />
+                        <CompactStat value={p.blk_per} c={c} />
+                        <CompactStat value={p.fg_pct} c={c} pct wide />
+                        <CompactStat value={p.tp_pct} c={c} pct wide />
+                        <CompactStat value={p.ts_pct} c={c} pct wide />
+                      </View>
+                    ))}
                   </View>
-                );
-              })}
+                </ScrollView>
+              </View>
             </View>
-          </View>
+          )}
 
           {/* Top players — only when stats are present (skipped in v1 import) */}
           {data.top_players.length > 0 && (
@@ -356,6 +479,81 @@ function PlayerStat({
   );
 }
 
+// Column order: identity (name + GP) → headline (VORP) → counting →
+// shooting. "wide" columns reserve a bit more horizontal space for
+// 3-decimal percentages that don't fit in the standard cell width.
+const ROT_COLS: { key: string; label: string; wide?: boolean }[] = [
+  { key: 'gp', label: 'GP' },
+  { key: 'vorp', label: 'VORP' },
+  { key: 'mpg', label: 'MPG' },
+  { key: 'pts', label: 'PTS' },
+  { key: 'reb', label: 'REB' },
+  { key: 'ast', label: 'AST' },
+  { key: 'stl', label: 'STL' },
+  { key: 'blk', label: 'BLK' },
+  { key: 'fg', label: 'FG%', wide: true },
+  { key: 'tp', label: '3P%', wide: true },
+  { key: 'ts', label: 'TS%', wide: true },
+];
+
+// Trim a player's name down to "F. LastName" when the full version is too
+// long for the rotation table's name column. Hyphenated first names like
+// "Karl-Anthony" use the first letter only: "K. Towns". Single-word names
+// pass through untouched. Threshold tuned so that:
+//   - "LeBron James" / "Anthony Davis" / "Kawhi Leonard" stay full
+//   - "Damian Lillard" / "Cade Cunningham" / "Donovan Mitchell" abbreviate
+//   - "Shai Gilgeous-Alexander" collapses to "S. Gilgeous-Alexander"
+function abbreviateName(name: string, threshold = 13): string {
+  if (!name || name.length <= threshold) return name;
+  const parts = name.split(/\s+/);
+  if (parts.length < 2) return name;
+  const first = parts[0];
+  const rest = parts.slice(1).join(' ');
+  return `${first[0]}. ${rest}`;
+}
+
+// Single stat cell — numeric value only, no label. Header row carries the
+// labels. `pct` formats as ".XXX" (no leading zero, B-Ref style); integer
+// keeps GP as a plain count; otherwise 1 decimal. `emphasize` bolds VORP.
+function CompactStat({
+  value,
+  c,
+  pct,
+  integer,
+  emphasize,
+  wide,
+}: {
+  value: number | null;
+  c: ReturnType<typeof useArchiveColors>;
+  pct?: boolean;
+  integer?: boolean;
+  emphasize?: boolean;
+  wide?: boolean;
+}) {
+  const display = (() => {
+    if (value == null) return '—';
+    const v = Number(value);
+    if (!Number.isFinite(v)) return '—';
+    if (pct) return v.toFixed(3).replace(/^0/, '');
+    if (integer) return String(Math.round(v));
+    return v.toFixed(1);
+  })();
+  return (
+    <View style={[styles.rotationStatCol, wide && styles.rotationStatColWide]}>
+      <ThemedText
+        style={[
+          styles.rotationStatValue,
+          { color: c.text },
+          emphasize && styles.rotationStatValueBold,
+        ]}
+        numberOfLines={1}
+      >
+        {display}
+      </ThemedText>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   loading: {
     paddingVertical: s(40),
@@ -395,52 +593,125 @@ const styles = StyleSheet.create({
   section: {
     marginBottom: s(16),
   },
+
+  historyLinkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: s(12),
+    paddingVertical: s(10),
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 10,
+    marginBottom: s(16),
+  },
+  historyLinkLabel: {
+    fontSize: ms(11),
+    letterSpacing: 1.2,
+    fontWeight: '700',
+  },
   sectionLabel: {
     fontSize: ms(11),
     letterSpacing: 1.2,
     marginBottom: s(8),
   },
 
-  seriesList: {
+  // Inline chip strip rendered inside the hero — one chip per playoff
+  // round, left-to-right as series progress. Chip uses the franchise's
+  // secondary color for the border/fill so it sits on the colored hero
+  // without fighting the team's identity. Losses render hollow.
+  pathChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: s(6),
+    marginTop: s(4),
+  },
+  pathChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(4),
+    paddingHorizontal: s(8),
+    paddingVertical: s(3),
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  pathChipTri: {
+    fontSize: ms(11),
+    fontWeight: '700',
+    letterSpacing: 0.6,
+  },
+  pathChipScore: {
+    fontFamily: Fonts.mono,
+    fontSize: ms(11),
+    fontWeight: '700',
+  },
+
+  // Regular-season rotation — sticky-name table. The outer container is
+  // flex-row: name column on the left (fixed), stats scroll on the right.
+  // Header + data rows share explicit heights (DATA_ROW_H / HEADER_ROW_H)
+  // so both columns line up vertically as the user scrolls horizontally.
+  rotationTable: {
+    flexDirection: 'row',
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 10,
     overflow: 'hidden',
   },
-  emptyText: {
-    fontSize: ms(13),
-    textAlign: 'center',
-    paddingVertical: s(20),
+  rotationNameColumn: {
+    width: s(116),
+    borderRightWidth: StyleSheet.hairlineWidth,
   },
-  seriesRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: s(10),
-    paddingHorizontal: s(12),
+  rotationStatsScroll: {
+    flex: 1,
+  },
+  rotationNameCell: {
+    height: s(32),
+    paddingHorizontal: s(6),
+    justifyContent: 'center',
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  seriesLabelCol: {
-    flex: 1,
+  rotationHeaderCell: {
+    height: s(24),
+  },
+  rotationStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: s(32),
+    paddingHorizontal: s(6),
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  rotationNameInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
     minWidth: 0,
   },
-  seriesRound: {
-    fontSize: ms(9),
-    letterSpacing: 1.0,
-    marginBottom: 1,
+  rotationStar: {
+    marginRight: s(3),
   },
-  seriesOpponent: {
-    fontSize: ms(13),
+  rotationName: {
+    flexShrink: 1,
+    fontSize: ms(12),
+    fontWeight: '600',
+    letterSpacing: -0.1,
   },
-  scoreBadge: {
-    paddingHorizontal: s(10),
-    paddingVertical: s(4),
-    borderRadius: 6,
-    minWidth: s(46),
+  rotationStatCol: {
+    width: s(40),
     alignItems: 'center',
   },
-  scoreText: {
+  // Slightly wider for ".XXX" shooting percentages so the leading dot
+  // doesn't crowd the column edge.
+  rotationStatColWide: {
+    width: s(46),
+  },
+  rotationColLabel: {
+    fontSize: ms(9),
+    letterSpacing: 0.5,
+  },
+  rotationStatValue: {
     fontFamily: Fonts.mono,
-    fontSize: ms(13),
-    fontWeight: '700',
+    fontSize: ms(12),
+    fontWeight: '500',
+  },
+  rotationStatValueBold: {
+    fontWeight: '800',
   },
 
   playerRow: {

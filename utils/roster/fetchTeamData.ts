@@ -2,7 +2,8 @@ import { RosterPlayer, round1, buildStatLine } from '@/components/matchup/Player
 import { supabase } from '@/lib/supabase';
 import { ScoringWeight } from '@/types/player';
 import { aggregateTeamStats } from '@/utils/scoring/categoryScoring';
-import { toDateStr, addDays } from '@/utils/dates';
+import { addDays } from '@/utils/dates';
+import { getSportToday } from '@/utils/leagueTime';
 import { calculateGameFantasyPoints, calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
 import { fetchTeamSlots } from '@/utils/roster/fetchTeamSlots';
 import { resolveSlot , isActiveSlot } from '@/utils/roster/resolveSlot';
@@ -16,17 +17,31 @@ interface Week {
   is_playoff: boolean;
 }
 
+// Bench/IR/DROPPED players show their own per-game fpts on their cell, but
+// those points don't count toward the team's day total. Starter slots include
+// any positional slot (PG, SG, F, C, UTIL, etc.).
+export function sumStarterDayPoints(players: RosterPlayer[]): number {
+  return players.reduce((s, p) => {
+    const slot = p.roster_slot;
+    const isStarter =
+      !!slot && slot !== 'BE' && slot !== 'IR' && slot !== 'DROPPED';
+    return isStarter ? s + p.dayPoints : s;
+  }, 0);
+}
+
 export async function fetchTeamData(
   teamId: string,
   leagueId: string,
   week: Week,
   selectedDate: string,
   scoring: ScoringWeight[],
+  sport?: string | null,
 ): Promise<{ players: RosterPlayer[]; teamStats: Record<string, number>; weekTotalAll: number }> {
-  const today = toDateStr(new Date());
+  // Slate-anchored "today" so day-boundary logic agrees across viewers.
+  const today = getSportToday(sport ?? null);
 
   // Use the shared slot resolution — same function the roster page uses
-  const slots = await fetchTeamSlots(teamId, leagueId, selectedDate, week);
+  const slots = await fetchTeamSlots(teamId, leagueId, selectedDate, week, sport);
 
   const allPlayerIds = [...slots.currentPlayerIds, ...slots.droppedPlayerIds];
   if (allPlayerIds.length === 0) return { players: [], teamStats: {}, weekTotalAll: 0 };
@@ -87,23 +102,28 @@ export async function fetchTeamData(
 
   for (const game of gameLogs ?? []) {
     const slot = resolveGameSlotFast(game.player_id, game.game_date as string);
-    if (!isActiveSlot(slot)) continue;
-
-    activeGames.push(game);
+    const slotIsActive = isActiveSlot(slot);
     const fp = calculateGameFantasyPoints(game as any, scoring);
-    weekPointsMap.set(game.player_id, (weekPointsMap.get(game.player_id) ?? 0) + fp);
 
-    // Accumulate per-player weekly stat totals for summary modal
-    const existing = weekStatsMap.get(game.player_id) ?? {};
-    for (const key of ['pts', 'reb', 'ast', 'stl', 'blk', 'tov', 'fgm', 'fga', '3pm', '3pa', 'ftm', 'fta', 'pf', 'double_double', 'triple_double'] as const) {
-      const val = game[key];
-      if (val != null) {
-        const numVal = typeof val === 'boolean' ? (val ? 1 : 0) : val;
-        existing[key] = (existing[key] ?? 0) + numVal;
+    if (slotIsActive) {
+      activeGames.push(game);
+      weekPointsMap.set(game.player_id, (weekPointsMap.get(game.player_id) ?? 0) + fp);
+
+      // Accumulate per-player weekly stat totals for summary modal
+      const existing = weekStatsMap.get(game.player_id) ?? {};
+      for (const key of ['pts', 'reb', 'ast', 'stl', 'blk', 'tov', 'fgm', 'fga', '3pm', '3pa', 'ftm', 'fta', 'pf', 'double_double', 'triple_double'] as const) {
+        const val = game[key];
+        if (val != null) {
+          const numVal = typeof val === 'boolean' ? (val ? 1 : 0) : val;
+          existing[key] = (existing[key] ?? 0) + numVal;
+        }
       }
+      weekStatsMap.set(game.player_id, existing);
     }
-    weekStatsMap.set(game.player_id, existing);
 
+    // Always populate per-day display data — bench/IR players show their stat
+    // line, matchup chip, and own fpts even though those points don't roll up
+    // into the team's day/week total (filtered downstream by roster_slot).
     if (game.game_date === selectedDate) {
       dayPointsMap.set(game.player_id, (dayPointsMap.get(game.player_id) ?? 0) + fp);
       if (game.matchup) dayMatchupMap.set(game.player_id, game.matchup);

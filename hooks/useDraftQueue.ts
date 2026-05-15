@@ -95,6 +95,38 @@ export function useDraftQueue(draftId: string, teamId: string, leagueId: string)
     onSuccess: () => queryClient.invalidateQueries({ queryKey }),
   });
 
+  // Bulk reorder driven by drag-and-drop. Caller passes the new full order
+  // of queue_ids; we rewrite priorities sequentially. Optimistic so the UI
+  // doesn't snap back while the round-trip completes.
+  const reorderQueue = useMutation({
+    mutationFn: async (newOrder: string[]) => {
+      await Promise.all(
+        newOrder.map((queueId, idx) =>
+          supabase.from('draft_queue').update({ priority: idx + 1 }).eq('id', queueId),
+        ),
+      );
+    },
+    onMutate: async (newOrder) => {
+      await queryClient.cancelQueries({ queryKey });
+      const prev = queryClient.getQueryData<QueuedPlayer[]>(queryKey);
+      if (prev) {
+        const byId = new Map(prev.map((q) => [q.queue_id, q]));
+        const next = newOrder
+          .map((id, idx) => {
+            const item = byId.get(id);
+            return item ? { ...item, priority: idx + 1 } : null;
+          })
+          .filter((q): q is QueuedPlayer => q !== null);
+        queryClient.setQueryData<QueuedPlayer[]>(queryKey, next);
+      }
+      return { prev };
+    },
+    onError: (_err, _newOrder, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(queryKey, ctx.prev);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey }),
+  });
+
   // Set of player IDs currently in queue (for quick lookup)
   const queuedPlayerIds = new Set(queue.map(q => q.player_id));
 
@@ -106,6 +138,7 @@ export function useDraftQueue(draftId: string, teamId: string, leagueId: string)
     removeFromQueue: removeFromQueue.mutate,
     moveUp: moveUp.mutate,
     moveDown: moveDown.mutate,
+    reorderQueue: reorderQueue.mutate,
     isAdding: addToQueue.isPending,
   };
 }

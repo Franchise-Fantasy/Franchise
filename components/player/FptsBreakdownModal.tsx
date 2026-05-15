@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import {
   Modal,
   ScrollView,
@@ -7,11 +8,12 @@ import {
   View,
 } from 'react-native';
 
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { cardShadowMedium, Fonts } from '@/constants/Colors';
+import { useColors } from '@/hooks/useColors';
 import { ScoringWeight } from '@/types/player';
 import { ms, s } from '@/utils/scale';
-import { getFantasyPointsBreakdown, formatScore } from '@/utils/scoring/fantasyPoints';
+import { formatScore, getFantasyPointsBreakdown } from '@/utils/scoring/fantasyPoints';
 
 interface FptsBreakdownModalProps {
   visible: boolean;
@@ -30,78 +32,109 @@ export function FptsBreakdownModal({
   gameStats,
   scoringWeights,
 }: FptsBreakdownModalProps) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
-  const isDark = scheme === 'dark';
+  const c = useColors();
 
   const { rows, total } = getFantasyPointsBreakdown(gameStats, scoringWeights);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <TouchableOpacity
-        style={styles.modalOverlay}
+        style={styles.overlay}
         activeOpacity={1}
         onPress={onClose}
       >
         <View
           style={[
-            styles.modalCard,
-            {
-              backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
-              borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-            },
+            styles.card,
+            { backgroundColor: c.card, borderColor: c.border },
           ]}
           onStartShouldSetResponder={() => true}
+          accessibilityViewIsModal
         >
-          {/* Header */}
-          <View style={styles.modalHeader}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.modalTitle, { color: c.text }]} numberOfLines={1}>
+          <View style={[styles.topRule, { backgroundColor: c.gold }]} />
+
+          <View style={styles.header}>
+            <View style={styles.headerText}>
+              <ThemedText
+                type="varsitySmall"
+                style={[styles.eyebrow, { color: c.gold }]}
+              >
+                SCORING BREAKDOWN
+              </ThemedText>
+              <ThemedText
+                type="display"
+                style={[styles.title, { color: c.text }]}
+                accessibilityRole="header"
+                numberOfLines={1}
+              >
                 {playerName}
-              </Text>
-              <Text style={[styles.gameLabel, { color: c.secondaryText }]}>{gameLabel}</Text>
+              </ThemedText>
+              <ThemedText
+                style={[styles.gameLabel, { color: c.secondaryText }]}
+                numberOfLines={1}
+              >
+                {gameLabel}
+              </ThemedText>
             </View>
             <TouchableOpacity
               onPress={onClose}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               accessibilityRole="button"
               accessibilityLabel="Close"
+              style={styles.closeBtn}
             >
-              <Text style={{ color: c.secondaryText, fontSize: ms(16) }}>✕</Text>
+              <Ionicons name="close" size={ms(20)} color={c.secondaryText} />
             </TouchableOpacity>
           </View>
 
-          <ScrollView bounces={false} style={styles.scrollArea} nestedScrollEnabled>
-            {/* Column headers */}
+          <ScrollView
+            bounces={false}
+            style={styles.scrollArea}
+            contentContainerStyle={styles.scrollContent}
+            nestedScrollEnabled
+          >
             <View style={[styles.row, styles.headerRow, { borderBottomColor: c.border }]}>
-              <Text style={[styles.colStat, styles.colHeaderText, { color: c.secondaryText }]}>Stat</Text>
-              <Text style={[styles.colValue, styles.colHeaderText, { color: c.secondaryText }]}>Value</Text>
-              <Text style={[styles.colWeight, styles.colHeaderText, { color: c.secondaryText }]}>Weight</Text>
-              <Text style={[styles.colPoints, styles.colHeaderText, { color: c.secondaryText }]}>Points</Text>
+              <Text style={[styles.colStat, styles.colHeaderText, { color: c.secondaryText }]}>STAT</Text>
+              <Text style={[styles.colValue, styles.colHeaderText, { color: c.secondaryText }]}>VALUE</Text>
+              <Text style={[styles.colWeight, styles.colHeaderText, { color: c.secondaryText }]}>WEIGHT</Text>
+              <Text style={[styles.colPoints, styles.colHeaderText, { color: c.secondaryText }]}>POINTS</Text>
             </View>
 
-            {/* Stat rows */}
-            {rows.map((r) => (
+            {rows.map((r, idx) => (
               <View
                 key={r.stat_name}
-                style={[styles.row, { borderBottomColor: c.border }]}
+                style={[
+                  styles.row,
+                  idx < rows.length - 1 && {
+                    borderBottomColor: c.border,
+                    borderBottomWidth: StyleSheet.hairlineWidth,
+                  },
+                ]}
                 accessibilityLabel={`${r.stat_name}: ${r.stat_value} times ${r.point_value} equals ${r.points}`}
               >
                 <Text style={[styles.colStat, { color: c.text }]}>{r.stat_name}</Text>
                 <Text style={[styles.colValue, { color: c.text }]}>{r.stat_value}</Text>
                 <Text style={[styles.colWeight, { color: c.secondaryText }]}>×{r.point_value}</Text>
-                <Text style={[styles.colPoints, { color: r.points >= 0 ? c.accent : c.danger, fontWeight: '600' }]}>
+                <Text
+                  style={[
+                    styles.colPoints,
+                    styles.colPointsText,
+                    { color: r.points >= 0 ? c.accent : c.danger },
+                  ]}
+                >
                   {r.points > 0 ? '+' : ''}{formatScore(r.points)}
                 </Text>
               </View>
             ))}
 
-            {/* Total row */}
-            <View style={[styles.row, styles.totalRow]} accessibilityLabel={`Total: ${formatScore(total)} fantasy points`}>
-              <Text style={[styles.colStat, styles.totalText, { color: c.text }]}>Total</Text>
-              <Text style={styles.colValue} />
-              <Text style={styles.colWeight} />
-              <Text style={[styles.colPoints, styles.totalText, { color: c.accent }]}>{formatScore(total)}</Text>
+            <View
+              style={[styles.totalRow, { borderTopColor: c.gold }]}
+              accessibilityLabel={`Total: ${formatScore(total)} fantasy points`}
+            >
+              <Text style={[styles.totalLabel, { color: c.text }]}>TOTAL</Text>
+              <Text style={[styles.totalValue, { color: c.accent }]}>
+                {formatScore(total)}
+              </Text>
             </View>
           </ScrollView>
         </View>
@@ -111,75 +144,115 @@ export function FptsBreakdownModal({
 }
 
 const styles = StyleSheet.create({
-  modalOverlay: {
+  overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(20, 16, 16, 0.55)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: s(20),
   },
-  modalCard: {
+  card: {
     borderWidth: 1,
     borderRadius: 16,
     width: '100%',
-    maxWidth: s(360),
+    maxWidth: s(380),
+    maxHeight: '80%',
+    overflow: 'hidden',
+    ...cardShadowMedium,
   },
-  modalHeader: {
+  topRule: {
+    height: 3,
+  },
+  header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: s(16),
+    alignItems: 'flex-start',
+    paddingHorizontal: s(20),
+    paddingTop: s(14),
     paddingBottom: s(12),
+    gap: s(10),
   },
-  modalTitle: {
-    fontSize: ms(16),
-    fontWeight: '700',
+  headerText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  eyebrow: {
+    fontSize: ms(10),
+    letterSpacing: 1.3,
+    marginBottom: s(2),
+  },
+  title: {
+    fontFamily: Fonts.display,
+    fontSize: ms(20),
+    lineHeight: ms(24),
+    letterSpacing: -0.2,
   },
   gameLabel: {
-    fontSize: ms(13),
+    fontSize: ms(11),
     marginTop: s(2),
   },
-  scrollArea: {},
+  closeBtn: {
+    padding: s(2),
+    marginTop: s(2),
+  },
+  scrollArea: {
+    flexShrink: 1,
+  },
+  scrollContent: {
+    paddingBottom: s(8),
+  },
   row: {
     flexDirection: 'row',
-    paddingHorizontal: s(16),
+    paddingHorizontal: s(20),
     paddingVertical: s(10),
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
   },
   headerRow: {
-    paddingVertical: s(6),
+    paddingVertical: s(8),
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   colHeaderText: {
-    fontSize: ms(11),
-    fontWeight: '600',
-    textTransform: 'uppercase',
-  },
-  totalRow: {
-    borderBottomWidth: 0,
-    paddingTop: s(14),
-    paddingBottom: s(16),
-  },
-  totalText: {
-    fontSize: ms(15),
-    fontWeight: '700',
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(9.5),
+    letterSpacing: 1.2,
   },
   colStat: {
     flex: 2,
-    fontSize: ms(14),
+    fontSize: ms(13),
   },
   colValue: {
-    flex: 1.5,
-    fontSize: ms(14),
+    flex: 1.2,
+    fontSize: ms(13),
     textAlign: 'center',
   },
   colWeight: {
-    flex: 1.5,
-    fontSize: ms(14),
+    flex: 1.2,
+    fontSize: ms(12),
     textAlign: 'center',
   },
   colPoints: {
-    flex: 1.5,
-    fontSize: ms(14),
+    flex: 1.4,
+    fontSize: ms(13),
     textAlign: 'right',
+  },
+  colPointsText: {
+    fontWeight: '600',
+  },
+  totalRow: {
+    flexDirection: 'row',
+    paddingHorizontal: s(20),
+    paddingVertical: s(14),
+    borderTopWidth: 2,
+    alignItems: 'center',
+  },
+  totalLabel: {
+    flex: 1,
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(12),
+    letterSpacing: 1.4,
+  },
+  totalValue: {
+    fontFamily: Fonts.display,
+    fontSize: ms(20),
+    letterSpacing: -0.2,
   },
 });

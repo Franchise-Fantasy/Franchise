@@ -1,7 +1,7 @@
 // Tiny per-user feature gate. Currently supports the NBA Playoff Archive
-// (beta) and the NHL Playoff Archive (dev-only). When a third flag arrives,
-// replace these helpers with a real `feature_flags` Supabase table; the call
-// sites stay the same.
+// (beta), the NHL Playoff Archive (dev-only), and the NFL Playoff Archive
+// (dev-only). When a fourth flag arrives, replace these helpers with a real
+// `feature_flags` Supabase table; the call sites stay the same.
 
 const ARCHIVE_BETA_EMAILS = new Set([
   'jjspoels@gmail.com',
@@ -17,6 +17,12 @@ const NHL_ARCHIVE_DEV_EMAILS = new Set([
   'jjspoels@gmail.com',
 ]);
 
+// Same posture as NHL — NFL archive is dev-only while the historical corpus
+// is being curated.
+const NFL_ARCHIVE_DEV_EMAILS = new Set([
+  'jjspoels@gmail.com',
+]);
+
 interface MaybeUser {
   email?: string | null;
 }
@@ -29,4 +35,9 @@ export function isArchiveFlagOn(user: MaybeUser | null | undefined): boolean {
 export function isNhlArchiveFlagOn(user: MaybeUser | null | undefined): boolean {
   const email = user?.email?.toLowerCase().trim();
   return !!email && NHL_ARCHIVE_DEV_EMAILS.has(email);
+}
+
+export function isNflArchiveFlagOn(user: MaybeUser | null | undefined): boolean {
+  const email = user?.email?.toLowerCase().trim();
+  return !!email && NFL_ARCHIVE_DEV_EMAILS.has(email);
 }

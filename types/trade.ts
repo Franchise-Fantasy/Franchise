@@ -79,6 +79,10 @@ export interface TradeBuilderPick {
   round: number;
   original_team_name: string;
   estimated_fpts: number;
+  /** Resolved pick slot — set post-lottery (or pre-lottery via reverse-standings)
+   *  so the lane label reads "2026 1st · Pick 4" instead of just "2026 1st"
+   *  when the slot is known. Null when no slot data is available yet. */
+  display_slot?: number | null;
   to_team_id: string; // destination team for this asset
   protection_threshold?: number; // top-N protected (undefined = unprotected)
 }

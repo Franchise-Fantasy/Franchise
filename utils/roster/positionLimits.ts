@@ -17,12 +17,24 @@ function activeOnly(roster: RosterPlayer[]): RosterPlayer[] {
   );
 }
 
+/** Returns every limit-key the player could match against — spectrum
+ *  positions plus their bare-letter parents (G covers PG/SG; F covers
+ *  SF/PF). Lets one check work for NBA limits (PG/SG/SF/PF/C) and WNBA
+ *  limits (G/F/C) without sport branching. */
+function getLimitMatchKeys(playerPosition: string): string[] {
+  const eligible = getEligiblePositions(playerPosition);
+  const keys = new Set<string>(eligible);
+  if (eligible.includes('PG') || eligible.includes('SG')) keys.add('G');
+  if (eligible.includes('SF') || eligible.includes('PF')) keys.add('F');
+  return Array.from(keys);
+}
+
 /** Count players per base position using spectrum eligibility. */
 function countByPosition(roster: RosterPlayer[]): Record<string, number> {
-  const counts: Record<string, number> = { PG: 0, SG: 0, SF: 0, PF: 0, C: 0 };
+  const counts: Record<string, number> = { PG: 0, SG: 0, SF: 0, PF: 0, C: 0, G: 0, F: 0 };
   for (const p of roster) {
-    for (const pos of getEligiblePositions(p.position)) {
-      counts[pos] = (counts[pos] ?? 0) + 1;
+    for (const key of getLimitMatchKeys(p.position)) {
+      counts[key] = (counts[key] ?? 0) + 1;
     }
   }
   return counts;
@@ -40,7 +52,7 @@ export function checkPositionLimits(
   if (!limits || Object.keys(limits).length === 0) return null;
 
   const counts = countByPosition(activeOnly(currentRoster));
-  for (const pos of getEligiblePositions(incomingPlayerPosition)) {
+  for (const pos of getLimitMatchKeys(incomingPlayerPosition)) {
     const max = limits[pos];
     if (max != null && max > 0 && (counts[pos] ?? 0) >= max) {
       return { position: pos, current: counts[pos] ?? 0, max };

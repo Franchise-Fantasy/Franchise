@@ -4,6 +4,7 @@ import { CORS_HEADERS, corsResponse } from "../_shared/cors.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { pushActivityUpdate } from "../_shared/apns.ts";
 import { resolveSlot as sharedResolveSlot, isActiveSlot } from "../_shared/resolveSlot.ts";
+import { getSportToday, addSlateDays } from "../../../utils/leagueTime.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -124,15 +125,9 @@ function round2(n: number) {
   return Math.round(n * 100) / 100;
 }
 
-function toDateStr(d: Date): string {
-  return d.toLocaleDateString("en-CA"); // YYYY-MM-DD
-}
-
-function addDays(dateStr: string, days: number): string {
-  const d = new Date(dateStr + "T12:00:00");
-  d.setDate(d.getDate() + days);
-  return toDateStr(d);
-}
+// addDays is sport-TZ-anchored via the shared helper so this cron's "today"
+// matches what GMs and other crons see for the same wall-clock moment.
+const addDays = (dateStr: string, days: number) => addSlateDays(dateStr, days);
 
 // ── Score computation for a single league/week ──────────────────────────────
 
@@ -161,7 +156,7 @@ async function computeWeekScores(
   if (rpcError) throw rpcError;
   if (bundle?.error) throw new Error(bundle.error);
 
-  const today = toDateStr(new Date());
+  const today = getSportToday(null);
 
   const week = bundle.week;
   const weights: ScoringWeight[] = bundle.scoring ?? [];
@@ -196,7 +191,7 @@ async function computeWeekScores(
     teamPlayerMap.get(lp.team_id)!.add(lp.player_id);
     defaultSlotMap.set(lp.player_id, lp.roster_slot ?? "BE");
     if (lp.acquired_at) {
-      acquiredDateMap.set(lp.player_id, toDateStr(new Date(lp.acquired_at)));
+      acquiredDateMap.set(lp.player_id, getSportToday(null, new Date(lp.acquired_at)));
     }
   }
 
@@ -413,11 +408,16 @@ async function upsertCategoryWins(
  *  Between midnight–3am ET, also checks yesterday for late West Coast games. */
 async function hasActiveOrFinishedGames(): Promise<boolean> {
   try {
-    const nowET = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-    const today = nowET.toISOString().slice(0, 10);
-    const hour = nowET.getHours();
-    const yesterdayET = new Date(nowET.getTime() - 86_400_000).toISOString().slice(0, 10);
-    const datesToCheck = hour < 3 ? [today, yesterdayET] : [today];
+    // ET-anchored: this cron's "today" must match game_schedule.game_date,
+    // which is also ET-anchored (see bdlGameSlateDate). Get the ET wall-clock
+    // via Intl.DateTimeFormat — never via the new Date(toLocaleString())
+    // antipattern, which has locale-parsing bugs across JS engines.
+    const today = getSportToday(null);
+    const etParts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York', hour: '2-digit', hourCycle: 'h23',
+    }).formatToParts(new Date());
+    const hour = parseInt(etParts.find((p) => p.type === 'hour')!.value, 10);
+    const datesToCheck = hour < 3 ? [today, addSlateDays(today, -1)] : [today];
 
     const { data } = await supabase
       .from('game_schedule')
@@ -554,8 +554,10 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── Cron mode: skip during 3–10am ET when no NBA games are running ──
-    const nowET = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-    const hour = nowET.getHours();
+    const etCronParts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York', hour: '2-digit', hourCycle: 'h23',
+    }).formatToParts(new Date());
+    const hour = parseInt(etCronParts.find((p) => p.type === 'hour')!.value, 10);
     if (hour >= 3 && hour < 10) {
       return new Response(
         JSON.stringify({ ok: true, skipped: true, reason: "off-hours (3-10am ET)" }),
@@ -565,7 +567,7 @@ Deno.serve(async (req: Request) => {
 
     // ── Skip if no live fantasy weeks — cheap local-DB check, avoids the
     //    BDL call entirely during offseason and between-week gaps. ──
-    const today = toDateStr(new Date());
+    const today = getSportToday(null);
 
     const { data: liveWeeks, error: weekErr } = await supabase
       .from("league_schedule")

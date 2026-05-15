@@ -164,10 +164,28 @@ export default function Auth() {
 
   async function signUpWithEmail() {
     setLoading(true);
-    const { error } = await supabase.auth.signUp({ email, password });
+    const { data, error } = await supabase.auth.signUp({ email, password });
     if (error) {
       Alert.alert(error.message);
       setLoading(false);
+      return;
+    }
+    // Supabase returns a fake-success response (with empty `identities`) when
+    // the email is already registered, to prevent enumeration. Detect that and
+    // route the user to sign in instead of stranding them on the OTP screen.
+    if (data.user && (data.user.identities?.length ?? 0) === 0) {
+      setLoading(false);
+      Alert.alert(
+        'Account already exists',
+        `An account with ${email.trim()} already exists. Sign in instead, or reset your password if you've forgotten it.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Sign in',
+            onPress: () => setModeLabel('Sign In'),
+          },
+        ],
+      );
       return;
     }
     capture('sign_up', { method: 'email' });
@@ -473,16 +491,21 @@ export default function Auth() {
                 style={styles.primaryButton}
               />
 
-              {!isSignUp && !isExpoGo && (
-                <View style={styles.forgotRow}>
+              {/* Reserved height so switching between Sign In and Create
+                  Account doesn't jump everything below by ~40px. The slot
+                  is empty in signup mode (and in Expo Go where reset is
+                  unavailable). */}
+              <View style={styles.forgotRow}>
+                {!isSignUp && !isExpoGo && (
                   <BrandButton
                     label={resetSent ? 'Resend reset email' : 'Forgot password?'}
                     onPress={handleResetPassword}
                     variant="ghost"
                     disabled={loading}
+                    style={styles.forgotButton}
                   />
-                </View>
-              )}
+                )}
+              </View>
 
               {/* Divider */}
               <View style={styles.dividerRow} accessible={false}>
@@ -629,7 +652,12 @@ const styles = StyleSheet.create({
   },
   forgotRow: {
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: s(40),
     marginBottom: s(8),
+  },
+  forgotButton: {
+    alignSelf: 'center',
   },
   linkRow: {
     flexDirection: 'row',

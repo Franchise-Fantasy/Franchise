@@ -5,6 +5,7 @@ import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
 import { posthog } from '@/lib/posthog';
 import { supabase } from '@/lib/supabase';
+import type { ConversationPreview } from '@/types/chat';
 import { logger } from '@/utils/logger';
 
 
@@ -30,6 +31,23 @@ export function useMarkRead(
     if (lastMarkedRef.current === newestMessageId) return;
     lastMarkedRef.current = newestMessageId;
 
+    // Optimistically clear the badge for this conversation immediately so the
+    // chat list row and the home-screen icon update on tap, not after the
+    // server roundtrip + refetch (which can be 500-1000ms on cellular).
+    // The post-write invalidation below reconciles if anything drifts.
+    const conversationsKey = queryKeys.conversations(leagueId!);
+    const unreadKey = queryKeys.chatUnread(leagueId!);
+    const prevConversations = queryClient.getQueryData<ConversationPreview[]>(conversationsKey);
+    const clearedUnread = prevConversations?.find((c) => c.id === conversationId)?.unread_count ?? 0;
+    if (clearedUnread > 0) {
+      queryClient.setQueryData<ConversationPreview[]>(conversationsKey, (prev) =>
+        prev?.map((c) => (c.id === conversationId ? { ...c, unread_count: 0 } : c)),
+      );
+      queryClient.setQueryData<number>(unreadKey, (prev) =>
+        typeof prev === 'number' ? Math.max(0, prev - clearedUnread) : prev,
+      );
+    }
+
     let cancelled = false;
 
     // Persist to DB. Use the message's own server timestamp for last_read_at so
@@ -47,9 +65,14 @@ export function useMarkRead(
       .then((res) => {
         if (cancelled) return;
         if (res.error) throw res.error;
-        queryClient.invalidateQueries({ queryKey: queryKeys.conversations(leagueId!) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.chatUnread(leagueId!) });
+        queryClient.invalidateQueries({ queryKey: conversationsKey });
+        queryClient.invalidateQueries({ queryKey: unreadKey });
       }, (err: unknown) => {
+        // Roll back the optimistic clear so the user sees the true unread state.
+        if (clearedUnread > 0 && prevConversations) {
+          queryClient.setQueryData<ConversationPreview[]>(conversationsKey, prevConversations);
+          queryClient.invalidateQueries({ queryKey: unreadKey });
+        }
         const message = err instanceof Error ? err.message : String(err);
         logger.warn('useMarkRead update failed', { message });
         posthog.capture('$exception', {

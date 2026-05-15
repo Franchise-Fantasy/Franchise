@@ -4,21 +4,20 @@ import { useState } from 'react';
 import {
   Alert,
   Image,
-  Modal,
   StyleSheet,
+  Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 
 import { TeamLogo } from '@/components/team/TeamLogo';
+import { BottomSheet } from '@/components/ui/BottomSheet';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { cardShadow, Fonts } from '@/constants/Colors';
+import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
 import { ms, s } from '@/utils/scale';
-
-
 
 interface TeamLogoPickerModalProps {
   visible: boolean;
@@ -37,8 +36,7 @@ export function TeamLogoPickerModal({
   onClose,
   onSaved,
 }: TeamLogoPickerModalProps) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
 
@@ -82,7 +80,13 @@ export function TeamLogoPickerModal({
         body: { team_id: teamId, image_base64: base64 },
       });
 
-      if (error) throw error;
+      if (error) {
+        // FunctionsHttpError stashes the Response on err.context — pull the real message out.
+        const serverMessage = await extractServerError(error);
+        Alert.alert('Upload Failed', serverMessage ?? error.message ?? 'Something went wrong');
+        setPreview(null);
+        return;
+      }
       if (data?.error) {
         Alert.alert('Upload Rejected', data.error);
         setPreview(null);
@@ -97,6 +101,19 @@ export function TeamLogoPickerModal({
     } finally {
       setUploading(false);
     }
+  };
+
+  const extractServerError = async (err: any): Promise<string | null> => {
+    try {
+      const res: Response | undefined = err?.context;
+      if (res && typeof res.json === 'function') {
+        const body = await res.json();
+        if (body?.error) return body.error;
+      }
+    } catch {
+      // body wasn't JSON or already consumed — fall through
+    }
+    return null;
   };
 
   const handleRemove = async () => {
@@ -123,146 +140,192 @@ export function TeamLogoPickerModal({
   const hasLogo = !!currentLogoKey;
 
   return (
-    <Modal visible={visible} animationType="slide" transparent>
-      <View style={styles.overlay}>
-        <View style={[styles.sheet, { backgroundColor: c.background }]}>
-          {/* Close button */}
-          <TouchableOpacity
-            style={styles.closeBtn}
-            onPress={onClose}
-            accessibilityRole="button"
-            accessibilityLabel="Close logo picker"
+    <BottomSheet visible={visible} onClose={onClose} title="Team Logo">
+      {/* Preview card — brand chrome (rounded 12, hairline, cardShadow) */}
+      <View
+        style={[
+          styles.previewCard,
+          { backgroundColor: c.card, borderColor: c.border },
+        ]}
+      >
+        <View style={styles.previewArea}>
+          {uploading ? (
+            <View
+              style={[
+                styles.previewCircle,
+                { backgroundColor: c.cardAlt, borderColor: c.gold },
+              ]}
+            >
+              <LogoSpinner />
+            </View>
+          ) : preview ? (
+            <View style={[styles.previewCircle, { borderColor: c.gold }]}>
+              <Image
+                source={{ uri: preview }}
+                style={styles.previewImg}
+                accessibilityIgnoresInvertColors
+              />
+            </View>
+          ) : (
+            <TeamLogo
+              logoKey={currentLogoKey}
+              teamName={teamName}
+              size="large"
+            />
+          )}
+          <ThemedText
+            type="defaultSemiBold"
+            style={[styles.previewName, { color: c.text }]}
+            numberOfLines={1}
           >
-            <ThemedText style={styles.closeText}>✕</ThemedText>
-          </TouchableOpacity>
-
-          {/* Preview */}
-          <View style={styles.previewArea}>
-            {uploading ? (
-              <View style={[styles.previewCircle, { backgroundColor: c.cardAlt }]}>
-                <LogoSpinner />
-              </View>
-            ) : preview ? (
-              <Image source={{ uri: preview }} style={styles.previewCircle} />
-            ) : (
-              <TeamLogo logoKey={currentLogoKey} teamName={teamName} size="large" />
-            )}
-            <ThemedText type="defaultSemiBold" style={styles.previewName}>
-              {teamName}
-            </ThemedText>
-            {uploading && (
-              <ThemedText style={[styles.uploadingText, { color: c.secondaryText }]}>
-                Checking image...
-              </ThemedText>
-            )}
-          </View>
-
-          {/* Actions */}
-          <View style={styles.buttonArea}>
-            <TouchableOpacity
-              style={[styles.actionBtn, { backgroundColor: c.accent }]}
-              onPress={() => pickImage('gallery')}
-              disabled={uploading}
-              accessibilityRole="button"
-              accessibilityLabel="Choose photo from gallery"
-            >
-              <Ionicons name="images-outline" size={20} color={c.statusText} />
-              <ThemedText style={[styles.actionBtnText, { color: c.statusText }]}>Choose Photo</ThemedText>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.actionBtn, { backgroundColor: c.cardAlt }]}
-              onPress={() => pickImage('camera')}
-              disabled={uploading}
-              accessibilityRole="button"
-              accessibilityLabel="Take a photo"
-            >
-              <Ionicons name="camera-outline" size={20} color={c.text} />
-              <ThemedText style={[styles.actionBtnText, { color: c.text }]}>Take Photo</ThemedText>
-            </TouchableOpacity>
-
-            {hasLogo && (
-              <TouchableOpacity
-                style={[styles.removeBtn, { borderColor: c.border }]}
-                onPress={handleRemove}
-                disabled={uploading}
-                accessibilityRole="button"
-                accessibilityLabel="Remove current logo"
-              >
-                <ThemedText style={[styles.removeBtnText, { color: c.danger }]}>Remove Logo</ThemedText>
-              </TouchableOpacity>
-            )}
-          </View>
+            {teamName}
+          </ThemedText>
+          <ThemedText
+            type="varsitySmall"
+            style={[styles.previewEyebrow, { color: c.secondaryText }]}
+          >
+            {uploading ? 'CHECKING IMAGE...' : 'CURRENT LOGO'}
+          </ThemedText>
         </View>
       </View>
-    </Modal>
+
+      {/* Actions — leagueInfoPill chrome (gold icon + varsity caps) */}
+      <View style={styles.buttonArea}>
+        <TouchableOpacity
+          style={[
+            styles.actionPill,
+            {
+              backgroundColor: c.cardAlt,
+              borderColor: c.border,
+              opacity: uploading ? 0.5 : 1,
+            },
+          ]}
+          onPress={() => pickImage('gallery')}
+          disabled={uploading}
+          accessibilityRole="button"
+          accessibilityLabel="Choose photo from gallery"
+        >
+          <Ionicons name="images-outline" size={ms(16)} color={c.gold} />
+          <Text style={[styles.actionPillText, { color: c.text }]}>
+            CHOOSE PHOTO
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.actionPill,
+            {
+              backgroundColor: c.cardAlt,
+              borderColor: c.border,
+              opacity: uploading ? 0.5 : 1,
+            },
+          ]}
+          onPress={() => pickImage('camera')}
+          disabled={uploading}
+          accessibilityRole="button"
+          accessibilityLabel="Take a photo"
+        >
+          <Ionicons name="camera-outline" size={ms(16)} color={c.gold} />
+          <Text style={[styles.actionPillText, { color: c.text }]}>
+            TAKE PHOTO
+          </Text>
+        </TouchableOpacity>
+
+        {hasLogo && (
+          <TouchableOpacity
+            style={[
+              styles.removePill,
+              {
+                backgroundColor: c.danger + '14',
+                borderColor: c.danger,
+                opacity: uploading ? 0.5 : 1,
+              },
+            ]}
+            onPress={handleRemove}
+            disabled={uploading}
+            accessibilityRole="button"
+            accessibilityLabel="Remove current logo"
+          >
+            <Ionicons name="trash-outline" size={ms(14)} color={c.danger} />
+            <Text style={[styles.removePillText, { color: c.danger }]}>
+              REMOVE LOGO
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
-    paddingBottom: s(40),
-  },
-  closeBtn: {
-    position: 'absolute',
-    top: s(12),
-    right: s(12),
-    zIndex: 1,
-    padding: s(4),
-  },
-  closeText: {
-    fontSize: ms(20),
-    lineHeight: ms(24),
+  // Preview card — brand chrome
+  previewCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: 'hidden',
+    ...cardShadow,
   },
   previewArea: {
     alignItems: 'center',
-    paddingVertical: s(24),
+    paddingVertical: s(20),
     gap: s(8),
   },
   previewCircle: {
     width: s(80),
     height: s(80),
-    borderRadius: 40,
+    borderRadius: s(40),
+    borderWidth: 1.5,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  previewImg: {
+    width: '100%',
+    height: '100%',
+  },
   previewName: {
-    fontSize: ms(18),
+    fontSize: ms(16),
     marginTop: s(4),
   },
-  uploadingText: {
-    fontSize: ms(13),
+  previewEyebrow: {
+    fontSize: ms(10),
+    letterSpacing: 1.2,
   },
+
+  // Action buttons — leagueInfoPill chrome
   buttonArea: {
-    paddingHorizontal: s(16),
-    gap: s(10),
+    paddingTop: s(14),
+    gap: s(8),
   },
-  actionBtn: {
+  actionPill: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: s(8),
-    paddingVertical: s(14),
-    borderRadius: 10,
-  },
-  actionBtnText: {
-    fontSize: ms(15),
-    fontWeight: '600',
-  },
-  removeBtn: {
-    alignItems: 'center',
-    paddingVertical: s(12),
-    borderRadius: 10,
+    paddingHorizontal: s(12),
+    paddingVertical: s(11),
+    borderRadius: 8,
     borderWidth: 1,
   },
-  removeBtnText: {
-    fontSize: ms(14),
-    fontWeight: '600',
+  actionPillText: {
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(12),
+    letterSpacing: 1.0,
+  },
+  removePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: s(6),
+    paddingHorizontal: s(12),
+    paddingVertical: s(10),
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: s(4),
+  },
+  removePillText: {
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(11),
+    letterSpacing: 1.0,
   },
 });

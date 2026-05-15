@@ -9,6 +9,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
+import { PlayerHeadshotImage } from '@/components/player/PlayerHeadshotImage';
 import { TradeLaneShell } from '@/components/trade/TradeLaneShell';
 import { Badge } from '@/components/ui/Badge';
 import { BrandButton } from '@/components/ui/BrandButton';
@@ -17,7 +18,6 @@ import { Brand, Fonts } from '@/constants/Colors';
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useColors } from '@/hooks/useColors';
 import { TradeBuilderPick, TradeBuilderPlayer, TradeBuilderSwap, TradeBuilderTeam, formatPickLabel } from '@/types/trade';
-import { getPlayerHeadshotUrl, PLAYER_SILHOUETTE } from '@/utils/nba/playerHeadshot';
 import { ms, s } from '@/utils/scale';
 
 type PickerType = 'player' | 'pick' | 'swap';
@@ -190,7 +190,6 @@ function PlayerAssetRow({
 }) {
   const c = useColors();
   const sport = useActiveLeagueSport();
-  const headshotUrl = getPlayerHeadshotUrl(player.external_id_nba, sport);
 
   return (
     <View
@@ -198,13 +197,10 @@ function PlayerAssetRow({
       accessibilityLabel={`${player.name}${!isCategories ? `, ${player.avg_fpts.toFixed(1)} fantasy points per game` : ''}`}
     >
       <View style={[styles.headshot, { borderColor: c.border, backgroundColor: c.cardAlt }]}>
-        <Image
-          source={headshotUrl ? { uri: headshotUrl } : PLAYER_SILHOUETTE}
+        <PlayerHeadshotImage
+          externalIdNba={player.external_id_nba}
+          sport={sport}
           style={styles.headshotImg}
-          contentFit="cover"
-          cachePolicy="memory-disk"
-          recyclingKey={headshotUrl ?? 'silhouette'}
-          placeholder={PLAYER_SILHOUETTE}
         />
       </View>
       <View style={styles.info}>
@@ -226,9 +222,17 @@ function PlayerAssetRow({
       <View style={styles.rightCluster}>
         {isMultiTeam && <DestChip label={destLabel} onPress={onCycleDest} c={c} />}
         {!isCategories && (
-          <ThemedText style={[styles.fpts, { color: c.gold }]}>
-            {player.avg_fpts.toFixed(1)}
-          </ThemedText>
+          <View style={styles.fptsCol}>
+            <ThemedText style={[styles.fpts, { color: c.gold }]}>
+              {player.avg_fpts.toFixed(1)}
+            </ThemedText>
+            <ThemedText
+              type="varsitySmall"
+              style={[styles.fptsLabel, { color: c.secondaryText }]}
+            >
+              FPTS
+            </ThemedText>
+          </View>
         )}
         <RemoveBtn onPress={onRemove} accessibilityLabel={`Remove ${player.name}`} c={c} />
       </View>
@@ -250,7 +254,7 @@ function PickAssetRow({
   onRemove: () => void;
 }) {
   const c = useColors();
-  const label = formatPickLabel(pick.season, pick.round);
+  const label = formatPickLabel(pick.season, pick.round, pick.display_slot);
   const via = pick.original_team_name ? `via ${pick.original_team_name}` : null;
 
   return (
@@ -495,6 +499,15 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.mono,
     fontSize: ms(12),
     fontWeight: '600',
+    textAlign: 'right',
+  },
+  fptsLabel: {
+    fontSize: ms(8),
+    letterSpacing: 1.0,
+    textAlign: 'right',
+  },
+  fptsCol: {
+    alignItems: 'flex-end',
   },
 
   destChip: {

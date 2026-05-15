@@ -71,12 +71,19 @@ export const queryKeys = {
     ["rosterCompliance", leagueId, teamId] as const,
   currentMatchupWeek: (leagueId: string, today: string) =>
     ["currentMatchupWeek", leagueId, today] as const,
+  rosterHeroOpponent: (scheduleId: string, teamId: string) =>
+    ["rosterHeroOpponent", scheduleId, teamId] as const,
   dayGameStats: (teamId: string, date: string) =>
     ["dayGameStats", teamId, date] as const,
   daySchedule: (date: string) => ["daySchedule", date] as const,
   todaySchedule: (date: string) => ["todaySchedule", date] as const,
   weeklyAdds: (leagueId: string, teamId: string) =>
     ["weeklyAdds", leagueId, teamId] as const,
+  // Schedule-week-scoped variant — used by the matchup screen so users
+  // browsing a future/past matchup week see that week's ACQ count, not
+  // the live calendar week's count.
+  weeklyAddsForWeek: (leagueId: string, teamId: string, weekId: string) =>
+    ["weeklyAddsForWeek", leagueId, teamId, weekId] as const,
   weeklyAcqLimit: (leagueId: string) =>
     ["weeklyAcqLimit", leagueId] as const,
   lockedTradeAssets: (teamId: string, leagueId: string) =>
@@ -112,6 +119,8 @@ export const queryKeys = {
     ["teamScheduleMatchups", leagueId, teamId] as const,
   weekScores: (leagueId: string, scheduleId: string) =>
     ["weekScores", leagueId, scheduleId] as const,
+  matchupTickerEvents: (playerIdsKey: string) =>
+    ["matchupTickerEvents", playerIdsKey] as const,
 
   // ── Playoffs ─────────────────────────────────────────────
   playoffBracket: (leagueId: string, season: number) =>
@@ -201,6 +210,10 @@ export const queryKeys = {
     ["draftRecentGameLogs", leagueId] as const,
   draftHistoricalStats: (leagueId: string) =>
     ["draftHistoricalStats", leagueId] as const,
+  freeAgentHistoricalStats: (leagueId: string) =>
+    ["freeAgentHistoricalStats", leagueId] as const,
+  prevSeasonFpts: (leagueId: string, season: string) =>
+    ["prevSeasonFpts", leagueId, season] as const,
   activeDraft: (leagueId: string) => ["activeDraft", leagueId] as const,
   leagueDraftOrder: (leagueId: string) =>
     ["leagueDraftOrder", leagueId] as const,
@@ -292,6 +305,8 @@ export const queryKeys = {
   rcOfferings: () => ["rcOfferings"] as const,
   paymentLedger: (leagueId: string, season: number) =>
     ["paymentLedger", leagueId, season] as const,
+  unconfirmedPaymentCount: (leagueId: string, season: string) =>
+    ["unconfirmedPaymentCount", leagueId, season] as const,
 
   // ── Commissioner ─────────────────────────────────────────
   commishPickConditions: (leagueId: string) =>
@@ -335,6 +350,10 @@ export const queryKeys = {
     ["archiveStandings", season] as const,
   archiveTeamRun: (season: number, franchiseId: string) =>
     ["archiveTeamRun", season, franchiseId] as const,
+  archiveTeamRotation: (season: number, franchiseId: string) =>
+    ["archiveTeamRotation", season, franchiseId] as const,
+  archiveFranchiseHistory: (franchiseId: string) =>
+    ["archiveFranchiseHistory", franchiseId] as const,
   archiveAwards: (season: number) => ["archiveAwards", season] as const,
 
   // ── NHL Playoff Archive (dev-only) ───────────────────────
@@ -347,4 +366,15 @@ export const queryKeys = {
     ["nhlArchiveTeamRun", season, franchiseId] as const,
   nhlArchiveAwards: (season: number) =>
     ["nhlArchiveAwards", season] as const,
+
+  // ── NFL Playoff Archive (dev-only) ───────────────────────
+  nflArchiveSeasons: () => ["nflArchiveSeasons"] as const,
+  nflArchiveBracket: (season: number) =>
+    ["nflArchiveBracket", season] as const,
+  nflArchiveStandings: (season: number) =>
+    ["nflArchiveStandings", season] as const,
+  nflArchiveTeamRun: (season: number, franchiseId: string) =>
+    ["nflArchiveTeamRun", season, franchiseId] as const,
+  nflArchiveAwards: (season: number) =>
+    ["nflArchiveAwards", season] as const,
 } as const;

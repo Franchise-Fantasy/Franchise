@@ -22,8 +22,9 @@ import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeague } from '@/hooks/useLeague';
 import { supabase } from '@/lib/supabase';
-import { toDateStr, parseLocalDate } from '@/utils/dates';
+import { parseLocalDate } from '@/utils/dates';
 import { calcRounds, getPlayoffRoundLabel } from '@/utils/league/playoff';
+import { getSportToday } from '@/utils/leagueTime';
 import { ms, s } from '@/utils/scale';
 import { formatScore } from '@/utils/scoring/fantasyPoints';
 
@@ -150,7 +151,7 @@ export default function ScheduleScreen() {
 
   // ─── Derived data ───────────────────────────────────────────────────────
 
-  const today = toDateStr(new Date());
+  const today = getSportToday(league?.sport);
 
   const matchupByScheduleId = useMemo(() => {
     const map = new Map<string, ScheduleMatchup>();
@@ -283,7 +284,7 @@ export default function ScheduleScreen() {
         index={index}
         total={weeks?.length ?? 0}
         isActive={isCurrent}
-        onPress={tappable ? () => router.push(`/matchup-detail/${matchup.id}` as never) : undefined}
+        onPress={tappable ? () => router.navigate({ pathname: '/(tabs)/matchup', params: { matchupId: matchup.id } } as never) : undefined}
         accessibilityLabel={
           tappable
             ? `${weekLabel}, vs ${opponentName}${result ? `, ${result.text}` : ', Upcoming'}`

@@ -1,6 +1,6 @@
 import { StyleSheet } from "react-native";
 
-import { cardShadow } from "@/constants/Colors";
+import { cardShadow, Fonts } from "@/constants/Colors";
 import { ms, s } from "@/utils/scale";
 
 export const styles = StyleSheet.create({
@@ -17,53 +17,7 @@ export const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: s(48),
   },
-  dayNav: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: s(8),
-    paddingVertical: s(10),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  navArrow: { padding: s(12) },
-  arrow: { fontSize: ms(28), lineHeight: ms(32) },
-  todayChip: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    justifyContent: "center",
-    paddingHorizontal: s(4),
-  },
-  todayChipLeft: { left: s(50) },
-  todayChipRight: { right: s(50) },
-  todayChipText: { fontSize: ms(11), fontWeight: "600" },
-  dayInfo: { flex: 1, alignItems: "center" },
-  dayLabel: { fontSize: ms(16) },
-  weekMeta: { fontSize: ms(11), marginTop: 2 },
-  body: { padding: s(6), paddingBottom: s(56), flexGrow: 1 },
-  pillBar: {
-    paddingHorizontal: s(12),
-    paddingTop: s(10),
-    paddingBottom: s(10),
-    gap: s(8),
-  },
-  pill: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: s(14),
-    paddingVertical: s(10),
-    borderRadius: 12,
-    gap: s(6),
-  },
-  pillText: {
-    fontSize: ms(10),
-    fontWeight: "600",
-    lineHeight: ms(16),
-  },
-  pillVs: {
-    fontSize: ms(10),
-    fontWeight: "500",
-    lineHeight: ms(14),
-  },
+  body: { paddingBottom: s(56), flexGrow: 1 },
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.4)",
@@ -92,85 +46,66 @@ export const styles = StyleSheet.create({
 });
 
 export const colStyles = StyleSheet.create({
-  scoreCard: {
+  // Brand card surface — wraps a section of slot rows with the same chrome
+  // the roster page uses (rounded 12, hairline border, cardShadow).
+  card: {
+    borderRadius: 12,
+    overflow: "hidden",
     borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: s(14),
-    paddingTop: s(12),
-    paddingBottom: s(10),
-    marginHorizontal: s(6),
-    marginBottom: s(14),
     ...cardShadow,
   },
-  scoreHeader: { flexDirection: "row", alignItems: "center" },
-  scoreCol: { flex: 1 },
-  vsCol: {
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
-    marginHorizontal: s(6),
-    marginTop: s(14),
+
+  // Section eyebrow padding (so eyebrows align with the slot card edges).
+  // Matches the roster page's `section: { padding: s(16) }` so switching
+  // between the two tabs feels visually continuous.
+  sectionWrap: {
+    marginHorizontal: s(16),
+    marginTop: s(16),
   },
-  vsText: { fontSize: ms(12), fontWeight: "600" },
-  teamName: { fontWeight: "600", fontSize: ms(14), marginBottom: 2 },
-  total: { fontSize: ms(20), fontWeight: "700" },
-  dayTotal: { fontSize: ms(11), fontWeight: "500", marginTop: 2 },
+
+  // Center slot pill — narrower than the roster pill since the matchup
+  // page splits horizontal space between two players. Same chrome family
+  // (rounded, hairline border) so it still reads as the brand pill.
+  slotPill: {
+    width: s(30),
+    paddingVertical: s(4),
+    borderRadius: 6,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  slotPillText: {
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(10),
+    letterSpacing: 0.8,
+  },
+
+  // Acquisition pill — leagueInfoPill chrome with eyebrow + value, used
+  // at the bottom of the matchup card.
   acqRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginTop: s(14),
-    paddingTop: s(10),
-    borderTopWidth: StyleSheet.hairlineWidth,
+    marginTop: s(10),
+    marginHorizontal: s(6),
+    gap: s(8),
   },
   acqPill: {
     flexDirection: "row",
     alignItems: "center",
-  },
-  acqText: {
-    fontSize: ms(12),
-    fontWeight: "600",
-  },
-  summaryBtnText: {
-    fontSize: ms(10),
-    fontWeight: "600",
-    marginTop: 2,
-  },
-  benchHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: s(8),
-    gap: s(10),
-  },
-  benchLine: {
-    flex: 1,
-    height: 1,
-    opacity: 0.4,
-  },
-  benchLabel: {
-    fontSize: ms(10),
-    fontWeight: "700",
-    letterSpacing: 1.5,
-  },
-  goLiveBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    alignSelf: "center",
-    paddingHorizontal: s(12),
+    gap: s(5),
+    paddingHorizontal: s(10),
     paddingVertical: s(5),
-    borderRadius: 20,
-    backgroundColor: "#1B3D2F",
-    marginTop: s(8),
-    gap: 5,
+    borderRadius: 8,
+    borderWidth: 1,
   },
-  goLiveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "#FF3B30",
+  acqEyebrow: {
+    fontSize: ms(9.5),
+    letterSpacing: 1.0,
   },
-  goLiveBtnText: {
-    color: "#fff",
-    fontSize: ms(11),
+  acqValue: {
+    fontFamily: Fonts.mono,
+    fontSize: ms(13),
     fontWeight: "700",
+    letterSpacing: 0.4,
   },
 });

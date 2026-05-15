@@ -25,6 +25,9 @@ export interface PreselectedPlayer {
   position: string;
   pro_team: string;
   avg_fpts?: number;
+  /** Source of the headshot URL — without it the lane shows the silhouette
+   *  until the post-seed player_season_stats fetch back-fills it. */
+  external_id_nba?: string | null;
 }
 
 export interface CounterofferData {
@@ -73,6 +76,7 @@ export function tradeBuilderReducer(state: TradeState, action: TradeAction): Tra
           position: action.preselectedPlayer.position,
           pro_team: action.preselectedPlayer.pro_team,
           avg_fpts: action.preselectedPlayer.avg_fpts ?? 0,
+          external_id_nba: action.preselectedPlayer.external_id_nba ?? null,
           to_team_id: '',
         });
       }
@@ -89,6 +93,7 @@ export function tradeBuilderReducer(state: TradeState, action: TradeAction): Tra
             position: action.preselectedPlayer.position,
             pro_team: action.preselectedPlayer.pro_team,
             avg_fpts: action.preselectedPlayer.avg_fpts ?? 0,
+            external_id_nba: action.preselectedPlayer.external_id_nba ?? null,
             to_team_id: action.teamId,
           });
         }

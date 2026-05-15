@@ -6,7 +6,7 @@ import {
 import { useEffect } from 'react';
 
 import { queryKeys } from '@/constants/queryKeys';
-import { supabase } from '@/lib/supabase';
+import { supabase, uniqueChannelTopic } from '@/lib/supabase';
 import type { CommissionerPoll, PollResults, PollVote } from '@/types/poll';
 
 // ─── Fetch single poll ──────────────────────────────────────
@@ -41,7 +41,7 @@ export function usePollResults(
   useEffect(() => {
     if (!pollId) return;
     const channel = supabase
-      .channel(`poll_votes_${pollId}-${Date.now()}`)
+      .channel(uniqueChannelTopic(`poll_votes_${pollId}`))
       .on(
         'postgres_changes',
         {

@@ -48,6 +48,7 @@ interface Pick {
   player?: {
     name: string;
     position: string;
+    pro_team: string | null;
   };
 }
 

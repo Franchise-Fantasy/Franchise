@@ -20,10 +20,10 @@ import { TradeFloor } from '@/components/trade/TradeFloor';
 import { TradePickerHeader } from '@/components/trade/TradePickerHeader';
 import { TradablePickRow, TradePickPickerBody } from '@/components/trade/TradePickPickerBody';
 import { TradePlayerPickerBody } from '@/components/trade/TradePlayerPickerBody';
-import { TradeSubmitOverlay } from '@/components/trade/TradeSubmitOverlay';
 import { TradeSwapPickerBody } from '@/components/trade/TradeSwapPickerBody';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { SubmitOverlay } from '@/components/ui/SubmitOverlay';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
@@ -522,6 +522,7 @@ export function ProposeTradeModal({
           round: pick.round,
           original_team_name: pick.original_team_name,
           estimated_fpts: estimatePickFpts(pick.round),
+          display_slot: pick.display_slot,
           to_team_id: getDefaultDest(forTeamId),
         },
       });
@@ -661,11 +662,14 @@ export function ProposeTradeModal({
           />
         )}
 
-        {/* Footer — Cancel left, Submit right (primary, fills remaining width). */}
+        {/* Footer — Cancel left, Submit right (primary, fills remaining width).
+            Both use size="large" so they read as a matched pair instead of
+            mismatched heights. */}
         <View style={[styles.footer, { borderTopColor: c.border, backgroundColor: c.background }]}>
           <BrandButton
             label="Cancel"
             variant="secondary"
+            size="large"
             onPress={onClose}
             accessibilityLabel="Cancel"
           />
@@ -773,7 +777,7 @@ export function ProposeTradeModal({
         </SafeAreaProvider>
       </Modal>
 
-      <TradeSubmitOverlay
+      <SubmitOverlay
         visible={overlay?.visible ?? false}
         label={overlay?.label ?? ''}
         onDone={() => {

@@ -1,4 +1,4 @@
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { TeamLogo } from '@/components/team/TeamLogo';
 import { Badge } from '@/components/ui/Badge';
@@ -78,6 +78,8 @@ export function MatchupCard({
         {
           backgroundColor: isMine ? c.activeCard : c.card,
           borderColor: isMine ? c.gold : c.border,
+          // Android elevation halos badly on the tinted "your matchup" bg
+          ...(isMine && Platform.OS === 'android' && { elevation: 0 }),
         },
       ]}
       onPress={onPress}
@@ -223,7 +225,7 @@ function TeamRow({
 
 const styles = StyleSheet.create({
   card: {
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 14,
     paddingHorizontal: s(14),
     paddingTop: s(12),

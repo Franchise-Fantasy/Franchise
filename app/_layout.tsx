@@ -37,8 +37,8 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Animated, AppState, Image, Platform, StyleSheet } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { KeyboardProvider } from "react-native-keyboard-controller";
 import "react-native-reanimated";
+
 
 import { AnnouncementBanner } from "@/components/banners/AnnouncementBanner";
 import { MatchupResultModal } from "@/components/banners/MatchupResultModal";
@@ -60,6 +60,7 @@ import { posthog, setPostHogAdmin } from "@/lib/posthog";
 import { registerSplashReadyHandler } from "@/lib/splashReady";
 import { supabase } from "@/lib/supabase";
 import { isExpoGo } from "@/utils/buildConfig";
+import { KeyboardProvider } from "@/utils/keyboardController";
 import { logger } from "@/utils/logger";
 
 // Keep the native splash screen visible until we explicitly hide it.
@@ -684,10 +685,6 @@ export default function RootLayout() {
                         options={{ headerShown: false }}
                       />
                       <Stack.Screen
-                        name="matchup-detail/[id]"
-                        options={{ headerShown: false }}
-                      />
-                      <Stack.Screen
                         name="import-league"
                         options={{ headerShown: false }}
                       />
@@ -720,7 +717,15 @@ export default function RootLayout() {
                         options={{ headerShown: false }}
                       />
                       <Stack.Screen
+                        name="franchise/[id]"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
                         name="playoff-archive-nhl"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="playoff-archive-nfl"
                         options={{ headerShown: false }}
                       />
                       <Stack.Screen

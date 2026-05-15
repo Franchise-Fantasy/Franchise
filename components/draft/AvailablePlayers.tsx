@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
   StyleSheet,
@@ -12,9 +12,11 @@ import {
 
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import { PlayerFilterBar } from "@/components/player/PlayerFilterBar";
+import { PlayerHeadshotImage } from "@/components/player/PlayerHeadshotImage";
 import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
+import { getPreviousSeason } from "@/constants/LeagueDefaults";
 import { queryKeys } from "@/constants/queryKeys";
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from "@/hooks/useColorScheme";
@@ -25,7 +27,7 @@ import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
 import { formatPosition } from "@/utils/formatting";
 import { getInjuryBadge } from "@/utils/nba/injuryBadge";
-import { getPlayerHeadshotUrl, getTeamLogoUrl, PLAYER_SILHOUETTE } from "@/utils/nba/playerHeadshot";
+import { getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
 import { ms, s } from "@/utils/scale";
 import { calculateAvgFantasyPoints } from "@/utils/scoring/fantasyPoints";
 
@@ -77,6 +79,20 @@ export function AvailablePlayers({
   const isCategories = scoringType === "h2h_categories";
 
   const [timeRange, setTimeRange] = useState<TimeRange>("season");
+
+  // WNBA's current-season stats are empty during the offseason / pre-tipoff,
+  // so default the draft view to last season's averages once we know the
+  // league's sport. (useActiveLeagueSport returns 'nba' as a loading
+  // fallback, so we can't make this the useState init — wait for resolve.)
+  // Rookie drafts skip this since rookies have no prior season.
+  const sportDefaultAppliedRef = useRef(false);
+  useEffect(() => {
+    if (sportDefaultAppliedRef.current) return;
+    if (sport === "wnba" && !isRookieDraft) {
+      setTimeRange("lastSeason");
+      sportDefaultAppliedRef.current = true;
+    }
+  }, [sport, isRookieDraft]);
 
   const { data: players, isLoading } = useQuery<PlayerSeasonStats[]>({
     queryKey: [...queryKeys.availablePlayers(leagueId), sport],
@@ -159,8 +175,7 @@ export function AvailablePlayers({
     staleTime: 1000 * 60 * 15,
   });
 
-  // Fetch last season's historical stats. NBA "2024-25" / WNBA "2024".
-  const previousSeason = sport === "wnba" ? "2024" : "2024-25";
+  const previousSeason = getPreviousSeason(sport);
   const { data: historicalStats } = useQuery({
     queryKey: [...queryKeys.draftHistoricalStats(leagueId), sport, previousSeason],
     queryFn: async () => {
@@ -343,7 +358,6 @@ export function AvailablePlayers({
       const fpts = scoringWeights && !isCategories
         ? calculateAvgFantasyPoints(item, scoringWeights)
         : undefined;
-      const headshotUrl = getPlayerHeadshotUrl(item.external_id_nba, sport);
       const logoUrl = getTeamLogoUrl(item.pro_team, sport);
       const badge = getInjuryBadge(item.status);
 
@@ -362,13 +376,10 @@ export function AvailablePlayers({
         >
           <View style={styles.portraitWrap}>
             <View style={[styles.headshotCircle, { borderColor: c.heritageGold, backgroundColor: c.cardAlt }]}>
-              <Image
-                source={headshotUrl ? { uri: headshotUrl } : PLAYER_SILHOUETTE}
+              <PlayerHeadshotImage
+                externalIdNba={item.external_id_nba}
+                sport={sport}
                 style={styles.headshotImg}
-                contentFit="cover"
-                cachePolicy="memory-disk"
-                recyclingKey={headshotUrl ?? "silhouette"}
-                placeholder={PLAYER_SILHOUETTE}
                 accessible={false}
               />
             </View>
@@ -500,6 +511,9 @@ export function AvailablePlayers({
         leagueId={leagueId}
         teamId={teamId}
         onClose={() => setSelectedPlayer(null)}
+        draftMode
+        canDraft={isMyTurn && !isDrafting}
+        onDraftPlayer={handleDraft}
       />
     </View>
   );

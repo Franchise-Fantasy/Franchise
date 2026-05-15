@@ -31,8 +31,16 @@ function getComputedSort(p: PlayerSeasonStats, key: SortKey): number {
 }
 
 const POSITIONS = ['All', 'PG', 'SG', 'SF', 'PF', 'C', 'G', 'F'] as const;
+const WNBA_FILTER_POSITIONS = ['All', 'G', 'F', 'C'] as const;
 export type PositionFilter = (typeof POSITIONS)[number];
 export { POSITIONS };
+
+/** Filter chip list for the player browser. WNBA leagues hide the
+ *  PG/SG/SF/PF chips since players are reported as bare G/F/C. NFL/NHL/MLB
+ *  fall back to NBA chips today — they don't ship a player browser yet. */
+export function getPositionFilters(sport: string): readonly string[] {
+  return sport === 'wnba' ? WNBA_FILTER_POSITIONS : POSITIONS;
+}
 
 // Which base positions each group filter matches
 const POSITION_GROUP: Record<string, string[]> = {
@@ -58,6 +66,7 @@ export function usePlayerFilter(
 ) {
   const [searchText, setSearchText] = useState('');
   const [selectedPosition, setSelectedPosition] = useState<string>('All');
+  const [selectedProTeam, setSelectedProTeam] = useState<string>('All');
   const [sortBy, setSortBy] = useState<SortKey>('FPTS');
   const [showMinutesUp, setShowMinutesUp] = useState(false);
   const [showWatchlistOnly, setShowWatchlistOnly] = useState(false);
@@ -73,6 +82,11 @@ export function usePlayerFilter(
     if (searchText.trim()) {
       const query = searchText.trim().toLowerCase();
       result = result.filter(p => p.name.toLowerCase().includes(query));
+    }
+
+    // Filter by NBA/WNBA pro team (tricode match on pro_team field)
+    if (selectedProTeam !== 'All') {
+      result = result.filter(p => p.pro_team === selectedProTeam);
     }
 
     // Filter by position (uses spectrum + group support)
@@ -136,13 +150,15 @@ export function usePlayerFilter(
     }
 
     return result;
-  }, [players, searchText, selectedPosition, sortBy, scoringWeights, showMinutesUp, minutesUpPlayerIds, playingOnDate, scheduleMap, showWatchlistOnly, watchlistedIds, showFreeAgentsOnly, rosteredPlayerIds, injuryFilter]);
+  }, [players, searchText, selectedPosition, selectedProTeam, sortBy, scoringWeights, showMinutesUp, minutesUpPlayerIds, playingOnDate, scheduleMap, showWatchlistOnly, watchlistedIds, showFreeAgentsOnly, rosteredPlayerIds, injuryFilter]);
 
   const filterBarProps = {
     searchText,
     onSearchChange: setSearchText,
     selectedPosition,
     onPositionChange: setSelectedPosition,
+    selectedProTeam,
+    onProTeamChange: setSelectedProTeam,
     sortBy,
     onSortChange: setSortBy as (sort: string) => void,
     showMinutesUp,

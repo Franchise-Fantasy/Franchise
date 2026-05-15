@@ -29,8 +29,8 @@ import { Colors } from "@/constants/Colors";
 import {
   CURRENT_NBA_SEASON,
   getCurrentSeason,
+  getDefaultRosterSlots,
   DEFAULT_CATEGORIES,
-  DEFAULT_ROSTER_SLOTS,
   DEFAULT_SCORING,
   INITIAL_DRAFT_ORDER_TO_DB,
   LEAGUE_TYPE_TO_DB,
@@ -76,7 +76,7 @@ const initialState: LeagueWizardState = {
   name: "",
   teams: 10,
   isPrivate: false,
-  rosterSlots: DEFAULT_ROSTER_SLOTS.map((s) => ({ ...s })),
+  rosterSlots: getDefaultRosterSlots('nba'),
   scoringType: 'Points',
   scoring: DEFAULT_SCORING.map((s) => ({ ...s })),
   categories: DEFAULT_CATEGORIES.map((c) => ({ ...c })),
@@ -163,15 +163,25 @@ function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
       if (action.field === 'leagueType' && action.value === 'Dynasty') {
         return { ...next, maxDraftYears: 3 };
       }
-      // When sport changes, snap the season string to that sport's default and
-      // recompute week boundaries from the new season's start date.
+      // When sport changes, snap the season string to that sport's default,
+      // swap the roster template (WNBA leagues have G/F/C only — no
+      // PG/SG/SF/PF), and recompute week boundaries from the new season's
+      // start date. Position limits reset because the keys differ per sport.
       if (action.field === 'sport') {
         const newSport = action.value as 'nba' | 'wnba';
         const newSeason = getCurrentSeason(newSport);
         const newMax = computeMaxWeeks(newSeason, newSport);
         const playoffWeeks = Math.min(next.playoffWeeks, Math.max(1, newMax - 1));
         const regularSeasonWeeks = Math.min(next.regularSeasonWeeks, Math.max(1, newMax - playoffWeeks));
-        return clampLotteryState({ ...next, season: newSeason, seasonStartDate: null, regularSeasonWeeks, playoffWeeks });
+        return clampLotteryState({
+          ...next,
+          season: newSeason,
+          seasonStartDate: null,
+          regularSeasonWeeks,
+          playoffWeeks,
+          rosterSlots: getDefaultRosterSlots(newSport),
+          positionLimits: {},
+        });
       }
       return next;
     }
@@ -193,7 +203,7 @@ function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
     case "RESET_ROSTER":
       return {
         ...state,
-        rosterSlots: DEFAULT_ROSTER_SLOTS.map((s) => ({ ...s })),
+        rosterSlots: getDefaultRosterSlots(state.sport),
         positionLimits: {},
       };
     case "SET_SCORING_TYPE":
@@ -296,23 +306,22 @@ export default function CreateLeague() {
     }
   }, [step]);
 
+  // Dead-zone of 48px on both edges so micro-fluctuations in content size
+  // (font metrics settling, KeyboardAvoidingView reflows, etc.) don't flip
+  // hasMoreContent/isAtBottom back-and-forth and trigger a fade-in/out loop.
   const recomputeHint = useCallback(() => {
     const viewport = viewportHeightRef.current;
     const content = contentHeightRef.current;
     if (viewport > 0 && content > 0) {
-      setHasMoreContent(content > viewport + 20);
+      setHasMoreContent(content > viewport + 48);
     }
   }, []);
 
   const handleScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
     const distanceFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
-    setIsAtBottom(distanceFromBottom < 20);
-    // Keep refs in sync in case content changed mid-scroll.
-    viewportHeightRef.current = layoutMeasurement.height;
-    contentHeightRef.current = contentSize.height;
-    recomputeHint();
-  }, [recomputeHint]);
+    setIsAtBottom(distanceFromBottom < 48);
+  }, []);
 
   const handleLayout = useCallback(
     (e: NativeSyntheticEvent<{ layout: { height: number } }>) => {

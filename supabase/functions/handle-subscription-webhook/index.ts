@@ -24,12 +24,24 @@ const PRODUCT_MAP: Record<
   league_premium_annual: { tier: "premium", scope: "league" },
 };
 
-// RevenueCat event types we handle
+// RevenueCat event types we handle.
+// TEMPORARY_ENTITLEMENT_GRANT covers two real flows that show up in our data:
+//   1. TestFlight/sandbox re-subscriptions where Apple grants the entitlement
+//      before the receipt fully clears (we saw this strand TestFlight users on
+//      `expired` rows after they re-bought — the only event RC sent was the
+//      grant, no INITIAL_PURCHASE/RENEWAL followed within the user-visible
+//      sync window).
+//   2. Family Sharing — RC grants temporary entitlements to family members
+//      while it waits for App Store confirmation.
+// Treating it as active matches the user's lived experience (they just paid /
+// the subscriber gave them access). If it's later revoked, the REVOKE handler
+// below flips the row back to expired.
 const ACTIVE_EVENTS = new Set([
   "INITIAL_PURCHASE",
   "RENEWAL",
   "PRODUCT_CHANGE",
   "UNCANCELLATION",
+  "TEMPORARY_ENTITLEMENT_GRANT",
 ]);
 
 // Status the row should land in for each non-active event. EXPIRATION means
@@ -37,10 +49,13 @@ const ACTIVE_EVENTS = new Set([
 // keep the row "cancelled" until the term expires. Lumping them all into
 // "cancelled" made support triage harder — a row that says cancelled while
 // the term is over reads as "they intentionally bailed" instead of "ran out".
+// TEMPORARY_ENTITLEMENT_REVOKE is the matching pair to the GRANT we treat as
+// active above — Family Sharing pull-back, sandbox receipt invalidation, etc.
 const NON_ACTIVE_STATUS: Record<string, "cancelled" | "expired"> = {
   CANCELLATION: "cancelled",
   BILLING_ISSUE: "cancelled",
   EXPIRATION: "expired",
+  TEMPORARY_ENTITLEMENT_REVOKE: "expired",
 };
 
 Deno.serve(async (req) => {

@@ -2,6 +2,7 @@ import { Image } from "expo-image";
 import { ReactNode } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
+import { PlayerHeadshotImage } from "@/components/player/PlayerHeadshotImage";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
@@ -9,7 +10,7 @@ import { useColorScheme } from "@/hooks/useColorScheme";
 import { PlayerSeasonStats } from "@/types/player";
 import { formatPosition } from "@/utils/formatting";
 import { getInjuryBadge } from "@/utils/nba/injuryBadge";
-import { getPlayerHeadshotUrl, getTeamLogoUrl, PLAYER_SILHOUETTE } from "@/utils/nba/playerHeadshot";
+import { getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
 import { ms, s } from "@/utils/scale";
 
 
@@ -40,27 +41,19 @@ export function PlayerCard({
       <ThemedText style={[styles.position, { color: c.secondaryText }]}>
         {formatPosition(player.position)}
       </ThemedText>
-      {(() => {
-        const url = getPlayerHeadshotUrl(player.external_id_nba, sport);
-        return (
-          <View
-            style={[
-              styles.headshotCircle,
-              { borderColor: c.heritageGold, backgroundColor: c.cardAlt },
-            ]}
-            accessibilityLabel={`${player.name} headshot`}
-          >
-            <Image
-              source={url ? { uri: url } : PLAYER_SILHOUETTE}
-              style={styles.headshotImg}
-              contentFit="cover"
-              cachePolicy="memory-disk"
-              recyclingKey={url ?? "silhouette"}
-              placeholder={PLAYER_SILHOUETTE}
-            />
-          </View>
-        );
-      })()}
+      <View
+        style={[
+          styles.headshotCircle,
+          { borderColor: c.heritageGold, backgroundColor: c.cardAlt },
+        ]}
+        accessibilityLabel={`${player.name} headshot`}
+      >
+        <PlayerHeadshotImage
+          externalIdNba={player.external_id_nba}
+          sport={sport}
+          style={styles.headshotImg}
+        />
+      </View>
       <View style={styles.info}>
         <View style={styles.nameRow}>
           <ThemedText

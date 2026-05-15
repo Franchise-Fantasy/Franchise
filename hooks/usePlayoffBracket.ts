@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef } from 'react';
 
 import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
-import { supabase } from '@/lib/supabase';
+import { supabase, uniqueChannelTopic } from '@/lib/supabase';
 import { PlayoffBracketSlot, PlayoffSeedPick } from '@/types/playoff';
 
 
@@ -79,7 +79,7 @@ export function usePlayoffBracket(season: string) {
     // The edge function broadcasts all scores per schedule_id after upsert.
     const channels = scheduleIds.map((sid) =>
       supabase
-        .channel(`playoff-scores-${sid}-${Date.now()}`)
+        .channel(uniqueChannelTopic(`playoff-scores-${sid}`))
         .on(
           'broadcast',
           { event: 'score_update' },
@@ -174,7 +174,7 @@ export function useSeedPicks(season: string, round: number | null, poll = false)
     }
 
     const channel = supabase
-      .channel(`seed-picks-${leagueId}-${season}-${round}-${Date.now()}`)
+      .channel(uniqueChannelTopic(`seed-picks-${leagueId}-${season}-${round}`))
       .on(
         'postgres_changes',
         {

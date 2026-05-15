@@ -19,8 +19,20 @@ const formatPosition = (position?: string | null): string => {
   // NBA combos: keep DB order (primary first), expand the range between them
   const eligible = getEligiblePositions(position);
   const primary = parts[0];
+  // Move the DB's primary position to the front
   const reordered = [primary, ...eligible.filter(p => p !== primary)];
   return reordered.join('/');
 };
 
-export { formatPosition };
+/**
+ * Returns "F. LastName" — first initial + period + remainder of full name.
+ * Used in tight horizontal layouts (free-agent rows, matchup player cells)
+ * where the full first name would clip.
+ */
+function abbreviateFirstName(name: string): string {
+  const idx = name.indexOf(' ');
+  if (idx <= 0) return name;
+  return `${name[0]}. ${name.slice(idx + 1)}`;
+}
+
+export { formatPosition, abbreviateFirstName };

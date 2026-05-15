@@ -6,7 +6,9 @@ import {
   Alert,
   Linking,
   Modal,
+  Platform,
   ScrollView,
+  StatusBar,
   StyleSheet,
   TouchableOpacity,
   View,
@@ -269,7 +271,18 @@ export function UpgradeModal({
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
-      <View style={[styles.container, { backgroundColor: c.background }]}>
+      <View
+        style={[
+          styles.container,
+          { backgroundColor: c.background },
+          // Modal on Android draws fullscreen including under the status bar,
+          // so the header was getting pushed offscreen. presentationStyle="pageSheet"
+          // already handles this on iOS.
+          Platform.OS === 'android' && {
+            paddingTop: StatusBar.currentHeight ?? 24,
+          },
+        ]}
+      >
         {/* Header row — display title on the left, close button on the right.
             One row instead of stacking eyebrow + title + close. */}
         <View style={styles.headerRow}>
@@ -346,13 +359,11 @@ export function UpgradeModal({
               >
                 Annual
               </ThemedText>
-              {annual && (
-                <View style={[styles.saveBadge, { backgroundColor: c.primary }]}>
-                  <ThemedText type="varsitySmall" style={styles.saveBadgeText}>
-                    Save 40%
-                  </ThemedText>
-                </View>
-              )}
+              <View style={[styles.saveBadge, { backgroundColor: c.primary }]}>
+                <ThemedText type="varsitySmall" style={styles.saveBadgeText}>
+                  Save 40%
+                </ThemedText>
+              </View>
             </TouchableOpacity>
           </View>
 
@@ -585,8 +596,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: s(20),
-    paddingTop: s(12),
-    paddingBottom: s(12),
+    paddingTop: s(24),
+    paddingBottom: s(14),
     gap: s(12),
   },
   closeBtn: {

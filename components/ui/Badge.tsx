@@ -14,7 +14,8 @@ export type BadgeVariant =
   | 'warning'
   | 'gold'
   | 'turf'
-  | 'merlot';
+  | 'merlot'
+  | 'primary';
 
 type Props = {
   label: string;
@@ -86,6 +87,10 @@ function resolveColors(variant: BadgeVariant, c: typeof Colors.light) {
       return { bg: Brand.turfGreen, fg: Brand.ecru };
     case 'merlot':
       return { bg: Brand.merlot, fg: Brand.ecru };
+    case 'primary':
+      // Sport-tinted brand fill (NBA turfGreen, WNBA merlot, NFL navy) —
+      // use this when an "active/on" badge should follow the league.
+      return { bg: c.primary, fg: c.onPrimary };
     case 'neutral':
     default:
       return { bg: c.cardAlt, fg: c.secondaryText };

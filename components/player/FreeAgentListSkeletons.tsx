@@ -1,14 +1,5 @@
-import { Image, type ImageContentFit, type ImageSource } from "expo-image";
 import { useEffect, useRef } from "react";
-import {
-  Animated,
-  type StyleProp,
-  type ImageStyle,
-  Text,
-  View,
-} from "react-native";
-
-import { PLAYER_SILHOUETTE } from "@/utils/nba/playerHeadshot";
+import { Animated, Text, View } from "react-native";
 
 import { freeAgentListStyles as styles } from "./freeAgentListStyles";
 
@@ -141,29 +132,3 @@ export function SkeletonRibbon({ color }: { color: string }) {
   );
 }
 
-export function FadeInImage({
-  uri,
-  style,
-  contentFit = "cover",
-  placeholder = PLAYER_SILHOUETTE,
-}: {
-  uri: string | null | undefined;
-  style: StyleProp<ImageStyle>;
-  contentFit?: ImageContentFit;
-  placeholder?: ImageSource | number;
-}) {
-  // The silhouette is a small centered icon on whitespace — `cover` would
-  // crop out its body. `cover` is still right for real headshots.
-  return (
-    <Image
-      source={uri ? { uri } : placeholder}
-      style={style}
-      contentFit={uri ? contentFit : "contain"}
-      cachePolicy="memory-disk"
-      recyclingKey={uri ?? "silhouette"}
-      placeholder={placeholder}
-      placeholderContentFit="contain"
-      transition={250}
-    />
-  );
-}

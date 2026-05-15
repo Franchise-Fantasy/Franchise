@@ -63,6 +63,15 @@ export default function SetupHome() {
           fullWidth
           accessibilityLabel="Join a league"
         />
+        <BrandButton
+          label="Import a League"
+          icon="cloud-download-outline"
+          onPress={() => router.push('/import-league' as any)}
+          variant="ghost"
+          size="large"
+          fullWidth
+          accessibilityLabel="Import a league from Sleeper or screenshots"
+        />
       </View>
     </ThemedView>
   );

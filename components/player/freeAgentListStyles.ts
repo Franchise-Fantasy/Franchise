@@ -7,21 +7,87 @@ export const freeAgentListStyles = StyleSheet.create({
     flex: 1,
   },
   offseasonBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: s(10),
+    paddingHorizontal: s(14),
+    paddingVertical: s(12),
     marginHorizontal: s(8),
     marginTop: s(4),
     borderRadius: 8,
     borderWidth: 1,
+    gap: s(6),
+  },
+  offseasonEyebrowRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: s(8),
+  },
+  offseasonRule: {
+    height: 2,
+    width: s(14),
+  },
+  offseasonEyebrow: {
+    fontSize: ms(9),
+    letterSpacing: 1.4,
+  },
+  offseasonBody: {
+    fontSize: ms(13),
+  },
+  emptyState: {
+    alignItems: "center",
+    paddingTop: s(56),
+    paddingHorizontal: s(24),
+    gap: s(8),
+  },
+  emptyRule: {
+    height: 2,
+    width: s(28),
+  },
+  emptyEyebrow: {
+    fontSize: ms(11),
+    letterSpacing: 1.6,
+  },
+  emptyBody: {
+    fontSize: ms(13),
+    textAlign: "center",
   },
   listContent: {
     paddingHorizontal: s(8),
     paddingBottom: s(100),
   },
+  colKey: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    // Match the row's effective horizontal padding (listContent s(8) + row s(12)).
+    paddingHorizontal: s(20),
+    paddingTop: s(8),
+    paddingBottom: s(6),
+    gap: s(8),
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  colKeyStats: {
+    alignItems: "flex-end",
+  },
+  colKeyText: {
+    fontSize: ms(9),
+    letterSpacing: 1.2,
+    textAlign: "right" as const,
+  },
+  // Width-matched spacer for the row's round add-button column (28pt button + 0pt gap-equivalent).
+  colKeyAddSpacer: {
+    width: s(28),
+  },
   ribbonRow: {
     flexDirection: "row",
     alignItems: "center",
+    paddingLeft: s(8),
+    // Right padding matches the row's effective horizontal padding
+    // (listContent s(8) + row s(12)) so the stat-key column sits over
+    // the slash-line values, not the round add button.
+    paddingRight: s(20),
+    paddingTop: s(4),
+    paddingBottom: s(4),
+    gap: s(8),
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   statInfoBtn: {
     paddingHorizontal: s(10),
@@ -35,9 +101,8 @@ export const freeAgentListStyles = StyleSheet.create({
     paddingHorizontal: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  rowAlt: {
-    backgroundColor: "rgba(128, 128, 128, 0.09)",
-  },
+  // The alt-row backgroundColor is applied inline in `FreeAgentRow` so it
+  // can read `c.cardAlt` from the active sport theme.
   portraitWrap: {
     width: s(58),
     height: s(58),
@@ -88,6 +153,18 @@ export const freeAgentListStyles = StyleSheet.create({
     alignItems: "center",
     gap: s(4),
   },
+  nameWrap: {
+    flexShrink: 1,
+  },
+  // Off-screen measurement copy of the name; lays out at the wrap's full
+  // width so onTextLayout reports the natural line count given available
+  // space. Invisible to users and screen readers.
+  nameMeasure: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    opacity: 0,
+  },
   badge: {
     paddingHorizontal: s(4),
     paddingVertical: s(1),
@@ -132,15 +209,29 @@ export const freeAgentListStyles = StyleSheet.create({
     gap: s(8),
   },
   stats: {
+    // Fixed width keeps the slash-line right edge in the same x-position
+    // on every row, so the column key above lines up cleanly. Categories
+    // leagues need extra room for the 5-stat slash line.
     alignItems: "flex-end",
   },
-  statLine: {
-    fontSize: ms(12),
+  statsPoints: {
+    // Sized for the longest realistic slash line — `40.5/12.4/10.5`
+    // (14 chars) in mono ms(10) — across device scales. The slash
+    // line is intentionally subordinate; FPTS is the headline.
+    width: s(100),
   },
-  fpts: {
-    fontSize: ms(11),
-    fontWeight: "600",
-    marginTop: 1,
+  statsCategories: {
+    // 5-stat slash line — `35.5/12.4/10.5/2.1/1.8` (22 chars) in mono ms(10).
+    width: s(150),
+  },
+  statLine: {
+    fontSize: ms(10),
+    textAlign: "right" as const,
+  },
+  fptsValue: {
+    fontSize: ms(15),
+    fontWeight: "700",
+    marginTop: s(2),
   },
   catLine: {
     fontSize: ms(10),
@@ -206,46 +297,5 @@ export const freeAgentListStyles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: s(8),
     borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-
-  // FAAB bid modal
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  faabModal: {
-    width: "80%",
-    borderRadius: 12,
-    padding: s(20),
-  },
-  bidRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: s(4),
-  },
-  bidInput: {
-    width: s(80),
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: s(12),
-    paddingVertical: s(8),
-    fontSize: ms(16),
-    fontWeight: "700",
-    textAlign: "center",
-  },
-  modalButtons: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    gap: s(10),
-  },
-  modalBtn: {
-    paddingHorizontal: s(20),
-    paddingVertical: s(10),
-    borderRadius: 8,
-    alignItems: "center",
-    minWidth: s(80),
   },
 });

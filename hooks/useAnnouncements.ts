@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
 import { queryKeys } from '@/constants/queryKeys';
-import { supabase } from '@/lib/supabase';
+import { supabase, uniqueChannelTopic } from '@/lib/supabase';
 
 export interface Announcement {
   id: string;
@@ -19,7 +19,7 @@ export function useLatestAnnouncement(leagueId: string | null) {
   useEffect(() => {
     if (!leagueId) return;
     const channel = supabase
-      .channel(`announcements_${leagueId}-${Date.now()}`)
+      .channel(uniqueChannelTopic(`announcements_${leagueId}`))
       .on(
         'postgres_changes',
         {

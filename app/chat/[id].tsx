@@ -13,7 +13,6 @@ import {
   View,
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import Animated, {
   FadeIn,
   FadeOut,
@@ -59,6 +58,7 @@ import type { ReadReceipt } from '@/hooks/chat/useReadReceipts';
 import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
 import type { ChatMessage, ReactionGroup } from '@/types/chat';
+import { KeyboardAvoidingView } from '@/utils/keyboardController';
 import { logger } from '@/utils/logger';
 import { ms, s } from '@/utils/scale';
 

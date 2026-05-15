@@ -2,13 +2,13 @@ import { Image } from 'expo-image';
 import { memo } from 'react';
 import { Linking, StyleSheet, TouchableOpacity, View } from 'react-native';
 
+import { PlayerHeadshotImage } from '@/components/player/PlayerHeadshotImage';
 import { Badge, type BadgeVariant } from '@/components/ui/Badge';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Fonts, cardShadow } from '@/constants/Colors';
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useColors } from '@/hooks/useColors';
 import type { PlayerNewsArticle } from '@/types/news';
-import { PLAYER_SILHOUETTE, getPlayerHeadshotUrl } from '@/utils/nba/playerHeadshot';
 import { ms, s } from '@/utils/scale';
 
 function timeAgo(dateStr: string): string {
@@ -68,8 +68,8 @@ function NewsCardBase({ article, showHeadshots }: NewsCardProps) {
   }
 
   const players = article.mentioned_players ?? [];
-  const headshots = showHeadshots
-    ? players.map((p) => getPlayerHeadshotUrl(p.external_id_nba, sport)).filter(Boolean)
+  const headshotPlayers = showHeadshots
+    ? players.filter((p) => p.external_id_nba != null).slice(0, 2)
     : [];
 
   const hasBadgeRow =
@@ -85,24 +85,21 @@ function NewsCardBase({ article, showHeadshots }: NewsCardProps) {
     >
       {/* Title row: headshots + Alfa Slab title */}
       <View style={styles.titleRow}>
-        {headshots.length > 0 && (
+        {headshotPlayers.length > 0 && (
           <View style={styles.headshots}>
-            {headshots.slice(0, 2).map((url, i) => (
+            {headshotPlayers.map((p, i) => (
               <View
                 key={i}
                 style={[
                   styles.headshotCircle,
                   { borderColor: c.heritageGold, backgroundColor: c.cardAlt },
                 ]}
-                accessibilityLabel={players[i]?.name ?? 'Player'}
+                accessibilityLabel={p.name ?? 'Player'}
               >
-                <Image
-                  source={{ uri: url! }}
+                <PlayerHeadshotImage
+                  externalIdNba={p.external_id_nba}
+                  sport={sport}
                   style={styles.headshotImg}
-                  contentFit="cover"
-                  cachePolicy="memory-disk"
-                  recyclingKey={url!}
-                  placeholder={PLAYER_SILHOUETTE}
                 />
               </View>
             ))}

@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
   Alert,
+  Platform,
   StyleSheet,
   Switch,
   View,
@@ -138,6 +139,8 @@ export function EditScoringModal({ visible, onClose, leagueId, scoring, scoringT
                 setEditCategories(next);
               }}
               trackColor={{ false: c.border, true: c.accent }}
+              thumbColor={Platform.OS === 'android' ? '#FFFFFF' : undefined}
+              ios_backgroundColor={c.border}
               accessibilityLabel={`${statLabel(cat.stat_name)}, ${cat.is_enabled ? 'enabled' : 'disabled'}`}
               accessibilityState={{ checked: cat.is_enabled }}
             />

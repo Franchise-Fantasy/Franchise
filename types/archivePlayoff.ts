@@ -178,6 +178,55 @@ export interface ArchiveAwardEntry {
 // award for this season; treat as empty rather than throwing.
 export type ArchiveAwards = Partial<Record<AwardType, ArchiveAwardEntry[]>>;
 
+// One season's slice of a franchise's history, returned by
+// pro_archive_franchise_history(franchise_id). The series array is JSON
+// from the RPC — values come through as `unknown`-typed and need to
+// match this shape exactly when consumed.
+export interface ArchiveFranchiseHistorySeries {
+  round: number;
+  opponent_id: string | null;
+  my_wins: number;
+  opp_wins: number;
+  winner_id: string | null;
+}
+
+export interface ArchiveFranchiseHistoryTopPlayer {
+  bbref_player_id: string;
+  player_name: string;
+  vorp: number | null;
+  is_all_star: boolean;
+}
+
+export interface ArchiveFranchiseHistoryRow {
+  season: number;
+  wins: number | null;
+  losses: number | null;
+  conference: Conference | null;
+  conference_seed: number | null;
+  series: ArchiveFranchiseHistorySeries[];
+  top_player: ArchiveFranchiseHistoryTopPlayer | null;
+}
+
+// Regular-season per-player stats for a franchise, returned by
+// pro_archive_team_rotation(season, franchise_id, min_mpg, min_games).
+// Sorted server-side by VORP descending (mpg as fallback).
+export interface ArchiveRotationPlayer {
+  bbref_player_id: string;
+  player_name: string;
+  gp: number | null;
+  mpg: number | null;
+  pts_per: number | null;
+  reb_per: number | null;
+  ast_per: number | null;
+  stl_per: number | null;
+  blk_per: number | null;
+  fg_pct: number | null;
+  tp_pct: number | null;
+  ts_pct: number | null;
+  vorp: number | null;
+  is_all_star: boolean;
+}
+
 export interface ArchiveTeamRun {
   franchise: {
     franchise_id: string;

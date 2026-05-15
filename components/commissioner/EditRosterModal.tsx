@@ -10,7 +10,7 @@ import { BottomSheet } from '@/components/ui/BottomSheet';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { DEFAULT_ROSTER_SLOTS, NBA_POSITIONS, NbaPosition } from '@/constants/LeagueDefaults';
+import { DEFAULT_ROSTER_SLOTS, getDefaultRosterSlots, getLimitablePositions, LimitablePosition, type Sport } from '@/constants/LeagueDefaults';
 import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
 import { ms, s } from '@/utils/scale';
@@ -23,11 +23,14 @@ interface EditRosterModalProps {
   visible: boolean;
   onClose: () => void;
   leagueId: string;
+  /** League's sport — controls which slot rows and position-limit keys
+   *  are surfaced. WNBA omits PG/SG/SF/PF. */
+  sport: Sport;
   rosterConfig: { position: string; slot_count: number }[] | undefined;
   positionLimits: Record<string, number> | null | undefined;
 }
 
-export function EditRosterModal({ visible, onClose, leagueId, rosterConfig, positionLimits }: EditRosterModalProps) {
+export function EditRosterModal({ visible, onClose, leagueId, sport, rosterConfig, positionLimits }: EditRosterModalProps) {
   const c = useColors();
   const queryClient = useQueryClient();
 
@@ -35,16 +38,18 @@ export function EditRosterModal({ visible, onClose, leagueId, rosterConfig, posi
   const [editPosLimits, setEditPosLimits] = useState<Record<string, number>>({});
   const [saving, setSaving] = useState(false);
 
+  const limitablePositions = getLimitablePositions(sport);
+
   useEffect(() => {
     if (visible && rosterConfig) {
-      const merged = DEFAULT_ROSTER_SLOTS.map((d) => {
+      const merged = getDefaultRosterSlots(sport).map((d) => {
         const existing = rosterConfig.find((r) => r.position === d.position);
         return { position: d.position, slot_count: existing?.slot_count ?? 0 };
       });
       setEditRoster(merged);
       setEditPosLimits(positionLimits && typeof positionLimits === 'object' ? { ...positionLimits } : {});
     }
-  }, [visible]);
+  }, [visible, sport]);
 
   async function handleSave() {
     setSaving(true);
@@ -115,7 +120,7 @@ export function EditRosterModal({ visible, onClose, leagueId, rosterConfig, posi
         <ThemedText style={[styles.posLimitNote, { color: c.secondaryText }]}>
           0 = no limit. Limits the total number of players at each position.
         </ThemedText>
-        {NBA_POSITIONS.map((pos) => (
+        {limitablePositions.map((pos) => (
           <NumberStepper
             key={`pos-limit-${pos}`}
             label={pos}
@@ -123,9 +128,9 @@ export function EditRosterModal({ visible, onClose, leagueId, rosterConfig, posi
             onValueChange={(v) => {
               const next = { ...editPosLimits };
               if (v === 0) {
-                delete next[pos as NbaPosition];
+                delete next[pos as LimitablePosition];
               } else {
-                next[pos as NbaPosition] = v;
+                next[pos as LimitablePosition] = v;
               }
               setEditPosLimits(next);
             }}

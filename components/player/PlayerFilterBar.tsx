@@ -14,12 +14,13 @@ import {
 } from 'react-native';
 
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
 import { getCurrentSeason, parseSeasonStartYear, type Sport } from '@/constants/LeagueDefaults';
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
+import { useColors } from '@/hooks/useColors';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { InjuryFilter, POSITIONS, SortKey, TimeRange } from '@/hooks/usePlayerFilter';
+import { getPositionFilters, InjuryFilter, SortKey, TimeRange } from '@/hooks/usePlayerFilter';
 import { toDateStr } from '@/utils/dates';
+import { getSportToday } from '@/utils/leagueTime';
 import { ms, s } from '@/utils/scale';
 
 const SORT_OPTIONS: SortKey[] = ['FPTS', 'PPG', 'RPG', 'APG', 'SPG', 'BPG', 'MPG', 'FG%', 'FT%', 'TO'];
@@ -42,12 +43,12 @@ function lastSeasonLabel(sport: Sport): string {
 /** Labeled horizontal chip row that surfaces a right-aligned chevron hint only when its content overflows. */
 function ChipScrollRow({
   label,
-  labelColor,
+  goldColor,
   chevronColor,
   children,
 }: {
   label: string;
-  labelColor: string;
+  goldColor: string;
   chevronColor: string;
   children: ReactNode;
 }) {
@@ -64,8 +65,21 @@ function ChipScrollRow({
   return (
     <>
       <View style={styles.sectionLabelRow}>
-        <ThemedText style={[styles.sectionLabel, { color: labelColor }]}>{label}</ThemedText>
-        {overflows && <Ionicons name="chevron-forward" size={12} color={chevronColor} />}
+        <View style={[styles.sectionRule, { backgroundColor: goldColor }]} />
+        <ThemedText
+          type="varsitySmall"
+          style={[styles.sectionLabel, { color: goldColor }]}
+        >
+          {label.toUpperCase()}
+        </ThemedText>
+        {overflows && (
+          <Ionicons
+            name="chevron-forward"
+            size={12}
+            color={chevronColor}
+            style={{ marginLeft: 'auto' }}
+          />
+        )}
       </View>
       <ScrollView
         horizontal
@@ -91,6 +105,10 @@ interface PlayerFilterBarProps {
   onSearchChange: (text: string) => void;
   selectedPosition: string;
   onPositionChange: (pos: string) => void;
+  /** Pro team tricodes (sorted alphabetically) available as filter chips; omit to hide the section */
+  availableProTeams?: string[];
+  selectedProTeam?: string;
+  onProTeamChange?: (team: string) => void;
   sortBy: string;
   onSortChange: (sort: string) => void;
   showMinutesUp?: boolean;
@@ -112,6 +130,29 @@ interface PlayerFilterBarProps {
   onInjuryFilterChange?: (filter: InjuryFilter) => void;
 }
 
+/** Number of filters in non-default state — drives the header pip. */
+export function countActiveFilters(args: {
+  selectedPosition: string;
+  selectedProTeam?: string;
+  sortBy: string;
+  showMinutesUp?: boolean;
+  playingOnDate?: string | null;
+  timeRange?: TimeRange;
+  showWatchlistOnly?: boolean;
+  injuryFilter?: InjuryFilter;
+}): number {
+  return (
+    (args.selectedPosition !== 'All' ? 1 : 0) +
+    (args.selectedProTeam && args.selectedProTeam !== 'All' ? 1 : 0) +
+    (args.sortBy !== 'FPTS' ? 1 : 0) +
+    (args.showMinutesUp ? 1 : 0) +
+    (args.playingOnDate ? 1 : 0) +
+    (args.timeRange && args.timeRange !== 'season' ? 1 : 0) +
+    (args.showWatchlistOnly ? 1 : 0) +
+    (args.injuryFilter && args.injuryFilter !== 'all' ? 1 : 0)
+  );
+}
+
 function formatGameDateLabel(dateStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number);
   const date = new Date(y, m - 1, d);
@@ -129,6 +170,9 @@ export function PlayerFilterBar({
   onSearchChange,
   selectedPosition,
   onPositionChange,
+  availableProTeams,
+  selectedProTeam,
+  onProTeamChange,
   sortBy,
   onSortChange,
   showMinutesUp,
@@ -148,8 +192,8 @@ export function PlayerFilterBar({
   injuryFilter,
   onInjuryFilterChange,
 }: PlayerFilterBarProps) {
+  const c = useColors();
   const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
   const sport = useActiveLeagueSport();
   const TIME_RANGE_OPTIONS: { key: TimeRange; label: string }[] = [
     { key: 'season', label: 'Season' },
@@ -164,22 +208,24 @@ export function PlayerFilterBar({
     setShowDatePicker(false);
     setModalVisible(false);
   };
-  const todayStr = toDateStr(new Date());
+  const todayStr = getSportToday(sport);
   const showAvailableToday = playingOnDate === todayStr;
   const isCustomDate = !!playingOnDate && playingOnDate !== todayStr;
 
-  // Count active filters (non-default) — excludes "All Players" toggle which is inline
-  const activeFilterCount =
-    (selectedPosition !== 'All' ? 1 : 0) +
-    (sortBy !== 'FPTS' ? 1 : 0) +
-    (showMinutesUp ? 1 : 0) +
-    (playingOnDate ? 1 : 0) +
-    (timeRange && timeRange !== 'season' ? 1 : 0) +
-    (showWatchlistOnly ? 1 : 0) +
-    (injuryFilter && injuryFilter !== 'all' ? 1 : 0);
+  const activeFilterCount = countActiveFilters({
+    selectedPosition,
+    selectedProTeam,
+    sortBy,
+    showMinutesUp,
+    playingOnDate,
+    timeRange,
+    showWatchlistOnly,
+    injuryFilter,
+  });
 
   const resetFilters = () => {
     onPositionChange('All');
+    onProTeamChange?.('All');
     onSortChange('FPTS');
     onMinutesUpChange?.(false);
     onPlayingOnDateChange?.(null);
@@ -221,48 +267,66 @@ export function PlayerFilterBar({
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: c.card, borderBottomColor: c.border }]}>
-      {/* Search row with filter button */}
+    <View style={[styles.container, { backgroundColor: c.background, borderBottomColor: c.border }]}>
       <View style={styles.searchRow}>
-        <TextInput
-          accessibilityLabel="Search players"
-          style={[styles.searchInput, { backgroundColor: c.input, color: c.text, borderColor: c.border }]}
-          placeholder="Search players..."
-          placeholderTextColor={c.secondaryText}
-          value={searchText}
-          onChangeText={onSearchChange}
-          autoCorrect={false}
-          returnKeyType="search"
-        />
+        <View
+          style={[
+            styles.searchField,
+            { backgroundColor: c.input, borderColor: c.border },
+          ]}
+        >
+          <Ionicons
+            name="search"
+            size={16}
+            color={c.secondaryText}
+            style={styles.searchFieldIcon}
+            accessible={false}
+          />
+          <TextInput
+            accessibilityLabel="Search players"
+            style={[styles.searchFieldInput, { color: c.text }]}
+            placeholder="Search players..."
+            placeholderTextColor={c.secondaryText}
+            value={searchText}
+            onChangeText={onSearchChange}
+            autoCorrect={false}
+            returnKeyType="search"
+          />
+          <TouchableOpacity
+            onPress={() => setModalVisible(true)}
+            style={styles.searchFieldFilterBtn}
+            accessibilityRole="button"
+            accessibilityLabel={`Filters${activeFilterCount > 0 ? `, ${activeFilterCount} active` : ''}`}
+            hitSlop={6}
+          >
+            <Ionicons
+              name="options-outline"
+              size={18}
+              color={activeFilterCount > 0 ? c.gold : c.secondaryText}
+              accessible={false}
+            />
+            {activeFilterCount > 0 && (
+              <View style={[styles.badge, { backgroundColor: c.danger }]}>
+                <Text style={[styles.badgeText, { color: c.statusText }]}>{activeFilterCount}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
         {onFreeAgentsOnlyChange && (
           <TouchableOpacity
             onPress={() => onFreeAgentsOnlyChange(!showFreeAgentsOnly)}
             style={[
               styles.filterBtn,
               { backgroundColor: c.input, borderColor: c.border },
-              !showFreeAgentsOnly && { backgroundColor: c.link + '15', borderColor: c.link },
+              !showFreeAgentsOnly && { backgroundColor: c.gold + '20', borderColor: c.gold },
             ]}
             accessibilityRole="button"
             accessibilityLabel={showFreeAgentsOnly ? 'Show all players' : 'Show free agents only'}
             hitSlop={4}
           >
-            <Ionicons name="people" size={18} color={!showFreeAgentsOnly ? c.link : c.secondaryText} />
+            <Ionicons name="people" size={18} color={!showFreeAgentsOnly ? c.gold : c.secondaryText} />
           </TouchableOpacity>
         )}
-        <TouchableOpacity
-          onPress={() => setModalVisible(true)}
-          style={[styles.filterBtn, { backgroundColor: c.input, borderColor: c.border }]}
-          accessibilityRole="button"
-          accessibilityLabel={`Filters${activeFilterCount > 0 ? `, ${activeFilterCount} active` : ''}`}
-          hitSlop={4}
-        >
-          <Ionicons name="options-outline" size={18} color={activeFilterCount > 0 ? c.accent : c.secondaryText} />
-          {activeFilterCount > 0 && (
-            <View style={[styles.badge, { backgroundColor: c.danger }]}>
-              <Text style={[styles.badgeText, { color: c.statusText }]}>{activeFilterCount}</Text>
-            </View>
-          )}
-        </TouchableOpacity>
       </View>
 
       {/* Filter modal */}
@@ -280,9 +344,15 @@ export function PlayerFilterBar({
             accessibilityLabel="Close filters"
           />
           <View style={[styles.modal, { backgroundColor: c.card, borderColor: c.border }]}>
-            {/* Header */}
             <View style={styles.modalHeader}>
-              <ThemedText type="defaultSemiBold" style={styles.modalTitle}>Filters</ThemedText>
+              <TouchableOpacity
+                onPress={() => closeModal()}
+                accessibilityRole="button"
+                accessibilityLabel="Close filters"
+                hitSlop={8}
+              >
+                <Ionicons name="close" size={22} color={c.secondaryText} />
+              </TouchableOpacity>
               {activeFilterCount > 0 && (
                 <TouchableOpacity
                   onPress={resetFilters}
@@ -290,7 +360,12 @@ export function PlayerFilterBar({
                   accessibilityLabel="Reset all filters"
                   hitSlop={8}
                 >
-                  <ThemedText style={[styles.resetText, { color: c.accent }]}>Reset</ThemedText>
+                  <ThemedText
+                    type="varsitySmall"
+                    style={[styles.resetText, { color: c.gold }]}
+                  >
+                    Reset
+                  </ThemedText>
                 </TouchableOpacity>
               )}
             </View>
@@ -299,7 +374,15 @@ export function PlayerFilterBar({
               {/* Quick Filters */}
               {(onWatchlistOnlyChange || hasMinutesData || hasScheduleData) && (
               <View style={styles.section}>
-                <ThemedText style={[styles.sectionLabel, { color: c.secondaryText, marginBottom: s(8) }]}>Quick Filters</ThemedText>
+                <View style={styles.sectionLabelRow}>
+                  <View style={[styles.sectionRule, { backgroundColor: c.gold }]} />
+                  <ThemedText
+                    type="varsitySmall"
+                    style={[styles.sectionLabel, { color: c.gold }]}
+                  >
+                    QUICK FILTERS
+                  </ThemedText>
+                </View>
                 <View style={styles.toggleGrid}>
                   {onWatchlistOnlyChange && (
                     <TouchableOpacity
@@ -385,7 +468,7 @@ export function PlayerFilterBar({
               {/* Injury Status section */}
               {onInjuryFilterChange && (
                 <View style={styles.section}>
-                  <ChipScrollRow label="Injury Status" labelColor={c.secondaryText} chevronColor={c.secondaryText}>
+                  <ChipScrollRow label="Injury Status" goldColor={c.gold} chevronColor={c.secondaryText}>
                     {INJURY_OPTIONS.map(opt => {
                       const active = injuryFilter === opt.key;
                       return (
@@ -426,7 +509,7 @@ export function PlayerFilterBar({
               {/* Time Range section */}
               {onTimeRangeChange && (
                 <View style={styles.section}>
-                  <ChipScrollRow label="Time Range" labelColor={c.secondaryText} chevronColor={c.secondaryText}>
+                  <ChipScrollRow label="Time Range" goldColor={c.gold} chevronColor={c.secondaryText}>
                     {TIME_RANGE_OPTIONS.map(opt => {
                       const active = timeRange === opt.key;
                       return (
@@ -460,8 +543,8 @@ export function PlayerFilterBar({
 
               {/* Position section */}
               <View style={styles.section}>
-                <ChipScrollRow label="Position" labelColor={c.secondaryText} chevronColor={c.secondaryText}>
-                  {POSITIONS.map(pos => {
+                <ChipScrollRow label="Position" goldColor={c.gold} chevronColor={c.secondaryText}>
+                  {getPositionFilters(sport).map(pos => {
                     const active = selectedPosition === pos;
                     return (
                       <TouchableOpacity
@@ -491,9 +574,44 @@ export function PlayerFilterBar({
                 </ChipScrollRow>
               </View>
 
+              {/* Pro Team section — alphabetical tricodes derived from the loaded player pool */}
+              {availableProTeams && availableProTeams.length > 0 && onProTeamChange && (
+                <View style={styles.section}>
+                  <ChipScrollRow label="Pro Team" goldColor={c.gold} chevronColor={c.secondaryText}>
+                    {['All', ...availableProTeams].map(team => {
+                      const active = (selectedProTeam ?? 'All') === team;
+                      return (
+                        <TouchableOpacity
+                          key={team}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Pro team: ${team}`}
+                          accessibilityState={{ selected: active }}
+                          style={[
+                            styles.chip,
+                            { borderColor: c.border },
+                            active && { backgroundColor: c.activeCard, borderColor: c.activeBorder },
+                          ]}
+                          onPress={() => onProTeamChange(team)}
+                        >
+                          <ThemedText
+                            style={[
+                              styles.chipText,
+                              { color: c.secondaryText },
+                              active && { color: c.activeText, fontWeight: '600' },
+                            ]}
+                          >
+                            {team}
+                          </ThemedText>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ChipScrollRow>
+                </View>
+              )}
+
               {/* Sort section */}
               <View style={styles.section}>
-                <ChipScrollRow label="Sort By" labelColor={c.secondaryText} chevronColor={c.secondaryText}>
+                <ChipScrollRow label="Sort By" goldColor={c.gold} chevronColor={c.secondaryText}>
                   {SORT_OPTIONS.map(opt => {
                     const active = sortBy === opt;
                     return (
@@ -606,13 +724,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: s(8),
   },
-  searchInput: {
+  searchField: {
     flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
     height: s(36),
     borderRadius: 8,
     borderWidth: 1,
-    paddingHorizontal: s(12),
+    paddingLeft: s(10),
+    paddingRight: s(4),
+  },
+  searchFieldIcon: {
+    marginRight: s(6),
+  },
+  searchFieldInput: {
+    flex: 1,
     fontSize: ms(14),
+    paddingVertical: 0,
+  },
+  searchFieldFilterBtn: {
+    width: s(28),
+    height: s(28),
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   filterBtn: {
     width: s(36),
@@ -656,31 +790,50 @@ const styles = StyleSheet.create({
   },
   modalHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     justifyContent: 'space-between',
-    marginBottom: s(16),
+    marginBottom: s(18),
+  },
+  modalTitleCol: {
+    gap: s(6),
+  },
+  modalEyebrowRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(8),
+  },
+  modalRule: {
+    height: 2,
+    width: s(14),
+  },
+  modalEyebrow: {
+    fontSize: ms(10),
+    letterSpacing: 1.4,
   },
   modalTitle: {
-    fontSize: ms(18),
+    fontSize: ms(24),
+    letterSpacing: -0.3,
   },
   resetText: {
-    fontSize: ms(14),
-    fontWeight: '500',
+    fontSize: ms(11),
+    letterSpacing: 1.2,
   },
   section: {
     marginBottom: s(18),
   },
+  sectionRule: {
+    height: 2,
+    width: s(14),
+  },
   sectionLabel: {
-    fontSize: ms(12),
-    fontWeight: '600',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
+    fontSize: ms(10),
+    letterSpacing: 1.4,
   },
   // Label + chevron row — chevron (when present) is pushed to the right to hint at horizontal overflow
   sectionLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: s(8),
     marginBottom: s(8),
   },
   chipGrid: {

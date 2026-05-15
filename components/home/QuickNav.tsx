@@ -4,6 +4,8 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { useLeague } from '@/hooks/useLeague';
+import { useUnconfirmedPaymentCount } from '@/hooks/usePaymentLedger';
 import { useMyPendingTrades } from '@/hooks/useTrades';
 import { ms, s } from '@/utils/scale';
 
@@ -35,6 +37,19 @@ export function QuickNav({ leagueType = 'dynasty' }: { leagueType?: string }) {
   const { teamId, leagueId } = useAppState();
   const { data: pendingTradeCount = 0 } = useMyPendingTrades(teamId, leagueId);
 
+  // League Info pip — show self-reported payments awaiting commish confirmation.
+  // Only commissioners see it; the underlying query is gated on isCommissioner
+  // so non-commish members don't trigger reads.
+  const { data: league } = useLeague();
+  const myTeam = (league?.league_teams ?? []).find((t: any) => t.id === teamId);
+  const isCommissioner = !!myTeam?.is_commissioner;
+  const leagueSeason = (league?.season as string | null | undefined) ?? null;
+  const { data: unconfirmedPaymentCount = 0 } = useUnconfirmedPaymentCount(
+    leagueId,
+    leagueSeason,
+    isCommissioner,
+  );
+
   const visibleItems = NAV_ITEMS.filter(item => {
     if (!isDynasty && item.route === '/draft-hub') return false;
     return true;
@@ -61,9 +76,22 @@ export function QuickNav({ leagueType = 'dynasty' }: { leagueType?: string }) {
             onPress={() => router.push('/league-info' as never)}
             activeOpacity={0.7}
             accessibilityRole="button"
-            accessibilityLabel="League Info"
+            accessibilityLabel={
+              unconfirmedPaymentCount > 0
+                ? `League Info, ${unconfirmedPaymentCount} payment${unconfirmedPaymentCount === 1 ? '' : 's'} to confirm`
+                : 'League Info'
+            }
           >
-            <IconSymbol name="info.circle" size={14} color={c.gold} />
+            <View style={styles.pillIconWrap}>
+              <IconSymbol name="info.circle" size={14} color={c.gold} />
+              {unconfirmedPaymentCount > 0 && (
+                <View style={[styles.pip, styles.pillPip, { backgroundColor: c.danger }]} accessibilityElementsHidden>
+                  <Text style={[styles.pipText, { color: c.statusText }]}>
+                    {unconfirmedPaymentCount}
+                  </Text>
+                </View>
+              )}
+            </View>
             <ThemedText type="varsitySmall" style={[styles.pillLabel, { color: c.text }]}>
               League Info
             </ThemedText>
@@ -73,7 +101,14 @@ export function QuickNav({ leagueType = 'dynasty' }: { leagueType?: string }) {
 
       <View style={[styles.grid, { backgroundColor: c.card, borderColor: c.border }]}>
         {gridItems.map(item => {
-          const showPip = item.route === '/trades' && pendingTradeCount > 0;
+          const showTradesPip = item.route === '/trades' && pendingTradeCount > 0;
+          const showLeagueInfoPip = item.route === '/league-info' && unconfirmedPaymentCount > 0;
+          const pipCount = showTradesPip
+            ? pendingTradeCount
+            : showLeagueInfoPip
+              ? unconfirmedPaymentCount
+              : 0;
+          const showPip = pipCount > 0;
           return (
             <TouchableOpacity
               key={item.route}
@@ -83,7 +118,7 @@ export function QuickNav({ leagueType = 'dynasty' }: { leagueType?: string }) {
               accessibilityRole="button"
               accessibilityLabel={
                 showPip
-                  ? `${item.label}, ${pendingTradeCount} pending`
+                  ? `${item.label}, ${pipCount} pending`
                   : item.label
               }
             >
@@ -92,7 +127,7 @@ export function QuickNav({ leagueType = 'dynasty' }: { leagueType?: string }) {
                 {showPip && (
                   <View style={[styles.pip, { backgroundColor: c.danger }]} accessibilityElementsHidden>
                     <Text style={[styles.pipText, { color: c.statusText }]}>
-                      {pendingTradeCount}
+                      {pipCount}
                     </Text>
                   </View>
                 )}
@@ -163,6 +198,9 @@ const styles = StyleSheet.create({
     fontSize: ms(10),
     textAlign: 'center',
   },
+  pillIconWrap: {
+    position: 'relative',
+  },
   pip: {
     position: 'absolute',
     top: -s(5),
@@ -173,6 +211,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: s(3),
+  },
+  // The header pill is smaller than the grid tile, so the pip needs to ride
+  // tighter to the icon to avoid clipping into the label.
+  pillPip: {
+    top: -s(4),
+    right: -s(7),
+    minWidth: s(14),
+    height: s(14),
+    borderRadius: 7,
   },
   pipText: {
     fontSize: ms(10),

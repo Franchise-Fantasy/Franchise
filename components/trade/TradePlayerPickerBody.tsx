@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
+import { PlayerHeadshotImage } from '@/components/player/PlayerHeadshotImage';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
@@ -10,7 +11,7 @@ import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { TradeRosterPlayer, useTeamRosterForTrade } from '@/hooks/useTeamRosterForTrade';
 import { formatPosition } from '@/utils/formatting';
 import { getInjuryBadge } from '@/utils/nba/injuryBadge';
-import { getPlayerHeadshotUrl, getTeamLogoUrl, PLAYER_SILHOUETTE } from '@/utils/nba/playerHeadshot';
+import { getTeamLogoUrl } from '@/utils/nba/playerHeadshot';
 import { ms, s } from '@/utils/scale';
 import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
 
@@ -68,7 +69,6 @@ export function TradePlayerPickerBody({
     const isOnIR = item.roster_slot === 'IR';
     const isDisabled = isLocked || isOnIR || isPendingDrop;
     const fpts = scoringWeights && !isCategories ? calculateAvgFantasyPoints(item, scoringWeights) : null;
-    const headshotUrl = getPlayerHeadshotUrl(item.external_id_nba, sport);
     const logoUrl = getTeamLogoUrl(item.pro_team, sport);
     const badge = getInjuryBadge(item.status);
 
@@ -89,13 +89,10 @@ export function TradePlayerPickerBody({
       >
         <View style={styles.portraitWrap}>
           <View style={[styles.headshotCircle, { borderColor: c.heritageGold, backgroundColor: c.cardAlt }]}>
-            <Image
-              source={headshotUrl ? { uri: headshotUrl } : PLAYER_SILHOUETTE}
+            <PlayerHeadshotImage
+              externalIdNba={item.external_id_nba}
+              sport={sport}
               style={styles.headshotImg}
-              contentFit="cover"
-              cachePolicy="memory-disk"
-              recyclingKey={headshotUrl ?? 'silhouette'}
-              placeholder={PLAYER_SILHOUETTE}
             />
           </View>
           <View style={styles.teamPill}>

@@ -33,15 +33,41 @@ export function TeamLogo({ logoKey, teamName, tricode, size = 'medium' }: TeamLo
     );
   }
 
-  // Fallback: initials circle
+  // Fallback: initials circle. NO overflow:hidden on this variant — the
+  // glyph's natural line box can extend past the visual cap height, and
+  // a circular clip cuts the top of letters off (notably J/T/V at large).
   const initials = tricode ?? teamName.slice(0, 2).toUpperCase();
   return (
     <View
-      style={[styles.container, { width: dim, height: dim, borderRadius: dim / 2, backgroundColor: c.cardAlt }]}
+      style={[
+        styles.initialsContainer,
+        {
+          width: dim,
+          height: dim,
+          borderRadius: dim / 2,
+          backgroundColor: c.cardAlt,
+        },
+      ]}
       accessibilityLabel={`${teamName} logo`}
       accessibilityRole="image"
     >
-      <Text style={[styles.initials, { fontSize, color: c.text }]}>{initials}</Text>
+      {/* Nudge down by ~12% of fontSize: iOS centers the line box but
+          capital glyphs sit in its top half (descender space stays empty),
+          so flex-centering looks visually high. Translate to center the
+          cap-height instead. */}
+      <Text
+        style={[
+          styles.initials,
+          {
+            fontSize,
+            color: c.text,
+            transform: [{ translateY: fontSize * 0.08 }],
+          },
+        ]}
+        allowFontScaling={false}
+      >
+        {initials}
+      </Text>
     </View>
   );
 }
@@ -52,8 +78,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
+  initialsContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   initials: {
     fontWeight: '700',
     textAlign: 'center',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
 });

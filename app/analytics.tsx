@@ -13,6 +13,7 @@ import { useCallback, useMemo, useState } from "react";
 import {
   GestureResponderEvent,
   LayoutChangeEvent,
+  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -36,12 +37,14 @@ import {
   type PositionCurve,
 } from "@/constants/agingCurves";
 import { Brand, Fonts, cardShadow } from "@/constants/Colors";
+import { type Sport } from "@/constants/LeagueDefaults";
 import { useAppState } from "@/context/AppStateProvider";
 import { useColors } from "@/hooks/useColors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { useLeague } from "@/hooks/useLeague";
 import { useLeagueRosterStats } from "@/hooks/useLeagueRosterStats";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
+import { usePrevSeasonFpts } from "@/hooks/usePrevSeasonFpts";
 import { PlayerSeasonStats } from "@/types/player";
 import {
   AgeFptsPoint,
@@ -52,8 +55,8 @@ import {
   buildScatterData,
   calculateRosterAgeProfile,
 } from "@/utils/roster/rosterAge";
+import { getEligiblePositions } from "@/utils/roster/rosterSlots";
 import { ms, s } from "@/utils/scale";
-import { getPositionCurveKey } from "@/utils/scoring/agingCurve";
 
 // ─── Chart layout ────────────────────────────────────────────────────────────
 
@@ -93,6 +96,29 @@ export default function AnalyticsScreen() {
     leagueId!,
   );
 
+  // Pre-tipoff WNBA / first-month NBA / categories leagues all read 0 fpts
+  // for current season. Pull last season's avg fpts as a fallback weight so
+  // weighted-age math has a meaningful denominator. The hook returns an
+  // empty map otherwise (no extra rows fetched).
+  const allPlayerIds = useMemo(
+    () => (allPlayers ?? []).map((p) => p.player_id),
+    [allPlayers],
+  );
+  const sport: Sport = (league?.sport as Sport | undefined) ?? 'nba';
+  const { data: prevSeasonFptsMap } = usePrevSeasonFpts(
+    leagueId,
+    sport,
+    allPlayerIds,
+    weights,
+  );
+
+  // Aging-curve chip set — WNBA uses canonical basketball positions
+  // (G/F/C); other sports use the NBA spectrum. Filter logic for G/F
+  // already maps PG/SG → G and SF/PF → F, so chip semantics match.
+  const curveChips: PositionCurve[] = sport === 'wnba'
+    ? ['ALL', 'G', 'F', 'C']
+    : ['ALL', 'PG', 'SG', 'SF', 'PF', 'C'];
+
   const [chartWidth, setChartWidth] = useState(0);
   const [selectedPlayer, setSelectedPlayer] = useState<AgeFptsPoint | null>(
     null,
@@ -111,19 +137,19 @@ export default function AnalyticsScreen() {
 
   const scatterData = useMemo(() => {
     if (!players.length || !weights?.length) return [];
-    return buildScatterData(players, weights);
-  }, [players, weights]);
+    return buildScatterData(players, weights, prevSeasonFptsMap);
+  }, [players, weights, prevSeasonFptsMap]);
 
   const profile = useMemo(() => {
     if (!players.length || !weights?.length) return null;
-    return calculateRosterAgeProfile(players, weights);
-  }, [players, weights]);
+    return calculateRosterAgeProfile(players, weights, prevSeasonFptsMap);
+  }, [players, weights, prevSeasonFptsMap]);
 
   // League-wide comparison
   const comparison = useMemo(() => {
     if (!allPlayers?.length || !weights?.length || !teamId) return null;
-    return buildLeagueComparison(allPlayers as any, weights, teamId);
-  }, [allPlayers, weights, teamId]);
+    return buildLeagueComparison(allPlayers as any, weights, teamId, prevSeasonFptsMap);
+  }, [allPlayers, weights, teamId, prevSeasonFptsMap]);
 
   // Detail card animation
   const detailOpacity = useSharedValue(0);
@@ -185,14 +211,20 @@ export default function AnalyticsScreen() {
     };
   }, [scatterData, plotW, plotH]);
 
-  // Filter dots by selected position curve
+  // Filter dots by selected position curve. Uses the full eligibility
+  // spectrum so a "PG-SG" player matches both PG and SG chips, not just
+  // the primary token.
   const filteredScatter = useMemo(() => {
     if (selectedCurve === "ALL") return scatterData;
+    const groupMatches: Record<string, string[]> = {
+      G: ["PG", "SG"],
+      F: ["SF", "PF"],
+    };
+    const targets = groupMatches[selectedCurve] ?? [selectedCurve];
     return scatterData.filter((d) => {
-      const key = getPositionCurveKey(d.position);
-      if (selectedCurve === "G") return key === "PG" || key === "SG" || key === "G";
-      if (selectedCurve === "F") return key === "SF" || key === "PF" || key === "F";
-      return key === selectedCurve;
+      if (!d.position) return false;
+      const eligible = getEligiblePositions(d.position);
+      return targets.some((t) => eligible.includes(t));
     });
   }, [scatterData, selectedCurve]);
 
@@ -291,6 +323,7 @@ export default function AnalyticsScreen() {
                   backgroundColor: c.heritageGoldMuted,
                   borderColor: c.border,
                   ...cardShadow,
+                  ...(Platform.OS === 'android' && { elevation: 0 }),
                 },
               ]}
             >
@@ -390,7 +423,7 @@ export default function AnalyticsScreen() {
                 chart-overlay icon). */}
             <View style={styles.curveToggleRow}>
               <View style={styles.curveToggleChips}>
-                {(["ALL", "PG", "SG", "SF", "PF", "C"] as PositionCurve[]).map(
+                {curveChips.map(
                   (key) => {
                     const active = selectedCurve === key;
                     return (

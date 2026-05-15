@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -39,10 +39,19 @@ export default function PlayoffArchiveScreen() {
     if (session && !flagOn) router.replace('/(tabs)');
   }, [session, flagOn, router]);
 
-  const { data: seasons, isLoading: seasonsLoading } = useArchiveSeasons();
-  const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
+  // Optional deep-link params from /franchise/[id] season rows:
+  //   ?season=2018&team=DET  → land on 2017-18 with DET's team sheet open
+  const params = useLocalSearchParams<{ season?: string; team?: string }>();
+  const linkedSeason = params.season ? parseInt(params.season, 10) : null;
+  const linkedTeam = params.team ?? null;
 
-  // Auto-select the most recent season once the list loads.
+  const { data: seasons, isLoading: seasonsLoading } = useArchiveSeasons();
+  const [selectedSeason, setSelectedSeason] = useState<number | null>(
+    Number.isFinite(linkedSeason) ? linkedSeason : null,
+  );
+
+  // Auto-select the most recent season once the list loads, but only when
+  // no deep-link override was passed in.
   useEffect(() => {
     if (seasons && seasons.length > 0 && selectedSeason == null) {
       setSelectedSeason(seasons[0].season);
@@ -50,7 +59,17 @@ export default function PlayoffArchiveScreen() {
   }, [seasons, selectedSeason]);
 
   const [segment, setSegment] = useState<Segment>('Playoffs');
-  const [openFranchiseId, setOpenFranchiseId] = useState<string | null>(null);
+  const [openFranchiseId, setOpenFranchiseId] = useState<string | null>(
+    linkedTeam,
+  );
+
+  // Re-apply deep-link params if the user navigates back to this screen
+  // with a different (season, team) target. expo-router preserves the
+  // mounted instance, so a one-shot useState initializer isn't enough.
+  useEffect(() => {
+    if (Number.isFinite(linkedSeason)) setSelectedSeason(linkedSeason);
+    if (linkedTeam) setOpenFranchiseId(linkedTeam);
+  }, [linkedSeason, linkedTeam]);
 
   const { data: bracket, isLoading: bracketLoading } =
     useArchiveBracket(selectedSeason);

@@ -813,6 +813,49 @@ Deno.serve(async (req: Request) => {
       }));
     }
 
+    // Refresh teams.points_for / points_against for each touched league.
+    // increment_team_stats above intentionally passes p_pf:0 / p_pa:0 — PF/PA
+    // is recomputed from league_matchups so it stays self-healing. Mirrors
+    // update-standings step 2, but inline so the standings page reflects the
+    // just-finalized scores immediately instead of waiting up to ~24h for
+    // the next daily cron run.
+    if (leagueIds.length > 0) {
+      await Promise.all(leagueIds.map(async (lid) => {
+        const isCat = (scoringTypeByLeague.get(lid) ?? 'points') === 'h2h_categories';
+        const { data: lm } = await supabase
+          .from("league_matchups")
+          .select("home_team_id, away_team_id, home_score, away_score, home_category_wins, away_category_wins")
+          .eq("league_id", lid)
+          .is("playoff_round", null);
+
+        const pf: Record<string, number> = {};
+        const pa: Record<string, number> = {};
+        for (const m of lm ?? []) {
+          const hs = isCat ? (Number(m.home_category_wins) || 0) : (Number(m.home_score) || 0);
+          const as_ = isCat ? (Number(m.away_category_wins) || 0) : (Number(m.away_score) || 0);
+          if (m.home_team_id) {
+            pf[m.home_team_id] = (pf[m.home_team_id] ?? 0) + hs;
+            pa[m.home_team_id] = (pa[m.home_team_id] ?? 0) + as_;
+          }
+          if (m.away_team_id) {
+            pf[m.away_team_id] = (pf[m.away_team_id] ?? 0) + as_;
+            pa[m.away_team_id] = (pa[m.away_team_id] ?? 0) + hs;
+          }
+        }
+
+        const teamIds = [...new Set([...Object.keys(pf), ...Object.keys(pa)])];
+        if (teamIds.length > 0) {
+          await supabase.rpc("batch_update_team_standings", {
+            p_updates: teamIds.map((tid) => ({
+              id: tid,
+              points_for: Math.round((pf[tid] ?? 0) * 100) / 100,
+              points_against: Math.round((pa[tid] ?? 0) * 100) / 100,
+            })),
+          });
+        }
+      }));
+    }
+
     // Mark stats as flushed so a crash-recovery re-run won't double-count
     const matchupIds = unfinalizedMatchups.map((m) => m.id);
     if (matchupIds.length > 0) {

@@ -8,7 +8,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import {
   SafeAreaProvider,
@@ -36,6 +35,7 @@ import {
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import type { ChatMessage, ReactionGroup } from '@/types/chat';
+import { useReanimatedKeyboardAnimation } from '@/utils/keyboardController';
 import { ms, s } from '@/utils/scale';
 
 

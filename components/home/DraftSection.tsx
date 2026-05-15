@@ -12,7 +12,7 @@ import { ThemedView } from '@/components/ui/ThemedView';
 import { Colors, cardShadow } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { supabase } from '@/lib/supabase';
+import { supabase, uniqueChannelTopic } from '@/lib/supabase';
 import { logger } from '@/utils/logger';
 import { ms, s } from '@/utils/scale';
 
@@ -97,7 +97,7 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
   useEffect(() => {
     if (!leagueId) return;
     const channel = supabase
-      .channel(`draft_status_${leagueId}-${Date.now()}`)
+      .channel(uniqueChannelTopic(`draft_status_${leagueId}`))
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'drafts', filter: `league_id=eq.${leagueId}` },
         () => { queryClient.invalidateQueries({ queryKey: queryKeys.activeDraft(leagueId) }); }
       )

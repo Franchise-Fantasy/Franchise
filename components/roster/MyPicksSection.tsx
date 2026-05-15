@@ -3,8 +3,9 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
+import { SectionEyebrow } from '@/components/roster/SectionEyebrow';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
+import { cardShadow, Colors } from '@/constants/Colors';
 import { formatSeason, getCurrentSeason, parseSeasonStartYear } from '@/constants/LeagueDefaults';
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -45,29 +46,30 @@ export function MyPicksSection({ teamId, leagueId, isDynasty }: MyPicksSectionPr
   return (
     <View style={styles.section}>
       <TouchableOpacity
-        style={styles.header}
         onPress={() => setExpanded((v) => !v)}
         accessibilityRole="button"
         accessibilityLabel={`My draft picks, ${count} ${count === 1 ? 'pick' : 'picks'}, tap to ${expanded ? 'collapse' : 'expand'}`}
         accessibilityState={{ expanded }}
       >
-        <ThemedText type="subtitle" accessibilityRole="header">
-          My Draft Picks
-        </ThemedText>
-        <View style={styles.headerRight}>
-          <ThemedText style={[styles.count, { color: c.secondaryText }]}>
-            {count}
-          </ThemedText>
-          <Ionicons
-            name={expanded ? 'chevron-up' : 'chevron-down'}
-            size={18}
-            color={c.secondaryText}
-          />
-        </View>
+        <SectionEyebrow
+          label="MY DRAFT PICKS"
+          right={
+            <View style={styles.headerRight}>
+              <ThemedText style={[styles.count, { color: c.secondaryText }]}>
+                {count}
+              </ThemedText>
+              <Ionicons
+                name={expanded ? 'chevron-up' : 'chevron-down'}
+                size={18}
+                color={c.secondaryText}
+              />
+            </View>
+          }
+        />
       </TouchableOpacity>
 
       {expanded && (
-        <View style={[styles.card, { backgroundColor: c.card }]}>
+        <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
           {picks.map((pick) => {
             // Only show pick number for the upcoming season — future seasons have unknown standings
             const showSlot = pick.season === upcomingSeason;
@@ -107,12 +109,6 @@ export function MyPicksSection({ teamId, leagueId, isDynasty }: MyPicksSectionPr
 
 const styles = StyleSheet.create({
   section: { padding: s(16), paddingBottom: 0 },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: s(8),
-  },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -125,11 +121,7 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: 8,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
+    ...cardShadow,
   },
   row: {
     flexDirection: 'row',

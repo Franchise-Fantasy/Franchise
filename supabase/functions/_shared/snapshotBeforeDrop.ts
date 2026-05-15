@@ -1,4 +1,5 @@
 import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { getSportToday } from "../../../utils/leagueTime.ts";
 
 /**
  * Before dropping a player from league_players, snapshot their roster_slot
@@ -6,6 +7,10 @@ import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
  *
  * Inserts at the current week's start_date (baseline for the whole week).
  * Uses ON CONFLICT DO NOTHING so existing lineup changes aren't overwritten.
+ *
+ * "Today" is the sport slate date (5am ET rollover), so a cron firing at
+ * 5am ET Tuesday correctly attributes the DROPPED sentinel to Tuesday's
+ * slate — not whatever UTC happens to think.
  */
 export async function snapshotBeforeDrop(
   supabase: SupabaseClient,
@@ -26,9 +31,12 @@ export async function snapshotBeforeDrop(
 
   const slot = lp.roster_slot ?? "BE";
 
-  // Find the current active week
-  const today = new Date();
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  // Find the current active week — slate-anchored so the DROPPED sentinel
+  // lands on the same date every GM is looking at.
+  const { data: leagueRow } = await supabase
+    .from("leagues").select("sport").eq("id", leagueId).single();
+  const sport = leagueRow?.sport ?? null;
+  const todayStr = getSportToday(sport);
 
   const { data: week } = await supabase
     .from("league_schedule")
@@ -45,12 +53,7 @@ export async function snapshotBeforeDrop(
   // so we never backfill entries for days before the player was on this team
   // (prevents ghost roster entries when a player is re-added and immediately dropped).
   const acquiredAt = (lp as any).acquired_at;
-  const acquiredDate = acquiredAt
-    ? (() => {
-        const d = new Date(acquiredAt);
-        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      })()
-    : null;
+  const acquiredDate = acquiredAt ? getSportToday(sport, new Date(acquiredAt)) : null;
 
   let snapshotDate = week.start_date;
   if (acquiredDate && acquiredDate > snapshotDate) {

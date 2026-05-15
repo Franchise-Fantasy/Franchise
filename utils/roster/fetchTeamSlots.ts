@@ -7,7 +7,7 @@
  */
 
 import { supabase } from '@/lib/supabase';
-import { toDateStr } from '@/utils/dates';
+import { getSportToday } from '@/utils/leagueTime';
 import { resolveSlot } from '@/utils/roster/resolveSlot';
 
 interface DailyEntry {
@@ -35,8 +35,11 @@ export async function fetchTeamSlots(
   leagueId: string,
   date: string,
   weekBounds?: { start_date: string; end_date: string },
+  sport?: string | null,
 ): Promise<TeamSlotData> {
-  const today = toDateStr(new Date());
+  // Slate-anchored "today" so resolveSlot agrees with the server/cron about
+  // the calendar boundary, regardless of which TZ the viewer is in.
+  const today = getSportToday(sport ?? null);
 
   // Look up week bounds if not provided (roster page doesn't always have them)
   let bounds = weekBounds;
@@ -80,7 +83,10 @@ export async function fetchTeamSlots(
   const acquiredDateMap = new Map<string, string>();
   for (const lp of leaguePlayers ?? []) {
     if ((lp as any).acquired_at) {
-      acquiredDateMap.set((lp as any).player_id, toDateStr(new Date((lp as any).acquired_at)));
+      acquiredDateMap.set(
+        (lp as any).player_id,
+        getSportToday(sport ?? null, new Date((lp as any).acquired_at)),
+      );
     }
   }
 

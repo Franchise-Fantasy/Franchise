@@ -9,6 +9,7 @@ import {
   View,
 } from "react-native";
 
+import { PlayerHeadshotImage } from "@/components/player/PlayerHeadshotImage";
 import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { Colors } from "@/constants/Colors";
 import { queryKeys } from "@/constants/queryKeys";
@@ -20,7 +21,7 @@ import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
 import { formatPosition } from "@/utils/formatting";
 import { getInjuryBadge } from "@/utils/nba/injuryBadge";
-import { getPlayerHeadshotUrl, getTeamLogoUrl, PLAYER_SILHOUETTE } from "@/utils/nba/playerHeadshot";
+import { getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
 import { slotLabel } from "@/utils/roster/rosterSlots";
 import { ms, s } from "@/utils/scale";
 import { calculateAvgFantasyPoints } from "@/utils/scoring/fantasyPoints";
@@ -256,26 +257,18 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
             onPress={() => setSelectedPlayer(slot.player)}
           >
             <View style={styles.portraitWrap}>
-              {(() => {
-                const url = getPlayerHeadshotUrl(slot.player.external_id_nba, sport);
-                return (
-                  <View
-                    style={[
-                      styles.headshotCircle,
-                      { borderColor: c.heritageGold, backgroundColor: c.cardAlt },
-                    ]}
-                  >
-                    <Image
-                      source={url ? { uri: url } : PLAYER_SILHOUETTE}
-                      style={styles.headshotImg}
-                      contentFit="cover"
-                      cachePolicy="memory-disk"
-                      recyclingKey={url ?? "silhouette"}
-                      placeholder={PLAYER_SILHOUETTE}
-                    />
-                  </View>
-                );
-              })()}
+              <View
+                style={[
+                  styles.headshotCircle,
+                  { borderColor: c.heritageGold, backgroundColor: c.cardAlt },
+                ]}
+              >
+                <PlayerHeadshotImage
+                  externalIdNba={slot.player.external_id_nba}
+                  sport={sport}
+                  style={styles.headshotImg}
+                />
+              </View>
               {(() => {
                 const logoUrl = getTeamLogoUrl(slot.player.pro_team, sport);
                 return (

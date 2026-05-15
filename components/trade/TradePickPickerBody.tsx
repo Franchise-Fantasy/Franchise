@@ -1,9 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
 import { FlatList, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { Badge } from '@/components/ui/Badge';
-import { BrandButton } from '@/components/ui/BrandButton';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { ThemedText } from '@/components/ui/ThemedText';
@@ -19,6 +17,10 @@ export interface TradablePickRow {
   current_team_id: string;
   original_team_id: string;
   original_team_name: string;
+  /** Resolved pick slot — set post-lottery (from `slot_number`) or pre-lottery
+   *  via reverse-standings projection. Null when no standings data is available
+   *  yet (e.g. brand-new league). */
+  display_slot: number | null;
 }
 
 interface TradePickPickerBodyProps {
@@ -58,23 +60,30 @@ export function TradePickPickerBody({
   onSetProtection,
 }: TradePickPickerBodyProps) {
   const c = useColors();
-  const [expandedPickId, setExpandedPickId] = useState<string | null>(null);
 
   const { data: picks, isLoading } = useTeamTradablePicks(teamId, leagueId, draftPickTradingEnabled);
+
+  // Default protection threshold when toggling protection ON via the
+  // shield. Top-3 covers the common "lottery protection" intent; users
+  // adjust via the inline NumberStepper after the toggle.
+  const DEFAULT_PROTECTION = 3;
 
   const renderItem = ({ item, index }: { item: TradablePickRow; index: number }) => {
     const isSelected = selectedPickIds.includes(item.id);
     const isLocked = lockedPickIds?.has(item.id) ?? false;
     const isTraded = item.current_team_id !== item.original_team_id;
     const protection = pickProtections[item.id];
-    const showProtectionEditor = pickConditionsEnabled && isSelected && expandedPickId === item.id;
+    // Stepper auto-shows whenever a protection is engaged — no separate
+    // "is the editor open" state. Tapping the shield toggles protection
+    // on/off; the threshold is adjusted inline via the stepper.
+    const showProtectionEditor = pickConditionsEnabled && isSelected && protection != null;
     const isLast = index === (picks as TradablePickRow[]).length - 1;
 
     return (
       <View>
         <TouchableOpacity
           accessibilityRole="button"
-          accessibilityLabel={`${formatPickLabel(item.season, item.round)}${isLocked ? ', in active trade' : ''}${isTraded ? `, via ${item.original_team_name}` : ''}${protection != null ? `, Top-${protection} protected` : ''}`}
+          accessibilityLabel={`${formatPickLabel(item.season, item.round, item.display_slot)}${isLocked ? ', in active trade' : ''}${isTraded ? `, via ${item.original_team_name}` : ''}${protection != null ? `, Top-${protection} protected` : ''}`}
           accessibilityState={{ selected: isSelected, disabled: isLocked }}
           disabled={isLocked}
           style={[
@@ -97,7 +106,7 @@ export function TradePickPickerBody({
                 type="defaultSemiBold"
                 style={[styles.pickName, { color: c.text }]}
               >
-                {formatPickLabel(item.season, item.round)}
+                {formatPickLabel(item.season, item.round, item.display_slot)}
               </ThemedText>
               {protection != null && (
                 <Badge label={`Top ${protection}`} variant="gold" size="small" />
@@ -117,14 +126,19 @@ export function TradePickPickerBody({
             {pickConditionsEnabled && isSelected && (
               <TouchableOpacity
                 accessibilityRole="button"
-                accessibilityLabel={protection != null ? 'Edit pick protection' : 'Add pick protection'}
-                accessibilityState={{ expanded: expandedPickId === item.id }}
+                accessibilityLabel={protection != null ? 'Remove pick protection' : 'Add pick protection'}
+                accessibilityState={{ checked: protection != null }}
                 style={styles.shieldBtn}
-                onPress={() => setExpandedPickId(expandedPickId === item.id ? null : item.id)}
+                onPress={() =>
+                  onSetProtection(
+                    item.id,
+                    protection != null ? undefined : DEFAULT_PROTECTION,
+                  )
+                }
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
                 <Ionicons
-                  name="shield-checkmark-outline"
+                  name={protection != null ? 'shield-checkmark' : 'shield-outline'}
                   size={18}
                   color={protection != null ? c.gold : c.secondaryText}
                 />
@@ -138,7 +152,7 @@ export function TradePickPickerBody({
           </View>
         </TouchableOpacity>
 
-        {showProtectionEditor && (
+        {showProtectionEditor && protection != null && (
           <View style={[styles.protectionEditor, { backgroundColor: c.cardAlt, borderBottomColor: c.border }]}>
             <View style={styles.protectionHeader}>
               <View style={[styles.protectionRule, { backgroundColor: c.gold }]} />
@@ -149,40 +163,13 @@ export function TradePickPickerBody({
                 Protection
               </ThemedText>
             </View>
-            {protection != null ? (
-              <>
-                <NumberStepper
-                  label={`Top-${protection} protected`}
-                  value={protection}
-                  onValueChange={(v) => onSetProtection(item.id, v)}
-                  min={1}
-                  max={teamCount - 1}
-                />
-                <View style={styles.protectionCta}>
-                  <BrandButton
-                    label="Remove Protection"
-                    variant="secondary"
-                    size="small"
-                    fullWidth
-                    onPress={() => {
-                      onSetProtection(item.id, undefined);
-                      setExpandedPickId(null);
-                    }}
-                    accessibilityLabel="Remove protection"
-                  />
-                </View>
-              </>
-            ) : (
-              <BrandButton
-                label="Add Protection"
-                icon="add"
-                variant="primary"
-                size="small"
-                fullWidth
-                onPress={() => onSetProtection(item.id, 3)}
-                accessibilityLabel="Add protection"
-              />
-            )}
+            <NumberStepper
+              label={`Top-${protection} protected`}
+              value={protection}
+              onValueChange={(v) => onSetProtection(item.id, v)}
+              min={1}
+              max={teamCount - 1}
+            />
           </View>
         )}
       </View>
@@ -211,7 +198,7 @@ export function TradePickPickerBody({
       renderItem={renderItem}
       keyExtractor={(item) => item.id}
       contentContainerStyle={styles.list}
-      extraData={[selectedPickIds, pickProtections, expandedPickId]}
+      extraData={[selectedPickIds, pickProtections]}
       keyboardShouldPersistTaps="handled"
       nestedScrollEnabled
     />
@@ -271,8 +258,5 @@ const styles = StyleSheet.create({
   protectionLabel: {
     fontSize: ms(9),
     letterSpacing: 1.4,
-  },
-  protectionCta: {
-    marginTop: s(4),
   },
 });

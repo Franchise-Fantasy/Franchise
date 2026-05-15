@@ -47,6 +47,7 @@ export default function Trades() {
     proposePlayerPos?: string;
     proposePlayerTeam?: string;
     proposePlayerFpts?: string;
+    proposePlayerExternalId?: string;
   }>();
   const scheme = useColorScheme() ?? "light";
   const c = Colors[scheme];
@@ -82,7 +83,8 @@ export default function Trades() {
         trade_block_interest: [],
         interest_team_names: {},
         avg_fpts: fpts,
-      } as TradeBlockPlayer & { avg_fpts?: number });
+        external_id_nba: params.proposePlayerExternalId ?? null,
+      } as TradeBlockPlayer & { avg_fpts?: number; external_id_nba?: string | null });
       if (params.proposeTeamId) {
         setPreselectedTradeTeamId(params.proposeTeamId);
       }
@@ -167,10 +169,10 @@ export default function Trades() {
     <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
       <PageHeader title="Trade Room" />
 
-      {/* Trade Floor banner — strong type on the page surface, no
-          turfGreen card (HomeHero stays sacred to the home page). The
-          identity here is a giant outlined swap-arrow watermark behind a
-          centered Alfa Slab "Make a Move." plus a large filled CTA. */}
+      {/* Trade Floor banner — gold-rule "Front Office" eyebrow over the
+          giant outlined swap-arrow watermark, with the propose CTA below.
+          The Alfa Slab title slot was removed (the eyebrow + watermark
+          carry the visual identity without a flavor headline). */}
       <View style={styles.dealSection}>
         <View style={styles.dealWatermarkWrap} pointerEvents="none">
           <Ionicons
@@ -193,14 +195,6 @@ export default function Trades() {
           </ThemedText>
           <View style={[styles.dealRule, styles.dealRuleFlex, { backgroundColor: c.gold }]} />
         </View>
-
-        <ThemedText
-          type="display"
-          style={[styles.dealTitle, { color: c.text }]}
-          accessibilityRole="header"
-        >
-          Make a Move.
-        </ThemedText>
 
         {isPastDeadline ? (
           <View style={[styles.dealDeadlineRow, { borderColor: c.border, backgroundColor: c.cardAlt }]}>
@@ -414,12 +408,6 @@ const styles = StyleSheet.create({
   dealEyebrow: {
     fontSize: ms(10),
     letterSpacing: 1.4,
-  },
-  dealTitle: {
-    fontSize: ms(32),
-    lineHeight: ms(36),
-    letterSpacing: -0.4,
-    marginBottom: 14,
   },
   dealCta: {
     // BrandButton large + fullWidth carries its own size — no extra wrap.

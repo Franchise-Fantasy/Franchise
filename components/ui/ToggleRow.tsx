@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, Switch, View } from 'react-native';
+import { Platform, StyleSheet, Switch, View } from 'react-native';
 
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ms, s } from '@/utils/scale';
@@ -51,6 +51,8 @@ export function ToggleRow({
         value={value}
         onValueChange={onToggle}
         trackColor={{ false: c.border, true: c.accent }}
+        thumbColor={Platform.OS === 'android' ? '#FFFFFF' : undefined}
+        ios_backgroundColor={c.border}
         disabled={disabled}
         accessibilityLabel={label}
         accessibilityState={{ disabled, checked: value }}

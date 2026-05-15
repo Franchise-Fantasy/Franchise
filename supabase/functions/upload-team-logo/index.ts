@@ -1,14 +1,15 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { corsResponse } from "../_shared/cors.ts";
+import { CORS_HEADERS, corsResponse } from "../_shared/cors.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { moderateImage } from "../_shared/moderate.ts";
+
+const JSON_HEADERS = { ...CORS_HEADERS, "Content-Type": "application/json" };
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return corsResponse();
 
   try {
-    // Verify JWT
     const authHeader = req.headers.get("Authorization") ?? "";
     const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -28,7 +29,6 @@ Deno.serve(async (req: Request) => {
     const { team_id, image_base64 } = await req.json();
     if (!team_id || !image_base64) throw new Error("team_id and image_base64 required");
 
-    // Verify the user owns this team
     const { data: team } = await supabaseAdmin
       .from("teams")
       .select("id, user_id")
@@ -36,26 +36,23 @@ Deno.serve(async (req: Request) => {
       .single();
     if (!team || team.user_id !== user.id) throw new Error("Not your team");
 
-    // Strip data URI prefix if present
     const raw = image_base64.replace(/^data:image\/\w+;base64,/, "");
 
-    // Moderate with Cloud Vision
     const modResult = await moderateImage(raw);
     if (!modResult.safe) {
+      // Soft-fail with 200 so supabase-js doesn't throw; client reads data.error
       return new Response(
         JSON.stringify({ error: modResult.reason ?? "Image rejected by moderation" }),
-        { status: 422, headers: { "Content-Type": "application/json" } },
+        { status: 200, headers: JSON_HEADERS },
       );
     }
 
-    // Decode base64 to binary
     const binaryStr = atob(raw);
     const bytes = new Uint8Array(binaryStr.length);
     for (let i = 0; i < binaryStr.length; i++) {
       bytes[i] = binaryStr.charCodeAt(i);
     }
 
-    // Upload to storage (overwrite if exists)
     const filePath = `${team_id}.jpg`;
     const { error: uploadErr } = await supabaseAdmin.storage
       .from("team-logos")
@@ -65,15 +62,12 @@ Deno.serve(async (req: Request) => {
       });
     if (uploadErr) throw new Error(`Upload failed: ${uploadErr.message}`);
 
-    // Get public URL
     const { data: urlData } = supabaseAdmin.storage
       .from("team-logos")
       .getPublicUrl(filePath);
 
-    // Add cache-bust query param so clients pick up new logo
     const logoUrl = `${urlData.publicUrl}?v=${Date.now()}`;
 
-    // Update team record
     const { error: updateErr } = await supabaseAdmin
       .from("teams")
       .update({ logo_key: logoUrl })
@@ -82,14 +76,15 @@ Deno.serve(async (req: Request) => {
 
     return new Response(
       JSON.stringify({ logo_url: logoUrl }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
+      { status: 200, headers: JSON_HEADERS },
     );
   } catch (err: any) {
-    console.error("upload-team-logo error:", err);
-    const status = err.message === "Unauthorized" ? 401 : 500;
+    const message = err?.message ?? "Unknown error";
+    console.error("upload-team-logo error:", message, err);
+    const status = message === "Unauthorized" ? 401 : 500;
     return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
-      { status, headers: { "Content-Type": "application/json" } },
+      JSON.stringify({ error: message }),
+      { status, headers: JSON_HEADERS },
     );
   }
 });

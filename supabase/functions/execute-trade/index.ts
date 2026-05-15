@@ -6,6 +6,7 @@ import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { checkPositionLimitsForRoster } from '../_shared/positionLimits.ts';
 import { fetchIllegalIRPlayers, formatIllegalIRError } from '../_shared/illegalIR.ts';
 import { createLogger } from '../_shared/log.ts';
+import { nextSlateRollover } from '../../../utils/leagueTime.ts';
 import type { Database } from '../../../types/database.types.ts';
 
 const log = createLogger('execute-trade');
@@ -55,13 +56,6 @@ function computeHypeScore(
   // Top-10 player override
   const tier = hasTop10 ? 'blockbuster' : score >= 50 ? 'blockbuster' : score >= 25 ? 'major' : 'minor';
   return { score, tier, hasTop10 };
-}
-
-function toDateStr(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
 }
 
 Deno.serve(async (req) => {
@@ -117,9 +111,10 @@ Deno.serve(async (req) => {
 
     const { data: league } = await supabaseAdmin
       .from('leagues')
-      .select('created_by, name, trade_deadline, taxi_slots, taxi_max_experience, season, roster_size, position_limits, waiver_type, waiver_period_days')
+      .select('created_by, name, trade_deadline, taxi_slots, taxi_max_experience, season, roster_size, position_limits, waiver_type, waiver_period_days, sport')
       .eq('id', proposal.league_id)
       .single();
+    const sport = (league as any)?.sport ?? null;
 
     // Block trades past the deadline
     if (league?.trade_deadline) {
@@ -174,9 +169,8 @@ Deno.serve(async (req) => {
         .eq('game_status', 2);
 
       if (liveGames && liveGames.length > 0) {
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        const executeAfter = toDateStr(tomorrow);
+        // Delay trade execution to the next slate rollover (5am ET).
+        const executeAfter = nextSlateRollover(sport).toISOString();
 
         await supabaseAdmin
           .from('trade_proposals')
@@ -411,12 +405,11 @@ Deno.serve(async (req) => {
       // they commit or roll back together with the player transfers.
       let waiverUntil: string | null = null;
       if (waiverType !== 'none' && waiverDays > 0) {
-        const raw = new Date();
-        raw.setDate(raw.getDate() + waiverDays);
-        const until = new Date(Date.UTC(
-          raw.getUTCFullYear(), raw.getUTCMonth(), raw.getUTCDate(), 6, 0, 0, 0,
-        ));
-        if (raw.getTime() > until.getTime()) until.setUTCDate(until.getUTCDate() + 1);
+        // Waiver expiry = next slate rollover + (waiverDays - 1) days.
+        // A 2-day waiver clears at the slate-rollover boundary two days
+        // from now — consistent for every GM regardless of TZ.
+        const until = nextSlateRollover(sport);
+        until.setUTCDate(until.getUTCDate() + (waiverDays - 1));
         waiverUntil = until.toISOString();
       }
       for (const [tid, pids] of dropsByTeam) {

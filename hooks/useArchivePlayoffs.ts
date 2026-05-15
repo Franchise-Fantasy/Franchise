@@ -5,6 +5,8 @@ import { supabase } from '@/lib/supabase';
 import type {
   ArchiveAwards,
   ArchiveBracket,
+  ArchiveFranchiseHistoryRow,
+  ArchiveRotationPlayer,
   ArchiveStandingsPayload,
   ArchiveTeamRun,
 } from '@/types/archivePlayoff';
@@ -91,6 +93,48 @@ export function useArchiveTeamRun(
       });
       if (error) throw error;
       return data as unknown as ArchiveTeamRun;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+// Regular-season rotation (mpg >= threshold), sorted by VORP desc.
+// Returns [] when the (season, franchise) pair hasn't been scraped yet —
+// the Team Sheet just hides the section in that case.
+export function useArchiveTeamRotation(
+  season: number | null | undefined,
+  franchiseId: string | null | undefined,
+) {
+  return useQuery({
+    queryKey: queryKeys.archiveTeamRotation(season ?? 0, franchiseId ?? ''),
+    enabled: typeof season === 'number' && !!franchiseId,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('pro_archive_team_rotation', {
+        p_season: season as number,
+        p_franchise_id: franchiseId as string,
+      });
+      if (error) throw error;
+      return (data ?? []) as ArchiveRotationPlayer[];
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+// Year-by-year franchise history (one row per season this team existed).
+// Used by app/franchise/[id].tsx to render the full overview page.
+export function useArchiveFranchiseHistory(
+  franchiseId: string | null | undefined,
+) {
+  return useQuery({
+    queryKey: queryKeys.archiveFranchiseHistory(franchiseId ?? ''),
+    enabled: !!franchiseId,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc(
+        'pro_archive_franchise_history',
+        { p_franchise_id: franchiseId as string },
+      );
+      if (error) throw error;
+      return (data ?? []) as unknown as ArchiveFranchiseHistoryRow[];
     },
     staleTime: 5 * 60 * 1000,
   });

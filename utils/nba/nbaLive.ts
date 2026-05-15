@@ -90,9 +90,14 @@ export function useLivePlayerStats(
   const hasLiveGameRef = useRef<boolean>(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Track date changes + app active state to skip polling when backgrounded
+  // Track date changes + app active state to skip polling when backgrounded.
+  // On foreground we also kick an immediate fetch — without it the user
+  // would have to wait up to 30s (live) or 5min (idle) for the next
+  // interval tick, which feels stale when you switch back to the app
+  // mid-game.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
+      const wasActive = appActiveRef.current;
       appActiveRef.current = state === 'active';
       if (state === 'active') {
         const now = toDateStr(new Date());
@@ -100,6 +105,9 @@ export function useLivePlayerStats(
           dateRef.current = now;
           // Clear stale live data from the previous day
           setLiveMap(new Map());
+        }
+        if (!wasActive && playerIdsRef.current.length > 0) {
+          fetchStatsRef.current?.(playerIdsRef.current);
         }
       }
     });
@@ -123,6 +131,10 @@ export function useLivePlayerStats(
   // Keep a ref to playerIds so the interval callback always has the latest list
   const playerIdsRef = useRef<string[]>(playerIds);
   playerIdsRef.current = playerIds;
+
+  // Latest fetchStats reference — needed by the AppState foreground hook
+  // which captures its closure once and would otherwise call a stale fn.
+  const fetchStatsRef = useRef<((ids: string[]) => Promise<void>) | null>(null);
 
   const fetchStats = useCallback(async (ids: string[]) => {
     const today = toDateStr(new Date());
@@ -157,6 +169,8 @@ export function useLivePlayerStats(
     const anyLive = [...map.values()].some((s) => s.game_status === 2);
     reschedule(anyLive);
   }, [reschedule]);
+
+  fetchStatsRef.current = fetchStats;
 
   useEffect(() => {
     if (!enabled || playerIds.length === 0) {

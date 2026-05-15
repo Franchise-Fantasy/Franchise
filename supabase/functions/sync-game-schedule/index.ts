@@ -17,7 +17,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
-import { bdlFetchAll, type Sport } from "../_shared/bdl.ts";
+import { bdlFetchAll, bdlGameSlateDate, type Sport } from "../_shared/bdl.ts";
 import { recordHeartbeat } from "../_shared/heartbeat.ts";
 
 const supabase = createClient(
@@ -39,6 +39,31 @@ const CURRENT_SEASON: Record<Sport, string> = {
  */
 function deriveStatus(bdlStatus: string): "scheduled" | "final" {
   return bdlStatus === "Final" ? "final" : "scheduled";
+}
+
+/**
+ * BDL emits a midnight-Eastern timestamp (e.g. "2026-05-03T04:00:00Z" during
+ * EDT) as the TBD placeholder for playoff games whose tipoff isn't set yet.
+ * Real NBA/WNBA games never tip at exactly 12:00am ET, so any datetime that
+ * lands on midnight ET is a placeholder — return null so downstream lock
+ * logic (utils/nba/gameStarted.ts) treats the game as untimed instead of
+ * "already started at midnight."
+ */
+function normalizeGameTimeUtc(datetime: string | null | undefined): string | null {
+  if (!datetime) return null;
+  const d = new Date(datetime);
+  if (isNaN(d.getTime())) return null;
+  const etParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(d);
+  const hour = etParts.find((p) => p.type === "hour")?.value;
+  const minute = etParts.find((p) => p.type === "minute")?.value;
+  // Intl returns "24" for midnight in some Node/Deno versions; treat both as midnight.
+  const isMidnightEt = (hour === "00" || hour === "24") && minute === "00";
+  return isMidnightEt ? null : datetime;
 }
 
 Deno.serve(async (req: Request) => {
@@ -93,17 +118,28 @@ Deno.serve(async (req: Request) => {
       .map((g: any) => {
         const status = deriveStatus(String(g.status ?? ""));
         const isFinal = status === "final";
+        // BDL's NBA endpoint returns `date: "YYYY-MM-DD"` and `datetime: <ISO>`.
+        // Its WNBA endpoint returns the tipoff time directly in `date` as a
+        // full ISO timestamp and omits `datetime` entirely. Prefer `datetime`
+        // when present; otherwise use `date` if it carries a time component.
+        const rawDateTime =
+          g.datetime ??
+          (typeof g.date === "string" && g.date.length > 10 ? g.date : null);
+        // Anchor game_date on the ET slate so 10pm ET tipoffs (02:00 UTC next
+        // day) stay attached to the night they were scheduled for. Falls back
+        // to plain date for NBA's `YYYY-MM-DD` form.
+        const gameDate = bdlGameSlateDate(rawDateTime ?? g.date);
         return {
           sport,
           game_id: String(g.id),
-          game_date: g.date?.slice(0, 10),
+          game_date: gameDate,
           season: targetSeason,
           home_team: g.home_team.abbreviation,
           away_team: g.visitor_team.abbreviation,
           home_score: isFinal ? (g.home_team_score ?? null) : null,
           away_score: isFinal ? (g.visitor_team_score ?? null) : null,
           status,
-          game_time_utc: g.datetime ?? null,
+          game_time_utc: normalizeGameTimeUtc(rawDateTime),
         };
       })
       .filter((r) => r.game_date);

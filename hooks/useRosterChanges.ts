@@ -2,7 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 
 import { queryKeys } from '@/constants/queryKeys';
-import { supabase } from '@/lib/supabase';
+import { supabase, uniqueChannelTopic } from '@/lib/supabase';
 
 const COALESCE_MS = 250;
 
@@ -51,7 +51,7 @@ export function useRosterChanges(leagueId: string | null) {
     };
 
     const channel = supabase
-      .channel(`roster-changes-${leagueId}-${Date.now()}`)
+      .channel(uniqueChannelTopic(`roster-changes-${leagueId}`))
       .on(
         'postgres_changes',
         {

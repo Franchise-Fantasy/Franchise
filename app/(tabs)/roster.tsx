@@ -16,15 +16,20 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { runOnJS } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { FptsBreakdownModal } from "@/components/player/FptsBreakdownModal";
+import { MatchupChip } from "@/components/player/MatchupChip";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
+import { PlayerHeadshotImage } from "@/components/player/PlayerHeadshotImage";
 import { AnimatedFpts } from "@/components/roster/AnimatedFpts";
-import { DayNavBar } from "@/components/roster/DayNavBar";
 import { IrLockBanner } from "@/components/roster/IrLockBanner";
 import { MyPicksSection } from "@/components/roster/MyPicksSection";
+import { RosterHero } from "@/components/roster/RosterHero";
 import { rosterStyles as styles } from "@/components/roster/rosterStyles";
+import { SectionEyebrow } from "@/components/roster/SectionEyebrow";
 import {
   DestinationSlot,
   QuickAction,
@@ -39,7 +44,7 @@ import { type ModalAction } from "@/components/ui/InlineAction";
 import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
-import { getCurrentSeason } from "@/constants/LeagueDefaults";
+import { getCurrentSeason, getPreviousSeason } from "@/constants/LeagueDefaults";
 import { queryKeys } from "@/constants/queryKeys";
 import { useAppState } from "@/context/AppStateProvider";
 import { useActionPicker } from "@/context/ConfirmProvider";
@@ -51,12 +56,14 @@ import { useLeague } from "@/hooks/useLeague";
 import { useLeagueRosterConfig } from "@/hooks/useLeagueRosterConfig";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
 import { useRosterChanges } from "@/hooks/useRosterChanges";
+import { useWeekScores } from "@/hooks/useWeekScores";
 import { capture } from "@/lib/posthog";
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
 import type { PlayerGameLog } from "@/types/player";
-import { addDays, formatDayLabel, toDateStr, useToday } from "@/utils/dates";
+import { addDays, formatDayLabel, useToday } from "@/utils/dates";
 import { formatPosition } from "@/utils/formatting";
+import { getSportToday } from "@/utils/leagueTime";
 import { logger } from "@/utils/logger";
 import { hasAnyGameStarted, isGameStarted, useTodayGameTimes } from "@/utils/nba/gameStarted";
 import { getInjuryBadge } from "@/utils/nba/injuryBadge";
@@ -70,14 +77,13 @@ import {
   formatGameTime,
   ScheduleEntry,
 } from "@/utils/nba/nbaSchedule";
-import { getPlayerHeadshotUrl, getTeamLogoUrl, PLAYER_SILHOUETTE } from "@/utils/nba/playerHeadshot";
+import { getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
 import { isOnline } from "@/utils/network";
 import { LineupPlayer, optimizeLineup } from "@/utils/roster/autoLineup";
 import { fetchTeamSlots } from "@/utils/roster/fetchTeamSlots";
 import { isIrEligibleStatus } from "@/utils/roster/illegalIR";
 import { isEligibleForSlot, slotLabel } from "@/utils/roster/rosterSlots";
 import { isTaxiEligible } from "@/utils/roster/taxiEligibility";
-import { s } from "@/utils/scale";
 import { buildCompositeScatter } from "@/utils/scoring/categoryAnalytics";
 import {
   calculateAvgFantasyPoints,
@@ -150,21 +156,25 @@ async function fetchTeamRosterForDate(
   teamId: string,
   leagueId: string,
   date: string,
+  sport: string | null | undefined,
   weekBounds?: { start_date: string; end_date: string },
 ): Promise<RosterPlayer[]> {
   // Use the same slot resolution as the matchup page — guarantees parity
   const slots = await fetchTeamSlots(teamId, leagueId, date, weekBounds);
 
-  const today = toDateStr(new Date());
+  const today = getSportToday(sport);
   const isPast = date < today;
 
   // Filter out players who weren't on the team on this date:
+  // - DROPPED on this date (queued or completed drop) → hide, matching the
+  //   matchup page filter in fetchTeamData
   // - If resolveSlot returns a real slot (from daily_lineups), the player was here — show them
   // - If resolveSlot returns 'BE' and acquired_at is after this date, they weren't here yet — hide
   // - This handles re-acquisitions correctly (Giannis: traded away/back, but daily_lineups proves
   //   presence on earlier dates even though acquired_at was overwritten by the trade)
   const currentForDate = [...slots.currentPlayerIds].filter((pid) => {
     const slot = slots.slotMap.get(pid);
+    if (slot === "DROPPED") return false;
     if (slot && slot !== "BE") return true; // has a real slot assignment — was on team
     const acquired = slots.acquiredDateMap.get(pid);
     if (acquired && date < acquired) return false; // no slot + acquired after this date
@@ -340,18 +350,25 @@ export default function RosterScreen() {
   const { data: rosterConfig, isLoading: isLoadingConfig } =
     useLeagueRosterConfig(leagueId ?? "");
 
-  // Current matchup week bounds (used to scope the Auto button)
+  // Current matchup week bounds (used to scope the Auto button + the hero
+  // matchup-score lookup; `id` is the schedule_id used by useWeekScores).
   const { data: currentWeek } = useQuery({
     queryKey: queryKeys.currentMatchupWeek(leagueId!, today),
     queryFn: async () => {
       const { data } = await supabase
         .from("league_schedule")
-        .select("start_date, end_date, week_number")
+        .select("id, start_date, end_date, week_number, is_playoff")
         .eq("league_id", leagueId!)
         .lte("start_date", today)
         .gte("end_date", today)
         .maybeSingle();
-      return data as { start_date: string; end_date: string; week_number: number } | null;
+      return data as {
+        id: string;
+        start_date: string;
+        end_date: string;
+        week_number: number;
+        is_playoff: boolean;
+      } | null;
     },
     enabled: !!leagueId,
     staleTime: 1000 * 60 * 60,
@@ -397,7 +414,7 @@ export default function RosterScreen() {
         .limit(1)
         .maybeSingle();
       if (!data?.acquired_at) return null;
-      return toDateStr(new Date(data.acquired_at));
+      return getSportToday(sport, new Date(data.acquired_at));
     },
     enabled: !!teamId,
     staleTime: 1000 * 60 * 60,
@@ -410,6 +427,73 @@ export default function RosterScreen() {
     selectedDate >= today &&
     selectedDate <= currentWeek.end_date;
 
+  // ── Hero matchup data ───────────────────────────────────────────────────
+  // Fetches the user's opponent for the current week so the hero can show a
+  // matchup score line. Live scores come from `useWeekScores` (cron-updated +
+  // realtime).
+  const weekIsLive =
+    !!currentWeek &&
+    today >= currentWeek.start_date &&
+    today <= currentWeek.end_date;
+
+  const { data: heroMatchup } = useQuery({
+    queryKey: queryKeys.rosterHeroOpponent(
+      currentWeek?.id ?? "",
+      teamId ?? "",
+    ),
+    queryFn: async () => {
+      if (!teamId) return null;
+      // Always fetch team identity (tricode + record) so the hero has
+      // something to render in offseason and during weeks with no matchup.
+      const fetchTeam = async (id: string) => {
+        const { data } = await supabase
+          .from("teams")
+          .select("id, tricode, name, wins, losses, ties")
+          .eq("id", id)
+          .maybeSingle();
+        return data ?? null;
+      };
+      if (!currentWeek?.id) {
+        const me = await fetchTeam(teamId);
+        return { me, opponent: null, isBye: false };
+      }
+      const { data: m } = await supabase
+        .from("league_matchups")
+        .select("home_team_id, away_team_id")
+        .eq("schedule_id", currentWeek.id)
+        .or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
+        .maybeSingle();
+      const opponentId = m
+        ? m.home_team_id === teamId
+          ? m.away_team_id
+          : m.home_team_id
+        : null;
+      const ids = opponentId ? [teamId, opponentId] : [teamId];
+      const { data: rows } = await supabase
+        .from("teams")
+        .select("id, tricode, name, wins, losses, ties")
+        .in("id", ids);
+      const me = rows?.find((t) => t.id === teamId) ?? null;
+      const opp = opponentId
+        ? rows?.find((t) => t.id === opponentId) ?? null
+        : null;
+      return { me, opponent: opp, isBye: !!m && !opponentId };
+    },
+    enabled: !!teamId,
+    staleTime: 1000 * 60 * 60,
+  });
+
+  const { data: weekScores } = useWeekScores({
+    leagueId,
+    scheduleId: currentWeek?.id ?? null,
+    weekIsLive,
+  });
+
+  const heroMyScore = teamId ? weekScores?.[teamId] ?? null : null;
+  const heroOppScore = heroMatchup?.opponent?.id
+    ? weekScores?.[heroMatchup.opponent.id] ?? null
+    : null;
+
   const {
     data: rosterPlayers,
     isLoading: isLoadingRoster,
@@ -417,7 +501,7 @@ export default function RosterScreen() {
     refetch: refetchRoster,
   } = useQuery<RosterPlayer[]>({
     queryKey: queryKeys.teamRoster(teamId!, selectedDate),
-    queryFn: () => fetchTeamRosterForDate(teamId!, leagueId!, selectedDate, currentWeek ?? undefined),
+    queryFn: () => fetchTeamRosterForDate(teamId!, leagueId!, selectedDate, sport, currentWeek ?? undefined),
     enabled: !!teamId && !!leagueId,
     staleTime: 1000 * 30, // 30s — useRosterChanges handles realtime invalidation
     placeholderData: keepPreviousData,
@@ -473,11 +557,11 @@ export default function RosterScreen() {
       addDays(selectedDate, 1),
       addDays(selectedDate, 2),
     ];
-    const todayStr = toDateStr(new Date());
+    const todayStr = getSportToday(sport);
     for (const day of adjacent) {
       queryClient.prefetchQuery({
         queryKey: queryKeys.teamRoster(teamId, day),
-        queryFn: () => fetchTeamRosterForDate(teamId, leagueId, day),
+        queryFn: () => fetchTeamRosterForDate(teamId, leagueId, day, sport),
         staleTime: 1000 * 60 * 2,
       });
       if (day >= todayStr) {
@@ -621,6 +705,46 @@ export default function RosterScreen() {
 
   const starterSlots = slots.filter((s) => s.slotPosition !== "BE");
   const benchSlots = slots.filter((s) => s.slotPosition === "BE");
+
+  // Daily-context counts for the hero footer — starters playing on the
+  // selected date, those whose games already started (today only), and
+  // empty starter slots that need filling.
+  let heroPlayCount = 0;
+  let heroLockedCount = 0;
+  let heroEmptyCount = 0;
+  for (const slot of starterSlots) {
+    if (!slot.player) {
+      heroEmptyCount += 1;
+      continue;
+    }
+    const tricode = slot.player.nbaTricode;
+    if (tricode && daySchedule?.has(tricode)) {
+      heroPlayCount += 1;
+    }
+    if (isToday && isPlayerLocked(slot.player)) {
+      heroLockedCount += 1;
+    }
+  }
+
+  // Offseason hero stats — only computed/passed when there's no current
+  // matchup week. Surfaces roster-management state that Home doesn't cover.
+  const heroRosterStats = useMemo(() => {
+    if (!rosterPlayers) return undefined;
+    const irActive = rosterPlayers.filter((p) => p.roster_slot === "IR").length;
+    const taxiActive = rosterPlayers.filter(
+      (p) => p.roster_slot === "TAXI",
+    ).length;
+    const onBlockCount = rosterPlayers.filter(
+      (p) => (p as { on_trade_block?: boolean }).on_trade_block,
+    ).length;
+    return {
+      rosterCount: rosterPlayers.length,
+      rosterSize: league?.roster_size ?? 0,
+      irCount: irActive,
+      taxiCount: taxiActive,
+      onBlockCount,
+    };
+  }, [rosterPlayers, league?.roster_size]);
 
   // ─── Slot picker helpers ──────────────────────────────────────────────────
 
@@ -791,6 +915,16 @@ export default function RosterScreen() {
     if (error) throw error;
   };
 
+  // Supabase update builders don't throw — they resolve with { error }. Without
+  // this wrapper the surrounding try/catch never sees RLS/constraint failures
+  // and the UI happily proceeds, then snaps back on refetch.
+  const runUpdate = async (
+    query: PromiseLike<{ error: { message: string } | null }>,
+  ) => {
+    const { error } = await query;
+    if (error) throw error;
+  };
+
   /**
    * Handles all roster moves: swaps, bench, IR, TAXI, promotions, fills.
    * sourcePlayer moves to destSlotPosition. If destPlayer exists, they go to sourceSlotPosition.
@@ -860,28 +994,34 @@ export default function RosterScreen() {
       if (destPlayer) {
         if (dstIsIR) {
           await upsertDailySlot(destPlayer.player_id, "BE", effectiveDate);
-          await supabase
-            .from("daily_lineups")
-            .update({ roster_slot: "BE" })
-            .eq("team_id", teamId)
-            .eq("league_id", leagueId)
-            .eq("player_id", destPlayer.player_id)
-            .eq("roster_slot", "IR")
-            .gt("lineup_date", effectiveDate);
-          await supabase
-            .from("league_players")
-            .update({ roster_slot: "BE" })
-            .eq("league_id", leagueId)
-            .eq("team_id", teamId)
-            .eq("player_id", destPlayer.player_id);
+          await runUpdate(
+            supabase
+              .from("daily_lineups")
+              .update({ roster_slot: "BE" })
+              .eq("team_id", teamId)
+              .eq("league_id", leagueId)
+              .eq("player_id", destPlayer.player_id)
+              .eq("roster_slot", "IR")
+              .gt("lineup_date", effectiveDate),
+          );
+          await runUpdate(
+            supabase
+              .from("league_players")
+              .update({ roster_slot: "BE" })
+              .eq("league_id", leagueId)
+              .eq("team_id", teamId)
+              .eq("player_id", destPlayer.player_id),
+          );
         } else if (dstIsTaxi) {
           await upsertDailySlot(destPlayer.player_id, "BE", effectiveDate);
-          await supabase
-            .from("league_players")
-            .update({ roster_slot: "BE" })
-            .eq("league_id", leagueId)
-            .eq("team_id", teamId)
-            .eq("player_id", destPlayer.player_id);
+          await runUpdate(
+            supabase
+              .from("league_players")
+              .update({ roster_slot: "BE" })
+              .eq("league_id", leagueId)
+              .eq("team_id", teamId)
+              .eq("player_id", destPlayer.player_id),
+          );
         } else {
           // Normal swap: displaced player goes to source slot
           await upsertDailySlot(destPlayer.player_id, sourceSlotPosition);
@@ -897,56 +1037,70 @@ export default function RosterScreen() {
 
       // ── 3. Update future entries + league_players for IR/TAXI ──
       if (dstIsIR) {
-        await supabase
-          .from("daily_lineups")
-          .update({ roster_slot: "IR" })
-          .eq("team_id", teamId)
-          .eq("league_id", leagueId)
-          .eq("player_id", sourcePlayer.player_id)
-          .gt("lineup_date", effectiveDate);
-        await supabase
-          .from("league_players")
-          .update({ roster_slot: "IR" })
-          .eq("league_id", leagueId)
-          .eq("team_id", teamId)
-          .eq("player_id", sourcePlayer.player_id);
+        await runUpdate(
+          supabase
+            .from("daily_lineups")
+            .update({ roster_slot: "IR" })
+            .eq("team_id", teamId)
+            .eq("league_id", leagueId)
+            .eq("player_id", sourcePlayer.player_id)
+            .gt("lineup_date", effectiveDate),
+        );
+        await runUpdate(
+          supabase
+            .from("league_players")
+            .update({ roster_slot: "IR" })
+            .eq("league_id", leagueId)
+            .eq("team_id", teamId)
+            .eq("player_id", sourcePlayer.player_id),
+        );
       } else if (dstIsTaxi) {
-        await supabase
-          .from("league_players")
-          .update({ roster_slot: "TAXI" })
-          .eq("league_id", leagueId)
-          .eq("team_id", teamId)
-          .eq("player_id", sourcePlayer.player_id);
+        await runUpdate(
+          supabase
+            .from("league_players")
+            .update({ roster_slot: "TAXI" })
+            .eq("league_id", leagueId)
+            .eq("team_id", teamId)
+            .eq("player_id", sourcePlayer.player_id),
+        );
       } else if (srcIsIR) {
-        await supabase
-          .from("daily_lineups")
-          .update({ roster_slot: "BE" })
-          .eq("team_id", teamId)
-          .eq("league_id", leagueId)
-          .eq("player_id", sourcePlayer.player_id)
-          .eq("roster_slot", "IR")
-          .gt("lineup_date", effectiveDate);
-        await supabase
-          .from("league_players")
-          .update({ roster_slot: destSlotPosition })
-          .eq("league_id", leagueId)
-          .eq("team_id", teamId)
-          .eq("player_id", sourcePlayer.player_id);
+        await runUpdate(
+          supabase
+            .from("daily_lineups")
+            .update({ roster_slot: "BE" })
+            .eq("team_id", teamId)
+            .eq("league_id", leagueId)
+            .eq("player_id", sourcePlayer.player_id)
+            .eq("roster_slot", "IR")
+            .gt("lineup_date", effectiveDate),
+        );
+        await runUpdate(
+          supabase
+            .from("league_players")
+            .update({ roster_slot: destSlotPosition })
+            .eq("league_id", leagueId)
+            .eq("team_id", teamId)
+            .eq("player_id", sourcePlayer.player_id),
+        );
       } else if (srcIsTaxi) {
-        await supabase
-          .from("daily_lineups")
-          .update({ roster_slot: "BE" })
-          .eq("team_id", teamId)
-          .eq("league_id", leagueId)
-          .eq("player_id", sourcePlayer.player_id)
-          .eq("roster_slot", "TAXI")
-          .gt("lineup_date", effectiveDate);
-        await supabase
-          .from("league_players")
-          .update({ roster_slot: destSlotPosition })
-          .eq("league_id", leagueId)
-          .eq("team_id", teamId)
-          .eq("player_id", sourcePlayer.player_id);
+        await runUpdate(
+          supabase
+            .from("daily_lineups")
+            .update({ roster_slot: "BE" })
+            .eq("team_id", teamId)
+            .eq("league_id", leagueId)
+            .eq("player_id", sourcePlayer.player_id)
+            .eq("roster_slot", "TAXI")
+            .gt("lineup_date", effectiveDate),
+        );
+        await runUpdate(
+          supabase
+            .from("league_players")
+            .update({ roster_slot: destSlotPosition })
+            .eq("league_id", leagueId)
+            .eq("team_id", teamId)
+            .eq("player_id", sourcePlayer.player_id),
+        );
       }
 
       // ── 4. Query invalidation ──
@@ -967,7 +1121,7 @@ export default function RosterScreen() {
         ]) {
           queryClient.prefetchQuery({
             queryKey: queryKeys.teamRoster(teamId, day),
-            queryFn: () => fetchTeamRosterForDate(teamId, leagueId, day),
+            queryFn: () => fetchTeamRosterForDate(teamId, leagueId, day, sport),
             staleTime: 1000 * 30,
           });
         }
@@ -1086,6 +1240,38 @@ export default function RosterScreen() {
         teams.add(game.away_team);
       }
 
+      // Previous-season fallback: until a player has a meaningful current-
+      // season sample, the optimizer treats everyone as 0 fpts and produces
+      // an arbitrary lineup (especially during WNBA pre-tipoff). Pull last
+      // season's averages and use them as the rank input until the current
+      // sample crosses MIN_CURRENT_SEASON_GAMES — ~25% of a WNBA season,
+      // ~12% of an NBA season — enough to be predictive without overweighting
+      // small early-season samples.
+      const MIN_CURRENT_SEASON_GAMES = 10;
+      const prevSeasonFptsMap = new Map<string, number>();
+      const playersNeedingFallback = rosterPlayers.filter(
+        (p) => (p.games_played ?? 0) < MIN_CURRENT_SEASON_GAMES,
+      );
+      if (!isCategories && playersNeedingFallback.length > 0) {
+        const { data: histRows } = await supabase
+          .from("player_historical_stats")
+          .select("*")
+          .eq("sport", sport)
+          .eq("season", getPreviousSeason(sport))
+          .in(
+            "player_id",
+            playersNeedingFallback.map((p) => p.player_id),
+          );
+        for (const h of histRows ?? []) {
+          if (!h.player_id) continue;
+          const fpts = calculateAvgFantasyPoints(
+            h as unknown as PlayerSeasonStats,
+            scoringWeights,
+          );
+          if (fpts > 0) prevSeasonFptsMap.set(h.player_id, fpts);
+        }
+      }
+
       // 3. Optimize each day. Write ALL players for ALL days so stale entries
       //    from previous runs get overwritten (upsert key is per-player+date).
       const allRows: {
@@ -1124,18 +1310,38 @@ export default function RosterScreen() {
         const teamsPlaying = teamsPlayingByDate.get(date);
         const isDateToday = date === today;
 
+        // If no roster player has a game on this date (WNBA pre-tipoff, NBA
+        // off-day, all-star break, dynasty offseason), the optimizer would
+        // see dayFpts = 0 for everyone and produce an arbitrary lineup. In
+        // that case, treat all players as having a game so they get ranked
+        // by avgFpts directly — gives the user a sensible "default" lineup
+        // they can keep when real games resume.
+        const noRosterGamesToday = !rosterPlayers.some(
+          (p) => teamsPlaying?.has(p.nbaTricode ?? "") ?? false,
+        );
+
         const lineupPlayers: LineupPlayer[] = rosterPlayers.map(
-          (p) => ({
-            player_id: p.player_id,
-            position: p.position,
-            status: p.status,
-            roster_slot: prevSlots.get(p.player_id) ?? "BE",
-            avgFpts: isCategories
-              ? catRankMap.get(p.player_id) ?? 0
-              : calculateAvgFantasyPoints(p, scoringWeights),
-            locked: isDateToday ? isPlayerLocked(p) : false,
-            hasGame: teamsPlaying?.has(p.nbaTricode ?? "") ?? false,
-          }),
+          (p) => {
+            const hasMeaningfulSample =
+              (p.games_played ?? 0) >= MIN_CURRENT_SEASON_GAMES;
+            const currentFpts = calculateAvgFantasyPoints(p, scoringWeights);
+            const fallbackFpts = prevSeasonFptsMap.get(p.player_id) ?? 0;
+            return {
+              player_id: p.player_id,
+              position: p.position,
+              status: p.status,
+              roster_slot: prevSlots.get(p.player_id) ?? "BE",
+              avgFpts: isCategories
+                ? catRankMap.get(p.player_id) ?? 0
+                : hasMeaningfulSample
+                  ? currentFpts
+                  : fallbackFpts || currentFpts,
+              locked: isDateToday ? isPlayerLocked(p) : false,
+              hasGame: noRosterGamesToday
+                ? true
+                : teamsPlaying?.has(p.nbaTricode ?? "") ?? false,
+            };
+          },
         );
 
         const assignments = optimizeLineup(lineupPlayers, rosterConfig);
@@ -1260,8 +1466,8 @@ export default function RosterScreen() {
     }
 
     if (isPastDate) {
-      // Check for still-live games from yesterday that crossed midnight
       const live = liveMap.get(player.player_id);
+      // Still-live game from yesterday that crossed midnight
       if (live && live.game_status === 2) {
         const stats = liveToGameLog(live);
         const fpts = isCategories
@@ -1271,7 +1477,6 @@ export default function RosterScreen() {
             ) / 10;
         return {
           fpts,
-  
           statLine: buildStatLine(stats as Record<string, number>),
           isLive: true,
           matchup: live.matchup || null,
@@ -1288,16 +1493,33 @@ export default function RosterScreen() {
             ) / 10;
         return {
           fpts,
-  
           statLine: buildStatLine(stats as Record<string, number>),
           isLive: false,
           matchup: dayGame.matchup ?? null,
           gameTimeUtc: null,
         };
       }
+      // Fall back to the final-state live row when player_games hasn't been
+      // populated for this player/date yet — covers the gap between
+      // live_player_stats writes and player_games writes during/after a game
+      // ends, and any race where dayGameStats hasn't loaded.
+      if (live && live.game_status === 3) {
+        const stats = liveToGameLog(live);
+        const fpts = isCategories
+          ? null
+          : Math.round(
+              calculateGameFantasyPoints(stats as unknown as PlayerGameLog, scoringWeights) * 10,
+            ) / 10;
+        return {
+          fpts,
+          statLine: buildStatLine(stats as Record<string, number>),
+          isLive: false,
+          matchup: live.matchup || null,
+          gameTimeUtc: null,
+        };
+      }
       return {
         fpts: null,
-
         statLine: null,
         isLive: false,
         matchup: null,
@@ -1342,9 +1564,30 @@ export default function RosterScreen() {
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
+  // Horizontal swipe to flip days. Threshold + velocity check so a casual
+  // brush doesn't trigger a navigation; failOffsetY keeps the vertical
+  // ScrollView intact. Arrow buttons in the hero stay live in parallel.
+  const swipeDay = (delta: -1 | 1) => {
+    if (delta === -1 && !canGoBack) return;
+    setSelectedDate(addDays(selectedDate, delta));
+  };
+  const dayPan = Gesture.Pan()
+    .activeOffsetX([-15, 15])
+    .failOffsetY([-12, 12])
+    .onEnd((e) => {
+      const SWIPE_DIST = 60;
+      const SWIPE_VEL = 500;
+      const horizontalEnough =
+        Math.abs(e.translationX) > SWIPE_DIST || Math.abs(e.velocityX) > SWIPE_VEL;
+      if (!horizontalEnough) return;
+      if (Math.abs(e.translationX) < Math.abs(e.translationY)) return;
+      if (e.translationX < 0) runOnJS(swipeDay)(1);
+      else runOnJS(swipeDay)(-1);
+    });
+
   if (isLoading) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
+      <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
         <View style={styles.centered}><LogoSpinner /></View>
       </SafeAreaView>
     );
@@ -1352,7 +1595,7 @@ export default function RosterScreen() {
 
   if (isRosterError) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
+      <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
         <ErrorState
           message="Failed to load roster"
           onRetry={() => refetchRoster()}
@@ -1363,57 +1606,39 @@ export default function RosterScreen() {
 
   if (!rosterPlayers || rosterPlayers.length === 0) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
-        {/* Day navigation — always visible so users aren't trapped on an empty date */}
-        <View style={[styles.dayNav, { borderBottomColor: c.border }]}>
-          <TouchableOpacity
-            onPress={() => canGoBack && setSelectedDate(addDays(selectedDate, -1))}
-            disabled={!canGoBack}
-            style={[styles.navArrow, !canGoBack && { opacity: 0.3 }]}
-            accessibilityRole="button"
-            accessibilityLabel="Previous day"
-            accessibilityState={{ disabled: !canGoBack }}
-          >
-            <Text style={[styles.navArrowText, { color: c.text }]}>‹</Text>
-          </TouchableOpacity>
-
-          <View style={styles.dayInfo}>
-            <ThemedText type="defaultSemiBold" style={styles.dayLabel}>
-              {formatDayLabel(selectedDate)}
-            </ThemedText>
-          </View>
-
-          <TouchableOpacity
-            onPress={() => setSelectedDate(addDays(selectedDate, 1))}
-            style={styles.navArrow}
-            accessibilityRole="button"
-            accessibilityLabel="Next day"
-          >
-            <Text style={[styles.navArrowText, { color: c.text }]}>›</Text>
-          </TouchableOpacity>
-
-          {selectedDate !== today && (
-            <TouchableOpacity
-              onPress={() => setSelectedDate(today)}
-              style={[
-                styles.todayChip,
-                isFutureDate ? styles.todayChipLeft : styles.todayChipRight,
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel="Go to today"
-            >
-              <ThemedText style={[styles.todayChipText, { color: c.accent }]}>
-                Today
-              </ThemedText>
-            </TouchableOpacity>
-          )}
-        </View>
+      <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
+        <GestureDetector gesture={dayPan}>
+          <View style={{ flex: 1 }}>
+        {/* Hero — always visible so users aren't trapped on an empty date */}
+        <RosterHero
+          selectedDate={selectedDate}
+          today={today}
+          canGoBack={canGoBack}
+          isPastDate={isPastDate}
+          isToday={isToday}
+          currentWeek={currentWeek}
+          dayLabel={formatDayLabel(selectedDate)}
+          myTeam={heroMatchup?.me ?? null}
+          opponent={heroMatchup?.opponent ?? null}
+          isBye={heroMatchup?.isBye ?? false}
+          myScore={heroMyScore}
+          oppScore={heroOppScore}
+          weekIsLive={weekIsLive}
+          rosterStats={heroRosterStats}
+          onPrevDay={() =>
+            canGoBack && setSelectedDate(addDays(selectedDate, -1))
+          }
+          onNextDay={() => setSelectedDate(addDays(selectedDate, 1))}
+          onGoToToday={() => setSelectedDate(today)}
+        />
 
         <View style={styles.centered}>
           <ThemedText style={{ color: c.secondaryText }}>
             No players on your roster yet.
           </ThemedText>
         </View>
+          </View>
+        </GestureDetector>
       </SafeAreaView>
     );
   }
@@ -1434,12 +1659,19 @@ export default function RosterScreen() {
   const renderSlotRow = (slot: SlotEntry, idx: number, list: SlotEntry[]) => {
     const { fpts, statLine, isLive, matchup, gameTimeUtc } =
       resolveSlotStats(slot.player);
+    // Pre-game = player has a scheduled matchup that hasn't started yet
+    // (future date, or today before tipoff with no live data and no statLine).
+    // In that state we keep the position label under the name and surface the
+    // upcoming-game chip in the FPTS column instead of a meaningless "0.0".
+    const isPreGame =
+      !!matchup && !isLive && !statLine && (isToday || isFutureDate);
     const matchupDisplay = matchup
       ? gameTimeUtc && !isLive
         ? `${matchup} · ${formatGameTime(gameTimeUtc)}`
         : matchup
       : null;
     const liveData = slot.player ? liveMap.get(slot.player.player_id) : null;
+    const isOnCourt = !!(liveData?.oncourt && liveData.game_status === 2);
     const gameInfo = liveData ? formatGameInfo(liveData) : "";
     const isIrOrTaxi =
       slot.slotPosition === "IR" || slot.slotPosition === "TAXI";
@@ -1465,6 +1697,7 @@ export default function RosterScreen() {
         key={`${slot.slotPosition}-${slot.slotIndex}`}
         style={[
           styles.slotRow,
+          idx % 2 === 1 && { backgroundColor: c.cardAlt },
           idx < list.length - 1 && {
             borderBottomColor: c.border,
             borderBottomWidth: StyleSheet.hairlineWidth,
@@ -1472,24 +1705,23 @@ export default function RosterScreen() {
           isActive && {
             backgroundColor: c.activeCard,
             borderLeftWidth: 3,
-            borderLeftColor: c.accent,
+            borderLeftColor: c.gold,
           },
           isEligibleDest && {
             borderLeftWidth: 2,
-            borderLeftColor: c.accent + "66",
-            backgroundColor: c.accent + "0A",
+            borderLeftColor: c.gold + "66",
+            backgroundColor: c.gold + "0A",
           },
         ]}
       >
+        {/* Slot pill — refined chip replaces the old column-stripe label. */}
         <TouchableOpacity
           style={[
-            styles.slotLabel,
+            styles.slotPill,
             {
-              backgroundColor: isActive
-                ? c.activeCard
-                : slot.player
-                  ? c.activeCard
-                  : c.cardAlt,
+              backgroundColor: slot.player ? c.cardAlt : "transparent",
+              borderColor: isActive ? c.gold : c.border,
+              borderWidth: isActive ? 1.5 : 1,
             },
             locked && !isIrOrTaxi && { opacity: 0.6 },
           ]}
@@ -1509,13 +1741,14 @@ export default function RosterScreen() {
           }
         >
           <ThemedText
+            type="varsitySmall"
             style={[
-              styles.slotLabelText,
+              styles.slotPillText,
               {
                 color: isActive
-                  ? c.accent
+                  ? c.gold
                   : slot.player
-                    ? c.activeText
+                    ? c.text
                     : c.secondaryText,
               },
             ]}
@@ -1538,35 +1771,25 @@ export default function RosterScreen() {
             accessibilityLabel={`${slot.player!.name}, ${formatPosition(slot.player!.position)}, ${slot.player!.pro_team}${matchupDisplay ? `, ${matchupDisplay}` : ""}${!isCategories && fpts !== null ? `, ${formatScore(fpts)} fantasy points` : ""}${isLive ? ", live" : ""}${locked ? ", locked" : ""}`}
             accessibilityHint="Tap for player details, long press to change slot"
           >
-            {/* On-court dot — upper-left of the player row */}
-            {liveData?.oncourt && liveData.game_status === 2 && (
-              <View style={[styles.onCourtDot, { backgroundColor: c.success }]} accessible={false} />
-            )}
-
-            {/* Headshot with team pill */}
+            {/* Headshot + team pill + on-court dot (all anchored to the wrap) */}
             <View style={styles.rosterPortraitWrap} accessible={false}>
-              {(() => {
-                const url = getPlayerHeadshotUrl(slot.player.external_id_nba, sport);
-                return (
-                  <View
-                    style={[
-                      styles.rosterHeadshotCircle,
-                      { borderColor: c.heritageGold, backgroundColor: c.cardAlt },
-                    ]}
-                    accessible={false}
-                  >
-                    <Image
-                      source={url ? { uri: url } : PLAYER_SILHOUETTE}
-                      style={styles.rosterHeadshotImg}
-                      contentFit="cover"
-                      cachePolicy="memory-disk"
-                      recyclingKey={url ?? "silhouette"}
-                      placeholder={PLAYER_SILHOUETTE}
-                      accessible={false}
-                    />
-                  </View>
-                );
-              })()}
+              <View
+                style={[
+                  styles.rosterHeadshotCircle,
+                  {
+                    borderColor: isOnCourt ? c.success : c.heritageGold,
+                    backgroundColor: c.cardAlt,
+                  },
+                ]}
+                accessible={false}
+              >
+                <PlayerHeadshotImage
+                  externalIdNba={slot.player.external_id_nba}
+                  sport={sport}
+                  style={styles.rosterHeadshotImg}
+                  accessible={false}
+                />
+              </View>
               {(() => {
                 const logoUrl = getTeamLogoUrl(slot.player.pro_team, sport);
                 return (
@@ -1587,8 +1810,10 @@ export default function RosterScreen() {
                 );
               })()}
             </View>
+
+            {/* Player info column */}
             <View style={styles.slotPlayerInfo}>
-              {/* Line 1: Name + injury badge */}
+              {/* Name + injury badge */}
               <View style={styles.slotLine1}>
                 <ThemedText
                   type="defaultSemiBold"
@@ -1611,32 +1836,19 @@ export default function RosterScreen() {
                   ) : null;
                 })()}
               </View>
-              {/* Line 2: matchup chip + live game info (quarter/time/score) on one row */}
-              {matchupDisplay ? (
+
+              {/* Matchup chip + live game info — chip turns success-tinted when live.
+                  Pre-game falls through to the position label here; the upcoming
+                  matchup is shown in the FPTS column instead. */}
+              {matchupDisplay && !isPreGame ? (
                 <View style={styles.slotMatchupRow}>
-                  <View
-                    accessible={false}
-                    style={[
-                      styles.matchupChip,
-                      { backgroundColor: c.cardAlt },
-                      isLive && [styles.matchupChipLive, { borderColor: c.success }],
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.matchupChipText,
-                        { color: isLive ? c.success : c.secondaryText },
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {matchupDisplay}
-                    </Text>
-                  </View>
+                  <MatchupChip matchup={matchupDisplay} isLive={isLive} c={c} />
                   {gameInfo ? (
                     <ThemedText
+                      type="varsitySmall"
                       style={[
-                        styles.slotPlayerSub,
-                        { color: c.secondaryText, flexShrink: 1, marginLeft: s(6), marginTop: 0 },
+                        styles.matchupChipMeta,
+                        { color: isLive ? c.success : c.secondaryText },
                       ]}
                       numberOfLines={1}
                     >
@@ -1646,31 +1858,51 @@ export default function RosterScreen() {
                 </View>
               ) : (
                 <ThemedText
-                  style={[styles.slotPlayerSub, { color: c.secondaryText }]}
+                  type="varsitySmall"
+                  style={[
+                    styles.slotMatchupText,
+                    { color: c.secondaryText },
+                  ]}
                   numberOfLines={1}
                 >
                   {formatPosition(slot.player.position)}
                 </ThemedText>
               )}
-              {/* Line 3: stat line only (game info moved to line 2) */}
+
+              {/* Past-day stat line — mono */}
               {statLine ? (
-                <View style={styles.slotLine3}>
+                <ThemedText
+                  style={[styles.slotStatLine, { color: c.secondaryText }]}
+                  numberOfLines={1}
+                >
+                  {statLine}
+                </ThemedText>
+              ) : null}
+            </View>
+
+            {/* FPTS column — pre-game shows the upcoming matchup chip + tipoff
+                time here instead of a meaningless 0.0. Live/final keep the
+                animated FPTS readout (with breakdown affordance). */}
+            {!isCategories && isPreGame ? (
+              <View style={styles.slotUpcoming} accessible={false}>
+                <MatchupChip matchup={matchup!} c={c} alignSelf="flex-end" />
+                {gameTimeUtc ? (
                   <ThemedText
+                    type="varsitySmall"
                     style={[
-                      styles.slotPlayerSub,
-                      { color: c.secondaryText, flex: 1 },
+                      styles.slotUpcomingTime,
+                      { color: c.secondaryText },
                     ]}
                     numberOfLines={1}
                   >
-                    {statLine}
+                    {formatGameTime(gameTimeUtc)}
                   </ThemedText>
-                </View>
-              ) : null}
-            </View>
-            {!isCategories &&
+                ) : null}
+              </View>
+            ) : null}
+            {!isCategories && !isPreGame &&
               (() => {
                 const isProjected = isFutureDate;
-                // Determine if we can show a breakdown (actual game stats, not projected)
                 const canBreakdown =
                   fpts !== null && !isProjected && scoringWeights;
                 const handleFptsPress = canBreakdown
@@ -1706,7 +1938,7 @@ export default function RosterScreen() {
                   >
                     <AnimatedFpts
                       value={fpts}
-                      accentColor={c.accent}
+                      accentColor={c.gold}
                       dimColor={c.secondaryText}
                       textStyle={styles.slotFpts}
                       animate={isToday}
@@ -1716,7 +1948,7 @@ export default function RosterScreen() {
                 ) : (
                   <AnimatedFpts
                     value={fpts}
-                    accentColor={c.accent}
+                    accentColor={c.gold}
                     dimColor={c.secondaryText}
                     textStyle={styles.slotFpts}
                     animate={isToday}
@@ -1725,31 +1957,53 @@ export default function RosterScreen() {
                 );
               })()}
           </TouchableOpacity>
+        ) : isPastDate ? (
+          <View
+            style={styles.slotPlayer}
+            accessible
+            accessibilityLabel={`Empty ${slotLabel(slot.slotPosition)} slot`}
+          />
         ) : (
           <TouchableOpacity
             style={[
               styles.slotPlayer,
               locked && !isIrOrTaxi && { opacity: 0.6 },
             ]}
-            onPress={() =>
-              !isPastDate && (!locked || isIrOrTaxi) && setActiveSlot(slot)
-            }
+            onPress={() => (!locked || isIrOrTaxi) && setActiveSlot(slot)}
             accessibilityRole="button"
-            accessibilityLabel={`Empty ${slotLabel(slot.slotPosition)} slot`}
+            accessibilityLabel={`Empty ${slotLabel(slot.slotPosition)} slot, tap to assign`}
             accessibilityState={{
-              disabled: isPastDate || (locked && !isIrOrTaxi),
+              disabled: locked && !isIrOrTaxi,
             }}
             accessibilityHint={
-              isPastDate || (locked && !isIrOrTaxi)
+              locked && !isIrOrTaxi
                 ? undefined
                 : "Opens slot picker to assign a player"
             }
           >
-            <ThemedText
-              style={[styles.emptySlotText, { color: c.secondaryText }]}
-            >
-              Empty
-            </ThemedText>
+            <View style={styles.rosterPortraitWrap}>
+              <View
+                style={[
+                  styles.emptyHeadshot,
+                  { borderColor: c.border, backgroundColor: c.cardAlt },
+                ]}
+              >
+                <Ionicons name="add" size={20} color={c.secondaryText} />
+              </View>
+            </View>
+            <View style={styles.slotPlayerInfo}>
+              <ThemedText
+                type="varsitySmall"
+                style={[styles.emptySlotEyebrow, { color: c.gold }]}
+              >
+                OPEN SLOT
+              </ThemedText>
+              <ThemedText
+                style={[styles.emptySlotHint, { color: c.secondaryText }]}
+              >
+                Tap to assign a player
+              </ThemedText>
+            </View>
           </TouchableOpacity>
         )}
       </View>
@@ -1757,22 +2011,27 @@ export default function RosterScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
-      <DayNavBar
+    <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
+      <GestureDetector gesture={dayPan}>
+        <View style={{ flex: 1 }}>
+      <RosterHero
         selectedDate={selectedDate}
         today={today}
         canGoBack={canGoBack}
-        isFutureDate={isFutureDate}
         isPastDate={isPastDate}
         isToday={isToday}
         currentWeek={currentWeek}
         dayLabel={formatDayLabel(selectedDate)}
-        colors={{
-          border: c.border,
-          text: c.text,
-          secondaryText: c.secondaryText,
-          accent: c.accent,
-        }}
+        myTeam={heroMatchup?.me ?? null}
+        opponent={heroMatchup?.opponent ?? null}
+        isBye={heroMatchup?.isBye ?? false}
+        myScore={heroMyScore}
+        oppScore={heroOppScore}
+        weekIsLive={weekIsLive}
+        playCount={heroPlayCount}
+        lockedCount={heroLockedCount}
+        emptyCount={heroEmptyCount}
+        rosterStats={heroRosterStats}
         onPrevDay={() =>
           canGoBack && setSelectedDate(addDays(selectedDate, -1))
         }
@@ -1780,94 +2039,94 @@ export default function RosterScreen() {
         onGoToToday={() => setSelectedDate(today)}
       />
 
-      {irLocked && (
-        <IrLockBanner
-          players={illegalIRPlayers ?? []}
-          colors={{ danger: c.danger, text: c.text }}
-        />
-      )}
+      {irLocked && <IrLockBanner players={illegalIRPlayers ?? []} />}
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Share-capturable roster content */}
-        <View ref={shareRef} collapsable={false} style={{ backgroundColor: c.cardAlt }}>
+        <View ref={shareRef} collapsable={false} style={{ backgroundColor: c.background }}>
         {/* Starters */}
         <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <View
-              style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
-            >
-              <ThemedText type="subtitle" accessibilityRole="header">
-                Starters
-              </ThemedText>
-              <TouchableOpacity
-                onPress={() => setShowMoveHint(true)}
-                style={styles.infoButton}
-                accessibilityRole="button"
-                accessibilityLabel="About moving players"
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Ionicons name="information-circle-outline" size={18} color={c.secondaryText} />
-              </TouchableOpacity>
-              {canAutoLineup && (
+          <SectionEyebrow
+            label="STARTERS"
+            leftAccessory={
+              canAutoLineup ? (
                 <TouchableOpacity
                   onPress={promptAutoLineup}
                   disabled={isOptimizing}
-                  style={[styles.autoButton, { backgroundColor: c.accent }]}
+                  style={[
+                    styles.headerPill,
+                    { backgroundColor: c.cardAlt, borderColor: c.gold },
+                  ]}
                   accessibilityRole="button"
                   accessibilityLabel="Auto-optimize lineup"
                   accessibilityState={{ disabled: isOptimizing }}
                   accessibilityHint="Choose to optimize lineup for today or the rest of the week"
                 >
                   {isOptimizing ? (
-                    <View style={{ height: 14 }}><LogoSpinner size={18} delay={0} /></View>
+                    <LogoSpinner size={14} delay={0} />
                   ) : (
-                    <ThemedText style={[styles.autoButtonText, { color: c.statusText }]}>Auto</ThemedText>
+                    <Ionicons name="flash" size={12} color={c.gold} />
+                  )}
+                  <ThemedText
+                    type="varsitySmall"
+                    style={[styles.headerPillLabel, { color: c.gold }]}
+                  >
+                    AUTO
+                  </ThemedText>
+                </TouchableOpacity>
+              ) : null
+            }
+            right={
+              <>
+                {!isCategories && starterTotal !== null && (
+                  <View
+                    style={[
+                      styles.headerPill,
+                      { backgroundColor: c.cardAlt, borderColor: c.border },
+                    ]}
+                    accessibilityLabel={`Fantasy points: ${formatScore(starterTotal)}`}
+                  >
+                    <ThemedText
+                      type="varsitySmall"
+                      style={[styles.headerPillLabel, { color: c.gold }]}
+                    >
+                      FPTS
+                    </ThemedText>
+                    <ThemedText
+                      type="mono"
+                      style={[styles.headerPillValue, { color: c.text }]}
+                    >
+                      {formatScore(starterTotal)}
+                    </ThemedText>
+                  </View>
+                )}
+                <TouchableOpacity
+                  onPress={shareRoster}
+                  disabled={isSharing}
+                  style={[
+                    styles.headerPill,
+                    { backgroundColor: c.cardAlt, borderColor: c.border },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Share roster as image"
+                  accessibilityState={{ disabled: isSharing }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  {isSharing ? (
+                    <LogoSpinner size={14} delay={0} />
+                  ) : (
+                    <Ionicons name="share-outline" size={14} color={c.gold} />
                   )}
                 </TouchableOpacity>
-              )}
-            </View>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: s(8) }}>
-              {!isCategories && starterTotal !== null && (
-                <View
-                  style={[
-                    styles.totalBadge,
-                    {
-                      backgroundColor: c.activeCard,
-                      borderColor: c.activeBorder,
-                    },
-                  ]}
-                  accessibilityLabel={`Fantasy points: ${formatScore(starterTotal)}`}
-                >
-                  <ThemedText
-                    style={[styles.totalLabel, { color: c.secondaryText }]}
-                  >
-                    FPTS
-                  </ThemedText>
-                  <ThemedText
-                    style={[styles.totalValue, { color: c.activeText }]}
-                  >
-                    {formatScore(starterTotal)}
-                  </ThemedText>
-                </View>
-              )}
-              <TouchableOpacity
-                onPress={shareRoster}
-                disabled={isSharing}
-                style={styles.shareButton}
-                accessibilityRole="button"
-                accessibilityLabel="Share roster as image"
-                accessibilityState={{ disabled: isSharing }}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                {isSharing ? (
-                  <LogoSpinner size={18} delay={0} />
-                ) : (
-                  <Ionicons name="share-outline" size={18} color={c.secondaryText} />
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-          <View style={[styles.card, { backgroundColor: c.card }]}>
+              </>
+            }
+          />
+          <View
+            style={[
+              styles.card,
+              { backgroundColor: c.card, borderColor: c.border },
+            ]}
+          >
             {starterSlots.map((slot, idx) =>
               renderSlotRow(slot, idx, starterSlots),
             )}
@@ -1876,12 +2135,13 @@ export default function RosterScreen() {
 
         {/* Bench */}
         <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <ThemedText type="subtitle" accessibilityRole="header">
-              Bench
-            </ThemedText>
-          </View>
-          <View style={[styles.card, { backgroundColor: c.card }]}>
+          <SectionEyebrow label="BENCH" />
+          <View
+            style={[
+              styles.card,
+              { backgroundColor: c.card, borderColor: c.border },
+            ]}
+          >
             {benchSlots.length > 0 ? (
               benchSlots.map((slot, idx) =>
                 renderSlotRow(slot, idx, benchSlots),
@@ -1889,9 +2149,10 @@ export default function RosterScreen() {
             ) : (
               <View style={styles.emptyBench}>
                 <ThemedText
-                  style={[styles.emptySlotText, { color: c.secondaryText }]}
+                  type="varsitySmall"
+                  style={{ color: c.secondaryText, letterSpacing: 1.2 }}
                 >
-                  No bench slots
+                  NO BENCH SLOTS
                 </ThemedText>
               </View>
             )}
@@ -1901,12 +2162,13 @@ export default function RosterScreen() {
         {/* IR */}
         {irSlots.length > 0 && (
           <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <ThemedText type="subtitle" accessibilityRole="header">
-                Injured Reserve
-              </ThemedText>
-            </View>
-            <View style={[styles.card, { backgroundColor: c.card }]}>
+            <SectionEyebrow label="INJURED RESERVE" />
+            <View
+              style={[
+                styles.card,
+                { backgroundColor: c.card, borderColor: c.border },
+              ]}
+            >
               {irSlots.map((slot, idx) => renderSlotRow(slot, idx, irSlots))}
             </View>
           </View>
@@ -1915,12 +2177,13 @@ export default function RosterScreen() {
         {/* Taxi Squad */}
         {taxiSlots.length > 0 && (
           <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <ThemedText type="subtitle" accessibilityRole="header">
-                Taxi Squad
-              </ThemedText>
-            </View>
-            <View style={[styles.card, { backgroundColor: c.card }]}>
+            <SectionEyebrow label="TAXI SQUAD" />
+            <View
+              style={[
+                styles.card,
+                { backgroundColor: c.card, borderColor: c.border },
+              ]}
+            >
               {taxiSlots.map((slot, idx) =>
                 renderSlotRow(slot, idx, taxiSlots),
               )}
@@ -1936,6 +2199,8 @@ export default function RosterScreen() {
           isDynasty={(league?.league_type ?? "dynasty") === "dynasty"}
         />
       </ScrollView>
+        </View>
+      </GestureDetector>
 
       {/* First-visit coach mark for changing lineup slots */}
       <InfoModal
@@ -2040,7 +2305,7 @@ export default function RosterScreen() {
           ]) {
             queryClient.prefetchQuery({
               queryKey: queryKeys.teamRoster(teamId, day),
-              queryFn: () => fetchTeamRosterForDate(teamId, leagueId, day),
+              queryFn: () => fetchTeamRosterForDate(teamId, leagueId, day, sport),
               staleTime: 1000 * 60 * 2,
             });
           }

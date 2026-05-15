@@ -1,13 +1,16 @@
 import { useRouter } from 'expo-router';
 import { useMemo } from 'react';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { cardShadow } from '@/constants/Colors';
+import { type Sport } from '@/constants/LeagueDefaults';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColors } from '@/hooks/useColors';
+import { useLeague } from '@/hooks/useLeague';
 import { useLeagueRosterStats } from '@/hooks/useLeagueRosterStats';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
+import { usePrevSeasonFpts } from '@/hooks/usePrevSeasonFpts';
 import {
   buildLeagueComparison,
   calculateRosterAgeProfile,
@@ -39,8 +42,25 @@ export function AnalyticsPreviewCard({
   const router = useRouter();
   const { teamId } = useAppState();
 
+  const { data: league } = useLeague();
   const { data: allPlayers, isLoading: loadingPlayers } = useLeagueRosterStats(leagueId);
   const { data: weights, isLoading: loadingScoring } = useLeagueScoring(leagueId);
+
+  // Same prev-season fpts fallback the full analytics screen uses, so
+  // pre-tipoff WNBA / first-month NBA / categories leagues compute the
+  // exact same weighted age in both places. Without this the preview's
+  // weighted age silently diverges from the screen the user navigates to.
+  const allPlayerIds = useMemo(
+    () => (allPlayers ?? []).map((p) => p.player_id),
+    [allPlayers],
+  );
+  const sport: Sport = (league?.sport as Sport | undefined) ?? 'nba';
+  const { data: prevSeasonFptsMap } = usePrevSeasonFpts(
+    leagueId,
+    sport,
+    allPlayerIds,
+    weights,
+  );
 
   const myPlayers = useMemo(
     () => allPlayers?.filter((p) => p.team_id === teamId) ?? [],
@@ -49,13 +69,13 @@ export function AnalyticsPreviewCard({
 
   const profile = useMemo(() => {
     if (!myPlayers.length || !weights?.length) return null;
-    return calculateRosterAgeProfile(myPlayers, weights);
-  }, [myPlayers, weights]);
+    return calculateRosterAgeProfile(myPlayers, weights, prevSeasonFptsMap);
+  }, [myPlayers, weights, prevSeasonFptsMap]);
 
   const comparison = useMemo(() => {
     if (!allPlayers?.length || !weights?.length || !teamId) return null;
-    return buildLeagueComparison(allPlayers as any, weights, teamId);
-  }, [allPlayers, weights, teamId]);
+    return buildLeagueComparison(allPlayers as any, weights, teamId, prevSeasonFptsMap);
+  }, [allPlayers, weights, teamId, prevSeasonFptsMap]);
 
   const isCategories = scoringType === 'h2h_categories';
 
@@ -140,6 +160,8 @@ export function AnalyticsPreviewCard({
             backgroundColor: c.heritageGoldMuted,
             borderColor: c.border,
             ...cardShadow,
+            // Android elevation renders a hard halo on tinted bg; iOS shadow is fine
+            ...(Platform.OS === 'android' && { elevation: 0 }),
           },
         ]}
         {...wrapperProps}
@@ -277,7 +299,7 @@ const styles = StyleSheet.create({
   },
   card: {
     position: 'relative',
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 14,
     paddingHorizontal: s(16),
     paddingTop: s(18),

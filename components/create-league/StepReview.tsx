@@ -5,7 +5,7 @@ import { BrandButton } from '@/components/ui/BrandButton';
 import { Section } from '@/components/ui/Section';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
-import { LeagueWizardState, NBA_POSITIONS, SPORT_DISPLAY, WAIVER_DAY_LABELS } from '@/constants/LeagueDefaults';
+import { getLimitablePositions, LeagueWizardState, SPORT_DISPLAY, WAIVER_DAY_LABELS } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { taxiExperienceLabel } from '@/utils/roster/taxiEligibility';
 import { ms, s } from '@/utils/scale';
@@ -65,7 +65,7 @@ export function StepReview({
         )}
         {Object.keys(state.positionLimits).length > 0 && (
           <ThemedText style={[styles.summaryLine, { color: c.secondaryText, marginTop: s(6) }]}>
-            Position Limits: {NBA_POSITIONS.filter((p) => state.positionLimits[p] != null).map((p) => `${p}: ${state.positionLimits[p]}`).join('  |  ')}
+            Position Limits: {getLimitablePositions(state.sport).filter((p) => state.positionLimits[p] != null).map((p) => `${p}: ${state.positionLimits[p]}`).join('  |  ')}
           </ThemedText>
         )}
       </Section>

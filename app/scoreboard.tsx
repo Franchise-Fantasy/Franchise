@@ -23,8 +23,8 @@ import { useColors } from '@/hooks/useColors';
 import { useLeague } from '@/hooks/useLeague';
 import { useWeekScores } from '@/hooks/useWeekScores';
 import { supabase } from '@/lib/supabase';
-import { toDateStr } from '@/utils/dates';
 import { calcRounds, getPlayoffRoundLabel } from '@/utils/league/playoff';
+import { getSportToday } from '@/utils/leagueTime';
 import { ms, s } from '@/utils/scale';
 import { formatScore } from '@/utils/scoring/fantasyPoints';
 
@@ -192,7 +192,7 @@ export default function ScoreboardScreen() {
   // Auto-select current week (or most recent past week) on first load.
   useEffect(() => {
     if (!weeks || weeks.length === 0 || selectedWeekIndex !== null) return;
-    const today = toDateStr(new Date());
+    const today = getSportToday(league?.sport);
     const currentIdx = weeks.findIndex(
       (w) => w.start_date <= today && today <= w.end_date,
     );
@@ -206,7 +206,7 @@ export default function ScoreboardScreen() {
 
   const selectedWeek =
     weeks && selectedWeekIndex !== null ? weeks[selectedWeekIndex] : null;
-  const today = toDateStr(new Date());
+  const today = getSportToday(league?.sport);
   const weekStatus: WeekStatus = selectedWeek
     ? getWeekStatus(selectedWeek, today)
     : 'past';
@@ -414,7 +414,10 @@ export default function ScoreboardScreen() {
                   winningSide={winningSide}
                   roundLabel={labelFor(matchup)}
                   onPress={() =>
-                    router.push(`/matchup-detail/${matchup.id}` as any)
+                    router.navigate({
+                      pathname: '/(tabs)/matchup',
+                      params: { matchupId: matchup.id },
+                    } as any)
                   }
                 />
               );

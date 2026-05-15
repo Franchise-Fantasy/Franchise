@@ -17,6 +17,7 @@ import {
 
 import { NewsCard } from "@/components/player/NewsCard";
 import { PlayerGameLog, PlayerGameLogHeader } from "@/components/player/PlayerGameLog";
+import { PlayerHeadshotImage } from "@/components/player/PlayerHeadshotImage";
 import { PlayerHistory } from "@/components/player/PlayerHistory";
 import { PlayerInsightsCard } from "@/components/player/PlayerInsights";
 import { PreviousSeasons } from "@/components/player/PreviousSeasons";
@@ -41,8 +42,12 @@ import { sendNotification } from "@/lib/notifications";
 import { capture } from "@/lib/posthog";
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
-import { toDateStr } from "@/utils/dates";
 import { formatPosition } from "@/utils/formatting";
+import {
+  getSportToday,
+  getSportTomorrow,
+  nextSlateRollover,
+} from "@/utils/leagueTime";
 import { GameTimeMap, hasAnyGameStarted, isGameStarted, useTodayGameTimes } from "@/utils/nba/gameStarted";
 import { getInjuryBadge } from "@/utils/nba/injuryBadge";
 import {
@@ -50,11 +55,10 @@ import {
   liveToGameLog,
   useLivePlayerStats,
 } from "@/utils/nba/nbaLive";
-import { getPlayerHeadshotUrl, getTeamLogoUrl, PLAYER_SILHOUETTE } from "@/utils/nba/playerHeadshot";
+import { getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
 import { isOnline } from "@/utils/network";
 import { addFreeAgent } from "@/utils/roster/addFreeAgent";
 import { guardIllegalIR } from "@/utils/roster/illegalIR";
-import { isActiveSlot } from "@/utils/roster/resolveSlot";
 import { calculateAge } from "@/utils/roster/rosterAge";
 import { isEligibleForSlot } from "@/utils/roster/rosterSlots";
 import { isTaxiEligible } from "@/utils/roster/taxiEligibility";
@@ -84,6 +88,13 @@ interface PlayerDetailModalProps {
   playerLockType?: "daily" | "individual";
   /** Today's game times passed from FreeAgentList */
   gameTimeMap?: GameTimeMap;
+  /** When true, swap the "Add" CTA for "Draft" — used when this modal is
+   *  opened from inside the draft room. Requires `onDraftPlayer`. */
+  draftMode?: boolean;
+  /** Whether the Draft button should be enabled (typically `isMyTurn && !isDrafting`). */
+  canDraft?: boolean;
+  /** Press handler for the Draft button. Parent owns the draftPlayer mutation. */
+  onDraftPlayer?: (player: PlayerSeasonStats) => void;
 }
 
 export function PlayerDetailModal({
@@ -98,6 +109,9 @@ export function PlayerDetailModal({
   onClaimPlayer,
   ownerTeamName,
   playerLockType,
+  draftMode,
+  canDraft,
+  onDraftPlayer,
   gameTimeMap: parentGameTimeMap,
 }: PlayerDetailModalProps) {
   const router = useRouter();
@@ -767,70 +781,9 @@ export function PlayerDetailModal({
 
     setIsProcessing(true);
     try {
-      // For add-and-drop, check if the dropped player is a starter whose game
-      // has started — if so, queue the drop for tomorrow instead of dropping now.
-      if (playerToDrop && player && parentGameTimeMap && playerLockType) {
-        const { data: droppingLp } = await supabase
-          .from("league_players")
-          .select("roster_slot")
-          .eq("league_id", leagueId)
-          .eq("team_id", teamId)
-          .eq("player_id", dropping.player_id)
-          .single();
-        const droppingSlot = droppingLp?.roster_slot ?? "BE";
-        const droppingIsStarter = isActiveSlot(droppingSlot);
-        const droppingGameStarted =
-          playerLockType === "daily"
-            ? hasAnyGameStarted(parentGameTimeMap)
-            : isGameStarted(dropping.pro_team, parentGameTimeMap);
-
-        if (droppingIsStarter && droppingGameStarted) {
-          // Queue the drop for tomorrow — starter is mid-game
-          const tomorrow = new Date();
-          tomorrow.setDate(tomorrow.getDate() + 1);
-          const executeAfter = toDateStr(tomorrow);
-
-          const { error } = await supabase.from("pending_transactions").insert({
-            league_id: leagueId,
-            team_id: teamId,
-            player_id: dropping.player_id,
-            target_player_id: dropping.player_id,
-            action_type: "drop",
-            execute_after: executeAfter,
-            status: "pending",
-            metadata: { name: dropping.name },
-          });
-          if (error) throw error;
-
-          // Add the new player immediately (lock-aware acquired_at)
-          const { deferred } = await addFreeAgent({
-            leagueId,
-            teamId: teamId!,
-            player: {
-              player_id: player.player_id,
-              name: player.name,
-              position: player.position,
-              pro_team: player.pro_team ?? "",
-            },
-            playerLockType,
-            gameTimeMap: parentGameTimeMap,
-              });
-
-          const addMsg = deferred
-            ? `${player.name} will appear on your roster tomorrow.`
-            : `${player.name} has been added.`;
-          Alert.alert(
-            "Add/Drop",
-            `${addMsg} ${dropping.name} will be dropped tomorrow (currently in lineup).`,
-          );
-          setIsProcessing(false);
-          invalidateRosterQueries();
-          onClose();
-          return;
-        }
-      }
-
-      // For add-and-drop, check weekly acquisition limit before proceeding
+      // For add-and-drop, check weekly acquisition limit before proceeding.
+      // Must run before the queued-drop branch so locked-day add/drops are
+      // also gated by the limit.
       if (playerToDrop && player) {
         const { data: limitData } = await supabase
           .from("leagues")
@@ -874,10 +827,147 @@ export function PlayerDetailModal({
           }
         }
       }
+
+      // For add-and-drop on a locked day, queue the drop for tomorrow so the
+      // dropped player stays visible in today's lineup (any slot — starter,
+      // bench, IR, taxi). process-pending-transactions executes the drop
+      // tomorrow.
+      if (playerToDrop && player && parentGameTimeMap && playerLockType) {
+        const droppingGameStarted =
+          playerLockType === "daily"
+            ? hasAnyGameStarted(parentGameTimeMap)
+            : isGameStarted(dropping.pro_team, parentGameTimeMap);
+
+        if (droppingGameStarted) {
+          // Queue the drop for the next slate rollover (5am ET). Stored as
+          // a timestamptz so the cron fires at the exact rollover moment
+          // regardless of any GM's TZ — see utils/leagueTime.ts.
+          const executeAfter = nextSlateRollover(sport).toISOString();
+
+          const { data: queuedDrop, error } = await supabase
+            .from("pending_transactions")
+            .insert({
+              league_id: leagueId,
+              team_id: teamId,
+              player_id: dropping.player_id,
+              target_player_id: dropping.player_id,
+              action_type: "drop",
+              execute_after: executeAfter,
+              status: "pending",
+              metadata: { name: dropping.name },
+            })
+            .select("id")
+            .single();
+          if (error) throw error;
+
+          // Defer the add to tomorrow as well, so the add/drop applies
+          // atomically — otherwise the added player shows up today while the
+          // dropped player lingers until the cron, putting the team over its
+          // size limit and confusing the user. Roll back the queued drop on
+          // failure so a rejected add doesn't strand the player.
+          try {
+            await addFreeAgent({
+              leagueId,
+              teamId: teamId!,
+              player: {
+                player_id: player.player_id,
+                name: player.name,
+                position: player.position,
+                pro_team: player.pro_team ?? "",
+              },
+              playerLockType,
+              gameTimeMap: parentGameTimeMap,
+              forceDefer: true,
+            });
+          } catch (addErr) {
+            await supabase
+              .from("pending_transactions")
+              .delete()
+              .eq("id", queuedDrop.id);
+            throw addErr;
+          }
+
+          // Write daily_lineups markers so the dropped player vanishes from
+          // tomorrow's roster view immediately, instead of lingering until
+          // the cron runs. Dates are slate-anchored (5am ET) so every GM
+          // sees the same drop date regardless of their physical TZ.
+          try {
+            const todaySlate = getSportToday(sport);
+            const tomorrowSlate = getSportTomorrow(sport);
+            const { data: weekRow } = await supabase
+              .from("league_schedule")
+              .select("start_date")
+              .eq("league_id", leagueId)
+              .lte("start_date", todaySlate)
+              .gte("end_date", todaySlate)
+              .single();
+
+            const { data: droppingLp } = await supabase
+              .from("league_players")
+              .select("roster_slot")
+              .eq("league_id", leagueId)
+              .eq("team_id", teamId)
+              .eq("player_id", dropping.player_id)
+              .single();
+            const droppingSlot = droppingLp?.roster_slot ?? "BE";
+
+            if (weekRow) {
+              await supabase.from("daily_lineups").upsert(
+                {
+                  league_id: leagueId,
+                  team_id: teamId,
+                  player_id: dropping.player_id,
+                  lineup_date: weekRow.start_date,
+                  roster_slot: droppingSlot,
+                },
+                {
+                  onConflict: "team_id,player_id,lineup_date",
+                  ignoreDuplicates: true,
+                },
+              );
+            }
+
+            await supabase.from("daily_lineups").upsert(
+              {
+                league_id: leagueId,
+                team_id: teamId,
+                player_id: dropping.player_id,
+                lineup_date: tomorrowSlate,
+                roster_slot: "DROPPED",
+              },
+              { onConflict: "team_id,player_id,lineup_date" },
+            );
+
+            await supabase
+              .from("daily_lineups")
+              .delete()
+              .eq("league_id", leagueId)
+              .eq("team_id", teamId)
+              .eq("player_id", dropping.player_id)
+              .gt("lineup_date", tomorrowSlate);
+          } catch (lineupErr) {
+            // Non-fatal: the queued drop is still in flight via cron. Log
+            // but don't unwind, since the add already succeeded.
+            console.warn(
+              "Failed to write queued-drop daily_lineups markers — roster will reconcile when cron runs:",
+              lineupErr,
+            );
+          }
+
+          Alert.alert(
+            "Add/Drop",
+            `${player.name} will appear on your roster tomorrow. ${dropping.name} will be dropped tomorrow (currently in lineup).`,
+          );
+          setIsProcessing(false);
+          invalidateRosterQueries();
+          onClose();
+          return;
+        }
+      }
       // Snapshot the player's current slot before deleting so they still
       // appear on prior days of the week. A 'DROPPED' sentinel on today
       // ensures they disappear from today onward.
-      const today = toDateStr(new Date());
+      const today = getSportToday(sport);
       const { data: lpRow } = await supabase
         .from("league_players")
         .select("roster_slot")
@@ -937,29 +1027,15 @@ export function PlayerDetailModal({
         .eq("player_id", dropping.player_id);
       if (delError) throw delError;
 
-      // Put dropped player on waivers if league has waivers enabled
+      // Put dropped player on waivers if league has waivers enabled.
+      // Expiry = next slate rollover (5am ET) + (waiverDays - 1) days, so
+      // a 2-day waiver clears at the rollover boundary two days from now
+      // — consistent for every GM regardless of TZ.
       const wt = rosterInfo?.waiverType ?? "none";
       const wpDays = rosterInfo?.waiverPeriodDays ?? 2;
       if (wt !== "none" && wpDays > 0) {
-        // Round up to the next 6 AM UTC boundary after the waiver period expires
-        // so the displayed time matches the actual cron processing time
-        const raw = new Date();
-        raw.setDate(raw.getDate() + wpDays);
-        const until = new Date(
-          Date.UTC(
-            raw.getUTCFullYear(),
-            raw.getUTCMonth(),
-            raw.getUTCDate(),
-            6,
-            0,
-            0,
-            0,
-          ),
-        );
-        // If the raw time is already past 6 AM UTC on that day, push to next day
-        if (raw.getTime() > until.getTime()) {
-          until.setUTCDate(until.getUTCDate() + 1);
-        }
+        const until = nextSlateRollover(sport);
+        until.setUTCDate(until.getUTCDate() + (wpDays - 1));
         await supabase.from("league_waivers").insert({
           league_id: leagueId,
           player_id: dropping.player_id,
@@ -1085,7 +1161,7 @@ export function PlayerDetailModal({
     if (!teamId || !player) return;
     setIsProcessing(true);
     try {
-      const today = toDateStr(new Date());
+      const today = getSportToday(sport);
 
       // Check if the player's game is in progress — defer to tomorrow if so
       const isLocked =
@@ -1093,9 +1169,7 @@ export function PlayerDetailModal({
         (playerLockType === "individual" && playerGameStarted);
 
       if (isLocked) {
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        const tomorrowStr = toDateStr(tomorrow);
+        const tomorrowStr = getSportTomorrow(sport);
 
         // Pin today's slot so the player stays in their current position today
         await supabase.from("daily_lineups").upsert(
@@ -1235,7 +1309,7 @@ export function PlayerDetailModal({
         return;
       }
 
-      const today = toDateStr(new Date());
+      const today = getSportToday(sport);
 
       // Write daily_lineups so roster/matchup pages reflect the activation immediately
       await supabase.from("daily_lineups").upsert(
@@ -1284,7 +1358,7 @@ export function PlayerDetailModal({
     setIsProcessing(true);
     try {
       // ── Snapshot & drop the selected player ──
-      const today = toDateStr(new Date());
+      const today = getSportToday(sport);
       const { data: lpRow } = await supabase
         .from("league_players")
         .select("roster_slot")
@@ -1340,18 +1414,12 @@ export function PlayerDetailModal({
         .eq("player_id", playerToDrop.player_id);
       if (delError) throw delError;
 
-      // Place on waivers
+      // Place on waivers — slate-anchored expiry, matches handleDropPlayer.
       const wt = rosterInfo?.waiverType ?? "none";
       const wpDays = rosterInfo?.waiverPeriodDays ?? 2;
       if (wt !== "none" && wpDays > 0) {
-        const raw = new Date();
-        raw.setDate(raw.getDate() + wpDays);
-        const until = new Date(
-          Date.UTC(raw.getUTCFullYear(), raw.getUTCMonth(), raw.getUTCDate(), 6, 0, 0, 0),
-        );
-        if (raw.getTime() > until.getTime()) {
-          until.setUTCDate(until.getUTCDate() + 1);
-        }
+        const until = nextSlateRollover(sport);
+        until.setUTCDate(until.getUTCDate() + (wpDays - 1));
         await supabase.from("league_waivers").insert({
           league_id: leagueId,
           player_id: playerToDrop.player_id,
@@ -1572,9 +1640,9 @@ export function PlayerDetailModal({
         return;
       }
 
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const executeAfter = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
+      // Slate-anchored: cron fires at the precise next 5am ET rollover, and
+      // the DROPPED daily_lineups marker uses the tomorrow slate date.
+      const executeAfter = nextSlateRollover(sport).toISOString();
 
       const { error } = await supabase.from("pending_transactions").insert({
         league_id: leagueId,
@@ -1585,6 +1653,69 @@ export function PlayerDetailModal({
         status: "pending",
       });
       if (error) throw error;
+
+      // Write daily_lineups markers so the dropped player vanishes from
+      // tomorrow's roster view immediately.
+      try {
+        const todaySlate = getSportToday(sport);
+        const tomorrowSlate = getSportTomorrow(sport);
+        const { data: weekRow } = await supabase
+          .from("league_schedule")
+          .select("start_date")
+          .eq("league_id", leagueId)
+          .lte("start_date", todaySlate)
+          .gte("end_date", todaySlate)
+          .single();
+
+        const { data: droppingLp } = await supabase
+          .from("league_players")
+          .select("roster_slot")
+          .eq("league_id", leagueId)
+          .eq("team_id", teamId)
+          .eq("player_id", player.player_id)
+          .single();
+        const droppingSlot = droppingLp?.roster_slot ?? "BE";
+
+        if (weekRow) {
+          await supabase.from("daily_lineups").upsert(
+            {
+              league_id: leagueId,
+              team_id: teamId,
+              player_id: player.player_id,
+              lineup_date: weekRow.start_date,
+              roster_slot: droppingSlot,
+            },
+            {
+              onConflict: "team_id,player_id,lineup_date",
+              ignoreDuplicates: true,
+            },
+          );
+        }
+
+        await supabase.from("daily_lineups").upsert(
+          {
+            league_id: leagueId,
+            team_id: teamId,
+            player_id: player.player_id,
+            lineup_date: tomorrowSlate,
+            roster_slot: "DROPPED",
+          },
+          { onConflict: "team_id,player_id,lineup_date" },
+        );
+
+        await supabase
+          .from("daily_lineups")
+          .delete()
+          .eq("league_id", leagueId)
+          .eq("team_id", teamId)
+          .eq("player_id", player.player_id)
+          .gt("lineup_date", tomorrowSlate);
+      } catch (lineupErr) {
+        console.warn(
+          "Failed to write queued-drop daily_lineups markers — roster will reconcile when cron runs:",
+          lineupErr,
+        );
+      }
 
       Alert.alert("Drop Queued", `${player.name} will be dropped tomorrow.`);
       onClose();
@@ -1626,12 +1757,6 @@ export function PlayerDetailModal({
         gameTimeMap={gameTimeMap}
         translateY={translateY}
         panHandlers={panResponder.panHandlers}
-        colors={{
-          background: c.background,
-          border: c.border,
-          secondaryText: c.secondaryText,
-          accent: c.accent,
-        }}
         onClose={handleClose}
         onDismissDropPicker={() => {
           setShowDropPicker(false);
@@ -1660,31 +1785,19 @@ export function PlayerDetailModal({
             <View style={[styles.header, { borderBottomColor: c.border }]}>
               {/* Portrait with injury chip */}
               <View style={styles.headerHeadshotWrap}>
-                {(() => {
-                  const headshotUrl = getPlayerHeadshotUrl(
-                    player.external_id_nba,
-                    sport,
-                    "1040x760",
-                  );
-                  return (
-                    <View
-                      style={[
-                        styles.headerHeadshotCircle,
-                        { borderColor: c.heritageGold, backgroundColor: c.cardAlt },
-                      ]}
-                      accessibilityLabel={`${player.name} headshot`}
-                    >
-                      <Image
-                        source={headshotUrl ? { uri: headshotUrl } : PLAYER_SILHOUETTE}
-                        style={styles.headerHeadshotImg}
-                        contentFit="cover"
-                        cachePolicy="memory-disk"
-                        recyclingKey={headshotUrl ?? "silhouette"}
-                        placeholder={PLAYER_SILHOUETTE}
-                      />
-                    </View>
-                  );
-                })()}
+                <View
+                  style={[
+                    styles.headerHeadshotCircle,
+                    { borderColor: c.heritageGold, backgroundColor: c.cardAlt },
+                  ]}
+                  accessibilityLabel={`${player.name} headshot`}
+                >
+                  <PlayerHeadshotImage
+                    externalIdNba={player.external_id_nba}
+                    sport={sport}
+                    style={styles.headerHeadshotImg}
+                  />
+                </View>
                 {(() => {
                   const badge = getInjuryBadge(player.status);
                   return badge ? (
@@ -1735,6 +1848,7 @@ export function PlayerDetailModal({
                             proposePlayerPos: player.position,
                             proposePlayerTeam: player.pro_team,
                             proposePlayerFpts: avgFpts != null ? String(avgFpts) : undefined,
+                            proposePlayerExternalId: player.external_id_nba ?? undefined,
                           },
                         });
                       }}
@@ -2004,6 +2118,26 @@ export function PlayerDetailModal({
                             />
                           </TouchableOpacity>
                         </>
+                      ) : draftMode ? (
+                        <TouchableOpacity
+                          style={[
+                            styles.headerBtn,
+                            { backgroundColor: c.primary },
+                            !canDraft && styles.buttonDisabled,
+                          ]}
+                          onPress={() => {
+                            if (!canDraft || !onDraftPlayer) return;
+                            onDraftPlayer(player);
+                            onClose();
+                          }}
+                          disabled={!canDraft}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Draft ${player.name}`}
+                        >
+                          <ThemedText style={[styles.headerBtnText, { color: c.onPrimary }]}>
+                            Draft
+                          </ThemedText>
+                        </TouchableOpacity>
                       ) : isFreeAgent ? (
                         <TouchableOpacity
                           style={[

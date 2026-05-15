@@ -1,0 +1,288 @@
+Hey, can you take a look at the copy for the Franchise landing site? Here's everything that's written, in the order it appears on the page. Legal pages (privacy + terms) are at the bottom.
+
+
+=========================================
+1) METADATA (browser tab + social shares)
+=========================================
+
+Site-wide:
+- Default tab title: Franchise | Dynasty Fantasy Basketball
+- Default meta description: Dynasty-first fantasy basketball. Build, manage, and evolve a franchise over time — with every decision carrying weight across seasons.
+- OpenGraph title: Franchise | Dynasty Fantasy Basketball
+- OpenGraph description: Own the dynasty. Year-round fantasy basketball, built for the long game.
+- Twitter title: Franchise
+- Twitter description: Own the dynasty.
+
+Home page (overrides default):
+- Tab title: Franchise | Own the Dynasty
+- Meta description: Dynasty-first fantasy basketball. Build, manage, and evolve a franchise over time. Year-round engagement, lower barrier to entry.
+
+Privacy page:
+- Tab title: Privacy Policy | Franchise Fantasy
+- Meta description: How Franchise Fantasy collects, uses, and protects your personal information.
+
+Terms page:
+- Tab title: Terms of Service | Franchise Fantasy
+- Meta description: The terms that govern your use of the Franchise Fantasy app.
+
+
+=========================================
+2) HEADER (sticky top of page)
+=========================================
+
+Logo: Franchise wordmark image (alt text: "Franchise")
+Theme toggle aria-label: Switch to light mode / Switch to dark mode
+CTA button: Join Waitlist
+CTA button aria-label: Join the waitlist
+
+
+=========================================
+3) HERO
+=========================================
+
+Headline (two lines, big varsity script):
+Build a
+dynasty.
+
+Lead paragraph:
+Franchise is a dynasty-first fantasy basketball platform built for the long game. You don't just draft a team, you'll build, manage, and evolve a franchise over time, with every decision carrying weight across seasons.
+
+Subline (two lines, smaller):
+Where traditional fantasy is seasonal, Franchise is year-round.
+(Keeper and redraft leagues, too.)
+
+Primary CTA: Join the Waitlist
+Secondary CTA: See What's Different
+
+Tagline row (three pills with gold dashes between):
+Strategic — Immersive — Personal
+
+
+=========================================
+4) FEATURE GRID
+=========================================
+
+Section heading (two lines):
+Built for the
+long game.
+
+Section subhead:
+We centralize what dynasty players piece together across spreadsheets, group chats, and side tools, in one cohesive and intuitive system.
+
+Eight tiles (numbered 01–07, then "++" for the finale tile):
+
+01. Real pick swaps & protections
+Trade swap rights separately from the pick itself. Set top-N protections with a slider. The way the NBA does it.
+
+02. Multi-team trades
+Not just two-team swaps. Build deals across multiple teams and see how the math shakes out for everyone involved.
+
+03. A trade block that works
+Post who's available, see who's interested, start a deal from there. No more fishing in group chat.
+
+04. Consistency scouting
+Know if a guy is steady or a rollercoaster before you trade for him. Per-category breakdowns for H2H leagues.
+
+05. Your own prospect board
+Rank rookies your way, then see where you agree and disagree with staff consensus. Prep for your draft years out.
+
+06. Payments built in
+Track who's paid, nudge who hasn't. Venmo and Cash App links ready to go. Commissioners, you're welcome.
+
+07. Commissioner tools that save time
+Force moves, league announcements, division assignments, and trade reversals — without digging through menus.
+
+++ …and plenty more to discover
+Weighted roster age, category heatmaps, aging curves, draft capital views, lottery reveals, league records — the list keeps growing.
+
+
+=========================================
+5) FEATURE SHOWCASE — three full-bleed colored panels
+=========================================
+
+--- Panel 1 (Turf Green background) ---
+Title: Trading the way you've always wanted to.
+Lead: Counter-offers that go back and forth. Pick protections you can actually adjust. Multi-team deals that don't require a group text and a spreadsheet. And if you want to stir the pot — leak a rumor into chat before the deal goes through.
+Bullets:
+- Live fairness score so nobody gets fleeced quietly
+- Trade block with private interest tracking
+- Commissioner veto or league vote — your league decides
+- Full trade history so nothing gets lost
+
+--- Panel 2 (Merlot background) ---
+Title: Numbers you'll actually look at.
+Lead: Not just season averages. How does he play on back-to-backs? Does he bounce back after bad games? Is his usage trending up or are his minutes slipping? The stuff that changes your decision, not just confirms it.
+Bullets:
+- Home/away and back-to-back splits with real context
+- Category strengths ranked against the whole league
+- Aging curves built around your scoring settings
+- Adjustable game window — compare last 10 to season-long
+
+--- Panel 3 (Vintage Gold background) ---
+Title: Built for leagues that come back every year.
+Lead: Keeper declarations with real-time progress so your commissioner isn't chasing people down. A draft lottery with an actual animated reveal. Prospect boards you can build years before a class is draft-eligible. This isn't a one-season app.
+Bullets:
+- Full league history with trophy case and records
+- Head-to-head matrix across every season
+- Draft capital view by year and by team
+- Landing spot odds for incoming prospects
+
+
+=========================================
+6) IMPORT SECTION
+=========================================
+
+Heading: You don't have to start over.
+
+Body:
+The biggest reason people don't switch is because rebuilding a league from scratch feels like a second job. So we made it easy — import your rosters, settings, draft history, and records. Your league picks up right where it left off.
+
+Numbered list (01–04):
+01. Rosters
+02. Scoring settings
+03. Draft history
+04. League records
+
+Footnote: Up and running in minutes, not hours.
+
+
+=========================================
+7) WAITLIST SIGNUP (Merlot background)
+=========================================
+
+Heading: Get in early.
+Subhead: Join the TestFlight waitlist. We'll send you a link when it's your turn.
+Email field placeholder: you@email.com
+Submit button: Join (shows "..." while submitting)
+Success heading: You're in.
+Success subline: We'll email you when it's time.
+Duplicate email message: Already on the list. We'll be in touch.
+Generic error: Something went wrong. Try again.
+Disclaimer: No spam. Only Franchise updates.
+
+
+=========================================
+8) FOOTER
+=========================================
+
+Patch wordmark image (alt: "Franchise")
+Links: Privacy / Terms
+Copyright: © {current year} Franchise Fantasy
+
+
+=========================================
+9) PRIVACY POLICY (/privacy)
+=========================================
+
+Heading: Privacy Policy
+
+Last updated: April 2026
+
+1. Information We Collect
+
+Account Information: When you create an account with email and password, we collect your email address and a password hash (stored securely via Supabase Auth). If you sign in with a third-party identity provider (Google or Apple), we receive a unique user identifier from that provider and your email address (or, in the case of Sign in with Apple, an Apple private relay email if you choose to hide your real address). We never receive or store your Google or Apple account password. On first sign-in with Apple, you may also choose to share your name; if provided, we store it on your account profile.
+
+Usage Data: We collect information about how you use the App, including league participation, roster changes, and trade activity. This data is used to provide the App's core functionality.
+
+Device Information: We may collect device identifiers and push notification tokens to deliver notifications you've opted into.
+
+2. How We Use Your Information
+- To provide and maintain the App's functionality
+- To authenticate you when you sign in (including via Google or Apple)
+- To send push notifications you've enabled (draft alerts, trade updates, etc.)
+- To display league standings, matchups, and statistics
+- To communicate important account or service updates
+
+3. Data Sharing
+
+We do not sell your personal information. We share data only with:
+- Supabase (database and authentication provider)
+- Google and Apple (only when you choose to sign in with one of these providers; we exchange authentication tokens with them to verify your identity)
+- Expo (push notification delivery)
+- Other users in your league (team name, roster, trade history — as part of gameplay)
+
+4. Push Notifications
+
+The App uses push notifications with 11 configurable categories. You can enable or disable each category in Notification Preferences, or disable all notifications from your Profile page.
+
+5. Data Retention
+
+Your data is retained as long as your account is active. When you delete your account, we delete your personal data, team data, and push notification tokens.
+
+6. Data Security
+
+We use Supabase Row Level Security (RLS) to ensure users can only access data they are authorized to view. Authentication tokens are stored securely on your device.
+
+7. Children's Privacy
+
+The App is not intended for children under 13. We do not knowingly collect data from children under 13.
+
+8. Your Rights
+
+You have the right to:
+- Access your personal data (visible in your Profile)
+- Delete your account and associated data (Profile > Delete Account)
+- Control push notification preferences
+- Export your data by contacting us
+
+9. Changes to This Policy
+
+We may update this Privacy Policy at any time. We will notify you of material changes through the App.
+
+10. Contact
+
+For privacy questions or data requests, please contact us through the App.
+
+
+=========================================
+10) TERMS OF SERVICE (/terms)
+=========================================
+
+Heading: Terms of Service
+
+Last updated: April 2026
+
+1. Acceptance of Terms
+
+By creating an account or using the Franchise app ("App"), you agree to these Terms of Service ("Terms"). If you do not agree, do not use the App.
+
+2. Description of Service
+
+Franchise is a fantasy basketball application that allows users to create and join leagues, draft players, manage rosters, trade with other users, and compete in fantasy matchups. The App is provided for entertainment purposes.
+
+3. Account Registration
+
+You may create an account using an email address and password, or by signing in with a third-party identity provider such as Google or Apple (Sign in with Apple). If you use Sign in with Apple, you may choose to hide your email address; the App will still function normally with the private relay email Apple provides. You are responsible for maintaining the security of your account and the credentials of any third-party provider used to sign in. You must be at least 13 years old to use the App.
+
+4. User Conduct
+
+You agree not to:
+- Use the App for any unlawful purpose
+- Attempt to gain unauthorized access to other users' accounts
+- Interfere with or disrupt the App's functionality
+- Use automated tools or bots to interact with the App
+- Harass, abuse, or harm other users
+
+5. Intellectual Property
+
+The App, including its design, features, and content, is owned by Franchise. NBA and WNBA team names, player names, and statistics are used for informational and entertainment purposes under fair use.
+
+6. Termination
+
+We may suspend or terminate your account at any time for violation of these Terms. You may delete your account at any time through the App settings.
+
+7. Disclaimer of Warranties
+
+The App is provided "as is" without warranties of any kind. We do not guarantee uninterrupted access, accuracy of statistics, or availability of features.
+
+8. Limitation of Liability
+
+To the maximum extent permitted by law, Franchise shall not be liable for any indirect, incidental, or consequential damages arising from your use of the App.
+
+9. Changes to Terms
+
+We may update these Terms at any time. Continued use of the App after changes constitutes acceptance of the updated Terms.
+
+10. Contact
+
+For questions about these Terms, please contact us through the App.

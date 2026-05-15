@@ -607,6 +607,7 @@ export default function LeagueInfoScreen() {
             visible={showRosterModal}
             onClose={() => setShowRosterModal(false)}
             leagueId={leagueId}
+            sport={(league?.sport as 'nba' | 'wnba') ?? 'nba'}
             rosterConfig={rosterConfig}
             positionLimits={league?.position_limits as Record<string, number> | null}
           />

@@ -1,3 +1,5 @@
+import type { ImageStyle } from 'react-native';
+
 import type { Sport } from '@/constants/LeagueDefaults';
 
 // Self-hosted assets in Supabase Storage. Public read, no token required.
@@ -10,6 +12,14 @@ const STORAGE_BASE = 'https://iuqbossmnsezzgocpcbo.supabase.co/storage/v1/object
 // whose source CDN 404'd during seeding still render a recognizable figure
 // instead of an empty circle. Regenerate via `scripts/generate-silhouette.mjs`.
 export const PLAYER_SILHOUETTE = require('@/assets/images/player-silhouette.png');
+
+// ESPN's WNBA headshot CDN frames players with noticeably more headroom
+// than cdn.nba.com does, so dropped into our circle layouts (which lean the
+// image to the bottom edge) the head sits a bit too low. Apply this style
+// only on WNBA real headshots — not on the silhouette fallback.
+export const WNBA_HEADSHOT_OFFSET: ImageStyle = {
+  transform: [{ translateY: '-10%' }],
+};
 
 /**
  * Returns the headshot URL for a player, or null if no external ID is set.

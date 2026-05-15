@@ -1,8 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useCallback } from 'react';
-import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flatlist';
 
+import { PlayerHeadshotImage } from '@/components/player/PlayerHeadshotImage';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
@@ -13,7 +15,7 @@ import { useDraftQueue , QueuedPlayer } from '@/hooks/useDraftQueue';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { formatPosition } from '@/utils/formatting';
 import { getInjuryBadge } from '@/utils/nba/injuryBadge';
-import { getPlayerHeadshotUrl, getTeamLogoUrl, PLAYER_SILHOUETTE } from '@/utils/nba/playerHeadshot';
+import { getTeamLogoUrl } from '@/utils/nba/playerHeadshot';
 import { ms, s } from '@/utils/scale';
 import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
 
@@ -31,7 +33,7 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
   const sport = useActiveLeagueSport(leagueId);
   const isMyTurn = currentPick?.current_team_id === teamId;
 
-  const { queue, isLoading, removeFromQueue, moveUp, moveDown } = useDraftQueue(draftId, teamId, leagueId);
+  const { queue, isLoading, removeFromQueue, moveUp, moveDown, reorderQueue } = useDraftQueue(draftId, teamId, leagueId);
   const { data: scoringWeights } = useLeagueScoring(leagueId);
   const { mutate: draftPlayer, isPending: isDrafting } = useDraftPlayer(leagueId, draftId);
 
@@ -45,11 +47,11 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
     });
   }, [isMyTurn, currentPick, draftPlayer]);
 
-  const renderItem = useCallback(({ item, index }: { item: QueuedPlayer; index: number }) => {
+  const renderItem = useCallback(({ item, getIndex, drag, isActive }: RenderItemParams<QueuedPlayer>) => {
+    const index = getIndex() ?? 0;
     const fpts = scoringWeights
       ? calculateAvgFantasyPoints(item.player, scoringWeights)
       : undefined;
-    const headshotUrl = getPlayerHeadshotUrl(item.player.external_id_nba, sport);
     const logoUrl = getTeamLogoUrl(item.player.pro_team, sport);
     const badge = getInjuryBadge(item.player.status);
     const isSuggested = isMyTurn && index === 0;
@@ -58,25 +60,35 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
       <View
         style={[
           styles.row,
-          { borderBottomColor: c.border },
+          { borderBottomColor: c.border, backgroundColor: c.background },
           isSuggested && { backgroundColor: c.activeCard },
+          isActive && { backgroundColor: c.cardAlt, opacity: 0.95 },
           index === queue.length - 1 && { borderBottomWidth: 0 },
         ]}
         accessibilityLabel={`Queue position ${index + 1}, ${item.player.name}, ${formatPosition(item.player.position)}${isSuggested ? ', suggested pick' : ''}`}
       >
+        {/* Drag handle — long-press to reorder. Touch-start on the icon
+            starts the drag; the rest of the row stays tappable for actions. */}
+        <TouchableOpacity
+          style={styles.dragHandle}
+          onLongPress={drag}
+          delayLongPress={150}
+          accessibilityRole="button"
+          accessibilityLabel={`Reorder ${item.player.name} — long press and drag`}
+        >
+          <Ionicons name="reorder-three" size={18} color={c.secondaryText} />
+        </TouchableOpacity>
+
         {/* Rank number */}
         <ThemedText style={[styles.rank, { color: c.secondaryText }]}>{index + 1}</ThemedText>
 
         {/* Player portrait */}
         <View style={styles.portraitWrap}>
           <View style={[styles.headshotCircle, { borderColor: c.heritageGold, backgroundColor: c.cardAlt }]}>
-            <Image
-              source={headshotUrl ? { uri: headshotUrl } : PLAYER_SILHOUETTE}
+            <PlayerHeadshotImage
+              externalIdNba={item.player.external_id_nba}
+              sport={sport}
               style={styles.headshotImg}
-              contentFit="cover"
-              cachePolicy="memory-disk"
-              recyclingKey={headshotUrl ?? "silhouette"}
-              placeholder={PLAYER_SILHOUETTE}
             />
           </View>
           <View style={styles.teamPill}>
@@ -189,11 +201,21 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
           </ThemedText>
         </View>
       )}
-      <FlatList<QueuedPlayer>
+      <DraggableFlatList<QueuedPlayer>
         data={queue}
         renderItem={renderItem}
         keyExtractor={(item) => item.queue_id}
         contentContainerStyle={styles.listContent}
+        onDragEnd={({ data }) => {
+          // Skip the round-trip if order didn't change (drag started but
+          // released in the same slot).
+          for (let i = 0; i < data.length; i++) {
+            if (data[i].queue_id !== queue[i]?.queue_id) {
+              reorderQueue(data.map((d) => d.queue_id));
+              return;
+            }
+          }
+        }}
       />
     </View>
   );
@@ -216,8 +238,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: s(8),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  dragHandle: {
+    paddingHorizontal: s(2),
+    paddingVertical: s(4),
+    marginRight: s(2),
+  },
   rank: {
-    width: s(24),
+    width: s(20),
     fontSize: ms(13),
     fontWeight: '700',
     textAlign: 'center',

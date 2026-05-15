@@ -2,18 +2,12 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { notifyLeague } from '../_shared/push.ts';
 import { snapshotBeforeDrop } from '../_shared/snapshotBeforeDrop.ts';
+import { nextSlateRollover } from '../../../utils/leagueTime.ts';
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SB_SECRET_KEY")!,
 );
-
-function toDateStr(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
 
 Deno.serve(async (req: Request) => {
   const cronSecret = Deno.env.get('CRON_SECRET');
@@ -24,13 +18,13 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  const today = toDateStr(new Date());
-
+  // execute_after is now a timestamptz holding the precise rollover moment;
+  // fire whenever that moment has passed regardless of UTC vs ET calendar day.
   const { data: pending, error: fetchErr } = await supabase
     .from("pending_transactions")
     .select("*")
     .eq("status", "pending")
-    .lte("execute_after", today);
+    .lte("execute_after", new Date().toISOString());
 
   if (fetchErr) {
     return new Response(
@@ -68,14 +62,16 @@ Deno.serve(async (req: Request) => {
           .eq("league_id", txn.league_id).eq("team_id", txn.team_id).eq("player_id", txn.player_id);
         if (delError) throw delError;
 
-        // Place dropped player on waivers so they don't become an instant free agent
+        // Place dropped player on waivers so they don't become an instant
+        // free agent. Expiry = next slate rollover + (waiverDays - 1) days,
+        // so a 2-day waiver clears at the slate-rollover boundary two days
+        // out — consistent for every GM regardless of TZ.
         if (leagueWaiverType !== 'none' && leagueWaiverDays > 0) {
-          const raw = new Date();
-          raw.setDate(raw.getDate() + leagueWaiverDays);
-          const until = new Date(Date.UTC(
-            raw.getUTCFullYear(), raw.getUTCMonth(), raw.getUTCDate(), 6, 0, 0, 0,
-          ));
-          if (raw.getTime() > until.getTime()) until.setUTCDate(until.getUTCDate() + 1);
+          const { data: leagueSport } = await supabase
+            .from('leagues').select('sport').eq('id', txn.league_id).single();
+          const sport = leagueSport?.sport ?? null;
+          const until = nextSlateRollover(sport);
+          until.setUTCDate(until.getUTCDate() + (leagueWaiverDays - 1));
 
           await supabase.from('league_waivers').insert({
             league_id: txn.league_id,

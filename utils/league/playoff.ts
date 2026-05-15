@@ -30,7 +30,7 @@ export function calcRounds(playoffTeams: number): number {
 
 /**
  * Human-readable label for a playoff round. Matches the conventions used in
- * schedule, scoreboard, and matchup-detail views.
+ * schedule, scoreboard, and matchup views.
  *   round === totalRounds       → "Finals"
  *   round === totalRounds - 1   → "Semifinals"
  *   round === totalRounds - 2   → "Quarterfinals"

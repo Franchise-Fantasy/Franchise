@@ -21,16 +21,34 @@ function bdlPrefix(sport: Sport): string {
   return sport === "wnba" ? "/wnba/v1" : "/v1";
 }
 
+/**
+ * Per-sport path renames. BDL's WNBA API uses `/player_stats` where the NBA
+ * API uses `/stats` — same response shape, different route. Callers pass the
+ * NBA-style path and we translate for WNBA so call sites stay sport-agnostic.
+ */
+function resolvePath(sport: Sport, path: string): string {
+  if (sport === "wnba") {
+    if (path === "/stats" || path.startsWith("/stats?")) {
+      return "/player_stats" + path.slice("/stats".length);
+    }
+  }
+  return path;
+}
+
 /** Single BDL request with API key auth, scoped to the given sport. */
 export async function bdlFetch(
   sport: Sport,
   path: string,
-  params?: Record<string, string>,
+  params?: Record<string, string | string[]>,
 ): Promise<any> {
-  const url = new URL(`${BDL_HOST}${bdlPrefix(sport)}${path}`);
+  const url = new URL(`${BDL_HOST}${bdlPrefix(sport)}${resolvePath(sport, path)}`);
   if (params) {
     for (const [k, v] of Object.entries(params)) {
-      url.searchParams.append(k, v);
+      if (Array.isArray(v)) {
+        for (const item of v) url.searchParams.append(k, item);
+      } else {
+        url.searchParams.append(k, v);
+      }
     }
   }
 
@@ -81,13 +99,48 @@ export async function bdlFetchAll(
  * Map BDL game status string to numeric game_status used in the DB.
  * 1 = scheduled, 2 = live, 3 = final.
  *
- * NBA reports "Q1"/"Q3"/"OT". WNBA reports the same. Halftime appears as "Half"
- * in both feeds. The regex covers both.
+ * NBA reports "Q1"/"Q3"/"OT" while in-progress and "Final" when over.
+ * WNBA reports the verbatim strings "pre" / "in" / "post" for the three
+ * lifecycle states. Halftime appears as "Half" in NBA feeds.
  */
 export function mapGameStatus(status: string): number {
-  if (status === "Final") return 3;
+  if (status === "Final" || status === "post") return 3;
+  if (status === "in") return 2;
   if (/Qtr|Half|OT|Q\d/i.test(status)) return 2;
   return 1;
+}
+
+/**
+ * Convert a BDL game's UTC date/datetime to the ET "slate date" it belongs to.
+ * Slate date = ET calendar date, except tipoffs before 5am ET are bucketed
+ * back to the previous day so a 10pm ET tipoff (= 02:00 UTC next day) still
+ * groups with the previous night's slate. Returns null if input is missing or
+ * unparseable.
+ *
+ * If the input has no time component (e.g. NBA's `date: "YYYY-MM-DD"`), the
+ * date is returned as-is — BDL's plain date already matches the schedule day.
+ */
+export function bdlGameSlateDate(input: string | null | undefined): string | null {
+  if (!input) return null;
+  if (input.length <= 10) return input.slice(0, 10);
+  const d = new Date(input);
+  if (Number.isNaN(d.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", hourCycle: "h23",
+  }).formatToParts(d);
+  const y = parts.find(p => p.type === "year")?.value;
+  const m = parts.find(p => p.type === "month")?.value;
+  const day = parts.find(p => p.type === "day")?.value;
+  const hourStr = parts.find(p => p.type === "hour")?.value;
+  if (!y || !m || !day || !hourStr) return null;
+  if (parseInt(hourStr, 10) < 5) {
+    const prev = new Date(`${y}-${m}-${day}T12:00:00Z`);
+    prev.setUTCDate(prev.getUTCDate() - 1);
+    return prev.toISOString().slice(0, 10);
+  }
+  return `${y}-${m}-${day}`;
 }
 
 /**
@@ -110,19 +163,38 @@ export function toIsoDuration(time: string): string {
 }
 
 /**
- * Coerce BDL position strings to the app's PG/SG/SF/PF/C spectrum.
+ * Coerce BDL position strings to a normalized form per sport.
  *
- * NBA BDL uses granular ("PG", "SG", "G-F" etc.) and matches the app spectrum.
- * WNBA BDL also reports granular positions for most players, but some entries
- * are just "G", "F", or "G-F". We map ambiguous tokens to the closest spectrum
- * point so eligibility logic in `utils/rosterSlots.ts` keeps working.
+ * NBA: BDL mostly returns granular tokens (PG/SG/SF/PF/C, G-F, F-C, …)
+ * that already match the app spectrum. The few bare-letter tokens
+ * ("G"/"F") get nudged into the spectrum so Sleeper-spectrum-aware
+ * roster logic keeps working — Sleeper enrichment in `sync-players`
+ * almost always overrides these anyway.
+ *
+ * WNBA: BDL returns mostly bare-letter tokens ("G", "F", "C") plus a
+ * few hyphenated combos. Pass them through verbatim — WNBA leagues use
+ * G/F/C roster slots (no PG/SG/SF/PF), and `getEligiblePositions`
+ * expands "G" → PG-SG and "F" → SF-PF so slot eligibility still works.
+ * Hyphen direction is normalized so "F-G"/"C-F" don't create duplicate
+ * spelling variants alongside "G-F"/"F-C".
  */
-export function coerceBdlPosition(raw: string | null | undefined): string | null {
+export function coerceBdlPosition(
+  raw: string | null | undefined,
+  sport: Sport = "nba",
+): string | null {
   if (!raw) return null;
   const trimmed = raw.trim().toUpperCase();
   if (!trimmed) return null;
 
-  const map: Record<string, string> = {
+  if (sport === "wnba") {
+    const wnbaMap: Record<string, string> = {
+      "F-G": "G-F",
+      "C-F": "F-C",
+    };
+    return wnbaMap[trimmed] ?? trimmed;
+  }
+
+  const nbaMap: Record<string, string> = {
     "G": "SG",
     "F": "SF",
     "G-F": "SG-SF",
@@ -130,6 +202,5 @@ export function coerceBdlPosition(raw: string | null | undefined): string | null
     "F-C": "PF-C",
     "C-F": "PF-C",
   };
-
-  return map[trimmed] ?? trimmed;
+  return nbaMap[trimmed] ?? trimmed;
 }

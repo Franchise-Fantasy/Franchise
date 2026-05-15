@@ -3,29 +3,33 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FreeAgentList } from '@/components/player/FreeAgentList';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 
 export default function FreeAgentsScreen() {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const { leagueId, teamId } = useAppState();
 
   if (!leagueId || !teamId) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]} accessibilityLabel="Players">
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: c.background }]}
+        accessibilityLabel="Players"
+      >
         <View style={styles.empty} accessibilityRole="summary">
           <ThemedText style={{ color: c.secondaryText }}>
             Join a league to browse players.
           </ThemedText>
         </View>
-      </SafeAreaView> 
+      </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]} edges={['top', 'left', 'right']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: c.background }]}
+      edges={['top', 'left', 'right']}
+    >
       <FreeAgentList leagueId={leagueId} teamId={teamId} />
     </SafeAreaView>
   );

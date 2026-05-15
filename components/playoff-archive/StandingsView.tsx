@@ -78,7 +78,7 @@ function ConferenceTable({
 }) {
   return (
     <View>
-      <View style={styles.headerRow}>
+      <View style={[styles.headerRow, { borderBottomColor: c.border }]}>
         <View style={[styles.headerRule, { backgroundColor: c.heritageGold }]} />
         <ThemedText
           type="varsity"
@@ -87,12 +87,7 @@ function ConferenceTable({
         >
           {label}
         </ThemedText>
-      </View>
-
-      {/* Column header */}
-      <View style={[styles.columnHeader, { borderBottomColor: c.border }]}>
-        <View style={styles.seedCol} />
-        <View style={styles.teamCol} />
+        <View style={styles.headerSpacer} />
         <ThemedText style={[styles.colHeaderText, { color: c.secondaryText }]}>W</ThemedText>
         <ThemedText style={[styles.colHeaderText, { color: c.secondaryText }]}>L</ThemedText>
         <ThemedText style={[styles.colHeaderText, { color: c.secondaryText }]}>PCT</ThemedText>
@@ -184,7 +179,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: s(8),
-    marginBottom: s(8),
+    marginBottom: s(4),
+    paddingBottom: s(6),
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   headerRule: {
     height: 2,
@@ -193,14 +190,8 @@ const styles = StyleSheet.create({
   headerLabel: {
     fontSize: ms(12),
   },
+  headerSpacer: { flex: 1, minWidth: 0 },
 
-  columnHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: s(6),
-    paddingHorizontal: s(2),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
   colHeaderText: {
     fontFamily: Fonts.mono,
     fontSize: ms(10),

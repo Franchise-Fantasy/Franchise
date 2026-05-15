@@ -6,7 +6,7 @@ import {
 import { useEffect } from 'react';
 
 import { queryKeys } from '@/constants/queryKeys';
-import { supabase } from '@/lib/supabase';
+import { supabase, uniqueChannelTopic } from '@/lib/supabase';
 import type { ChatMessage } from '@/types/chat';
 
 // ─── Fetch pinned messages for a conversation ────────────────
@@ -18,7 +18,7 @@ export function usePinnedMessages(conversationId: string | null) {
   useEffect(() => {
     if (!conversationId) return;
     const channel = supabase
-      .channel(`chat_pins_${conversationId}-${Date.now()}`)
+      .channel(uniqueChannelTopic(`chat_pins_${conversationId}`))
       .on(
         'postgres_changes',
         {

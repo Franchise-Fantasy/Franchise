@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 
 import { queryKeys } from '@/constants/queryKeys';
-import { supabase } from '@/lib/supabase';
+import { supabase, uniqueChannelTopic } from '@/lib/supabase';
 
 interface UseWeekScoresOptions {
   leagueId: string | null;
@@ -82,7 +82,7 @@ export function useWeekScores({ leagueId, scheduleId, weekIsLive }: UseWeekScore
     }
 
     const channel = supabase
-      .channel(`week-scores-${scheduleId}-${Date.now()}`)
+      .channel(uniqueChannelTopic(`week-scores-${scheduleId}`))
       .on(
         'broadcast',
         { event: 'score_update' },

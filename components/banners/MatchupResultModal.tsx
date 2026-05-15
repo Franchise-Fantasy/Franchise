@@ -71,7 +71,14 @@ export function MatchupResultModal() {
     if (!result?.id) return;
     setVisible(false);
     await addDismissedId(result.id);
-    router.push(result.isPlayoff ? '/playoff-bracket' : `/matchup-detail/${result.id}`);
+    if (result.isPlayoff) {
+      router.push('/playoff-bracket');
+    } else {
+      router.navigate({
+        pathname: '/(tabs)/matchup',
+        params: { matchupId: result.id },
+      });
+    }
   }, [result?.id, result?.isPlayoff, router]);
 
   if (!result) return null;

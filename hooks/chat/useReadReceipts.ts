@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 
 import { supabase } from '@/lib/supabase';
 
@@ -55,6 +56,16 @@ export function useReadReceipts(
   const [channel, setChannel] = useState<ReturnType<typeof supabase.channel> | null>(null);
   // Track which teams are currently online via presence
   const onlineRef = useRef<Set<string>>(new Set());
+  // Latest known last_read_message_id for this user — read by every track() call
+  // so AppState foreground re-tracks and SUBSCRIBED reconnects don't regress to a stale value.
+  const lastReadMessageIdRef = useRef<string | null>(null);
+
+  const buildTrackPayload = () => ({
+    team_id: myTeamId,
+    team_name: myTeamName,
+    tricode: myTricode ?? myTeamName?.slice(0, 3).toUpperCase() ?? '',
+    last_read_message_id: lastReadMessageIdRef.current,
+  });
 
   // DB seed via React Query — can be prefetched from the chat list screen
   const { data: dbSeed } = useQuery({
@@ -127,18 +138,26 @@ export function useReadReceipts(
           .eq('team_id', myTeamId)
           .single();
 
-        await ch.track({
-          team_id: myTeamId,
-          team_name: myTeamName,
-          tricode: myTricode ?? myTeamName.slice(0, 3).toUpperCase(),
-          last_read_message_id: data?.last_read_message_id ?? null,
-        });
+        lastReadMessageIdRef.current = data?.last_read_message_id ?? null;
+        await ch.track(buildTrackPayload());
+      }
+    });
+
+    // Untrack on background so peers see this user leave immediately instead of
+    // waiting ~30–90s for Realtime's heartbeat timeout. Re-track on foreground
+    // using the ref so we don't regress the seen indicator.
+    const appStateSub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') {
+        ch.track(buildTrackPayload());
+      } else {
+        ch.untrack();
       }
     });
 
     setChannel(ch);
 
     return () => {
+      appStateSub.remove();
       supabase.removeChannel(ch);
       setChannel(null);
     };
@@ -147,13 +166,11 @@ export function useReadReceipts(
   const updateReadPosition = useMemo(() => {
     if (!channel || !myTeamId || !myTeamName) return null;
     return (messageId: string) => {
-      channel.track({
-        team_id: myTeamId,
-        team_name: myTeamName,
-        tricode: myTricode ?? myTeamName.slice(0, 3).toUpperCase(),
-        last_read_message_id: messageId,
-      });
+      lastReadMessageIdRef.current = messageId;
+      channel.track(buildTrackPayload());
     };
+    // buildTrackPayload reads from refs/closure; channel identity is the meaningful dep.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channel, myTeamId, myTeamName, myTricode]);
 
   // Merge: DB seed as base, live presence updates on top

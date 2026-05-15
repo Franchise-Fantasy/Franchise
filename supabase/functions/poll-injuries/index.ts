@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { notifyTeamsBulk, type BulkTeamsNotification } from '../_shared/push.ts';
 import { CORS_HEADERS } from '../_shared/cors.ts';
 import { bdlFetch, bdlFetchAll, type Sport } from '../_shared/bdl.ts';
@@ -13,9 +13,17 @@ const supabase = createClient(
 
 const VALID_STATUSES = new Set(['OUT', 'SUSP', 'DOUBT', 'QUES', 'PROB', 'active']);
 
-// Statuses that are game-day designations and safe to auto-reset when absent from report.
-// OUT and SUSP are long-term and should only change when the player explicitly reappears.
+// Game-day designations the manual (per-team PDF) path is allowed to reset.
+// The manual path only sees one team's report, so it must stay conservative
+// and not touch long-term OUT/SUSP statuses set elsewhere.
 const GAME_DAY_STATUSES = new Set(['QUES', 'DOUBT', 'PROB']);
+
+// The balldontlie path consumes BDL's league-wide /player_injuries master
+// list — any player not in it is healthy, so every injury status is safe to
+// auto-reset on absence. (Recovered players just disappear from the report;
+// BDL doesn't republish them as "active", so OUT/SUSP would otherwise be
+// stranded until a manual fix.)
+const ALL_INJURY_STATUSES = new Set(['QUES', 'DOUBT', 'PROB', 'OUT', 'SUSP']);
 
 const jsonHeaders = { ...CORS_HEADERS, 'Content-Type': 'application/json' };
 
@@ -26,23 +34,48 @@ const BDL_STATUS_MAP: Record<string, string> = {
   'day-to-day': 'QUES', 'questionable': 'QUES', 'probable': 'PROB',
 };
 
-function mapBdlStatus(bdlStatus: string, description?: string): string {
+/**
+ * BDL's WNBA `/player_injuries` returns mostly "Day-To-Day" for `status` even
+ * for season-ending injuries, but the `comment` field has the real prose
+ * ("Out for the season after ACL surgery", etc.). We always look at the
+ * comment too — if it explicitly mentions "out for season", "out indefinitely",
+ * "season-ending", etc., upgrade the severity beyond what `status` says.
+ *
+ * NBA's `status` strings are accurate ("Out", "Out For Season"), so the
+ * comment escalation is a no-op there.
+ */
+function mapBdlStatus(bdlStatus: string, comment?: string): string {
+  const lowerComment = (comment ?? '').toLowerCase();
+
+  // Comment-based escalation: anything signalling long-term absence beats
+  // BDL's blanket "Day-To-Day" tag.
+  if (
+    /out for (the )?season|season[- ]ending|out indefinitely|torn (acl|achilles|meniscus|labrum|rotator|patella|ucl)|surgery/i
+      .test(lowerComment)
+  ) {
+    return 'OUT';
+  }
+  if (lowerComment.includes('suspended')) return 'SUSP';
+  if (lowerComment.includes('doubtful')) return 'DOUBT';
+  if (lowerComment.includes('probable')) return 'PROB';
+
   const mapped = BDL_STATUS_MAP[bdlStatus.toLowerCase()];
   if (mapped) return mapped;
-  // Fall back to parsing the description field for finer-grained statuses
-  if (description) {
-    const lower = description.toLowerCase();
+
+  // Fallback: scan comment for direct status keywords if status itself was unknown.
+  if (lowerComment) {
     for (const [key, val] of Object.entries(BDL_STATUS_MAP)) {
-      if (lower.includes(key)) return val;
+      if (lowerComment.includes(key)) return val;
     }
   }
-  // Default: if BDL says something we don't recognize, treat as questionable
+  // Default: BDL said something we don't recognize and comment was empty.
   return 'QUES';
 }
 
 async function fetchInjuriesFromBdl(sport: Sport): Promise<{
   injuries: Array<{ bdl_id: number; player_name: string; status: string }>;
   teamsOnReport: string[];
+  rawSamples: Array<{ name: string; status: string; description: string; mapped: string }>;
 } | null> {
   try {
     // BDL injury endpoint only returns team_id (numeric), so look up abbreviations
@@ -51,6 +84,7 @@ async function fetchInjuriesFromBdl(sport: Sport): Promise<{
       bdlFetch(sport, '/teams').then((d: any) => d.data ?? []),
     ]);
     if (!bdlInjuries || bdlInjuries.length === 0) return null;
+    const rawSamples: Array<{ name: string; status: string; description: string; mapped: string }> = [];
 
     const teamIdToAbbr = new Map<number, string>(
       bdlTeams.map((t: any) => [t.id, t.abbreviation]),
@@ -63,7 +97,11 @@ async function fetchInjuriesFromBdl(sport: Sport): Promise<{
       const player = inj.player;
       if (!player?.id) continue;
 
-      const status = mapBdlStatus(inj.status ?? '', inj.description);
+      // BDL WNBA spec: { player, status, return_date, comment }. NBA's spec
+      // historically used `description` — accept both so a future schema
+      // alignment doesn't silently regress.
+      const comment = inj.comment ?? inj.description ?? '';
+      const status = mapBdlStatus(inj.status ?? '', comment);
       const team = teamIdToAbbr.get(player.team_id);
       if (team) teamsOnReport.add(team);
 
@@ -72,10 +110,16 @@ async function fetchInjuriesFromBdl(sport: Sport): Promise<{
         player_name: `${player.first_name} ${player.last_name}`,
         status,
       });
+      rawSamples.push({
+        name: `${player.first_name} ${player.last_name}`,
+        status: String(inj.status ?? ''),
+        description: String(comment),
+        mapped: status,
+      });
     }
 
     console.log(`BDL: ${injuries.length} injuries from ${teamsOnReport.size} teams: ${[...teamsOnReport].sort().join(', ')}`);
-    return { injuries, teamsOnReport: [...teamsOnReport].sort() };
+    return { injuries, teamsOnReport: [...teamsOnReport].sort(), rawSamples };
   } catch (err: any) {
     console.error('BDL injury fetch failed:', err?.message ?? err);
     return null;
@@ -86,6 +130,7 @@ async function applyInjuries(
   sport: Sport,
   injuries: Array<{ bdl_id?: number; player_name: string; status: string }>,
   teamsOnReport: string[],
+  source: 'balldontlie' | 'manual',
 ): Promise<{ matchedPlayers: number; statusUpdates: number; playersReset: number; unmatchedNames: string[]; changedPlayerIds: string[]; teamsReported: number }> {
   const { data: allPlayers, error: playerErr } = await supabase
     .from('players').select('id, name, status, pro_team, external_id_bdl').eq('sport', sport);
@@ -143,27 +188,35 @@ async function applyInjuries(
     }
   }
 
-  // Only reset game-day designations (QUES, DOUBT, GTD, DTD) when a player's team
-  // submitted a report but didn't list them. Long-term statuses (OUT, SUSP) stay
-  // until the player explicitly reappears on a report (e.g. as "Available").
+  // BDL `/player_injuries` is the league-wide master list — any player not
+  // in it is not injured, so reset every stale injury status (OUT/SUSP
+  // included) regardless of game schedule. The manual JSON path (per-team
+  // PDF reports) only sees one team and uses fuzzy name matching, so it
+  // stays conservative: only reset game-day designations, and only for
+  // teams that are both on the report AND actually playing today.
   let playersReset = 0;
+  let idsToReset: string[] = [];
 
-  if (reportedTeams.size > 0) {
-    const idsToReset = (allPlayers ?? [])
+  if (source === 'balldontlie') {
+    idsToReset = (allPlayers ?? [])
+      .filter((p: any) => ALL_INJURY_STATUSES.has(p.status) && !matchedPlayerIds.has(p.id))
+      .map((p: any) => p.id);
+  } else if (reportedTeams.size > 0) {
+    idsToReset = (allPlayers ?? [])
       .filter((p: any) =>
         GAME_DAY_STATUSES.has(p.status) &&
         !matchedPlayerIds.has(p.id) &&
         reportedTeams.has(p.pro_team)
       )
       .map((p: any) => p.id);
-
-    if (idsToReset.length > 0) {
-      const { error } = await supabase.from('players').update({ status: 'active' }).in('id', idsToReset);
-      if (error) console.error('Reset error:', error.message);
-      else { updateCount += idsToReset.length; playersReset = idsToReset.length; changedPlayerIds.push(...idsToReset); }
-    }
   } else {
     console.log('Skipping reset: no teams identified on report');
+  }
+
+  if (idsToReset.length > 0) {
+    const { error } = await supabase.from('players').update({ status: 'active' }).in('id', idsToReset);
+    if (error) console.error('Reset error:', error.message);
+    else { updateCount += idsToReset.length; playersReset = idsToReset.length; changedPlayerIds.push(...idsToReset); }
   }
 
   if (updateCount > 0) {
@@ -344,6 +397,7 @@ Deno.serve(async (req: Request) => {
       } catch { /* empty or invalid JSON body — fall through */ }
     }
 
+    let rawSamples: Array<{ name: string; status: string; description: string; mapped: string }> = [];
     if (!injuries) {
       console.log(`[${sport}] No manual data — auto-fetching from balldontlie...`);
       const fetched = await fetchInjuriesFromBdl(sport);
@@ -357,10 +411,56 @@ Deno.serve(async (req: Request) => {
       }
       injuries = fetched.injuries;
       teamsOnReport = fetched.teamsOnReport;
+      rawSamples = fetched.rawSamples;
+    }
+
+    // Debug mode: return raw BDL response and skip DB writes.
+    const url = new URL(req.url);
+    if (url.searchParams.get('debug') === '1') {
+      const playerIdFilter = url.searchParams.get('player_id');
+      let extraQuery: any = null;
+      if (playerIdFilter) {
+        const qs = new URLSearchParams();
+        qs.append('player_ids[]', playerIdFilter);
+        try {
+          extraQuery = await bdlFetch(sport, `/player_injuries?${qs.toString()}`);
+        } catch (e: any) {
+          extraQuery = { error: e?.message ?? String(e) };
+        }
+      }
+
+      // Walk pages manually so we can return the raw meta.next_cursor and
+      // confirm whether bdlFetchAll is actually exhausting pagination.
+      const pageDumps: any[] = [];
+      let cursor: string | undefined;
+      let pageNum = 0;
+      while (pageNum < 20) {
+        const params: Record<string, string> = { per_page: '100' };
+        if (cursor) params.cursor = cursor;
+        const page = await bdlFetch(sport, '/player_injuries', params);
+        pageDumps.push({
+          page: pageNum + 1,
+          data_len: page?.data?.length ?? 0,
+          meta: page?.meta ?? null,
+        });
+        const nc = page?.meta?.next_cursor;
+        if (!nc) break;
+        cursor = String(nc);
+        pageNum++;
+      }
+
+      return new Response(JSON.stringify({
+        ok: true, sport, source,
+        league_wide_count: injuries.length,
+        page_dumps: pageDumps,
+        rawSamples,
+        player_id_filter: playerIdFilter,
+        extra_query_response: extraQuery,
+      }, null, 2), { status: 200, headers: jsonHeaders });
     }
 
     console.log(`[${sport}] Teams on report (${teamsOnReport.length}): ${teamsOnReport.join(', ')}`);
-    const result = await applyInjuries(sport, injuries, teamsOnReport);
+    const result = await applyInjuries(sport, injuries, teamsOnReport, source as 'balldontlie' | 'manual');
 
     // Send injury notifications for changed players
     try {
