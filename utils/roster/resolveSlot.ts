@@ -1,6 +1,11 @@
 /**
  * Shared slot resolution logic for client-side code.
  * Single source of truth for determining a player's roster slot on a given day.
+ *
+ * KEEP IN SYNC with supabase/functions/_shared/resolveSlot.ts (edge). The two
+ * files must remain byte-for-byte identical below the doc-comment header —
+ * edge functions (finalize-week, update-daily-records, get-week-scores) and
+ * the client must agree on slot resolution for the same inputs.
  */
 
 interface DailyEntry {
@@ -34,16 +39,29 @@ export function resolveSlot(params: {
     if (!dropDate && day >= today) return 'DROPPED';
   }
 
-  // Use the most recent DROPPED entry as the ownership boundary.
-  // This is more reliable than acquired_at because it tracks actual data:
-  // a player who was dropped and re-acquired has a DROPPED marker separating
-  // the ownership periods, even if acquired_at was overwritten by a later trade.
-  //
-  // Only apply the boundary for players currently on the roster (re-acquired after
-  // a previous drop). For players no longer on the roster, the DROPPED marker is
-  // the END of their ownership — entries before it are still valid for historical views.
-  const mostRecentDrop = dailyEntries.find((e) => e.roster_slot === 'DROPPED');
-  const ownershipBoundary = isOnCurrentRoster ? mostRecentDrop?.lineup_date : undefined;
+  // Locked-day "queued drop" handling: a DROPPED entry whose date is on or
+  // before the viewed day means the player is (or will soon be) gone from
+  // the roster, even if the league_players row still exists because the
+  // cron hasn't processed the queued drop yet. Use acquired_at to
+  // disambiguate from re-acquisition: if the player was re-acquired after
+  // the drop, the DROPPED entry is historical and falls through to the
+  // ownership-boundary logic below.
+  const dropOnOrBeforeDay = dailyEntries.find(
+    (e) => e.roster_slot === 'DROPPED' && e.lineup_date <= day,
+  );
+  if (dropOnOrBeforeDay) {
+    const reAcquiredAfterDrop =
+      acquiredDate && acquiredDate > dropOnOrBeforeDay.lineup_date;
+    if (!reAcquiredAfterDrop) return 'DROPPED';
+  }
+
+  // Re-acquisition ownership boundary uses the most recent PAST DROPPED
+  // entry only. Future-dated DROPPED entries (queued drops) don't affect
+  // past-day slot resolution.
+  const mostRecentPastDrop = dailyEntries.find(
+    (e) => e.roster_slot === 'DROPPED' && e.lineup_date < day,
+  );
+  const ownershipBoundary = isOnCurrentRoster ? mostRecentPastDrop?.lineup_date : undefined;
 
   // Exact match for the requested day always wins — if a daily_lineup entry exists
   // for this exact date, the player was explicitly on the team that day regardless
