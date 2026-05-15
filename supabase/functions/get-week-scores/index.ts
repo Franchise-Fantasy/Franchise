@@ -3,6 +3,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { CORS_HEADERS, corsResponse } from "../_shared/cors.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { pushActivityUpdate } from "../_shared/apns.ts";
+import { resolveSlot as sharedResolveSlot, isActiveSlot } from "../_shared/resolveSlot.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -234,34 +235,17 @@ async function computeWeekScores(
 
   function resolveSlot(teamId: string, playerId: string, day: string): string {
     const key = `${teamId}:${playerId}`;
-    // Drop-date guard: if player is no longer on this team, enforce DROPPED
     const teamPlayers = teamPlayerMap.get(teamId);
-    if (!teamPlayers || !teamPlayers.has(playerId)) {
-      const dropDate = dropDateByTeamPlayer.get(key);
-      if (dropDate && day >= dropDate) return "DROPPED";
-      if (!dropDate && day >= today) return "DROPPED";
-    }
-    const entries = dailyByTeamPlayer.get(key) ?? [];
-    // Use most recent DROPPED as ownership boundary, but only for players
-    // currently on the roster (re-acquired after a previous drop). For dropped
-    // players, entries before the DROPPED marker are still valid.
-    const isOnRoster = !!(teamPlayers && teamPlayers.has(playerId));
-    const mostRecentDrop = entries.find((e) => e.roster_slot === "DROPPED");
-    const boundary = isOnRoster ? mostRecentDrop?.lineup_date : undefined;
-    // Exact match for the requested day always wins (handles same-week drop + re-acquire)
-    const exactMatch = entries.find((e) => e.lineup_date === day && e.roster_slot !== "DROPPED");
-    if (exactMatch) return exactMatch.roster_slot;
-    const entry = entries.find((e) =>
-      e.lineup_date <= day && e.roster_slot !== "DROPPED" && (!boundary || e.lineup_date > boundary),
-    );
-    if (entry) return entry.roster_slot;
-    const acquired = acquiredDateMap.get(playerId);
-    if (acquired && day < acquired) return "BE";
-    return defaultSlotMap.get(playerId) ?? "BE";
-  }
-
-  function isActiveSlot(slot: string): boolean {
-    return slot !== "BE" && slot !== "IR" && slot !== "TAXI" && slot !== "DROPPED";
+    const isOnCurrentRoster = !!(teamPlayers && teamPlayers.has(playerId));
+    return sharedResolveSlot({
+      dailyEntries: dailyByTeamPlayer.get(key) ?? [],
+      day,
+      defaultSlot: defaultSlotMap.get(playerId) ?? "BE",
+      isOnCurrentRoster,
+      dropDate: dropDateByTeamPlayer.get(key),
+      acquiredDate: acquiredDateMap.get(playerId),
+      today,
+    });
   }
 
   // 4. Compute scores from completed games
