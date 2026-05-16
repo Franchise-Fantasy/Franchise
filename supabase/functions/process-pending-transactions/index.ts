@@ -1,5 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { errorResponse, jsonResponse } from '../_shared/http.ts';
+import { createLogger } from '../_shared/log.ts';
 import { notifyLeague } from '../_shared/push.ts';
 import { snapshotBeforeDrop } from '../_shared/snapshotBeforeDrop.ts';
 import { nextSlateRollover } from '../../../utils/leagueTime.ts';
@@ -13,9 +15,7 @@ Deno.serve(async (req: Request) => {
   const cronSecret = Deno.env.get('CRON_SECRET');
   const authHeader = req.headers.get('Authorization');
   if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401, headers: { 'Content-Type': 'application/json' },
-    });
+    return errorResponse('Unauthorized', 401);
   }
 
   // execute_after is now a timestamptz holding the precise rollover moment;
@@ -27,10 +27,8 @@ Deno.serve(async (req: Request) => {
     .lte("execute_after", new Date().toISOString());
 
   if (fetchErr) {
-    return new Response(
-      JSON.stringify({ ok: false, error: fetchErr.message }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
-    );
+    createLogger('process-pending-transactions').error('Failed to fetch pending transactions', fetchErr);
+    return errorResponse('Internal server error', 500);
   }
 
   let processed = 0;
@@ -172,15 +170,12 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  return new Response(
-    JSON.stringify({
-      ok: true,
-      processed,
-      total: pending?.length ?? 0,
-      expired_reviews: expiredReviews?.length ?? 0,
-      reviews_processed: reviewsProcessed,
-      errors,
-    }),
-    { status: 200, headers: { "Content-Type": "application/json" } },
-  );
+  return jsonResponse({
+    ok: true,
+    processed,
+    total: pending?.length ?? 0,
+    expired_reviews: expiredReviews?.length ?? 0,
+    reviews_processed: reviewsProcessed,
+    errors,
+  });
 });

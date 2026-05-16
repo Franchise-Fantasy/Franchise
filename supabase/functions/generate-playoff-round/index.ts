@@ -1,15 +1,9 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { notifyTeams } from '../_shared/push.ts';
-import { CORS_HEADERS, corsResponse } from '../_shared/cors.ts';
+import { corsResponse } from '../_shared/cors.ts';
+import { errorResponse, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
-
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-  });
-}
 
 // ── Bracket utilities ──
 
@@ -123,7 +117,7 @@ Deno.serve(async (req: Request) => {
     );
 
     const { league_id, round: requestedRound, from_seed_picks } = await req.json();
-    if (!league_id) return json({ error: 'league_id required' }, 400);
+    if (!league_id) return errorResponse('league_id required', 400);
 
     // Allow internal service-role calls (from finalize-week, submit-seed-pick, self-recursive)
     // but require JWT + commissioner check for external calls
@@ -131,14 +125,14 @@ Deno.serve(async (req: Request) => {
     const isServiceRole = authHeader === `Bearer ${Deno.env.get('SB_SECRET_KEY')}`;
 
     if (!isServiceRole) {
-      if (!authHeader) return json({ error: 'Missing authorization' }, 401);
+      if (!authHeader) return errorResponse('Missing authorization', 401);
       const userClient = createClient(
         Deno.env.get('SUPABASE_URL')!,
         Deno.env.get('SB_PUBLISHABLE_KEY')!,
         { global: { headers: { Authorization: authHeader.startsWith('Bearer ') ? authHeader : `Bearer ${authHeader}` } } }
       );
       const { data: { user } } = await userClient.auth.getUser();
-      if (!user) return json({ error: 'Unauthorized' }, 401);
+      if (!user) return errorResponse('Unauthorized', 401);
 
       const rateLimited = await checkRateLimit(supabase, user.id, 'generate-playoff-round');
       if (rateLimited) return rateLimited;
@@ -146,7 +140,7 @@ Deno.serve(async (req: Request) => {
       const { data: commCheck } = await supabase
         .from('leagues').select('created_by').eq('id', league_id).single();
       if (!commCheck || commCheck.created_by !== user.id) {
-        return json({ error: 'Only the commissioner can generate playoff rounds' }, 403);
+        return errorResponse('Only the commissioner can generate playoff rounds', 403);
       }
     }
 
@@ -156,7 +150,7 @@ Deno.serve(async (req: Request) => {
       .eq('id', league_id)
       .single();
 
-    if (leagueErr || !league) return json({ error: 'League not found' }, 404);
+    if (leagueErr || !league) return errorResponse('League not found', 404);
 
     const playoffTeams = league.playoff_teams ?? 8;
     const totalRounds = calcRounds(playoffTeams);
@@ -165,10 +159,10 @@ Deno.serve(async (req: Request) => {
 
     const round = requestedRound ?? 1;
     if (typeof round !== 'number' || round < 1 || !Number.isInteger(round)) {
-      return json({ error: 'round must be a positive integer' }, 400);
+      return errorResponse('round must be a positive integer', 400);
     }
     if (round > totalRounds) {
-      return json({ error: `round ${round} exceeds total playoff rounds (${totalRounds})` }, 400);
+      return errorResponse(`round ${round} exceeds total playoff rounds (${totalRounds})`, 400);
     }
 
     const { data: playoffWeeks } = await supabase
@@ -179,7 +173,7 @@ Deno.serve(async (req: Request) => {
       .order('week_number', { ascending: true });
 
     if (!playoffWeeks || playoffWeeks.length === 0) {
-      return json({ error: 'No playoff weeks in schedule' }, 400);
+      return errorResponse('No playoff weeks in schedule', 400);
     }
 
     const { data: existingBracket } = await supabase
@@ -191,7 +185,7 @@ Deno.serve(async (req: Request) => {
       .limit(1);
 
     if (existingBracket && existingBracket.length > 0) {
-      return json({ error: `Round ${round} already generated` }, 409);
+      return errorResponse(`Round ${round} already generated`, 409);
     }
 
     let pairings: BracketPairing[] = [];
@@ -205,7 +199,7 @@ Deno.serve(async (req: Request) => {
         .order('wins', { ascending: false })
         .order('points_for', { ascending: false });
 
-      if (!teams || teams.length < 2) return json({ error: 'Not enough teams' }, 400);
+      if (!teams || teams.length < 2) return errorResponse('Not enough teams', 400);
 
       // Apply tiebreaker resolution
       const tiebreakerOrder: string[] = league.tiebreaker_order ?? ['head_to_head', 'points_for'];
@@ -376,7 +370,7 @@ Deno.serve(async (req: Request) => {
           console.warn('Seed pick notification failed (non-fatal):', notifyErr);
         }
 
-        return json({
+        return jsonResponse({
           success: true,
           action: 'seed_picks_created',
           round: 1,
@@ -394,11 +388,11 @@ Deno.serve(async (req: Request) => {
           .eq('round', 1)
           .order('picking_seed', { ascending: true });
 
-        if (!picks) return json({ error: 'No seed picks found' }, 400);
+        if (!picks) return errorResponse('No seed picks found', 400);
 
         const seedMap = new Map(seeds.map(s => [s.teamId, s]));
         for (const pick of picks) {
-          if (!pick.picked_opponent_id) return json({ error: 'Not all picks completed' }, 400);
+          if (!pick.picked_opponent_id) return errorResponse('Not all picks completed', 400);
           const picker = seedMap.get(pick.picking_team_id)!;
           const opponent = seedMap.get(pick.picked_opponent_id)!;
           pairings.push({ teamA: picker, teamB: opponent });
@@ -420,12 +414,12 @@ Deno.serve(async (req: Request) => {
       prevBracket = prevBracketData;
 
       if (!prevBracket || prevBracket.length === 0) {
-        return json({ error: `Previous round ${round - 1} not found` }, 400);
+        return errorResponse(`Previous round ${round - 1} not found`, 400);
       }
 
       const unresolved = prevBracket.filter(b => !b.winner_id);
       if (unresolved.length > 0) {
-        return json({ error: `Previous round has ${unresolved.length} unresolved matchups` }, 400);
+        return errorResponse(`Previous round has ${unresolved.length} unresolved matchups`, 400);
       }
 
       if (format === 'higher_seed_picks' && !from_seed_picks) {
@@ -462,7 +456,7 @@ Deno.serve(async (req: Request) => {
           console.warn('Seed pick notification failed (non-fatal):', notifyErr);
         }
 
-        return json({
+        return jsonResponse({
           success: true,
           action: 'seed_picks_created',
           round,
@@ -479,7 +473,7 @@ Deno.serve(async (req: Request) => {
           .eq('round', round)
           .order('picking_seed', { ascending: true });
 
-        if (!picks) return json({ error: 'No seed picks found' }, 400);
+        if (!picks) return errorResponse('No seed picks found', 400);
 
         const allBracket = await supabase
           .from('playoff_bracket')
@@ -494,7 +488,7 @@ Deno.serve(async (req: Request) => {
         }
 
         for (const pick of picks) {
-          if (!pick.picked_opponent_id) return json({ error: 'Not all picks completed' }, 400);
+          if (!pick.picked_opponent_id) return errorResponse('Not all picks completed', 400);
           pairings.push({
             teamA: { teamId: pick.picking_team_id, seed: pick.picking_seed },
             teamB: {
@@ -511,7 +505,7 @@ Deno.serve(async (req: Request) => {
         }));
 
         const built = buildNextRoundPairings(format, reseed, results);
-        if (!built) return json({ error: 'Could not build next round' }, 500);
+        if (!built) return errorResponse('Could not build next round', 500);
         pairings = built;
       }
     }
@@ -519,7 +513,7 @@ Deno.serve(async (req: Request) => {
     // ── Insert bracket entries + matchup rows ──
 
     const scheduleWeek = playoffWeeks[round - 1];
-    if (!scheduleWeek) return json({ error: `No schedule week for round ${round}` }, 400);
+    if (!scheduleWeek) return errorResponse(`No schedule week for round ${round}`, 400);
 
     const bracketRows = [];
     const matchupInserts = [];
@@ -574,7 +568,7 @@ Deno.serve(async (req: Request) => {
         .insert(matchupRows)
         .select('id, home_team_id, away_team_id');
 
-      if (mErr) return json({ error: 'Failed to insert matchups', detail: mErr }, 500);
+      if (mErr) throw mErr;
 
       for (const ins of matchupInserts) {
         const matchup = insertedMatchups?.find(
@@ -599,7 +593,7 @@ Deno.serve(async (req: Request) => {
 
     if (bracketRows.length > 0) {
       const { error: bErr } = await supabase.from('playoff_bracket').insert(bracketRows);
-      if (bErr) return json({ error: 'Failed to insert bracket', detail: bErr }, 500);
+      if (bErr) throw bErr;
     }
 
     // Notify teams about their playoff matchups
@@ -693,7 +687,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    return json({
+    return jsonResponse({
       success: true,
       round,
       bracket_entries: bracketRows.length,
@@ -701,6 +695,6 @@ Deno.serve(async (req: Request) => {
       byes: pairings.filter(p => p.teamB === null).length,
     });
   } catch (err) {
-    return json({ error: String(err) }, 500);
+    return handleError(err, 'generate-playoff-round');
   }
 });

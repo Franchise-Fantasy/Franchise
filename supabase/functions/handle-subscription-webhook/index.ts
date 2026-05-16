@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { errorResponse, handleError, jsonResponse } from '../_shared/http.ts';
 
 /**
  * RevenueCat webhook handler.
@@ -80,10 +81,7 @@ Deno.serve(async (req) => {
     const event = body.event;
 
     if (!event) {
-      return new Response(JSON.stringify({ error: "No event in body" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
+      return errorResponse('No event in body', 400);
     }
 
     const eventType: string = event.type;
@@ -96,10 +94,7 @@ Deno.serve(async (req) => {
     // app_user_id is the Supabase user ID (set during initPurchases)
     const userId = rcAppUserId;
     if (!userId) {
-      return new Response(
-        JSON.stringify({ error: "Missing app_user_id" }),
-        { status: 400, headers: { "Content-Type": "application/json" } },
-      );
+      return errorResponse('Missing app_user_id', 400);
     }
 
     // Idempotency: skip if we've already processed this event
@@ -109,10 +104,7 @@ Deno.serve(async (req) => {
         .select("id", { count: "exact", head: true })
         .eq("rc_event_id", rcEventId);
       if (count && count > 0) {
-        return new Response(
-          JSON.stringify({ ok: true, duplicate: true }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
+        return jsonResponse({ ok: true, duplicate: true });
       }
     }
 
@@ -127,10 +119,7 @@ Deno.serve(async (req) => {
         rcEventId,
         metadata: { productId },
       });
-      return new Response(JSON.stringify({ ok: true, skipped: true }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
+      return jsonResponse({ ok: true, skipped: true });
     }
 
     const { tier, scope } = productInfo;
@@ -161,10 +150,7 @@ Deno.serve(async (req) => {
           event.subscriber_attributes?.league_id?.value ?? "";
         if (!leagueId) {
           console.error("League subscription missing league_id attribute");
-          return new Response(
-            JSON.stringify({ error: "Missing league_id attribute" }),
-            { status: 400, headers: { "Content-Type": "application/json" } },
-          );
+          return errorResponse('Missing league_id attribute', 400);
         }
 
         await supabaseAdmin.from("league_subscriptions").upsert(
@@ -221,16 +207,9 @@ Deno.serve(async (req) => {
       metadata: { productId, periodType, scope },
     });
 
-    return new Response(JSON.stringify({ ok: true }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
+    return jsonResponse({ ok: true });
   } catch (error) {
-    console.error("Webhook error:", error);
-    return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
-    );
+    return handleError(error, 'handle-subscription-webhook');
   }
 });
 

@@ -1,9 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { bdlFetch, bdlGameSlateDate, mapGameStatus, toIsoDuration, type Sport } from "../_shared/bdl.ts";
 import { pushActivityUpdate } from "../_shared/apns.ts";
-import { createLogger } from "../_shared/log.ts";
+import { bdlFetch, bdlGameSlateDate, mapGameStatus, toIsoDuration, type Sport } from "../_shared/bdl.ts";
 import { recordHeartbeat } from "../_shared/heartbeat.ts";
+import { handleError, jsonResponse, errorResponse } from "../_shared/http.ts";
+import { createLogger } from "../_shared/log.ts";
 
 const log = createLogger("poll-live-stats");
 
@@ -277,10 +278,7 @@ Deno.serve(async (req: Request) => {
   const cronSecret = Deno.env.get('CRON_SECRET');
   const authHeader = req.headers.get('Authorization');
   if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return errorResponse('Unauthorized', 401);
   }
 
   // Sport from request body. Defaults to 'nba' so legacy cron entries keep working.
@@ -307,10 +305,7 @@ Deno.serve(async (req: Request) => {
     // Recovery calls (overrideGameIds) bypass the off-hours skip.
     if (!overrideGameIds && hour >= 5 && hour < 10) {
       await recordHeartbeat(supabase, `poll-live-stats:${sport}`, 'ok');
-      return new Response(
-        JSON.stringify({ ok: true, sport, skipped: true, reason: "off-hours (5-10am ET)" }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
+      return jsonResponse({ ok: true, sport, skipped: true, reason: "off-hours (5-10am ET)" });
     }
 
     // Use ET date since both leagues' games are scheduled in Eastern time.
@@ -344,10 +339,7 @@ Deno.serve(async (req: Request) => {
         log.warn("game_schedule precheck error", { error: scheduleErr.message });
       } else if ((scheduledCount ?? 0) === 0) {
         await recordHeartbeat(supabase, `poll-live-stats:${sport}`, 'ok');
-        return new Response(
-          JSON.stringify({ ok: true, sport, skipped: true, reason: "no games on schedule", dates: datesToCheck }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
+        return jsonResponse({ ok: true, sport, skipped: true, reason: "no games on schedule", dates: datesToCheck });
       }
     }
 
@@ -379,10 +371,7 @@ Deno.serve(async (req: Request) => {
 
     if (activeGames.length === 0) {
       await recordHeartbeat(supabase, `poll-live-stats:${sport}`, 'ok');
-      return new Response(
-        JSON.stringify({ ok: true, games: 0, allGames: allGames.length }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
+      return jsonResponse({ ok: true, games: 0, allGames: allGames.length });
     }
 
     // Build game lookup: gameId → game metadata
@@ -411,10 +400,7 @@ Deno.serve(async (req: Request) => {
     const activeStats = allStats;
 
     if (activeStats.length === 0) {
-      return new Response(
-        JSON.stringify({ ok: true, games: activeGames.length, players: 0 }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
+      return jsonResponse({ ok: true, games: activeGames.length, players: 0 });
     }
 
     // Collect BDL player IDs
@@ -433,10 +419,7 @@ Deno.serve(async (req: Request) => {
       .eq("sport", sport)
       .in("external_id_bdl", [...allBdlIds]);
 
-    if (playerErr) {
-      log.error("Player lookup error", playerErr);
-      return new Response(JSON.stringify({ error: playerErr.message }), { status: 500 });
-    }
+    if (playerErr) throw playerErr;
 
     const bdlIdToPlayerId = new Map<number, string>(
       (playerRows ?? []).map((p: any) => [Number(p.external_id_bdl), p.id]),
@@ -746,27 +729,21 @@ Deno.serve(async (req: Request) => {
     );
 
     await recordHeartbeat(supabase, `poll-live-stats:${sport}`, 'ok');
-    return new Response(
-      JSON.stringify({
-        ok: true,
-        sport,
-        gameDate,
-        activeGames: activeGames.length,
-        matchedPlayers: bdlIdToPlayerId.size,
-        liveRowsUpserted: totalLiveRows,
-        gameRowsUpserted: totalGameRows,
-        eventsDerived: allEventRows.length,
-        newlyFinalGameIds: [...newlyFinalGameIds],
-        matviewRefreshed,
-      }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
-    );
+    return jsonResponse({
+      ok: true,
+      sport,
+      gameDate,
+      activeGames: activeGames.length,
+      matchedPlayers: bdlIdToPlayerId.size,
+      liveRowsUpserted: totalLiveRows,
+      gameRowsUpserted: totalGameRows,
+      eventsDerived: allEventRows.length,
+      newlyFinalGameIds: [...newlyFinalGameIds],
+      matviewRefreshed,
+    });
   } catch (err) {
-    log.error("Unhandled error in poll-live-stats", err);
     const message = err instanceof Error ? err.message : String(err);
     await recordHeartbeat(supabase, `poll-live-stats:${sport}`, 'error', message);
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-    });
+    return handleError(err, 'poll-live-stats');
   }
 });

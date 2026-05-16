@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { pushActivityUpdate, type ActivityType } from "../_shared/apns.ts";
+import { HttpError, handleError, jsonResponse, errorResponse } from "../_shared/http.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -31,10 +32,7 @@ Deno.serve(async (req: Request) => {
   const isService = serviceKey && authHeader === `Bearer ${serviceKey}`;
 
   if (!isCron && !isService) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    });
+    return errorResponse("Unauthorized", 401);
   }
 
   try {
@@ -53,10 +51,7 @@ Deno.serve(async (req: Request) => {
     };
 
     if (!activity_type || !content_state) {
-      return new Response(
-        JSON.stringify({ error: "activity_type and content_state are required" }),
-        { status: 400, headers: { "Content-Type": "application/json" } },
-      );
+      throw new HttpError("activity_type and content_state are required");
     }
 
     const result = await pushActivityUpdate(
@@ -67,16 +62,8 @@ Deno.serve(async (req: Request) => {
       { end, dismissalDate: dismissal_date },
     );
 
-    return new Response(JSON.stringify({ ok: true, ...result }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error("push-live-activity error:", message);
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    return jsonResponse({ ok: true, ...result });
+  } catch (error) {
+    return handleError(error, 'push-live-activity');
   }
 });

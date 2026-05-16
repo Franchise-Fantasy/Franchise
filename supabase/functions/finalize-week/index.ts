@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { notifyTeams, notifyLeague } from '../_shared/push.ts';
+import { errorResponse, handleError, jsonResponse } from '../_shared/http.ts';
 import { createLogger } from '../_shared/log.ts';
 import type { Database } from '../../../types/database.types.ts';
 
@@ -457,10 +458,7 @@ Deno.serve(async (req: Request) => {
   const cronSecret = Deno.env.get('CRON_SECRET');
   const authHeader = req.headers.get('Authorization');
   if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return errorResponse('Unauthorized', 401);
   }
 
   try {
@@ -541,18 +539,10 @@ Deno.serve(async (req: Request) => {
       .select("id, league_id, week_number, start_date, end_date, is_playoff")
       .lt("end_date", today);
 
-    if (weekErr) {
-      return new Response(
-        JSON.stringify({ error: "Failed to fetch schedule", detail: weekErr.message }),
-        { status: 500, headers: { "Content-Type": "application/json" } },
-      );
-    }
+    if (weekErr) throw weekErr;
 
     if (!pendingWeeks || pendingWeeks.length === 0) {
-      return new Response(
-        JSON.stringify({ ok: true, finalized: 0, message: "No completed weeks found" }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
+      return jsonResponse({ ok: true, finalized: 0, message: "No completed weeks found" });
     }
 
     const scheduleIds = pendingWeeks.map((w) => w.id);
@@ -568,18 +558,10 @@ Deno.serve(async (req: Request) => {
       .eq("is_finalized", false)
       .select("id, league_id, schedule_id, week_number, home_team_id, away_team_id, playoff_round");
 
-    if (matchErr) {
-      return new Response(
-        JSON.stringify({ error: "Failed to fetch matchups", detail: matchErr.message }),
-        { status: 500, headers: { "Content-Type": "application/json" } },
-      );
-    }
+    if (matchErr) throw matchErr;
 
     if (!unfinalizedMatchups || unfinalizedMatchups.length === 0) {
-      return new Response(
-        JSON.stringify({ ok: true, finalized: 0, message: "All matchups already finalized" }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
+      return jsonResponse({ ok: true, finalized: 0, message: "All matchups already finalized" });
     }
 
     const leagueIds = [...new Set(unfinalizedMatchups.map((m) => m.league_id))];
@@ -1100,21 +1082,13 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    return new Response(
-      JSON.stringify({
-        ok: true,
-        finalized: finalizedCount,
-        leagues: leagueIds.length,
-        teamsUpdated: affectedTeams.size,
-      }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
-    );
+    return jsonResponse({
+      ok: true,
+      finalized: finalizedCount,
+      leagues: leagueIds.length,
+      teamsUpdated: affectedTeams.size,
+    });
   } catch (err) {
-    log.error('Unhandled error in finalize-week', err);
-    const message = err instanceof Error ? err.message : String(err);
-    return new Response(
-      JSON.stringify({ error: message }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
-    );
+    return handleError(err, 'finalize-week');
   }
 });

@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { errorResponse, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 const corsHeaders = {
@@ -47,9 +48,7 @@ Deno.serve(async (req: Request) => {
 
     const { data: { user } } = await userClient.auth.getUser();
     if (!user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return errorResponse('Unauthorized', 401);
     }
 
     const rateLimited = await checkRateLimit(supabase, user.id, 'generate-schedule');
@@ -57,9 +56,7 @@ Deno.serve(async (req: Request) => {
 
     const { league_id } = await req.json();
     if (!league_id) {
-      return new Response(JSON.stringify({ error: "league_id required" }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return errorResponse('league_id required', 400);
     }
 
     // Verify commissioner (primary auth path), OR — for imported
@@ -76,9 +73,7 @@ Deno.serve(async (req: Request) => {
       .single();
 
     if (leagueErr || !league) {
-      return new Response(JSON.stringify({ error: "League not found" }), {
-        status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return errorResponse('League not found', 404);
     }
 
     const isCommissioner = league.created_by === user.id;
@@ -97,28 +92,20 @@ Deno.serve(async (req: Request) => {
     }
 
     if (!authorized) {
-      return new Response(JSON.stringify({ error: 'Only the commissioner can generate a schedule' }), {
-        status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return errorResponse('Only the commissioner can generate a schedule', 403);
     }
 
     if (league.schedule_generated) {
-      return new Response(JSON.stringify({ error: "Schedule already generated" }), {
-        status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return errorResponse('Schedule already generated', 409);
     }
 
     const validOffseasonSteps = ['ready_for_new_season', 'rookie_draft_complete'];
     if (league.offseason_step && !validOffseasonSteps.includes(league.offseason_step)) {
-      return new Response(JSON.stringify({ error: `Cannot generate schedule during offseason step: ${league.offseason_step}` }), {
-        status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return errorResponse(`Cannot generate schedule during offseason step: ${league.offseason_step}`, 409);
     }
 
     if (!league.season_start_date) {
-      return new Response(JSON.stringify({ error: "League has no season_start_date" }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return errorResponse('League has no season_start_date', 400);
     }
 
     const { data: teams, error: teamsErr } = await supabase
@@ -127,21 +114,14 @@ Deno.serve(async (req: Request) => {
       .eq("league_id", league_id);
 
     if (teamsErr || !teams || teams.length < 2) {
-      return new Response(JSON.stringify({ error: "Not enough teams to generate a schedule" }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return errorResponse('Not enough teams to generate a schedule', 400);
     }
 
     const teamIds = teams.map((t: { id: string }) => t.id);
     const N = teamIds.length;
 
     if (N % 2 !== 0 && league.regular_season_weeks % N !== 0) {
-      return new Response(
-        JSON.stringify({
-          error: `With ${N} teams, regular_season_weeks must be a multiple of ${N} for equal bye weeks.`,
-        }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return errorResponse(`With ${N} teams, regular_season_weeks must be a multiple of ${N} for equal bye weeks.`, 400);
     }
 
     const teamList: (string | null)[] = N % 2 === 0 ? [...teamIds] : [...teamIds, null];
@@ -191,9 +171,8 @@ Deno.serve(async (req: Request) => {
       .select("id, week_number");
 
     if (weeksErr || !insertedWeeks) {
-      return new Response(JSON.stringify({ error: "Failed to insert schedule weeks", detail: weeksErr }), {
-        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      if (weeksErr) throw weeksErr;
+      throw new Error('Failed to insert schedule weeks');
     }
 
     const weekMap = new Map<number, string>(insertedWeeks.map((w: { week_number: number; id: string }) => [w.week_number, w.id]));
@@ -221,22 +200,13 @@ Deno.serve(async (req: Request) => {
 
     if (matchupRows.length > 0) {
       const { error: matchupsErr } = await supabase.from("league_matchups").insert(matchupRows);
-      if (matchupsErr) {
-        return new Response(JSON.stringify({ error: "Failed to insert matchups", detail: matchupsErr }), {
-          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
+      if (matchupsErr) throw matchupsErr;
     }
 
     await supabase.from("leagues").update({ schedule_generated: true, offseason_step: null }).eq("id", league_id);
 
-    return new Response(
-      JSON.stringify({ success: true, total_weeks: totalWeeks, regular_season_matchups: matchupRows.length }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return jsonResponse({ success: true, total_weeks: totalWeeks, regular_season_matchups: matchupRows.length });
   } catch (err) {
-    return new Response(JSON.stringify({ error: String(err) }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return handleError(err, 'generate-schedule');
   }
 });

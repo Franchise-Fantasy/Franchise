@@ -1,8 +1,9 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { checkRateLimit } from '../_shared/rate-limit.ts';
-import { normalizeName } from '../_shared/normalize.ts';
+import { HttpError, errorResponse, handleError, jsonResponse } from '../_shared/http.ts';
 import { createLogger } from '../_shared/log.ts';
+import { normalizeName } from '../_shared/normalize.ts';
+import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 const log = createLogger('import-screenshot-league');
 
@@ -11,14 +12,6 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
-
-function jsonResponse(data: unknown, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-  });
-}
-
 
 // --- Claude Vision helpers ---
 
@@ -338,8 +331,8 @@ async function handleExtractRoster(
   supabaseAdmin: any,
 ) {
   const { images, team_name } = body;
-  if (!images?.length) throw new Error('At least one image is required');
-  if (images.length > 5) throw new Error('Maximum 5 images per team');
+  if (!images?.length) throw new HttpError('At least one image is required');
+  if (images.length > 5) throw new HttpError('Maximum 5 images per team');
 
   const teamContext = team_name ? ` for the team "${team_name}"` : '';
   const prompt = `You are extracting fantasy basketball roster data from ${images.length > 1 ? 'these screenshots' : 'this screenshot'} of a fantasy sports app${teamContext}.
@@ -368,8 +361,8 @@ async function handleExtractSettings(
   body: { images: Array<{ base64: string; media_type: string }> },
 ) {
   const { images } = body;
-  if (!images?.length) throw new Error('At least one image is required');
-  if (images.length > 3) throw new Error('Maximum 3 images for settings');
+  if (!images?.length) throw new HttpError('At least one image is required');
+  if (images.length > 3) throw new HttpError('Maximum 3 images for settings');
 
   const prompt = `You are extracting fantasy basketball league settings from ${images.length > 1 ? 'these screenshots' : 'this screenshot'} of a fantasy sports app settings page.
 
@@ -394,12 +387,12 @@ async function handleExtractHistory(
     image_count: images?.length ?? 0,
     media_types: images?.map((i) => i.media_type) ?? [],
   });
-  if (!images?.length) throw new Error('At least one image is required');
-  if (images.length > 3) throw new Error('Maximum 3 images for history');
+  if (!images?.length) throw new HttpError('At least one image is required');
+  if (images.length > 3) throw new HttpError('Maximum 3 images for history');
 
   // Validate each image has base64 data
   for (let i = 0; i < images.length; i++) {
-    if (!images[i].base64) throw new Error(`Image ${i + 1} has no base64 data`);
+    if (!images[i].base64) throw new HttpError(`Image ${i + 1} has no base64 data`);
     if (!images[i].media_type) images[i].media_type = 'image/jpeg';
   }
 
@@ -433,7 +426,7 @@ async function handleSearchOrCreatePlayer(
   supabaseAdmin: any,
 ) {
   const { name, position } = body;
-  if (!name?.trim()) throw new Error('Player name is required');
+  if (!name?.trim()) throw new HttpError('Player name is required');
 
   const norm = normalizeName(name);
 
@@ -460,7 +453,7 @@ async function handleSearchOrCreatePlayer(
     .select('id, name, pro_team, position')
     .single();
 
-  if (error) throw new Error(`Failed to create player: ${error.message}`);
+  if (error) throw error;
 
   // Refresh the materialized view so the new player appears in stats
   await supabaseAdmin.rpc('refresh_player_season_stats').catch(() => {});
@@ -535,7 +528,7 @@ async function handleExecute(
   } = body;
 
   if (!league_name || !teams?.length) {
-    throw new Error('league_name and teams are required');
+    throw new HttpError('league_name and teams are required');
   }
 
   log.info('execute_import called', {
@@ -611,7 +604,7 @@ async function handleExecute(
     .select('id')
     .single();
 
-  if (leagueError) throw new Error(`Failed to create league: ${leagueError.message}`);
+  if (leagueError) throw leagueError;
   const leagueId = leagueData.id;
 
   // 2. Insert roster config
@@ -625,7 +618,7 @@ async function handleExecute(
 
   if (rosterConfigRows.length > 0) {
     const { error } = await supabaseAdmin.from('league_roster_config').insert(rosterConfigRows);
-    if (error) throw new Error(`Failed to insert roster config: ${error.message}`);
+    if (error) throw error;
   }
 
   // 3. Insert scoring settings
@@ -638,7 +631,7 @@ async function handleExecute(
       inverse: c.inverse,
     }));
     const { error } = await supabaseAdmin.from('league_scoring_settings').insert(catRows);
-    if (error) throw new Error(`Failed to insert scoring settings: ${error.message}`);
+    if (error) throw error;
   } else {
     const scoringRows = scoring.map(s => ({
       league_id: leagueId,
@@ -647,7 +640,7 @@ async function handleExecute(
     }));
     if (scoringRows.length > 0) {
       const { error } = await supabaseAdmin.from('league_scoring_settings').insert(scoringRows);
-      if (error) throw new Error(`Failed to insert scoring settings: ${error.message}`);
+      if (error) throw error;
     }
   }
 
@@ -676,7 +669,7 @@ async function handleExecute(
       .select('id')
       .single();
 
-    if (teamError) throw new Error(`Failed to create team "${team.team_name}": ${teamError.message}`);
+    if (teamError) throw teamError;
     teamIds.push(teamData.id);
     teamNameToId.set(team.team_name, teamData.id);
 
@@ -715,7 +708,7 @@ async function handleExecute(
   for (let i = 0; i < leaguePlayerRows.length; i += 100) {
     const chunk = leaguePlayerRows.slice(i, i + 100);
     const { error } = await supabaseAdmin.from('league_players').insert(chunk);
-    if (error) throw new Error(`Failed to insert roster players: ${error.message}`);
+    if (error) throw error;
   }
 
   // 5. Create draft (marked complete)
@@ -732,7 +725,7 @@ async function handleExecute(
       draft_type: 'snake',
     });
 
-  if (draftError) throw new Error(`Failed to create draft: ${draftError.message}`);
+  if (draftError) throw draftError;
 
   // 6. Create future draft picks (dynasty only)
   if (league_type === 'dynasty') {
@@ -882,7 +875,7 @@ Deno.serve(async (req) => {
     );
     const { data: { user } } = await userClient.auth.getUser();
     if (!user) {
-      return jsonResponse({ error: 'Unauthorized' }, 401);
+      return errorResponse('Unauthorized', 401);
     }
     const userId = user.id;
 
@@ -894,7 +887,7 @@ Deno.serve(async (req) => {
       body = await req.json();
     } catch (parseErr) {
       log.error('Body parse error', parseErr);
-      return jsonResponse({ error: 'Invalid or oversized request body' }, 400);
+      return errorResponse('Invalid or oversized request body', 400);
     }
 
     const { action } = body;
@@ -917,11 +910,9 @@ Deno.serve(async (req) => {
       case 'execute':
         return await handleExecute(body, supabaseAdmin, userId);
       default:
-        return jsonResponse({ error: 'Invalid action' }, 400);
+        return errorResponse('Invalid action', 400);
     }
   } catch (error) {
-    log.error('Unhandled error in import-screenshot-league', error);
-    const message = error instanceof Error ? error.message : String(error);
-    return jsonResponse({ error: message }, 500);
+    return handleError(error, 'import-screenshot-league');
   }
 });

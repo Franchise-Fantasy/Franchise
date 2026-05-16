@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { notifyLeague, notifyTeams } from '../_shared/push.ts';
 import { CORS_HEADERS } from '../_shared/cors.ts';
+import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 async function scheduleAutodraft(draft_id: string, pick_number: number, time_limit: number) {
@@ -54,7 +55,7 @@ Deno.serve(async (req) => {
       );
 
       const { data: { user } } = await userClient.auth.getUser();
-      if (!user) throw new Error('Unauthorized');
+      if (!user) throw new HttpError('Unauthorized', 401);
       userId = user.id;
 
       const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'start-draft');
@@ -62,7 +63,7 @@ Deno.serve(async (req) => {
     }
 
     const { draft_id } = await req.json();
-    if (!draft_id) throw new Error('draft_id is required');
+    if (!draft_id) throw new HttpError('draft_id is required');
 
     const { data: draft, error: draftError } = await supabaseAdmin
       .from('drafts')
@@ -70,21 +71,18 @@ Deno.serve(async (req) => {
       .eq('id', draft_id)
       .single();
 
-    if (draftError || !draft) throw new Error('Draft not found');
+    if (draftError || !draft) throw new HttpError('Draft not found', 404);
 
     if (draft.status === 'in_progress') {
-      return new Response(JSON.stringify({ message: 'Draft already in progress' }), {
-        status: 200,
-        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-      });
+      return jsonResponse({ message: 'Draft already in progress' });
     }
 
     if (draft.status !== 'pending') {
-      throw new Error(`Draft cannot be started from status: ${draft.status}`);
+      throw new HttpError(`Draft cannot be started from status: ${draft.status}`);
     }
 
     if (new Date(draft.draft_date).getTime() > Date.now()) {
-      throw new Error('Draft has not reached its scheduled start time');
+      throw new HttpError('Draft has not reached its scheduled start time');
     }
 
     const { data: league } = await supabaseAdmin
@@ -93,7 +91,7 @@ Deno.serve(async (req) => {
       .eq('id', draft.league_id)
       .single();
 
-    if (!league) throw new Error('League not found');
+    if (!league) throw new HttpError('League not found', 404);
 
     // For user-JWT calls, require league membership (any team in the league).
     // Cron-triggered calls bypass this — the scheduler is the authority once
@@ -107,7 +105,7 @@ Deno.serve(async (req) => {
         .eq('league_id', draft.league_id)
         .eq('user_id', userId!)
         .maybeSingle();
-      if (!membership) throw new Error('Not a league member');
+      if (!membership) throw new HttpError('Not a league member', 403);
     }
 
     const now = new Date().toISOString();
@@ -125,10 +123,7 @@ Deno.serve(async (req) => {
 
     if (updateError) throw updateError;
     if (!updated || updated.length === 0) {
-      return new Response(JSON.stringify({ message: 'Draft already starting' }), {
-        status: 200,
-        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-      });
+      return jsonResponse({ message: 'Draft already starting' });
     }
 
     const qstashResult = await scheduleAutodraft(draft_id, draft.current_pick_number, draft.time_limit);
@@ -162,15 +157,8 @@ Deno.serve(async (req) => {
       console.warn('Push notification failed (non-fatal):', notifyErr);
     }
 
-    return new Response(JSON.stringify({ message: 'Draft started', qstash: qstashResult }), {
-      status: 200,
-      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-    });
+    return jsonResponse({ message: 'Draft started', qstash: qstashResult });
   } catch (error) {
-    console.error('start-draft error:', error);
-    return new Response(JSON.stringify({ error: 'Internal server error' }), {
-      status: 500,
-      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-    });
+    return handleError(error, 'start-draft');
   }
 });

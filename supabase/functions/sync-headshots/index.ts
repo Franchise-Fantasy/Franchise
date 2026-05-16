@@ -20,16 +20,15 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { Image as ImgScript } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
-import { CORS_HEADERS } from "../_shared/cors.ts";
 import type { Sport } from "../_shared/bdl.ts";
+import { CORS_HEADERS } from "../_shared/cors.ts";
 import { recordHeartbeat } from "../_shared/heartbeat.ts";
+import { handleError, jsonResponse, errorResponse } from "../_shared/http.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SB_SECRET_KEY")!,
 );
-
-const jsonHeaders = { ...CORS_HEADERS, "Content-Type": "application/json" };
 
 // Match scripts/seed-pro-assets.mjs — headshots are rendered at ≤200px on the
 // largest surface, so 256x192 is plenty at retina density and ~10× smaller than
@@ -132,9 +131,7 @@ Deno.serve(async (req: Request) => {
   const cronSecret = Deno.env.get("CRON_SECRET");
   const authHeader = req.headers.get("Authorization");
   if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401, headers: jsonHeaders,
-    });
+    return errorResponse("Unauthorized", 401);
   }
 
   let sportFilter: Sport | null = null;
@@ -154,16 +151,9 @@ Deno.serve(async (req: Request) => {
       results[s] = await syncSport(s, force);
     }
     await recordHeartbeat(supabase, 'sync-headshots', 'ok');
-    return new Response(
-      JSON.stringify({ ok: true, force, results }),
-      { status: 200, headers: jsonHeaders },
-    );
+    return jsonResponse({ ok: true, force, results });
   } catch (err) {
-    console.error("sync-headshots error:", (err as Error)?.message ?? err);
     await recordHeartbeat(supabase, 'sync-headshots', 'error', (err as Error)?.message ?? String(err));
-    return new Response(
-      JSON.stringify({ error: (err as Error)?.message ?? String(err) }),
-      { status: 500, headers: jsonHeaders },
-    );
+    return handleError(err, 'sync-headshots');
   }
 });

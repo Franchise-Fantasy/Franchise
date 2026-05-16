@@ -1,7 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { notifyLeague } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
+import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
+import { notifyLeague } from '../_shared/push.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 Deno.serve(async (req) => {
@@ -14,28 +15,28 @@ Deno.serve(async (req) => {
     );
 
     const authHeader = req.headers.get('Authorization');
-    if (!authHeader) throw new Error('Missing authorization header');
+    if (!authHeader) throw new HttpError('Missing authorization header', 401);
     const userClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SB_PUBLISHABLE_KEY') ?? '',
       { global: { headers: { Authorization: authHeader } } }
     );
     const { data: { user } } = await userClient.auth.getUser();
-    if (!user) throw new Error('Unauthorized');
+    if (!user) throw new HttpError('Unauthorized', 401);
 
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'create-rookie-draft');
     if (rateLimited) return rateLimited;
 
     const { league_id } = await req.json();
-    if (!league_id) throw new Error('league_id is required');
+    if (!league_id) throw new HttpError('league_id is required');
 
     const { data: league, error: leagueErr } = await supabaseAdmin
       .from('leagues')
       .select('created_by, name, season, teams, current_teams, rookie_draft_rounds, offseason_step')
       .eq('id', league_id)
       .single();
-    if (leagueErr || !league) throw new Error('League not found');
-    if (league.created_by !== user.id) throw new Error('Only the commissioner can create a rookie draft');
+    if (leagueErr || !league) throw new HttpError('League not found', 404);
+    if (league.created_by !== user.id) throw new HttpError('Only the commissioner can create a rookie draft', 403);
 
     // Validate offseason state. `lottery_revealing` is accepted because the
     // lottery-room "Done" button now bundles the ceremony close + draft
@@ -43,7 +44,7 @@ Deno.serve(async (req) => {
     // `lottery_complete` state.
     const validSteps = ['lottery_revealing', 'lottery_complete', 'rookie_draft_pending'];
     if (!validSteps.includes(league.offseason_step ?? '')) {
-      throw new Error(`Cannot create rookie draft in current state: ${league.offseason_step}`);
+      throw new HttpError(`Cannot create rookie draft in current state: ${league.offseason_step}`);
     }
 
     // Idempotent: if a rookie draft already exists for this season, reuse it
@@ -83,7 +84,8 @@ Deno.serve(async (req) => {
         })
         .select('id')
         .single();
-      if (draftErr || !draft) throw new Error(`Failed to create draft: ${draftErr?.message}`);
+      if (draftErr) throw draftErr;
+      if (!draft) throw new HttpError('Failed to create draft');
       draftId = draft.id;
       createdNew = true;
 
@@ -94,7 +96,7 @@ Deno.serve(async (req) => {
         .eq('league_id', league_id)
         .eq('season', league.season)
         .is('draft_id', null);
-      if (linkErr) throw new Error(`Failed to link draft picks: ${linkErr.message}`);
+      if (linkErr) throw linkErr;
     }
 
     // Advance offseason step if it isn't already past creation. Idempotent —
@@ -120,22 +122,12 @@ Deno.serve(async (req) => {
       }
     }
 
-    return new Response(
-      JSON.stringify({
-        message: createdNew ? 'Rookie draft created' : 'Rookie draft already exists',
-        draft_id: draftId,
-        created: createdNew,
-      }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    );
+    return jsonResponse({
+      message: createdNew ? 'Rookie draft created' : 'Rookie draft already exists',
+      draft_id: draftId,
+      created: createdNew,
+    });
   } catch (error) {
-    // Surface the real error message so clients (and supabase logs) can see
-    // *why* it failed, rather than a generic 'Internal server error'.
-    console.error('create-rookie-draft error:', error);
-    const message = error instanceof Error ? error.message : 'Internal server error';
-    return new Response(
-      JSON.stringify({ error: message }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    );
+    return handleError(error, 'create-rookie-draft');
   }
 });

@@ -1,14 +1,9 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { corsResponse } from '../_shared/cors.ts';
+import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
 import { notifyTeams } from '../_shared/push.ts';
-import { corsResponse, CORS_HEADERS } from '../_shared/cors.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
-
-const json = (body: Record<string, unknown>, status = 200) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-  });
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return corsResponse();
@@ -28,7 +23,7 @@ Deno.serve(async (req: Request) => {
       { global: { headers: { Authorization: token ?? '' } } },
     );
     const { data: { user } } = await userClient.auth.getUser();
-    if (!user) return json({ error: 'Unauthorized' }, 401);
+    if (!user) return errorResponse('Unauthorized', 401);
 
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'mark-payment');
     if (rateLimited) return rateLimited;
@@ -43,11 +38,11 @@ Deno.serve(async (req: Request) => {
     } else if (typeof body.paid === 'boolean') {
       action = body.paid ? 'confirm' : 'deny';
     } else {
-      return json({ error: 'league_id, team_id, season, and action (or paid boolean) are required' }, 400);
+      return errorResponse('league_id, team_id, season, and action (or paid boolean) are required', 400);
     }
 
     if (!league_id || !team_id || !season) {
-      return json({ error: 'league_id, team_id, and season are required' }, 400);
+      return errorResponse('league_id, team_id, and season are required', 400);
     }
 
     // Fetch league info
@@ -56,7 +51,7 @@ Deno.serve(async (req: Request) => {
       .select('name, created_by')
       .eq('id', league_id)
       .single();
-    if (!league) return json({ error: 'League not found' }, 404);
+    if (!league) return errorResponse('League not found', 404);
 
     const isCommissioner = league.created_by === user.id;
 
@@ -66,7 +61,7 @@ Deno.serve(async (req: Request) => {
       .select('name, user_id')
       .eq('id', team_id)
       .single();
-    if (!team) return json({ error: 'Team not found' }, 404);
+    if (!team) return errorResponse('Team not found', 404);
 
     const leagueName = league.name ?? 'Your League';
     const teamName = team.name ?? 'A team';
@@ -98,7 +93,7 @@ Deno.serve(async (req: Request) => {
     if (action === 'self_report') {
       // Caller must own the team
       if (team.user_id !== user.id) {
-        return json({ error: 'You can only self-report for your own team' }, 403);
+        return errorResponse('You can only self-report for your own team', 403);
       }
 
       const { error: upsertErr } = await supabaseAdmin
@@ -139,12 +134,12 @@ Deno.serve(async (req: Request) => {
 
       await postChat(team_id, `${teamName} reports they have paid the buy-in`);
 
-      return json({ ok: true });
+      return jsonResponse({ ok: true });
     }
 
     // ── CONFIRM / DENY — commissioner only ───────────────────────
     if (!isCommissioner) {
-      return json({ error: 'Only the commissioner can confirm or deny payments' }, 403);
+      return errorResponse('Only the commissioner can confirm or deny payments', 403);
     }
 
     if (action === 'confirm') {
@@ -188,7 +183,7 @@ Deno.serve(async (req: Request) => {
         await postChat(commTeam.id, `${teamName}'s payment has been confirmed`);
       }
 
-      return json({ ok: true });
+      return jsonResponse({ ok: true });
     }
 
     if (action === 'deny') {
@@ -223,12 +218,11 @@ Deno.serve(async (req: Request) => {
         console.warn('Deny push failed (non-fatal):', e);
       }
 
-      return json({ ok: true });
+      return jsonResponse({ ok: true });
     }
 
-    return json({ error: `Unknown action: ${action}` }, 400);
-  } catch (err: any) {
-    console.error('mark-payment error:', err);
-    return json({ error: err?.message ?? String(err) }, 500);
+    return errorResponse(`Unknown action: ${action}`, 400);
+  } catch (err) {
+    return handleError(err, 'mark-payment');
   }
 });

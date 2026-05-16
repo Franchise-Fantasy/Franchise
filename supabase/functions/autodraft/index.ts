@@ -1,8 +1,9 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { Receiver } from 'https://esm.sh/@upstash/qstash';
-import { notifyTeams, notifyLeague } from '../_shared/push.ts';
+import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
 import { checkPositionLimits } from '../_shared/positionLimits.ts';
+import { notifyTeams, notifyLeague } from '../_shared/push.ts';
 import { isEligibleForSlot } from '../../../utils/roster/rosterSlotsShared.ts';
 
 // Pure variant: takes pre-fetched roster config + current roster so the caller
@@ -81,7 +82,7 @@ Deno.serve(async (req) => {
         url: autodraftUrl,
       });
     } catch {
-      return new Response('Unauthorized', { status: 401 });
+      return errorResponse('Unauthorized', 401);
     }
 
     const { draft_id, pick_number, autopick_triggered } = JSON.parse(bodyText);
@@ -108,12 +109,12 @@ Deno.serve(async (req) => {
 
     const { data: draft, error: draftError } = draftResult;
     if (draftError || !draft || draft.current_pick_number !== pick_number) {
-      return new Response(JSON.stringify({ message: 'Pick already made or draft not found' }), { status: 200 });
+      return jsonResponse({ message: 'Pick already made or draft not found' });
     }
 
     const { data: currentPick, error: pickError } = pickResult;
     if (pickError || !currentPick || currentPick.player_id) {
-      return new Response(JSON.stringify({ message: 'Pick already made' }), { status: 200 });
+      return jsonResponse({ message: 'Pick already made' });
     }
 
     // Phase 2: parallel fetch of everything needed to choose the player and
@@ -156,7 +157,7 @@ Deno.serve(async (req) => {
     if (autopick_triggered && !teamStatusResult.data?.autopick_on) {
       // User turned off autopick before this fired — schedule normal clock instead
       await scheduleAutodraft(draft_id, pick_number, draft.time_limit);
-      return new Response(JSON.stringify({ message: 'Autopick cancelled, normal clock scheduled' }), { status: 200 });
+      return jsonResponse({ message: 'Autopick cancelled, normal clock scheduled' });
     }
 
     const draftedIds = (draftedResult.data ?? []).map((p: { player_id: string }) => String(p.player_id));
@@ -225,7 +226,7 @@ Deno.serve(async (req) => {
 
       const { data: candidates, error: playerError } = await query;
       if (playerError || !candidates || candidates.length === 0) {
-        return new Response(JSON.stringify({ message: 'No players available' }), { status: 200 });
+        return jsonResponse({ message: 'No players available' });
       }
 
       // Find first candidate that passes position limits
@@ -373,12 +374,8 @@ Deno.serve(async (req) => {
       }
     })());
 
-    return new Response(
-      JSON.stringify({ message: isDraftComplete ? 'Draft complete!' : 'Autodrafted!' }),
-      { status: 200 }
-    );
+    return jsonResponse({ message: isDraftComplete ? 'Draft complete!' : 'Autodrafted!' });
   } catch (error) {
-    console.error('autodraft error:', error);
-    return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
+    return handleError(error, 'autodraft');
   }
 });

@@ -1,7 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { notifyLeague } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
+import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
+import { notifyLeague } from '../_shared/push.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 const VALID_QUESTION_TYPES = [
@@ -30,7 +31,7 @@ Deno.serve(async (req) => {
       { global: { headers: { Authorization: token ?? '' } } }
     );
     const { data: { user } } = await userClient.auth.getUser();
-    if (!user) throw new Error('Unauthorized');
+    if (!user) throw new HttpError('Unauthorized', 401);
 
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'create-survey');
     if (rateLimited) return rateLimited;
@@ -47,70 +48,70 @@ Deno.serve(async (req) => {
 
     // Validate required fields
     if (!league_id || !conversation_id || !title || !questions || !closes_at) {
-      throw new Error('league_id, conversation_id, title, questions, and closes_at are required');
+      throw new HttpError('league_id, conversation_id, title, questions, and closes_at are required');
     }
 
     // Validate title
     const trimmedTitle = title.trim();
     if (trimmedTitle.length === 0 || trimmedTitle.length > 200) {
-      throw new Error('Title must be 1-200 characters');
+      throw new HttpError('Title must be 1-200 characters');
     }
 
     // Validate description
     const trimmedDescription = (description ?? '').trim();
     if (trimmedDescription.length > 1000) {
-      throw new Error('Description must be 1000 characters or fewer');
+      throw new HttpError('Description must be 1000 characters or fewer');
     }
 
     // Validate results_visibility
     const vis = results_visibility ?? 'commissioner';
     if (vis !== 'everyone' && vis !== 'commissioner') {
-      throw new Error('results_visibility must be "everyone" or "commissioner"');
+      throw new HttpError('results_visibility must be "everyone" or "commissioner"');
     }
 
     // Validate closes_at
     const closesDate = new Date(closes_at);
     if (isNaN(closesDate.getTime()) || closesDate <= new Date()) {
-      throw new Error('closes_at must be a valid future timestamp');
+      throw new HttpError('closes_at must be a valid future timestamp');
     }
 
     // Validate questions
     if (!Array.isArray(questions) || questions.length < 1 || questions.length > 20) {
-      throw new Error('Must have 1-20 questions');
+      throw new HttpError('Must have 1-20 questions');
     }
 
     const validatedQuestions = questions.map((q: any, i: number) => {
       if (!q.prompt || typeof q.prompt !== 'string') {
-        throw new Error(`Question ${i + 1}: prompt is required`);
+        throw new HttpError(`Question ${i + 1}: prompt is required`);
       }
       const prompt = q.prompt.trim();
       if (prompt.length === 0 || prompt.length > 500) {
-        throw new Error(`Question ${i + 1}: prompt must be 1-500 characters`);
+        throw new HttpError(`Question ${i + 1}: prompt must be 1-500 characters`);
       }
 
       if (!VALID_QUESTION_TYPES.includes(q.type)) {
-        throw new Error(`Question ${i + 1}: invalid type "${q.type}"`);
+        throw new HttpError(`Question ${i + 1}: invalid type "${q.type}"`);
       }
 
       // Validate options for types that need them
       let options: string[] | null = null;
       if (q.type === 'multiple_choice_single' || q.type === 'multiple_choice_multi') {
         if (!Array.isArray(q.options) || q.options.length < 2 || q.options.length > 10) {
-          throw new Error(`Question ${i + 1}: multiple choice requires 2-10 options`);
+          throw new HttpError(`Question ${i + 1}: multiple choice requires 2-10 options`);
         }
         options = q.options.map((o: string) => {
           if (typeof o !== 'string' || o.trim().length === 0 || o.trim().length > 200) {
-            throw new Error(`Question ${i + 1}: each option must be 1-200 characters`);
+            throw new HttpError(`Question ${i + 1}: each option must be 1-200 characters`);
           }
           return o.trim();
         });
       } else if (q.type === 'ranked_choice') {
         if (!Array.isArray(q.options) || q.options.length < 3 || q.options.length > 10) {
-          throw new Error(`Question ${i + 1}: ranked choice requires 3-10 options`);
+          throw new HttpError(`Question ${i + 1}: ranked choice requires 3-10 options`);
         }
         options = q.options.map((o: string) => {
           if (typeof o !== 'string' || o.trim().length === 0 || o.trim().length > 200) {
-            throw new Error(`Question ${i + 1}: each option must be 1-200 characters`);
+            throw new HttpError(`Question ${i + 1}: each option must be 1-200 characters`);
           }
           return o.trim();
         });
@@ -132,7 +133,7 @@ Deno.serve(async (req) => {
       .eq('id', league_id)
       .single();
     if (league?.created_by !== user.id) {
-      throw new Error('Only the commissioner can create surveys.');
+      throw new HttpError('Only the commissioner can create surveys.', 403);
     }
 
     // Verify conversation belongs to this league and is a league chat
@@ -142,7 +143,7 @@ Deno.serve(async (req) => {
       .eq('id', conversation_id)
       .single();
     if (!conv || conv.league_id !== league_id || conv.type !== 'league') {
-      throw new Error('Surveys can only be created in league chat.');
+      throw new HttpError('Surveys can only be created in league chat.');
     }
 
     // Get commissioner's team_id
@@ -152,7 +153,7 @@ Deno.serve(async (req) => {
       .eq('league_id', league_id)
       .eq('user_id', user.id)
       .single();
-    if (!commTeam) throw new Error('Commissioner team not found.');
+    if (!commTeam) throw new HttpError('Commissioner team not found.', 404);
 
     // 1. Insert survey
     const { data: survey, error: surveyError } = await supabaseAdmin
@@ -168,7 +169,7 @@ Deno.serve(async (req) => {
       })
       .select('id')
       .single();
-    if (surveyError) throw new Error(`Failed to create survey: ${surveyError.message}`);
+    if (surveyError) throw surveyError;
 
     // 2. Batch insert questions
     const questionRows = validatedQuestions.map((q: any) => ({
@@ -178,7 +179,7 @@ Deno.serve(async (req) => {
     const { error: qError } = await supabaseAdmin
       .from('survey_questions')
       .insert(questionRows);
-    if (qError) throw new Error(`Failed to create questions: ${qError.message}`);
+    if (qError) throw qError;
 
     // 3. Insert chat message anchoring the survey
     const { data: msg, error: msgError } = await supabaseAdmin
@@ -192,7 +193,7 @@ Deno.serve(async (req) => {
       })
       .select('id')
       .single();
-    if (msgError) throw new Error(`Failed to create chat message: ${msgError.message}`);
+    if (msgError) throw msgError;
 
     // 4. Update survey with message back-reference
     await supabaseAdmin
@@ -218,15 +219,8 @@ Deno.serve(async (req) => {
       console.warn('Push notification failed (non-fatal):', notifyErr);
     }
 
-    return new Response(
-      JSON.stringify({ survey_id: survey.id, message_id: msg.id }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    );
+    return jsonResponse({ survey_id: survey.id, message_id: msg.id });
   } catch (error) {
-    console.error('create-survey error:', error);
-    return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    );
+    return handleError(error, 'create-survey');
   }
 });

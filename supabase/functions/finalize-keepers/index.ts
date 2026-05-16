@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { notifyLeague } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
+import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 Deno.serve(async (req) => {
@@ -15,20 +16,20 @@ Deno.serve(async (req) => {
 
     // Auth
     const authHeader = req.headers.get('Authorization');
-    if (!authHeader) throw new Error('Missing authorization header');
+    if (!authHeader) throw new HttpError('Missing authorization header', 401);
     const userClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SB_PUBLISHABLE_KEY') ?? '',
       { global: { headers: { Authorization: authHeader } } }
     );
     const { data: { user } } = await userClient.auth.getUser();
-    if (!user) throw new Error('Unauthorized');
+    if (!user) throw new HttpError('Unauthorized', 401);
 
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'finalize-keepers');
     if (rateLimited) return rateLimited;
 
     const { league_id } = await req.json();
-    if (!league_id) throw new Error('league_id is required');
+    if (!league_id) throw new HttpError('league_id is required');
 
     // Fetch league
     const { data: league, error: leagueErr } = await supabaseAdmin
@@ -36,10 +37,10 @@ Deno.serve(async (req) => {
       .select('created_by, name, season, league_type, offseason_step')
       .eq('id', league_id)
       .single();
-    if (leagueErr || !league) throw new Error('League not found');
-    if (league.created_by !== user.id) throw new Error('Only the commissioner can finalize keepers');
-    if (league.league_type !== 'keeper') throw new Error('This action is only available for keeper leagues');
-    if (league.offseason_step !== 'keeper_pending') throw new Error('League is not in the keeper declaration phase');
+    if (leagueErr || !league) throw new HttpError('League not found', 404);
+    if (league.created_by !== user.id) throw new HttpError('Only the commissioner can finalize keepers', 403);
+    if (league.league_type !== 'keeper') throw new HttpError('This action is only available for keeper leagues');
+    if (league.offseason_step !== 'keeper_pending') throw new HttpError('League is not in the keeper declaration phase');
 
     // Get all kept player IDs
     const { data: declarations, error: declErr } = await supabaseAdmin
@@ -47,7 +48,7 @@ Deno.serve(async (req) => {
       .select('player_id')
       .eq('league_id', league_id)
       .eq('season', league.season);
-    if (declErr) throw new Error(`Failed to fetch keeper declarations: ${declErr.message}`);
+    if (declErr) throw declErr;
 
     const keptPlayerIds = (declarations ?? []).map((d: any) => d.player_id);
 
@@ -78,7 +79,7 @@ Deno.serve(async (req) => {
       .from('leagues')
       .update({ offseason_step: 'ready_for_new_season' })
       .eq('id', league_id);
-    if (updateErr) throw new Error(`Failed to update league: ${updateErr.message}`);
+    if (updateErr) throw updateErr;
 
     // Notify league
     try {
@@ -94,15 +95,8 @@ Deno.serve(async (req) => {
       console.warn('Push notification failed (non-fatal):', notifyErr);
     }
 
-    return new Response(
-      JSON.stringify({ message: 'Keepers finalized successfully', kept_count: keptPlayerIds.length }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    );
+    return jsonResponse({ message: 'Keepers finalized successfully', kept_count: keptPlayerIds.length });
   } catch (error) {
-    console.error('finalize-keepers error:', error);
-    return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    );
+    return handleError(error, 'finalize-keepers');
   }
 });

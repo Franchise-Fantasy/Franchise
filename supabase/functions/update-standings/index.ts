@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { handleError, jsonResponse, errorResponse } from "../_shared/http.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -17,9 +18,7 @@ Deno.serve(async (req: Request) => {
   const cronSecret = Deno.env.get('CRON_SECRET');
   const authHeader = req.headers.get('Authorization');
   if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401, headers: { 'Content-Type': 'application/json' },
-    });
+    return errorResponse('Unauthorized', 401);
   }
 
   try {
@@ -32,10 +31,7 @@ Deno.serve(async (req: Request) => {
       .is("offseason_step", null);
 
     if (!activeLeagues || activeLeagues.length === 0) {
-      return new Response(
-        JSON.stringify({ ok: true, updated: 0, message: "No active leagues" }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
+      return jsonResponse({ ok: true, updated: 0, message: "No active leagues" });
     }
 
     // Process all leagues in parallel — each league is independent
@@ -125,15 +121,8 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    return new Response(
-      JSON.stringify({ ok: true, updated: updatedCount }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
-    );
-  } catch (error: any) {
-    console.error("update-standings error:", error);
-    return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
-    );
+    return jsonResponse({ ok: true, updated: updatedCount });
+  } catch (error) {
+    return handleError(error, 'update-standings');
   }
 });

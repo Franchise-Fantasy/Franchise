@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsResponse } from '../_shared/cors.ts';
+import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 /**
@@ -27,13 +28,13 @@ Deno.serve(async (req) => {
       { global: { headers: { Authorization: token ?? '' } } },
     );
     const { data: { user } } = await userClient.auth.getUser();
-    if (!user) throw new Error('Unauthorized');
+    if (!user) throw new HttpError('Unauthorized', 401);
 
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'trigger-autopick');
     if (rateLimited) return rateLimited;
 
     const { draft_id } = await req.json();
-    if (!draft_id) throw new Error('draft_id is required');
+    if (!draft_id) throw new HttpError('draft_id is required');
 
     // Fetch draft state
     const { data: draft, error: draftError } = await supabaseAdmin
@@ -41,9 +42,9 @@ Deno.serve(async (req) => {
       .select('current_pick_number, status, league_id')
       .eq('id', draft_id)
       .single();
-    if (draftError || !draft) throw new Error('Draft not found');
+    if (draftError || !draft) throw new HttpError('Draft not found', 404);
     if (draft.status !== 'in_progress') {
-      return new Response(JSON.stringify({ message: 'Draft not in progress' }), { status: 200 });
+      return jsonResponse({ message: 'Draft not in progress' });
     }
 
     // Verify the caller owns the team currently on the clock
@@ -53,7 +54,7 @@ Deno.serve(async (req) => {
       .eq('draft_id', draft_id)
       .eq('pick_number', draft.current_pick_number)
       .single();
-    if (!currentPick) throw new Error('Current pick not found');
+    if (!currentPick) throw new HttpError('Current pick not found', 404);
 
     const { data: team } = await supabaseAdmin
       .from('teams')
@@ -61,7 +62,7 @@ Deno.serve(async (req) => {
       .eq('id', currentPick.current_team_id)
       .eq('user_id', user.id)
       .single();
-    if (!team) throw new Error('Not your turn');
+    if (!team) throw new HttpError('Not your turn', 403);
 
     // Schedule immediate autopick via QStash
     const autodraftUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/autodraft`;
@@ -76,8 +77,8 @@ Deno.serve(async (req) => {
     });
     if (!res.ok) throw new Error(`QStash error: ${await res.text()}`);
 
-    return new Response(JSON.stringify({ message: 'Autopick triggered' }), { status: 200 });
+    return jsonResponse({ message: 'Autopick triggered' });
   } catch (error) {
-    return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 400 });
+    return handleError(error, 'trigger-autopick');
   }
 });

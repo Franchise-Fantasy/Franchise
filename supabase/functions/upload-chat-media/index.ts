@@ -1,8 +1,9 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsResponse } from "../_shared/cors.ts";
-import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { HttpError, handleError, jsonResponse, errorResponse } from "../_shared/http.ts";
 import { moderateImage } from "../_shared/moderate.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return corsResponse();
@@ -21,7 +22,7 @@ Deno.serve(async (req: Request) => {
     const {
       data: { user },
     } = await userClient.auth.getUser();
-    if (!user) throw new Error("Unauthorized");
+    if (!user) throw new HttpError("Unauthorized", 401);
 
     const rateLimited = await checkRateLimit(
       supabaseAdmin,
@@ -32,7 +33,7 @@ Deno.serve(async (req: Request) => {
 
     const { league_id, team_id, image_base64 } = await req.json();
     if (!league_id || !team_id || !image_base64) {
-      throw new Error("league_id, team_id, and image_base64 required");
+      throw new HttpError("league_id, team_id, and image_base64 required");
     }
 
     // Verify the user owns this team and it belongs to the target league
@@ -42,28 +43,20 @@ Deno.serve(async (req: Request) => {
       .eq("id", team_id)
       .eq("league_id", league_id)
       .single();
-    if (!team || team.user_id !== user.id) throw new Error("Not your team");
+    if (!team || team.user_id !== user.id) throw new HttpError("Not your team", 403);
 
     // Strip data URI prefix if present
     const raw = image_base64.replace(/^data:image\/\w+;base64,/, "");
 
     // ~3.75 MB decoded limit (5 MB base64 string)
     if (raw.length > 5_000_000) {
-      return new Response(
-        JSON.stringify({ error: "Image too large. Max size is ~3.75 MB." }),
-        { status: 413, headers: { "Content-Type": "application/json" } },
-      );
+      return errorResponse("Image too large. Max size is ~3.75 MB.", 413);
     }
 
     // Moderate with Cloud Vision
     const modResult = await moderateImage(raw);
     if (!modResult.safe) {
-      return new Response(
-        JSON.stringify({
-          error: modResult.reason ?? "Image rejected by moderation",
-        }),
-        { status: 422, headers: { "Content-Type": "application/json" } },
-      );
+      return errorResponse(modResult.reason ?? "Image rejected by moderation", 422);
     }
 
     // Decode base64 to binary
@@ -81,22 +74,14 @@ Deno.serve(async (req: Request) => {
         contentType: "image/jpeg",
         upsert: false,
       });
-    if (uploadErr) throw new Error(`Upload failed: ${uploadErr.message}`);
+    if (uploadErr) throw uploadErr;
 
     const { data: urlData } = supabaseAdmin.storage
       .from("chat-media")
       .getPublicUrl(filePath);
 
-    return new Response(
-      JSON.stringify({ media_url: urlData.publicUrl }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
-    );
-  } catch (err: any) {
-    console.error("upload-chat-media error:", err);
-    const status = err.message === "Unauthorized" ? 401 : 500;
-    return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
-      { status, headers: { "Content-Type": "application/json" } },
-    );
+    return jsonResponse({ media_url: urlData.publicUrl });
+  } catch (error) {
+    return handleError(error, 'upload-chat-media');
   }
 });

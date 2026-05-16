@@ -1,18 +1,17 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { Sport } from '../_shared/bdl.ts';
 import { CORS_HEADERS } from '../_shared/cors.ts';
 import { recordHeartbeat } from '../_shared/heartbeat.ts';
+import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
 import { normalizeName } from '../_shared/normalize.ts';
 import { notifyUsersBulk, type BulkUserNotification } from '../_shared/push.ts';
 import { fetchWithRetry } from '../_shared/retry.ts';
-import type { Sport } from '../_shared/bdl.ts';
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SB_SECRET_KEY")!,
 );
-
-const jsonHeaders = { ...CORS_HEADERS, 'Content-Type': 'application/json' };
 
 // `expectedChannelTag` is matched against the feed's <title> as a guard against
 // Rotowire 301'ing an unrecognized sport param to the generic /rss/news.php feed
@@ -184,10 +183,7 @@ Deno.serve(async (req: Request) => {
   const cronSecret = Deno.env.get('CRON_SECRET');
   const authHeader = req.headers.get('Authorization');
   if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401,
-      headers: jsonHeaders,
-    });
+    return errorResponse('Unauthorized', 401);
   }
 
   // Sport from request body. Defaults to 'nba' so legacy cron entries keep working.
@@ -239,9 +235,7 @@ Deno.serve(async (req: Request) => {
 
     if (allItems.length === 0) {
       await recordHeartbeat(supabase, `poll-news:${sport}`, 'ok');
-      return new Response(JSON.stringify({ message: 'No items fetched', inserted: 0 }), {
-        headers: jsonHeaders,
-      });
+      return jsonResponse({ message: 'No items fetched', inserted: 0 });
     }
 
     console.log(`Fetched ${allItems.length} unique RSS items across ${POLL_ROUNDS} rounds`);
@@ -250,7 +244,7 @@ Deno.serve(async (req: Request) => {
     //    article can't accidentally match a WNBA name (or vice versa).
     const { data: allPlayers, error: playerErr } = await supabase
       .from('players').select('id, name, external_id_nba, status').eq('sport', sport);
-    if (playerErr) throw new Error(`Failed to fetch players: ${playerErr.message}`);
+    if (playerErr) throw playerErr;
 
     // Build normalized name → player IDs map + player info lookup
     // Only match names with at least 2 parts (first + last) to avoid false positives
@@ -436,13 +430,9 @@ Deno.serve(async (req: Request) => {
     console.log('poll-news complete:', JSON.stringify(summary));
 
     await recordHeartbeat(supabase, `poll-news:${sport}`, 'ok');
-    return new Response(JSON.stringify(summary), { headers: jsonHeaders });
-  } catch (err: any) {
-    console.error('poll-news error:', err?.message ?? err);
-    await recordHeartbeat(supabase, `poll-news:${sport}`, 'error', err?.message ?? String(err));
-    return new Response(
-      JSON.stringify({ error: err?.message ?? 'Internal error' }),
-      { status: 500, headers: jsonHeaders },
-    );
+    return jsonResponse(summary);
+  } catch (err) {
+    await recordHeartbeat(supabase, `poll-news:${sport}`, 'error', err instanceof Error ? err.message : String(err));
+    return handleError(err, 'poll-news');
   }
 });

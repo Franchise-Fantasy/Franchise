@@ -1,9 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { errorResponse, jsonResponse } from '../_shared/http.ts';
+import { createLogger } from '../_shared/log.ts';
+import { checkPositionLimits } from '../_shared/positionLimits.ts';
 import { notifyTeams, notifyLeague, notifyTeamsBulk, type BulkTeamsNotification } from '../_shared/push.ts';
 import { snapshotBeforeDrop } from '../_shared/snapshotBeforeDrop.ts';
-import { checkPositionLimits } from '../_shared/positionLimits.ts';
-import { createLogger } from '../_shared/log.ts';
 import { nextSlateRollover } from '../../../utils/leagueTime.ts';
 
 const log = createLogger('process-waivers');
@@ -45,9 +46,7 @@ Deno.serve(async (req: Request) => {
   const cronSecret = Deno.env.get('CRON_SECRET');
   const authHeader = req.headers.get('Authorization');
   if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401, headers: { 'Content-Type': 'application/json' },
-    });
+    return errorResponse('Unauthorized', 401);
   }
 
   const now = new Date();
@@ -316,10 +315,7 @@ Deno.serve(async (req: Request) => {
 
   // Step C removed — expired league_waivers are now atomically deleted at Step A start
 
-  return new Response(
-    JSON.stringify({ ok: true, processed, failed, errors }),
-    { status: 200, headers: { 'Content-Type': 'application/json' } },
-  );
+  return jsonResponse({ ok: true, processed, failed, errors });
 });
 
 type ClaimResult = { ok: true } | { ok: false; reason: 'already_owned' | 'roster_full' | 'drop_player_unavailable' | 'position_limit' };

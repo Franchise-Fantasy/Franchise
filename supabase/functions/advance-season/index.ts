@@ -1,7 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { notifyLeague } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
+import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
+import { notifyLeague } from '../_shared/push.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 function nextSeason(current: string): string {
@@ -22,20 +23,20 @@ Deno.serve(async (req) => {
 
     // Auth
     const authHeader = req.headers.get('Authorization');
-    if (!authHeader) throw new Error('Missing authorization header');
+    if (!authHeader) throw new HttpError('Missing authorization header', 401);
     const userClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SB_PUBLISHABLE_KEY') ?? '',
       { global: { headers: { Authorization: authHeader } } }
     );
     const { data: { user } } = await userClient.auth.getUser();
-    if (!user) throw new Error('Unauthorized');
+    if (!user) throw new HttpError('Unauthorized', 401);
 
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'advance-season');
     if (rateLimited) return rateLimited;
 
     const { league_id } = await req.json();
-    if (!league_id) throw new Error('league_id is required');
+    if (!league_id) throw new HttpError('league_id is required');
 
     // Fetch league config
     const { data: league, error: leagueErr } = await supabaseAdmin
@@ -43,9 +44,9 @@ Deno.serve(async (req) => {
       .select('created_by, name, season, teams, playoff_teams, playoff_weeks, rookie_draft_order, rookie_draft_rounds, lottery_draws, lottery_odds, waiver_type, faab_budget, offseason_step, league_type, taxi_slots, taxi_max_experience')
       .eq('id', league_id)
       .single();
-    if (leagueErr || !league) throw new Error('League not found');
-    if (league.created_by !== user.id) throw new Error('Only the commissioner can advance the season');
-    if (league.offseason_step !== null) throw new Error('League is already in the offseason');
+    if (leagueErr || !league) throw new HttpError('League not found', 404);
+    if (league.created_by !== user.id) throw new HttpError('Only the commissioner can advance the season', 403);
+    if (league.offseason_step !== null) throw new HttpError('League is already in the offseason', 409);
 
     // Verify playoffs are complete: a non-bye championship entry must have a winner
     const { data: bracketCheck } = await supabaseAdmin
@@ -56,16 +57,16 @@ Deno.serve(async (req) => {
       .order('round', { ascending: false });
 
     if (!bracketCheck || bracketCheck.length === 0) {
-      throw new Error('Cannot advance season: no playoff bracket found. Playoffs must be completed first.');
+      throw new HttpError('Cannot advance season: no playoff bracket found. Playoffs must be completed first.');
     }
     const finalRound = bracketCheck[0].round;
     const finalRoundEntries = bracketCheck.filter(e => e.round === finalRound);
     const championshipEntry = finalRoundEntries.find(e => !e.is_bye && !e.is_third_place);
     if (!championshipEntry) {
-      throw new Error('Cannot advance season: no championship matchup found in the final round.');
+      throw new HttpError('Cannot advance season: no championship matchup found in the final round.');
     }
     if (!championshipEntry.winner_id) {
-      throw new Error('Cannot advance season: the final playoff round has not been decided yet.');
+      throw new HttpError('Cannot advance season: the final playoff round has not been decided yet.');
     }
 
     const currentSeason = league.season;
@@ -78,7 +79,10 @@ Deno.serve(async (req) => {
       .eq('league_id', league_id)
       .order('wins', { ascending: false })
       .order('points_for', { ascending: false });
-    if (teamsErr || !allTeams) throw new Error('Failed to fetch teams');
+    if (teamsErr || !allTeams) {
+      if (teamsErr) throw teamsErr;
+      throw new HttpError('Failed to fetch teams');
+    }
 
     // Re-sort by win percentage DESC (handles ties counting as half-win)
     allTeams.sort((a, b) => {
@@ -171,7 +175,7 @@ Deno.serve(async (req) => {
     const { error: archiveErr } = await supabaseAdmin
       .from('team_seasons')
       .upsert(teamSeasonRows, { onConflict: 'team_id,season' });
-    if (archiveErr) throw new Error(`Failed to archive stats: ${archiveErr.message}`);
+    if (archiveErr) throw archiveErr;
 
     // ── 4. Set champion ──
     const leagueUpdates: Record<string, any> = {
@@ -188,7 +192,7 @@ Deno.serve(async (req) => {
       .from('teams')
       .update({ wins: 0, losses: 0, ties: 0, points_for: 0, points_against: 0, streak: '' })
       .in('id', teamIds);
-    if (resetErr) throw new Error(`Failed to reset team stats: ${resetErr.message}`);
+    if (resetErr) throw resetErr;
 
     // ── 6. Cancel pending trade proposals ──
     await supabaseAdmin
@@ -370,7 +374,7 @@ Deno.serve(async (req) => {
       .from('leagues')
       .update(leagueUpdates)
       .eq('id', league_id);
-    if (leagueUpdateErr) throw new Error(`Failed to update league: ${leagueUpdateErr.message}`);
+    if (leagueUpdateErr) throw leagueUpdateErr;
 
     // ── 14. Notify league ──
     const champName = championId
@@ -412,22 +416,14 @@ Deno.serve(async (req) => {
       console.warn('Chat announcement failed (non-fatal):', chatErr);
     }
 
-    return new Response(
-      JSON.stringify({
-        message: 'Season advanced successfully',
-        previous_season: currentSeason,
-        new_season: newSeason,
-        champion_team_id: championId,
-        offseason_step: leagueUpdates.offseason_step,
-      }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    );
+    return jsonResponse({
+      message: 'Season advanced successfully',
+      previous_season: currentSeason,
+      new_season: newSeason,
+      champion_team_id: championId,
+      offseason_step: leagueUpdates.offseason_step,
+    });
   } catch (error) {
-    console.error('advance-season error:', error);
-    const message = error instanceof Error ? error.message : 'Internal server error';
-    return new Response(
-      JSON.stringify({ error: message }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    );
+    return handleError(error, 'advance-season');
   }
 });

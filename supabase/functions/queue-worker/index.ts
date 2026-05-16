@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { recordHeartbeat } from "../_shared/heartbeat.ts";
+import { jsonResponse, errorResponse } from "../_shared/http.ts";
 
 // Generic queue worker that dequeues messages from pgmq and dispatches them
 // to the appropriate edge function. Called every minute by pg_cron.
@@ -68,10 +69,7 @@ Deno.serve(async (req: Request) => {
   const cronSecret = Deno.env.get("CRON_SECRET");
   const authHeader = req.headers.get("Authorization");
   if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    });
+    return errorResponse("Unauthorized", 401);
   }
 
   const startedAt = Date.now();
@@ -123,10 +121,7 @@ Deno.serve(async (req: Request) => {
   }
 
   await recordHeartbeat(supabase, 'queue-worker', 'ok');
-  return new Response(JSON.stringify({ ok: true, results }), {
-    status: 200,
-    headers: { "Content-Type": "application/json" },
-  });
+  return jsonResponse({ ok: true, results });
 });
 
 async function processMessage(

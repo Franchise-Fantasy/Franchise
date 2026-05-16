@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
+import { HttpError, handleError, jsonResponse, errorResponse } from "../_shared/http.ts";
 
 /**
  * sync-prospect — Contentful webhook handler
@@ -17,11 +18,6 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SB_SECRET_KEY")!,
 );
-
-const jsonHeaders = {
-  ...CORS_HEADERS,
-  "Content-Type": "application/json",
-};
 
 /** Extract a plain field value from Contentful's locale-wrapped format. */
 function field(fields: Record<string, any>, key: string): any {
@@ -41,10 +37,7 @@ Deno.serve(async (req: Request) => {
   const secret = Deno.env.get("CONTENTFUL_WEBHOOK_SECRET");
   const headerSecret = req.headers.get("X-Webhook-Secret");
   if (!secret || headerSecret !== secret) {
-    return new Response(
-      JSON.stringify({ error: "Unauthorized" }),
-      { status: 401, headers: jsonHeaders },
-    );
+    return errorResponse("Unauthorized", 401);
   }
 
   try {
@@ -53,10 +46,7 @@ Deno.serve(async (req: Request) => {
     const entryId: string = body?.sys?.id;
 
     if (!entryId) {
-      return new Response(
-        JSON.stringify({ error: "Missing entry ID" }),
-        { status: 400, headers: jsonHeaders },
-      );
+      return errorResponse("Missing entry ID", 400);
     }
 
     // Unpublish: soft-disable the prospect (don't delete — may be on rosters)
@@ -66,24 +56,18 @@ Deno.serve(async (req: Request) => {
         .update({ is_prospect: false, updated_at: new Date().toISOString() })
         .eq("contentful_entry_id", entryId);
 
-      return new Response(
-        JSON.stringify({
-          action: "unpublish",
-          entryId,
-          error: error?.message ?? null,
-        }),
-        { status: error ? 500 : 200, headers: jsonHeaders },
-      );
+      return jsonResponse({
+        action: "unpublish",
+        entryId,
+        error: error?.message ?? null,
+      }, error ? 500 : 200);
     }
 
     // Publish: upsert the prospect into players
     const fields = body?.fields ?? {};
     const name = field(fields, "name");
     if (!name) {
-      return new Response(
-        JSON.stringify({ error: "Prospect entry missing name" }),
-        { status: 400, headers: jsonHeaders },
-      );
+      return errorResponse("Prospect entry missing name", 400);
     }
 
     const position = field(fields, "position");
@@ -119,25 +103,16 @@ Deno.serve(async (req: Request) => {
       .single();
 
     if (error) {
-      return new Response(
-        JSON.stringify({ error: 'Internal server error' }),
-        { status: 500, headers: jsonHeaders },
-      );
+      throw error;
     }
 
-    return new Response(
-      JSON.stringify({
-        action: "publish",
-        playerId: data.id,
-        name: data.name,
-        entryId,
-      }),
-      { status: 200, headers: jsonHeaders },
-    );
-  } catch (err) {
-    return new Response(
-      JSON.stringify({ error: (err as Error).message }),
-      { status: 500, headers: jsonHeaders },
-    );
+    return jsonResponse({
+      action: "publish",
+      playerId: data.id,
+      name: data.name,
+      entryId,
+    });
+  } catch (error) {
+    return handleError(error, 'sync-prospect');
   }
 });

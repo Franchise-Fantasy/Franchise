@@ -16,16 +16,15 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { CORS_HEADERS } from "../_shared/cors.ts";
 import { bdlFetchAll, bdlGameSlateDate, type Sport } from "../_shared/bdl.ts";
+import { CORS_HEADERS } from "../_shared/cors.ts";
 import { recordHeartbeat } from "../_shared/heartbeat.ts";
+import { handleError, jsonResponse, errorResponse } from "../_shared/http.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SB_SECRET_KEY")!,
 );
-
-const jsonHeaders = { ...CORS_HEADERS, "Content-Type": "application/json" };
 
 const CURRENT_SEASON: Record<Sport, string> = {
   nba: "2025-26",
@@ -74,9 +73,7 @@ Deno.serve(async (req: Request) => {
   const cronSecret = Deno.env.get("CRON_SECRET");
   const authHeader = req.headers.get("Authorization");
   if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401, headers: jsonHeaders,
-    });
+    return errorResponse("Unauthorized", 401);
   }
 
   let sport: Sport = "nba";
@@ -95,10 +92,7 @@ Deno.serve(async (req: Request) => {
     // WNBA's "2026" → year 2026.
     const seasonYear = parseInt(targetSeason.split("-")[0], 10);
     if (!seasonYear) {
-      return new Response(
-        JSON.stringify({ error: `Invalid season: ${targetSeason}` }),
-        { status: 400, headers: jsonHeaders },
-      );
+      return errorResponse(`Invalid season: ${targetSeason}`, 400);
     }
 
     const bdlGames = await bdlFetchAll(sport, "/games", {
@@ -107,10 +101,7 @@ Deno.serve(async (req: Request) => {
 
     if (!bdlGames || bdlGames.length === 0) {
       await recordHeartbeat(supabase, `sync-game-schedule:${sport}`, 'ok');
-      return new Response(
-        JSON.stringify({ ok: true, sport, season: targetSeason, games: 0, note: "BDL returned no games" }),
-        { status: 200, headers: jsonHeaders },
-      );
+      return jsonResponse({ ok: true, sport, season: targetSeason, games: 0, note: "BDL returned no games" });
     }
 
     const rows = bdlGames
@@ -152,33 +143,20 @@ Deno.serve(async (req: Request) => {
       const { error } = await supabase
         .from("game_schedule")
         .upsert(chunk, { onConflict: "sport,game_id" });
-      if (error) {
-        console.error("game_schedule upsert error:", error.message);
-        return new Response(
-          JSON.stringify({ error: error.message, upserted }),
-          { status: 500, headers: jsonHeaders },
-        );
-      }
+      if (error) throw error;
       upserted += chunk.length;
     }
 
     await recordHeartbeat(supabase, `sync-game-schedule:${sport}`, 'ok');
-    return new Response(
-      JSON.stringify({
-        ok: true,
-        sport,
-        season: targetSeason,
-        bdl_games: bdlGames.length,
-        upserted,
-      }),
-      { status: 200, headers: jsonHeaders },
-    );
+    return jsonResponse({
+      ok: true,
+      sport,
+      season: targetSeason,
+      bdl_games: bdlGames.length,
+      upserted,
+    });
   } catch (err: any) {
-    console.error("sync-game-schedule error:", err?.message ?? err);
     await recordHeartbeat(supabase, `sync-game-schedule:${sport}`, 'error', err?.message ?? String(err));
-    return new Response(
-      JSON.stringify({ error: err?.message ?? String(err) }),
-      { status: 500, headers: jsonHeaders },
-    );
+    return handleError(err, 'sync-game-schedule');
   }
 });

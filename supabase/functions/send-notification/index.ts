@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { notifyTeams, notifyLeague } from '../_shared/push.ts';
 import { CORS_HEADERS } from '../_shared/cors.ts';
+import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 Deno.serve(async (req: Request) => {
@@ -25,10 +26,7 @@ Deno.serve(async (req: Request) => {
     );
     const { data: { user } } = await userClient.auth.getUser();
     if (!user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-      });
+      return errorResponse('Unauthorized', 401);
     }
 
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'send-notification');
@@ -36,18 +34,12 @@ Deno.serve(async (req: Request) => {
 
     const { league_id, team_ids, category, title, body, data } = await req.json();
     if (!league_id || !category || !title || !body) {
-      return new Response(JSON.stringify({ error: 'league_id, category, title, and body are required' }), {
-        status: 400,
-        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-      });
+      return errorResponse('league_id, category, title, and body are required', 400);
     }
 
     const validCategories = ['draft', 'trades', 'trade_rumors', 'trade_block', 'matchups', 'matchup_daily', 'waivers', 'injuries', 'playoffs', 'commissioner', 'league_activity', 'roster_reminders', 'lottery', 'chat', 'roster_moves'];
     if (!validCategories.includes(category)) {
-      return new Response(JSON.stringify({ error: `Invalid category. Must be one of: ${validCategories.join(', ')}` }), {
-        status: 400,
-        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-      });
+      return errorResponse(`Invalid category. Must be one of: ${validCategories.join(', ')}`, 400);
     }
 
     // Verify caller is a member of this league
@@ -59,10 +51,7 @@ Deno.serve(async (req: Request) => {
       .single();
 
     if (!callerTeam) {
-      return new Response(JSON.stringify({ error: 'Not a member of this league' }), {
-        status: 403,
-        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-      });
+      return errorResponse('Not a member of this league', 403);
     }
 
     // Prepend league name to title
@@ -77,15 +66,8 @@ Deno.serve(async (req: Request) => {
       await notifyLeague(supabaseAdmin, league_id, category, prefixedTitle, body, data, excludeUserIds);
     }
 
-    return new Response(JSON.stringify({ ok: true }), {
-      status: 200,
-      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-    });
-  } catch (err: any) {
-    console.error('send-notification error:', err);
-    return new Response(JSON.stringify({ error: err?.message ?? String(err) }), {
-      status: 500,
-      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-    });
+    return jsonResponse({ ok: true });
+  } catch (error) {
+    return handleError(error, 'send-notification');
   }
 });

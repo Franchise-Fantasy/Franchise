@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { HttpError, handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 Deno.serve(async (req) => {
@@ -27,7 +28,7 @@ Deno.serve(async (req) => {
       { global: { headers: { Authorization: token ?? '' } } }
     );
     const { data: { user } } = await userClient.auth.getUser();
-    if (!user) throw new Error('Unauthorized');
+    if (!user) throw new HttpError('Unauthorized', 401);
 
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'delete-account');
     if (rateLimited) return rateLimited;
@@ -42,9 +43,9 @@ Deno.serve(async (req) => {
 
     if (commissionerLeagues && commissionerLeagues.length > 0) {
       const names = commissionerLeagues.map((l: any) => l.name).join(', ');
-      return new Response(
-        JSON.stringify({ error: `You are the commissioner of: ${names}. Transfer commissioner role or delete the league(s) before deleting your account.` }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      return errorResponse(
+        `You are the commissioner of: ${names}. Transfer commissioner role or delete the league(s) before deleting your account.`,
+        400
       );
     }
 
@@ -112,17 +113,10 @@ Deno.serve(async (req) => {
 
     // Delete the auth user
     const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(userId);
-    if (deleteError) throw new Error(`Failed to delete auth user: ${deleteError.message}`);
+    if (deleteError) throw deleteError;
 
-    return new Response(
-      JSON.stringify({ message: 'Account deleted successfully' }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    );
+    return jsonResponse({ message: 'Account deleted successfully' });
   } catch (error) {
-    console.error('delete-account error:', error);
-    return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    );
+    return handleError(error, 'delete-account');
   }
 });

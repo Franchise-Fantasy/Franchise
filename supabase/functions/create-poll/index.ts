@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { notifyLeague } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
+import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 Deno.serve(async (req) => {
@@ -22,7 +23,7 @@ Deno.serve(async (req) => {
       { global: { headers: { Authorization: token ?? '' } } }
     );
     const { data: { user } } = await userClient.auth.getUser();
-    if (!user) throw new Error('Unauthorized');
+    if (!user) throw new HttpError('Unauthorized', 401);
 
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'create-poll');
     if (rateLimited) return rateLimited;
@@ -40,35 +41,35 @@ Deno.serve(async (req) => {
 
     // Validate required fields
     if (!league_id || !conversation_id || !question || !options || !poll_type || !closes_at) {
-      throw new Error('league_id, conversation_id, question, options, poll_type, and closes_at are required');
+      throw new HttpError('league_id, conversation_id, question, options, poll_type, and closes_at are required');
     }
 
     // Validate question
     const trimmedQuestion = question.trim();
     if (trimmedQuestion.length === 0 || trimmedQuestion.length > 500) {
-      throw new Error('Question must be 1-500 characters');
+      throw new HttpError('Question must be 1-500 characters');
     }
 
     // Validate options
     if (!Array.isArray(options) || options.length < 2 || options.length > 10) {
-      throw new Error('Must have 2-10 options');
+      throw new HttpError('Must have 2-10 options');
     }
     for (const opt of options) {
       if (typeof opt !== 'string' || opt.trim().length === 0 || opt.trim().length > 200) {
-        throw new Error('Each option must be 1-200 characters');
+        throw new HttpError('Each option must be 1-200 characters');
       }
     }
     const trimmedOptions = options.map((o: string) => o.trim());
 
     // Validate poll_type
     if (poll_type !== 'single' && poll_type !== 'multi') {
-      throw new Error('poll_type must be "single" or "multi"');
+      throw new HttpError('poll_type must be "single" or "multi"');
     }
 
     // Validate closes_at is in the future
     const closesDate = new Date(closes_at);
     if (isNaN(closesDate.getTime()) || closesDate <= new Date()) {
-      throw new Error('closes_at must be a valid future timestamp');
+      throw new HttpError('closes_at must be a valid future timestamp');
     }
 
     // Verify commissioner
@@ -78,7 +79,7 @@ Deno.serve(async (req) => {
       .eq('id', league_id)
       .single();
     if (league?.created_by !== user.id) {
-      throw new Error('Only the commissioner can create polls.');
+      throw new HttpError('Only the commissioner can create polls.', 403);
     }
 
     // Verify conversation belongs to this league and is a league chat
@@ -88,7 +89,7 @@ Deno.serve(async (req) => {
       .eq('id', conversation_id)
       .single();
     if (!conv || conv.league_id !== league_id || conv.type !== 'league') {
-      throw new Error('Polls can only be created in league chat.');
+      throw new HttpError('Polls can only be created in league chat.');
     }
 
     // Get commissioner's team_id
@@ -98,7 +99,7 @@ Deno.serve(async (req) => {
       .eq('league_id', league_id)
       .eq('user_id', user.id)
       .single();
-    if (!commTeam) throw new Error('Commissioner team not found.');
+    if (!commTeam) throw new HttpError('Commissioner team not found.', 404);
 
     // 1. Insert poll
     const { data: poll, error: pollError } = await supabaseAdmin
@@ -116,7 +117,7 @@ Deno.serve(async (req) => {
       })
       .select('id')
       .single();
-    if (pollError) throw new Error(`Failed to create poll: ${pollError.message}`);
+    if (pollError) throw pollError;
 
     // 2. Insert chat message anchoring the poll
     const { data: msg, error: msgError } = await supabaseAdmin
@@ -130,7 +131,7 @@ Deno.serve(async (req) => {
       })
       .select('id')
       .single();
-    if (msgError) throw new Error(`Failed to create chat message: ${msgError.message}`);
+    if (msgError) throw msgError;
 
     // 3. Update poll with message back-reference
     await supabaseAdmin
@@ -156,15 +157,8 @@ Deno.serve(async (req) => {
       console.warn('Push notification failed (non-fatal):', notifyErr);
     }
 
-    return new Response(
-      JSON.stringify({ poll_id: poll.id, message_id: msg.id }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    );
+    return jsonResponse({ poll_id: poll.id, message_id: msg.id });
   } catch (error) {
-    console.error('create-poll error:', error);
-    return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    );
+    return handleError(error, 'create-poll');
   }
 });

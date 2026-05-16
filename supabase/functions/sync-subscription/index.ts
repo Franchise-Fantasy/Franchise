@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsResponse, CORS_HEADERS } from "../_shared/cors.ts";
+import { HttpError, handleError, jsonResponse, errorResponse } from "../_shared/http.ts";
 
 /**
  * Authoritative reconciliation between RevenueCat and our subscription tables.
@@ -65,23 +66,12 @@ Deno.serve(async (req) => {
       { global: { headers: { Authorization: token ?? "" } } },
     );
     const { data: { user } } = await userClient.auth.getUser();
-    if (!user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-      });
-    }
+    if (!user) throw new HttpError("Unauthorized", 401);
 
     const rcApiKey = Deno.env.get("REVENUECAT_REST_API_KEY");
     if (!rcApiKey) {
       console.error("REVENUECAT_REST_API_KEY missing");
-      return new Response(
-        JSON.stringify({ error: "Sync not configured on server" }),
-        {
-          status: 500,
-          headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-        },
-      );
+      return errorResponse("Sync not configured on server", 500);
     }
 
     const rcRes = await fetch(
@@ -97,10 +87,7 @@ Deno.serve(async (req) => {
     if (!rcRes.ok) {
       const text = await rcRes.text();
       console.error("RC API error", rcRes.status, text);
-      return new Response(JSON.stringify({ error: "RC lookup failed" }), {
-        status: 502,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-      });
+      return errorResponse("RC lookup failed", 502);
     }
 
     const rcBody = await rcRes.json();
@@ -196,31 +183,21 @@ Deno.serve(async (req) => {
       );
     }
 
-    return new Response(
-      JSON.stringify({
-        ok: true,
-        individual: bestIndividual && {
-          tier: bestIndividual.tier,
-          expiresAt: bestIndividual.expiresAt,
-          period: bestIndividual.isAnnual ? "annual" : "monthly",
-        },
-        league: bestLeague && {
-          tier: bestLeague.tier,
-          expiresAt: bestLeague.expiresAt,
-          period: bestLeague.isAnnual ? "annual" : "monthly",
-          leagueId: bestLeague.leagueId,
-        },
-      }),
-      {
-        status: 200,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+    return jsonResponse({
+      ok: true,
+      individual: bestIndividual && {
+        tier: bestIndividual.tier,
+        expiresAt: bestIndividual.expiresAt,
+        period: bestIndividual.isAnnual ? "annual" : "monthly",
       },
-    );
-  } catch (error) {
-    console.error("sync-subscription error:", error);
-    return new Response(JSON.stringify({ error: "Internal server error" }), {
-      status: 500,
-      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+      league: bestLeague && {
+        tier: bestLeague.tier,
+        expiresAt: bestLeague.expiresAt,
+        period: bestLeague.isAnnual ? "annual" : "monthly",
+        leagueId: bestLeague.leagueId,
+      },
     });
+  } catch (error) {
+    return handleError(error, 'sync-subscription');
   }
 });

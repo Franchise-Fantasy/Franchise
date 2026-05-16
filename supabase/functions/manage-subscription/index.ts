@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { corsResponse, CORS_HEADERS } from '../_shared/cors.ts';
+import { corsResponse } from '../_shared/cors.ts';
+import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 Deno.serve(async (req) => {
@@ -21,7 +22,7 @@ Deno.serve(async (req) => {
       { global: { headers: { Authorization: token ?? '' } } }
     );
     const { data: { user } } = await userClient.auth.getUser();
-    if (!user) throw new Error('Unauthorized');
+    if (!user) throw new HttpError('Unauthorized', 401);
 
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'manage-subscription');
     if (rateLimited) return rateLimited;
@@ -40,7 +41,7 @@ Deno.serve(async (req) => {
       throw new Error('ADMIN_USER_IDS parsed to empty list — refusing to process.');
     }
     if (!adminIds.includes(user.id)) {
-      throw new Error('Only admins can manage subscriptions.');
+      throw new HttpError('Only admins can manage subscriptions.', 403);
     }
 
     const { action, target_user_id, league_id, tier } = await req.json();
@@ -48,12 +49,12 @@ Deno.serve(async (req) => {
     const validActions = ['grant_individual', 'grant_league', 'revoke_individual', 'revoke_league'];
 
     if (!validActions.includes(action)) {
-      throw new Error(`Invalid action. Use: ${validActions.join(', ')}`);
+      throw new HttpError(`Invalid action. Use: ${validActions.join(', ')}`);
     }
 
     if (action === 'grant_individual') {
-      if (!target_user_id || !tier) throw new Error('target_user_id and tier required');
-      if (!validTiers.includes(tier)) throw new Error(`tier must be: ${validTiers.join(', ')}`);
+      if (!target_user_id || !tier) throw new HttpError('target_user_id and tier required');
+      if (!validTiers.includes(tier)) throw new HttpError(`tier must be: ${validTiers.join(', ')}`);
 
       const { error } = await supabaseAdmin
         .from('user_subscriptions')
@@ -66,14 +67,12 @@ Deno.serve(async (req) => {
         }, { onConflict: 'user_id' });
       if (error) throw error;
 
-      return new Response(JSON.stringify({ message: `Granted ${tier} to user` }), {
-        status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-      });
+      return jsonResponse({ message: `Granted ${tier} to user` });
     }
 
     if (action === 'grant_league') {
-      if (!league_id || !tier) throw new Error('league_id and tier required');
-      if (!validTiers.includes(tier)) throw new Error(`tier must be: ${validTiers.join(', ')}`);
+      if (!league_id || !tier) throw new HttpError('league_id and tier required');
+      if (!validTiers.includes(tier)) throw new HttpError(`tier must be: ${validTiers.join(', ')}`);
 
       const { error } = await supabaseAdmin
         .from('league_subscriptions')
@@ -87,13 +86,11 @@ Deno.serve(async (req) => {
         }, { onConflict: 'league_id' });
       if (error) throw error;
 
-      return new Response(JSON.stringify({ message: `Granted ${tier} to league` }), {
-        status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-      });
+      return jsonResponse({ message: `Granted ${tier} to league` });
     }
 
     if (action === 'revoke_individual') {
-      if (!target_user_id) throw new Error('target_user_id required');
+      if (!target_user_id) throw new HttpError('target_user_id required');
 
       const { error } = await supabaseAdmin
         .from('user_subscriptions')
@@ -101,13 +98,11 @@ Deno.serve(async (req) => {
         .eq('user_id', target_user_id);
       if (error) throw error;
 
-      return new Response(JSON.stringify({ message: 'Subscription revoked' }), {
-        status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-      });
+      return jsonResponse({ message: 'Subscription revoked' });
     }
 
     // revoke_league
-    if (!league_id) throw new Error('league_id required');
+    if (!league_id) throw new HttpError('league_id required');
 
     const { error } = await supabaseAdmin
       .from('league_subscriptions')
@@ -115,14 +110,9 @@ Deno.serve(async (req) => {
       .eq('league_id', league_id);
     if (error) throw error;
 
-    return new Response(JSON.stringify({ message: 'League subscription revoked' }), {
-      status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-    });
+    return jsonResponse({ message: 'League subscription revoked' });
 
   } catch (error) {
-    return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
-      { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-    );
+    return handleError(error, 'manage-subscription');
   }
 });

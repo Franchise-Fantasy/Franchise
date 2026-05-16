@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { CORS_HEADERS } from "../_shared/cors.ts";
+import { handleError, jsonResponse, errorResponse } from "../_shared/http.ts";
 import { moderateText } from "../_shared/moderate.ts";
 
 const supabase = createClient(
@@ -17,7 +17,7 @@ Deno.serve(async (req: Request) => {
   const authHeader = req.headers.get("Authorization") ?? "";
   const cronSecret = Deno.env.get("CRON_SECRET");
   if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return new Response("Unauthorized", { status: 401 });
+    return errorResponse("Unauthorized", 401);
   }
 
   try {
@@ -38,10 +38,7 @@ Deno.serve(async (req: Request) => {
 
       if (error || !data) {
         // Message already moderated, deleted, or not text — nothing to do
-        return new Response(
-          JSON.stringify({ checked: 0, flagged: 0 }),
-          { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-        );
+        return jsonResponse({ checked: 0, flagged: 0 });
       }
       messages = [data];
     } else {
@@ -60,10 +57,7 @@ Deno.serve(async (req: Request) => {
     }
 
     if (messages.length === 0) {
-      return new Response(
-        JSON.stringify({ checked: 0, flagged: 0 }),
-        { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-      );
+      return jsonResponse({ checked: 0, flagged: 0 });
     }
 
     let flagged = 0;
@@ -101,15 +95,8 @@ Deno.serve(async (req: Request) => {
         .in("id", flaggedIds);
     }
 
-    return new Response(
-      JSON.stringify({ checked: messages.length, flagged }),
-      { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-    );
-  } catch (err: any) {
-    console.error("moderate-messages error:", err);
-    return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
-      { status: 500, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-    );
+    return jsonResponse({ checked: messages.length, flagged });
+  } catch (err) {
+    return handleError(err, 'moderate-messages');
   }
 });

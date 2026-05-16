@@ -1,16 +1,15 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { CORS_HEADERS } from '../_shared/cors.ts';
 import { bdlFetchAll, coerceBdlPosition, type Sport } from '../_shared/bdl.ts';
+import { CORS_HEADERS } from '../_shared/cors.ts';
 import { recordHeartbeat } from '../_shared/heartbeat.ts';
+import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
 import { normalizeName } from '../_shared/normalize.ts';
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SB_SECRET_KEY")!,
 );
-
-const jsonHeaders = { ...CORS_HEADERS, 'Content-Type': 'application/json' };
 
 // Must match POSITION_SPECTRUM in utils/rosterSlots.ts
 const POSITION_SPECTRUM = ['PG', 'SG', 'SF', 'PF', 'C'];
@@ -202,7 +201,7 @@ Deno.serve(async (req: Request) => {
   const cronSecret = Deno.env.get('CRON_SECRET');
   const authHeader = req.headers.get('Authorization');
   if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: jsonHeaders });
+    return errorResponse('Unauthorized', 401);
   }
 
   // Sport from request body. Defaults to 'nba' so legacy cron entries keep working.
@@ -471,30 +470,23 @@ Deno.serve(async (req: Request) => {
 
     const sampleNames = newPlayers.slice(0, 15).map((p) => p.name);
     await recordHeartbeat(supabase, `sync-players:${sport}`, 'ok');
-    return new Response(
-      JSON.stringify({
-        ok: true,
-        sport,
-        bdl_active: activePlayers.length,
-        already_in_db: (existing ?? []).length,
-        newly_inserted: newlyInserted,
-        updated,
-        positions_backfilled: positionsBackfilled,
-        nba_ids_backfilled: nbaIdsBackfilled,
-        birthdates_backfilled: birthdatesBackfilled,
-        waived_cleared: waivedCount,
-        sleeper_ok: sleeperPos !== null,
-        nba_stats_ok: statsIds !== null,
-        sample_new: sampleNames,
-      }),
-      { status: 200, headers: jsonHeaders },
-    );
+    return jsonResponse({
+      ok: true,
+      sport,
+      bdl_active: activePlayers.length,
+      already_in_db: (existing ?? []).length,
+      newly_inserted: newlyInserted,
+      updated,
+      positions_backfilled: positionsBackfilled,
+      nba_ids_backfilled: nbaIdsBackfilled,
+      birthdates_backfilled: birthdatesBackfilled,
+      waived_cleared: waivedCount,
+      sleeper_ok: sleeperPos !== null,
+      nba_stats_ok: statsIds !== null,
+      sample_new: sampleNames,
+    });
   } catch (err: any) {
-    console.error('sync-players error:', err?.message ?? err);
     await recordHeartbeat(supabase, `sync-players:${sport}`, 'error', err?.message ?? String(err));
-    return new Response(
-      JSON.stringify({ error: err?.message ?? String(err) }),
-      { status: 500, headers: jsonHeaders },
-    );
+    return handleError(err, 'sync-players');
   }
 });

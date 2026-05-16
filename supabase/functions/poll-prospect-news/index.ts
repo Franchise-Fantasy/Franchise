@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
+import { handleError, jsonResponse, errorResponse } from "../_shared/http.ts";
 import { normalizeName } from "../_shared/normalize.ts";
 
 /**
@@ -17,11 +18,6 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SB_SECRET_KEY")!,
 );
-
-const jsonHeaders = {
-  ...CORS_HEADERS,
-  "Content-Type": "application/json",
-};
 
 const RSS_FEEDS: { url: string; source: string }[] = [
   {
@@ -100,10 +96,7 @@ Deno.serve(async (req: Request) => {
   const cronSecret = Deno.env.get("CRON_SECRET");
   const authHeader = req.headers.get("Authorization");
   if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return new Response(
-      JSON.stringify({ error: "Unauthorized" }),
-      { status: 401, headers: jsonHeaders },
-    );
+    return errorResponse("Unauthorized", 401);
   }
 
   try {
@@ -113,7 +106,7 @@ Deno.serve(async (req: Request) => {
       .select("id, name")
       .eq("is_prospect", true);
 
-    if (pErr) throw new Error(`Failed to load prospects: ${pErr.message}`);
+    if (pErr) throw pErr;
 
     const prospectList = (prospects ?? []).map((p) => ({
       id: p.id as string,
@@ -221,19 +214,13 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    return new Response(
-      JSON.stringify({
-        fetched: allItems.length,
-        withMentions: inserted,
-        mentionsInserted,
-        totalProspects: prospectList.length,
-      }),
-      { status: 200, headers: jsonHeaders },
-    );
-  } catch (err) {
-    return new Response(
-      JSON.stringify({ error: (err as Error).message }),
-      { status: 500, headers: jsonHeaders },
-    );
+    return jsonResponse({
+      fetched: allItems.length,
+      withMentions: inserted,
+      mentionsInserted,
+      totalProspects: prospectList.length,
+    });
+  } catch (error) {
+    return handleError(error, 'poll-prospect-news');
   }
 });

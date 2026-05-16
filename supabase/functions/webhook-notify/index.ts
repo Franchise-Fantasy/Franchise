@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
 import { notifyTeams } from '../_shared/push.ts';
 
 // Lightweight edge function called by database webhook triggers (pg_net).
@@ -15,14 +16,14 @@ Deno.serve(async (req: Request) => {
     // Verify the webhook secret to ensure this is an internal call
     const webhookSecret = req.headers.get('x-webhook-secret');
     if (webhookSecret !== Deno.env.get('WEBHOOK_SECRET')) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+      return errorResponse('Unauthorized', 401);
     }
 
     const payload = await req.json();
     const { type, table, record } = payload;
 
     if (type !== 'INSERT' || !record) {
-      return new Response(JSON.stringify({ ok: true, skipped: true }), { status: 200 });
+      return jsonResponse({ ok: true, skipped: true });
     }
 
     const supabaseAdmin = createClient(
@@ -43,10 +44,9 @@ Deno.serve(async (req: Request) => {
         console.warn(`Unhandled table: ${table}`);
     }
 
-    return new Response(JSON.stringify({ ok: true }), { status: 200 });
-  } catch (err: any) {
-    console.error('webhook-notify error:', err);
-    return new Response(JSON.stringify({ error: err?.message ?? String(err) }), { status: 500 });
+    return jsonResponse({ ok: true });
+  } catch (error) {
+    return handleError(error, 'webhook-notify');
   }
 });
 

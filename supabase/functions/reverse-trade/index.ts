@@ -1,7 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { notifyTeams } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
+import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
+import { notifyTeams } from '../_shared/push.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 Deno.serve(async (req) => {
@@ -21,31 +22,31 @@ Deno.serve(async (req) => {
       { global: { headers: { Authorization: token ?? '' } } }
     );
     const { data: { user } } = await userClient.auth.getUser();
-    if (!user) throw new Error('Unauthorized');
+    if (!user) throw new HttpError('Unauthorized', 401);
 
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'reverse-trade');
     if (rateLimited) return rateLimited;
 
     const { proposal_id } = await req.json();
-    if (!proposal_id) throw new Error('proposal_id is required');
+    if (!proposal_id) throw new HttpError('proposal_id is required');
 
     const { data: proposal, error: proposalError } = await supabaseAdmin
       .from('trade_proposals').select('*').eq('id', proposal_id).single();
-    if (proposalError || !proposal) throw new Error('Trade proposal not found.');
+    if (proposalError || !proposal) throw new HttpError('Trade proposal not found.', 404);
     if (proposal.status !== 'completed') {
-      throw new Error(`Can only reverse completed trades. Current status: ${proposal.status}`);
+      throw new HttpError(`Can only reverse completed trades. Current status: ${proposal.status}`);
     }
 
     const { data: league } = await supabaseAdmin
       .from('leagues').select('created_by, name').eq('id', proposal.league_id).single();
     if (league?.created_by !== user.id) {
-      throw new Error('Only the commissioner can reverse trades.');
+      throw new HttpError('Only the commissioner can reverse trades.', 403);
     }
 
     const { data: items, error: itemsError } = await supabaseAdmin
       .from('trade_proposal_items').select('*').eq('proposal_id', proposal_id);
     if (itemsError) throw itemsError;
-    if (!items || items.length === 0) throw new Error('No items found for this trade.');
+    if (!items || items.length === 0) throw new HttpError('No items found for this trade.');
 
     const warnings: string[] = [];
     const timestamp = new Date().toISOString();
@@ -66,7 +67,7 @@ Deno.serve(async (req) => {
       const { error } = await supabaseAdmin.from('league_players').update({
         team_id: item.from_team_id, acquired_via: 'trade_reversal', acquired_at: timestamp, roster_slot: 'BE',
       }).eq('league_id', proposal.league_id).eq('player_id', item.player_id).eq('team_id', item.to_team_id);
-      if (error) throw new Error(`Failed to reverse player ${item.player_id}: ${error.message}`);
+      if (error) throw error;
     }
 
     const pickItems = items.filter((i: any) => i.draft_pick_id != null);
@@ -85,7 +86,7 @@ Deno.serve(async (req) => {
           ...(tradeSetProtection ? { protection_threshold: null, protection_owner_id: null } : {}),
         })
         .eq('id', item.draft_pick_id);
-      if (error) throw new Error(`Failed to reverse pick ${item.draft_pick_id}: ${error.message}`);
+      if (error) throw error;
     }
 
     // Delete pick swaps created by this trade
@@ -93,7 +94,7 @@ Deno.serve(async (req) => {
       .from('pick_swaps')
       .delete()
       .eq('created_by_proposal_id', proposal_id);
-    if (swapDelError) throw new Error(`Failed to delete pick swaps: ${swapDelError.message}`);
+    if (swapDelError) throw swapDelError;
 
     const playerIds = playerItems.map((i: any) => i.player_id);
     let playerNameMap: Record<string, string> = {};
@@ -115,18 +116,18 @@ Deno.serve(async (req) => {
 
     const { data: txn, error: txnError } = await supabaseAdmin
       .from('league_transactions').insert({ league_id: proposal.league_id, type: 'commissioner', notes, team_id: proposal.proposed_by_team_id }).select('id').single();
-    if (txnError) throw new Error(`Failed to create transaction: ${txnError.message}`);
+    if (txnError) throw txnError;
 
     const txnItems = items.map((item: any) => ({
       transaction_id: txn.id, player_id: item.player_id, draft_pick_id: item.draft_pick_id,
       team_from_id: item.to_team_id, team_to_id: item.from_team_id,
     }));
     const { error: txnItemsError } = await supabaseAdmin.from('league_transaction_items').insert(txnItems);
-    if (txnItemsError) throw new Error(`Failed to create transaction items: ${txnItemsError.message}`);
+    if (txnItemsError) throw txnItemsError;
 
     const { error: updateError } = await supabaseAdmin
       .from('trade_proposals').update({ status: 'reversed' }).eq('id', proposal_id);
-    if (updateError) throw new Error(`Failed to update proposal status: ${updateError.message}`);
+    if (updateError) throw updateError;
 
     // Notify all teams involved
     try {
@@ -140,15 +141,8 @@ Deno.serve(async (req) => {
       console.warn('Push notification failed (non-fatal):', notifyErr);
     }
 
-    return new Response(
-      JSON.stringify({ message: 'Trade reversed successfully.', warnings }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    );
+    return jsonResponse({ message: 'Trade reversed successfully.', warnings });
   } catch (error) {
-    console.error('reverse-trade error:', error);
-    return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    );
+    return handleError(error, 'reverse-trade');
   }
 });

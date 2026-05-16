@@ -26,16 +26,15 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { CORS_HEADERS } from "../_shared/cors.ts";
 import { bdlFetch, type Sport } from "../_shared/bdl.ts";
+import { CORS_HEADERS } from "../_shared/cors.ts";
+import { handleError, jsonResponse, errorResponse } from "../_shared/http.ts";
 import type { Database } from "../../../types/database.types.ts";
 
 const supabase = createClient<Database>(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SB_SECRET_KEY")!,
 );
-
-const jsonHeaders = { ...CORS_HEADERS, "Content-Type": "application/json" };
 
 const ID_CHUNK = 25; // BDL season_averages player_ids[] chunk size
 const WNBA_CONCURRENCY = 8;
@@ -257,9 +256,7 @@ Deno.serve(async (req: Request) => {
   const cronSecret = Deno.env.get("CRON_SECRET");
   const authHeader = req.headers.get("Authorization");
   if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401, headers: jsonHeaders,
-    });
+    return errorResponse("Unauthorized", 401);
   }
 
   try {
@@ -270,26 +267,22 @@ Deno.serve(async (req: Request) => {
     try {
       const body = await req.json();
       if (body?.sport !== "nba" && body?.sport !== "wnba") {
-        return new Response(JSON.stringify({ error: "sport must be 'nba' or 'wnba'" }),
-          { status: 400, headers: jsonHeaders });
+        return errorResponse("sport must be 'nba' or 'wnba'", 400);
       }
       if (typeof body?.season !== "string" || !body.season) {
-        return new Response(JSON.stringify({ error: "season required (e.g. '2025' WNBA, '2024-25' NBA)" }),
-          { status: 400, headers: jsonHeaders });
+        return errorResponse("season required (e.g. '2025' WNBA, '2024-25' NBA)", 400);
       }
       sport = body.sport;
       season = body.season;
       if (typeof body?.offset === "number") offset = Math.max(0, body.offset);
       if (typeof body?.limit === "number") limit = Math.max(1, Math.min(200, body.limit));
     } catch {
-      return new Response(JSON.stringify({ error: "JSON body required: { sport, season }" }),
-        { status: 400, headers: jsonHeaders });
+      return errorResponse("JSON body required: { sport, season }", 400);
     }
 
     const seasonYear = parseInt(season.split("-")[0], 10);
     if (!seasonYear) {
-      return new Response(JSON.stringify({ error: `Invalid season: ${season}` }),
-        { status: 400, headers: jsonHeaders });
+      return errorResponse(`Invalid season: ${season}`, 400);
     }
 
     const idColumn = sport === "wnba" ? "external_id_nba" : "external_id_bdl";
@@ -309,12 +302,10 @@ Deno.serve(async (req: Request) => {
     const { data: players, error: playersErr } = await query;
 
     if (playersErr) {
-      return new Response(JSON.stringify({ error: playersErr.message }),
-        { status: 500, headers: jsonHeaders });
+      throw playersErr;
     }
     if (!players || players.length === 0) {
-      return new Response(JSON.stringify({ ok: true, sport, season, players: 0, upserted: 0, done: true }),
-        { status: 200, headers: jsonHeaders });
+      return jsonResponse({ ok: true, sport, season, players: 0, upserted: 0, done: true });
     }
 
     const result = sport === "wnba"
@@ -329,13 +320,12 @@ Deno.serve(async (req: Request) => {
         .from("player_historical_stats")
         .upsert(chunk, { onConflict: "player_id,season" });
       if (error) {
-        return new Response(JSON.stringify({ error: error.message, upserted }),
-          { status: 500, headers: jsonHeaders });
+        return jsonResponse({ error: error.message, upserted }, 500);
       }
       upserted += chunk.length;
     }
 
-    return new Response(JSON.stringify({
+    return jsonResponse({
       ok: true,
       sport,
       season,
@@ -350,11 +340,8 @@ Deno.serve(async (req: Request) => {
       // For WNBA: caller should keep paging while processed === limit.
       next_offset: sport === "wnba" && players.length === limit ? offset + limit : null,
       done: sport !== "wnba" || players.length < limit,
-    }), { status: 200, headers: jsonHeaders });
-  } catch (err: any) {
-    const msg = err?.message ?? String(err);
-    console.error("backfill-historical-stats error:", msg, err?.stack);
-    return new Response(JSON.stringify({ error: msg, stack: err?.stack ?? "" }),
-      { status: 500, headers: jsonHeaders });
+    });
+  } catch (error) {
+    return handleError(error, 'backfill-historical-stats');
   }
 });

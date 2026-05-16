@@ -1,9 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { corsResponse, CORS_HEADERS } from "../_shared/cors.ts";
-import { checkRateLimit } from "../_shared/rate-limit.ts";
-import { notifyUsersBulk } from "../_shared/push.ts";
+import { corsResponse } from "../_shared/cors.ts";
+import { HttpError, handleError, jsonResponse } from "../_shared/http.ts";
 import { createLogger } from "../_shared/log.ts";
+import { notifyUsersBulk } from "../_shared/push.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
 
 const log = createLogger("report-message");
 
@@ -29,10 +30,7 @@ Deno.serve(async (req) => {
     );
     const { data: { user } } = await userClient.auth.getUser();
     if (!user) {
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-      );
+      throw new HttpError("Unauthorized", 401);
     }
 
     const limited = await checkRateLimit(supabaseAdmin, user.id, "report-message");
@@ -44,16 +42,10 @@ Deno.serve(async (req) => {
     const details: string | undefined = body?.details;
 
     if (!messageId || !reason || !VALID_REASONS.includes(reason)) {
-      return new Response(
-        JSON.stringify({ error: "message_id and a valid reason are required" }),
-        { status: 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-      );
+      throw new HttpError("message_id and a valid reason are required");
     }
     if (details && details.length > 1000) {
-      return new Response(
-        JSON.stringify({ error: "details must be 1000 characters or fewer" }),
-        { status: 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-      );
+      throw new HttpError("details must be 1000 characters or fewer");
     }
 
     // Confirm the reporter is in the conversation that owns the message —
@@ -65,10 +57,7 @@ Deno.serve(async (req) => {
       .eq("id", messageId)
       .single();
     if (!msg) {
-      return new Response(
-        JSON.stringify({ error: "Message not found" }),
-        { status: 404, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-      );
+      throw new HttpError("Message not found", 404);
     }
 
     const { data: conv } = await supabaseAdmin
@@ -77,10 +66,7 @@ Deno.serve(async (req) => {
       .eq("id", msg.conversation_id)
       .single();
     if (!conv) {
-      return new Response(
-        JSON.stringify({ error: "Conversation not found" }),
-        { status: 404, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-      );
+      throw new HttpError("Conversation not found", 404);
     }
 
     const { data: reporterTeam } = await supabaseAdmin
@@ -90,10 +76,7 @@ Deno.serve(async (req) => {
       .eq("user_id", user.id)
       .maybeSingle();
     if (!reporterTeam) {
-      return new Response(
-        JSON.stringify({ error: "Not a member of this league" }),
-        { status: 403, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-      );
+      throw new HttpError("Not a member of this league", 403);
     }
 
     // Insert the report (UNIQUE(message_id, reporter_id) makes this idempotent
@@ -108,11 +91,7 @@ Deno.serve(async (req) => {
       });
 
     if (insertError && insertError.code !== "23505") {
-      log.error("Failed to insert message report", insertError, { messageId, reason });
-      return new Response(
-        JSON.stringify({ error: "Failed to record report" }),
-        { status: 500, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-      );
+      throw insertError;
     }
 
     // Notify the league commissioner (best-effort — not fatal).
@@ -138,15 +117,8 @@ Deno.serve(async (req) => {
       log.warn("Commissioner notify failed (non-fatal)", { err: String(notifyErr) });
     }
 
-    return new Response(
-      JSON.stringify({ ok: true }),
-      { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-    );
-  } catch (err) {
-    log.error("report-message error", err as Error);
-    return new Response(
-      JSON.stringify({ error: "Internal server error" }),
-      { status: 500, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-    );
+    return jsonResponse({ ok: true });
+  } catch (error) {
+    return handleError(error, 'report-message');
   }
 });

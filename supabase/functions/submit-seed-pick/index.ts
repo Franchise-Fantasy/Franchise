@@ -2,14 +2,8 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { notifyTeams } from '../_shared/push.ts';
 import { CORS_HEADERS } from '../_shared/cors.ts';
+import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
-
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-  });
-}
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS });
@@ -28,31 +22,31 @@ Deno.serve(async (req: Request) => {
       { global: { headers: { Authorization: `Bearer ${token}` } } }
     );
     const { data: { user } } = await userClient.auth.getUser();
-    if (!user) return json({ error: 'Unauthorized' }, 401);
+    if (!user) throw new HttpError('Unauthorized', 401);
 
     const rateLimited = await checkRateLimit(supabase, user.id, 'submit-seed-pick');
     if (rateLimited) return rateLimited;
 
     const { league_id, round, opponent_team_id } = await req.json();
     if (!league_id || !round || !opponent_team_id) {
-      return json({ error: 'league_id, round, and opponent_team_id required' }, 400);
+      throw new HttpError('league_id, round, and opponent_team_id required');
     }
     if (typeof round !== 'number' || round < 1 || !Number.isInteger(round)) {
-      return json({ error: 'round must be a positive integer' }, 400);
+      throw new HttpError('round must be a positive integer');
     }
 
     const { data: myTeam } = await supabase
       .from('teams').select('id').eq('league_id', league_id).eq('user_id', user.id).single();
-    if (!myTeam) return json({ error: 'Team not found in league' }, 403);
+    if (!myTeam) throw new HttpError('Team not found in league', 403);
     if (opponent_team_id === myTeam.id) {
-      return json({ error: 'Cannot pick your own team as an opponent' }, 400);
+      throw new HttpError('Cannot pick your own team as an opponent');
     }
 
     const { data: myPick } = await supabase
       .from('playoff_seed_picks').select('id, picking_seed')
       .eq('league_id', league_id).eq('round', round)
       .eq('picking_team_id', myTeam.id).is('picked_opponent_id', null).single();
-    if (!myPick) return json({ error: 'No pending pick found for your team' }, 400);
+    if (!myPick) throw new HttpError('No pending pick found for your team');
 
     const { data: higherPicks } = await supabase
       .from('playoff_seed_picks').select('picking_seed, picked_opponent_id')
@@ -60,7 +54,7 @@ Deno.serve(async (req: Request) => {
       .lt('picking_seed', myPick.picking_seed);
 
     const allHigherDone = (higherPicks ?? []).every((p: any) => p.picked_opponent_id !== null);
-    if (!allHigherDone) return json({ error: 'Not your turn yet \u2014 higher seeds must pick first' }, 400);
+    if (!allHigherDone) throw new HttpError('Not your turn yet \u2014 higher seeds must pick first', 403);
 
     const { data: takenPicks } = await supabase
       .from('playoff_seed_picks').select('picked_opponent_id')
@@ -69,14 +63,14 @@ Deno.serve(async (req: Request) => {
 
     const takenIds = new Set((takenPicks ?? []).map((p: any) => p.picked_opponent_id));
     if (takenIds.has(opponent_team_id)) {
-      return json({ error: 'That opponent has already been picked by another team' }, 400);
+      throw new HttpError('That opponent has already been picked by another team', 409);
     }
 
     const { error: updateErr } = await supabase
       .from('playoff_seed_picks')
       .update({ picked_opponent_id: opponent_team_id, picked_at: new Date().toISOString() })
       .eq('id', myPick.id);
-    if (updateErr) return json({ error: 'Failed to save pick', detail: updateErr }, 500);
+    if (updateErr) throw updateErr;
 
     const { data: remaining } = await supabase
       .from('playoff_seed_picks').select('id')
@@ -93,7 +87,7 @@ Deno.serve(async (req: Request) => {
         },
         body: JSON.stringify({ league_id, round, from_seed_picks: true }),
       });
-      return json({ success: true, all_picks_complete: true });
+      return jsonResponse({ success: true, all_picks_complete: true });
     }
 
     // Notify the next seed picker
@@ -122,8 +116,8 @@ Deno.serve(async (req: Request) => {
       console.warn('Push notification failed (non-fatal):', notifyErr);
     }
 
-    return json({ success: true, all_picks_complete: false });
-  } catch (err) {
-    return json({ error: String(err) }, 500);
+    return jsonResponse({ success: true, all_picks_complete: false });
+  } catch (error) {
+    return handleError(error, 'submit-seed-pick');
   }
 });

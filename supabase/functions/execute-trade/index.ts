@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { notifyTeams } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
+import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { checkPositionLimitsForRoster } from '../_shared/positionLimits.ts';
 import { fetchIllegalIRPlayers, formatIllegalIRError } from '../_shared/illegalIR.ts';
@@ -82,31 +83,29 @@ Deno.serve(async (req) => {
       );
       const { data } = await userClient.auth.getUser();
       user = data?.user ?? null;
-      if (!user) throw new Error('Unauthorized');
+      if (!user) throw new HttpError('Unauthorized', 401);
 
       const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'execute-trade');
       if (rateLimited) return rateLimited;
     }
 
     const { proposal_id } = await req.json();
-    if (!proposal_id) throw new Error('proposal_id is required');
+    if (!proposal_id) throw new HttpError('proposal_id is required');
 
     const { data: proposal, error: proposalError } = await supabaseAdmin
       .from('trade_proposals')
       .select('*')
       .eq('id', proposal_id)
       .single();
-    if (proposalError || !proposal) throw new Error('Trade proposal not found.');
+    if (proposalError || !proposal) throw new HttpError('Trade proposal not found.', 404);
 
     // Idempotency: if the trade was already executed, return success
     if (proposal.transaction_id != null) {
-      return new Response(JSON.stringify({ ok: true, message: 'Trade already executed.' }), {
-        status: 200, headers: { 'Content-Type': 'application/json' },
-      });
+      return jsonResponse({ ok: true, message: 'Trade already executed.' });
     }
 
     if (!['accepted', 'in_review', 'delayed', 'pending_drops'].includes(proposal.status)) {
-      throw new Error(`Cannot execute trade with status: ${proposal.status}`);
+      throw new HttpError(`Cannot execute trade with status: ${proposal.status}`);
     }
 
     const { data: league } = await supabaseAdmin
@@ -120,7 +119,7 @@ Deno.serve(async (req) => {
     if (league?.trade_deadline) {
       const deadline = new Date(league.trade_deadline + 'T23:59:59Z');
       if (new Date() > deadline) {
-        throw new Error('The trade deadline has passed. No trades can be executed.');
+        throw new HttpError('The trade deadline has passed. No trades can be executed.');
       }
     }
 
@@ -144,7 +143,7 @@ Deno.serve(async (req) => {
           .single();
 
         if (!userTeamInTrade) {
-          throw new Error('Only trade parties or the commissioner can execute a trade.');
+          throw new HttpError('Only trade parties or the commissioner can execute a trade.', 403);
         }
       }
     }
@@ -155,7 +154,7 @@ Deno.serve(async (req) => {
       .select('*')
       .eq('proposal_id', proposal_id);
     if (itemsError) throw itemsError;
-    if (!items || items.length === 0) throw new Error('No items in this trade proposal.');
+    if (!items || items.length === 0) throw new HttpError('No items in this trade proposal.');
 
     const playerItems = items.filter((i: any) => i.player_id != null);
 
@@ -186,10 +185,7 @@ Deno.serve(async (req) => {
           metadata: { proposal_id },
         });
 
-        return new Response(
-          JSON.stringify({ message: 'Trade delayed — involved players have games in progress. It will process automatically tomorrow morning.' }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
-        );
+        return jsonResponse({ message: 'Trade delayed — involved players have games in progress. It will process automatically tomorrow morning.' });
       }
     }
 
@@ -229,7 +225,7 @@ Deno.serve(async (req) => {
               .in('status', ['pending', 'accepted']);
           }
         } else {
-          throw new Error('One or more assets in this trade are involved in another active trade proposal. Please resolve those trades first.');
+          throw new HttpError('One or more assets in this trade are involved in another active trade proposal. Please resolve those trades first.');
         }
       }
     }
@@ -243,7 +239,7 @@ Deno.serve(async (req) => {
         .eq('league_id', proposal.league_id)
         .eq('status', 'pending');
       if (waiverConflicts && waiverConflicts.length > 0) {
-        throw new Error('One or more players in this trade are queued for drop in a pending waiver claim. Cancel the waiver claim first.');
+        throw new HttpError('One or more players in this trade are queued for drop in a pending waiver claim. Cancel the waiver claim first.');
       }
     }
 
@@ -394,10 +390,7 @@ Deno.serve(async (req) => {
           { screen: 'trades', proposal_id },
         );
 
-        return new Response(
-          JSON.stringify({ message: `Trade is pending roster drops from: ${names}. They must select a player to drop before the trade can complete.`, pending_drops: true }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        );
+        return jsonResponse({ message: `Trade is pending roster drops from: ${names}. They must select a player to drop before the trade can complete.`, pending_drops: true });
       }
 
       // Build the drops payload for the atomic RPC from the validated drops.
@@ -470,7 +463,7 @@ Deno.serve(async (req) => {
       for (const { tid, violation } of limitResults) {
         if (violation) {
           const { data: teamInfo } = await supabaseAdmin.from('teams').select('name').eq('id', tid).single();
-          throw new Error(
+          throw new HttpError(
             `Trade would cause ${teamInfo?.name ?? 'a team'} to exceed the ${violation.position} position limit (${violation.count}/${violation.max}).`,
           );
         }
@@ -546,7 +539,7 @@ Deno.serve(async (req) => {
     // Block trading players currently on IR
     const irPlayers = tradedPlayerIds.filter((pid: string) => currentSlotMap.get(pid) === 'IR');
     if (irPlayers.length > 0) {
-      throw new Error('Players on IR cannot be traded. Activate them from IR first.');
+      throw new HttpError('Players on IR cannot be traded. Activate them from IR first.');
     }
 
     // Block trade if either team has a player in an IR slot who is no longer
@@ -561,7 +554,7 @@ Deno.serve(async (req) => {
         if (illegal.length > 0) {
           const { data: teamInfo } = await supabaseAdmin.from('teams').select('name').eq('id', tid).single();
           const who = teamInfo?.name ?? 'A team';
-          throw new Error(`${who} is locked out of roster moves — ${formatIllegalIRError(illegal)}`);
+          throw new HttpError(`${who} is locked out of roster moves — ${formatIllegalIRError(illegal)}`);
         }
       }
     }
@@ -586,7 +579,7 @@ Deno.serve(async (req) => {
       // playerItems was filtered for non-null player_id above; the supabase row type still surfaces it as nullable.
       if (item.player_id == null) continue;
       if (ownershipMap.get(item.player_id) !== item.from_team_id) {
-        throw new Error('A traded player is no longer on the expected roster. The trade cannot be completed.');
+        throw new HttpError('A traded player is no longer on the expected roster. The trade cannot be completed.');
       }
     }
 
@@ -689,7 +682,7 @@ Deno.serve(async (req) => {
       p_notes: notes,
       p_drops: dropsPayload,
     });
-    if (rpcError) throw new Error(`Trade execution failed: ${rpcError.message}`);
+    if (rpcError) throw rpcError;
 
     // Build trade summary for chat announcement
     let hypeTier: 'minor' | 'major' | 'blockbuster' = 'minor';
@@ -879,16 +872,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    return new Response(
-      JSON.stringify({ message: 'Trade completed!', transaction_id: txnId }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    );
+    return jsonResponse({ message: 'Trade completed!', transaction_id: txnId });
   } catch (error) {
-    log.error('Unhandled error in execute-trade', error);
-    const msg = error instanceof Error ? error.message : String(error);
-    return new Response(
-      JSON.stringify({ error: msg }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    );
+    return handleError(error, 'execute-trade');
   }
 });

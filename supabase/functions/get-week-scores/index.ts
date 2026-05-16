@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { CORS_HEADERS, corsResponse } from "../_shared/cors.ts";
+import { corsResponse } from "../_shared/cors.ts";
+import { errorResponse, handleError, jsonResponse } from "../_shared/http.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { pushActivityUpdate } from "../_shared/apns.ts";
 import { resolveSlot as sharedResolveSlot, isActiveSlot } from "../_shared/resolveSlot.ts";
@@ -526,9 +527,7 @@ Deno.serve(async (req: Request) => {
       );
       const { data: { user } } = await userClient.auth.getUser();
       if (!user) {
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-          status: 401, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-        });
+        return errorResponse('Unauthorized', 401);
       }
 
       const rateLimited = await checkRateLimit(supabase, user.id, 'get-week-scores');
@@ -538,19 +537,14 @@ Deno.serve(async (req: Request) => {
       await upsertScores(league_id, schedule_id, result.teamScores);
       if (result.isCategories) await upsertCategoryWins(result.categoryUpdates);
 
-      return new Response(
-        JSON.stringify({ scores: result.teamScores }),
-        { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-      );
+      return jsonResponse({ scores: result.teamScores });
     }
 
     // ── Cron mode: verify CRON_SECRET ──
     const cronSecret = Deno.env.get('CRON_SECRET');
     const cronAuth = req.headers.get('Authorization');
     if (!cronSecret || cronAuth !== `Bearer ${cronSecret}`) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401, headers: { 'Content-Type': 'application/json' },
-      });
+      return errorResponse('Unauthorized', 401);
     }
 
     // ── Cron mode: skip during 3–10am ET when no NBA games are running ──
@@ -559,10 +553,7 @@ Deno.serve(async (req: Request) => {
     }).formatToParts(new Date());
     const hour = parseInt(etCronParts.find((p) => p.type === 'hour')!.value, 10);
     if (hour >= 3 && hour < 10) {
-      return new Response(
-        JSON.stringify({ ok: true, skipped: true, reason: "off-hours (3-10am ET)" }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
+      return jsonResponse({ ok: true, skipped: true, reason: "off-hours (3-10am ET)" });
     }
 
     // ── Skip if no live fantasy weeks — cheap local-DB check, avoids the
@@ -578,19 +569,13 @@ Deno.serve(async (req: Request) => {
     if (weekErr) throw weekErr;
 
     if (!liveWeeks || liveWeeks.length === 0) {
-      return new Response(
-        JSON.stringify({ ok: true, skipped: true, reason: "no live weeks" }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
+      return jsonResponse({ ok: true, skipped: true, reason: "no live weeks" });
     }
 
     // ── Skip if no NBA games are active or recently finished ──
     const gamesActive = await hasActiveOrFinishedGames();
     if (!gamesActive) {
-      return new Response(
-        JSON.stringify({ ok: true, skipped: true, reason: "no active/finished games" }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
+      return jsonResponse({ ok: true, skipped: true, reason: "no active/finished games" });
     }
 
     const settled = await Promise.allSettled(
@@ -626,19 +611,8 @@ Deno.serve(async (req: Request) => {
       ) as PromiseFulfilledResult<any>)?.value?.teamScores ?? {},
     }))).catch(err => console.warn('Live activity dispatch error (non-fatal):', err));
 
-    return new Response(
-      JSON.stringify({ ok: true, processed: results.length, results }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
-    );
+    return jsonResponse({ ok: true, processed: results.length, results });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error("get-week-scores error:", message);
-    return new Response(
-      JSON.stringify({ error: message }),
-      {
-        status: 500,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-      },
-    );
+    return handleError(err, 'get-week-scores');
   }
 });

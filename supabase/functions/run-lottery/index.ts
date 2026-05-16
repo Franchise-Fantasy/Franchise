@@ -1,9 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { notifyLeague } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
-import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { runLotteryDraw } from '../_shared/lottery.ts';
+import { notifyLeague } from '../_shared/push.ts';
+import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return corsResponse();
@@ -22,28 +23,28 @@ Deno.serve(async (req) => {
       { global: { headers: { Authorization: token ?? '' } } }
     );
     const { data: { user } } = await userClient.auth.getUser();
-    if (!user) throw new Error('Unauthorized');
+    if (!user) throw new HttpError('Unauthorized', 401);
 
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'run-lottery');
     if (rateLimited) return rateLimited;
 
     const { league_id, season } = await req.json();
-    if (!league_id || !season) throw new Error('league_id and season are required');
+    if (!league_id || !season) throw new HttpError('league_id and season are required');
 
     const { data: league, error: leagueErr } = await supabaseAdmin
       .from('leagues')
       .select('created_by, name, teams, playoff_weeks, playoff_teams, lottery_draws, lottery_odds, rookie_draft_rounds, offseason_step')
       .eq('id', league_id)
       .single();
-    if (leagueErr || !league) throw new Error('League not found');
+    if (leagueErr || !league) throw new HttpError('League not found', 404);
 
     if (league.created_by !== user.id) {
-      throw new Error('Only the commissioner can run the lottery');
+      throw new HttpError('Only the commissioner can run the lottery', 403);
     }
 
     const validSteps = ['lottery_pending', 'lottery_scheduled'];
     if (league.offseason_step && !validSteps.includes(league.offseason_step)) {
-      throw new Error(`Cannot run lottery during offseason step: ${league.offseason_step}`);
+      throw new HttpError(`Cannot run lottery during offseason step: ${league.offseason_step}`);
     }
 
     const { data: allTeams, error: teamsErr } = await supabaseAdmin
@@ -52,14 +53,15 @@ Deno.serve(async (req) => {
       .eq('league_id', league_id)
       .order('wins', { ascending: true })
       .order('points_for', { ascending: true });
-    if (teamsErr || !allTeams) throw new Error('Failed to fetch teams');
+    if (teamsErr) throw teamsErr;
+    if (!allTeams) throw new HttpError('Failed to fetch teams');
 
     const totalTeams = allTeams.length;
     const playoffTeams = league.playoff_teams ?? Math.min(2 ** (league.playoff_weeks ?? 3), totalTeams);
     const lotteryPoolSize = Math.max(0, totalTeams - playoffTeams);
 
     if (lotteryPoolSize === 0) {
-      throw new Error('No lottery pool: all teams make the playoffs');
+      throw new HttpError('No lottery pool: all teams make the playoffs');
     }
 
     const lotteryPool = allTeams.slice(0, lotteryPoolSize).map(t => ({
@@ -71,7 +73,7 @@ Deno.serve(async (req) => {
     const { error: resultErr } = await supabaseAdmin
       .from('lottery_results')
       .upsert({ league_id, season, results: finalOrder }, { onConflict: 'league_id,season' });
-    if (resultErr) throw new Error(`Failed to save lottery results: ${resultErr.message}`);
+    if (resultErr) throw resultErr;
 
     for (let pos = 0; pos < finalOrder.length; pos++) {
       const entry = finalOrder[pos];
@@ -96,15 +98,8 @@ Deno.serve(async (req) => {
       console.warn('Push notification failed (non-fatal):', notifyErr);
     }
 
-    return new Response(
-      JSON.stringify({ message: 'Lottery completed!', results: finalOrder }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    );
+    return jsonResponse({ message: 'Lottery completed!', results: finalOrder });
   } catch (error) {
-    console.error('run-lottery error:', error);
-    return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    );
+    return handleError(error, 'run-lottery');
   }
 });

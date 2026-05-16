@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsResponse } from '../_shared/cors.ts';
+import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 Deno.serve(async (req) => {
@@ -21,14 +22,14 @@ Deno.serve(async (req) => {
       { global: { headers: { Authorization: token ?? '' } } }
     );
     const { data: { user } } = await userClient.auth.getUser();
-    if (!user) throw new Error('Unauthorized');
+    if (!user) throw new HttpError('Unauthorized', 401);
 
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'vote-poll');
     if (rateLimited) return rateLimited;
 
     const { poll_id, selections } = await req.json();
     if (!poll_id || !selections) {
-      throw new Error('poll_id and selections are required');
+      throw new HttpError('poll_id and selections are required');
     }
 
     // Fetch poll
@@ -37,7 +38,7 @@ Deno.serve(async (req) => {
       .select('*')
       .eq('id', poll_id)
       .single();
-    if (!poll) throw new Error('Poll not found');
+    if (!poll) throw new HttpError('Poll not found', 404);
 
     // Verify user is a league member with a team
     const { data: voterTeam } = await supabaseAdmin
@@ -46,32 +47,32 @@ Deno.serve(async (req) => {
       .eq('league_id', poll.league_id)
       .eq('user_id', user.id)
       .single();
-    if (!voterTeam) throw new Error('You are not a member of this league.');
+    if (!voterTeam) throw new HttpError('You are not a member of this league.', 403);
 
     // Check poll is still open
     if (new Date() >= new Date(poll.closes_at)) {
-      throw new Error('This poll has closed.');
+      throw new HttpError('This poll has closed.');
     }
 
     // Validate selections
     if (!Array.isArray(selections) || selections.length === 0) {
-      throw new Error('selections must be a non-empty array of option indices');
+      throw new HttpError('selections must be a non-empty array of option indices');
     }
 
     const optCount = (poll.options as string[]).length;
     const uniqueSelections = [...new Set(selections)];
     if (uniqueSelections.length !== selections.length) {
-      throw new Error('Duplicate selections are not allowed');
+      throw new HttpError('Duplicate selections are not allowed');
     }
 
     for (const idx of selections) {
       if (typeof idx !== 'number' || !Number.isInteger(idx) || idx < 0 || idx >= optCount) {
-        throw new Error(`Invalid selection index: ${idx}. Must be 0-${optCount - 1}`);
+        throw new HttpError(`Invalid selection index: ${idx}. Must be 0-${optCount - 1}`);
       }
     }
 
     if (poll.poll_type === 'single' && selections.length !== 1) {
-      throw new Error('Single-choice polls require exactly one selection');
+      throw new HttpError('Single-choice polls require exactly one selection');
     }
 
     // Insert vote (UNIQUE constraint prevents double-voting)
@@ -85,20 +86,13 @@ Deno.serve(async (req) => {
 
     if (voteError) {
       if (voteError.code === '23505') {
-        throw new Error('You have already voted on this poll.');
+        throw new HttpError('You have already voted on this poll.', 409);
       }
-      throw new Error(`Failed to record vote: ${voteError.message}`);
+      throw voteError;
     }
 
-    return new Response(
-      JSON.stringify({ ok: true }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    );
+    return jsonResponse({ ok: true });
   } catch (error) {
-    console.error('vote-poll error:', error);
-    return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    );
+    return handleError(error, 'vote-poll');
   }
 });

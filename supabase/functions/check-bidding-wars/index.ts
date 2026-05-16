@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsResponse } from '../_shared/cors.ts';
+import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { notifyLeague } from '../_shared/push.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 
@@ -27,13 +28,13 @@ Deno.serve(async (req) => {
       { global: { headers: { Authorization: token ?? '' } } }
     );
     const { data: { user } } = await userClient.auth.getUser();
-    if (!user) throw new Error('Unauthorized');
+    if (!user) throw new HttpError('Unauthorized', 401);
 
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'check-bidding-wars');
     if (rateLimited) return rateLimited;
 
     const { proposal_id, league_id } = await req.json();
-    if (!proposal_id || !league_id) throw new Error('proposal_id and league_id required');
+    if (!proposal_id || !league_id) throw new HttpError('proposal_id and league_id required');
 
     // Check if auto-rumors are enabled for this league
     const { data: league } = await supabaseAdmin
@@ -43,10 +44,7 @@ Deno.serve(async (req) => {
       .single();
 
     if (!league?.auto_rumors_enabled) {
-      return new Response(JSON.stringify({ skipped: true }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return jsonResponse({ skipped: true });
     }
 
     // Get players in the new proposal
@@ -58,10 +56,7 @@ Deno.serve(async (req) => {
 
     const playerIds = (proposalItems ?? []).map((i: any) => i.player_id);
     if (playerIds.length === 0) {
-      return new Response(JSON.stringify({ skipped: true, reason: 'no players' }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return jsonResponse({ skipped: true, reason: 'no players' });
     }
 
     // Get the proposing team for this proposal
@@ -83,10 +78,7 @@ Deno.serve(async (req) => {
       .single();
 
     if (!leagueChat) {
-      return new Response(JSON.stringify({ skipped: true, reason: 'no league chat' }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return jsonResponse({ skipped: true, reason: 'no league chat' });
     }
 
     // Get player names for rumor text
@@ -217,15 +209,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    return new Response(
-      JSON.stringify({ rumors_posted: rumorsPosted }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    );
+    return jsonResponse({ rumors_posted: rumorsPosted });
   } catch (error) {
-    console.error('check-bidding-wars error:', error);
-    return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    );
+    return handleError(error, 'check-bidding-wars');
   }
 });

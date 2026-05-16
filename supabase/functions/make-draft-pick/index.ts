@@ -1,9 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { notifyTeams, notifyLeague } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
-import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { HttpError, handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
 import { checkPositionLimits } from '../_shared/positionLimits.ts';
+import { notifyTeams, notifyLeague } from '../_shared/push.ts';
+import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { isEligibleForSlot } from '../../../utils/roster/rosterSlotsShared.ts';
 
 // Find the best roster_slot for a newly drafted player
@@ -74,7 +75,7 @@ Deno.serve(async (req)=>{
       global: { headers: { Authorization: token ?? "" } }
     });
     const { data: { user } } = await userClient.auth.getUser();
-    if (!user) throw new Error('Unauthorized');
+    if (!user) throw new HttpError('Unauthorized', 401);
 
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'make-draft-pick');
     if (rateLimited) return rateLimited;
@@ -83,32 +84,30 @@ Deno.serve(async (req)=>{
     const { draft_id, player_id, player_position, league_id } = payload;
 
     if (!draft_id || !player_id || !player_position || !league_id) {
-      return new Response(JSON.stringify({ error: 'draft_id, player_id, player_position, and league_id are required' }), {
-        status: 400, headers: { 'Content-Type': 'application/json' },
-      });
+      return errorResponse('draft_id, player_id, player_position, and league_id are required', 400);
     }
 
     const { data: userTeam, error: teamError } = await supabaseAdmin.from('teams').select('id').eq('league_id', league_id).eq('user_id', user.id).single();
-    if (teamError || !userTeam) throw new Error('User does not have a team in this league.');
+    if (teamError || !userTeam) throw new HttpError('User does not have a team in this league.', 403);
 
     const { data: draft, error: draftError } = await supabaseAdmin.from('drafts').select('current_pick_number, rounds, picks_per_round, time_limit, type').eq('id', draft_id).single();
-    if (draftError || !draft) throw new Error('Draft not found.');
+    if (draftError || !draft) throw new HttpError('Draft not found.', 404);
 
     if (draft.current_pick_number > draft.rounds * draft.picks_per_round) {
-      return new Response(JSON.stringify({ message: 'Draft is already complete.' }), { status: 200 });
+      return jsonResponse({ message: 'Draft is already complete.' });
     }
 
     const { data: currentPick, error: pickError } = await supabaseAdmin.from('draft_picks').select('current_team_id, player_id').eq('draft_id', draft_id).eq('pick_number', draft.current_pick_number).single();
-    if (pickError || !currentPick) throw new Error('Error fetching current pick.');
+    if (pickError || !currentPick) throw new HttpError('Error fetching current pick.');
 
-    if (currentPick.current_team_id !== userTeam.id) throw new Error('It is not your turn to pick.');
-    if (currentPick.player_id) throw new Error('A player has already been selected for this pick.');
+    if (currentPick.current_team_id !== userTeam.id) throw new HttpError('It is not your turn to pick.', 403);
+    if (currentPick.player_id) throw new HttpError('A player has already been selected for this pick.', 409);
 
     // Verify player isn't already on a roster in this league
     const { data: alreadyRostered } = await supabaseAdmin
       .from('league_players').select('id').eq('league_id', league_id).eq('player_id', player_id).limit(1);
     if (alreadyRostered && alreadyRostered.length > 0) {
-      throw new Error('This player is already on a roster in this league.');
+      throw new HttpError('This player is already on a roster in this league.', 409);
     }
 
     // Position limit check
@@ -123,7 +122,7 @@ Deno.serve(async (req)=>{
         .eq('team_id', currentPick.current_team_id);
       const violation = checkPositionLimits(posLimits, teamRoster ?? [], player_position);
       if (violation) {
-        throw new Error(
+        throw new HttpError(
           `Cannot draft this player: your roster already has the maximum ${violation.max} players eligible at ${violation.position}.`,
         );
       }
@@ -146,7 +145,7 @@ Deno.serve(async (req)=>{
     if (rpcError) {
       // Unique constraint means another pick claimed this player first
       if (rpcError.code === '23505') {
-        throw new Error('This player was just drafted by another team.');
+        throw new HttpError('This player was just drafted by another team.', 409);
       }
       throw rpcError;
     }
@@ -219,16 +218,10 @@ Deno.serve(async (req)=>{
       console.warn('Push notification failed (non-fatal):', notifyErr);
     }
 
-    return new Response(JSON.stringify({
+    return jsonResponse({
       message: isDraftComplete ? 'Draft complete!' : 'Pick successful!'
-    }), { status: 200 });
-  } catch (error) {
-    console.error("make-draft-pick error:", error);
-    return new Response(JSON.stringify({
-      error: error.message,
-    }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
     });
+  } catch (error) {
+    return handleError(error, 'make-draft-pick');
   }
 });

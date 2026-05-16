@@ -2,8 +2,9 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { notifyLeague } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
-import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { runLotteryDraw } from '../_shared/lottery.ts';
+import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return corsResponse();
@@ -15,33 +16,33 @@ Deno.serve(async (req) => {
     );
 
     const authHeader = req.headers.get('Authorization');
-    if (!authHeader) throw new Error('Missing authorization header');
+    if (!authHeader) throw new HttpError('Missing authorization header', 401);
     const userClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SB_PUBLISHABLE_KEY') ?? '',
       { global: { headers: { Authorization: authHeader } } }
     );
     const { data: { user } } = await userClient.auth.getUser();
-    if (!user) throw new Error('Unauthorized');
+    if (!user) throw new HttpError('Unauthorized', 401);
 
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'start-lottery');
     if (rateLimited) return rateLimited;
 
     const { league_id } = await req.json();
-    if (!league_id) throw new Error('league_id is required');
+    if (!league_id) throw new HttpError('league_id is required');
 
     const { data: league, error: leagueErr } = await supabaseAdmin
       .from('leagues')
       .select('created_by, season, teams, playoff_teams, playoff_weeks, lottery_draws, lottery_odds, rookie_draft_rounds, offseason_step')
       .eq('id', league_id)
       .single();
-    if (leagueErr || !league) throw new Error('League not found');
-    if (league.created_by !== user.id) throw new Error('Only the commissioner can run the lottery');
+    if (leagueErr || !league) throw new HttpError('League not found', 404);
+    if (league.created_by !== user.id) throw new HttpError('Only the commissioner can run the lottery', 403);
 
     // Validate offseason state
     const validSteps = ['lottery_pending', 'lottery_scheduled'];
     if (!validSteps.includes(league.offseason_step ?? '')) {
-      throw new Error(`Cannot run lottery in current state: ${league.offseason_step}`);
+      throw new HttpError(`Cannot run lottery in current state: ${league.offseason_step}`);
     }
 
     const season = league.season;
@@ -94,7 +95,7 @@ Deno.serve(async (req) => {
     const lotteryPoolSize = Math.max(0, totalTeams - playoffTeams);
 
     if (lotteryPoolSize === 0) {
-      throw new Error('No lottery pool: all teams make the playoffs');
+      throw new HttpError('No lottery pool: all teams make the playoffs');
     }
 
     const lotteryPool = orderedTeams.slice(0, lotteryPoolSize);
@@ -105,7 +106,7 @@ Deno.serve(async (req) => {
     const { error: resultErr } = await supabaseAdmin
       .from('lottery_results')
       .upsert({ league_id, season, results: finalOrder }, { onConflict: 'league_id,season' });
-    if (resultErr) throw new Error(`Failed to save lottery results: ${resultErr.message}`);
+    if (resultErr) throw resultErr;
 
     // Build full draft order: lottery teams first, then playoff teams in
     // worst-record-first order (worst playoff team gets the next pick after
@@ -236,24 +237,16 @@ Deno.serve(async (req) => {
       })
       .eq('id', league_id);
 
-    return new Response(
-      JSON.stringify({
-        message: swapWarnings.length > 0
-          ? `Lottery completed! Note: ${swapWarnings.length} pick swap(s) voided due to protection.`
-          : 'Lottery completed!',
-        results: finalOrder,
-        lottery_pool_size: lotteryPoolSize,
-        draws: league.lottery_draws ?? 4,
-        swap_warnings: swapWarnings,
-      }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    );
+    return jsonResponse({
+      message: swapWarnings.length > 0
+        ? `Lottery completed! Note: ${swapWarnings.length} pick swap(s) voided due to protection.`
+        : 'Lottery completed!',
+      results: finalOrder,
+      lottery_pool_size: lotteryPoolSize,
+      draws: league.lottery_draws ?? 4,
+      swap_warnings: swapWarnings,
+    });
   } catch (error) {
-    console.error('start-lottery error:', error);
-    const message = error instanceof Error ? error.message : 'Internal server error';
-    return new Response(
-      JSON.stringify({ error: message }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    );
+    return handleError(error, 'start-lottery');
   }
 });

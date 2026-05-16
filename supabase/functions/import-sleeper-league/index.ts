@@ -1,20 +1,14 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { normalizeName } from '../_shared/normalize.ts';
+import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
-
-function jsonResponse(data: unknown, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-  });
-}
 
 const SLEEPER_BASE = 'https://api.sleeper.app/v1';
 const MAX_HISTORY_SEASONS = 5;
@@ -73,7 +67,7 @@ Deno.serve(async (req) => {
       { global: { headers: { Authorization: token ?? '' } } }
     );
     const { data: { user } } = await userClient.auth.getUser();
-    if (!user) throw new Error('Unauthorized');
+    if (!user) throw new HttpError('Unauthorized', 401);
 
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'import-sleeper-league');
     if (rateLimited) return rateLimited;
@@ -86,11 +80,10 @@ Deno.serve(async (req) => {
     } else if (action === 'execute') {
       return await handleExecute(body, supabaseAdmin, user.id);
     } else {
-      throw new Error('action must be "preview" or "execute"');
+      throw new HttpError('action must be "preview" or "execute"');
     }
   } catch (error) {
-    console.error('import-sleeper-league error:', error);
-    return jsonResponse({ error: error.message }, 500);
+    return handleError(error, 'import-sleeper-league');
   }
 });
 
@@ -103,7 +96,7 @@ async function handlePreview(
   supabaseAdmin: any
 ) {
   const { sleeper_league_id } = body;
-  if (!sleeper_league_id) throw new Error('sleeper_league_id is required');
+  if (!sleeper_league_id) throw new HttpError('sleeper_league_id is required');
 
   // Fetch all Sleeper data in parallel
   const [league, rosters, users, tradedPicks, drafts] = await Promise.all([
@@ -116,7 +109,7 @@ async function handlePreview(
 
   // Validate this is a basketball league
   if (league.sport && league.sport !== 'nba') {
-    throw new Error(`This is a ${league.sport} league. Only NBA leagues are supported.`);
+    throw new HttpError(`This is a ${league.sport} league. Only NBA leagues are supported.`);
   }
 
   // Collect all player IDs from rosters
@@ -393,7 +386,7 @@ async function handleExecute(
   } = body;
 
   if (!league_name || !teams?.length || !sleeper_league_id) {
-    throw new Error('sleeper_league_id, league_name, and teams are required');
+    throw new HttpError('sleeper_league_id, league_name, and teams are required');
   }
 
   // Re-fetch live roster data from Sleeper (starters/players/reserve arrays)
@@ -471,7 +464,7 @@ async function handleExecute(
     .select('id')
     .single();
 
-  if (leagueError) throw new Error(`Failed to create league: ${leagueError.message}`);
+  if (leagueError) throw leagueError;
   const leagueId = leagueData.id;
 
   // 2. Insert roster config
@@ -485,7 +478,7 @@ async function handleExecute(
 
   if (rosterConfigRows.length > 0) {
     const { error } = await supabaseAdmin.from('league_roster_config').insert(rosterConfigRows);
-    if (error) throw new Error(`Failed to insert roster config: ${error.message}`);
+    if (error) throw error;
   }
 
   // 3. Insert scoring settings
@@ -497,7 +490,7 @@ async function handleExecute(
 
   if (scoringRows.length > 0) {
     const { error } = await supabaseAdmin.from('league_scoring_settings').insert(scoringRows);
-    if (error) throw new Error(`Failed to insert scoring settings: ${error.message}`);
+    if (error) throw error;
   }
 
   // 4. Create placeholder teams (no user_id)
@@ -523,7 +516,7 @@ async function handleExecute(
       .select('id')
       .single();
 
-    if (teamError) throw new Error(`Failed to create team "${team.team_name}": ${teamError.message}`);
+    if (teamError) throw teamError;
     rosterIdToTeamId.set(team.roster_id, teamData.id);
   }
 
@@ -623,7 +616,7 @@ async function handleExecute(
   for (let i = 0; i < leaguePlayerRows.length; i += 100) {
     const chunk = leaguePlayerRows.slice(i, i + 100);
     const { error } = await supabaseAdmin.from('league_players').insert(chunk);
-    if (error) throw new Error(`Failed to insert roster players: ${error.message}`);
+    if (error) throw error;
   }
 
   // 6. Create draft (marked complete since import implies draft already happened)
@@ -642,7 +635,7 @@ async function handleExecute(
     .select('id')
     .single();
 
-  if (draftError) throw new Error(`Failed to create draft: ${draftError.message}`);
+  if (draftError) throw draftError;
 
   // 7. Create future draft picks with correct ownership based on traded_picks
   const teamIds = Array.from(rosterIdToTeamId.entries());

@@ -1,10 +1,11 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { notifyTeamsBulk, type BulkTeamsNotification } from '../_shared/push.ts';
-import { CORS_HEADERS } from '../_shared/cors.ts';
 import { bdlFetch, bdlFetchAll, type Sport } from '../_shared/bdl.ts';
+import { CORS_HEADERS } from '../_shared/cors.ts';
 import { recordHeartbeat } from '../_shared/heartbeat.ts';
+import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
 import { normalizeName } from '../_shared/normalize.ts';
+import { notifyTeamsBulk, type BulkTeamsNotification } from '../_shared/push.ts';
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -134,7 +135,7 @@ async function applyInjuries(
 ): Promise<{ matchedPlayers: number; statusUpdates: number; playersReset: number; unmatchedNames: string[]; changedPlayerIds: string[]; teamsReported: number }> {
   const { data: allPlayers, error: playerErr } = await supabase
     .from('players').select('id, name, status, pro_team, external_id_bdl').eq('sport', sport);
-  if (playerErr) throw new Error(playerErr.message);
+  if (playerErr) throw playerErr;
 
   // Primary: match by BDL ID. Fallback: name match (for manual JSON payloads without bdl_id)
   const bdlIdMap = new Map<number, { id: string; status: string; pro_team: string }>();
@@ -367,7 +368,7 @@ Deno.serve(async (req: Request) => {
   const cronSecret = Deno.env.get('CRON_SECRET');
   const authHeader = req.headers.get('Authorization');
   if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: jsonHeaders });
+    return errorResponse('Unauthorized', 401);
   }
 
   try {
@@ -384,10 +385,7 @@ Deno.serve(async (req: Request) => {
         if (body?.injuries?.length > 0) {
           for (const inj of body.injuries) {
             if (!VALID_STATUSES.has(inj.status)) {
-              return new Response(
-                JSON.stringify({ error: `Invalid status '${inj.status}'. Valid: ${[...VALID_STATUSES].join(', ')}` }),
-                { status: 400, headers: jsonHeaders },
-              );
+              return errorResponse(`Invalid status '${inj.status}'. Valid: ${[...VALID_STATUSES].join(', ')}`, 400);
             }
           }
           injuries = body.injuries;
@@ -404,10 +402,7 @@ Deno.serve(async (req: Request) => {
       source = 'balldontlie';
       if (!fetched) {
         await recordHeartbeat(supabase, `poll-injuries:${sport}`, 'ok');
-        return new Response(
-          JSON.stringify({ ok: true, sport, source, note: 'could not fetch injuries from balldontlie' }),
-          { status: 200, headers: jsonHeaders },
-        );
+        return jsonResponse({ ok: true, sport, source, note: 'could not fetch injuries from balldontlie' });
       }
       injuries = fetched.injuries;
       teamsOnReport = fetched.teamsOnReport;
@@ -470,14 +465,10 @@ Deno.serve(async (req: Request) => {
     }
 
     await recordHeartbeat(supabase, `poll-injuries:${sport}`, 'ok');
-    return new Response(
-      JSON.stringify({ ok: true, sport, source, injuriesReceived: injuries.length, matchedPlayers: result.matchedPlayers, statusUpdates: result.statusUpdates, playersReset: result.playersReset, teamsReported: result.teamsReported, unmatchedNames: result.unmatchedNames }),
-      { status: 200, headers: jsonHeaders },
-    );
-  } catch (err: any) {
-    console.error('Unhandled error in poll-injuries:', err?.message ?? err);
+    return jsonResponse({ ok: true, sport, source, injuriesReceived: injuries.length, matchedPlayers: result.matchedPlayers, statusUpdates: result.statusUpdates, playersReset: result.playersReset, teamsReported: result.teamsReported, unmatchedNames: result.unmatchedNames });
+  } catch (err) {
     // sport may not be set if we threw before assignment; default to 'nba'.
-    await recordHeartbeat(supabase, `poll-injuries:nba`, 'error', err?.message ?? String(err));
-    return new Response(JSON.stringify({ error: err?.message ?? String(err) }), { status: 500, headers: CORS_HEADERS });
+    await recordHeartbeat(supabase, `poll-injuries:nba`, 'error', err instanceof Error ? err.message : String(err));
+    return handleError(err, 'poll-injuries');
   }
 });

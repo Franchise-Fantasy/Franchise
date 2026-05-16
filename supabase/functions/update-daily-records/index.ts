@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
 import { resolveSlot, isActiveSlot } from '../_shared/resolveSlot.ts';
 
 const supabase = createClient(
@@ -206,10 +207,7 @@ Deno.serve(async (req: Request) => {
   const cronSecret = Deno.env.get("CRON_SECRET");
   const authHeader = req.headers.get("Authorization");
   if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    });
+    return errorResponse("Unauthorized", 401);
   }
 
   try {
@@ -230,10 +228,7 @@ Deno.serve(async (req: Request) => {
       .eq("schedule_generated", true);
 
     if (!leagues || leagues.length === 0) {
-      return new Response(JSON.stringify({ ok: true, updated: 0, message: "No active points leagues" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
+      return jsonResponse({ ok: true, updated: 0, message: "No active points leagues" });
     }
 
     // Fetch scoring weights, teams, and existing records for all leagues in parallel
@@ -286,15 +281,8 @@ Deno.serve(async (req: Request) => {
       }
     }));
 
-    return new Response(JSON.stringify({ ok: true, updated: updatedCount, datesChecked: dates.length }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  } catch (err: any) {
-    console.error("update-daily-records error:", err?.message ?? err);
-    return new Response(
-      JSON.stringify({ error: err?.message ?? String(err) }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
-    );
+    return jsonResponse({ ok: true, updated: updatedCount, datesChecked: dates.length });
+  } catch (error) {
+    return handleError(error, 'update-daily-records');
   }
 });
