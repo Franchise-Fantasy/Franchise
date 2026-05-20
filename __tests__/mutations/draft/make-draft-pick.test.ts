@@ -1,5 +1,6 @@
 import { bootstrapTestLeague, BootstrapResult } from '../helpers/bootstrap';
 import { adminClient, signInAsBot } from '../helpers/clients';
+import { expectHttpError } from '../helpers/expect';
 import {
   ensureActiveDraft,
   pickFreeAgentPlayer,
@@ -95,7 +96,7 @@ describe('make-draft-pick', () => {
       // bot3 tries to pick at pick 1 (which belongs to bot1).
       const client = await signInAsBot(3);
 
-      await client.functions.invoke('make-draft-pick', {
+      const result = await client.functions.invoke('make-draft-pick', {
         body: {
           draft_id: draftId,
           player_id: fa.id,
@@ -104,7 +105,9 @@ describe('make-draft-pick', () => {
         },
       });
 
-      // The fact-check: player did NOT land on any roster, draft did NOT advance.
+      await expectHttpError(result, { status: 403, messageMatch: /your turn|not.*turn/i });
+
+      // Defense-in-depth: player did NOT land on any roster, draft did NOT advance.
       expect(await getPlayerOwner(league.leagueId, fa.id)).toBeNull();
       expect(await getDraftCurrentPick(draftId)).toBe(1);
     },
@@ -124,7 +127,7 @@ describe('make-draft-pick', () => {
         .eq('id', bot4Player)
         .single();
 
-      await client.functions.invoke('make-draft-pick', {
+      const result = await client.functions.invoke('make-draft-pick', {
         body: {
           draft_id: draftId,
           player_id: bot4Player,
@@ -133,7 +136,10 @@ describe('make-draft-pick', () => {
         },
       });
 
-      // Player is still on bot4 (not moved) and draft didn't advance.
+      // Function should reject with 409 (already-on-roster is a conflict).
+      await expectHttpError(result, { status: 409, messageMatch: /already on a roster/i });
+
+      // Defense-in-depth: player is still on bot4 (not moved) and draft didn't advance.
       expect(await getDraftCurrentPick(draftId)).toBe(1);
       const { data: pickRow } = await admin
         .from('draft_picks')

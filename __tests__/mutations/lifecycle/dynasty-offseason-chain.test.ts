@@ -1,4 +1,5 @@
 import { adminClient, signInAsBot } from '../helpers/clients';
+import { expectHttpError } from '../helpers/expect';
 import {
   bootstrapLifecycleLeague,
   resetToSeasonComplete,
@@ -187,10 +188,10 @@ describe('Dynasty offseason chain', () => {
       const client = await signInAsBot(1);
 
       // No advance-season call → offseason_step is null → start-lottery should reject.
-      const { error } = await client.functions.invoke('start-lottery', {
+      const result = await client.functions.invoke('start-lottery', {
         body: { league_id: leagueId },
       });
-      expect(error).not.toBeNull();
+      await expectHttpError(result, { status: 400, messageMatch: /current state/i });
     },
     TIMEOUT,
   );

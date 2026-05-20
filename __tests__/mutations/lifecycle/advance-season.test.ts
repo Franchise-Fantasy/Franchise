@@ -1,4 +1,5 @@
 import { adminClient, signInAsBot } from '../helpers/clients';
+import { expectHttpError } from '../helpers/expect';
 import {
   bootstrapLifecycleLeague,
   resetToSeasonComplete,
@@ -113,8 +114,7 @@ describe('advance-season', () => {
         expect(first.error).toBeNull();
 
         const second = await invokeAdvanceSeason(leagueId);
-        // Edge function returns 500 on thrown errors; invoke surfaces as error.
-        expect(second.error).not.toBeNull();
+        await expectHttpError(second, { status: 409, messageMatch: /offseason/i });
       },
       TIMEOUT,
     );

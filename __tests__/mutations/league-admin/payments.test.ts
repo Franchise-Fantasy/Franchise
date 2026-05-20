@@ -1,5 +1,6 @@
 import { bootstrapTestLeague, BootstrapResult } from '../helpers/bootstrap';
 import { adminClient, signInAsBot } from '../helpers/clients';
+import { expectHttpError } from '../helpers/expect';
 
 const TIMEOUT = 30_000;
 
@@ -88,7 +89,7 @@ describe('mark-payment', () => {
     'rejects confirm action from a non-commissioner',
     async () => {
       const bot3 = await signInAsBot(3);
-      await bot3.functions.invoke('mark-payment', {
+      const result = await bot3.functions.invoke('mark-payment', {
         body: {
           league_id: league.leagueId,
           team_id: bot3Team.id,
@@ -97,6 +98,9 @@ describe('mark-payment', () => {
         },
       });
 
+      await expectHttpError(result, { status: 403, messageMatch: /commissioner/i });
+
+      // Defense-in-depth: also verify no row was confirmed.
       const admin = adminClient();
       const { data: row } = await admin
         .from('league_payments')
@@ -105,7 +109,6 @@ describe('mark-payment', () => {
         .eq('team_id', bot3Team.id)
         .eq('season', SEASON)
         .maybeSingle();
-      // Either no row created, or row exists but paid=false.
       expect(row?.paid !== true).toBe(true);
     },
     TIMEOUT,
