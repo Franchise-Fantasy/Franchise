@@ -1,457 +1,86 @@
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { notifyTeams, notifyLeague } from '../_shared/push.ts';
+// finalize-week — runs at slate rollover (~5am ET) and finalizes any league
+// matchup whose week.end_date < today. For each finalized matchup it writes
+// scores, marks winners, increments W/L on `teams`, refreshes streaks, and
+// (if all regular-season weeks are done) kicks off generate-playoff-round.
+//
+// Cron-secret gated. Idempotent via:
+//   - atomic UPDATE ... SET is_finalized=true claim (only one concurrent
+//     invocation succeeds per matchup)
+//   - `stats_flushed` marker on league_matchups so a crash-recovery re-run
+//     replays scores/streaks but skips W/L double-counting
+//
+// PR 10: scoring helpers + team computation extracted to
+// _shared/finalizeWeek/. Per-team data is now loaded in a single batched
+// prefetch (loadTeamDataBatch) instead of 4 queries × 2 teams × N matchups —
+// for a 12-team league finalizing a 6-matchup week, that's 4 DB roundtrips
+// instead of 48.
+
+import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+import type { Database } from '../../../types/database.types.ts';
 import { errorResponse, handleError, jsonResponse } from '../_shared/http.ts';
 import { createLogger } from '../_shared/log.ts';
-import type { Database } from '../../../types/database.types.ts';
+import { notifyTeams, notifyLeague } from '../_shared/push.ts';
+
+import {
+  loadTeamDataBatch,
+  teamDataKey,
+  type MatchupTeamRef,
+} from '../_shared/finalizeWeek/dataLoader.ts';
+import {
+  calcRounds,
+  compareCategoryStats,
+  extractBestDay,
+  type CategoryResult,
+  type PlayerScoreEntry,
+  type ScoringWeight,
+} from '../_shared/finalizeWeek/scoring.ts';
+import {
+  computeTeamCategoryStats,
+  computeTeamScore,
+} from '../_shared/finalizeWeek/teamScoring.ts';
 
 const log = createLogger('finalize-week');
 
 const supabase = createClient<Database>(
-  Deno.env.get("SUPABASE_URL")!,
-  Deno.env.get("SB_SECRET_KEY")!,
+  Deno.env.get('SUPABASE_URL')!,
+  Deno.env.get('SB_SECRET_KEY')!,
 );
 
-const STAT_TO_GAME: Record<string, string> = {
-  PTS: "pts",
-  REB: "reb",
-  AST: "ast",
-  STL: "stl",
-  BLK: "blk",
-  TO: "tov",
-  "3PM": "3pm",
-  "3PA": "3pa",
-  FGM: "fgm",
-  FGA: "fga",
-  FTM: "ftm",
-  FTA: "fta",
-  PF: "pf",
-  DD: "double_double",
-  TD: "triple_double",
-};
-
-interface ScoringWeight {
-  stat_name: string;
-  point_value: number;
-  is_enabled: boolean;
-  inverse: boolean;
-}
-
-interface PlayerGameEntry {
-  date: string;
-  slot: string;
-  fpts: number;
-  stats: Record<string, any>;
-  matchup: string | null;
-}
-
-interface PlayerScoreEntry {
-  player_id: string;
-  name: string;
-  position: string | null;
-  pro_team: string | null;
-  external_id_nba: string | null;
-  roster_slot: string;
-  week_points: number;
-  games: PlayerGameEntry[];
-}
-
-// ── Category scoring helpers ───────────────────────────────────────────────
-
-const PERCENTAGE_STATS: Record<string, { numerator: string; denominator: string }> = {
-  'FG%': { numerator: 'fgm', denominator: 'fga' },
-  'FT%': { numerator: 'ftm', denominator: 'fta' },
-};
-
-interface CategoryResult {
-  stat: string;
-  home: number;
-  away: number;
-  winner: 'home' | 'away' | 'tie';
-}
-
-function aggregateGameStats(
-  gameLogs: Record<string, any>[],
-): Record<string, number> {
-  const totals: Record<string, number> = {};
-  for (const game of gameLogs) {
-    for (const [, gameKey] of Object.entries(STAT_TO_GAME)) {
-      const raw = game[gameKey];
-      if (raw == null) continue;
-      const val = typeof raw === 'boolean' ? (raw ? 1 : 0) : Number(raw);
-      totals[gameKey] = (totals[gameKey] ?? 0) + val;
-    }
-  }
-  return totals;
-}
-
-function compareCategoryStats(
-  homeStats: Record<string, number>,
-  awayStats: Record<string, number>,
-  categories: ScoringWeight[],
-): { results: CategoryResult[]; homeWins: number; awayWins: number; ties: number } {
-  const results: CategoryResult[] = [];
-  let homeWins = 0;
-  let awayWins = 0;
-  let ties = 0;
-
-  for (const cat of categories) {
-    if (!cat.is_enabled) continue;
-
-    const pctDef = PERCENTAGE_STATS[cat.stat_name];
-    let homeVal: number;
-    let awayVal: number;
-
-    if (pctDef) {
-      const hNum = homeStats[pctDef.numerator] ?? 0;
-      const hDen = homeStats[pctDef.denominator] ?? 0;
-      const aNum = awayStats[pctDef.numerator] ?? 0;
-      const aDen = awayStats[pctDef.denominator] ?? 0;
-      homeVal = hDen > 0 ? Math.round((hNum / hDen) * 1000) / 1000 : 0;
-      awayVal = aDen > 0 ? Math.round((aNum / aDen) * 1000) / 1000 : 0;
-    } else {
-      const gameKey = STAT_TO_GAME[cat.stat_name];
-      if (!gameKey) continue;
-      homeVal = homeStats[gameKey] ?? 0;
-      awayVal = awayStats[gameKey] ?? 0;
-    }
-
-    let winner: 'home' | 'away' | 'tie';
-    if (homeVal === awayVal) {
-      winner = 'tie';
-      ties++;
-    } else if (cat.inverse) {
-      winner = homeVal < awayVal ? 'home' : 'away';
-      if (winner === 'home') homeWins++; else awayWins++;
-    } else {
-      winner = homeVal > awayVal ? 'home' : 'away';
-      if (winner === 'home') homeWins++; else awayWins++;
-    }
-
-    results.push({ stat: cat.stat_name, home: homeVal, away: awayVal, winner });
-  }
-
-  return { results, homeWins, awayWins, ties };
-}
-
-function calculateGameFpts(
-  game: Record<string, number>,
-  weights: ScoringWeight[],
-): number {
-  let total = 0;
-  for (const w of weights) {
-    const field = STAT_TO_GAME[w.stat_name];
-    if (field && game[field] != null) {
-      total += game[field] * w.point_value;
-    }
-  }
-  return Math.round(total * 100) / 100;
-}
-
-import { resolveSlot as sharedResolveSlot, isActiveSlot } from '../_shared/resolveSlot.ts';
-
-function resolveSlotForGame(
-  dailyEntries: Array<{ lineup_date: string; roster_slot: string }>,
-  day: string,
-  defaultSlot: string,
-  opts: { isOnCurrentRoster: boolean; dropDate?: string; acquiredDate?: string; today: string },
-): string {
-  return sharedResolveSlot({
-    dailyEntries,
-    day,
-    defaultSlot,
-    isOnCurrentRoster: opts.isOnCurrentRoster,
-    dropDate: opts.dropDate,
-    acquiredDate: opts.acquiredDate,
-    today: opts.today,
-  });
-}
-
-async function fetchTeamRosterAndGames(
-  teamId: string,
-  leagueId: string,
-  startDate: string,
-  endDate: string,
-) {
-  const { data: leaguePlayers } = await supabase
-    .from("league_players")
-    .select("player_id, roster_slot, acquired_at")
-    .eq("team_id", teamId)
-    .eq("league_id", leagueId);
-
-  const currentPlayerIds = new Set((leaguePlayers ?? []).map((lp) => lp.player_id));
-  const defaultSlotMap = new Map<string, string>(
-    (leaguePlayers ?? []).map((lp) => [lp.player_id, lp.roster_slot ?? "BE"]),
-  );
-
-  const acquiredDateMap = new Map<string, string>();
-  for (const lp of leaguePlayers ?? []) {
-    if (lp.acquired_at) {
-      const d = new Date(lp.acquired_at);
-      acquiredDateMap.set(lp.player_id, `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
-    }
-  }
-
-  const { data: dailyEntries } = await supabase
-    .from("daily_lineups")
-    .select("player_id, roster_slot, lineup_date")
-    .eq("team_id", teamId)
-    .eq("league_id", leagueId)
-    .lte("lineup_date", endDate)
-    .order("lineup_date", { ascending: false });
-
-  const dailyByPlayer = new Map<
-    string,
-    Array<{ lineup_date: string; roster_slot: string }>
-  >();
-  const droppedPlayerIds: string[] = [];
-  for (const entry of dailyEntries ?? []) {
-    if (!dailyByPlayer.has(entry.player_id)) {
-      dailyByPlayer.set(entry.player_id, []);
-    }
-    dailyByPlayer.get(entry.player_id)!.push(entry);
-
-    if (
-      !currentPlayerIds.has(entry.player_id) &&
-      entry.lineup_date >= startDate &&
-      !droppedPlayerIds.includes(entry.player_id)
-    ) {
-      droppedPlayerIds.push(entry.player_id);
-    }
-  }
-
-  const allPlayerIds = [...currentPlayerIds, ...droppedPlayerIds];
-
-  const [{ data: gameLogs }, { data: playerInfoRows }] = await Promise.all([
-    supabase
-      .from("player_games")
-      .select(
-        'player_id, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double, game_date, matchup',
-      )
-      .in("player_id", allPlayerIds.length > 0 ? allPlayerIds : ["__none__"])
-      .gte("game_date", startDate)
-      .lte("game_date", endDate),
-    supabase
-      .from("players")
-      .select("id, name, position, pro_team, external_id_nba")
-      .in("id", allPlayerIds.length > 0 ? allPlayerIds : ["__none__"]),
-  ]);
-
-  const playerInfo = new Map<string, { name: string; position: string | null; pro_team: string | null; external_id_nba: string | null }>();
-  for (const p of playerInfoRows ?? []) {
-    playerInfo.set(p.id, { name: p.name, position: p.position, pro_team: p.pro_team, external_id_nba: p.external_id_nba });
-  }
-
-  // Build drop-date map for players no longer on the team
-  const dropDateMap = new Map<string, string>();
-  for (const pid of droppedPlayerIds) {
-    const entries = dailyByPlayer.get(pid) ?? [];
-    const droppedEntry = entries.find((e) => e.roster_slot === "DROPPED");
-    if (droppedEntry) dropDateMap.set(pid, droppedEntry.lineup_date);
-  }
-
-  return { allPlayerIds, currentPlayerIds, defaultSlotMap, acquiredDateMap, dropDateMap, dailyByPlayer, gameLogs: gameLogs ?? [], playerInfo };
-}
-
-async function computeTeamScore(
-  teamId: string,
-  leagueId: string,
-  startDate: string,
-  endDate: string,
-  weights: ScoringWeight[],
-): Promise<{ total: number; playerScores: PlayerScoreEntry[] }> {
-  const { allPlayerIds, currentPlayerIds, defaultSlotMap, acquiredDateMap, dropDateMap, dailyByPlayer, gameLogs, playerInfo } =
-    await fetchTeamRosterAndGames(teamId, leagueId, startDate, endDate);
-
-  if (allPlayerIds.length === 0) return { total: 0, playerScores: [] };
-
-  const today = new Date();
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-
-  let teamTotal = 0;
-  // Group games by player for building playerScores
-  const playerGamesMap = new Map<string, PlayerGameEntry[]>();
-  const playerWeekPoints = new Map<string, number>();
-
-  for (const game of gameLogs) {
-    if (!game.game_date) continue;
-    const slot = resolveSlotForGame(
-      dailyByPlayer.get(game.player_id) ?? [],
-      game.game_date,
-      defaultSlotMap.get(game.player_id) ?? "BE",
-      {
-        isOnCurrentRoster: currentPlayerIds.has(game.player_id),
-        dropDate: dropDateMap.get(game.player_id),
-        acquiredDate: acquiredDateMap.get(game.player_id),
-        today: todayStr,
-      },
-    );
-
-    const fpts = calculateGameFpts(game as any, weights);
-    const active = isActiveSlot(slot);
-
-    if (active) {
-      teamTotal += fpts;
-      playerWeekPoints.set(game.player_id, (playerWeekPoints.get(game.player_id) ?? 0) + fpts);
-    }
-
-    if (!playerGamesMap.has(game.player_id)) playerGamesMap.set(game.player_id, []);
-    playerGamesMap.get(game.player_id)!.push({
-      date: game.game_date,
-      slot,
-      fpts: Math.round(fpts * 100) / 100,
-      stats: {
-        pts: game.pts, reb: game.reb, ast: game.ast, stl: game.stl, blk: game.blk,
-        tov: game.tov, fgm: game.fgm, fga: game.fga, "3pm": game["3pm"],
-        ftm: game.ftm, fta: game.fta, pf: game.pf,
-        double_double: game.double_double, triple_double: game.triple_double,
-      },
-      matchup: game.matchup ?? null,
-    });
-  }
-
-  const playerScores: PlayerScoreEntry[] = allPlayerIds.map((pid) => {
-    const info = playerInfo.get(pid);
-    return {
-      player_id: pid,
-      name: info?.name ?? "Unknown",
-      position: info?.position ?? "—",
-      pro_team: info?.pro_team ?? "—",
-      external_id_nba: info?.external_id_nba ?? null,
-      roster_slot: defaultSlotMap.get(pid) ?? "BE",
-      week_points: Math.round((playerWeekPoints.get(pid) ?? 0) * 100) / 100,
-      games: playerGamesMap.get(pid) ?? [],
-    };
-  });
-
-  return { total: Math.round(teamTotal * 100) / 100, playerScores };
-}
-
-async function computeTeamCategoryStats(
-  teamId: string,
-  leagueId: string,
-  startDate: string,
-  endDate: string,
-): Promise<{ teamStats: Record<string, number>; playerScores: PlayerScoreEntry[] }> {
-  const { allPlayerIds, currentPlayerIds, defaultSlotMap, acquiredDateMap, dropDateMap, dailyByPlayer, gameLogs, playerInfo } =
-    await fetchTeamRosterAndGames(teamId, leagueId, startDate, endDate);
-
-  if (allPlayerIds.length === 0) return { teamStats: {}, playerScores: [] };
-
-  const today = new Date();
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-
-  const activeGames: Record<string, any>[] = [];
-  const playerGamesMap = new Map<string, PlayerGameEntry[]>();
-
-  for (const game of gameLogs) {
-    if (!game.game_date) continue;
-    const slot = resolveSlotForGame(
-      dailyByPlayer.get(game.player_id) ?? [],
-      game.game_date,
-      defaultSlotMap.get(game.player_id) ?? "BE",
-      {
-        isOnCurrentRoster: currentPlayerIds.has(game.player_id),
-        dropDate: dropDateMap.get(game.player_id),
-        acquiredDate: acquiredDateMap.get(game.player_id),
-        today: todayStr,
-      },
-    );
-    const active = isActiveSlot(slot);
-
-    if (active) activeGames.push(game);
-
-    if (!playerGamesMap.has(game.player_id)) playerGamesMap.set(game.player_id, []);
-    playerGamesMap.get(game.player_id)!.push({
-      date: game.game_date,
-      slot,
-      fpts: 0,
-      stats: {
-        pts: game.pts, reb: game.reb, ast: game.ast, stl: game.stl, blk: game.blk,
-        tov: game.tov, fgm: game.fgm, fga: game.fga, "3pm": game["3pm"],
-        ftm: game.ftm, fta: game.fta, pf: game.pf,
-        double_double: game.double_double, triple_double: game.triple_double,
-      },
-      matchup: game.matchup ?? null,
-    });
-  }
-
-  const playerScores: PlayerScoreEntry[] = allPlayerIds.map((pid) => {
-    const info = playerInfo.get(pid);
-    return {
-      player_id: pid,
-      name: info?.name ?? "Unknown",
-      position: info?.position ?? "—",
-      pro_team: info?.pro_team ?? "—",
-      external_id_nba: info?.external_id_nba ?? null,
-      roster_slot: defaultSlotMap.get(pid) ?? "BE",
-      week_points: 0,
-      games: playerGamesMap.get(pid) ?? [],
-    };
-  });
-
-  return { teamStats: aggregateGameStats(activeGames), playerScores };
-}
-
-async function computeStreak(
-  teamId: string,
-  leagueId: string,
-): Promise<string> {
+// Recompute teams.streak by walking the most recent finalized matchups and
+// counting consecutive wins/losses/ties from newest-first. Mirrors the
+// previous in-file implementation.
+async function computeStreak(teamId: string, leagueId: string): Promise<string> {
   const { data: matchups } = await supabase
-    .from("league_matchups")
-    .select("home_team_id, away_team_id, winner_team_id, week_number, playoff_round")
-    .eq("league_id", leagueId)
-    .eq("is_finalized", true)
-    .is("playoff_round", null)
+    .from('league_matchups')
+    .select('home_team_id, away_team_id, winner_team_id, week_number')
+    .eq('league_id', leagueId)
+    .eq('is_finalized', true)
+    .is('playoff_round', null)
     .or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
-    .order("week_number", { ascending: false });
+    .order('week_number', { ascending: false })
+    .limit(20);
 
-  if (!matchups || matchups.length === 0) return "";
+  if (!matchups || matchups.length === 0) return '';
 
-  const real = matchups.filter((m) => m.away_team_id !== null);
-  if (real.length === 0) return "";
-
-  function getResult(m: typeof real[number]): "W" | "L" | "T" {
-    if (m.winner_team_id === null) return "T";
-    return m.winner_team_id === teamId ? "W" : "L";
-  }
-
-  const firstResult = getResult(real[0]);
+  let result: 'W' | 'L' | 'T' | null = null;
   let count = 0;
-  for (const m of real) {
-    if (getResult(m) === firstResult) {
+  for (const m of matchups) {
+    let r: 'W' | 'L' | 'T';
+    if (m.winner_team_id === null) r = 'T';
+    else if (m.winner_team_id === teamId) r = 'W';
+    else r = 'L';
+    if (result === null) {
+      result = r;
+      count = 1;
+    } else if (r === result) {
       count++;
     } else {
       break;
     }
   }
-
-  return `${firstResult}${count}`;
-}
-
-/** Extract per-day fpts totals from active-slot games */
-function extractBestDay(
-  playerScores: PlayerScoreEntry[],
-): { date: string; total: number } | null {
-  const dailyTotals = new Map<string, number>();
-  for (const ps of playerScores) {
-    for (const g of ps.games) {
-      if (isActiveSlot(g.slot)) {
-        dailyTotals.set(g.date, (dailyTotals.get(g.date) ?? 0) + g.fpts);
-      }
-    }
-  }
-  let best: { date: string; total: number } | null = null;
-  for (const [date, total] of dailyTotals) {
-    if (!best || total > best.total) best = { date, total };
-  }
-  return best;
-}
-
-function calcRounds(playoffTeams: number): number {
-  let p = 1;
-  while (p < playoffTeams) p *= 2;
-  return Math.log2(p);
+  return result ? `${result}${count}` : '';
 }
 
 Deno.serve(async (req: Request) => {
@@ -463,11 +92,16 @@ Deno.serve(async (req: Request) => {
 
   try {
     // ── Recovery: flush stats for matchups claimed but not yet flushed ──
+    // If a prior run crashed between is_finalized=true and stats_flushed=true,
+    // re-apply scores/W-L from the existing matchup row so the data stays
+    // self-healing. PF/PA is owned by update-standings and is recomputed from
+    // scratch below for any touched league, so we pass 0 here to avoid
+    // double-counting.
     const { data: orphaned } = await supabase
-      .from("league_matchups")
-      .select("id, league_id, home_team_id, away_team_id, home_score, away_score, winner_team_id, playoff_round, home_category_wins, away_category_wins, schedule_id")
-      .eq("is_finalized", true)
-      .eq("stats_flushed", false);
+      .from('league_matchups')
+      .select('id, league_id, home_team_id, away_team_id, home_score, away_score, winner_team_id, playoff_round, home_category_wins, away_category_wins, schedule_id')
+      .eq('is_finalized', true)
+      .eq('stats_flushed', false);
 
     if (orphaned && orphaned.length > 0) {
       const recoveryStats: Array<{ p_team_id: string; p_wins: number; p_losses: number; p_ties: number; p_pf: number; p_pa: number }> = [];
@@ -478,15 +112,11 @@ Deno.serve(async (req: Request) => {
 
       for (const m of orphaned) {
         if (m.away_team_id === null) continue;
-
-        // Recover scores for all matchups (regular season + playoff)
         recoveryScores.push(
           { league_id: m.league_id, schedule_id: m.schedule_id, team_id: m.home_team_id, score: Number(m.home_score ?? 0), updated_at: now },
           { league_id: m.league_id, schedule_id: m.schedule_id, team_id: m.away_team_id, score: Number(m.away_score ?? 0), updated_at: now },
         );
 
-        // Only update team W/L for regular-season matchups
-        // PF/PA is owned by update-standings — pass 0 to avoid double-counting
         if (m.playoff_round != null) continue;
 
         if (m.winner_team_id === m.home_team_id) {
@@ -505,7 +135,6 @@ Deno.serve(async (req: Request) => {
             { p_team_id: m.away_team_id, p_wins: 0, p_losses: 0, p_ties: 1, p_pf: 0, p_pa: 0 },
           );
         }
-
         recoveryTeams.add(m.home_team_id);
         recoveryTeams.add(m.away_team_id);
         recoveryTeamLeague.set(m.home_team_id, m.league_id);
@@ -513,83 +142,79 @@ Deno.serve(async (req: Request) => {
       }
 
       if (recoveryScores.length > 0) {
-        await supabase.from("week_scores").upsert(recoveryScores, { onConflict: "league_id,schedule_id,team_id" });
+        await supabase.from('week_scores').upsert(recoveryScores, { onConflict: 'league_id,schedule_id,team_id' });
       }
-
       if (recoveryStats.length > 0) {
-        await Promise.all(
-          recoveryStats.map((params) => supabase.rpc("increment_team_stats", params)),
-        );
-
+        await Promise.all(recoveryStats.map((params) => supabase.rpc('increment_team_stats', params)));
         await Promise.all([...recoveryTeams].map(async (teamId) => {
           const lid = recoveryTeamLeague.get(teamId)!;
           const streak = await computeStreak(teamId, lid);
-          await supabase.from("teams").update({ streak }).eq("id", teamId);
+          await supabase.from('teams').update({ streak }).eq('id', teamId);
         }));
       }
-
-      await supabase.from("league_matchups").update({ stats_flushed: true }).in("id", orphaned.map((m) => m.id));
+      await supabase.from('league_matchups').update({ stats_flushed: true }).in('id', orphaned.map((m) => m.id));
       log.info('Recovery: flushed stats for orphaned matchups', { orphaned_count: orphaned.length });
     }
 
-    const today = new Date().toISOString().split("T")[0];
+    const today = new Date().toISOString().split('T')[0];
 
     const { data: pendingWeeks, error: weekErr } = await supabase
-      .from("league_schedule")
-      .select("id, league_id, week_number, start_date, end_date, is_playoff")
-      .lt("end_date", today);
-
+      .from('league_schedule')
+      .select('id, league_id, week_number, start_date, end_date, is_playoff')
+      .lt('end_date', today);
     if (weekErr) throw weekErr;
-
     if (!pendingWeeks || pendingWeeks.length === 0) {
-      return jsonResponse({ ok: true, finalized: 0, message: "No completed weeks found" });
+      return jsonResponse({ ok: true, finalized: 0, message: 'No completed weeks found' });
     }
 
     const scheduleIds = pendingWeeks.map((w) => w.id);
     const scheduleMap = new Map(pendingWeeks.map((w) => [w.id, w]));
 
-    // Atomically claim unfinalized matchups by setting is_finalized=true upfront.
-    // If two invocations run concurrently, only one will get rows back (the other
-    // will match 0 rows since is_finalized is already true), preventing double stat counts.
+    // Atomically claim unfinalized matchups via UPDATE ... RETURNING. If two
+    // invocations race, only one wins each row.
     const { data: unfinalizedMatchups, error: matchErr } = await supabase
-      .from("league_matchups")
+      .from('league_matchups')
       .update({ is_finalized: true })
-      .in("schedule_id", scheduleIds)
-      .eq("is_finalized", false)
-      .select("id, league_id, schedule_id, week_number, home_team_id, away_team_id, playoff_round");
-
+      .in('schedule_id', scheduleIds)
+      .eq('is_finalized', false)
+      .select('id, league_id, schedule_id, week_number, home_team_id, away_team_id, playoff_round');
     if (matchErr) throw matchErr;
-
     if (!unfinalizedMatchups || unfinalizedMatchups.length === 0) {
-      return jsonResponse({ ok: true, finalized: 0, message: "All matchups already finalized" });
+      return jsonResponse({ ok: true, finalized: 0, message: 'All matchups already finalized' });
     }
 
+    // ── Bulk-load per-league scoring config in parallel (1 round-trip per league). ──
     const leagueIds = [...new Set(unfinalizedMatchups.map((m) => m.league_id))];
     const scoringByLeague = new Map<string, ScoringWeight[]>();
     const scoringTypeByLeague = new Map<string, string>();
-
     await Promise.all(leagueIds.map(async (lid) => {
       const [{ data: scoring }, { data: leagueRow }] = await Promise.all([
-        supabase
-          .from("league_scoring_settings")
-          .select("stat_name, point_value, is_enabled, inverse")
-          .eq("league_id", lid),
-        supabase
-          .from("leagues")
-          .select("scoring_type")
-          .eq("id", lid)
-          .single(),
+        supabase.from('league_scoring_settings').select('stat_name, point_value, is_enabled, inverse').eq('league_id', lid),
+        supabase.from('leagues').select('scoring_type').eq('id', lid).single(),
       ]);
-      scoringByLeague.set(lid, scoring ?? []);
+      scoringByLeague.set(lid, (scoring ?? []) as ScoringWeight[]);
       scoringTypeByLeague.set(lid, leagueRow?.scoring_type ?? 'points');
     }));
+
+    // ── BULK-LOAD all team data up front (PR 10's N+1 fix). ──
+    // Build (team, league, week) refs for every team in every matchup; load
+    // rosters + lineups + game logs + player info in 4 queries total, then
+    // hand the indexed slice to computeTeamScore / computeTeamCategoryStats.
+    const teamRefs: MatchupTeamRef[] = [];
+    for (const m of unfinalizedMatchups) {
+      if (m.away_team_id === null) continue;
+      const w = scheduleMap.get(m.schedule_id);
+      if (!w) continue;
+      teamRefs.push({ teamId: m.home_team_id, leagueId: m.league_id, startDate: w.start_date, endDate: w.end_date });
+      teamRefs.push({ teamId: m.away_team_id, leagueId: m.league_id, startDate: w.start_date, endDate: w.end_date });
+    }
+    const teamDataMap = await loadTeamDataBatch(supabase, teamRefs);
 
     const affectedTeams = new Set<string>();
     const teamLeagueMap = new Map<string, string>();
     const playoffMatchupsFinalized = new Map<string, Array<{ matchup_id: string; playoff_round: number; winner_id: string | null }>>();
     const bestDayCandidates = new Map<string, { value: number; teamId: string; date: string; season: string }>();
 
-    // Type for per-matchup results returned from parallel processing
     interface MatchupResult {
       statUpdates: Array<{ p_team_id: string; p_wins: number; p_losses: number; p_ties: number; p_pf: number; p_pa: number }>;
       weekScores: Array<{ league_id: string; schedule_id: string; team_id: string; score: number; updated_at: string }>;
@@ -605,20 +230,23 @@ Deno.serve(async (req: Request) => {
       bestDay: { leagueId: string; value: number; teamId: string; date: string; season: string } | null;
     }
 
-    // Process all matchups in parallel — each is independent (already atomically claimed)
     const settled = await Promise.allSettled(
       unfinalizedMatchups.map(async (matchup): Promise<MatchupResult> => {
+        const empty: MatchupResult = { statUpdates: [], weekScores: [], notification: null, affectedTeamIds: [], playoffResult: null, bestDay: null };
         const week = scheduleMap.get(matchup.schedule_id);
-        if (!week) return { statUpdates: [], weekScores: [], notification: null, affectedTeamIds: [], playoffResult: null, bestDay: null };
+        if (!week || matchup.away_team_id === null) return empty;
 
         const isPlayoff = week.is_playoff || matchup.playoff_round != null;
         const weights = scoringByLeague.get(matchup.league_id) ?? [];
+        const scoringType = scoringTypeByLeague.get(matchup.league_id) ?? 'points';
 
-        if (matchup.away_team_id === null) {
-          return { statUpdates: [], weekScores: [], notification: null, affectedTeamIds: [], playoffResult: null, bestDay: null };
+        const homeData = teamDataMap.get(teamDataKey(matchup.home_team_id, week.start_date, week.end_date));
+        const awayData = teamDataMap.get(teamDataKey(matchup.away_team_id, week.start_date, week.end_date));
+        if (!homeData || !awayData) {
+          log.warn('Missing prefetched team data for matchup', { matchup_id: matchup.id });
+          return empty;
         }
 
-        const scoringType = scoringTypeByLeague.get(matchup.league_id) ?? 'points';
         let winnerId: string | null = null;
         let homeScore = 0;
         let awayScore = 0;
@@ -630,10 +258,8 @@ Deno.serve(async (req: Request) => {
         let awayPlayerScores: PlayerScoreEntry[] = [];
 
         if (scoringType === 'h2h_categories') {
-          const [homeResult, awayResult] = await Promise.all([
-            computeTeamCategoryStats(matchup.home_team_id, matchup.league_id, week.start_date, week.end_date),
-            computeTeamCategoryStats(matchup.away_team_id, matchup.league_id, week.start_date, week.end_date),
-          ]);
+          const homeResult = computeTeamCategoryStats(homeData);
+          const awayResult = computeTeamCategoryStats(awayData);
           homePlayerScores = homeResult.playerScores;
           awayPlayerScores = awayResult.playerScores;
           const comparison = compareCategoryStats(homeResult.teamStats, awayResult.teamStats, weights);
@@ -644,10 +270,8 @@ Deno.serve(async (req: Request) => {
           if (comparison.homeWins > comparison.awayWins) winnerId = matchup.home_team_id;
           else if (comparison.awayWins > comparison.homeWins) winnerId = matchup.away_team_id;
         } else {
-          const [homeResult, awayResult] = await Promise.all([
-            computeTeamScore(matchup.home_team_id, matchup.league_id, week.start_date, week.end_date, weights),
-            computeTeamScore(matchup.away_team_id, matchup.league_id, week.start_date, week.end_date, weights),
-          ]);
+          const homeResult = computeTeamScore(homeData, weights);
+          const awayResult = computeTeamScore(awayData, weights);
           homeScore = homeResult.total;
           awayScore = awayResult.total;
           homePlayerScores = homeResult.playerScores;
@@ -656,9 +280,8 @@ Deno.serve(async (req: Request) => {
           else if (awayScore > homeScore) winnerId = matchup.away_team_id;
         }
 
-        // Write matchup result to DB
         await supabase
-          .from("league_matchups")
+          .from('league_matchups')
           .update({
             home_score: homeScore,
             away_score: awayScore,
@@ -670,9 +293,8 @@ Deno.serve(async (req: Request) => {
             away_player_scores: awayPlayerScores as unknown as Database['public']['Tables']['league_matchups']['Update']['away_player_scores'],
             winner_team_id: winnerId,
           })
-          .eq("id", matchup.id);
+          .eq('id', matchup.id);
 
-        // Update playoff bracket if applicable
         let playoffResult: MatchupResult['playoffResult'] = null;
         if (isPlayoff && matchup.playoff_round != null) {
           await supabase
@@ -682,14 +304,12 @@ Deno.serve(async (req: Request) => {
           playoffResult = { leagueId: matchup.league_id, matchup_id: matchup.id, playoff_round: matchup.playoff_round, winner_id: winnerId };
         }
 
-        // Build week_scores
-        const now = new Date().toISOString();
+        const nowIso = new Date().toISOString();
         const weekScores = [
-          { league_id: matchup.league_id, schedule_id: matchup.schedule_id, team_id: matchup.home_team_id, score: homeScore, updated_at: now },
-          { league_id: matchup.league_id, schedule_id: matchup.schedule_id, team_id: matchup.away_team_id, score: awayScore, updated_at: now },
+          { league_id: matchup.league_id, schedule_id: matchup.schedule_id, team_id: matchup.home_team_id, score: homeScore, updated_at: nowIso },
+          { league_id: matchup.league_id, schedule_id: matchup.schedule_id, team_id: matchup.away_team_id, score: awayScore, updated_at: nowIso },
         ];
 
-        // Build stat updates (regular season only)
         const statUpdates: MatchupResult['statUpdates'] = [];
         const affectedTeamIds: MatchupResult['affectedTeamIds'] = [];
         if (!isPlayoff) {
@@ -715,7 +335,6 @@ Deno.serve(async (req: Request) => {
           );
         }
 
-        // Track best scoring day (points scoring only)
         let bestDay: MatchupResult['bestDay'] = null;
         if (scoringType === 'points') {
           const season = week.start_date.slice(0, 4);
@@ -745,7 +364,7 @@ Deno.serve(async (req: Request) => {
       }),
     );
 
-    // Merge results from all parallel matchup tasks
+    // ── Merge results, then flush stat updates + week_scores in parallel ──
     const pendingStatUpdates: Array<{ p_team_id: string; p_wins: number; p_losses: number; p_ties: number; p_pf: number; p_pa: number }> = [];
     const pendingWeekScores: Array<{ league_id: string; schedule_id: string; team_id: string; score: number; updated_at: string }> = [];
     const matchupResults: Array<NonNullable<MatchupResult['notification']>> = [];
@@ -778,38 +397,30 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Flush all stat updates and week_scores upserts in parallel
     await Promise.all([
-      ...pendingStatUpdates.map((params) => supabase.rpc("increment_team_stats", params)),
+      ...pendingStatUpdates.map((params) => supabase.rpc('increment_team_stats', params)),
       pendingWeekScores.length > 0
-        ? supabase.from("week_scores").upsert(pendingWeekScores, { onConflict: "league_id,schedule_id,team_id" })
+        ? supabase.from('week_scores').upsert(pendingWeekScores, { onConflict: 'league_id,schedule_id,team_id' })
         : Promise.resolve(),
     ]);
 
-    // Update streaks for regular season teams in parallel
     if (affectedTeams.size > 0) {
       await Promise.all([...affectedTeams].map(async (teamId) => {
         const lid = teamLeagueMap.get(teamId)!;
         const streak = await computeStreak(teamId, lid);
-        await supabase.from("teams").update({ streak }).eq("id", teamId);
+        await supabase.from('teams').update({ streak }).eq('id', teamId);
       }));
     }
 
-    // Refresh teams.points_for / points_against for each touched league.
-    // increment_team_stats above intentionally passes p_pf:0 / p_pa:0 — PF/PA
-    // is recomputed from league_matchups so it stays self-healing. Mirrors
-    // update-standings step 2, but inline so the standings page reflects the
-    // just-finalized scores immediately instead of waiting up to ~24h for
-    // the next daily cron run.
+    // ── Refresh PF/PA from league_matchups (self-healing, mirrors update-standings step 2). ──
     if (leagueIds.length > 0) {
       await Promise.all(leagueIds.map(async (lid) => {
         const isCat = (scoringTypeByLeague.get(lid) ?? 'points') === 'h2h_categories';
         const { data: lm } = await supabase
-          .from("league_matchups")
-          .select("home_team_id, away_team_id, home_score, away_score, home_category_wins, away_category_wins")
-          .eq("league_id", lid)
-          .is("playoff_round", null);
-
+          .from('league_matchups')
+          .select('home_team_id, away_team_id, home_score, away_score, home_category_wins, away_category_wins')
+          .eq('league_id', lid)
+          .is('playoff_round', null);
         const pf: Record<string, number> = {};
         const pa: Record<string, number> = {};
         for (const m of lm ?? []) {
@@ -824,10 +435,9 @@ Deno.serve(async (req: Request) => {
             pa[m.away_team_id] = (pa[m.away_team_id] ?? 0) + hs;
           }
         }
-
         const teamIds = [...new Set([...Object.keys(pf), ...Object.keys(pa)])];
         if (teamIds.length > 0) {
-          await supabase.rpc("batch_update_team_standings", {
+          await supabase.rpc('batch_update_team_standings', {
             p_updates: teamIds.map((tid) => ({
               id: tid,
               points_for: Math.round((pf[tid] ?? 0) * 100) / 100,
@@ -838,13 +448,13 @@ Deno.serve(async (req: Request) => {
       }));
     }
 
-    // Mark stats as flushed so a crash-recovery re-run won't double-count
+    // Mark stats_flushed so a crash-recovery re-run skips W/L double counting.
     const matchupIds = unfinalizedMatchups.map((m) => m.id);
     if (matchupIds.length > 0) {
-      await supabase.from("league_matchups").update({ stats_flushed: true }).in("id", matchupIds);
+      await supabase.from('league_matchups').update({ stats_flushed: true }).in('id', matchupIds);
     }
 
-    // ── Upsert highest-scoring-day records (only if new value beats existing) ──
+    // ── Upsert highest-scoring-day record per league, only on new high. ──
     if (bestDayCandidates.size > 0) {
       await Promise.all([...bestDayCandidates.entries()].map(async ([lid, candidate]) => {
         const { data: existing } = await supabase
@@ -853,7 +463,6 @@ Deno.serve(async (req: Request) => {
           .eq('league_id', lid)
           .eq('record_type', 'highest_scoring_day')
           .single();
-
         if (!existing || candidate.value > Number(existing.value)) {
           await supabase.from('league_records').upsert({
             league_id: lid,
@@ -868,9 +477,8 @@ Deno.serve(async (req: Request) => {
       }));
     }
 
-    // ── Send matchup result notifications ──
+    // ── Matchup result notifications (best-effort, non-fatal). ──
     try {
-      // Build team name + league name lookups
       const allTeamIds = new Set<string>();
       for (const r of matchupResults) {
         allTeamIds.add(r.homeTeamId);
@@ -880,17 +488,10 @@ Deno.serve(async (req: Request) => {
         supabase.from('teams').select('id, name').in('id', [...allTeamIds]),
         supabase.from('leagues').select('id, name, playoff_teams').in('id', leagueIds),
       ]);
-      const teamName = new Map<string, string>(
-        (teamRows ?? []).map((t) => [t.id, t.name]),
-      );
-      const leagueName = new Map<string, string>(
-        (leagueRows ?? []).map((l) => [l.id, l.name]),
-      );
-      const leaguePlayoffTeams = new Map<string, number>(
-        (leagueRows ?? []).map((l) => [l.id, l.playoff_teams ?? 8]),
-      );
+      const teamName = new Map<string, string>((teamRows ?? []).map((t) => [t.id, t.name]));
+      const leagueName = new Map<string, string>((leagueRows ?? []).map((l) => [l.id, l.name]));
+      const leaguePlayoffTeams = new Map<string, number>((leagueRows ?? []).map((l) => [l.id, l.playoff_teams ?? 8]));
 
-      // Map a playoff round number to a human-readable name
       function playoffRoundLabel(round: number, totalRounds: number): string {
         if (round >= totalRounds) return 'Championship';
         if (round === totalRounds - 1) return 'Semifinals';
@@ -903,14 +504,11 @@ Deno.serve(async (req: Request) => {
         const awayName = teamName.get(r.awayTeamId) ?? 'Away';
         const category = r.isPlayoff ? 'playoffs' : 'matchups';
         const ln = leagueName.get(r.leagueId) ?? 'Your League';
-
-        // Determine result for each side
         const homeWon = r.winnerId === r.homeTeamId;
         const awayWon = r.winnerId === r.awayTeamId;
         const tied = r.winnerId === null;
 
         if (r.isPlayoff && r.playoffRound != null) {
-          // ── Playoff notification ──
           const totalRounds = calcRounds(leaguePlayoffTeams.get(r.leagueId) ?? 8);
           const roundName = playoffRoundLabel(r.playoffRound, totalRounds);
           const isChampionship = r.playoffRound >= totalRounds;
@@ -924,7 +522,7 @@ Deno.serve(async (req: Request) => {
             if (isTied) return `Tied ${scoreLine} vs ${opponentName}. What a battle.`;
             if (isChampionship) {
               return won
-                ? `You beat ${opponentName} ${scoreLine} and won the championship! \uD83C\uDFC6`
+                ? `You beat ${opponentName} ${scoreLine} and won the championship! 🏆`
                 : `${opponentName} wins ${scoreLine}. Tough loss in the finals.`;
             }
             if (won) {
@@ -936,37 +534,24 @@ Deno.serve(async (req: Request) => {
 
           const homeBody = buildPlayoffBody(homeWon, awayName, tied);
           const awayBody = buildPlayoffBody(awayWon, homeName, tied);
-
-          const icon = isChampionship ? '\uD83C\uDFC6' : '\uD83C\uDFC0';
-          const title = `${icon} ${ln} \u2014 ${roundName}`;
+          const icon = isChampionship ? '🏆' : '🏀';
+          const title = `${icon} ${ln} — ${roundName}`;
 
           await Promise.all([
-            notifyTeams(supabase, [r.homeTeamId], category,
-              title, homeBody, { screen: 'playoff-bracket' },
-              undefined, { subtitle: roundName, priority: 'high' }
-            ),
-            notifyTeams(supabase, [r.awayTeamId], category,
-              title, awayBody, { screen: 'playoff-bracket' },
-              undefined, { subtitle: roundName, priority: 'high' }
-            ),
+            notifyTeams(supabase, [r.homeTeamId], category, title, homeBody, { screen: 'playoff-bracket' }, undefined, { subtitle: roundName, priority: 'high' }),
+            notifyTeams(supabase, [r.awayTeamId], category, title, awayBody, { screen: 'playoff-bracket' }, undefined, { subtitle: roundName, priority: 'high' }),
           ]);
         } else {
-          // ── Regular-season notification ──
           const scoreLine = r.scoringType === 'h2h_categories'
             ? `${homeName} ${r.homeCatWins ?? 0}-${r.awayCatWins ?? 0}${(r.catTies ?? 0) > 0 ? `-${r.catTies}` : ''} ${awayName}`
             : `${homeName} ${r.homeScore} - ${r.awayScore} ${awayName}`;
-
-          const homeResult = homeWon ? '\uD83D\uDD25 You won!' : awayWon ? 'You lost.' : 'It\'s a tie.';
-          const awayResult = awayWon ? '\uD83D\uDD25 You won!' : homeWon ? 'You lost.' : 'It\'s a tie.';
-          const title = `${ln} \u2014 Matchup Final`;
+          const homeResult = homeWon ? '🔥 You won!' : awayWon ? 'You lost.' : 'It\'s a tie.';
+          const awayResult = awayWon ? '🔥 You won!' : homeWon ? 'You lost.' : 'It\'s a tie.';
+          const title = `${ln} — Matchup Final`;
 
           await Promise.all([
-            notifyTeams(supabase, [r.homeTeamId], category,
-              title, `${scoreLine} \u2014 ${homeResult}`, { screen: 'matchup' }
-            ),
-            notifyTeams(supabase, [r.awayTeamId], category,
-              title, `${scoreLine} \u2014 ${awayResult}`, { screen: 'matchup' }
-            ),
+            notifyTeams(supabase, [r.homeTeamId], category, title, `${scoreLine} — ${homeResult}`, { screen: 'matchup' }),
+            notifyTeams(supabase, [r.awayTeamId], category, title, `${scoreLine} — ${awayResult}`, { screen: 'matchup' }),
           ]);
         }
       }));
@@ -974,14 +559,13 @@ Deno.serve(async (req: Request) => {
       log.warn('Matchup notification failed (non-fatal)', { error: String(notifyErr) });
     }
 
-    // ── Post-processing: detect playoff transitions ──
+    // ── Post-processing: detect regular-season-complete → kick generate-playoff-round; advance playoff bracket. ──
     for (const lid of leagueIds) {
       const { data: league } = await supabase
         .from('leagues')
         .select('name, season, scoring_type, playoff_teams, playoff_seeding_format, reseed_each_round, regular_season_weeks')
         .eq('id', lid)
         .single();
-
       if (!league) continue;
 
       const { data: unfinalizedReg } = await supabase
@@ -991,7 +575,6 @@ Deno.serve(async (req: Request) => {
         .eq('is_finalized', false)
         .is('playoff_round', null)
         .limit(1);
-
       const allRegDone = !unfinalizedReg || unfinalizedReg.length === 0;
 
       if (allRegDone) {
@@ -1001,15 +584,11 @@ Deno.serve(async (req: Request) => {
           .eq('league_id', lid)
           .eq('season', league.season)
           .limit(1);
-
         if (!existingBracket || existingBracket.length === 0) {
           const url = `${Deno.env.get('SUPABASE_URL')}/functions/v1/generate-playoff-round`;
           await fetch(url, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${Deno.env.get('SB_SECRET_KEY')}`,
-            },
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SB_SECRET_KEY')}` },
             body: JSON.stringify({ league_id: lid, round: 1 }),
           });
         }
@@ -1017,22 +596,18 @@ Deno.serve(async (req: Request) => {
 
       const playoffFinalized = playoffMatchupsFinalized.get(lid);
       if (playoffFinalized && playoffFinalized.length > 0) {
-        const maxRound = Math.max(...playoffFinalized.map(p => p.playoff_round));
-
+        const maxRound = Math.max(...playoffFinalized.map((p) => p.playoff_round));
         const { data: roundMatchups } = await supabase
           .from('league_matchups')
           .select('id, is_finalized')
           .eq('league_id', lid)
           .eq('playoff_round', maxRound);
-
         const allRoundDone = roundMatchups && roundMatchups.every((m) => m.is_finalized);
 
         if (allRoundDone) {
           const totalRounds = calcRounds(league.playoff_teams ?? 8);
-
           if (maxRound >= totalRounds) {
-            // Championship round just finished — notify league
-            // Query bracket to find the actual championship entry (not the 3rd place game)
+            // Championship just finished — notify league once.
             try {
               const { data: champBracket } = await supabase
                 .from('playoff_bracket')
@@ -1044,25 +619,18 @@ Deno.serve(async (req: Request) => {
                 .not('matchup_id', 'is', null)
                 .limit(1)
                 .maybeSingle();
-
               const champMatchup = champBracket?.matchup_id
-                ? playoffFinalized.find(p => p.matchup_id === champBracket.matchup_id && p.winner_id)
-                : playoffFinalized.find(p => p.playoff_round === maxRound && p.winner_id);
-
+                ? playoffFinalized.find((p) => p.matchup_id === champBracket.matchup_id && p.winner_id)
+                : playoffFinalized.find((p) => p.playoff_round === maxRound && p.winner_id);
               if (champMatchup?.winner_id) {
-                const { data: champTeam } = await supabase
-                  .from('teams')
-                  .select('name')
-                  .eq('id', champMatchup.winner_id)
-                  .single();
+                const { data: champTeam } = await supabase.from('teams').select('name').eq('id', champMatchup.winner_id).single();
                 const champName = champTeam?.name ?? 'The champion';
                 const champLn = league?.name ?? 'Your League';
                 await notifyLeague(supabase, lid, 'playoffs',
-                  `\uD83C\uDFC6 ${champLn} \u2014 We Have a Champion!`,
+                  `🏆 ${champLn} — We Have a Champion!`,
                   `${champName} has won the league championship!`,
                   { screen: 'playoff-bracket' },
-                  undefined, { subtitle: 'Championship', priority: 'high' }
-                );
+                  undefined, { subtitle: 'Championship', priority: 'high' });
               }
             } catch (champErr) {
               log.warn('Championship notification failed (non-fatal)', { error: String(champErr) });
@@ -1071,10 +639,7 @@ Deno.serve(async (req: Request) => {
             const url = `${Deno.env.get('SUPABASE_URL')}/functions/v1/generate-playoff-round`;
             await fetch(url, {
               method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${Deno.env.get('SB_SECRET_KEY')}`,
-              },
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SB_SECRET_KEY')}` },
               body: JSON.stringify({ league_id: lid, round: maxRound + 1 }),
             });
           }
