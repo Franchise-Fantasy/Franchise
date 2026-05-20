@@ -1,6 +1,19 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { errorResponse, handleError, jsonResponse } from '../_shared/http.ts';
+import { parseBody, z } from '../_shared/validate.ts';
+
+const Body = z.object({
+  event: z.object({
+    type: z.string().optional(),
+    app_user_id: z.string().optional(),
+    product_id: z.string().optional(),
+    id: z.string().optional(),
+    expiration_at_ms: z.number().nullable().optional(),
+    period_type: z.string().optional(),
+    subscriber_attributes: z.record(z.object({ value: z.string() }).passthrough()).optional(),
+  }).passthrough(),
+});
 
 /**
  * RevenueCat webhook handler.
@@ -77,14 +90,9 @@ Deno.serve(async (req) => {
   );
 
   try {
-    const body = await req.json();
-    const event = body.event;
+    const { event } = parseBody(Body, await req.json());
 
-    if (!event) {
-      return errorResponse('No event in body', 400);
-    }
-
-    const eventType: string = event.type;
+    const eventType: string = event.type ?? '';
     const rcAppUserId: string = event.app_user_id ?? "";
     const productId: string = event.product_id ?? "";
     const rcEventId: string = event.id ?? "";

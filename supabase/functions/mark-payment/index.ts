@@ -4,6 +4,18 @@ import { corsResponse } from '../_shared/cors.ts';
 import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
 import { notifyTeams } from '../_shared/push.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { parseBody, z } from '../_shared/validate.ts';
+
+// Body accepts either the new action-based API or the legacy `paid` boolean.
+// `action` and `paid` are both optional in the schema; the handler resolves
+// the effective action below and errors if neither is present.
+const Body = z.object({
+  league_id: z.string().uuid(),
+  team_id: z.string().uuid(),
+  season: z.string().min(1),
+  action: z.enum(['self_report', 'confirm', 'deny']).optional(),
+  paid: z.boolean().optional(),
+});
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return corsResponse();
@@ -28,7 +40,7 @@ Deno.serve(async (req: Request) => {
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'mark-payment');
     if (rateLimited) return rateLimited;
 
-    const body = await req.json();
+    const body = parseBody(Body, await req.json());
     const { league_id, team_id, season } = body;
 
     // Resolve action: new action-based API or legacy paid boolean
@@ -39,10 +51,6 @@ Deno.serve(async (req: Request) => {
       action = body.paid ? 'confirm' : 'deny';
     } else {
       return errorResponse('league_id, team_id, season, and action (or paid boolean) are required', 400);
-    }
-
-    if (!league_id || !team_id || !season) {
-      return errorResponse('league_id, team_id, and season are required', 400);
     }
 
     // Fetch league info

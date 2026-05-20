@@ -2,6 +2,11 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { errorResponse, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { parseBody, z } from '../_shared/validate.ts';
+
+const Body = z.object({
+  league_id: z.string().uuid(),
+});
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -54,10 +59,7 @@ Deno.serve(async (req: Request) => {
     const rateLimited = await checkRateLimit(supabase, user.id, 'generate-schedule');
     if (rateLimited) return rateLimited;
 
-    const { league_id } = await req.json();
-    if (!league_id) {
-      return errorResponse('league_id required', 400);
-    }
+    const { league_id } = parseBody(Body, await req.json());
 
     // Verify commissioner (primary auth path), OR — for imported
     // leagues — a league member when all teams are claimed. Imports

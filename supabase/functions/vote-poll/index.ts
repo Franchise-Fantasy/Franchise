@@ -3,6 +3,12 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsResponse } from '../_shared/cors.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { parseBody, z } from '../_shared/validate.ts';
+
+const Body = z.object({
+  poll_id: z.string().uuid('poll_id must be a valid UUID'),
+  selections: z.array(z.number().int().nonnegative()).min(1, 'selections must be a non-empty array of option indices'),
+});
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return corsResponse();
@@ -27,10 +33,7 @@ Deno.serve(async (req) => {
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'vote-poll');
     if (rateLimited) return rateLimited;
 
-    const { poll_id, selections } = await req.json();
-    if (!poll_id || !selections) {
-      throw new HttpError('poll_id and selections are required');
-    }
+    const { poll_id, selections } = parseBody(Body, await req.json());
 
     // Fetch poll
     const { data: poll } = await supabaseAdmin
@@ -54,23 +57,17 @@ Deno.serve(async (req) => {
       throw new HttpError('This poll has closed.');
     }
 
-    // Validate selections
-    if (!Array.isArray(selections) || selections.length === 0) {
-      throw new HttpError('selections must be a non-empty array of option indices');
-    }
-
+    // Validate selections against this poll's options (index bounds + dupes
+    // depend on poll.options, which is only known after the DB fetch).
     const optCount = (poll.options as string[]).length;
-    const uniqueSelections = [...new Set(selections)];
-    if (uniqueSelections.length !== selections.length) {
+    if (new Set(selections).size !== selections.length) {
       throw new HttpError('Duplicate selections are not allowed');
     }
-
     for (const idx of selections) {
-      if (typeof idx !== 'number' || !Number.isInteger(idx) || idx < 0 || idx >= optCount) {
+      if (idx >= optCount) {
         throw new HttpError(`Invalid selection index: ${idx}. Must be 0-${optCount - 1}`);
       }
     }
-
     if (poll.poll_type === 'single' && selections.length !== 1) {
       throw new HttpError('Single-choice polls require exactly one selection');
     }

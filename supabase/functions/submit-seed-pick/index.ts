@@ -4,6 +4,13 @@ import { notifyTeams } from '../_shared/push.ts';
 import { CORS_HEADERS } from '../_shared/cors.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { parseBody, z } from '../_shared/validate.ts';
+
+const Body = z.object({
+  league_id: z.string().uuid(),
+  round: z.number().int().min(1, 'round must be a positive integer'),
+  opponent_team_id: z.string().uuid(),
+});
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS });
@@ -27,13 +34,7 @@ Deno.serve(async (req: Request) => {
     const rateLimited = await checkRateLimit(supabase, user.id, 'submit-seed-pick');
     if (rateLimited) return rateLimited;
 
-    const { league_id, round, opponent_team_id } = await req.json();
-    if (!league_id || !round || !opponent_team_id) {
-      throw new HttpError('league_id, round, and opponent_team_id required');
-    }
-    if (typeof round !== 'number' || round < 1 || !Number.isInteger(round)) {
-      throw new HttpError('round must be a positive integer');
-    }
+    const { league_id, round, opponent_team_id } = parseBody(Body, await req.json());
 
     const { data: myTeam } = await supabase
       .from('teams').select('id').eq('league_id', league_id).eq('user_id', user.id).single();

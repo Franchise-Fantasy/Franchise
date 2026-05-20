@@ -1,12 +1,25 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { pushActivityUpdate, type ActivityType } from "../_shared/apns.ts";
-import { HttpError, handleError, jsonResponse, errorResponse } from "../_shared/http.ts";
+import { pushActivityUpdate } from "../_shared/apns.ts";
+import { handleError, jsonResponse, errorResponse } from "../_shared/http.ts";
+import { parseBody, z } from "../_shared/validate.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SB_SECRET_KEY")!,
 );
+
+const Body = z.object({
+  activity_type: z.enum(['matchup', 'auction_draft']),
+  filters: z.object({
+    schedule_id: z.string().optional(),
+    league_id: z.string().optional(),
+    draft_id: z.string().optional(),
+  }),
+  content_state: z.record(z.unknown()),
+  end: z.boolean().optional(),
+  dismissal_date: z.number().optional(),
+});
 
 /**
  * Push Live Activity updates to registered iOS devices.
@@ -42,17 +55,7 @@ Deno.serve(async (req: Request) => {
       content_state,
       end,
       dismissal_date,
-    } = await req.json() as {
-      activity_type: ActivityType;
-      filters: { schedule_id?: string; league_id?: string; draft_id?: string };
-      content_state: Record<string, unknown>;
-      end?: boolean;
-      dismissal_date?: number;
-    };
-
-    if (!activity_type || !content_state) {
-      throw new HttpError("activity_type and content_state are required");
-    }
+    } = parseBody(Body, await req.json());
 
     const result = await pushActivityUpdate(
       supabase,

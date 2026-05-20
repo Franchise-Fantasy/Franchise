@@ -4,6 +4,20 @@ import { notifyTeams, notifyLeague } from '../_shared/push.ts';
 import { CORS_HEADERS } from '../_shared/cors.ts';
 import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { parseBody, z } from '../_shared/validate.ts';
+
+const NOTIFICATION_CATEGORIES = ['draft', 'trades', 'trade_rumors', 'trade_block', 'matchups', 'matchup_daily', 'waivers', 'injuries', 'playoffs', 'commissioner', 'league_activity', 'roster_reminders', 'lottery', 'chat', 'roster_moves'] as const;
+
+const Body = z.object({
+  league_id: z.string().uuid(),
+  team_ids: z.array(z.string().uuid()).optional(),
+  category: z.enum(NOTIFICATION_CATEGORIES, {
+    errorMap: () => ({ message: `Invalid category. Must be one of: ${NOTIFICATION_CATEGORIES.join(', ')}` }),
+  }),
+  title: z.string().min(1),
+  body: z.string().min(1),
+  data: z.record(z.unknown()).optional(),
+});
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -32,15 +46,7 @@ Deno.serve(async (req: Request) => {
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'send-notification');
     if (rateLimited) return rateLimited;
 
-    const { league_id, team_ids, category, title, body, data } = await req.json();
-    if (!league_id || !category || !title || !body) {
-      return errorResponse('league_id, category, title, and body are required', 400);
-    }
-
-    const validCategories = ['draft', 'trades', 'trade_rumors', 'trade_block', 'matchups', 'matchup_daily', 'waivers', 'injuries', 'playoffs', 'commissioner', 'league_activity', 'roster_reminders', 'lottery', 'chat', 'roster_moves'];
-    if (!validCategories.includes(category)) {
-      return errorResponse(`Invalid category. Must be one of: ${validCategories.join(', ')}`, 400);
-    }
+    const { league_id, team_ids, category, title, body, data } = parseBody(Body, await req.json());
 
     // Verify caller is a member of this league
     const { data: callerTeam } = await supabaseAdmin

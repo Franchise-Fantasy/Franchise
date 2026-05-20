@@ -392,6 +392,7 @@
     "https://deno.land/x/jose@v5.2.2/util/errors.ts": "ca227b0dfbc2464bd0940969d2fbffcb80803d25b1dba6385dfe486e2aa0a089",
     "https://deno.land/x/jose@v5.2.2/util/runtime.ts": "088cae7df0d285065f141d880c5c21a572234997082337d1125d7f1603059642",
     "https://esm.sh/@supabase/supabase-js@2.104.1": "bad73bfa9aac8a6d896e7a1d4449c7c2ece9a01bccca9e9569f1ed0fc76b5222",
-    "https://esm.sh/@upstash/qstash@2.10.1": "9603d459138a4cc72f7fdb016afcd22c0d8e5f1d1347625054c28004ce531e97"
+    "https://esm.sh/@upstash/qstash@2.10.1": "9603d459138a4cc72f7fdb016afcd22c0d8e5f1d1347625054c28004ce531e97",
+    "https://esm.sh/zod@3.23.8": "15e60c792ac21d4818f181671c7c74bf33bf7526d487dc524911e42785d8b5c2"
   }
 }

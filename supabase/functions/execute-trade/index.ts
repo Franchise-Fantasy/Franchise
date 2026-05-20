@@ -7,10 +7,15 @@ import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { checkPositionLimitsForRoster } from '../_shared/positionLimits.ts';
 import { fetchIllegalIRPlayers, formatIllegalIRError } from '../_shared/illegalIR.ts';
 import { createLogger } from '../_shared/log.ts';
+import { parseBody, z } from '../_shared/validate.ts';
 import { nextSlateRollover } from '../../../utils/leagueTime.ts';
 import type { Database } from '../../../types/database.types.ts';
 
 const log = createLogger('execute-trade');
+
+const Body = z.object({
+  proposal_id: z.string().uuid(),
+});
 
 const ORDINALS = ['1st', '2nd', '3rd', '4th', '5th'];
 function formatPickLabel(season: string, round: number): string {
@@ -89,8 +94,7 @@ Deno.serve(async (req) => {
       if (rateLimited) return rateLimited;
     }
 
-    const { proposal_id } = await req.json();
-    if (!proposal_id) throw new HttpError('proposal_id is required');
+    const { proposal_id } = parseBody(Body, await req.json());
 
     const { data: proposal, error: proposalError } = await supabaseAdmin
       .from('trade_proposals')

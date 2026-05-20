@@ -1,7 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
-import { HttpError, handleError, jsonResponse, errorResponse } from "../_shared/http.ts";
+import { handleError, jsonResponse, errorResponse } from "../_shared/http.ts";
+import { parseBody, z } from "../_shared/validate.ts";
 
 /**
  * sync-prospect — Contentful webhook handler
@@ -18,6 +19,12 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SB_SECRET_KEY")!,
 );
+
+// Contentful webhook payload — permissive shape: only validate what we read.
+const Body = z.object({
+  sys: z.object({ id: z.string().min(1, 'sys.id is required') }),
+  fields: z.record(z.unknown()).optional(),
+});
 
 /** Extract a plain field value from Contentful's locale-wrapped format. */
 function field(fields: Record<string, any>, key: string): any {
@@ -41,13 +48,9 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const body = await req.json();
+    const body = parseBody(Body, await req.json());
     const topic = req.headers.get("X-Contentful-Topic") ?? "";
-    const entryId: string = body?.sys?.id;
-
-    if (!entryId) {
-      return errorResponse("Missing entry ID", 400);
-    }
+    const entryId = body.sys.id;
 
     // Unpublish: soft-disable the prospect (don't delete — may be on rosters)
     if (topic.includes("unpublish") || topic.includes("delete")) {
@@ -64,7 +67,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // Publish: upsert the prospect into players
-    const fields = body?.fields ?? {};
+    const fields = (body.fields ?? {}) as Record<string, any>;
     const name = field(fields, "name");
     if (!name) {
       return errorResponse("Prospect entry missing name", 400);

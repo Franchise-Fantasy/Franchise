@@ -2,10 +2,18 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
 import { notifyTeams } from '../_shared/push.ts';
+import { parseBody, z } from '../_shared/validate.ts';
 
 // Lightweight edge function called by database webhook triggers (pg_net).
 // Uses Vault secrets for project URL + anon key auth from trigger.
 // Authenticates callers via a shared webhook secret stored in Vault.
+
+// Supabase database webhook payload — permissive shape: only validate what we read.
+const Body = z.object({
+  type: z.string(),
+  table: z.string().optional(),
+  record: z.record(z.unknown()).nullable().optional(),
+});
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -19,10 +27,9 @@ Deno.serve(async (req: Request) => {
       return errorResponse('Unauthorized', 401);
     }
 
-    const payload = await req.json();
-    const { type, table, record } = payload;
+    const { type, table, record } = parseBody(Body, await req.json());
 
-    if (type !== 'INSERT' || !record) {
+    if (type !== 'INSERT' || !record || !table) {
       return jsonResponse({ ok: true, skipped: true });
     }
 
@@ -33,11 +40,11 @@ Deno.serve(async (req: Request) => {
 
     switch (table) {
       case 'trade_proposals':
-        await handleTradeProposed(supabaseAdmin, record);
+        await handleTradeProposed(supabaseAdmin, record as any);
         break;
 
       case 'chat_messages':
-        await handleChatMessage(supabaseAdmin, record);
+        await handleChatMessage(supabaseAdmin, record as any);
         break;
 
       default:

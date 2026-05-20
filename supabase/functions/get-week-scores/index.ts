@@ -5,7 +5,13 @@ import { errorResponse, handleError, jsonResponse } from "../_shared/http.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { pushActivityUpdate } from "../_shared/apns.ts";
 import { resolveSlot as sharedResolveSlot, isActiveSlot } from "../_shared/resolveSlot.ts";
+import { parseBody, z } from "../_shared/validate.ts";
 import { getSportToday, addSlateDays } from "../../../utils/leagueTime.ts";
+
+const Body = z.object({
+  league_id: z.string().uuid().optional(),
+  schedule_id: z.string().uuid().optional(),
+});
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -507,14 +513,14 @@ Deno.serve(async (req: Request) => {
 
   try {
     // Parse body — cron sends {} or empty, client sends league_id + schedule_id
-    let body: Record<string, string> = {};
+    let rawBody: unknown = {};
     try {
-      body = await req.json();
+      rawBody = await req.json();
     } catch {
       // Empty body = cron mode
     }
 
-    const { league_id, schedule_id } = body;
+    const { league_id, schedule_id } = parseBody(Body, rawBody);
 
     if (league_id && schedule_id) {
       // ── Client mode: verify auth + rate limit ──

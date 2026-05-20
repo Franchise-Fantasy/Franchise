@@ -5,6 +5,12 @@ import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { runLotteryDraw } from '../_shared/lottery.ts';
 import { notifyLeague } from '../_shared/push.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { parseBody, z } from '../_shared/validate.ts';
+
+const Body = z.object({
+  league_id: z.string().uuid(),
+  season: z.number().int(),
+});
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return corsResponse();

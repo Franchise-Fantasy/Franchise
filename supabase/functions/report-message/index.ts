@@ -5,11 +5,15 @@ import { HttpError, handleError, jsonResponse } from "../_shared/http.ts";
 import { createLogger } from "../_shared/log.ts";
 import { notifyUsersBulk } from "../_shared/push.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { parseBody, z } from "../_shared/validate.ts";
 
 const log = createLogger("report-message");
 
-const VALID_REASONS = ["spam", "harassment", "hate", "sexual", "other"] as const;
-type Reason = (typeof VALID_REASONS)[number];
+const Body = z.object({
+  message_id: z.string().uuid(),
+  reason: z.enum(['spam', 'harassment', 'hate', 'sexual', 'other']),
+  details: z.string().max(1000, 'details must be 1000 characters or fewer').optional(),
+});
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return corsResponse();
@@ -36,17 +40,7 @@ Deno.serve(async (req) => {
     const limited = await checkRateLimit(supabaseAdmin, user.id, "report-message");
     if (limited) return limited;
 
-    const body = await req.json().catch(() => null);
-    const messageId: string | undefined = body?.message_id;
-    const reason: Reason | undefined = body?.reason;
-    const details: string | undefined = body?.details;
-
-    if (!messageId || !reason || !VALID_REASONS.includes(reason)) {
-      throw new HttpError("message_id and a valid reason are required");
-    }
-    if (details && details.length > 1000) {
-      throw new HttpError("details must be 1000 characters or fewer");
-    }
+    const { message_id: messageId, reason, details } = parseBody(Body, await req.json());
 
     // Confirm the reporter is in the conversation that owns the message —
     // prevents reporting messages the user can't actually see (probing /

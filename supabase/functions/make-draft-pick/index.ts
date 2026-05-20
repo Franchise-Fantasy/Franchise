@@ -1,11 +1,19 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsResponse } from '../_shared/cors.ts';
-import { HttpError, handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
+import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkPositionLimits } from '../_shared/positionLimits.ts';
 import { notifyTeams, notifyLeague } from '../_shared/push.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { parseBody, z } from '../_shared/validate.ts';
 import { isEligibleForSlot } from '../../../utils/roster/rosterSlotsShared.ts';
+
+const Body = z.object({
+  draft_id: z.string().uuid(),
+  player_id: z.string().uuid(),
+  player_position: z.string().min(1),
+  league_id: z.string().uuid(),
+});
 
 // Find the best roster_slot for a newly drafted player
 async function findBestSlot(
@@ -80,12 +88,7 @@ Deno.serve(async (req)=>{
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'make-draft-pick');
     if (rateLimited) return rateLimited;
 
-    const payload = await req.json();
-    const { draft_id, player_id, player_position, league_id } = payload;
-
-    if (!draft_id || !player_id || !player_position || !league_id) {
-      return errorResponse('draft_id, player_id, player_position, and league_id are required', 400);
-    }
+    const { draft_id, player_id, player_position, league_id } = parseBody(Body, await req.json());
 
     const { data: userTeam, error: teamError } = await supabaseAdmin.from('teams').select('id').eq('league_id', league_id).eq('user_id', user.id).single();
     if (teamError || !userTeam) throw new HttpError('User does not have a team in this league.', 403);

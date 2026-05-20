@@ -4,6 +4,11 @@ import { notifyLeague } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { parseBody, z } from '../_shared/validate.ts';
+
+const Body = z.object({
+  league_id: z.string().uuid(),
+});
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return corsResponse();
@@ -28,8 +33,7 @@ Deno.serve(async (req) => {
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'finalize-keepers');
     if (rateLimited) return rateLimited;
 
-    const { league_id } = await req.json();
-    if (!league_id) throw new HttpError('league_id is required');
+    const { league_id } = parseBody(Body, await req.json());
 
     // Fetch league
     const { data: league, error: leagueErr } = await supabaseAdmin

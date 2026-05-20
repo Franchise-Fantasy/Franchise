@@ -4,6 +4,7 @@ import { corsResponse } from '../_shared/cors.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { notifyLeague } from '../_shared/push.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { parseBody, z } from '../_shared/validate.ts';
 
 const VALID_QUESTION_TYPES = [
   'multiple_choice_single',
@@ -12,6 +13,23 @@ const VALID_QUESTION_TYPES = [
   'rating',
   'ranked_choice',
 ] as const;
+
+const QuestionSchema = z.object({
+  prompt: z.string().trim().min(1, 'prompt must be 1-500 characters').max(500, 'prompt must be 1-500 characters'),
+  type: z.enum(VALID_QUESTION_TYPES),
+  options: z.array(z.string().trim().min(1, 'each option must be 1-200 characters').max(200, 'each option must be 1-200 characters')).optional(),
+  required: z.boolean().optional(),
+});
+
+const Body = z.object({
+  league_id: z.string().uuid(),
+  conversation_id: z.string().uuid(),
+  title: z.string().trim().min(1, 'Title must be 1-200 characters').max(200, 'Title must be 1-200 characters'),
+  description: z.string().trim().max(1000, 'Description must be 1000 characters or fewer').optional(),
+  questions: z.array(QuestionSchema).min(1, 'Must have 1-20 questions').max(20, 'Must have 1-20 questions'),
+  closes_at: z.string().min(1),
+  results_visibility: z.enum(['everyone', 'commissioner']).optional(),
+});
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return corsResponse();

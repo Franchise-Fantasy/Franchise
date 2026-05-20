@@ -4,6 +4,11 @@ import { notifyLeague, notifyTeams } from '../_shared/push.ts';
 import { CORS_HEADERS } from '../_shared/cors.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { parseBody, z } from '../_shared/validate.ts';
+
+const Body = z.object({
+  draft_id: z.string().uuid(),
+});
 
 async function scheduleAutodraft(draft_id: string, pick_number: number, time_limit: number) {
   const token = Deno.env.get('QSTASH_TOKEN')?.trim();
@@ -62,8 +67,7 @@ Deno.serve(async (req) => {
       if (rateLimited) return rateLimited;
     }
 
-    const { draft_id } = await req.json();
-    if (!draft_id) throw new HttpError('draft_id is required');
+    const { draft_id } = parseBody(Body, await req.json());
 
     const { data: draft, error: draftError } = await supabaseAdmin
       .from('drafts')

@@ -4,6 +4,12 @@ import { corsResponse } from "../_shared/cors.ts";
 import { HttpError, handleError, jsonResponse, errorResponse } from "../_shared/http.ts";
 import { moderateImage } from "../_shared/moderate.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { parseBody, z } from "../_shared/validate.ts";
+
+const Body = z.object({
+  team_id: z.string().uuid('team_id must be a valid UUID'),
+  image_base64: z.string().min(1, 'image_base64 is required'),
+});
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return corsResponse();
@@ -25,8 +31,7 @@ Deno.serve(async (req: Request) => {
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'upload-team-logo');
     if (rateLimited) return rateLimited;
 
-    const { team_id, image_base64 } = await req.json();
-    if (!team_id || !image_base64) throw new HttpError("team_id and image_base64 required");
+    const { team_id, image_base64 } = parseBody(Body, await req.json());
 
     const { data: team } = await supabaseAdmin
       .from("teams")

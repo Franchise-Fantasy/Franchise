@@ -4,6 +4,11 @@ import { corsResponse } from '../_shared/cors.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { notifyLeague } from '../_shared/push.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { parseBody, z } from '../_shared/validate.ts';
+
+const Body = z.object({
+  league_id: z.string().uuid(),
+});
 
 function nextSeason(current: string): string {
   const [startStr] = current.split('-');
@@ -35,8 +40,7 @@ Deno.serve(async (req) => {
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'advance-season');
     if (rateLimited) return rateLimited;
 
-    const { league_id } = await req.json();
-    if (!league_id) throw new HttpError('league_id is required');
+    const { league_id } = parseBody(Body, await req.json());
 
     // Fetch league config
     const { data: league, error: leagueErr } = await supabaseAdmin

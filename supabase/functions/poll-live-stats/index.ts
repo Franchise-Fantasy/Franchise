@@ -5,6 +5,12 @@ import { bdlFetch, bdlGameSlateDate, mapGameStatus, toIsoDuration, type Sport } 
 import { recordHeartbeat } from "../_shared/heartbeat.ts";
 import { handleError, jsonResponse, errorResponse } from "../_shared/http.ts";
 import { createLogger } from "../_shared/log.ts";
+import { parseBody, z } from "../_shared/validate.ts";
+
+const Body = z.object({
+  sport: z.enum(['nba', 'wnba']).optional(),
+  gameIds: z.array(z.number().int()).optional(),
+});
 
 const log = createLogger("poll-live-stats");
 
@@ -287,10 +293,10 @@ Deno.serve(async (req: Request) => {
   let sport: Sport = 'nba';
   let overrideGameIds: number[] | null = null;
   try {
-    const body = await req.json();
-    if (body?.sport === 'wnba') sport = 'wnba';
-    if (Array.isArray(body?.gameIds) && body.gameIds.length > 0) {
-      overrideGameIds = body.gameIds.map((n: any) => Number(n)).filter((n: number) => Number.isFinite(n));
+    const parsed = parseBody(Body, await req.json());
+    if (parsed.sport === 'wnba') sport = 'wnba';
+    if (parsed.gameIds && parsed.gameIds.length > 0) {
+      overrideGameIds = parsed.gameIds.filter((n) => Number.isFinite(n));
     }
   } catch {
     // No body / not JSON — default sport stays 'nba'.

@@ -4,7 +4,14 @@ import { Receiver } from 'https://esm.sh/@upstash/qstash';
 import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
 import { checkPositionLimits } from '../_shared/positionLimits.ts';
 import { notifyTeams, notifyLeague } from '../_shared/push.ts';
+import { parseBody, z } from '../_shared/validate.ts';
 import { isEligibleForSlot } from '../../../utils/roster/rosterSlotsShared.ts';
+
+const Body = z.object({
+  draft_id: z.string().uuid(),
+  pick_number: z.number().int().positive(),
+  autopick_triggered: z.boolean().optional(),
+});
 
 // Pure variant: takes pre-fetched roster config + current roster so the caller
 // can batch the underlying queries with the rest of phase-2 reads.
@@ -85,7 +92,7 @@ Deno.serve(async (req) => {
       return errorResponse('Unauthorized', 401);
     }
 
-    const { draft_id, pick_number, autopick_triggered } = JSON.parse(bodyText);
+    const { draft_id, pick_number, autopick_triggered } = parseBody(Body, JSON.parse(bodyText));
 
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',

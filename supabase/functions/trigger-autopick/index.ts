@@ -3,6 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsResponse } from '../_shared/cors.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { parseBody, z } from '../_shared/validate.ts';
 
 /**
  * Trigger an immediate autopick for the calling user's team.
@@ -10,6 +11,11 @@ import { checkRateLimit } from '../_shared/rate-limit.ts';
  * Publishes to QStash with a 1s delay — the autodraft function
  * is idempotent so duplicate/stale triggers are harmless.
  */
+
+const Body = z.object({
+  draft_id: z.string().uuid('draft_id must be a valid UUID'),
+});
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return corsResponse();
 
@@ -33,8 +39,7 @@ Deno.serve(async (req) => {
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'trigger-autopick');
     if (rateLimited) return rateLimited;
 
-    const { draft_id } = await req.json();
-    if (!draft_id) throw new HttpError('draft_id is required');
+    const { draft_id } = parseBody(Body, await req.json());
 
     // Fetch draft state
     const { data: draft, error: draftError } = await supabaseAdmin

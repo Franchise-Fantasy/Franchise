@@ -4,8 +4,109 @@ import { HttpError, errorResponse, handleError, jsonResponse } from '../_shared/
 import { createLogger } from '../_shared/log.ts';
 import { normalizeName } from '../_shared/normalize.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { parseBody, z } from '../_shared/validate.ts';
 
 const log = createLogger('import-screenshot-league');
+
+const ImageSchema = z.object({
+  base64: z.string().min(1),
+  media_type: z.string().min(1),
+});
+
+const ExtractRosterBody = z.object({
+  action: z.literal('extract_roster'),
+  images: z.array(ImageSchema).min(1, 'At least one image is required').max(5, 'Maximum 5 images per team'),
+  team_name: z.string().optional(),
+});
+
+const ExtractSettingsBody = z.object({
+  action: z.literal('extract_settings'),
+  images: z.array(ImageSchema).min(1, 'At least one image is required').max(3, 'Maximum 3 images for settings'),
+});
+
+const ExtractHistoryBody = z.object({
+  action: z.literal('extract_history'),
+  images: z.array(ImageSchema).min(1, 'At least one image is required').max(3, 'Maximum 3 images for history'),
+});
+
+const SearchOrCreatePlayerBody = z.object({
+  action: z.literal('search_or_create_player'),
+  name: z.string().trim().min(1, 'Player name is required'),
+  position: z.string().optional(),
+});
+
+const ExecuteBody = z.object({
+  action: z.literal('execute'),
+  league_name: z.string().min(1, 'league_name and teams are required'),
+  league_type: z.string(),
+  keeper_count: z.number().nullable(),
+  teams: z.array(z.object({
+    team_name: z.string(),
+    players: z.array(z.object({
+      player_id: z.string(),
+      position: z.string(),
+      roster_slot: z.string().nullable(),
+    })),
+  })).min(1, 'league_name and teams are required'),
+  roster_slots: z.array(z.object({
+    position: z.string(),
+    count: z.number(),
+  })),
+  scoring_type: z.string(),
+  scoring: z.array(z.object({
+    stat_name: z.string(),
+    point_value: z.number(),
+  })),
+  categories: z.array(z.object({
+    stat_name: z.string(),
+    is_enabled: z.boolean(),
+    inverse: z.boolean(),
+  })).optional(),
+  history: z.array(z.object({
+    season: z.string(),
+    teams: z.array(z.object({
+      team_name: z.string(),
+      wins: z.number().nullable(),
+      losses: z.number().nullable(),
+      ties: z.number().nullable(),
+      points_for: z.number().nullable(),
+      points_against: z.number().nullable(),
+      standing: z.number().nullable(),
+    })),
+  })).optional(),
+  settings: z.object({
+    season: z.string(),
+    regular_season_weeks: z.number(),
+    playoff_weeks: z.number(),
+    playoff_teams: z.number(),
+    max_future_seasons: z.number(),
+    rookie_draft_rounds: z.number(),
+    rookie_draft_order: z.string(),
+    lottery_draws: z.number(),
+    lottery_odds: z.array(z.number()).nullable(),
+    trade_veto_type: z.string(),
+    trade_review_period_hours: z.number(),
+    trade_votes_to_veto: z.number(),
+    draft_pick_trading_enabled: z.boolean(),
+    pick_conditions_enabled: z.boolean(),
+    waiver_type: z.string(),
+    waiver_period_days: z.number(),
+    faab_budget: z.number(),
+    waiver_day_of_week: z.number(),
+    playoff_seeding_format: z.string(),
+    reseed_each_round: z.boolean(),
+    buy_in_amount: z.number().nullable(),
+    trade_deadline: z.string().nullable(),
+  }),
+});
+
+const Body = z.discriminatedUnion('action', [
+  ExtractRosterBody,
+  ExtractSettingsBody,
+  ExtractHistoryBody,
+  SearchOrCreatePlayerBody,
+  ExecuteBody,
+]);
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -327,12 +428,10 @@ const HISTORY_TOOL = {
 // --- Action handlers ---
 
 async function handleExtractRoster(
-  body: { images: Array<{ base64: string; media_type: string }>; team_name?: string },
+  body: z.infer<typeof ExtractRosterBody>,
   supabaseAdmin: any,
 ) {
   const { images, team_name } = body;
-  if (!images?.length) throw new HttpError('At least one image is required');
-  if (images.length > 5) throw new HttpError('Maximum 5 images per team');
 
   const teamContext = team_name ? ` for the team "${team_name}"` : '';
   const prompt = `You are extracting fantasy basketball roster data from ${images.length > 1 ? 'these screenshots' : 'this screenshot'} of a fantasy sports app${teamContext}.
@@ -882,35 +981,37 @@ Deno.serve(async (req) => {
     const rateLimited = await checkRateLimit(supabaseAdmin, userId, 'import-screenshot-league');
     if (rateLimited) return rateLimited;
 
-    let body: any;
+    let rawBody: unknown;
     try {
-      body = await req.json();
+      rawBody = await req.json();
     } catch (parseErr) {
       log.error('Body parse error', parseErr);
       return errorResponse('Invalid or oversized request body', 400);
     }
 
-    const { action } = body;
+    const body = parseBody(Body, rawBody);
 
-    log.info('Request received', { action, image_count: body.images?.length ?? 0 });
+    log.info('Request received', { action: body.action, image_count: 'images' in body ? body.images.length : 0 });
 
-    switch (action) {
+    switch (body.action) {
       case 'extract_roster':
       case 'extract_settings':
       case 'extract_history': {
         // Extra rate limit for Claude Vision calls (expensive API)
         const extractLimited = await checkRateLimit(supabaseAdmin, userId, 'import-extract');
         if (extractLimited) return extractLimited;
-        if (action === 'extract_roster') return await handleExtractRoster(body, supabaseAdmin);
-        if (action === 'extract_settings') return await handleExtractSettings(body);
+        if (body.action === 'extract_roster') return await handleExtractRoster(body, supabaseAdmin);
+        if (body.action === 'extract_settings') return await handleExtractSettings(body);
         return await handleExtractHistory(body);
       }
       case 'search_or_create_player':
         return await handleSearchOrCreatePlayer(body, supabaseAdmin);
       case 'execute':
-        return await handleExecute(body, supabaseAdmin, userId);
-      default:
-        return errorResponse('Invalid action', 400);
+        // Cast: handler's history stats are typed non-nullable but Claude
+        // Vision can legitimately omit them; the handler tolerates null and
+        // coerces internally. Narrowing here keeps the schema honest about
+        // what the wire can deliver.
+        return await handleExecute(body as Parameters<typeof handleExecute>[0], supabaseAdmin, userId);
     }
   } catch (error) {
     return handleError(error, 'import-screenshot-league');

@@ -6,6 +6,22 @@ import { recordHeartbeat } from '../_shared/heartbeat.ts';
 import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
 import { normalizeName } from '../_shared/normalize.ts';
 import { notifyTeamsBulk, type BulkTeamsNotification } from '../_shared/push.ts';
+import { parseBody, z } from '../_shared/validate.ts';
+
+const INJURY_STATUSES = ['OUT', 'SUSP', 'DOUBT', 'QUES', 'PROB', 'active'] as const;
+
+const Body = z.object({
+  sport: z.enum(['nba', 'wnba']).optional(),
+  injuries: z.array(z.object({
+    player_name: z.string().min(1),
+    status: z.enum(INJURY_STATUSES, {
+      errorMap: (issue, ctx) =>
+        ({ message: `Invalid status '${ctx.data}'. Valid: ${INJURY_STATUSES.join(', ')}` }),
+    }),
+    bdl_id: z.number().int().optional(),
+  })).optional(),
+  teams_on_report: z.array(z.string()).optional(),
+});
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,

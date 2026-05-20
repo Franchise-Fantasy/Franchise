@@ -4,6 +4,13 @@ import { notifyTeams } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
 import { errorResponse, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { parseBody, z } from '../_shared/validate.ts';
+
+const Body = z.object({
+  league_id: z.string().uuid(),
+  round: z.number().int().positive('round must be a positive integer').optional(),
+  from_seed_picks: z.boolean().optional(),
+});
 
 // ── Bracket utilities ──
 
@@ -116,8 +123,7 @@ Deno.serve(async (req: Request) => {
       Deno.env.get('SB_SECRET_KEY')!
     );
 
-    const { league_id, round: requestedRound, from_seed_picks } = await req.json();
-    if (!league_id) return errorResponse('league_id required', 400);
+    const { league_id, round: requestedRound, from_seed_picks } = parseBody(Body, await req.json());
 
     // Allow internal service-role calls (from finalize-week, submit-seed-pick, self-recursive)
     // but require JWT + commissioner check for external calls
@@ -158,9 +164,6 @@ Deno.serve(async (req: Request) => {
     const reseed = league.reseed_each_round ?? false;
 
     const round = requestedRound ?? 1;
-    if (typeof round !== 'number' || round < 1 || !Number.isInteger(round)) {
-      return errorResponse('round must be a positive integer', 400);
-    }
     if (round > totalRounds) {
       return errorResponse(`round ${round} exceeds total playoff rounds (${totalRounds})`, 400);
     }

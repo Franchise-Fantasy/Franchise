@@ -7,6 +7,11 @@ import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
 import { normalizeName } from '../_shared/normalize.ts';
 import { notifyUsersBulk, type BulkUserNotification } from '../_shared/push.ts';
 import { fetchWithRetry } from '../_shared/retry.ts';
+import { parseBody, z } from '../_shared/validate.ts';
+
+const Body = z.object({
+  sport: z.enum(['nba', 'wnba']).optional(),
+});
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -189,8 +194,8 @@ Deno.serve(async (req: Request) => {
   // Sport from request body. Defaults to 'nba' so legacy cron entries keep working.
   let sport: Sport = 'nba';
   try {
-    const body = await req.json();
-    if (body?.sport === 'wnba') sport = 'wnba';
+    const parsed = parseBody(Body, await req.json());
+    if (parsed.sport === 'wnba') sport = 'wnba';
   } catch {
     // No body / not JSON — default sport stays 'nba'.
   }

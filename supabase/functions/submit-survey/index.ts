@@ -3,6 +3,17 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsResponse } from '../_shared/cors.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { parseBody, z } from '../_shared/validate.ts';
+
+const Body = z.object({
+  survey_id: z.string().uuid(),
+  answers: z.array(z.object({
+    question_id: z.string().uuid(),
+    value: z.unknown().refine((v) => v !== undefined && v !== null, {
+      message: 'Each answer must have question_id and value',
+    }),
+  })),
+});
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return corsResponse();
@@ -27,10 +38,7 @@ Deno.serve(async (req) => {
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'submit-survey');
     if (rateLimited) return rateLimited;
 
-    const { survey_id, answers } = await req.json();
-    if (!survey_id || !answers) {
-      throw new HttpError('survey_id and answers are required');
-    }
+    const { survey_id, answers } = parseBody(Body, await req.json());
 
     // Fetch survey
     const { data: survey } = await supabaseAdmin
@@ -63,12 +71,8 @@ Deno.serve(async (req) => {
     if (!questions || questions.length === 0) throw new HttpError('Survey has no questions');
 
     // Build a lookup of answers by question_id
-    if (!Array.isArray(answers)) throw new HttpError('answers must be an array');
     const answerMap = new Map<string, any>();
     for (const a of answers) {
-      if (!a.question_id || a.value === undefined || a.value === null) {
-        throw new HttpError('Each answer must have question_id and value');
-      }
       answerMap.set(a.question_id, a.value);
     }
 

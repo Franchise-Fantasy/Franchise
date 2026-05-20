@@ -3,6 +3,23 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { normalizeName } from '../_shared/normalize.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { parseBody, z } from '../_shared/validate.ts';
+
+// Body has two shapes by `action`. We validate the top-level discriminator +
+// the keys checked at the handler entrypoint; the deeply nested execute
+// payload (settings, historical_seasons, etc.) flows through and is consumed
+// by the handler functions whose types it already matches.
+const PreviewBody = z.object({
+  action: z.literal('preview'),
+  sleeper_league_id: z.string().min(1, 'sleeper_league_id is required'),
+});
+const ExecuteBody = z.object({
+  action: z.literal('execute'),
+  sleeper_league_id: z.string().min(1, 'sleeper_league_id is required'),
+  league_name: z.string().min(1, 'league_name is required'),
+  teams: z.array(z.unknown()).min(1, 'teams is required'),
+}).passthrough();
+const Body = z.discriminatedUnion('action', [PreviewBody, ExecuteBody]);
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -72,16 +89,12 @@ Deno.serve(async (req) => {
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'import-sleeper-league');
     if (rateLimited) return rateLimited;
 
-    const body = await req.json();
-    const { action } = body;
+    const body = parseBody(Body, await req.json());
 
-    if (action === 'preview') {
+    if (body.action === 'preview') {
       return await handlePreview(body, supabaseAdmin);
-    } else if (action === 'execute') {
-      return await handleExecute(body, supabaseAdmin, user.id);
-    } else {
-      throw new HttpError('action must be "preview" or "execute"');
     }
+    return await handleExecute(body as any, supabaseAdmin, user.id);
   } catch (error) {
     return handleError(error, 'import-sleeper-league');
   }
@@ -96,7 +109,6 @@ async function handlePreview(
   supabaseAdmin: any
 ) {
   const { sleeper_league_id } = body;
-  if (!sleeper_league_id) throw new HttpError('sleeper_league_id is required');
 
   // Fetch all Sleeper data in parallel
   const [league, rosters, users, tradedPicks, drafts] = await Promise.all([
@@ -384,10 +396,6 @@ async function handleExecute(
     settings,
     roster_positions,
   } = body;
-
-  if (!league_name || !teams?.length || !sleeper_league_id) {
-    throw new HttpError('sleeper_league_id, league_name, and teams are required');
-  }
 
   // Re-fetch live roster data from Sleeper (starters/players/reserve arrays)
   const sleeperRosters = await sleeperGet(`/league/${sleeper_league_id}/rosters`);

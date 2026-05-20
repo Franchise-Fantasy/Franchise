@@ -4,6 +4,12 @@ import { corsResponse } from '../_shared/cors.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { notifyLeague } from '../_shared/push.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { parseBody, z } from '../_shared/validate.ts';
+
+const Body = z.object({
+  proposal_id: z.string().uuid(),
+  league_id: z.string().uuid(),
+});
 
 const BIDDING_WAR_WINDOW_DAYS = 7;
 
@@ -33,8 +39,7 @@ Deno.serve(async (req) => {
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'check-bidding-wars');
     if (rateLimited) return rateLimited;
 
-    const { proposal_id, league_id } = await req.json();
-    if (!proposal_id || !league_id) throw new HttpError('proposal_id and league_id required');
+    const { proposal_id, league_id } = parseBody(Body, await req.json());
 
     // Check if auto-rumors are enabled for this league
     const { data: league } = await supabaseAdmin

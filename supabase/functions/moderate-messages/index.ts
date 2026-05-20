@@ -2,6 +2,11 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { handleError, jsonResponse, errorResponse } from "../_shared/http.ts";
 import { moderateText } from "../_shared/moderate.ts";
+import { parseBody, z } from "../_shared/validate.ts";
+
+const Body = z.object({
+  message_id: z.string().uuid().optional(),
+});
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -22,7 +27,7 @@ Deno.serve(async (req: Request) => {
 
   try {
     const body = await req.json().catch(() => ({}));
-    const messageId = body.message_id as string | undefined;
+    const { message_id: messageId } = parseBody(Body, body);
 
     let messages: any[];
 

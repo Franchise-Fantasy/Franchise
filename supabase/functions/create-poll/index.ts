@@ -4,6 +4,20 @@ import { notifyLeague } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { parseBody, z } from '../_shared/validate.ts';
+
+const Body = z.object({
+  league_id: z.string().uuid(),
+  conversation_id: z.string().uuid(),
+  question: z.string().trim().min(1, 'Question must be 1-500 characters').max(500, 'Question must be 1-500 characters'),
+  options: z.array(z.string().trim().min(1, 'Each option must be 1-200 characters').max(200, 'Each option must be 1-200 characters'))
+    .min(2, 'Must have 2-10 options')
+    .max(10, 'Must have 2-10 options'),
+  poll_type: z.enum(['single', 'multi']),
+  closes_at: z.string().datetime({ message: 'closes_at must be a valid ISO timestamp' }),
+  is_anonymous: z.boolean().optional(),
+  show_live_results: z.boolean().optional(),
+});
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return corsResponse();
@@ -31,44 +45,17 @@ Deno.serve(async (req) => {
     const {
       league_id,
       conversation_id,
-      question,
-      options,
+      question: trimmedQuestion,
+      options: trimmedOptions,
       poll_type,
       closes_at,
       is_anonymous,
       show_live_results,
-    } = await req.json();
+    } = parseBody(Body, await req.json());
 
-    // Validate required fields
-    if (!league_id || !conversation_id || !question || !options || !poll_type || !closes_at) {
-      throw new HttpError('league_id, conversation_id, question, options, poll_type, and closes_at are required');
-    }
-
-    // Validate question
-    const trimmedQuestion = question.trim();
-    if (trimmedQuestion.length === 0 || trimmedQuestion.length > 500) {
-      throw new HttpError('Question must be 1-500 characters');
-    }
-
-    // Validate options
-    if (!Array.isArray(options) || options.length < 2 || options.length > 10) {
-      throw new HttpError('Must have 2-10 options');
-    }
-    for (const opt of options) {
-      if (typeof opt !== 'string' || opt.trim().length === 0 || opt.trim().length > 200) {
-        throw new HttpError('Each option must be 1-200 characters');
-      }
-    }
-    const trimmedOptions = options.map((o: string) => o.trim());
-
-    // Validate poll_type
-    if (poll_type !== 'single' && poll_type !== 'multi') {
-      throw new HttpError('poll_type must be "single" or "multi"');
-    }
-
-    // Validate closes_at is in the future
+    // closes_at must be in the future — schema only validates ISO format.
     const closesDate = new Date(closes_at);
-    if (isNaN(closesDate.getTime()) || closesDate <= new Date()) {
+    if (closesDate <= new Date()) {
       throw new HttpError('closes_at must be a valid future timestamp');
     }
 

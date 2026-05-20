@@ -29,7 +29,15 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { bdlFetch, type Sport } from "../_shared/bdl.ts";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 import { handleError, jsonResponse, errorResponse } from "../_shared/http.ts";
+import { parseBody, z } from "../_shared/validate.ts";
 import type { Database } from "../../../types/database.types.ts";
+
+const Body = z.object({
+  sport: z.enum(['nba', 'wnba']),
+  season: z.string().min(1, "season required (e.g. '2025' WNBA, '2024-25' NBA)"),
+  offset: z.number().int().nonnegative().optional(),
+  limit: z.number().int().min(1).max(200).optional(),
+});
 
 const supabase = createClient<Database>(
   Deno.env.get("SUPABASE_URL")!,
@@ -260,25 +268,11 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    let sport: Sport;
-    let season: string;
-    let offset = 0;
-    let limit = WNBA_DEFAULT_LIMIT;
-    try {
-      const body = await req.json();
-      if (body?.sport !== "nba" && body?.sport !== "wnba") {
-        return errorResponse("sport must be 'nba' or 'wnba'", 400);
-      }
-      if (typeof body?.season !== "string" || !body.season) {
-        return errorResponse("season required (e.g. '2025' WNBA, '2024-25' NBA)", 400);
-      }
-      sport = body.sport;
-      season = body.season;
-      if (typeof body?.offset === "number") offset = Math.max(0, body.offset);
-      if (typeof body?.limit === "number") limit = Math.max(1, Math.min(200, body.limit));
-    } catch {
-      return errorResponse("JSON body required: { sport, season }", 400);
-    }
+    const parsed = parseBody(Body, await req.json());
+    const sport: Sport = parsed.sport;
+    const season: string = parsed.season;
+    const offset = parsed.offset ?? 0;
+    const limit = parsed.limit ?? WNBA_DEFAULT_LIMIT;
 
     const seasonYear = parseInt(season.split("-")[0], 10);
     if (!seasonYear) {

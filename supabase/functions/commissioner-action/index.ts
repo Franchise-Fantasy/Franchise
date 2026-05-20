@@ -4,6 +4,16 @@ import { corsResponse } from '../_shared/cors.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { notifyTeams } from '../_shared/push.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { parseBody, z } from '../_shared/validate.ts';
+
+const Body = z.object({
+  action: z.enum(['force_add', 'force_drop', 'force_move']),
+  league_id: z.string().uuid(),
+  team_id: z.string().uuid(),
+  player_id: z.string().uuid(),
+  position: z.string().optional(),
+  target_slot: z.string().optional(),
+});
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return corsResponse();
@@ -27,15 +37,7 @@ Deno.serve(async (req) => {
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'commissioner-action');
     if (rateLimited) return rateLimited;
 
-    const { action, league_id, team_id, player_id, position, target_slot } = await req.json();
-    if (!action || !league_id || !team_id || !player_id) {
-      throw new HttpError('action, league_id, team_id, and player_id are required');
-    }
-
-    const validActions = ['force_add', 'force_drop', 'force_move'];
-    if (!validActions.includes(action)) {
-      throw new HttpError(`Unknown action: ${action}. Must be one of: ${validActions.join(', ')}`);
-    }
+    const { action, league_id, team_id, player_id, position, target_slot } = parseBody(Body, await req.json());
 
     const { data: league } = await supabaseAdmin
       .from('leagues')
