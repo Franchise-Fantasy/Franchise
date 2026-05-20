@@ -6,6 +6,13 @@ import { TEST_LEAGUE_NAME } from './config';
  * the league in a corrupt state and you want a fresh bootstrap on next run.
  *
  * Does NOT delete bot auth users — those are reused across runs.
+ *
+ * Order matters because several tables have NO ACTION FKs to leagues / teams /
+ * draft_picks (they don't cascade). The order below is topologically sorted:
+ * leaf tables → intermediate tables → teams → leagues. Each delete is awaited
+ * and errors are logged loudly so a silent partial-nuke never masquerades as
+ * success (prior version swallowed the league-transaction-items FK violation
+ * and left the league half-alive).
  */
 export async function nukeTestLeague(): Promise<void> {
   const admin = adminClient();
@@ -33,24 +40,107 @@ export async function nukeTestLeague(): Promise<void> {
     .eq('league_id', leagueId);
   const convIds = (conversations ?? []).map((c) => c.id);
 
-  // Order matters: delete rows that reference the league before deleting the league.
+  const { data: transactions } = await admin
+    .from('league_transactions')
+    .select('id')
+    .eq('league_id', leagueId);
+  const transactionIds = (transactions ?? []).map((t) => t.id);
+
+  const { data: drafts } = await admin.from('drafts').select('id').eq('league_id', leagueId);
+  const draftIds = (drafts ?? []).map((d) => d.id);
+
+  const { data: surveys } = await admin
+    .from('commissioner_surveys')
+    .select('id')
+    .eq('league_id', leagueId);
+  const surveyIds = (surveys ?? []).map((s) => s.id);
+
+  const { data: polls } = await admin
+    .from('commissioner_polls')
+    .select('id')
+    .eq('league_id', leagueId);
+  const pollIds = (polls ?? []).map((p) => p.id);
+
+  const del = async (label: string, query: any) => {
+    const { error } = await query;
+    if (error) throw new Error(`nukeTestLeague: ${label} failed: ${error.message}`);
+  };
+
+  // 1. Detach the league's own self-references that block teams/draft_picks deletion.
+  await del('clear champion_team_id', admin.from('leagues').update({ champion_team_id: null }).eq('id', leagueId));
+
+  // 2. Trade graph (children → parents).
   if (proposalIds.length > 0) {
-    await admin.from('trade_proposal_items').delete().in('proposal_id', proposalIds);
-    await admin.from('trade_proposal_teams').delete().in('proposal_id', proposalIds);
+    await del('trade_proposal_items', admin.from('trade_proposal_items').delete().in('proposal_id', proposalIds));
+    await del('trade_proposal_teams', admin.from('trade_proposal_teams').delete().in('proposal_id', proposalIds));
+    await del('trade_votes', admin.from('trade_votes').delete().in('proposal_id', proposalIds));
   }
-  await admin.from('trade_proposals').delete().eq('league_id', leagueId);
+  await del('trade_rumors', admin.from('trade_rumors').delete().eq('league_id', leagueId));
+  await del('trade_proposals', admin.from('trade_proposals').delete().eq('league_id', leagueId));
+
+  // 3. Transactions — items first (NO ACTION FK to draft_picks blocks every league nuke without this).
+  if (transactionIds.length > 0) {
+    await del('league_transaction_items', admin.from('league_transaction_items').delete().in('transaction_id', transactionIds));
+  }
+  await del('league_transactions', admin.from('league_transactions').delete().eq('league_id', leagueId));
+  await del('pending_transactions', admin.from('pending_transactions').delete().eq('league_id', leagueId));
+
+  // 4. Waivers.
+  await del('waiver_claims', admin.from('waiver_claims').delete().eq('league_id', leagueId));
+  await del('waiver_priority', admin.from('waiver_priority').delete().eq('league_id', leagueId));
+  await del('league_waivers', admin.from('league_waivers').delete().eq('league_id', leagueId));
+
+  // 5. Chat / commissioner content.
   if (convIds.length > 0) {
-    await admin.from('chat_messages').delete().in('conversation_id', convIds);
-    await admin.from('chat_members').delete().in('conversation_id', convIds);
+    await del('chat_messages', admin.from('chat_messages').delete().in('conversation_id', convIds));
+    await del('chat_members', admin.from('chat_members').delete().in('conversation_id', convIds));
   }
-  await admin.from('chat_conversations').delete().eq('league_id', leagueId);
-  await admin.from('league_players').delete().eq('league_id', leagueId);
-  await admin.from('draft_picks').delete().eq('league_id', leagueId);
-  await admin.from('transactions').delete().eq('league_id', leagueId);
+  await del('chat_conversations', admin.from('chat_conversations').delete().eq('league_id', leagueId));
+  if (pollIds.length > 0) {
+    await del('poll_votes', admin.from('poll_votes').delete().in('poll_id', pollIds));
+  }
+  await del('commissioner_polls', admin.from('commissioner_polls').delete().eq('league_id', leagueId));
+  if (surveyIds.length > 0) {
+    await del('survey_responses', admin.from('survey_responses').delete().in('survey_id', surveyIds));
+  }
+  await del('commissioner_surveys', admin.from('commissioner_surveys').delete().eq('league_id', leagueId));
+  await del('commissioner_announcements', admin.from('commissioner_announcements').delete().eq('league_id', leagueId));
+
+  // 6. Schedule / playoffs / standings.
+  await del('league_matchups', admin.from('league_matchups').delete().eq('league_id', leagueId));
+  await del('league_schedule', admin.from('league_schedule').delete().eq('league_id', leagueId));
+  await del('playoff_bracket', admin.from('playoff_bracket').delete().eq('league_id', leagueId));
+  await del('playoff_seed_picks', admin.from('playoff_seed_picks').delete().eq('league_id', leagueId));
+  await del('week_scores', admin.from('week_scores').delete().eq('league_id', leagueId));
+  await del('team_seasons', admin.from('team_seasons').delete().eq('league_id', leagueId));
+  await del('league_records', admin.from('league_records').delete().eq('league_id', leagueId));
+  await del('lottery_results', admin.from('lottery_results').delete().eq('league_id', leagueId));
+  await del('pick_swaps', admin.from('pick_swaps').delete().eq('league_id', leagueId));
+  await del('keeper_declarations', admin.from('keeper_declarations').delete().eq('league_id', leagueId));
+
+  // 7. Drafts (children of leagues; draft_picks cascades via league_id).
+  if (draftIds.length > 0) {
+    await del('draft_team_status', admin.from('draft_team_status').delete().in('draft_id', draftIds));
+    await del('draft_queue', admin.from('draft_queue').delete().in('draft_id', draftIds));
+  }
+  await del('draft_picks', admin.from('draft_picks').delete().eq('league_id', leagueId));
+  await del('drafts', admin.from('drafts').delete().eq('league_id', leagueId));
+
+  // 8. Lineups / rosters / config.
+  await del('daily_lineups', admin.from('daily_lineups').delete().eq('league_id', leagueId));
+  await del('league_players', admin.from('league_players').delete().eq('league_id', leagueId));
+  await del('league_roster_config', admin.from('league_roster_config').delete().eq('league_id', leagueId));
+  await del('league_scoring_settings', admin.from('league_scoring_settings').delete().eq('league_id', leagueId));
+  await del('league_notification_prefs', admin.from('league_notification_prefs').delete().eq('league_id', leagueId));
+  await del('league_payments', admin.from('league_payments').delete().eq('league_id', leagueId));
+  await del('league_subscriptions', admin.from('league_subscriptions').delete().eq('league_id', leagueId));
+  await del('activity_tokens', admin.from('activity_tokens').delete().eq('league_id', leagueId));
+
+  // 9. Teams (after every team_id ref above is gone) and finally the league.
   if (teamIds.length > 0) {
-    await admin.from('teams').delete().in('id', teamIds);
+    await del('teams', admin.from('teams').delete().in('id', teamIds));
   }
-  await admin.from('leagues').delete().eq('id', leagueId);
+  await del('leagues', admin.from('leagues').delete().eq('id', leagueId));
 }
 
 /**

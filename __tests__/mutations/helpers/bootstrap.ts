@@ -89,7 +89,7 @@ async function ensureLeagueChat(
 
 async function loadLeague(admin: SupabaseClient, leagueId: string): Promise<BootstrapResult> {
   const [{ data: league }, { data: teams }] = await Promise.all([
-    admin.from('leagues').select('created_by').eq('id', leagueId).single(),
+    admin.from('leagues').select('created_by, lottery_odds').eq('id', leagueId).single(),
     admin.from('teams').select('id, name, user_id').eq('league_id', leagueId),
   ]);
   if (!league) throw new Error('Test league missing after lookup');
@@ -99,6 +99,26 @@ async function loadLeague(admin: SupabaseClient, leagueId: string): Promise<Boot
     const botIndex: number | 'watcher' = botMatch ? parseInt(botMatch[1], 10) : 'watcher';
     return { id: t.id, name: t.name, userId: t.user_id ?? '', botIndex };
   });
+
+  // Self-heal canonical_rosters if missing — older leagues created before the
+  // snapshot logic, or any league that lost the field, gets a snapshot of its
+  // current roster state so getCanonicalRosterPlayerIds / restoreCanonicalRosters
+  // have something to work with. Without this, trade seeds pass `playerId: undefined`
+  // and trip trade_proposal_items_check.
+  const hasCanonical = (league.lottery_odds as any)?.canonical_rosters;
+  if (!hasCanonical && teamList.length > 0) {
+    const { data: rosters } = await admin
+      .from('league_players')
+      .select('team_id, player_id')
+      .eq('league_id', leagueId);
+    const snapshot: Record<string, string[]> = {};
+    for (const team of teamList) snapshot[team.id] = [];
+    for (const row of rosters ?? []) {
+      if (snapshot[row.team_id]) snapshot[row.team_id].push(row.player_id);
+    }
+    const merged = { ...((league.lottery_odds as any) ?? {}), canonical_rosters: snapshot };
+    await admin.from('leagues').update({ lottery_odds: merged }).eq('id', leagueId);
+  }
 
   const leagueChatId = await ensureLeagueChat(admin, leagueId, teamList.map((t) => t.id));
 

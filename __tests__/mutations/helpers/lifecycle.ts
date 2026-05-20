@@ -260,7 +260,19 @@ export async function resetToSeasonComplete(
   const admin = adminClient();
   const { leagueId, teams, canonicalPlayerIds, type } = bootstrap;
 
-  // 1. Clear advance-season artifacts
+  // 1. Clear advance-season artifacts. league_transaction_items has a NO ACTION
+  //    FK to draft_picks, so any transaction items from a prior rookie-draft test
+  //    will silently block the draft_picks delete. Clear them (and the parent
+  //    league_transactions rows) first.
+  const { data: priorTxns } = await admin
+    .from('league_transactions')
+    .select('id')
+    .eq('league_id', leagueId);
+  const priorTxnIds = (priorTxns ?? []).map((t) => t.id);
+  if (priorTxnIds.length > 0) {
+    await admin.from('league_transaction_items').delete().in('transaction_id', priorTxnIds);
+    await admin.from('league_transactions').delete().in('id', priorTxnIds);
+  }
   await admin.from('team_seasons').delete().eq('league_id', leagueId);
   await admin.from('lottery_results').delete().eq('league_id', leagueId);
   await admin.from('keeper_declarations').delete().eq('league_id', leagueId);

@@ -64,7 +64,11 @@ describe('Dynasty offseason chain', () => {
         .select('offseason_step, lottery_status, season')
         .eq('id', leagueId)
         .single();
-      expect(leagueRowAfterLottery?.offseason_step).toBe('lottery_complete');
+      // start-lottery sets the intermediate "watch the reveal" state, not
+      // a final lottery_complete — that's a documented-but-never-written value.
+      // The commissioner's "Done" click in lottery-room calls create-rookie-draft,
+      // which advances offseason_step straight to rookie_draft_pending.
+      expect(leagueRowAfterLottery?.offseason_step).toBe('lottery_revealing');
       expect(leagueRowAfterLottery?.lottery_status).toBe('complete');
 
       // lottery_results row persisted for the new season
@@ -146,8 +150,12 @@ describe('Dynasty offseason chain', () => {
   );
 
   it(
-    'create-rookie-draft rejects when called twice for the same season',
+    'create-rookie-draft is idempotent — second call reuses the existing draft',
     async () => {
+      // create-rookie-draft is intentionally idempotent (see function comment):
+      // the lottery-room "Done" button can be re-tapped without erroring on a
+      // leftover draft from a prior run. The second call returns the same
+      // draft_id with `created: false`.
       const { leagueId } = league;
       const client = await signInAsBot(1);
 
@@ -158,12 +166,16 @@ describe('Dynasty offseason chain', () => {
         body: { league_id: leagueId },
       });
       expect(first.error).toBeNull();
+      expect(first.data?.created).toBe(true);
+      const firstDraftId = first.data?.draft_id;
+      expect(firstDraftId).toBeTruthy();
 
       const second = await client.functions.invoke('create-rookie-draft', {
         body: { league_id: leagueId },
       });
-      // Second call should fail — a rookie draft already exists for this season.
-      expect(second.error).not.toBeNull();
+      expect(second.error).toBeNull();
+      expect(second.data?.created).toBe(false);
+      expect(second.data?.draft_id).toBe(firstDraftId);
     },
     TIMEOUT,
   );
