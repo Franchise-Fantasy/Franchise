@@ -1,9 +1,12 @@
 import { RosterPlayer } from "@/components/roster/SlotPickerModal";
 import { supabase } from "@/lib/supabase";
-import { PlayerSeasonStats } from "@/types/player";
+import { PlayerSeasonStats, type PlayerGameLog, type ScoringWeight } from "@/types/player";
 import { getSportToday } from "@/utils/leagueTime";
+import { liveToGameLog, type LivePlayerStats } from "@/utils/nba/nbaLive";
+import { type ScheduleEntry } from "@/utils/nba/nbaSchedule";
 import { fetchTeamSlots } from "@/utils/roster/fetchTeamSlots";
 import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
+import { calculateGameFantasyPoints } from "@/utils/scoring/fantasyPoints";
 
 // Data layer for the roster tab: the per-date roster fetch + the small pure
 // stat-line helpers. Split out of (tabs)/roster.tsx so the route file holds
@@ -42,6 +45,152 @@ export function buildStatLine(stats: Record<string, number>): string {
     .filter(([key]) => (stats[key] ?? 0) > 0)
     .map(([key, label]) => `${stats[key]} ${label}`)
     .join(" · ");
+}
+
+export interface SlotStats {
+  fpts: number | null;
+  statLine: string | null;
+  isLive: boolean;
+  matchup: string | null;
+  gameTimeUtc: string | null;
+}
+
+export interface SlotStatsContext {
+  scoringWeights: ScoringWeight[] | undefined;
+  isToday: boolean;
+  isPastDate: boolean;
+  isCategories: boolean;
+  liveMap: Map<string, LivePlayerStats>;
+  daySchedule: Map<string, ScheduleEntry> | undefined;
+  dayGameStats: Map<string, DayGameStats> | undefined;
+}
+
+const EMPTY_SLOT_STATS: SlotStats = {
+  fpts: null,
+  statLine: null,
+  isLive: false,
+  matchup: null,
+  gameTimeUtc: null,
+};
+
+// Returns { fpts, statLine, isLive, matchup } for display in a slot row.
+// fpts === null means no game on that date — show "—" and exclude from totals.
+export function computeSlotStats(
+  player: RosterPlayer | null,
+  ctx: SlotStatsContext,
+): SlotStats {
+  const { scoringWeights, isToday, isPastDate, isCategories, liveMap, daySchedule, dayGameStats } =
+    ctx;
+
+  if (!player || !scoringWeights) return EMPTY_SLOT_STATS;
+
+  if (isToday) {
+    const live = liveMap.get(player.player_id);
+    const scheduleEntry = player.nbaTricode
+      ? (daySchedule?.get(player.nbaTricode) ?? null)
+      : null;
+    const todayMatchup = scheduleEntry?.matchup ?? null;
+    const todayGameTime = scheduleEntry?.gameTimeUtc ?? null;
+    const hasGame = !!live || !!todayMatchup;
+    if (!hasGame) return EMPTY_SLOT_STATS;
+
+    if (live) {
+      const stats = liveToGameLog(live);
+      const fpts = isCategories
+        ? null
+        : Math.round(
+            calculateGameFantasyPoints(stats as unknown as PlayerGameLog, scoringWeights) * 10,
+          ) / 10;
+      return {
+        fpts,
+        statLine:
+          live.game_status === 1
+            ? null
+            : buildStatLine(stats as Record<string, number>),
+        isLive: live.game_status === 2,
+        matchup: live.matchup || null,
+        gameTimeUtc: null,
+      };
+    }
+    return {
+      fpts: isCategories ? null : 0,
+      statLine: null,
+      isLive: false,
+      matchup: todayMatchup,
+      gameTimeUtc: todayGameTime,
+    };
+  }
+
+  if (isPastDate) {
+    const live = liveMap.get(player.player_id);
+    // Still-live game from yesterday that crossed midnight
+    if (live && live.game_status === 2) {
+      const stats = liveToGameLog(live);
+      const fpts = isCategories
+        ? null
+        : Math.round(
+            calculateGameFantasyPoints(stats as unknown as PlayerGameLog, scoringWeights) * 10,
+          ) / 10;
+      return {
+        fpts,
+        statLine: buildStatLine(stats as Record<string, number>),
+        isLive: true,
+        matchup: live.matchup || null,
+        gameTimeUtc: null,
+      };
+    }
+    const dayGame = dayGameStats?.get(player.player_id);
+    if (dayGame) {
+      const stats = dayToStatRecord(dayGame);
+      const fpts = isCategories
+        ? null
+        : Math.round(
+            calculateGameFantasyPoints(stats as unknown as PlayerGameLog, scoringWeights) * 10,
+          ) / 10;
+      return {
+        fpts,
+        statLine: buildStatLine(stats as Record<string, number>),
+        isLive: false,
+        matchup: dayGame.matchup ?? null,
+        gameTimeUtc: null,
+      };
+    }
+    // Fall back to the final-state live row when player_games hasn't been
+    // populated for this player/date yet — covers the gap between
+    // live_player_stats writes and player_games writes during/after a game
+    // ends, and any race where dayGameStats hasn't loaded.
+    if (live && live.game_status === 3) {
+      const stats = liveToGameLog(live);
+      const fpts = isCategories
+        ? null
+        : Math.round(
+            calculateGameFantasyPoints(stats as unknown as PlayerGameLog, scoringWeights) * 10,
+          ) / 10;
+      return {
+        fpts,
+        statLine: buildStatLine(stats as Record<string, number>),
+        isLive: false,
+        matchup: live.matchup || null,
+        gameTimeUtc: null,
+      };
+    }
+    return EMPTY_SLOT_STATS;
+  }
+
+  // Future — player must have a game that day
+  const futureEntry = player.nbaTricode
+    ? (daySchedule?.get(player.nbaTricode) ?? null)
+    : null;
+  const futureMatchup = futureEntry?.matchup ?? null;
+  const futureGameTime = futureEntry?.gameTimeUtc ?? null;
+  if (!futureMatchup) return EMPTY_SLOT_STATS;
+  return {
+    fpts: isCategories ? null : 0,
+    statLine: null,
+    isLive: false,
+    matchup: futureMatchup,
+    gameTimeUtc: futureGameTime,
+  };
 }
 
 export function dayToStatRecord(g: DayGameStats): Record<string, number | boolean> {

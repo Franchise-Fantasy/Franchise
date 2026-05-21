@@ -28,10 +28,11 @@ import { AnimatedFpts } from "@/components/roster/AnimatedFpts";
 import { IrLockBanner } from "@/components/roster/IrLockBanner";
 import { MyPicksSection } from "@/components/roster/MyPicksSection";
 import {
-  buildStatLine,
+  computeSlotStats,
   dayToStatRecord,
   fetchTeamRosterForDate,
   type DayGameStats,
+  type SlotStats,
 } from "@/components/roster/rosterData";
 import { RosterHero } from "@/components/roster/RosterHero";
 import { rosterStyles as styles } from "@/components/roster/rosterStyles";
@@ -66,7 +67,6 @@ import { useWeekScores } from "@/hooks/useWeekScores";
 import { capture } from "@/lib/posthog";
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
-import type { PlayerGameLog } from "@/types/player";
 import { addDays, formatDayLabel, useToday } from "@/utils/dates";
 import { formatPosition } from "@/utils/formatting";
 import { getSportToday } from "@/utils/leagueTime";
@@ -93,7 +93,6 @@ import { isTaxiEligible } from "@/utils/roster/taxiEligibility";
 import { buildCompositeScatter } from "@/utils/scoring/categoryAnalytics";
 import {
   calculateAvgFantasyPoints,
-  calculateGameFantasyPoints,
   formatScore,
 } from "@/utils/scoring/fantasyPoints";
 
@@ -1201,155 +1200,16 @@ export default function RosterScreen() {
 
   // Returns { fpts, statLine, isLive, matchup } for display in a slot row.
   // fpts === null means no game on that date — show "—" and exclude from totals.
-  function resolveSlotStats(player: RosterPlayer | null): {
-    fpts: number | null;
-    statLine: string | null;
-    isLive: boolean;
-    matchup: string | null;
-    gameTimeUtc: string | null;
-  } {
-    if (!player || !scoringWeights)
-      return {
-        fpts: null,
-
-        statLine: null,
-        isLive: false,
-        matchup: null,
-        gameTimeUtc: null,
-      };
-
-    if (isToday) {
-      const live = liveMap.get(player.player_id);
-      const scheduleEntry = player.nbaTricode
-        ? (daySchedule?.get(player.nbaTricode) ?? null)
-        : null;
-      const todayMatchup = scheduleEntry?.matchup ?? null;
-      const todayGameTime = scheduleEntry?.gameTimeUtc ?? null;
-      const hasGame = !!live || !!todayMatchup;
-      if (!hasGame)
-        return {
-          fpts: null,
-  
-          statLine: null,
-          isLive: false,
-          matchup: null,
-          gameTimeUtc: null,
-        };
-
-      if (live) {
-        const stats = liveToGameLog(live);
-        const fpts = isCategories
-          ? null
-          : Math.round(
-              calculateGameFantasyPoints(stats as unknown as PlayerGameLog, scoringWeights) * 10,
-            ) / 10;
-        return {
-          fpts,
-  
-          statLine:
-            live.game_status === 1
-              ? null
-              : buildStatLine(stats as Record<string, number>),
-          isLive: live.game_status === 2,
-          matchup: live.matchup || null,
-          gameTimeUtc: null,
-        };
-      }
-      return {
-        fpts: isCategories ? null : 0,
-        statLine: null,
-        isLive: false,
-        matchup: todayMatchup,
-        gameTimeUtc: todayGameTime,
-      };
-    }
-
-    if (isPastDate) {
-      const live = liveMap.get(player.player_id);
-      // Still-live game from yesterday that crossed midnight
-      if (live && live.game_status === 2) {
-        const stats = liveToGameLog(live);
-        const fpts = isCategories
-          ? null
-          : Math.round(
-              calculateGameFantasyPoints(stats as unknown as PlayerGameLog, scoringWeights) * 10,
-            ) / 10;
-        return {
-          fpts,
-          statLine: buildStatLine(stats as Record<string, number>),
-          isLive: true,
-          matchup: live.matchup || null,
-          gameTimeUtc: null,
-        };
-      }
-      const dayGame = dayGameStats?.get(player.player_id);
-      if (dayGame) {
-        const stats = dayToStatRecord(dayGame);
-        const fpts = isCategories
-          ? null
-          : Math.round(
-              calculateGameFantasyPoints(stats as unknown as PlayerGameLog, scoringWeights) * 10,
-            ) / 10;
-        return {
-          fpts,
-          statLine: buildStatLine(stats as Record<string, number>),
-          isLive: false,
-          matchup: dayGame.matchup ?? null,
-          gameTimeUtc: null,
-        };
-      }
-      // Fall back to the final-state live row when player_games hasn't been
-      // populated for this player/date yet — covers the gap between
-      // live_player_stats writes and player_games writes during/after a game
-      // ends, and any race where dayGameStats hasn't loaded.
-      if (live && live.game_status === 3) {
-        const stats = liveToGameLog(live);
-        const fpts = isCategories
-          ? null
-          : Math.round(
-              calculateGameFantasyPoints(stats as unknown as PlayerGameLog, scoringWeights) * 10,
-            ) / 10;
-        return {
-          fpts,
-          statLine: buildStatLine(stats as Record<string, number>),
-          isLive: false,
-          matchup: live.matchup || null,
-          gameTimeUtc: null,
-        };
-      }
-      return {
-        fpts: null,
-        statLine: null,
-        isLive: false,
-        matchup: null,
-        gameTimeUtc: null,
-      };
-    }
-
-    // Future — player must have a game that day
-    const futureEntry = player.nbaTricode
-      ? (daySchedule?.get(player.nbaTricode) ?? null)
-      : null;
-    const futureMatchup = futureEntry?.matchup ?? null;
-    const futureGameTime = futureEntry?.gameTimeUtc ?? null;
-    if (!futureMatchup) {
-      return {
-        fpts: null,
-
-        statLine: null,
-        isLive: false,
-        matchup: null,
-        gameTimeUtc: null,
-      };
-    }
-    return {
-      fpts: isCategories ? null : 0,
-      statLine: null,
-      isLive: false,
-      matchup: futureMatchup,
-      gameTimeUtc: futureGameTime,
-    };
-  }
+  const resolveSlotStats = (player: RosterPlayer | null): SlotStats =>
+    computeSlotStats(player, {
+      scoringWeights,
+      isToday,
+      isPastDate,
+      isCategories,
+      liveMap,
+      daySchedule,
+      dayGameStats,
+    });
 
   // Compute eligible destination keys for inline highlights behind the modal
   const eligibleDestKeys = useMemo(() => {
