@@ -11,6 +11,19 @@ const Body = z.object({
   league_id: z.string().uuid(),
 });
 
+/**
+ * Durable log of what the lottery did to protected picks and pick swaps,
+ * stored on lottery_results.pick_resolution. Captured here because the
+ * resolution loops below mutate draft_picks in place (clearing protection
+ * columns) and mark swaps resolved — after the draw the "why" is gone.
+ * Team names are snapshotted at draw time (this is a historical record).
+ */
+type ResolutionEvent =
+  | { kind: 'protected'; round: number; slot: number | null; threshold: number; fromTeam: string; toTeam: string }
+  | { kind: 'conveyed'; round: number; slot: number | null; threshold: number; toTeam: string; protectedBy: string }
+  | { kind: 'swap_executed'; round: number; teamA: string; teamB: string }
+  | { kind: 'swap_voided'; round: number; teamA: string; teamB: string; missing: string };
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return corsResponse();
 
@@ -37,7 +50,7 @@ Deno.serve(async (req) => {
 
     const { data: league, error: leagueErr } = await supabaseAdmin
       .from('leagues')
-      .select('created_by, season, teams, playoff_teams, playoff_weeks, lottery_draws, lottery_odds, rookie_draft_rounds, offseason_step')
+      .select('created_by, name, season, teams, playoff_teams, playoff_weeks, lottery_draws, lottery_odds, rookie_draft_rounds, offseason_step')
       .eq('id', league_id)
       .single();
     if (leagueErr || !league) throw new HttpError('League not found', 404);
@@ -141,6 +154,11 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Name lookup + resolution log, shared by the protection and swap loops.
+    const teamNameMap = new Map(orderedTeams.map(t => [t.id, t.name]));
+    const teamName = (id: string | null) => (id ? teamNameMap.get(id) ?? 'Unknown' : 'Unknown');
+    const resolutionEvents: ResolutionEvent[] = [];
+
     // --- Resolve protections ---
     const { data: protectedPicks } = await supabaseAdmin
       .from('draft_picks')
@@ -152,13 +170,29 @@ Deno.serve(async (req) => {
     for (const pick of protectedPicks ?? []) {
       if (pick.slot_number != null && pick.slot_number <= pick.protection_threshold) {
         // Protected: revert ownership to protection_owner
+        resolutionEvents.push({
+          kind: 'protected',
+          round: pick.round,
+          slot: pick.slot_number,
+          threshold: pick.protection_threshold,
+          fromTeam: teamName(pick.current_team_id),
+          toTeam: teamName(pick.protection_owner_id),
+        });
         await supabaseAdmin.from('draft_picks').update({
           current_team_id: pick.protection_owner_id,
           protection_threshold: null,
           protection_owner_id: null,
         }).eq('id', pick.id);
       } else {
-        // Conveyed: clear protection columns, ownership stays
+        // Conveyed: protection lapsed, ownership stays with the current holder
+        resolutionEvents.push({
+          kind: 'conveyed',
+          round: pick.round,
+          slot: pick.slot_number,
+          threshold: pick.protection_threshold,
+          toTeam: teamName(pick.current_team_id),
+          protectedBy: teamName(pick.protection_owner_id),
+        });
         await supabaseAdmin.from('draft_picks').update({
           protection_threshold: null,
           protection_owner_id: null,
@@ -174,7 +208,6 @@ Deno.serve(async (req) => {
       .eq('season', season)
       .eq('resolved', false);
 
-    const teamNameMap = new Map(orderedTeams.map(t => [t.id, t.name]));
     const swapWarnings: string[] = [];
 
     for (const swap of unresolvedSwaps ?? []) {
@@ -194,6 +227,9 @@ Deno.serve(async (req) => {
         .is('player_id', null)
         .maybeSingle();
 
+      const benefName = teamName(swap.beneficiary_team_id);
+      const counterName = teamName(swap.counterparty_team_id);
+
       if (benefPick && counterPick) {
         const benefSlot = benefPick.slot_number ?? 999;
         const counterSlot = counterPick.slot_number ?? 999;
@@ -201,12 +237,13 @@ Deno.serve(async (req) => {
           // Counterparty has the better pick — swap ownership
           await supabaseAdmin.from('draft_picks').update({ current_team_id: swap.beneficiary_team_id }).eq('id', counterPick.id);
           await supabaseAdmin.from('draft_picks').update({ current_team_id: swap.counterparty_team_id }).eq('id', benefPick.id);
+          resolutionEvents.push({ kind: 'swap_executed', round: swap.round, teamA: benefName, teamB: counterName });
         }
+        // else: beneficiary's own pick was already better/equal — no change, no log
       } else {
         // Swap voided — one or both teams no longer own a pick in this round (likely due to protection)
-        const benefName = teamNameMap.get(swap.beneficiary_team_id) ?? 'Unknown';
-        const counterName = teamNameMap.get(swap.counterparty_team_id) ?? 'Unknown';
         const missing = !benefPick && !counterPick ? 'both teams' : !benefPick ? benefName : counterName;
+        resolutionEvents.push({ kind: 'swap_voided', round: swap.round, teamA: benefName, teamB: counterName, missing });
         swapWarnings.push(`Rd ${swap.round} swap between ${benefName} and ${counterName} voided — ${missing} no longer holds a pick in this round (protection triggered).`);
         console.warn(`Swap voided: Rd ${swap.round} ${benefName} vs ${counterName} — ${missing} missing pick`);
       }
@@ -214,14 +251,24 @@ Deno.serve(async (req) => {
       await supabaseAdmin.from('pick_swaps').update({ resolved: true }).eq('id', swap.id);
     }
 
-    // Notify commissioner if any swaps were voided
+    // Persist the resolution log so the lottery-room and draft hub can show
+    // "what changed" after the draw. Always write (even an empty array) so
+    // clients can tell a resolved lottery apart from a legacy null row.
+    await supabaseAdmin
+      .from('lottery_results')
+      .update({ pick_resolution: resolutionEvents })
+      .eq('league_id', league_id)
+      .eq('season', season);
+
+    // Notify commissioner if any swaps were voided. Deep-links to the lottery
+    // room where the full resolution summary is shown post-reveal.
     if (swapWarnings.length > 0) {
       try {
         const ln = league.name ?? 'Your League';
         await notifyLeague(supabaseAdmin, league_id, 'draft',
           `${ln} — Lottery Notice`,
           `${swapWarnings.length} pick swap(s) voided due to protection: ${swapWarnings.join(' ')}`,
-          { screen: 'home' }
+          { screen: 'lottery-room' }
         );
       } catch (notifyErr) {
         console.warn('Swap warning notification failed (non-fatal):', notifyErr);
