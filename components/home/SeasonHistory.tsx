@@ -30,6 +30,7 @@ interface TeamSeason {
 const RESULT_LABELS: Record<string, string> = {
   champion: 'Champion',
   runner_up: 'Runner-Up',
+  third_place: 'Third Place',
   missed_playoffs: 'Missed Playoffs',
   playoff_participant: 'Playoffs',
 };
