@@ -33,11 +33,14 @@ import {
   useTradeProposalsHeadshots,
 } from "@/hooks/useTrades";
 import { supabase } from "@/lib/supabase";
+import { TRADE_STATUS } from "@/types/trade";
 import { ms } from "@/utils/scale";
 
 const TABS = ["Active", "History"];
-const ACTIVE_STATUSES = ["pending", "accepted", "in_review"];
-const HISTORY_STATUSES = ["completed", "rejected", "cancelled", "vetoed"];
+// Typed readonly string[] so `.includes(proposal.status)` type-checks — the
+// generated DB type surfaces proposal.status as plain string.
+const ACTIVE_STATUSES: readonly string[] = [TRADE_STATUS.PENDING, TRADE_STATUS.ACCEPTED, TRADE_STATUS.IN_REVIEW];
+const HISTORY_STATUSES: readonly string[] = [TRADE_STATUS.COMPLETED, TRADE_STATUS.REJECTED, TRADE_STATUS.CANCELLED, TRADE_STATUS.VETOED];
 
 export default function Trades() {
   const params = useLocalSearchParams<{
@@ -131,7 +134,7 @@ export default function Trades() {
     return proposals.filter((p) => {
       if (!statuses.includes(p.status)) return false;
       // Hide pending proposals the user isn't involved in
-      if (p.status === 'pending' && !p.teams.some((t) => t.team_id === teamId)) return false;
+      if (p.status === TRADE_STATUS.PENDING && !p.teams.some((t) => t.team_id === teamId)) return false;
       return true;
     });
   }, [proposals, tab, teamId]);

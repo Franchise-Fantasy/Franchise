@@ -23,7 +23,7 @@ import { useTradeDetailActions } from '@/hooks/useTradeDetailActions';
 import { TradeItemRow, TradeProposalRow, useTradeVotes } from '@/hooks/useTrades';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats } from '@/types/player';
-import { estimatePickFpts } from '@/types/trade';
+import { estimatePickFpts, TRADE_STATUS, TEAM_RESPONSE } from '@/types/trade';
 import { ms, s } from '@/utils/scale';
 import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
 
@@ -110,17 +110,18 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
   const teamNameMap: Record<string, string> = {};
   proposal.teams.forEach((t) => { teamNameMap[t.team_id] = t.team_name; });
 
-  const isTerminal = ['completed', 'rejected', 'cancelled', 'vetoed', 'reversed'].includes(proposal.status);
+  const TERMINAL_STATUSES: readonly string[] = [TRADE_STATUS.COMPLETED, TRADE_STATUS.REJECTED, TRADE_STATUS.CANCELLED, TRADE_STATUS.VETOED, TRADE_STATUS.REVERSED];
+  const isTerminal = TERMINAL_STATUSES.includes(proposal.status);
   const isCounteroffer = !!proposal.counteroffer_of;
-  const isInCounterofferChain = !isTerminal && (!!proposal.counteroffer_of || proposal.status === 'pending' || proposal.status === 'accepted');
+  const isInCounterofferChain = !isTerminal && (!!proposal.counteroffer_of || proposal.status === TRADE_STATUS.PENDING || proposal.status === TRADE_STATUS.ACCEPTED);
 
   const myProposalTeam = proposal.teams.find((t) => t.team_id === teamId);
   const isProposer = proposal.proposed_by_team_id === teamId;
   const isInvolved = !!myProposalTeam;
   const myTeamStatus = myProposalTeam?.status;
 
-  const isEditable = proposal.status === 'pending' && isProposer && !!onEdit &&
-    proposal.teams.filter((t) => t.team_id !== teamId).every((t) => t.status === 'pending');
+  const isEditable = proposal.status === TRADE_STATUS.PENDING && isProposer && !!onEdit &&
+    proposal.teams.filter((t) => t.team_id !== teamId).every((t) => t.status === TEAM_RESPONSE.PENDING);
 
   const myNetGain = proposal.items.reduce((acc, item) => {
     if (!item.player_id) return acc;
@@ -140,7 +141,7 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
   );
 
   const { data: votes } = useTradeVotes(
-    proposal.status === 'in_review' ? proposal.id : null,
+    proposal.status === TRADE_STATUS.IN_REVIEW ? proposal.id : null,
   );
 
   const { data: leagueSettings } = useQuery({
@@ -213,7 +214,7 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
   // have spare roster room and the server won't flag me — no picker needed,
   // even when `myNetGain > 0`. If I've already submitted enough drops, we
   // fall through to the "waiting on other teams" chip instead.
-  const needsMyDrop = proposal.status === 'pending_drops' && isInvolved && dropsNeeded > mySubmittedDropCount;
+  const needsMyDrop = proposal.status === TRADE_STATUS.PENDING_DROPS && isInvolved && dropsNeeded > mySubmittedDropCount;
 
   const { data: myRoster } = useQuery({
     queryKey: queryKeys.dropPickerRoster(teamId, leagueId, proposal.id),
@@ -232,7 +233,7 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
           .select('player_id, trade_proposals!inner(id, status)')
           .eq('from_team_id', teamId)
           .neq('trade_proposals.id', proposal.id)
-          .in('trade_proposals.status', ['pending', 'accepted', 'in_review', 'delayed', 'pending_drops'])
+          .in('trade_proposals.status', [TRADE_STATUS.PENDING, TRADE_STATUS.ACCEPTED, TRADE_STATUS.IN_REVIEW, TRADE_STATUS.DELAYED, TRADE_STATUS.PENDING_DROPS])
           .not('player_id', 'is', null),
       ]);
       if (lpRes.error) throw lpRes.error;
@@ -310,7 +311,7 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
 
   // Review countdown
   let reviewCountdown = '';
-  if (proposal.status === 'in_review' && proposal.review_expires_at) {
+  if (proposal.status === TRADE_STATUS.IN_REVIEW && proposal.review_expires_at) {
     const remaining = new Date(proposal.review_expires_at).getTime() - Date.now();
     if (remaining > 0) {
       const hrs = Math.floor(remaining / 3600000);
@@ -329,15 +330,15 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
   // merlot for negative finals (rejected, vetoed), neutral for cancelled
   // / reversed.
   const terminalBg =
-    proposal.status === 'completed'
+    proposal.status === TRADE_STATUS.COMPLETED
       ? c.successMuted
-      : proposal.status === 'rejected' || proposal.status === 'vetoed'
+      : proposal.status === TRADE_STATUS.REJECTED || proposal.status === TRADE_STATUS.VETOED
         ? c.dangerMuted
         : c.cardAlt;
   const terminalFg =
-    proposal.status === 'completed'
+    proposal.status === TRADE_STATUS.COMPLETED
       ? c.success
-      : proposal.status === 'rejected' || proposal.status === 'vetoed'
+      : proposal.status === TRADE_STATUS.REJECTED || proposal.status === TRADE_STATUS.VETOED
         ? c.danger
         : c.secondaryText;
 
@@ -457,7 +458,7 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
           <TradeStatusTimeline status={proposal.status} reviewCountdown={reviewCountdown} />
 
                 {/* Veto info */}
-                {proposal.status === 'in_review' && leagueSettings?.trade_veto_type === 'league_vote' && (
+                {proposal.status === TRADE_STATUS.IN_REVIEW && leagueSettings?.trade_veto_type === 'league_vote' && (
                   <View style={[styles.infoChip, { backgroundColor: c.cardAlt }]}>
                     <Ionicons name="people" size={14} color={c.secondaryText} />
                     <ThemedText style={[styles.infoChipText, { color: c.secondaryText }]}>
@@ -479,7 +480,7 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
                         newItemKeys={newItemKeys}
                         itemKeyFn={itemKey}
                         teamNameMap={teamNameMap}
-                        teamStatus={proposal.status === 'pending' ? t.status : undefined}
+                        teamStatus={proposal.status === TRADE_STATUS.PENDING ? t.status : undefined}
                         isMultiTeam={!isTwoTeam}
                       />
                     </View>
@@ -510,7 +511,7 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
                 )}
 
                 {/* Pending drops — waiting on other teams */}
-                {proposal.status === 'pending_drops' && !needsMyDrop && (
+                {proposal.status === TRADE_STATUS.PENDING_DROPS && !needsMyDrop && (
                   <View style={[styles.infoChip, { backgroundColor: c.cardAlt }]}>
                     <Ionicons name="hourglass-outline" size={14} color={c.secondaryText} />
                     <ThemedText style={[styles.infoChipText, { color: c.secondaryText }]}>
@@ -550,19 +551,19 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
                   <View style={[styles.terminalBanner, { backgroundColor: terminalBg }]}>
                     <Ionicons
                       name={
-                        proposal.status === 'completed' ? 'checkmark-circle'
-                        : proposal.status === 'rejected' ? 'close-circle'
-                        : proposal.status === 'vetoed' ? 'ban'
+                        proposal.status === TRADE_STATUS.COMPLETED ? 'checkmark-circle'
+                        : proposal.status === TRADE_STATUS.REJECTED ? 'close-circle'
+                        : proposal.status === TRADE_STATUS.VETOED ? 'ban'
                         : 'arrow-undo'
                       }
                       size={18}
                       color={terminalFg}
                     />
                     <ThemedText style={[styles.terminalText, { color: terminalFg }]}>
-                      {proposal.status === 'completed' ? 'This trade has been completed.'
-                       : proposal.status === 'rejected' ? 'This trade was declined.'
-                       : proposal.status === 'vetoed' ? 'This trade was vetoed.'
-                       : proposal.status === 'cancelled' ? 'This trade was withdrawn.'
+                      {proposal.status === TRADE_STATUS.COMPLETED ? 'This trade has been completed.'
+                       : proposal.status === TRADE_STATUS.REJECTED ? 'This trade was declined.'
+                       : proposal.status === TRADE_STATUS.VETOED ? 'This trade was vetoed.'
+                       : proposal.status === TRADE_STATUS.CANCELLED ? 'This trade was withdrawn.'
                        : 'This trade was reversed.'}
                     </ThemedText>
                   </View>

@@ -17,6 +17,7 @@ import { useConfirm } from '@/context/ConfirmProvider';
 import { useColors } from '@/hooks/useColors';
 import { TradeProposalRow, useTradeProposals } from '@/hooks/useTrades';
 import { supabase } from '@/lib/supabase';
+import { TRADE_STATUS } from '@/types/trade';
 import { ms, s } from '@/utils/scale';
 
 interface Props {
@@ -33,7 +34,7 @@ export function ReverseTradeModal({ visible, leagueId, onClose }: Props) {
   const [processing, setProcessing] = useState(false);
 
   const { data: proposals, isLoading } = useTradeProposals(visible ? leagueId : null);
-  const completedTrades = (proposals ?? []).filter((p) => p.status === 'completed');
+  const completedTrades = (proposals ?? []).filter((p) => p.status === TRADE_STATUS.COMPLETED);
 
   function handleClose() {
     setSelected(null);

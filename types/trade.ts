@@ -1,11 +1,43 @@
-export type TradeStatus =
-  | 'pending'
-  | 'accepted'
-  | 'in_review'
-  | 'completed'
-  | 'rejected'
-  | 'cancelled'
-  | 'vetoed';
+/**
+ * Single source of truth for trade proposal statuses. Use `TRADE_STATUS.X`
+ * instead of bare string literals so typos are compile errors and the value
+ * set has one definition. The column is plain `text` in Postgres (no CHECK),
+ * so this object IS the contract — keep it in sync with the statuses
+ * execute-trade / reverse-trade / accept_trade_proposal actually write.
+ */
+export const TRADE_STATUS = {
+  /** Proposed, awaiting the other team(s) to accept/reject. */
+  PENDING: 'pending',
+  /** All parties accepted; ready to execute (or enter review). */
+  ACCEPTED: 'accepted',
+  /** Under commissioner / league-vote review before execution. */
+  IN_REVIEW: 'in_review',
+  /** Accepted but a traded player has a game in progress — executes next slate. */
+  DELAYED: 'delayed',
+  /** Execution blocked on roster overflow; a team must submit drops. */
+  PENDING_DROPS: 'pending_drops',
+  /** Executed — players/picks transferred, transaction filed. */
+  COMPLETED: 'completed',
+  /** A party declined the proposal. */
+  REJECTED: 'rejected',
+  /** Proposer withdrew before execution. */
+  CANCELLED: 'cancelled',
+  /** Commissioner or league vote vetoed during review. */
+  VETOED: 'vetoed',
+  /** Commissioner unwound a completed trade. */
+  REVERSED: 'reversed',
+} as const;
+
+export type TradeStatus = (typeof TRADE_STATUS)[keyof typeof TRADE_STATUS];
+
+/** Per-team response within a multi-team proposal. */
+export const TEAM_RESPONSE = {
+  PENDING: 'pending',
+  ACCEPTED: 'accepted',
+  REJECTED: 'rejected',
+} as const;
+
+export type TeamResponse = (typeof TEAM_RESPONSE)[keyof typeof TEAM_RESPONSE];
 
 export type TradeVetoType = 'commissioner' | 'league_vote' | 'none';
 
@@ -26,7 +58,7 @@ export interface TradeProposalTeam {
   id: string;
   proposal_id: string;
   team_id: string;
-  status: 'pending' | 'accepted' | 'rejected';
+  status: TeamResponse;
   responded_at: string | null;
   // Joined
   team_name?: string;

@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { TRADE_STATUS } from '@/types/trade';
 import { ms, s } from '@/utils/scale';
 
 type TradeStep = 'proposed' | 'accepted' | 'in_review' | 'completed';
@@ -19,14 +20,14 @@ const STEP_LABELS: Record<TradeStep, string> = {
 /** Maps the proposal status to which steps are "done" */
 function getActiveStep(status: string): number {
   switch (status) {
-    case 'pending':
-    case 'pending_drops':
+    case TRADE_STATUS.PENDING:
+    case TRADE_STATUS.PENDING_DROPS:
       return 0;
-    case 'accepted':
+    case TRADE_STATUS.ACCEPTED:
       return 1;
-    case 'in_review':
+    case TRADE_STATUS.IN_REVIEW:
       return 2;
-    case 'completed':
+    case TRADE_STATUS.COMPLETED:
       return 3;
     default:
       return -1; // terminal states like rejected/cancelled/vetoed
@@ -108,7 +109,7 @@ export function TradeStatusTimeline({ status, reviewCountdown }: TradeStatusTime
       </View>
 
       {/* Review countdown */}
-      {reviewCountdown && status === 'in_review' && (
+      {reviewCountdown && status === TRADE_STATUS.IN_REVIEW && (
         <View style={[styles.countdownWrap, { backgroundColor: c.cardAlt }]}>
           <ThemedText style={[styles.countdown, { color: c.secondaryText }]}>
             {reviewCountdown}
