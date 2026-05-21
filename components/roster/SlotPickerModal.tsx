@@ -22,6 +22,7 @@ import { formatPosition } from "@/utils/formatting";
 import { getInjuryBadge } from "@/utils/nba/injuryBadge";
 import { formatGameTime, ScheduleEntry } from "@/utils/nba/nbaSchedule";
 import { slotLabel } from "@/utils/roster/rosterSlots";
+import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
 import { ms, s } from "@/utils/scale";
 
 
@@ -166,7 +167,7 @@ export function SlotPickerModal({
         p.roster_slot &&
         p.roster_slot !== "BE" &&
         p.roster_slot !== "IR" &&
-        p.roster_slot !== "TAXI",
+        p.roster_slot !== ROSTER_SLOT.TAXI,
     ),
     irFillPlayers: eligiblePlayers.filter((p) => p.roster_slot === "IR"),
   }), [eligiblePlayers]);
@@ -344,7 +345,7 @@ export function SlotPickerModal({
   const player = sourceSlot.player;
   const label = slotLabel(sourceSlot.slotPosition);
   const isIrOrTaxi =
-    sourceSlot.slotPosition === "IR" || sourceSlot.slotPosition === "TAXI";
+    sourceSlot.slotPosition === "IR" || sourceSlot.slotPosition === ROSTER_SLOT.TAXI;
 
   // Dest mode: occupied starter/bench. Fill mode: empty slot or IR/TAXI.
   const isDestMode = !!player && !isIrOrTaxi;
@@ -352,7 +353,7 @@ export function SlotPickerModal({
   // Quick actions for fill mode (occupied IR/TAXI)
   const fillQuickActions: QuickAction[] = [];
   if (player && sourceSlot.slotPosition === "IR") fillQuickActions.push("activate");
-  if (player && sourceSlot.slotPosition === "TAXI") fillQuickActions.push("promote");
+  if (player && sourceSlot.slotPosition === ROSTER_SLOT.TAXI) fillQuickActions.push("promote");
 
   const activeQuickActions = isDestMode ? quickActions : fillQuickActions;
 

@@ -9,6 +9,7 @@ import { ToggleRow } from '@/components/ui/ToggleRow';
 import { Colors, Fonts } from '@/constants/Colors';
 import { getLimitablePositions, LeagueWizardState, LimitablePosition, PositionLimits, TAXI_EXPERIENCE_OPTIONS } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { ROSTER_SLOT } from '@/utils/roster/rosterSlotsShared';
 import { ms, s } from '@/utils/scale';
 
 interface StepRosterProps {
@@ -24,11 +25,11 @@ export function StepRoster({ state, onSlotChange, onChange, onResetRoster }: Ste
 
   const posLimitsEnabled = Object.keys(state.positionLimits ?? {}).length > 0;
   const limitablePositions = getLimitablePositions(state.sport);
-  const activeSlots = state.rosterSlots.filter((s) => s.position !== 'IR' && s.position !== 'TAXI');
+  const activeSlots = state.rosterSlots.filter((s) => s.position !== 'IR' && s.position !== ROSTER_SLOT.TAXI);
   const irSlot = state.rosterSlots.find((s) => s.position === 'IR');
   const irIndex = state.rosterSlots.findIndex((s) => s.position === 'IR');
-  const taxiSlot = state.rosterSlots.find((s) => s.position === 'TAXI');
-  const taxiIndex = state.rosterSlots.findIndex((s) => s.position === 'TAXI');
+  const taxiSlot = state.rosterSlots.find((s) => s.position === ROSTER_SLOT.TAXI);
+  const taxiIndex = state.rosterSlots.findIndex((s) => s.position === ROSTER_SLOT.TAXI);
   const totalSize = activeSlots.reduce((sum, s) => sum + s.count, 0);
 
   return (

@@ -7,6 +7,7 @@ import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { getLimitablePositions, LeagueWizardState, SPORT_DISPLAY, WAIVER_DAY_LABELS } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { ROSTER_SLOT } from '@/utils/roster/rosterSlotsShared';
 import { taxiExperienceLabel } from '@/utils/roster/taxiEligibility';
 import { ms, s } from '@/utils/scale';
 
@@ -36,7 +37,7 @@ export function StepReview({
   const totalRoster = state.rosterSlots.reduce((sum, s) => sum + s.count, 0);
   const activeSlots = state.rosterSlots.filter((s) => s.count > 0);
   const isDynasty = (state.leagueType ?? 'Dynasty') === 'Dynasty';
-  const taxiSlotCount = state.rosterSlots.find((s) => s.position === 'TAXI')?.count ?? 0;
+  const taxiSlotCount = state.rosterSlots.find((s) => s.position === ROSTER_SLOT.TAXI)?.count ?? 0;
 
   return (
     <View style={styles.container}>

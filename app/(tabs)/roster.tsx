@@ -83,6 +83,7 @@ import { LineupPlayer, optimizeLineup } from "@/utils/roster/autoLineup";
 import { fetchTeamSlots } from "@/utils/roster/fetchTeamSlots";
 import { isIrEligibleStatus } from "@/utils/roster/illegalIR";
 import { isEligibleForSlot, slotLabel } from "@/utils/roster/rosterSlots";
+import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
 import { isTaxiEligible } from "@/utils/roster/taxiEligibility";
 import { buildCompositeScatter } from "@/utils/scoring/categoryAnalytics";
 import {
@@ -174,7 +175,7 @@ async function fetchTeamRosterForDate(
   //   presence on earlier dates even though acquired_at was overwritten by the trade)
   const currentForDate = [...slots.currentPlayerIds].filter((pid) => {
     const slot = slots.slotMap.get(pid);
-    if (slot === "DROPPED") return false;
+    if (slot === ROSTER_SLOT.DROPPED) return false;
     if (slot && slot !== "BE") return true; // has a real slot assignment — was on team
     const acquired = slots.acquiredDateMap.get(pid);
     if (acquired && date < acquired) return false; // no slot + acquired after this date
@@ -184,7 +185,7 @@ async function fetchTeamRosterForDate(
   const droppedForDate = isPast
     ? slots.droppedPlayerIds.filter((pid) => {
         const slot = slots.slotMap.get(pid);
-        return slot && slot !== "DROPPED"; // only show if they had an active slot that day
+        return slot && slot !== ROSTER_SLOT.DROPPED; // only show if they had an active slot that day
       })
     : [];
 
@@ -597,10 +598,10 @@ export default function RosterScreen() {
   if (rosterConfig && rosterPlayers) {
     const benchConfig = rosterConfig.find((c) => c.position === "BE");
     const irConfig = rosterConfig.find((c) => c.position === "IR");
-    const taxiConfig = rosterConfig.find((c) => c.position === "TAXI");
+    const taxiConfig = rosterConfig.find((c) => c.position === ROSTER_SLOT.TAXI);
     const activeConfigs = rosterConfig.filter(
       (c) =>
-        c.position !== "BE" && c.position !== "IR" && c.position !== "TAXI",
+        c.position !== "BE" && c.position !== "IR" && c.position !== ROSTER_SLOT.TAXI,
     );
 
     // Build a set of all valid numbered slot names (PG, SG, UTIL1, UTIL2, etc.)
@@ -650,7 +651,7 @@ export default function RosterScreen() {
     }
 
     for (const player of rosterPlayers) {
-      if (player.roster_slot === "IR" || player.roster_slot === "TAXI")
+      if (player.roster_slot === "IR" || player.roster_slot === ROSTER_SLOT.TAXI)
         continue;
       if (
         !player.roster_slot ||
@@ -690,12 +691,12 @@ export default function RosterScreen() {
 
     if (taxiConfig && taxiConfig.slot_count > 0) {
       const taxiPlayers = rosterPlayers.filter(
-        (p) => p.roster_slot === "TAXI",
+        (p) => p.roster_slot === ROSTER_SLOT.TAXI,
       );
       const taxiSlotCount = Math.max(taxiConfig.slot_count, taxiPlayers.length);
       for (let i = 0; i < taxiSlotCount; i++) {
         taxiSlots.push({
-          slotPosition: "TAXI",
+          slotPosition: ROSTER_SLOT.TAXI,
           slotIndex: i,
           player: taxiPlayers[i] ?? null,
         });
@@ -732,7 +733,7 @@ export default function RosterScreen() {
     if (!rosterPlayers) return undefined;
     const irActive = rosterPlayers.filter((p) => p.roster_slot === "IR").length;
     const taxiActive = rosterPlayers.filter(
-      (p) => p.roster_slot === "TAXI",
+      (p) => p.roster_slot === ROSTER_SLOT.TAXI,
     ).length;
     const onBlockCount = rosterPlayers.filter(
       (p) => (p as { on_trade_block?: boolean }).on_trade_block,
@@ -756,7 +757,7 @@ export default function RosterScreen() {
     const srcSlot = activeSlot.slotPosition;
     const srcIsBench = srcSlot === "BE";
     const srcIsStarter =
-      srcSlot !== "BE" && srcSlot !== "IR" && srcSlot !== "TAXI";
+      srcSlot !== "BE" && srcSlot !== "IR" && srcSlot !== ROSTER_SLOT.TAXI;
     const allSlots = [...starterSlots, ...benchSlots, ...irSlots, ...taxiSlots];
     const destinations: DestinationSlot[] = [];
 
@@ -771,11 +772,11 @@ export default function RosterScreen() {
       const dstIsStarter =
         s.slotPosition !== "BE" &&
         s.slotPosition !== "IR" &&
-        s.slotPosition !== "TAXI";
+        s.slotPosition !== ROSTER_SLOT.TAXI;
       const dstIsBench = s.slotPosition === "BE";
 
       // IR/TAXI destinations handled by quick actions
-      if (s.slotPosition === "IR" || s.slotPosition === "TAXI") continue;
+      if (s.slotPosition === "IR" || s.slotPosition === ROSTER_SLOT.TAXI) continue;
 
       // Bench → bench makes no sense
       if (dstIsBench && srcIsBench) continue;
@@ -821,7 +822,7 @@ export default function RosterScreen() {
     const actions: QuickAction[] = [];
 
     const srcIsStarter =
-      srcSlot !== "BE" && srcSlot !== "IR" && srcSlot !== "TAXI";
+      srcSlot !== "BE" && srcSlot !== "IR" && srcSlot !== ROSTER_SLOT.TAXI;
     if (srcIsStarter) actions.push("bench");
 
     if (
@@ -850,7 +851,7 @@ export default function RosterScreen() {
     if (!activeSlot || !rosterPlayers) return [];
     const slotPos = activeSlot.slotPosition;
     const isIR = slotPos === "IR";
-    const isTaxi = slotPos === "TAXI";
+    const isTaxi = slotPos === ROSTER_SLOT.TAXI;
     const currentPlayer = activeSlot.player;
 
     return rosterPlayers.filter((p) => {
@@ -882,12 +883,12 @@ export default function RosterScreen() {
           p.roster_slot !== null &&
           p.roster_slot !== "BE" &&
           p.roster_slot !== "IR" &&
-          p.roster_slot !== "TAXI"
+          p.roster_slot !== ROSTER_SLOT.TAXI
         );
       }
 
       // Empty starter: position-eligible, not on taxi
-      if (p.roster_slot === "TAXI") return false;
+      if (p.roster_slot === ROSTER_SLOT.TAXI) return false;
       if (!isEligibleForSlot(p.position, slotPos)) return false;
       // Exclude locked players unless IR/TAXI slot
       if (isPlayerLocked(p) && !isIR && !isTaxi) return false;
@@ -942,9 +943,9 @@ export default function RosterScreen() {
     }
 
     const srcIsIR = sourceSlotPosition === "IR";
-    const srcIsTaxi = sourceSlotPosition === "TAXI";
+    const srcIsTaxi = sourceSlotPosition === ROSTER_SLOT.TAXI;
     const dstIsIR = destSlotPosition === "IR";
-    const dstIsTaxi = destSlotPosition === "TAXI";
+    const dstIsTaxi = destSlotPosition === ROSTER_SLOT.TAXI;
 
     // ── IR legality checks ──
     // 1. Can only place a player on IR if they actually qualify for IR.
@@ -1058,7 +1059,7 @@ export default function RosterScreen() {
         await runUpdate(
           supabase
             .from("league_players")
-            .update({ roster_slot: "TAXI" })
+            .update({ roster_slot: ROSTER_SLOT.TAXI })
             .eq("league_id", leagueId)
             .eq("team_id", teamId)
             .eq("player_id", sourcePlayer.player_id),
@@ -1090,7 +1091,7 @@ export default function RosterScreen() {
             .eq("team_id", teamId)
             .eq("league_id", leagueId)
             .eq("player_id", sourcePlayer.player_id)
-            .eq("roster_slot", "TAXI")
+            .eq("roster_slot", ROSTER_SLOT.TAXI)
             .gt("lineup_date", effectiveDate),
         );
         await runUpdate(
@@ -1556,7 +1557,7 @@ export default function RosterScreen() {
   const eligibleDestKeys = useMemo(() => {
     if (!activeSlot?.player) return new Set<string>();
     const isIrOrTaxiSrc =
-      activeSlot.slotPosition === "IR" || activeSlot.slotPosition === "TAXI";
+      activeSlot.slotPosition === "IR" || activeSlot.slotPosition === ROSTER_SLOT.TAXI;
     if (isIrOrTaxiSrc) return new Set<string>();
     const dests = getEligibleDestinations();
     return new Set(dests.map((d) => `${d.slot.slotPosition}-${d.slot.slotIndex}`));
@@ -1674,7 +1675,7 @@ export default function RosterScreen() {
     const isOnCourt = !!(liveData?.oncourt && liveData.game_status === 2);
     const gameInfo = liveData ? formatGameInfo(liveData) : "";
     const isIrOrTaxi =
-      slot.slotPosition === "IR" || slot.slotPosition === "TAXI";
+      slot.slotPosition === "IR" || slot.slotPosition === ROSTER_SLOT.TAXI;
     // Empty slots have no player to lock, but in daily-lock mode after the
     // first game starts, no players are eligible to fill them — so treat the
     // empty slot itself as locked to avoid opening a picker with no options.
@@ -2249,7 +2250,7 @@ export default function RosterScreen() {
             if (action === "activate") {
               // Check if active roster is full before activating from IR
               const activeCount = rosterPlayers?.filter(
-                (p) => p.roster_slot !== "IR" && p.roster_slot !== "TAXI",
+                (p) => p.roster_slot !== "IR" && p.roster_slot !== ROSTER_SLOT.TAXI,
               ).length ?? 0;
               const maxActive = league?.roster_size ?? 13;
               if (activeCount >= maxActive) {
@@ -2279,7 +2280,7 @@ export default function RosterScreen() {
                 handleRosterMove(
                   player,
                   src,
-                  "TAXI",
+                  ROSTER_SLOT.TAXI,
                   taxiSlot.player,
                 );
               }

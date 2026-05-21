@@ -67,6 +67,7 @@ import {
 import { fetchNbaScheduleForDate } from "@/utils/nba/nbaSchedule";
 import { fetchTeamData, sumStarterDayPoints } from "@/utils/roster/fetchTeamData";
 import { slotLabel } from "@/utils/roster/rosterSlots";
+import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
 import {
   computeCategoryResults,
   TeamStatTotals,
@@ -103,6 +104,9 @@ interface TeamMatchupData {
   losses: number;
   ties: number;
   players: RosterPlayer[];
+  /** Players dropped mid-week — off the board, but the weekly summary
+   *  still credits the points they scored before being dropped. */
+  droppedPlayers: RosterPlayer[];
   weekTotal: number;
   dayTotal: number;
   teamStats: TeamStatTotals;
@@ -316,6 +320,7 @@ async function fetchWeekMatchupData(
       losses: oppInfo.losses,
       ties: oppInfo.ties,
       players: oppResult.players,
+      droppedPlayers: oppResult.droppedPlayers,
       weekTotal: oppResult.weekTotalAll ?? round1(
         oppResult.players.reduce((s, p) => s + p.weekPoints, 0),
       ),
@@ -334,6 +339,7 @@ async function fetchWeekMatchupData(
       losses: myInfo.losses,
       ties: myInfo.ties,
       players: myResult.players,
+      droppedPlayers: myResult.droppedPlayers,
       weekTotal: myResult.weekTotalAll ?? round1(myResult.players.reduce((s, p) => s + p.weekPoints, 0)),
       dayTotal: round1(sumStarterDayPoints(myResult.players)),
       teamStats: myResult.teamStats,
@@ -389,6 +395,7 @@ async function fetchMatchupDataById(
     losses: homeInfo.losses,
     ties: homeInfo.ties,
     players: homeResult.players,
+    droppedPlayers: homeResult.droppedPlayers,
     weekTotal: homeResult.weekTotalAll ?? round1(homeResult.players.reduce((s, p) => s + p.weekPoints, 0)),
     dayTotal: round1(sumStarterDayPoints(homeResult.players)),
     teamStats: homeResult.teamStats,
@@ -405,6 +412,7 @@ async function fetchMatchupDataById(
       losses: awayInfo.losses,
       ties: awayInfo.ties,
       players: awayResult.players,
+      droppedPlayers: awayResult.droppedPlayers,
       weekTotal: awayResult.weekTotalAll ?? round1(
         awayResult.players.reduce((s, p) => s + p.weekPoints, 0),
       ),
@@ -507,7 +515,7 @@ function MatchupBoard({
     if (liveMap.size === 0) return team.teamStats;
     const merged = { ...team.teamStats };
     for (const p of team.players) {
-      if (p.roster_slot === 'BE' || p.roster_slot === 'IR' || p.roster_slot === 'DROPPED') continue;
+      if (p.roster_slot === 'BE' || p.roster_slot === 'IR' || p.roster_slot === ROSTER_SLOT.DROPPED) continue;
       const live = liveMap.get(p.player_id);
       if (!live) continue;
       const gameLog = liveToGameLog(live);
@@ -541,8 +549,8 @@ function MatchupBoard({
     (p) =>
       !leftStarterIds.has(p.player_id) &&
       p.roster_slot !== "IR" &&
-      p.roster_slot !== "DROPPED" &&
-      p.roster_slot !== "TAXI",
+      p.roster_slot !== ROSTER_SLOT.DROPPED &&
+      p.roster_slot !== ROSTER_SLOT.TAXI,
   );
   const rightStarterIds = new Set(
     rightSlots.filter((s) => s.player).map((s) => s.player!.player_id),
@@ -552,8 +560,8 @@ function MatchupBoard({
       (p) =>
         !rightStarterIds.has(p.player_id) &&
         p.roster_slot !== "IR" &&
-        p.roster_slot !== "DROPPED" &&
-        p.roster_slot !== "TAXI",
+        p.roster_slot !== ROSTER_SLOT.DROPPED &&
+        p.roster_slot !== ROSTER_SLOT.TAXI,
     ) ?? [];
   const maxBench = Math.max(leftBench.length, rightBench.length);
   const hasBench = maxBench > 0;
@@ -1106,19 +1114,25 @@ export default function MatchupScreen() {
         }
       : null;
 
-  // Collect player IDs from both teams. `allPlayerIds` (every roster
-  // player including bench/IR/dropped) feeds the live stat subscription
-  // because per-player cells show stat lines for everyone visible in the
-  // roster. `tickerPlayerIds` is narrowed to active starting slots only —
-  // bench/IR/dropped points don't contribute to the matchup score, so
-  // their plays don't belong on the recap tape.
-  const NON_SCORING_SLOTS = ["BE", "IR", "DROPPED", "TAXI"] as const;
-  const allPlayerIds: string[] = displayData
-    ? [
-        ...displayData.leftTeam.players.map((p) => p.player_id),
-        ...(displayData.rightTeam?.players.map((p) => p.player_id) ?? []),
-      ]
-    : [];
+  // Collect player IDs from both teams. `allPlayerIds` feeds the live stat
+  // subscription — it's the union of the displayed matchup and the
+  // today-keyed matchup so today's roster stays subscribed even while the
+  // user browses a past day of the live week. The hero week score and the
+  // weekly summary both need today's live data regardless of which day the
+  // picker shows. `tickerPlayerIds` is narrowed to active starting slots
+  // only — bench/IR/dropped points don't contribute to the matchup score,
+  // so their plays don't belong on the recap tape.
+  const NON_SCORING_SLOTS = ["BE", "IR", ROSTER_SLOT.DROPPED, ROSTER_SLOT.TAXI] as const;
+  const allPlayerIds: string[] = [
+    ...new Set(
+      [
+        ...(displayData?.leftTeam.players ?? []),
+        ...(displayData?.rightTeam?.players ?? []),
+        ...(todayDisplayData?.leftTeam.players ?? []),
+        ...(todayDisplayData?.rightTeam?.players ?? []),
+      ].map((p) => p.player_id),
+    ),
+  ];
   const tickerPlayerIds: string[] = displayData
     ? [
         ...displayData.leftTeam.players
@@ -1135,8 +1149,15 @@ export default function MatchupScreen() {
   const isYesterday = selectedDate === yesterday;
   const isFutureDate = selectedDate > today;
   const weekIsLive = !!currentWeek && currentWeek.start_date <= today && today <= currentWeek.end_date;
-  // Live stats for per-player display on today/yesterday only
-  const rawLiveMap = useLivePlayerStats(allPlayerIds, isToday || isYesterday);
+  // Live stats — kept subscribed across the whole live week (not just
+  // today/yesterday) so the hero week score and the weekly summary always
+  // have today's live data, even while the user browses a past day. Live
+  // data itself only ever covers today + yesterday (see useLivePlayerStats);
+  // per-day cells filter to `selectedDate` via `liveMap` below.
+  const rawLiveMap = useLivePlayerStats(
+    allPlayerIds,
+    weekIsLive || isToday || isYesterday,
+  );
 
   // Recap ticker events. Hook subscribes to global live_scoring_events
   // inserts and filters to the matchup's active-slot players client-side
@@ -1191,7 +1212,8 @@ export default function MatchupScreen() {
   // yesterday's status=3 finals, which are already rolled into
   // heroData.weekTotal via player_games — adding them again here
   // double-counts (e.g. a player whose team didn't play today shows
-  // their yesterday-final fpts twice).
+  // their yesterday-final fpts twice). Shared by the hero week score and
+  // the weekly summary modal so the two always agree.
   const heroLiveMap = useMemo(
     () =>
       new Map(
@@ -1201,24 +1223,6 @@ export default function MatchupScreen() {
       ),
     [rawLiveMap, today],
   );
-
-  // Weekly summary map: only include live stats for games whose game_date
-  // falls within the currently-displayed week. Without this, yesterday's
-  // finalized games (still in `rawLiveMap` because useLivePlayerStats
-  // fetches today + yesterday) get merged into next week's summary when
-  // the week rolls over, since the modal's "skip status=3 with past stats"
-  // guard doesn't trigger before player_games has any rows for the new week.
-  const weeklySummaryLiveMap = useMemo(() => {
-    if (!currentWeek) return rawLiveMap;
-    return new Map(
-      [...rawLiveMap].filter(
-        ([, stats]) =>
-          stats.game_date >= currentWeek.start_date &&
-          stats.game_date <= currentWeek.end_date,
-      ),
-    );
-  }, [rawLiveMap, currentWeek]);
-
 
   // Server-authoritative week scores (single source of truth)
   const { data: weekScores } = useWeekScores({
@@ -1366,7 +1370,7 @@ export default function MatchupScreen() {
         if (
           p.roster_slot === "BE" ||
           p.roster_slot === "IR" ||
-          p.roster_slot === "DROPPED"
+          p.roster_slot === ROSTER_SLOT.DROPPED
         )
           return sum;
         const live = statsMap.get(p.player_id);
@@ -1540,7 +1544,7 @@ export default function MatchupScreen() {
         onGoToToday={() => setSelectedDate(today)}
         onSchedulePress={() => setScheduleVisible(true)}
         onSummaryPress={
-          displayData && currentWeek
+          heroDataLeft && currentWeek
             ? () => setWeeklySummaryVisible(true)
             : undefined
         }
@@ -1677,27 +1681,33 @@ export default function MatchupScreen() {
         />
       )}
 
-      {scoring && displayData && currentWeek && (
+      {scoring && heroDataLeft && currentWeek && (
+        // Fed from heroData (the today-keyed, day-picker-independent fetch),
+        // not the per-day displayData — so the summary total stays fixed as
+        // the user clicks through days and matches the hero week score.
         <WeeklySummaryModal
           visible={weeklySummaryVisible}
           onClose={() => setWeeklySummaryVisible(false)}
           homeTeam={{
-            teamName: displayData.leftTeam.teamName,
-            tricode: displayData.leftTeam.tricode,
-            players: displayData.leftTeam.players,
+            teamName: heroDataLeft.teamName,
+            tricode: heroDataLeft.tricode,
+            players: [...heroDataLeft.players, ...heroDataLeft.droppedPlayers],
           }}
           awayTeam={
-            displayData.rightTeam
+            heroDataRight
               ? {
-                  teamName: displayData.rightTeam.teamName,
-                  tricode: displayData.rightTeam.tricode,
-                  players: displayData.rightTeam.players,
+                  teamName: heroDataRight.teamName,
+                  tricode: heroDataRight.tricode,
+                  players: [
+                    ...heroDataRight.players,
+                    ...heroDataRight.droppedPlayers,
+                  ],
                 }
               : null
           }
           scoring={scoring}
           weekLabel={`Week ${currentWeek.week_number} · ${formatWeekRange(currentWeek.start_date, currentWeek.end_date)}`}
-          liveMap={weeklySummaryLiveMap}
+          liveMap={heroLiveMap}
         />
       )}
 

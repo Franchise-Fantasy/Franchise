@@ -1,4 +1,5 @@
 import { RosterSlot, ScoringCategory, DEFAULT_SCORING } from '@/constants/LeagueDefaults';
+import { ROSTER_SLOT } from '@/utils/roster/rosterSlotsShared';
 
 // --- Types ---
 
@@ -103,7 +104,7 @@ export function mapSleeperPositions(rosterPositions: string[]): RosterSlot[] {
   // — users opt in during the Roster step. Same shape as
   // `DEFAULT_ROSTER_SLOTS` so StepRoster's TAXI UI renders for
   // imports too.
-  const ORDER = ['PG', 'SG', 'SF', 'PF', 'C', 'G', 'F', 'UTIL', 'BE', 'IR', 'TAXI'];
+  const ORDER = ['PG', 'SG', 'SF', 'PF', 'C', 'G', 'F', 'UTIL', 'BE', 'IR', ROSTER_SLOT.TAXI];
 
   return ORDER.map((pos) => ({
     position: pos,

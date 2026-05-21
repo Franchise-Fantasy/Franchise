@@ -1,3 +1,5 @@
+import { ROSTER_SLOT } from '@/utils/roster/rosterSlotsShared';
+
 import { getEligiblePositions , baseSlotName } from './rosterSlots';
 
 
@@ -8,7 +10,7 @@ interface RosterPlayer {
   roster_slot?: string;
 }
 
-const IR_TAXI_SLOTS = ['IR', 'TAXI'];
+const IR_TAXI_SLOTS: readonly string[] = ['IR', ROSTER_SLOT.TAXI];
 
 /** Filter out IR/TAXI players — they don't count toward position limits. */
 function activeOnly(roster: RosterPlayer[]): RosterPlayer[] {

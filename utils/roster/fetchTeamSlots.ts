@@ -9,6 +9,7 @@
 import { supabase } from '@/lib/supabase';
 import { getSportToday } from '@/utils/leagueTime';
 import { resolveSlot } from '@/utils/roster/resolveSlot';
+import { ROSTER_SLOT } from '@/utils/roster/rosterSlotsShared';
 
 interface DailyEntry {
   lineup_date: string;
@@ -110,7 +111,7 @@ export async function fetchTeamSlots(
           e.lineup_date >= bounds.start_date &&
           e.lineup_date <= bounds.end_date &&
           e.lineup_date <= date &&
-          e.roster_slot !== 'DROPPED',
+          e.roster_slot !== ROSTER_SLOT.DROPPED,
       );
       if (hasRelevantEntry) droppedPlayerIds.push(pid);
     }
@@ -120,7 +121,7 @@ export async function fetchTeamSlots(
   const dropDateMap = new Map<string, string>();
   for (const pid of droppedPlayerIds) {
     const entries = dailyByPlayer.get(pid) ?? [];
-    const droppedEntry = entries.find((e) => e.roster_slot === 'DROPPED');
+    const droppedEntry = entries.find((e) => e.roster_slot === ROSTER_SLOT.DROPPED);
     if (droppedEntry) {
       dropDateMap.set(pid, droppedEntry.lineup_date);
     }
@@ -139,7 +140,7 @@ export async function fetchTeamSlots(
     const acqDate = acquiredDateMap.get(pid);
     if (currentPlayerIds.has(pid) && acqDate && date < acqDate) {
       const hasWeekEntries = (dailyByPlayer.get(pid) ?? []).some(
-        (e) => e.roster_slot !== 'DROPPED' && e.lineup_date >= bounds.start_date && e.lineup_date <= date,
+        (e) => e.roster_slot !== ROSTER_SLOT.DROPPED && e.lineup_date >= bounds.start_date && e.lineup_date <= date,
       );
       if (!hasWeekEntries) continue;
     }

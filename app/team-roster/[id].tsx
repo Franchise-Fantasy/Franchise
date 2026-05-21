@@ -52,6 +52,7 @@ import {
 import { getTeamLogoUrl } from '@/utils/nba/playerHeadshot';
 import { fetchTeamSlots } from '@/utils/roster/fetchTeamSlots';
 import { slotLabel } from '@/utils/roster/rosterSlots';
+import { ROSTER_SLOT } from '@/utils/roster/rosterSlotsShared';
 import { ms, s } from '@/utils/scale';
 import {
   calculateGameFantasyPoints,
@@ -241,10 +242,10 @@ export default function TeamRosterScreen() {
   if (rosterConfig && rosterPlayers) {
     const benchConfig = rosterConfig.find((cfg) => cfg.position === 'BE');
     const irConfig = rosterConfig.find((cfg) => cfg.position === 'IR');
-    const taxiConfig = rosterConfig.find((cfg) => cfg.position === 'TAXI');
+    const taxiConfig = rosterConfig.find((cfg) => cfg.position === ROSTER_SLOT.TAXI);
     const activeConfigs = rosterConfig.filter(
       (cfg) =>
-        cfg.position !== 'BE' && cfg.position !== 'IR' && cfg.position !== 'TAXI',
+        cfg.position !== 'BE' && cfg.position !== 'IR' && cfg.position !== ROSTER_SLOT.TAXI,
     );
 
     const validSlotNames = new Set<string>();
@@ -285,7 +286,7 @@ export default function TeamRosterScreen() {
     }
 
     for (const player of rosterPlayers) {
-      if (player.roster_slot === 'IR' || player.roster_slot === 'TAXI') continue;
+      if (player.roster_slot === 'IR' || player.roster_slot === ROSTER_SLOT.TAXI) continue;
       if (
         !player.roster_slot ||
         player.roster_slot === 'BE' ||
@@ -318,11 +319,11 @@ export default function TeamRosterScreen() {
     }
 
     if (taxiConfig && taxiConfig.slot_count > 0) {
-      const taxiPlayers = rosterPlayers.filter((p) => p.roster_slot === 'TAXI');
+      const taxiPlayers = rosterPlayers.filter((p) => p.roster_slot === ROSTER_SLOT.TAXI);
       const taxiSlotCount = Math.max(taxiConfig.slot_count, taxiPlayers.length);
       for (let i = 0; i < taxiSlotCount; i++) {
         taxiSlots.push({
-          slotPosition: 'TAXI',
+          slotPosition: ROSTER_SLOT.TAXI,
           slotIndex: i,
           player: taxiPlayers[i] ?? null,
         });

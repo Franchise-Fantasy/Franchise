@@ -1,12 +1,13 @@
 import { RosterPlayer, round1, buildStatLine } from '@/components/matchup/PlayerCell';
 import { supabase } from '@/lib/supabase';
 import { ScoringWeight } from '@/types/player';
-import { aggregateTeamStats } from '@/utils/scoring/categoryScoring';
 import { addDays } from '@/utils/dates';
 import { getSportToday } from '@/utils/leagueTime';
-import { calculateGameFantasyPoints, calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
 import { fetchTeamSlots } from '@/utils/roster/fetchTeamSlots';
 import { resolveSlot , isActiveSlot } from '@/utils/roster/resolveSlot';
+import { ROSTER_SLOT } from '@/utils/roster/rosterSlotsShared';
+import { aggregateTeamStats } from '@/utils/scoring/categoryScoring';
+import { calculateGameFantasyPoints, calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
 
 
 interface Week {
@@ -24,7 +25,7 @@ export function sumStarterDayPoints(players: RosterPlayer[]): number {
   return players.reduce((s, p) => {
     const slot = p.roster_slot;
     const isStarter =
-      !!slot && slot !== 'BE' && slot !== 'IR' && slot !== 'DROPPED';
+      !!slot && slot !== 'BE' && slot !== 'IR' && slot !== ROSTER_SLOT.DROPPED;
     return isStarter ? s + p.dayPoints : s;
   }, 0);
 }
@@ -36,7 +37,12 @@ export async function fetchTeamData(
   selectedDate: string,
   scoring: ScoringWeight[],
   sport?: string | null,
-): Promise<{ players: RosterPlayer[]; teamStats: Record<string, number>; weekTotalAll: number }> {
+): Promise<{
+  players: RosterPlayer[];
+  droppedPlayers: RosterPlayer[];
+  teamStats: Record<string, number>;
+  weekTotalAll: number;
+}> {
   // Slate-anchored "today" so day-boundary logic agrees across viewers.
   const today = getSportToday(sport ?? null);
 
@@ -44,13 +50,14 @@ export async function fetchTeamData(
   const slots = await fetchTeamSlots(teamId, leagueId, selectedDate, week, sport);
 
   const allPlayerIds = [...slots.currentPlayerIds, ...slots.droppedPlayerIds];
-  if (allPlayerIds.length === 0) return { players: [], teamStats: {}, weekTotalAll: 0 };
+  if (allPlayerIds.length === 0)
+    return { players: [], droppedPlayers: [], teamStats: {}, weekTotalAll: 0 };
 
   // Build drop-date map for per-game slot resolution
   const dropDateMap = new Map<string, string>();
   for (const pid of slots.droppedPlayerIds) {
     const entries = slots.dailyByPlayer.get(pid) ?? [];
-    const droppedEntry = entries.find((e) => e.roster_slot === 'DROPPED');
+    const droppedEntry = entries.find((e) => e.roster_slot === ROSTER_SLOT.DROPPED);
     if (droppedEntry) dropDateMap.set(pid, droppedEntry.lineup_date);
   }
 
@@ -188,16 +195,19 @@ export async function fetchTeamData(
   // Compute weekTotal from ALL players (including dropped) so pre-trade points are counted
   const weekTotalAll = round1(rosterPlayers.reduce((s, p) => s + p.weekPoints, 0));
 
-  // Filter out players who shouldn't be visible on this date:
-  // - DROPPED players: not shown in roster but their points are included in weekTotalAll
-  // - Players with no real slot (BE) who were acquired after this date: weren't on team yet
+  // Split the roster for the caller:
+  // - droppedPlayers: kept out of the matchup board, but the weekly summary
+  //   still credits the points they scored before being dropped.
+  // - visiblePlayers: shown on the board. Excludes DROPPED, and excludes
+  //   BE players acquired after this date (weren't on the team yet).
+  const droppedPlayers = rosterPlayers.filter((p) => p.roster_slot === ROSTER_SLOT.DROPPED);
   const visiblePlayers = rosterPlayers.filter((p) => {
-    if (p.roster_slot === 'DROPPED') return false;
+    if (p.roster_slot === ROSTER_SLOT.DROPPED) return false;
     if (p.roster_slot !== 'BE') return true;
     const acquired = slots.acquiredDateMap.get(p.player_id);
     if (acquired && selectedDate < acquired) return false;
     return true;
   });
 
-  return { players: visiblePlayers, teamStats, weekTotalAll };
+  return { players: visiblePlayers, droppedPlayers, teamStats, weekTotalAll };
 }

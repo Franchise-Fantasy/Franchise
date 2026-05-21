@@ -24,6 +24,7 @@ import { TradeItemRow, TradeProposalRow, useTradeVotes } from '@/hooks/useTrades
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats } from '@/types/player';
 import { estimatePickFpts, TRADE_STATUS, TEAM_RESPONSE } from '@/types/trade';
+import { ROSTER_SLOT } from '@/utils/roster/rosterSlotsShared';
 import { ms, s } from '@/utils/scale';
 import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
 
@@ -264,8 +265,8 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
           && p.roster_slot !== 'IR',
         )
         .sort((a, b) => {
-          const aIsBench = a.roster_slot === 'BE' || a.roster_slot === 'TAXI' ? 0 : 1;
-          const bIsBench = b.roster_slot === 'BE' || b.roster_slot === 'TAXI' ? 0 : 1;
+          const aIsBench = a.roster_slot === 'BE' || a.roster_slot === ROSTER_SLOT.TAXI ? 0 : 1;
+          const bIsBench = b.roster_slot === 'BE' || b.roster_slot === ROSTER_SLOT.TAXI ? 0 : 1;
           return aIsBench - bIsBench;
         }) as unknown as (PlayerSeasonStats & { roster_slot: string | null })[];
     },

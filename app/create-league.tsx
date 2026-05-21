@@ -51,6 +51,7 @@ import { calcLotteryPoolSize, defaultPlayoffTeams, getPlayoffTeamOptions } from 
 import { sanitizeHandle } from "@/utils/league/paymentLinks";
 import { logger } from "@/utils/logger";
 import { containsBlockedContent } from "@/utils/moderation";
+import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
 import { ms, s } from "@/utils/scale";
 
 // --- Reducer ---
@@ -366,8 +367,8 @@ export default function CreateLeague() {
       return;
     }
 
-    const rosterSize = state.rosterSlots.reduce((sum, s) => (s.position === 'IR' || s.position === 'TAXI') ? sum : sum + s.count, 0);
-    const taxiSlotCount = state.rosterSlots.find((s) => s.position === 'TAXI')?.count ?? 0;
+    const rosterSize = state.rosterSlots.reduce((sum, s) => (s.position === 'IR' || s.position === ROSTER_SLOT.TAXI) ? sum : sum + s.count, 0);
+    const taxiSlotCount = state.rosterSlots.find((s) => s.position === ROSTER_SLOT.TAXI)?.count ?? 0;
 
     // Use custom start date if set, otherwise compute automatically
     let seasonStart: Date;

@@ -34,6 +34,30 @@ export const POSITION_TOKEN_RANGES: Record<string, [number, number]> = {
   F: [2, 3],   // WNBA bare forward
 };
 
+/**
+ * Structural (non-position) roster slots. Position slots (PG/SG/SF/PF/C/G/F)
+ * are intentionally NOT here — those overlap with the player-position domain
+ * and are handled by the eligibility helpers below. These carry roster *state*:
+ *   - UTIL: flex starter (numbered UTIL1..N at runtime; baseSlotName strips it)
+ *   - BE:   bench — rostered but not scored
+ *   - IR:   injured reserve — not scored, eligibility-gated
+ *   - TAXI: taxi squad (dynasty prospects) — not scored
+ *   - DROPPED: queued-drop marker written into daily_lineups.roster_slot
+ *
+ * Use `ROSTER_SLOT.X` instead of bare 'TAXI' / 'DROPPED' / etc. literals so a
+ * typo (e.g. 'DROPED') is a compile error rather than a silently-false
+ * comparison that would mis-score a roster.
+ */
+export const ROSTER_SLOT = {
+  UTIL: 'UTIL',
+  BE: 'BE',
+  IR: 'IR',
+  TAXI: 'TAXI',
+  DROPPED: 'DROPPED',
+} as const;
+
+export type StructuralRosterSlot = (typeof ROSTER_SLOT)[keyof typeof ROSTER_SLOT];
+
 export const SLOT_ELIGIBLE_POSITIONS: Record<string, string[]> = {
   PG: ['PG'],
   SG: ['SG'],
@@ -67,7 +91,7 @@ export function getEligiblePositions(playerPosition: string): string[] {
 /** Returns true if a player with the given position can fill the given slot. */
 export function isEligibleForSlot(playerPosition: string, slotPosition: string): boolean {
   const base = baseSlotName(slotPosition);
-  if (['UTIL', 'BE', 'IR'].includes(base)) return true;
+  if (([ROSTER_SLOT.UTIL, ROSTER_SLOT.BE, ROSTER_SLOT.IR] as string[]).includes(base)) return true;
 
   const eligible = SLOT_ELIGIBLE_POSITIONS[base];
   if (!eligible) return false;

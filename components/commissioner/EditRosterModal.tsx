@@ -13,6 +13,7 @@ import { ThemedText } from '@/components/ui/ThemedText';
 import { DEFAULT_ROSTER_SLOTS, getDefaultRosterSlots, getLimitablePositions, LimitablePosition, type Sport } from '@/constants/LeagueDefaults';
 import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
+import { ROSTER_SLOT } from '@/utils/roster/rosterSlotsShared';
 import { ms, s } from '@/utils/scale';
 
 function positionLabel(pos: string): string {
@@ -56,7 +57,7 @@ export function EditRosterModal({ visible, onClose, leagueId, sport, rosterConfi
     const rows = editRoster
       .filter((r) => r.slot_count > 0)
       .map((r) => ({ league_id: leagueId, position: r.position, slot_count: r.slot_count }));
-    const rosterSize = rows.reduce((sum, r) => (r.position === 'IR' || r.position === 'TAXI') ? sum : sum + r.slot_count, 0);
+    const rosterSize = rows.reduce((sum, r) => (r.position === 'IR' || r.position === ROSTER_SLOT.TAXI) ? sum : sum + r.slot_count, 0);
 
     const { error: delErr } = await supabase.from('league_roster_config').delete().eq('league_id', leagueId);
     if (delErr) { setSaving(false); Alert.alert('Error', delErr.message); return; }

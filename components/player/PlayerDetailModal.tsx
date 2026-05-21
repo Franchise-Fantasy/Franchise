@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import * as Crypto from "expo-crypto";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
@@ -61,6 +62,7 @@ import { addFreeAgent } from "@/utils/roster/addFreeAgent";
 import { guardIllegalIR } from "@/utils/roster/illegalIR";
 import { calculateAge } from "@/utils/roster/rosterAge";
 import { isEligibleForSlot } from "@/utils/roster/rosterSlots";
+import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
 import { isTaxiEligible } from "@/utils/roster/taxiEligibility";
 import { ms, s } from "@/utils/scale";
 import { calculateAvgFantasyPoints } from "@/utils/scoring/fantasyPoints";
@@ -276,7 +278,7 @@ export function PlayerDetailModal({
           .select("id", { count: "exact", head: true })
           .eq("league_id", leagueId)
           .eq("team_id", teamId!)
-          .eq("roster_slot", "TAXI"),
+          .eq("roster_slot", ROSTER_SLOT.TAXI),
         supabase
           .from("leagues")
           .select(
@@ -294,7 +296,7 @@ export function PlayerDetailModal({
           .from("league_roster_config")
           .select("slot_count")
           .eq("league_id", leagueId)
-          .eq("position", "TAXI")
+          .eq("position", ROSTER_SLOT.TAXI)
           .maybeSingle(),
       ]);
 
@@ -717,7 +719,7 @@ export function PlayerDetailModal({
           .select("id", { count: "exact", head: true })
           .eq("league_id", leagueId)
           .eq("team_id", teamId!)
-          .eq("roster_slot", "TAXI"),
+          .eq("roster_slot", ROSTER_SLOT.TAXI),
         supabase
           .from("leagues")
           .select("roster_size")
@@ -844,6 +846,11 @@ export function PlayerDetailModal({
           // regardless of any GM's TZ — see utils/leagueTime.ts.
           const executeAfter = nextSlateRollover(sport).toISOString();
 
+          // Shared group_id links the (deferred) add row written now with the
+          // drop row the cron writes at rollover, so the feed can render them
+          // as one card. Stashed in metadata so the cron can read it back.
+          const groupId = Crypto.randomUUID();
+
           const { data: queuedDrop, error } = await supabase
             .from("pending_transactions")
             .insert({
@@ -854,7 +861,7 @@ export function PlayerDetailModal({
               action_type: "drop",
               execute_after: executeAfter,
               status: "pending",
-              metadata: { name: dropping.name },
+              metadata: { name: dropping.name, group_id: groupId },
             })
             .select("id")
             .single();
@@ -878,6 +885,8 @@ export function PlayerDetailModal({
               playerLockType,
               gameTimeMap: parentGameTimeMap,
               forceDefer: true,
+              groupId,
+              skipNotify: true,
             });
           } catch (addErr) {
             await supabase
@@ -933,7 +942,7 @@ export function PlayerDetailModal({
                 team_id: teamId,
                 player_id: dropping.player_id,
                 lineup_date: tomorrowSlate,
-                roster_slot: "DROPPED",
+                roster_slot: ROSTER_SLOT.DROPPED,
               },
               { onConflict: "team_id,player_id,lineup_date" },
             );
@@ -953,6 +962,24 @@ export function PlayerDetailModal({
               lineupErr,
             );
           }
+
+          // One combined push for the whole add+drop. addFreeAgent stayed
+          // quiet (skipNotify) and the cron skips the drop push when a
+          // group_id is present, so the league hears about this move once.
+          (async () => {
+            const { data: team } = await supabase
+              .from("teams")
+              .select("name")
+              .eq("id", teamId)
+              .single();
+            sendNotification({
+              league_id: leagueId,
+              category: "roster_moves",
+              title: "Roster Move",
+              body: `${team?.name ?? "A team"} added ${player.name} (dropping ${dropping.name} tomorrow)`,
+              data: { screen: "activity" },
+            });
+          })();
 
           Alert.alert(
             "Add/Drop",
@@ -1005,7 +1032,7 @@ export function PlayerDetailModal({
             team_id: teamId,
             player_id: dropping.player_id,
             lineup_date: today,
-            roster_slot: "DROPPED",
+            roster_slot: ROSTER_SLOT.DROPPED,
           },
           { onConflict: "team_id,player_id,lineup_date" },
         );
@@ -1046,6 +1073,10 @@ export function PlayerDetailModal({
 
       // If dropping from the picker (add-and-drop), add the new player
       if (playerToDrop && player) {
+        // Shared group_id ties the add and drop rows together so the feed
+        // shows one card; skipNotify lets us fire a single combined push below.
+        const groupId = Crypto.randomUUID();
+
         const { deferred } = await addFreeAgent({
           leagueId,
           teamId: teamId!,
@@ -1057,6 +1088,8 @@ export function PlayerDetailModal({
           },
           playerLockType: playerLockType ?? null,
           gameTimeMap: parentGameTimeMap ?? gameTimeMap,
+          groupId,
+          skipNotify: true,
           });
 
         // Log the drop side of the transaction
@@ -1067,6 +1100,7 @@ export function PlayerDetailModal({
             type: "waiver",
             notes: `Dropped ${dropping.name}`,
             team_id: teamId,
+            group_id: groupId,
           })
           .select("id")
           .single();
@@ -1288,7 +1322,7 @@ export function PlayerDetailModal({
           .select("id", { count: "exact", head: true })
           .eq("league_id", leagueId)
           .eq("team_id", teamId)
-          .eq("roster_slot", "TAXI"),
+          .eq("roster_slot", ROSTER_SLOT.TAXI),
         supabase
           .from("leagues")
           .select("roster_size")
@@ -1393,7 +1427,7 @@ export function PlayerDetailModal({
             team_id: teamId,
             player_id: playerToDrop.player_id,
             lineup_date: today,
-            roster_slot: "DROPPED",
+            roster_slot: ROSTER_SLOT.DROPPED,
           },
           { onConflict: "team_id,player_id,lineup_date" },
         );
@@ -1518,7 +1552,7 @@ export function PlayerDetailModal({
     try {
       const { error } = await supabase
         .from("league_players")
-        .update({ roster_slot: "TAXI" })
+        .update({ roster_slot: ROSTER_SLOT.TAXI })
         .eq("league_id", leagueId)
         .eq("team_id", teamId)
         .eq("player_id", player.player_id);
@@ -1698,7 +1732,7 @@ export function PlayerDetailModal({
             team_id: teamId,
             player_id: player.player_id,
             lineup_date: tomorrowSlate,
-            roster_slot: "DROPPED",
+            roster_slot: ROSTER_SLOT.DROPPED,
           },
           { onConflict: "team_id,player_id,lineup_date" },
         );
@@ -1977,7 +2011,7 @@ export function PlayerDetailModal({
                               )}
                             </TouchableOpacity>
                           )}
-                          {playerRosterSlot === "TAXI" && (
+                          {playerRosterSlot === ROSTER_SLOT.TAXI && (
                             <TouchableOpacity
                               style={[
                                 styles.headerBtn,
@@ -2042,7 +2076,7 @@ export function PlayerDetailModal({
                           {canMoveToIR &&
                             !playerGameStarted &&
                             playerRosterSlot !== "IR" &&
-                            playerRosterSlot !== "TAXI" && (
+                            playerRosterSlot !== ROSTER_SLOT.TAXI && (
                               <TouchableOpacity
                                 style={[
                                   styles.headerBtn,
@@ -2062,7 +2096,7 @@ export function PlayerDetailModal({
                           {rosterInfo &&
                             rosterInfo.taxiSlotCount > 0 &&
                             rosterInfo.taxiCount < rosterInfo.taxiSlotCount &&
-                            playerRosterSlot !== "TAXI" &&
+                            playerRosterSlot !== ROSTER_SLOT.TAXI &&
                             playerRosterSlot !== "IR" &&
                             (!playerRosterSlot || playerRosterSlot === "BE") &&
                             isTaxiEligible(

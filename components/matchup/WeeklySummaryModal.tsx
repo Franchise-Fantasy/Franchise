@@ -17,6 +17,7 @@ import { useColors } from '@/hooks/useColors';
 import { ScoringWeight } from '@/types/player';
 import { abbreviateFirstName } from '@/utils/formatting';
 import { LivePlayerStats, liveToGameLog } from '@/utils/nba/nbaLive';
+import { ROSTER_SLOT } from '@/utils/roster/rosterSlotsShared';
 import { ms, s } from '@/utils/scale';
 import { calculateGameFantasyPoints, formatScore, STAT_TO_GAME } from '@/utils/scoring/fantasyPoints';
 
@@ -183,21 +184,17 @@ interface TeamSectionProps {
 }
 
 function TeamSection({ team, columns, c, liveMap, scoring }: TeamSectionProps) {
-  // Merge live in-progress games into players' weekly totals before
-  // sorting/rendering. Same logic the prior version used:
-  //   - status=2 (live): always merge (not in player_games yet)
-  //   - status=3 (final) WITH past stats: skip (would double-count yesterday's
-  //     late games and games that finalized while the modal was open)
-  //   - status=3 with NO past stats (e.g. first game finalizing while
-  //     modal is open): merge — otherwise filtered out below.
+  // Merge live games into players' weekly totals before sorting/rendering.
+  // `liveMap` here is the hero live map — built upstream to hold ONLY games
+  // that aren't in player_games yet (today's games, plus yesterday's still-
+  // live ones; yesterday's finals are already counted in `weekGameStats`).
+  // So every entry can be merged unconditionally — no double-count risk —
+  // and the summary total ends up identical to the hero's week score.
   const playersWithLive = team.players.map((p) => {
     if (!liveMap) return p;
     const live = liveMap.get(p.player_id);
     if (!live || live.game_status < 2) return p;
-    if (p.roster_slot === 'BE' || p.roster_slot === 'IR' || p.roster_slot === 'DROPPED') return p;
-    const hasPastStats = p.weekGameStats &&
-      Object.values(p.weekGameStats).some((v) => v !== 0);
-    if (live.game_status === 3 && hasPastStats) return p;
+    if (p.roster_slot === 'BE' || p.roster_slot === 'IR' || p.roster_slot === ROSTER_SLOT.DROPPED) return p;
 
     const liveGameLog = liveToGameLog(live);
     const liveFpts = calculateGameFantasyPoints(liveGameLog as any, scoring);
@@ -322,17 +319,24 @@ function TeamSection({ team, columns, c, liveMap, scoring }: TeamSectionProps) {
                   { borderBottomColor: c.border },
                   i % 2 === 1 && { backgroundColor: c.cardAlt },
                 ]}
-                accessibilityLabel={`${p.name}: ${formatScore(p.weekPoints)} fantasy points, ${columns.map((col) => `${col.label} ${p.weekGameStats?.[col.key] ?? 0}`).join(', ')}`}
+                accessibilityLabel={`${p.name}${p.roster_slot === ROSTER_SLOT.DROPPED ? ', dropped' : ''}: ${formatScore(p.weekPoints)} fantasy points, ${columns.map((col) => `${col.label} ${p.weekGameStats?.[col.key] ?? 0}`).join(', ')}`}
               >
                 <View style={[styles.nameCol, styles.nameCell]}>
                   <Text style={[styles.nameText, { color: c.text }]} numberOfLines={1}>
                     {abbreviateFirstName(p.name)}
                   </Text>
-                  {p.nbaTricode && (
+                  {/* Dropped players keep their pre-drop points in the
+                      summary — the gold tag flags that they're no longer
+                      on the roster, replacing the pro-team tricode. */}
+                  {p.roster_slot === ROSTER_SLOT.DROPPED ? (
+                    <Text style={[styles.proTeam, { color: c.gold }]}>
+                      DROPPED
+                    </Text>
+                  ) : p.nbaTricode ? (
                     <Text style={[styles.proTeam, { color: c.secondaryText }]}>
                       {p.nbaTricode}
                     </Text>
-                  )}
+                  ) : null}
                 </View>
                 <Text style={[styles.fptsCol, styles.fptsValue, { color: c.gold }]}>
                   {formatScore(p.weekPoints)}
