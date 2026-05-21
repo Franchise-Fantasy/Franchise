@@ -848,6 +848,7 @@ export default function HomeScreen() {
                 lotteryOdds={(league.lottery_odds as number[] | null) ?? null}
                 rookieDraftOrder={league.rookie_draft_order ?? 'reverse_record'}
                 offseasonStep={league.offseason_step!}
+                season={league.season}
               />
             ) : (
               <StandingsSection

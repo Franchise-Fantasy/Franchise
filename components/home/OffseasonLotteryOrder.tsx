@@ -20,6 +20,12 @@ interface Props {
   lotteryOdds: number[] | null;
   rookieDraftOrder: string;
   offseasonStep: string;
+  /** Active league season — during the offseason `advance-season` has already
+   *  flipped this to the upcoming season, which is the one the rookie draft
+   *  (and the lottery that seeds it) is keyed to. Used to scope the post-lottery
+   *  draft-pick query so we never bleed in future-season picks. Mirrors the
+   *  offset-0 season window in useDraftHub. */
+  season: string;
 }
 
 interface OrderRow {
@@ -48,6 +54,7 @@ export function OffseasonLotteryOrder({
   lotteryOdds,
   rookieDraftOrder,
   offseasonStep,
+  season,
 }: Props) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
@@ -61,7 +68,7 @@ export function OffseasonLotteryOrder({
   const isLotteryLeague = rookieDraftOrder === 'lottery';
 
   const { data, isLoading } = useQuery<OrderRow[]>({
-    queryKey: queryKeys.offseasonLotteryOrder(leagueId, offseasonStep),
+    queryKey: queryKeys.offseasonLotteryOrder(leagueId, offseasonStep, season),
     queryFn: async () => {
       const { data: allArchived } = await supabase
         .from('team_seasons')
@@ -92,6 +99,7 @@ export function OffseasonLotteryOrder({
           .from('draft_picks')
           .select('slot_number, current_team_id, team:teams!draft_picks_current_team_id_fkey(id, name, tricode, logo_key)')
           .eq('league_id', leagueId)
+          .eq('season', season)
           .eq('round', 1)
           .is('player_id', null)
           .is('draft_id', null)
