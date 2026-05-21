@@ -1558,6 +1558,7 @@ export type Database = {
       league_transactions: {
         Row: {
           created_at: string | null
+          group_id: string | null
           id: string
           league_id: string
           notes: string | null
@@ -1566,6 +1567,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string | null
+          group_id?: string | null
           id?: string
           league_id: string
           notes?: string | null
@@ -1574,6 +1576,7 @@ export type Database = {
         }
         Update: {
           created_at?: string | null
+          group_id?: string | null
           id?: string
           league_id?: string
           notes?: string | null
@@ -6126,6 +6129,7 @@ export type Database = {
         Args: { p_draft_id: string; p_enabled: boolean; p_team_id: string }
         Returns: undefined
       }
+      test_get_cron_secret: { Args: never; Returns: string }
       toggle_trade_block_interest: {
         Args: { p_league_id: string; p_player_id: string; p_team_id: string }
         Returns: boolean
