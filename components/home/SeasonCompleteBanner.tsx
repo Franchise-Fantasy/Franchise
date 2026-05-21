@@ -35,13 +35,14 @@ export function SeasonCompleteBanner({ leagueId, season, playoffTeams, isCommiss
 
   const totalRounds = calcRounds(playoffTeams);
 
-  const { data: championshipComplete } = useQuery({
+  const { data: champData } = useQuery({
     queryKey: queryKeys.championshipCheck(leagueId, season as unknown as number),
     queryFn: async () => {
-      // Check if the final playoff round has a winner
+      // Check if the final playoff round has a winner, and grab their name so
+      // the commissioner sees exactly which team they're about to crown.
       const { data } = await supabase
         .from('playoff_bracket')
-        .select('winner_id')
+        .select('winner_id, winner:teams!playoff_bracket_winner_id_fkey(name)')
         .eq('league_id', leagueId)
         .eq('season', season)
         .eq('round', totalRounds)
@@ -49,19 +50,26 @@ export function SeasonCompleteBanner({ leagueId, season, playoffTeams, isCommiss
         .neq('is_bye', true)
         .limit(1);
 
-      return data && data.length > 0;
+      const row = data?.[0];
+      return {
+        complete: !!row,
+        championName: (row?.winner as { name: string } | null)?.name ?? null,
+      };
     },
     enabled: !!leagueId && totalRounds > 0,
     staleTime: 1000 * 60 * 2,
   });
 
-  if (!championshipComplete) return null;
+  if (!champData?.complete) return null;
+
+  const championName = champData.championName;
 
   const handleAdvanceSeason = () => {
     confirm({
       title: 'Start Offseason',
-      message:
-        'This will archive the current season, crown the champion, and begin the offseason process. Continue?',
+      message: championName
+        ? `This will archive the current season, crown ${championName} as champion, and begin the offseason process. Continue?`
+        : 'This will archive the current season, crown the champion, and begin the offseason process. Continue?',
       action: {
         label: 'Start Offseason',
         onPress: async () => {
@@ -87,7 +95,7 @@ export function SeasonCompleteBanner({ leagueId, season, playoffTeams, isCommiss
     <View
       style={[styles.banner, { backgroundColor: c.goldMuted, borderColor: c.gold }]}
       accessibilityRole="alert"
-      accessibilityLabel={isCommissioner ? 'Season complete. Tap to start the offseason.' : 'Season complete. Waiting for commissioner to start the offseason.'}
+      accessibilityLabel={`${championName ? `${championName} are your champions. ` : ''}${isCommissioner ? 'Season complete. Tap to start the offseason.' : 'Season complete. Waiting for commissioner to start the offseason.'}`}
     >
       <Ionicons name="trophy" size={22} color={c.gold} />
       <View style={styles.textContainer}>
@@ -95,6 +103,7 @@ export function SeasonCompleteBanner({ leagueId, season, playoffTeams, isCommiss
           Season Complete!
         </ThemedText>
         <ThemedText style={{ fontSize: ms(12), color: c.secondaryText }}>
+          {championName ? `${championName} are your champions. ` : ''}
           {isCommissioner
             ? 'Tap below to archive the season and start the offseason.'
             : 'Waiting for the commissioner to start the offseason.'}
