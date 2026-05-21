@@ -248,9 +248,10 @@ export function PaymentLedgerModal({
     );
   }
 
+  const seasonPrefix = season ? `${season}  ·  ` : '';
   const subtitle = buyInAmount
-    ? `BUY-IN $${buyInAmount}  ·  ${confirmedCount}/${teams.length} PAID`
-    : `${confirmedCount}/${teams.length} PAID`;
+    ? `${seasonPrefix}BUY-IN $${buyInAmount}  ·  ${confirmedCount}/${teams.length} PAID`
+    : `${seasonPrefix}${confirmedCount}/${teams.length} PAID`;
 
   return (
     <BottomSheet
