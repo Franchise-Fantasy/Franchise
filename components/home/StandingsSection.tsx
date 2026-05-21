@@ -9,24 +9,11 @@ import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
+import { fetchStandingsTeams, type TeamStanding } from '@/utils/league/standingsQueries';
 import { ms, s } from '@/utils/scale';
 
 import { TeamLogo } from '../team/TeamLogo';
 import { ThemedText } from '../ui/ThemedText';
-
-interface TeamStanding {
-  id: string;
-  name: string;
-  tricode: string | null;
-  logo_key: string | null;
-  wins: number;
-  losses: number;
-  ties: number;
-  points_for: number;
-  points_against: number;
-  streak: string;
-  division: number | null;
-}
 
 interface Matchup {
   home_team_id: string;
@@ -208,17 +195,7 @@ export function StandingsSection({ leagueId, playoffTeams, scoringType, tiebreak
 
   const { data: rawTeams, isLoading } = useQuery({
     queryKey: queryKeys.standings(leagueId),
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('teams')
-        .select('id, name, tricode, logo_key, wins, losses, ties, points_for, points_against, streak, division')
-        .eq('league_id', leagueId)
-        .order('wins', { ascending: false })
-        .order('points_for', { ascending: false });
-
-      if (error) throw error;
-      return data as unknown as TeamStanding[];
-    },
+    queryFn: () => fetchStandingsTeams(leagueId),
     enabled: !!leagueId,
   });
 

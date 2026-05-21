@@ -29,6 +29,7 @@ import { useLeague } from '@/hooks/useLeague';
 import { useLeagueRosterStats } from '@/hooks/useLeagueRosterStats';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { supabase } from '@/lib/supabase';
+import { fetchStandingsTeams, type TeamStanding } from '@/utils/league/standingsQueries';
 import { ms, s } from '@/utils/scale';
 import {
   computeAllPlayRecords,
@@ -41,20 +42,6 @@ import { computeStrengthOfSchedule, type SoSResult } from '@/utils/scoring/stren
 
 
 // ─── Types ───────────────────────────────────────────────────────────────────
-
-interface TeamStanding {
-  id: string;
-  name: string;
-  tricode: string | null;
-  logo_key: string | null;
-  wins: number;
-  losses: number;
-  ties: number;
-  points_for: number;
-  points_against: number;
-  streak: string;
-  division: number | null;
-}
 
 // ─── Standings resolution (shared with StandingsSection) ─────────────────────
 
@@ -168,16 +155,7 @@ export default function StandingsScreen() {
 
   const { data: rawTeams, isLoading: loadingTeams } = useQuery({
     queryKey: queryKeys.standings(leagueId!),
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('teams')
-        .select('id, name, tricode, logo_key, wins, losses, ties, points_for, points_against, streak, division')
-        .eq('league_id', leagueId!)
-        .order('wins', { ascending: false })
-        .order('points_for', { ascending: false });
-      if (error) throw error;
-      return data as unknown as TeamStanding[];
-    },
+    queryFn: () => fetchStandingsTeams(leagueId!),
     enabled: !!leagueId,
   });
 
