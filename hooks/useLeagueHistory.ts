@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
+import { PLAYOFF_RESULT } from '@/types/playoff';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -121,7 +122,7 @@ export function useChampions(leagueId: string | null) {
         .from('team_seasons')
         .select('season, playoff_result, team:teams!team_seasons_team_id_fkey(id, name)')
         .eq('league_id', leagueId!)
-        .in('playoff_result', ['champion', 'runner_up'])
+        .in('playoff_result', [PLAYOFF_RESULT.CHAMPION, PLAYOFF_RESULT.RUNNER_UP])
         .order('season', { ascending: true })
         .limit(200);
       if (error) throw error;
@@ -133,7 +134,7 @@ export function useChampions(leagueId: string | null) {
         }
         const entry = byS.get(row.season)!;
         const team = Array.isArray(row.team) ? row.team[0] ?? null : row.team;
-        if (row.playoff_result === 'champion') entry.champion = team;
+        if (row.playoff_result === PLAYOFF_RESULT.CHAMPION) entry.champion = team;
         else entry.runnerUp = team;
       }
       return [...byS.values()];

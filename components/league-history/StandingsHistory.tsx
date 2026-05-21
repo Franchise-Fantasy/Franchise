@@ -8,6 +8,7 @@ import { Brand, Fonts } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColors } from '@/hooks/useColors';
 import { useSeasonStandings } from '@/hooks/useLeagueHistory';
+import { PLAYOFF_RESULT } from '@/types/playoff';
 import { ms, s } from '@/utils/scale';
 
 interface StandingsHistoryProps {
@@ -107,7 +108,7 @@ export function StandingsHistory({ leagueId }: StandingsHistoryProps) {
       {seasonTeams.map((t, idx) => {
         const isMe = !!teamId && t.team_id === teamId;
         const standing = t.final_standing ?? idx + 1;
-        const isMissed = t.playoff_result === 'missed_playoffs';
+        const isMissed = t.playoff_result === PLAYOFF_RESULT.MISSED_PLAYOFFS;
         const record = anyTies
           ? `${t.wins}-${t.losses}-${t.ties}`
           : `${t.wins}-${t.losses}`;

@@ -7,6 +7,7 @@ import { Colors, cardShadow } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
+import { PLAYOFF_RESULT, eliminatedRoundNumber } from '@/types/playoff';
 import { ms, s } from '@/utils/scale';
 
 interface SeasonHistoryProps {
@@ -35,10 +36,8 @@ const RESULT_LABELS: Record<string, string> = {
 
 function resultLabel(result: string): string {
   if (RESULT_LABELS[result]) return RESULT_LABELS[result];
-  if (result.startsWith('eliminated_round_')) {
-    const round = result.replace('eliminated_round_', '');
-    return `Elim. Rd ${round}`;
-  }
+  const elimRound = eliminatedRoundNumber(result);
+  if (elimRound != null) return `Elim. Rd ${elimRound}`;
   return result;
 }
 
@@ -75,7 +74,7 @@ export function SeasonHistory({ leagueId }: SeasonHistoryProps) {
       <ThemedText type="defaultSemiBold" style={styles.title}>Season History</ThemedText>
 
       {[...seasons.entries()].map(([season, teams]) => {
-        const champ = teams.find(t => t.playoff_result === 'champion');
+        const champ = teams.find(t => t.playoff_result === PLAYOFF_RESULT.CHAMPION);
         return (
           <View key={season} style={[styles.seasonBlock, { borderTopColor: c.border }]}>
             <View style={styles.seasonHeader}>
@@ -102,8 +101,8 @@ export function SeasonHistory({ leagueId }: SeasonHistoryProps) {
                 </ThemedText>
                 <View style={[
                   styles.resultBadge,
-                  t.playoff_result === 'champion' && { backgroundColor: c.goldMuted },
-                  t.playoff_result === 'runner_up' && { backgroundColor: c.activeCard },
+                  t.playoff_result === PLAYOFF_RESULT.CHAMPION && { backgroundColor: c.goldMuted },
+                  t.playoff_result === PLAYOFF_RESULT.RUNNER_UP && { backgroundColor: c.activeCard },
                 ]}>
                   <ThemedText style={[styles.resultText, { color: c.secondaryText }]}>
                     {resultLabel(t.playoff_result)}
