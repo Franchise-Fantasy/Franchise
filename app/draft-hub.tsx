@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ByTeamTab } from '@/components/draft-hub/ByTeamTab';
 import { ByYearTab } from '@/components/draft-hub/ByYearTab';
 import { ProspectsTab } from '@/components/draft-hub/ProspectsTab';
+import { LotteryResolutionSummary } from '@/components/lottery/LotteryResolutionSummary';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
@@ -73,13 +74,20 @@ export default function DraftHub() {
           <LogoSpinner />
         </View>
       ) : tab === 0 ? (
-        <ByYearTab
-          picks={data.picks}
-          swaps={data.swaps}
-          teams={data.teams}
-          validSeasons={data.validSeasons}
-          leagueSettings={data.leagueSettings}
-        />
+        <>
+          {leagueId && league?.season ? (
+            <View style={styles.resolutionWrap}>
+              <LotteryResolutionSummary leagueId={leagueId} season={league.season} collapsible />
+            </View>
+          ) : null}
+          <ByYearTab
+            picks={data.picks}
+            swaps={data.swaps}
+            teams={data.teams}
+            validSeasons={data.validSeasons}
+            leagueSettings={data.leagueSettings}
+          />
+        </>
       ) : (
         <ByTeamTab
           picks={data.picks}
@@ -107,6 +115,7 @@ const styles = StyleSheet.create({
   backText: { fontSize: ms(16), fontWeight: '500' },
   title: { fontSize: ms(16), textAlign: 'center' },
   tabBar: { paddingHorizontal: s(16), paddingVertical: s(10) },
+  resolutionWrap: { paddingHorizontal: s(16) },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   boardLink: {
     fontSize: ms(14),

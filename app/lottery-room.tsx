@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { PickCardEntry } from '@/components/lottery/PickCard';
 import type { PickListHandle } from '@/components/lottery/PickList';
+import { LotteryResolutionSummary } from '@/components/lottery/LotteryResolutionSummary';
 import { PickList } from '@/components/lottery/PickList';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
@@ -540,6 +541,11 @@ export default function LotteryRoomScreen() {
                   >
                     {finalPickEntry?.team_name} gets the No. 1 pick.
                   </ThemedText>
+                  {leagueId && league?.season ? (
+                    <View style={styles.resolutionWrap}>
+                      <LotteryResolutionSummary leagueId={leagueId} season={league.season} />
+                    </View>
+                  ) : null}
                   <View style={styles.heroCta}>
                     <BrandButton
                       label="Done"
@@ -659,6 +665,10 @@ const styles = StyleSheet.create({
     lineHeight: ms(26),
     letterSpacing: -0.3,
     textAlign: 'center',
+  },
+  resolutionWrap: {
+    width: '100%',
+    marginTop: s(12),
   },
   waiting: {
     fontSize: ms(11),

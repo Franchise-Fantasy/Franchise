@@ -206,6 +206,8 @@ export const queryKeys = {
   draftHub: (leagueId: string) => ["draftHub", leagueId] as const,
   offseasonLotteryOrder: (leagueId: string, step: string, season: string) =>
     ["offseasonLotteryOrder", leagueId, step, season] as const,
+  lotteryResolution: (leagueId: string, season: string) =>
+    ["lotteryResolution", leagueId, season] as const,
   draftRecentGameLogs: (leagueId: string) =>
     ["draftRecentGameLogs", leagueId] as const,
   draftHistoricalStats: (leagueId: string) =>
