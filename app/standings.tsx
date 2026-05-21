@@ -29,100 +29,20 @@ import { useLeague } from '@/hooks/useLeague';
 import { useLeagueRosterStats } from '@/hooks/useLeagueRosterStats';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { supabase } from '@/lib/supabase';
-import { fetchStandingsTeams, type TeamStanding } from '@/utils/league/standingsQueries';
+import {
+  fetchStandingsMatchups,
+  fetchStandingsTeams,
+  resolveStandings,
+  type TeamStanding,
+} from '@/utils/league/standingsQueries';
 import { ms, s } from '@/utils/scale';
 import {
   computeAllPlayRecords,
   type AllPlayResult,
-  type MatchupRow,
   type ScoringCategory,
 } from '@/utils/scoring/allPlayRecord';
 import { computeDependencyRisk, computeDependencyThresholds, type DependencyResult } from '@/utils/scoring/dependencyRisk';
 import { computeStrengthOfSchedule, type SoSResult } from '@/utils/scoring/strengthOfSchedule';
-
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-// ─── Standings resolution (shared with StandingsSection) ─────────────────────
-
-function resolveStandings(
-  teams: TeamStanding[],
-  matchups: MatchupRow[],
-  tiebreakerOrder: string[],
-): (TeamStanding & { rank: number })[] {
-  if (teams.length === 0) return [];
-
-  const winPct = (t: TeamStanding) => {
-    const gp = t.wins + t.losses + t.ties;
-    return gp === 0 ? 0 : (t.wins + t.ties * 0.5) / gp;
-  };
-
-  const sorted = [...teams].sort((a, b) => winPct(b) - winPct(a));
-
-  const groups: TeamStanding[][] = [];
-  let currentGroup: TeamStanding[] = [sorted[0]];
-
-  for (let i = 1; i < sorted.length; i++) {
-    if (Math.abs(winPct(sorted[i]) - winPct(sorted[i - 1])) < 1e-9) {
-      currentGroup.push(sorted[i]);
-    } else {
-      groups.push(currentGroup);
-      currentGroup = [sorted[i]];
-    }
-  }
-  groups.push(currentGroup);
-
-  const h2hWins = new Map<string, number>();
-  const h2hKey = (a: string, b: string) => `${a}:${b}`;
-
-  for (const m of matchups) {
-    if (!m.away_team_id || !m.winner_team_id) continue;
-    const loserId = m.home_team_id === m.winner_team_id ? m.away_team_id : m.home_team_id;
-    h2hWins.set(
-      h2hKey(m.winner_team_id, loserId),
-      (h2hWins.get(h2hKey(m.winner_team_id, loserId)) ?? 0) + 1,
-    );
-  }
-
-  function getH2HWinsInGroup(teamId: string, group: TeamStanding[]): number {
-    const groupIds = new Set(group.map(t => t.id));
-    let wins = 0;
-    for (const otherId of groupIds) {
-      if (otherId === teamId) continue;
-      wins += h2hWins.get(h2hKey(teamId, otherId)) ?? 0;
-    }
-    return wins;
-  }
-
-  function compareTiebreaker(a: TeamStanding, b: TeamStanding, group: TeamStanding[], method: string): number {
-    switch (method) {
-      case 'head_to_head':
-        return getH2HWinsInGroup(b.id, group) - getH2HWinsInGroup(a.id, group);
-      case 'points_for':
-        return b.points_for - a.points_for;
-      default:
-        return 0;
-    }
-  }
-
-  const result: TeamStanding[] = [];
-  for (const group of groups) {
-    if (group.length === 1) {
-      result.push(group[0]);
-      continue;
-    }
-    group.sort((a, b) => {
-      for (const method of tiebreakerOrder) {
-        const cmp = compareTiebreaker(a, b, group, method);
-        if (cmp !== 0) return cmp;
-      }
-      return 0;
-    });
-    result.push(...group);
-  }
-
-  return result.map((team, index) => ({ ...team, rank: index + 1 }));
-}
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -161,16 +81,7 @@ export default function StandingsScreen() {
 
   const { data: matchups, isLoading: loadingMatchups } = useQuery({
     queryKey: queryKeys.standingsH2h(leagueId!),
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('league_matchups')
-        .select('home_team_id, away_team_id, winner_team_id, home_score, away_score, home_category_wins, away_category_wins, category_results, week_number')
-        .eq('league_id', leagueId!)
-        .eq('is_finalized', true)
-        .is('playoff_round', null);
-      if (error) throw error;
-      return data as MatchupRow[];
-    },
+    queryFn: () => fetchStandingsMatchups(leagueId!),
     enabled: !!leagueId,
   });
 
