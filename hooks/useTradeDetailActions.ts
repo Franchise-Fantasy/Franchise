@@ -10,6 +10,7 @@ import { sendNotification } from '@/lib/notifications';
 import { capture } from '@/lib/posthog';
 import { supabase } from '@/lib/supabase';
 import { isOnline } from '@/utils/network';
+import { fetchActiveRosterCount } from '@/utils/roster/rosterCounts';
 
 interface UseTradeDetailActionsParams {
   proposal: TradeProposalRow;
@@ -68,13 +69,7 @@ export function useTradeDetailActions({
     // If gaining players and not enough drops selected, trigger the drop picker
     if (myNetGain > 0) {
       const rosterSize = leagueSettings?.roster_size ?? 13;
-      const [allRes, irRes] = await Promise.all([
-        supabase.from('league_players').select('id', { count: 'exact', head: true })
-          .eq('league_id', leagueId).eq('team_id', teamId),
-        supabase.from('league_players').select('id', { count: 'exact', head: true })
-          .eq('league_id', leagueId).eq('team_id', teamId).eq('roster_slot', 'IR'),
-      ]);
-      const activeCount = (allRes.count ?? 0) - (irRes.count ?? 0);
+      const activeCount = await fetchActiveRosterCount(leagueId, teamId);
       const dropsNeeded = Math.max(0, activeCount + myNetGain - rosterSize);
       if (dropsNeeded > 0 && selectedDropPlayerIds.length < dropsNeeded) {
         onNeedDrop();

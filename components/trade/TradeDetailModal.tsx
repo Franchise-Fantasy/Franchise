@@ -24,6 +24,7 @@ import { TradeItemRow, TradeProposalRow, useTradeVotes } from '@/hooks/useTrades
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats } from '@/types/player';
 import { estimatePickFpts, TRADE_STATUS, TEAM_RESPONSE } from '@/types/trade';
+import { fetchActiveRosterCount } from '@/utils/roster/rosterCounts';
 import { ROSTER_SLOT } from '@/utils/roster/rosterSlotsShared';
 import { ms, s } from '@/utils/scale';
 import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
@@ -196,13 +197,7 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
     queryKey: queryKeys.tradeRosterCheck(teamId, leagueId, proposal.id),
     queryFn: async () => {
       const rosterSize = leagueSettings?.roster_size ?? 13;
-      const [allRes, irRes] = await Promise.all([
-        supabase.from('league_players').select('id', { count: 'exact', head: true })
-          .eq('league_id', leagueId).eq('team_id', teamId),
-        supabase.from('league_players').select('id', { count: 'exact', head: true })
-          .eq('league_id', leagueId).eq('team_id', teamId).eq('roster_slot', 'IR'),
-      ]);
-      const activeCount = (allRes.count ?? 0) - (irRes.count ?? 0);
+      const activeCount = await fetchActiveRosterCount(leagueId, teamId);
       return Math.max(0, activeCount + myNetGain - rosterSize);
     },
     enabled: isInvolved && myNetGain > 0 && !!leagueSettings,

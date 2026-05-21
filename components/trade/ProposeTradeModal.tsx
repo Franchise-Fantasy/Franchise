@@ -36,6 +36,7 @@ import { capture } from '@/lib/posthog';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats } from '@/types/player';
 import { TradeBuilderTeam, estimatePickFpts } from '@/types/trade';
+import { fetchActiveRosterCount } from '@/utils/roster/rosterCounts';
 import { ms, s } from '@/utils/scale';
 import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
 
@@ -283,13 +284,7 @@ export function ProposeTradeModal({
 
       const warnings: string[] = [];
       for (const [tid, netGain] of teamsGaining) {
-        const [allRes, irRes] = await Promise.all([
-          supabase.from('league_players').select('id', { count: 'exact', head: true })
-            .eq('league_id', leagueId).eq('team_id', tid),
-          supabase.from('league_players').select('id', { count: 'exact', head: true })
-            .eq('league_id', leagueId).eq('team_id', tid).eq('roster_slot', 'IR'),
-        ]);
-        const activeCount = (allRes.count ?? 0) - (irRes.count ?? 0);
+        const activeCount = await fetchActiveRosterCount(leagueId, tid);
         if (activeCount + netGain > rosterSize) {
           const teamName = allBuilderTeams.find((t) => t.team_id === tid)?.team_name ?? 'A team';
           warnings.push(teamName);

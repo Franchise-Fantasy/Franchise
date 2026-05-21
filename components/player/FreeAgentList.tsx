@@ -47,6 +47,7 @@ import { fetchNbaScheduleForDate } from "@/utils/nba/nbaSchedule";
 import { addFreeAgent } from "@/utils/roster/addFreeAgent";
 import { guardIllegalIR } from "@/utils/roster/illegalIR";
 import { checkPositionLimits } from "@/utils/roster/positionLimits";
+import { fetchActiveRosterCount } from "@/utils/roster/rosterCounts";
 import { isEligibleForSlot } from "@/utils/roster/rosterSlots";
 import { calculateAvgFantasyPoints } from "@/utils/scoring/fantasyPoints";
 
@@ -654,25 +655,14 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     setAddingPlayerId(player.player_id);
     try {
       // Re-check roster limit and weekly acquisition limit before adding
-      const [allRes, irRes, leagueRes] = await Promise.all([
-        supabase
-          .from("league_players")
-          .select("id", { count: "exact", head: true })
-          .eq("league_id", leagueId)
-          .eq("team_id", teamId),
-        supabase
-          .from("league_players")
-          .select("id", { count: "exact", head: true })
-          .eq("league_id", leagueId)
-          .eq("team_id", teamId)
-          .eq("roster_slot", "IR"),
+      const [activeCount, leagueRes] = await Promise.all([
+        fetchActiveRosterCount(leagueId, teamId),
         supabase
           .from("leagues")
           .select("roster_size, weekly_acquisition_limit, position_limits")
           .eq("id", leagueId)
           .single(),
       ]);
-      const activeCount = (allRes.count ?? 0) - (irRes.count ?? 0);
       const maxSize = leagueRes.data?.roster_size ?? 13;
       if (activeCount >= maxSize) {
         queryClient.invalidateQueries({
