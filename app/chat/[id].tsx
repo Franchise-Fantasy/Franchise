@@ -630,6 +630,10 @@ export default function ConversationScreen() {
             if (insertErr && insertErr.code !== '23505') throw insertErr;
 
             await queryClient.invalidateQueries({ queryKey: queryKeys.messages(conversationId!) });
+            // Also refresh the conversation list + unread counts so the
+            // blocked sender's last message and unread badge clear immediately.
+            queryClient.invalidateQueries({ queryKey: ['conversations'] });
+            queryClient.invalidateQueries({ queryKey: ['chatUnread'] });
           } catch (err: any) {
             logger.error('Block user failed', err);
             Alert.alert('Could not block user', err?.message ?? 'Please try again.');

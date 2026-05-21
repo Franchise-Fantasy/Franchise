@@ -101,6 +101,13 @@ export default function BlockedUsersScreen() {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: BLOCKED_USERS_KEY });
+      // Block state feeds the chat RPCs (conversation previews + unread
+      // counts + open threads), which are league-scoped. Invalidate by prefix
+      // so the unblocked user's messages reappear across every shared league
+      // without needing a leagueId here.
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      queryClient.invalidateQueries({ queryKey: ['chatUnread'] });
+      queryClient.invalidateQueries({ queryKey: ['messages'] });
     },
   });
 
