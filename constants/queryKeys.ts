@@ -305,8 +305,10 @@ export const queryKeys = {
   leagueSubscription: (leagueId: string) =>
     ["leagueSubscription", leagueId] as const,
   rcOfferings: () => ["rcOfferings"] as const,
-  paymentLedger: (leagueId: string, season: number) =>
+  paymentLedger: (leagueId: string, season: string) =>
     ["paymentLedger", leagueId, season] as const,
+  paymentSeasons: (leagueId: string) =>
+    ["paymentSeasons", leagueId] as const,
   unconfirmedPaymentCount: (leagueId: string, season: string) =>
     ["unconfirmedPaymentCount", leagueId, season] as const,
 

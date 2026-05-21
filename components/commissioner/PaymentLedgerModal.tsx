@@ -1,6 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useEffect, useState } from 'react';
 import {
   FlatList,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -16,6 +18,7 @@ import { useColors } from '@/hooks/useColors';
 import {
   PaymentStatus,
   usePaymentLedger,
+  usePaymentSeasons,
   useSelfReportPayment,
   useTogglePayment,
 } from '@/hooks/usePaymentLedger';
@@ -53,9 +56,25 @@ export function PaymentLedgerModal({
 }: Props) {
   const c = useColors();
 
-  const { data: payments, isLoading } = usePaymentLedger(visible ? leagueId : null, season);
-  const togglePayment = useTogglePayment(leagueId, season);
-  const selfReport = useSelfReportPayment(leagueId, season);
+  // Which season's ledger is shown. Defaults to the league's current season;
+  // the picker lets the commissioner browse past seasons. Reset to current
+  // each time the sheet opens so it never reopens stuck on an old season.
+  const [selectedSeason, setSelectedSeason] = useState(season);
+  useEffect(() => {
+    if (visible) setSelectedSeason(season);
+  }, [visible, season]);
+
+  const isCurrentSeason = selectedSeason === season;
+
+  const { data: pastSeasons } = usePaymentSeasons(visible ? leagueId : null);
+  // Merge the current season in so it's always selectable, newest first.
+  const seasons = Array.from(new Set([season, ...(pastSeasons ?? [])]))
+    .filter(Boolean)
+    .sort((a, b) => b.localeCompare(a));
+
+  const { data: payments, isLoading } = usePaymentLedger(visible ? leagueId : null, selectedSeason);
+  const togglePayment = useTogglePayment(leagueId, selectedSeason);
+  const selfReport = useSelfReportPayment(leagueId, selectedSeason);
   const pickAction = useActionPicker();
   const confirm = useConfirm();
 
@@ -220,8 +239,9 @@ export function PaymentLedgerModal({
             </TouchableOpacity>
           )}
 
-          {/* Team owner: pay / self-report for own row */}
-          {!isCommissioner && isMyTeam && status === 'unpaid' && (
+          {/* Team owner: pay / self-report for own row — current season only
+              (you can't report a payment against a past season's ledger). */}
+          {!isCommissioner && isMyTeam && isCurrentSeason && status === 'unpaid' && (
             <>
               {hasPaymentMethods && (
                 <TouchableOpacity
@@ -248,7 +268,7 @@ export function PaymentLedgerModal({
     );
   }
 
-  const seasonPrefix = season ? `${season}  ·  ` : '';
+  const seasonPrefix = selectedSeason ? `${selectedSeason}  ·  ` : '';
   const subtitle = buyInAmount
     ? `${seasonPrefix}BUY-IN $${buyInAmount}  ·  ${confirmedCount}/${teams.length} PAID`
     : `${seasonPrefix}${confirmedCount}/${teams.length} PAID`;
@@ -262,6 +282,40 @@ export function PaymentLedgerModal({
       height="85%"
       scrollableBody={false}
     >
+      {seasons.length > 1 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.seasonPicker}
+        >
+          {seasons.map((sn) => {
+            const active = sn === selectedSeason;
+            return (
+              <TouchableOpacity
+                key={sn}
+                onPress={() => setSelectedSeason(sn)}
+                style={[
+                  styles.seasonPill,
+                  { borderColor: c.border },
+                  active && { backgroundColor: c.accent, borderColor: c.accent },
+                ]}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={`View ${sn} season${sn === season ? ' (current)' : ''}`}
+              >
+                <Text
+                  style={[
+                    styles.seasonPillText,
+                    { color: active ? c.statusText : c.secondaryText },
+                  ]}
+                >
+                  {sn}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      )}
       {isLoading ? (
         <View style={{ marginTop: s(20) }}><LogoSpinner /></View>
       ) : (
@@ -276,6 +330,19 @@ export function PaymentLedgerModal({
 }
 
 const styles = StyleSheet.create({
+  seasonPicker: {
+    flexDirection: 'row',
+    gap: s(8),
+    paddingVertical: s(10),
+    paddingRight: s(8),
+  },
+  seasonPill: {
+    paddingHorizontal: s(14),
+    paddingVertical: s(6),
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  seasonPillText: { fontSize: ms(13), fontWeight: '600' },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

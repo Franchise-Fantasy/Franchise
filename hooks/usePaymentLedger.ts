@@ -21,7 +21,7 @@ export interface PaymentRow {
 
 export function usePaymentLedger(leagueId: string | null, season: string | null) {
   return useQuery({
-    queryKey: queryKeys.paymentLedger(leagueId!, Number(season!)),
+    queryKey: queryKeys.paymentLedger(leagueId!, season!),
     queryFn: async (): Promise<PaymentRow[]> => {
       const { data, error } = await supabase
         .from('league_payments')
@@ -32,6 +32,30 @@ export function usePaymentLedger(leagueId: string | null, season: string | null)
       return (data ?? []) as PaymentRow[];
     },
     enabled: !!leagueId && !!season,
+    staleTime: 1000 * 60 * 5,
+  });
+}
+
+/**
+ * Distinct seasons that have payment records for this league, newest first.
+ * Drives the ledger's season picker so the commissioner can browse past
+ * seasons. The caller merges in the current season so it's always selectable
+ * even before any payments exist for it.
+ */
+export function usePaymentSeasons(leagueId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.paymentSeasons(leagueId!),
+    queryFn: async (): Promise<string[]> => {
+      const { data, error } = await supabase
+        .from('league_payments')
+        .select('season')
+        .eq('league_id', leagueId!);
+      if (error) throw error;
+      const seasons = Array.from(new Set((data ?? []).map((r) => r.season as string)));
+      seasons.sort((a, b) => b.localeCompare(a));
+      return seasons;
+    },
+    enabled: !!leagueId,
     staleTime: 1000 * 60 * 5,
   });
 }
@@ -68,7 +92,7 @@ export function useUnconfirmedPaymentCount(
 
 export function useTogglePayment(leagueId: string, season: string) {
   const queryClient = useQueryClient();
-  const queryKey = queryKeys.paymentLedger(leagueId, Number(season));
+  const queryKey = queryKeys.paymentLedger(leagueId, season);
 
   return useMutation({
     mutationFn: async ({ teamId, action }: { teamId: string; action: 'confirm' | 'deny' }) => {
@@ -132,7 +156,7 @@ export function useTogglePayment(leagueId: string, season: string) {
 
 export function useSelfReportPayment(leagueId: string, season: string) {
   const queryClient = useQueryClient();
-  const queryKey = queryKeys.paymentLedger(leagueId, Number(season));
+  const queryKey = queryKeys.paymentLedger(leagueId, season);
 
   return useMutation({
     mutationFn: async ({ teamId }: { teamId: string }) => {
@@ -201,7 +225,7 @@ export function useUpdatePaymentNotes(leagueId: string, season: string) {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.paymentLedger(leagueId, Number(season)) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.paymentLedger(leagueId, season) });
     },
   });
 }
