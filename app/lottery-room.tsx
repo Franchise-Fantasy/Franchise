@@ -190,6 +190,7 @@ export default function LotteryRoomScreen() {
         odds_pct: oddsValue != null ? `${oddsValue}%` : null,
         recipient_name: recipient?.name ?? null,
         recipient_tricode: recipient?.tricode ?? null,
+        recipient_logo_key: recipient?.logo_key ?? null,
       };
     });
   }, [lotteryResults, teamsById, recordsByTeamId, oddsArray, recipientByOrig]);

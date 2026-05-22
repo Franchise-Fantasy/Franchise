@@ -620,14 +620,7 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
                       <View style={styles.pickTeamLine}>
                         {effectiveIsTraded ? (
                           <>
-                            <View style={styles.fadedLogoWrap}>
-                              <TeamLogo
-                                logoKey={originTeam?.logo_key}
-                                teamName={pick.original_team_name}
-                                tricode={originTricode}
-                                size="small"
-                              />
-                            </View>
+                            {/* Origin abbreviated → receiving team gets the logo + full name. */}
                             <ThemedText
                               type="varsitySmall"
                               style={[styles.tricodeFaded, { color: c.secondaryText }]}
@@ -642,13 +635,20 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
                               tricode={effectiveTricode}
                               size="small"
                             />
-                            <ThemedText
-                              type="varsity"
-                              style={[styles.tricodeStrong, { color: c.text }]}
-                              numberOfLines={1}
-                            >
-                              {effectiveTricode}
-                            </ThemedText>
+                            <View style={styles.teamLineWide}>
+                              <ThemedText
+                                type="varsity"
+                                style={[styles.tricodeStrong, { color: c.text }]}
+                              >
+                                {effectiveTricode}
+                              </ThemedText>
+                              <ThemedText
+                                style={[styles.teamFullName, { color: c.secondaryText }]}
+                                numberOfLines={1}
+                              >
+                                {effectiveName}
+                              </ThemedText>
+                            </View>
                           </>
                         ) : (
                           <>

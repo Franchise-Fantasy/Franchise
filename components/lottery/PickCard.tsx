@@ -40,6 +40,7 @@ export interface PickCardEntry {
    *  away from the drawn team. null when the drawn team keeps its own pick. */
   recipient_name?: string | null;
   recipient_tricode?: string | null;
+  recipient_logo_key?: string | null;
 }
 
 interface PickCardProps {
@@ -149,6 +150,10 @@ export function PickCard({
     ? entry
     : reelTeam ?? null;
 
+  // Once revealed, a traded/conveyed/swapped pick leads with the RECEIVING team
+  // (logo + full name); the drawn team becomes the abbreviated "from" tricode.
+  const revealedTraded = isRevealed && !!entry.recipient_tricode;
+
   const accessibilityLabel = isRevealed
     ? `Pick ${pickNumber}: ${entry.team_name}${entry.was_drawn ? ', lottery winner' : ''}${entry.recipient_name ? `, pick goes to ${entry.recipient_name}` : ''}`
     : isSpinning
@@ -176,32 +181,32 @@ export function PickCard({
       {displayTeam ? (
         <View style={styles.teamRow}>
           <TeamLogo
-            logoKey={displayTeam.logo_key}
-            teamName={displayTeam.team_name}
-            tricode={displayTeam.tricode ?? undefined}
+            logoKey={revealedTraded ? (entry.recipient_logo_key ?? null) : displayTeam.logo_key}
+            teamName={revealedTraded ? (entry.recipient_name ?? '') : displayTeam.team_name}
+            tricode={(revealedTraded ? entry.recipient_tricode : displayTeam.tricode) ?? undefined}
             size="small"
           />
           <View style={styles.teamWrap}>
             <View style={styles.nameRow}>
+              {revealedTraded ? (
+                <>
+                  <ThemedText
+                    type="varsitySmall"
+                    style={[styles.fromTri, { color: subColor }]}
+                    numberOfLines={1}
+                  >
+                    {displayTeam.tricode ?? displayTeam.team_name.slice(0, 3).toUpperCase()}
+                  </ThemedText>
+                  <Ionicons name="arrow-forward" size={ms(11)} color={ruleColor} accessible={false} />
+                </>
+              ) : null}
               <ThemedText
                 type="defaultSemiBold"
                 style={[styles.teamName, { color: teamColor }]}
                 numberOfLines={1}
               >
-                {displayTeam.team_name}
+                {revealedTraded ? (entry.recipient_name ?? entry.recipient_tricode) : displayTeam.team_name}
               </ThemedText>
-              {isRevealed && entry.recipient_tricode ? (
-                <View style={styles.conveyance}>
-                  <Ionicons name="arrow-forward" size={ms(12)} color={ruleColor} accessible={false} />
-                  <ThemedText
-                    type="varsitySmall"
-                    style={[styles.recipientTri, { color: teamColor }]}
-                    numberOfLines={1}
-                  >
-                    {entry.recipient_tricode}
-                  </ThemedText>
-                </View>
-              ) : null}
             </View>
             {isRevealed && (
               <ThemedText
@@ -295,15 +300,10 @@ const styles = StyleSheet.create({
     fontSize: ms(15),
     flexShrink: 1,
   },
-  conveyance: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(2),
-    flexShrink: 0,
-  },
-  recipientTri: {
+  fromTri: {
     fontSize: ms(12),
     letterSpacing: 0.5,
+    flexShrink: 0,
   },
   standing: {
     fontSize: ms(10),
