@@ -46,9 +46,64 @@ Deno.serve(async (req) => {
     // lottery-room "Done" button now bundles the ceremony close + draft
     // creation into a single click, skipping the intermediate
     // `lottery_complete` state.
-    const validSteps = ['lottery_revealing', 'lottery_complete', 'rookie_draft_pending'];
-    if (!validSteps.includes(league.offseason_step ?? '')) {
-      throw new HttpError(`Cannot create rookie draft in current state: ${league.offseason_step}`);
+    const step = league.offseason_step ?? '';
+    const finishedSteps = ['lottery_revealing', 'lottery_complete', 'rookie_draft_pending'];
+
+    if (!finishedSteps.includes(step)) {
+      // `lottery_pending` / `lottery_scheduled` are normally too early. But a
+      // league can land here with a drawn-but-not-finalized lottery — e.g. a
+      // legacy results row created before start-lottery advanced
+      // `offseason_step`, or a half-completed run. In that case a
+      // lottery_results row already exists, the reveal has played, and "Done"
+      // should still create the draft. Reconcile (the offseason_step bump at
+      // the end of this function heals the stuck state) rather than dead-end
+      // the commissioner. The lottery_results check keeps the guard meaningful:
+      // a draft can't be created before the lottery is actually drawn.
+      const reconcilableSteps = ['lottery_pending', 'lottery_scheduled'];
+      const { data: lotteryRow } = reconcilableSteps.includes(step)
+        ? await supabaseAdmin
+            .from('lottery_results')
+            .select('league_id')
+            .eq('league_id', league_id)
+            .eq('season', league.season)
+            .maybeSingle()
+        : { data: null };
+
+      if (!lotteryRow) {
+        throw new HttpError(`Cannot create rookie draft in current state: ${step}`);
+      }
+    }
+
+    // Apply the lottery resolution that start-lottery staged. Until "Done" the
+    // picks stay pre-lottery; this commits the drawn slots, the resolved
+    // ownership (protections reverted/conveyed, swaps executed), and clears the
+    // protection columns. Idempotent — re-tapping "Done" rewrites the same
+    // values. Skipped for non-lottery leagues + legacy rows (no staged data).
+    const { data: lotteryStaging } = await supabaseAdmin
+      .from('lottery_results')
+      .select('pick_assignments')
+      .eq('league_id', league_id)
+      .eq('season', league.season)
+      .maybeSingle();
+    const assignments = lotteryStaging?.pick_assignments as
+      | {
+          picks?: { id: string; slot_number: number | null; pick_number: number | null; current_team_id: string | null }[];
+          swaps_resolved?: string[];
+        }
+      | null;
+    if (assignments?.picks?.length) {
+      for (const p of assignments.picks) {
+        await supabaseAdmin.from('draft_picks').update({
+          slot_number: p.slot_number,
+          pick_number: p.pick_number,
+          current_team_id: p.current_team_id,
+          protection_threshold: null,
+          protection_owner_id: null,
+        }).eq('id', p.id);
+      }
+      for (const swapId of assignments.swaps_resolved ?? []) {
+        await supabaseAdmin.from('pick_swaps').update({ resolved: true }).eq('id', swapId);
+      }
     }
 
     // Idempotent: if a rookie draft already exists for this season, reuse it

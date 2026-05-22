@@ -2002,6 +2002,7 @@ export type Database = {
           created_at: string | null
           id: string
           league_id: string
+          pick_assignments: Json | null
           pick_resolution: Json | null
           results: Json
           season: string
@@ -2010,6 +2011,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           league_id: string
+          pick_assignments?: Json | null
           pick_resolution?: Json | null
           results: Json
           season: string
@@ -2018,6 +2020,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           league_id?: string
+          pick_assignments?: Json | null
           pick_resolution?: Json | null
           results?: Json
           season?: string

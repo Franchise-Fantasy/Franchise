@@ -129,21 +129,28 @@ export default function LotteryRoomScreen() {
     return map;
   }, [latestSeasonRecords]);
 
-  // Resolved round-1 ownership. By reveal time start-lottery has already applied
-  // trades/protections/swaps, so a drawn (originating) team's pick may now belong
-  // to someone else — drives the "➝ owner" tag on each locked card.
+  // Round-1 ownership from the STAGED resolution. start-lottery resolves the
+  // result but doesn't commit it to draft_picks until "Done", so the reveal
+  // reads recipients from lottery_results.pick_assignments — the drawn
+  // (originating) team's pick may belong to someone else after protections/
+  // swaps. Drives the "➝ owner" tag on each locked card.
   const { data: pickOwners } = useQuery({
     queryKey: ['lotteryPickOwners', leagueId, league?.season],
-    queryFn: async () => {
+    queryFn: async (): Promise<{ original_team_id: string | null; current_team_id: string | null }[]> => {
       const { data, error } = await supabase
-        .from('draft_picks')
-        .select('original_team_id, current_team_id')
+        .from('lottery_results')
+        .select('pick_assignments')
         .eq('league_id', leagueId!)
         .eq('season', league!.season)
-        .eq('round', 1)
-        .is('player_id', null);
+        .maybeSingle();
       if (error) throw error;
-      return data ?? [];
+      const picks =
+        (data?.pick_assignments as {
+          picks?: { round: number; original_team_id: string | null; current_team_id: string | null }[];
+        } | null)?.picks ?? [];
+      return picks
+        .filter((p) => p.round === 1)
+        .map((p) => ({ original_team_id: p.original_team_id, current_team_id: p.current_team_id }));
     },
     enabled: !!leagueId && !!league?.season,
   });

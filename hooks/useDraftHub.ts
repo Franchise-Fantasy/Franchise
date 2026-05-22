@@ -55,6 +55,7 @@ export interface DraftHubLeagueSettings {
   pickConditionsEnabled: boolean;
   leagueFull: boolean;
   lotteryComplete: boolean;
+  lotteryDrawn: boolean;
   rookieDraftComplete: boolean;
   inOffseason: boolean;
 }
@@ -82,12 +83,22 @@ export function useDraftHub(leagueId: string | null) {
 
       const offseasonStep = league?.offseason_step as string | null;
       const inOffseason = offseasonStep != null;
+      // FINALIZED: the commissioner pressed "Done" (create-rookie-draft applied
+      // the staged resolution). Only then do we show the resolved draft order —
+      // during `lottery_revealing` the picks are still pre-lottery (the result
+      // is staged, not committed). NOTE: deliberately NOT keyed on
+      // `lottery_status === 'complete'`, which flips at draw time.
       const lotteryComplete =
-        league?.lottery_status === 'complete' ||
         offseasonStep === 'lottery_complete' ||
         offseasonStep === 'rookie_draft_pending' ||
         offseasonStep === 'rookie_draft_complete' ||
         offseasonStep === 'ready_for_new_season';
+      // DRAWN: the RNG has run (results staged). Used to hide the Simulate
+      // button during the reveal, before the result is committed.
+      const lotteryDrawn =
+        lotteryComplete ||
+        league?.lottery_status === 'complete' ||
+        offseasonStep === 'lottery_revealing';
       const rookieDraftComplete =
         offseasonStep === 'rookie_draft_complete' ||
         offseasonStep === 'ready_for_new_season';
@@ -96,11 +107,23 @@ export function useDraftHub(leagueId: string | null) {
       const currentStartYear = parseSeasonStartYear(league?.season ?? getCurrentSeason(sport));
 
       // Future rookie drafts: NBA 2026 draft = '2026-27' season, etc.
-      // WNBA seasons are single-year ('2027', '2028'). max_future_seasons=3
-      // means the next 3 rookie drafts (offset 1..3 from current season).
+      // WNBA seasons are single-year ('2027', '2028').
+      //
+      // During the regular season `league.season` is the active *playing*
+      // season, so the next rookie draft is offset +1. But `advance-season`
+      // flips `league.season` to the new season at the START of the offseason,
+      // and the upcoming rookie draft (the one the lottery seeds via
+      // `start-lottery`/`run-lottery`, both keyed on `league.season`) is for
+      // `league.season` ITSELF — offset 0. Until that draft completes we must
+      // start the window at offset 0 so its picks AND the lottery results stay
+      // visible; otherwise they fall outside the `.in('season', validSeasons)`
+      // filter and disappear, and the hub appears to jump a year ahead. The
+      // two windows cover the same absolute seasons across the boundary because
+      // `league.season` incremented while the start offset decremented.
+      const startOffset = inOffseason && !rookieDraftComplete ? 0 : 1;
       const validSeasons: string[] = [];
-      for (let i = 1; i <= maxFuture; i++) {
-        validSeasons.push(formatSeason(currentStartYear + i, sport));
+      for (let i = 0; i < maxFuture; i++) {
+        validSeasons.push(formatSeason(currentStartYear + startOffset + i, sport));
       }
 
       const rookieDraftRounds = league?.rookie_draft_rounds ?? 2;
@@ -236,6 +259,7 @@ export function useDraftHub(leagueId: string | null) {
           pickConditionsEnabled: league?.pick_conditions_enabled ?? false,
           leagueFull: (league?.current_teams ?? 0) >= (league?.teams ?? 0),
           lotteryComplete,
+          lotteryDrawn,
           rookieDraftComplete,
           inOffseason,
         },

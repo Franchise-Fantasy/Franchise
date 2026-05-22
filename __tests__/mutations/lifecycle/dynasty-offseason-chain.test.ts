@@ -90,21 +90,28 @@ describe('Dynasty offseason chain', () => {
       const topLotteryTeamId = (lottery.data.results as any[])[0].team_id;
       expect(nonPlayoffTeamIds.has(topLotteryTeamId)).toBe(true);
 
-      // Draft picks for the new season now have slot_number + pick_number assigned.
-      // 4 teams × 2 rounds = 8 picks.
-      const { data: picks } = await admin
+      // Resolution is STAGED, not committed — start-lottery no longer mutates
+      // draft_picks. The picks stay pre-lottery (slots unassigned) until "Done".
+      const { data: stagedPicks } = await admin
         .from('draft_picks')
-        .select('round, slot_number, pick_number, current_team_id, original_team_id')
+        .select('slot_number')
+        .eq('league_id', leagueId)
+        .eq('season', newSeason);
+      expect(stagedPicks).toHaveLength(8);
+      expect(stagedPicks!.every((p) => p.slot_number === null)).toBe(true);
+
+      // The staged assignments live on lottery_results.pick_assignments, with
+      // round-1 slot 1 going to the lottery #1 team.
+      const { data: staging } = await admin
+        .from('lottery_results')
+        .select('pick_assignments')
         .eq('league_id', leagueId)
         .eq('season', newSeason)
-        .order('round')
-        .order('slot_number');
-      expect(picks).toHaveLength(8);
-      // Slot 1 in each round goes to the lottery #1 team
-      const round1 = picks!.filter((p) => p.round === 1);
-      expect(round1[0].slot_number).toBe(1);
-      expect(round1[0].pick_number).toBe(1);
-      expect(round1[0].original_team_id).toBe(topLotteryTeamId);
+        .single();
+      const stagedAssignments = ((staging?.pick_assignments as any)?.picks ?? []) as any[];
+      expect(stagedAssignments).toHaveLength(8);
+      const stagedR1Slot1 = stagedAssignments.find((p) => p.round === 1 && p.slot_number === 1);
+      expect(stagedR1Slot1?.original_team_id).toBe(topLotteryTeamId);
 
       // ── Step 3: create-rookie-draft ──
       const rookie = await client.functions.invoke('create-rookie-draft', {
@@ -137,6 +144,20 @@ describe('Dynasty offseason chain', () => {
         .eq('league_id', leagueId)
         .eq('draft_id', draftId);
       expect(linkedPicks).toHaveLength(8);
+
+      // NOW committed: create-rookie-draft applied the staged assignments, so
+      // slots/pick numbers are written to draft_picks (slot 1 = lottery #1 team).
+      const { data: committedPicks } = await admin
+        .from('draft_picks')
+        .select('round, slot_number, pick_number, original_team_id')
+        .eq('league_id', leagueId)
+        .eq('season', newSeason)
+        .order('round')
+        .order('slot_number');
+      const committedR1 = committedPicks!.filter((p) => p.round === 1);
+      expect(committedR1[0].slot_number).toBe(1);
+      expect(committedR1[0].pick_number).toBe(1);
+      expect(committedR1[0].original_team_id).toBe(topLotteryTeamId);
 
       // League advanced past rookie_draft_pending (the edge function sets it
       // to rookie_draft_pending even when called from lottery_complete)

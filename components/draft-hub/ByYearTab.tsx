@@ -520,7 +520,7 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
             );
           })}
 
-          {!leagueSettings.lotteryComplete && (
+          {!leagueSettings.lotteryDrawn && (
             <View style={styles.simButtonRow}>
               <BrandButton
                 label={simResult ? 'Simulate Again' : 'Simulate Lottery'}
