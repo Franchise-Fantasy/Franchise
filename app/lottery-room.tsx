@@ -4,9 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { LotteryResolutionSummary } from '@/components/lottery/LotteryResolutionSummary';
 import type { PickCardEntry } from '@/components/lottery/PickCard';
 import type { PickListHandle } from '@/components/lottery/PickList';
-import { LotteryResolutionSummary } from '@/components/lottery/LotteryResolutionSummary';
 import { PickList } from '@/components/lottery/PickList';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
@@ -31,6 +31,7 @@ interface LotteryEntry {
 
 interface TeamMeta {
   id: string;
+  name: string | null;
   tricode: string | null;
   logo_key: string | null;
 }
@@ -87,7 +88,7 @@ export default function LotteryRoomScreen() {
     queryFn: async (): Promise<TeamMeta[]> => {
       const { data, error } = await supabase
         .from('teams')
-        .select('id, tricode, logo_key')
+        .select('id, name, tricode, logo_key')
         .eq('league_id', leagueId!);
       if (error) throw error;
       return data ?? [];
@@ -128,6 +129,35 @@ export default function LotteryRoomScreen() {
     return map;
   }, [latestSeasonRecords]);
 
+  // Resolved round-1 ownership. By reveal time start-lottery has already applied
+  // trades/protections/swaps, so a drawn (originating) team's pick may now belong
+  // to someone else — drives the "➝ owner" tag on each locked card.
+  const { data: pickOwners } = useQuery({
+    queryKey: ['lotteryPickOwners', leagueId, league?.season],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('draft_picks')
+        .select('original_team_id, current_team_id')
+        .eq('league_id', leagueId!)
+        .eq('season', league!.season)
+        .eq('round', 1)
+        .is('player_id', null);
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: !!leagueId && !!league?.season,
+  });
+
+  const recipientByOrig = useMemo(() => {
+    const map = new Map<string, string>();
+    (pickOwners ?? []).forEach((p) => {
+      if (p.original_team_id && p.current_team_id && p.current_team_id !== p.original_team_id) {
+        map.set(p.original_team_id, p.current_team_id);
+      }
+    });
+    return map;
+  }, [pickOwners]);
+
   // Lottery odds, indexed so `oddsArray[original_standing - 1]` is the
   // pre-lottery percentage chance for that team. Custom odds from
   // `league.lottery_odds` override the linear default.
@@ -145,6 +175,8 @@ export default function LotteryRoomScreen() {
       const team = teamsById.get(r.team_id);
       const record = recordsByTeamId.get(r.team_id);
       const oddsValue = oddsArray[r.original_standing - 1];
+      const recipientId = recipientByOrig.get(r.team_id);
+      const recipient = recipientId ? teamsById.get(recipientId) : null;
       return {
         team_id: r.team_id,
         team_name: r.team_name,
@@ -156,9 +188,11 @@ export default function LotteryRoomScreen() {
         wins: record?.wins ?? null,
         losses: record?.losses ?? null,
         odds_pct: oddsValue != null ? `${oddsValue}%` : null,
+        recipient_name: recipient?.name ?? null,
+        recipient_tricode: recipient?.tricode ?? null,
       };
     });
-  }, [lotteryResults, teamsById, recordsByTeamId, oddsArray]);
+  }, [lotteryResults, teamsById, recordsByTeamId, oddsArray, recipientByOrig]);
 
   const totalSlots = lotteryResults?.length ?? 0;
 
@@ -295,6 +329,9 @@ export default function LotteryRoomScreen() {
       }
       if (leagueId) {
         queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId) });
+        // Resolved ownership just changed (protections/swaps applied) — refetch
+        // so the locked reveal cards show the correct "➝ owner".
+        queryClient.invalidateQueries({ queryKey: ['lotteryPickOwners', leagueId, league?.season] });
       }
 
       // Broadcast results to all clients via the shared channel

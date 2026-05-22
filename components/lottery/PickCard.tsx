@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -35,6 +36,10 @@ export interface PickCardEntry {
   losses: number | null;
   /** Pre-lottery odds string for this team (e.g. "14%"). */
   odds_pct: string | null;
+  /** Resolved current owner of this pick when it was traded/conveyed/swapped
+   *  away from the drawn team. null when the drawn team keeps its own pick. */
+  recipient_name?: string | null;
+  recipient_tricode?: string | null;
 }
 
 interface PickCardProps {
@@ -145,7 +150,7 @@ export function PickCard({
     : reelTeam ?? null;
 
   const accessibilityLabel = isRevealed
-    ? `Pick ${pickNumber}: ${entry.team_name}${entry.was_drawn ? ', lottery winner' : ''}`
+    ? `Pick ${pickNumber}: ${entry.team_name}${entry.was_drawn ? ', lottery winner' : ''}${entry.recipient_name ? `, pick goes to ${entry.recipient_name}` : ''}`
     : isSpinning
       ? `Pick ${pickNumber}, drawing`
       : `Pick ${pickNumber}, sealed`;
@@ -177,13 +182,27 @@ export function PickCard({
             size="small"
           />
           <View style={styles.teamWrap}>
-            <ThemedText
-              type="defaultSemiBold"
-              style={[styles.teamName, { color: teamColor }]}
-              numberOfLines={1}
-            >
-              {displayTeam.team_name}
-            </ThemedText>
+            <View style={styles.nameRow}>
+              <ThemedText
+                type="defaultSemiBold"
+                style={[styles.teamName, { color: teamColor }]}
+                numberOfLines={1}
+              >
+                {displayTeam.team_name}
+              </ThemedText>
+              {isRevealed && entry.recipient_tricode ? (
+                <View style={styles.conveyance}>
+                  <Ionicons name="arrow-forward" size={ms(12)} color={ruleColor} accessible={false} />
+                  <ThemedText
+                    type="varsitySmall"
+                    style={[styles.recipientTri, { color: teamColor }]}
+                    numberOfLines={1}
+                  >
+                    {entry.recipient_tricode}
+                  </ThemedText>
+                </View>
+              ) : null}
+            </View>
             {isRevealed && (
               <ThemedText
                 type="varsitySmall"
@@ -267,8 +286,24 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(6),
+  },
   teamName: {
     fontSize: ms(15),
+    flexShrink: 1,
+  },
+  conveyance: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(2),
+    flexShrink: 0,
+  },
+  recipientTri: {
+    fontSize: ms(12),
+    letterSpacing: 0.5,
   },
   standing: {
     fontSize: ms(10),
