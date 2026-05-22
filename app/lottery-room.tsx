@@ -580,7 +580,7 @@ export default function LotteryRoomScreen() {
                   </ThemedText>
                   {leagueId && league?.season ? (
                     <View style={styles.resolutionWrap}>
-                      <LotteryResolutionSummary leagueId={leagueId} season={league.season} />
+                      <LotteryResolutionSummary leagueId={leagueId} season={league.season} collapsible />
                     </View>
                   ) : null}
                   <View style={styles.heroCta}>
