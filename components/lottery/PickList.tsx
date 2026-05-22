@@ -1,5 +1,5 @@
 import { forwardRef, useImperativeHandle, useMemo, useState } from 'react';
-import { Dimensions, StyleSheet, View } from 'react-native';
+import { Dimensions, ScrollView, StyleSheet, View } from 'react-native';
 import ConfettiCannon from 'react-native-confetti-cannon';
 
 import { Brand } from '@/constants/Colors';
@@ -65,7 +65,13 @@ export const PickList = forwardRef<PickListHandle, PickListProps>(
     );
 
     return (
-      <View style={styles.list} accessibilityRole="list">
+      <View style={styles.wrap}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.list}
+          showsVerticalScrollIndicator={false}
+          accessibilityRole="list"
+        >
         {displayOrder.map((entry, idx) => {
           const pickNumber = entry.lottery_position;
           // Ascending sort + reveals from the highest pick downward: the LAST
@@ -93,6 +99,7 @@ export const PickList = forwardRef<PickListHandle, PickListProps>(
             />
           );
         })}
+        </ScrollView>
 
         {confettiKey > 0 && (
           <ConfettiCannon
@@ -115,10 +122,15 @@ export const PickList = forwardRef<PickListHandle, PickListProps>(
 );
 
 const styles = StyleSheet.create({
-  list: {
+  wrap: {
     flex: 1,
+  },
+  scroll: {
+    flex: 1,
+  },
+  list: {
     paddingHorizontal: s(16),
-    paddingBottom: s(12),
+    paddingVertical: s(8),
     gap: s(8),
   },
 });

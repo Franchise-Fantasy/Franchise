@@ -561,16 +561,6 @@ export default function LotteryRoomScreen() {
             <View style={[styles.bottomBar, { borderTopColor: c.border }]}>
               {allRevealed ? (
                 <>
-                  <View style={styles.heroEyebrowRow}>
-                    <View style={[styles.heroRule, { backgroundColor: c.gold }]} />
-                    <ThemedText
-                      type="varsitySmall"
-                      style={[styles.heroEyebrow, { color: c.gold }]}
-                    >
-                      Final
-                    </ThemedText>
-                    <View style={[styles.heroRule, { backgroundColor: c.gold }]} />
-                  </View>
                   <ThemedText
                     type="display"
                     style={[styles.finalTitle, { color: c.text }]}
