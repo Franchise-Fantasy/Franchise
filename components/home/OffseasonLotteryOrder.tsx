@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
+import { PickConditionRow } from '@/components/draft-hub/PickConditionRow';
 import { TeamLogo } from '@/components/team/TeamLogo';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
@@ -37,6 +38,12 @@ interface OrderRow {
   wins: number;
   losses: number;
   oddsPct: string;
+  // Pre-lottery pick conveyance/conditions, overlaid from draft_picks/pick_swaps
+  // so the home card matches the draft hub instead of looking untraded.
+  isTraded?: boolean;
+  ownerTricode?: string | null;
+  protectionThreshold?: number | null;
+  swapPartnerTricode?: string | null;
 }
 
 /**
@@ -120,16 +127,67 @@ export function OffseasonLotteryOrder({
         }
       }
 
-      return rows.map((r: any, i: number) => ({
-        position: i + 1,
-        teamId: r.team?.id ?? null,
-        teamName: r.team?.name ?? 'Unknown',
-        tricode: r.team?.tricode ?? null,
-        logoKey: r.team?.logo_key ?? null,
-        wins: r.wins ?? 0,
-        losses: r.losses ?? 0,
-        oddsPct: isLotteryLeague && i < poolSize && odds[i] != null ? `${odds[i]}%` : '—',
-      }));
+      // Overlay round-1 pick ownership so traded/protected/swapped picks show
+      // their conveyance + condition, matching the draft hub (the standings
+      // rows are otherwise blind to where each pick is headed).
+      const teamMeta = new Map<string, { name: string; tricode: string | null }>();
+      for (const r of rows as any[]) {
+        if (r.team?.id) teamMeta.set(r.team.id, { name: r.team.name, tricode: r.team.tricode });
+      }
+      const tri = (id: string | null | undefined): string | null => {
+        if (!id) return null;
+        const m = teamMeta.get(id);
+        return m?.tricode ?? m?.name?.slice(0, 3).toUpperCase() ?? null;
+      };
+
+      const { data: r1picks } = await supabase
+        .from('draft_picks')
+        .select('original_team_id, current_team_id, protection_threshold')
+        .eq('league_id', leagueId)
+        .eq('season', season)
+        .eq('round', 1)
+        .is('player_id', null);
+      const condByOrig = new Map<string, { ownerId: string | null; threshold: number | null }>();
+      for (const p of r1picks ?? []) {
+        if (p.original_team_id) {
+          condByOrig.set(p.original_team_id, { ownerId: p.current_team_id, threshold: p.protection_threshold });
+        }
+      }
+
+      const { data: swapRows } = await supabase
+        .from('pick_swaps')
+        .select('beneficiary_team_id, counterparty_team_id')
+        .eq('league_id', leagueId)
+        .eq('season', season)
+        .eq('round', 1)
+        .eq('resolved', false);
+      const swapPartner = new Map<string, string>();
+      for (const sw of swapRows ?? []) {
+        if (sw.beneficiary_team_id) swapPartner.set(sw.beneficiary_team_id, sw.counterparty_team_id);
+        if (sw.counterparty_team_id) swapPartner.set(sw.counterparty_team_id, sw.beneficiary_team_id);
+      }
+
+      return rows.map((r: any, i: number) => {
+        const teamId = r.team?.id ?? null;
+        const cond = teamId ? condByOrig.get(teamId) : undefined;
+        const ownerId = cond?.ownerId ?? null;
+        const isTraded = !!ownerId && ownerId !== teamId;
+        const partnerId = teamId ? swapPartner.get(teamId) : undefined;
+        return {
+          position: i + 1,
+          teamId,
+          teamName: r.team?.name ?? 'Unknown',
+          tricode: r.team?.tricode ?? null,
+          logoKey: r.team?.logo_key ?? null,
+          wins: r.wins ?? 0,
+          losses: r.losses ?? 0,
+          oddsPct: isLotteryLeague && i < poolSize && odds[i] != null ? `${odds[i]}%` : '—',
+          isTraded,
+          ownerTricode: isTraded ? tri(ownerId) : null,
+          protectionThreshold: cond?.threshold ?? null,
+          swapPartnerTricode: partnerId ? tri(partnerId) : null,
+        };
+      });
     },
     staleTime: 1000 * 60 * 2,
   });
@@ -196,34 +254,64 @@ export function OffseasonLotteryOrder({
                     disabled={!row.teamId}
                     activeOpacity={0.6}
                     accessibilityRole={row.teamId ? 'button' : undefined}
-                    accessibilityLabel={`${row.teamName}, pick ${row.position}`}
+                    accessibilityLabel={
+                      `${row.teamName}, pick ${row.position}` +
+                      (row.isTraded && row.ownerTricode ? `, traded to ${row.ownerTricode}` : '') +
+                      (row.protectionThreshold ? `, top-${row.protectionThreshold} protected` : '') +
+                      (row.swapPartnerTricode ? `, pick swap with ${row.swapPartnerTricode}` : '')
+                    }
                   >
-                    <ThemedText type="mono" style={[styles.rank, { color: c.secondaryText }]}>
-                      {row.position}
-                    </ThemedText>
-                    <TeamLogo
-                      logoKey={row.logoKey}
-                      teamName={row.teamName}
-                      tricode={row.tricode ?? undefined}
-                      size="small"
-                    />
-                    <ThemedText
-                      style={[styles.teamName, { color: c.text }]}
-                      numberOfLines={1}
-                      ellipsizeMode="tail"
-                    >
-                      {row.teamName}
-                    </ThemedText>
-                    {showRecord && (
-                      <ThemedText type="mono" style={[styles.record, { color: c.secondaryText }]}>
-                        {row.wins}-{row.losses}
+                    <View style={styles.rowTop}>
+                      <ThemedText type="mono" style={[styles.rank, { color: c.secondaryText }]}>
+                        {row.position}
                       </ThemedText>
-                    )}
-                    {showOdds && (
-                      <ThemedText type="mono" style={[styles.odds, { color: c.gold }]}>
-                        {row.oddsPct}
-                      </ThemedText>
-                    )}
+                      <TeamLogo
+                        logoKey={row.logoKey}
+                        teamName={row.teamName}
+                        tricode={row.tricode ?? undefined}
+                        size="small"
+                      />
+                      <View style={styles.nameWrap}>
+                        <ThemedText
+                          style={[styles.teamName, { color: c.text }]}
+                          numberOfLines={1}
+                          ellipsizeMode="tail"
+                        >
+                          {row.teamName}
+                        </ThemedText>
+                        {row.isTraded && row.ownerTricode ? (
+                          <View style={styles.conveyance}>
+                            <Ionicons name="arrow-forward" size={ms(10)} color={c.gold} accessible={false} />
+                            <ThemedText type="varsitySmall" style={[styles.ownerTri, { color: c.text }]}>
+                              {row.ownerTricode}
+                            </ThemedText>
+                          </View>
+                        ) : null}
+                      </View>
+                      {showRecord && (
+                        <ThemedText type="mono" style={[styles.record, { color: c.secondaryText }]}>
+                          {row.wins}-{row.losses}
+                        </ThemedText>
+                      )}
+                      {showOdds && (
+                        <ThemedText type="mono" style={[styles.odds, { color: c.gold }]}>
+                          {row.oddsPct}
+                        </ThemedText>
+                      )}
+                    </View>
+                    {!lotteryComplete && (row.protectionThreshold || row.swapPartnerTricode) ? (
+                      <View style={styles.conditionLine}>
+                        <PickConditionRow
+                          kind={row.swapPartnerTricode ? 'swap' : 'protection_pending'}
+                          badgeLabel={row.swapPartnerTricode ? row.swapPartnerTricode : `TOP-${row.protectionThreshold}`}
+                          storyText={
+                            row.swapPartnerTricode
+                              ? `Pick swap with ${row.swapPartnerTricode}`
+                              : `Keeps if Top-${row.protectionThreshold}, else conveys to ${row.ownerTricode ?? '—'}`
+                          }
+                        />
+                      </View>
+                    ) : null}
                   </TouchableOpacity>
                 );
               })}
@@ -284,12 +372,33 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
     paddingVertical: s(9),
     paddingHorizontal: s(4),
     borderBottomWidth: StyleSheet.hairlineWidth,
     marginHorizontal: -s(4),
+  },
+  rowTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  nameWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: s(8),
+    gap: s(6),
+  },
+  conveyance: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(2),
+  },
+  ownerTri: {
+    fontSize: ms(11),
+  },
+  conditionLine: {
+    marginLeft: s(50),
+    marginTop: s(5),
   },
   rank: {
     width: s(18),
@@ -302,11 +411,9 @@ const styles = StyleSheet.create({
     marginLeft: s(8),
   },
   teamName: {
-    flex: 1,
     flexShrink: 1,
     fontSize: ms(13),
     fontWeight: '500',
-    marginLeft: s(8),
   },
   record: {
     width: s(44),
