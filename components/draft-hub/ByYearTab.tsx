@@ -225,26 +225,6 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
           oddsValue: '—',
         });
       });
-    } else if (leagueSettings.lotteryComplete) {
-      // Post-draw: show the ACTUAL drawn order (round-1 picks by their resolved
-      // slot), not the pre-lottery standings+odds. Row team is the originating
-      // team so the existing renderer still draws the conveyance arrow to the
-      // current owner. Odds are spent, so the column shows '—'.
-      displayPicks
-        .filter((p) => p.round === 1)
-        .sort((a, b) => a.display_slot - b.display_slot)
-        .forEach((pick) => {
-          const team = teams.find((t) => t.id === pick.original_team_id);
-          if (!team) return;
-          rows.push({
-            team,
-            position: pick.display_slot,
-            moved: 0,
-            wasDrawn: false,
-            isPlayoff: pick.display_slot > lotteryPoolSize,
-            oddsValue: '—',
-          });
-        });
     } else {
       lotteryPool.forEach((team, i) => {
         rows.push({
@@ -268,7 +248,7 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
       });
     }
     return rows;
-  }, [simResult, leagueSettings.lotteryComplete, displayPicks, teams, lotteryPool, playoffTeams, lotteryPoolSize, odds]);
+  }, [simResult, lotteryPool, playoffTeams, lotteryPoolSize, odds]);
 
   const playoffCutoffIndex = useMemo(
     () => displayRows.findIndex((r) => r.isPlayoff),
@@ -281,8 +261,11 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
     setSimResult(result);
   };
 
+  // Pre-lottery only: the odds card + Simulate. Once the lottery is drawn it's
+  // redundant with the round-by-round sections (which show the resolved order),
+  // so hide it and let those carry the result.
   const showLotteryCard =
-    isUpcomingSeason && lotteryPoolSize > 0 && !leagueSettings.rookieDraftComplete;
+    isUpcomingSeason && lotteryPoolSize > 0 && !leagueSettings.lotteryComplete;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
@@ -330,13 +313,13 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
       </ScrollView>
 
       {showLotteryCard && (
-        <Section title={leagueSettings.lotteryComplete ? 'Rookie Draft Order' : 'Lottery Odds'}>
+        <Section title="Lottery Odds">
           {/* Column headers — varsitySmall caps, gold-tinted */}
           <View style={[styles.oddsHeaderRow, { borderBottomColor: c.border }]}>
             <ThemedText type="varsitySmall" style={[styles.colPos, styles.headerText, { color: c.gold }]}>#</ThemedText>
             <ThemedText type="varsitySmall" style={[styles.colTeam, styles.headerText, { color: c.gold }]}>Team</ThemedText>
             <ThemedText type="varsitySmall" style={[styles.colRecord, styles.headerText, { color: c.gold }]}>Rec</ThemedText>
-            <ThemedText type="varsitySmall" style={[styles.colOdds, styles.headerText, { color: c.gold }]}>{leagueSettings.lotteryComplete ? '' : 'Odds'}</ThemedText>
+            <ThemedText type="varsitySmall" style={[styles.colOdds, styles.headerText, { color: c.gold }]}>Odds</ThemedText>
           </View>
 
           {displayRows.map((row, i) => {
