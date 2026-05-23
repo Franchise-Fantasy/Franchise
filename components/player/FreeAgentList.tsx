@@ -18,6 +18,7 @@ import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import { PlayerFilterBar } from "@/components/player/PlayerFilterBar";
 import { RosterNeedsStrip } from "@/components/player/RosterNeedsStrip";
 import { WaiverOrderModal } from "@/components/player/WaiverOrderModal";
+import { ProposeTradeModal } from "@/components/trade/ProposeTradeModal";
 import { InfoModal } from "@/components/ui/InfoModal";
 import { type ModalAction } from "@/components/ui/InlineAction";
 import { SubmitOverlay } from "@/components/ui/SubmitOverlay";
@@ -88,6 +89,14 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   const [faabDropPlayerId, setFaabDropPlayerId] = useState<string | null>(null);
 
   const [timeRange, setTimeRange] = useState<TimeRange>("season");
+
+  // Propose-trade target — set when the user taps the trade button on a
+  // player rostered by another team. Holds the player plus the owning team
+  // so the modal can pre-seed that team's side of the deal.
+  const [tradeTarget, setTradeTarget] = useState<{
+    player: PlayerSeasonStats;
+    ownerTeamId: string;
+  } | null>(null);
 
   const { data: scoringWeights } = useLeagueScoring(leagueId);
 
@@ -1085,6 +1094,10 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       : null;
     const schedEntry = todaySchedule?.get(item.pro_team) ?? null;
     const gameToday = schedEntry?.matchup ?? null;
+    const owner = ownershipMap?.get(item.player_id) ?? null;
+    // Only offer a trade when another team owns the player — never for the
+    // user's own roster or unrostered free agents.
+    const canTradeFor = owner != null && owner.teamId !== teamId;
 
     return (
       <FreeAgentRow
@@ -1098,11 +1111,17 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         waiverLabel={waiverLabel}
         gameToday={gameToday}
         isRostered={rosteredPlayerIds?.has(item.player_id) ?? false}
-        ownerTeamName={ownershipMap?.get(item.player_id)?.teamName ?? null}
+        ownerTeamName={owner?.teamName ?? null}
         sport={sport}
         isDisabled={draftInProgress || isOffseason || weeklyLimitReached}
         onPress={() => selectPlayer(item)}
         onAddOrClaimPress={() => handleButtonPress(item)}
+        onTradePress={
+          canTradeFor
+            ? () =>
+                setTradeTarget({ player: item, ownerTeamId: owner!.teamId })
+            : undefined
+        }
       />
     );
   };
@@ -1346,6 +1365,22 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         teamId={teamId}
         waiverType={waiverType}
       />
+
+      {tradeTarget && (
+        <ProposeTradeModal
+          leagueId={leagueId}
+          teamId={teamId}
+          preselectedTeamId={tradeTarget.ownerTeamId}
+          preselectedPlayer={{
+            player_id: tradeTarget.player.player_id,
+            name: tradeTarget.player.name,
+            position: tradeTarget.player.position,
+            pro_team: tradeTarget.player.pro_team ?? "",
+            external_id_nba: tradeTarget.player.external_id_nba,
+          }}
+          onClose={() => setTradeTarget(null)}
+        />
+      )}
 
     </View>
   );

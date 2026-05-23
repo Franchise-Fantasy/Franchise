@@ -22,6 +22,7 @@ import { LeagueSwitcher } from '@/components/home/LeagueSwitcher';
 import { OffseasonLotteryOrder } from '@/components/home/OffseasonLotteryOrder';
 import { QuickNav } from '@/components/home/QuickNav';
 import { StandingsSection } from '@/components/home/StandingsSection';
+import { BusyOverlay } from '@/components/ui/BusyOverlay';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { type ModalAction } from '@/components/ui/InlineAction';
@@ -819,6 +820,15 @@ export default function HomeScreen() {
                 onShareInvite={onShareInvite}
               />
             )}
+
+            {/* Unmissable busy state for slow commissioner edge functions
+                (advance-season, create rookie draft, finalize keepers, start
+                season). Replaces the silent corner action pill that led to
+                double-taps. */}
+            <BusyOverlay
+              visible={offseasonActions.loading}
+              title={offseasonActions.loadingLabel ?? 'Working…'}
+            />
 
             {/* Analytics sits right under the hero — both are about the
                 user's roster, so keep the personal/zoomed-in content

@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo } from 'react';
 import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
@@ -9,15 +10,14 @@ import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Brand, Fonts } from '@/constants/Colors';
+import { useArchiveColors } from '@/hooks/useArchiveColors';
 import {
   useArchiveFranchiseHistory,
   useArchiveSeasons,
 } from '@/hooks/useArchivePlayoffs';
-import { useArchiveColors } from '@/hooks/useArchiveColors';
 import { supabase } from '@/lib/supabase';
 import type { ArchiveFranchiseHistoryRow } from '@/types/archivePlayoff';
 import { ms, s } from '@/utils/scale';
-import { useQuery } from '@tanstack/react-query';
 
 // Per-franchise metadata for the page header (modern logo + display name).
 // Pulled from the most-recent pro_franchise_season row so we always have

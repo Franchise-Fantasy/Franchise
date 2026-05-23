@@ -1,57 +1,58 @@
 @import "tailwindcss";
 
 :root {
-  --white: #ffffff;
-  --ecru: #e8e2d6;
-  --cream: #d9cfb0;
-  --hardwood: #c6ab7b;
-  --vintage-gold: #9E8A60;
-  --umber: #b63d25;
-  --merlot: #7e1416;
-  --turf-green: #185f30;
-  --sapphire: #005589;
-  --black: #000000;
+  /* Brand palette — exact values from the deck */
+  --ecru: #E9E2CB;
+  --cream: #D9CFA6;
+  --hardwood: #B8A06A;
+  --vintage-gold: #B57B30;
+  --merlot: #671A1E;
+  --turf-green: #1C552E;
+  --sapphire: #164D78;
+  --umber: #A53C2A;
+  --ink: #141010;
 
-  /* Theme tokens — dark by default */
-  --bg: #000000;
-  --bg-raised: #0a0a0a;
-  --bg-card: rgba(255, 255, 255, 0.02);
-  --bg-card-hover: rgba(255, 255, 255, 0.04);
-  --text-primary: #e8e2d6;
-  --text-secondary: rgba(217, 207, 176, 0.45);
-  --text-muted: rgba(217, 207, 176, 0.25);
-  --text-faint: rgba(217, 207, 176, 0.15);
-  --border: rgba(232, 226, 214, 0.06);
-  --border-hover: rgba(158, 138, 96, 0.15);
-  --hero-gradient: radial-gradient(ellipse at 50% 20%, #591D28 0%, #2a0e14 35%, #141010 65%, #000000 100%);
-  --gold-accent-line: #C4A455;
-  --showcase-accent-1: #591D2815;
-  --showcase-accent-2: #9E8A6015;
-  --showcase-accent-3: #591D2815;
-  --import-gradient: radial-gradient(ellipse at 50% 0%, #591D2815 0%, #0a0a0a 60%);
-  --signup-gradient: linear-gradient(180deg, #000 0%, #7e1416 35%, #7e1416 65%, #000 100%);
-  --header-bg: rgba(0, 0, 0, 0.9);
+  /* Theme tokens — LIGHT by default (Ecru page, structural green/merlot) */
+  --bg: #E9E2CB;
+  --bg-raised: #D9CFA6;
+  --bg-card: rgba(20, 16, 16, 0.04);
+  --bg-card-hover: rgba(20, 16, 16, 0.07);
+  --text-primary: #141010;
+  --text-secondary: rgba(20, 16, 16, 0.72);
+  --text-muted: rgba(20, 16, 16, 0.55);
+  --text-faint: rgba(20, 16, 16, 0.32);
+  --text-on-dark: #E9E2CB;
+  --border: rgba(20, 16, 16, 0.12);
+  --border-strong: rgba(20, 16, 16, 0.22);
+  --rule-gold: #B57B30;
+  --hero-watermark: rgba(28, 85, 46, 0.08);
+  --header-bg: rgba(233, 226, 203, 0.88);
+  --field-bg: #F4EFDC;
+  /* Heading/accent text — turf green on ecru, aged gold on dark olive.
+     Mirrors the app's dark-mode swap so text stays legible against the
+     warm dark background where turf green loses contrast. */
+  --heading: #1C552E;
 }
 
-[data-theme="light"] {
-  --bg: #F0EBE2;
-  --bg-raised: #E8E2D6;
-  --bg-card: rgba(0, 0, 0, 0.03);
-  --bg-card-hover: rgba(0, 0, 0, 0.06);
-  --text-primary: #2C1A1E;
-  --text-secondary: #5C4A3D;
-  --text-muted: #8A7A6C;
-  --text-faint: #B5A898;
-  --border: #D9CEB0;
-  --border-hover: #C6AB7B;
-  --hero-gradient: radial-gradient(ellipse at 50% 20%, #2C1A1E 0%, #1A0E11 50%, #0a0608 100%);
-  --gold-accent-line: #8B7335;
-  --showcase-accent-1: #8B733508;
-  --showcase-accent-2: #C6AB7B08;
-  --showcase-accent-3: #8B733508;
-  --import-gradient: radial-gradient(ellipse at 50% 0%, #8B733510 0%, #F0EBE2 60%);
-  --signup-gradient: linear-gradient(180deg, #FAF7F2 0%, #2C1A1E 35%, #2C1A1E 65%, #FAF7F2 100%);
-  --header-bg: rgba(250, 247, 242, 0.92);
+[data-theme="dark"] {
+  /* Warm dark olive — matches the app's dark bg (#1E1A10). */
+  --bg: #1E1A10;
+  --bg-raised: #2B261C;
+  --bg-card: rgba(233, 226, 203, 0.04);
+  --bg-card-hover: rgba(233, 226, 203, 0.07);
+  --text-primary: #E9E2CB;
+  --text-secondary: rgba(233, 226, 203, 0.72);
+  --text-muted: rgba(233, 226, 203, 0.50);
+  --text-faint: rgba(233, 226, 203, 0.28);
+  --text-on-dark: #E9E2CB;
+  --border: rgba(233, 226, 203, 0.10);
+  --border-strong: rgba(233, 226, 203, 0.22);
+  --rule-gold: #B57B30;
+  --hero-watermark: rgba(217, 207, 166, 0.06);
+  --header-bg: rgba(30, 26, 16, 0.88);
+  --field-bg: rgba(233, 226, 203, 0.06);
+  /* Heritage gold — the app's aged-leather accent for dark mode. */
+  --heading: #B5A48A;
 }
 
 @theme inline {
@@ -59,10 +60,11 @@
   --color-cream: var(--cream);
   --color-hardwood: var(--hardwood);
   --color-vintage-gold: var(--vintage-gold);
-  --color-umber: var(--umber);
   --color-merlot: var(--merlot);
   --color-turf-green: var(--turf-green);
   --color-sapphire: var(--sapphire);
+  --color-umber: var(--umber);
+  --color-ink: var(--ink);
   --color-bg: var(--bg);
   --color-bg-raised: var(--bg-raised);
   --color-bg-card: var(--bg-card);
@@ -71,10 +73,13 @@
   --color-t-secondary: var(--text-secondary);
   --color-t-muted: var(--text-muted);
   --color-t-faint: var(--text-faint);
+  --color-t-on-dark: var(--text-on-dark);
   --color-b: var(--border);
-  --color-b-hover: var(--border-hover);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-b-strong: var(--border-strong);
+  --font-display: var(--font-alfa-slab-one);
+  --font-varsity: var(--font-oswald);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-jetbrains-mono);
 }
 
 html {
@@ -84,6 +89,42 @@ html {
 body {
   background: var(--bg);
   color: var(--text-primary);
-  font-family: var(--font-sans), system-ui, sans-serif;
+  font-family: var(--font-inter), system-ui, sans-serif;
+  font-size: 17px;
+  line-height: 1.5;
   transition: background-color 0.3s, color 0.3s;
+}
+
+/* Varsity subhead — Oswald, bold, tight tracking per deck (0.04em) */
+.varsity {
+  font-family: var(--font-oswald), system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Display headline — Alfa Slab One, tight leading, subtle stat-block feel */
+.display {
+  font-family: var(--font-alfa-slab-one), Georgia, serif;
+  font-weight: 400;
+  line-height: 0.95;
+  letter-spacing: -0.005em;
+}
+
+/* Mono stats — JetBrains Mono with tabular figures */
+.mono-stat {
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+/* Gold rule — the thin accent line used at section tops */
+.gold-rule {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--rule-gold) 20%,
+    var(--rule-gold) 80%,
+    transparent
+  );
 }

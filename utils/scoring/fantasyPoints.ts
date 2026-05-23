@@ -50,10 +50,62 @@ export function calculateAvgFantasyPoints(
   for (const weight of scoringWeights) {
     const field = STAT_TO_TOTAL[weight.stat_name];
     if (field) {
-      totalFantasy += (player[field] as number) * weight.point_value;
+      // A stat absent from this row contributes 0, not NaN. Matters for
+      // historical rows (via seasonAvgRowToFpts) that lack dd/td totals;
+      // a no-op for player_season_stats rows where every total is present.
+      totalFantasy += ((player[field] as number) || 0) * weight.point_value;
     }
   }
   return Math.round((totalFantasy / player.games_played) * 100) / 100;
+}
+
+// Rebuilds the `total_*` columns `calculateAvgFantasyPoints` reads from a row
+// that only carries per-game averages (total = avg × games_played), but only
+// for totals that are actually missing (`!= null` rows are left untouched).
+// Two callers with different row shapes rely on this:
+//   • usePrevSeasonFpts selects `*` — the DB persists totals for the
+//     triple-double-signal stats (pts/reb/ast/stl/blk/tov + dd/td), so those
+//     are skipped and only the shooting splits get reconstructed.
+//   • the analytics progression selects averages only — every counting-stat
+//     total is missing, so all of these get reconstructed.
+// dd/td have no avg column anywhere, so an averages-only row can't score them
+// (calculateAvgFantasyPoints treats the absent total as 0, not NaN).
+const AVG_TO_TOTAL_RECONSTRUCT: Array<[avgKey: string, totalKey: keyof PlayerSeasonStats]> = [
+  ['avg_pts', 'total_pts'],
+  ['avg_reb', 'total_reb'],
+  ['avg_ast', 'total_ast'],
+  ['avg_stl', 'total_stl'],
+  ['avg_blk', 'total_blk'],
+  ['avg_tov', 'total_tov'],
+  ['avg_fgm', 'total_fgm'],
+  ['avg_fga', 'total_fga'],
+  ['avg_3pm', 'total_3pm'],
+  ['avg_3pa', 'total_3pa'],
+  ['avg_ftm', 'total_ftm'],
+  ['avg_fta', 'total_fta'],
+  ['avg_pf', 'total_pf'],
+];
+
+function reconstructTotals(row: Record<string, unknown>): PlayerSeasonStats {
+  const games = Number(row.games_played) || 0;
+  const out: Record<string, unknown> = { ...row };
+  for (const [avgKey, totalKey] of AVG_TO_TOTAL_RECONSTRUCT) {
+    if (out[totalKey] != null) continue;
+    const avg = Number(out[avgKey]);
+    out[totalKey] = Number.isFinite(avg) ? Math.round(avg * games) : 0;
+  }
+  return out as unknown as PlayerSeasonStats;
+}
+
+// Turns a `player_historical_stats` row (per-game AVERAGES only — no totals,
+// no dd/td) into FPTS/G using the same totals-based formula as the rest of
+// the app. Shared by usePrevSeasonFpts (prev-season fallback weight) and the
+// analytics season-progression chart so the two never drift.
+export function seasonAvgRowToFpts(
+  row: Record<string, unknown>,
+  scoringWeights: ScoringWeight[],
+): number {
+  return calculateAvgFantasyPoints(reconstructTotals(row), scoringWeights);
 }
 
 // Threshold below which we treat the current-season sample as too small

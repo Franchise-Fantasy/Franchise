@@ -251,6 +251,14 @@ export const freeAgentListStyles = StyleSheet.create({
     alignItems: "center" as const,
     justifyContent: "center" as const,
   },
+  tradeButton: {
+    width: s(28),
+    height: s(28),
+    borderRadius: 14,
+    borderWidth: 1.5,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+  },
   addButtonText: {
     fontSize: ms(14),
     fontWeight: "bold",

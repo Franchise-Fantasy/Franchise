@@ -88,7 +88,7 @@ async function handleTradeProposed(
     'trades',
     `${leagueName} — Trade Proposed`,
     `${proposerName} has proposed a trade. Review it now.`,
-    { screen: 'trades', league_id },
+    { screen: 'trades', league_id, proposal_id: proposalId },
   );
 }
 

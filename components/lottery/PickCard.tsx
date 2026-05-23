@@ -1,4 +1,3 @@
-import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -188,18 +187,6 @@ export function PickCard({
           />
           <View style={styles.teamWrap}>
             <View style={styles.nameRow}>
-              {revealedTraded ? (
-                <>
-                  <ThemedText
-                    type="varsitySmall"
-                    style={[styles.fromTri, { color: subColor }]}
-                    numberOfLines={1}
-                  >
-                    {displayTeam.tricode ?? displayTeam.team_name.slice(0, 3).toUpperCase()}
-                  </ThemedText>
-                  <Ionicons name="arrow-forward" size={ms(11)} color={ruleColor} accessible={false} />
-                </>
-              ) : null}
               <ThemedText
                 type="defaultSemiBold"
                 style={[styles.teamName, { color: teamColor }]}
@@ -207,6 +194,15 @@ export function PickCard({
               >
                 {revealedTraded ? (entry.recipient_name ?? entry.recipient_tricode) : displayTeam.team_name}
               </ThemedText>
+              {revealedTraded ? (
+                <ThemedText
+                  type="varsitySmall"
+                  style={[styles.fromTri, { color: subColor }]}
+                  numberOfLines={1}
+                >
+                  from {displayTeam.tricode ?? displayTeam.team_name.slice(0, 3).toUpperCase()}
+                </ThemedText>
+              ) : null}
             </View>
             {isRevealed && (
               <ThemedText

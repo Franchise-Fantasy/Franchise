@@ -22,6 +22,7 @@ type ResolutionEvent =
   | { kind: 'protected'; round: number; slot: number | null; threshold: number; fromTeam: string; toTeam: string }
   | { kind: 'conveyed'; round: number; slot: number | null; threshold: number; toTeam: string; protectedBy: string }
   | { kind: 'swap_executed'; round: number; teamA: string; teamB: string }
+  | { kind: 'swap_kept'; round: number; teamA: string; teamB: string }
   | { kind: 'swap_voided'; round: number; teamA: string; teamB: string; missing: string };
 
 Deno.serve(async (req) => {
@@ -224,8 +225,12 @@ Deno.serve(async (req) => {
           counterPick.current_team_id = swap.beneficiary_team_id;
           benefPick.current_team_id = swap.counterparty_team_id;
           resolutionEvents.push({ kind: 'swap_executed', round: swap.round, teamA: benefName, teamB: counterName });
+        } else {
+          // Beneficiary's own pick was already better/equal — no ownership
+          // change, but the swap still RESOLVED. Record it so the summary
+          // always shows what happened to every swap (was silently omitted).
+          resolutionEvents.push({ kind: 'swap_kept', round: swap.round, teamA: benefName, teamB: counterName });
         }
-        // else: beneficiary's own pick was already better/equal — no change.
       } else {
         const missing = !benefPick && !counterPick ? 'both teams' : !benefPick ? benefName : counterName;
         resolutionEvents.push({ kind: 'swap_voided', round: swap.round, teamA: benefName, teamB: counterName, missing });

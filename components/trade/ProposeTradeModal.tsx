@@ -627,6 +627,7 @@ export function ProposeTradeModal({
             teamNameMap={teamNameMap}
             isCategories={!!isCategories}
             pickConditionsEnabled={pickConditionsEnabled}
+            draftPickTradingEnabled={draftPickTradingEnabled}
             fairness={fairness}
             rosterWarnings={rosterWarnings}
             hasAssets={hasAssets}

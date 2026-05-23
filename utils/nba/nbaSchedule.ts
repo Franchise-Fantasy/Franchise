@@ -21,13 +21,12 @@ export async function fetchNbaScheduleForDate(
   return map;
 }
 
-/** Format a UTC ISO timestamp to compact local time, e.g. "7:30p" */
+/** Format a UTC ISO timestamp to compact local time, e.g. "7:30p" / "1:00p" */
 export function formatGameTime(utcIso: string): string {
   const d = new Date(utcIso);
   let hours = d.getHours();
   const mins = d.getMinutes();
   const ampm = hours >= 12 ? 'p' : 'a';
   hours = hours % 12 || 12;
-  const minStr = mins === 0 ? '' : `:${mins.toString().padStart(2, '0')}`;
-  return `${hours}${minStr}${ampm}`;
+  return `${hours}:${mins.toString().padStart(2, '0')}${ampm}`;
 }

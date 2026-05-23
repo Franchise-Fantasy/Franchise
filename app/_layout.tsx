@@ -56,6 +56,7 @@ import { ConfirmProvider, useConfirm } from "@/context/ConfirmProvider";
 import { globalToastRef, ToastProvider } from "@/context/ToastProvider";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { isDraftRoomOpen } from "@/lib/activeScreen";
+import { setPendingDeepLink } from "@/lib/pendingNav";
 import { posthog, setPostHogAdmin } from "@/lib/posthog";
 import { registerSplashReadyHandler } from "@/lib/splashReady";
 import { supabase } from "@/lib/supabase";
@@ -184,6 +185,7 @@ const NOTIF_ROUTES: Record<string, string> = {
   activity: "/activity",
   chat: "/chat",
   "lottery-room": "/lottery-room",
+  news: "/news",
 };
 
 /**
@@ -419,26 +421,64 @@ function NotificationAndLinkHandler() {
         | undefined;
       if (!data?.screen) return;
 
+      // Claim the launch navigation so the index screen's auth redirect
+      // doesn't replace our target on cold start — both effects fire in the
+      // same tick when AppState finishes loading. Released once we navigate.
+      setPendingDeepLink(true);
+
       if (data.league_id && session?.user) {
         const ok = await switchLeagueContext(
           data.league_id,
           session.user.id,
           switchLeague,
         );
-        if (!ok) return; // user doesn't belong to this league
+        if (!ok) {
+          setPendingDeepLink(false);
+          return; // user doesn't belong to this league
+        }
       }
 
       const navigate = () => {
-        if (data.screen === "draft-room" && data.draft_id) {
-          router.navigate(`/draft-room/${data.draft_id}` as any);
-        } else if (data.screen!.startsWith("chat/")) {
-          const conversationId = data.screen!.split("/")[1];
+        const screen = data.screen!;
+        let go: (() => void) | null = null;
+
+        if (screen === "draft-room" && data.draft_id) {
+          go = () => router.navigate(`/draft-room/${data.draft_id}` as any);
+        } else if (screen.startsWith("chat/")) {
+          const conversationId = screen.split("/")[1];
           if (conversationId) {
-            router.navigate(`/chat/${conversationId}` as any);
+            go = () =>
+              router.navigate({
+                pathname: "/chat/[id]",
+                params: data.message_id
+                  ? { id: conversationId, messageId: data.message_id }
+                  : { id: conversationId },
+              } as any);
           }
-        } else if (NOTIF_ROUTES[data.screen!]) {
-          router.navigate(NOTIF_ROUTES[data.screen!] as any);
+        } else if (screen === "trades" && data.proposal_id) {
+          go = () =>
+            router.navigate({
+              pathname: "/trades",
+              params: { proposalId: data.proposal_id },
+            } as any);
+        } else if (NOTIF_ROUTES[screen]) {
+          go = () => router.navigate(NOTIF_ROUTES[screen] as any);
         }
+
+        if (!go) {
+          // Nothing to navigate to — release the guard so the index screen
+          // performs its normal redirect instead of stranding the user.
+          if (__DEV__) {
+            logger.warn(`Notification screen has no route mapping: ${screen}`);
+          }
+          setPendingDeepLink(false);
+          return;
+        }
+
+        go();
+        // Release on the next tick — after the same-tick index effect has
+        // already seen the guard and bailed.
+        setTimeout(() => setPendingDeepLink(false), 0);
       };
 
       // Defer navigation if AppState hasn't finished loading

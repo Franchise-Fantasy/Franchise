@@ -1,8 +1,8 @@
-import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
+import { IconSymbol } from '@/components/ui/IconSymbol';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { Colors, cardShadow } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
@@ -274,10 +274,27 @@ export function StandingsSection({ leagueId, playoffTeams, scoringType, tiebreak
   return (
     <View style={styles.wrap}>
       <View style={styles.labelRow}>
-        <View style={[styles.labelRule, { backgroundColor: c.gold }]} />
-        <ThemedText type="sectionLabel" style={[styles.labelText, { color: c.text }]}>
-          Standings
-        </ThemedText>
+        <View style={styles.labelLeft}>
+          <View style={[styles.labelRule, { backgroundColor: c.gold }]} />
+          <ThemedText type="sectionLabel" style={[styles.labelText, { color: c.text }]}>
+            Standings
+          </ThemedText>
+        </View>
+        {!!rawTeams?.length && (
+          <TouchableOpacity
+            style={[styles.headerPill, { backgroundColor: c.cardAlt, borderColor: c.border }]}
+            onPress={() => router.push('/standings' as any)}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="View detailed standings"
+            hitSlop={8}
+          >
+            <IconSymbol name="chart.bar" size={14} color={c.gold} />
+            <ThemedText type="varsitySmall" style={[styles.headerPillText, { color: c.text }]}>
+              See All
+            </ThemedText>
+          </TouchableOpacity>
+        )}
       </View>
       <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border, ...cardShadow }]}>
         <View style={styles.standings}>
@@ -318,29 +335,13 @@ export function StandingsSection({ leagueId, playoffTeams, scoringType, tiebreak
           ) : null}
         </View>
 
-        {!!rawTeams?.length && (
+        {!!rawTeams?.length && !!playoffTeams && allStandings && (
           <View style={[styles.footer, { borderTopColor: c.border }]}>
-            {!!playoffTeams && allStandings ? (
-              <ThemedText type="varsitySmall" style={[styles.footnote, { color: c.secondaryText }]}>
-                <ThemedText type="varsitySmall" style={{ color: c.success }}>x</ThemedText>
-                {' '}Clinched · <ThemedText type="varsitySmall" style={{ color: c.danger }}>e</ThemedText>
-                {' '}Eliminated
-              </ThemedText>
-            ) : (
-              <View />
-            )}
-            <TouchableOpacity
-              style={styles.seeAll}
-              onPress={() => router.push('/standings' as any)}
-              accessibilityRole="button"
-              accessibilityLabel="View detailed standings"
-              hitSlop={8}
-            >
-              <ThemedText type="varsitySmall" style={[styles.seeAllText, { color: c.secondaryText }]}>
-                See All
-              </ThemedText>
-              <Ionicons name="chevron-forward" size={12} color={c.secondaryText} accessible={false} />
-            </TouchableOpacity>
+            <ThemedText type="varsitySmall" style={[styles.footnote, { color: c.secondaryText }]}>
+              <ThemedText type="varsitySmall" style={{ color: c.success }}>x</ThemedText>
+              {' '}Clinched · <ThemedText type="varsitySmall" style={{ color: c.danger }}>e</ThemedText>
+              {' '}Eliminated
+            </ThemedText>
           </View>
         )}
       </View>
@@ -355,7 +356,12 @@ const styles = StyleSheet.create({
   labelRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: s(10),
+  },
+  labelLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: s(10),
   },
   labelRule: {
@@ -363,6 +369,18 @@ const styles = StyleSheet.create({
     width: s(18),
   },
   labelText: {},
+  headerPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(5),
+    paddingHorizontal: s(10),
+    paddingVertical: s(5),
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  headerPillText: {
+    fontSize: ms(9.5),
+  },
   // Card drops its horizontal padding so the isMe row background wraps
   // all the way to the card's left/right borders. Header/row/footer
   // each supply their own s(14) internal padding to keep content inset.
@@ -490,14 +508,6 @@ const styles = StyleSheet.create({
     marginTop: s(4),
   },
   footnote: {
-    fontSize: ms(10),
-  },
-  seeAll: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(3),
-  },
-  seeAllText: {
     fontSize: ms(10),
   },
   placeholder: { padding: s(20), alignItems: 'center' },

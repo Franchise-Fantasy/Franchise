@@ -26,8 +26,47 @@ export interface Transaction {
   notes: string | null;
   created_at: string;
   team_id: string | null;
+  group_id: string | null;
   initiator: { name: string; logo_key: string | null } | null;
   league_transaction_items: TransactionItem[];
+}
+
+/**
+ * Collapse rows sharing a non-null `group_id` (an add and its forced drop done
+ * in one user action) into a single transaction whose items are the union of
+ * both sides. The list is newest-first, so the first row seen for a group keeps
+ * its position and the paired row folds into it. Notes are dropped because the
+ * card prefers per-item asset lines ("X added", "Y dropped") for grouped moves.
+ *
+ * Merging is purely for display — the underlying rows stay separate, so
+ * acquisition-limit counts and player history are unaffected. Call on the
+ * fully flattened page list (not per page) so a pair split across a page
+ * boundary still collapses once both rows are loaded.
+ */
+export function mergeTransactionGroups(txns: Transaction[]): Transaction[] {
+  const merged: Transaction[] = [];
+  const groupPos = new Map<string, number>();
+
+  for (const txn of txns) {
+    if (txn.group_id) {
+      const pos = groupPos.get(txn.group_id);
+      if (pos !== undefined) {
+        const base = merged[pos];
+        merged[pos] = {
+          ...base,
+          notes: null,
+          league_transaction_items: [
+            ...base.league_transaction_items,
+            ...txn.league_transaction_items,
+          ],
+        };
+        continue;
+      }
+      groupPos.set(txn.group_id, merged.length);
+    }
+    merged.push(txn);
+  }
+  return merged;
 }
 
 export function useTransactions(typeFilter?: string) {
@@ -42,7 +81,7 @@ export function useTransactions(typeFilter?: string) {
       let query = supabase
         .from('league_transactions')
         .select(`
-          id, league_id, type, notes, created_at, team_id,
+          id, league_id, type, notes, created_at, team_id, group_id,
           initiator:teams!league_transactions_team_id_fkey ( name, logo_key ),
           league_transaction_items (
             id, player_id, draft_pick_id, team_from_id, team_to_id,

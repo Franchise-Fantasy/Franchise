@@ -25,6 +25,9 @@ export function useOffseasonActions({ leagueId, season, isDynasty }: Args) {
   const router = useRouter();
   const confirm = useConfirm();
   const [loading, setLoading] = useState(false);
+  // Drives the full-screen BusyOverlay so commissioner actions (which fire slow
+  // edge functions) give unmissable feedback instead of a silent corner pill.
+  const [loadingLabel, setLoadingLabel] = useState<string | null>(null);
 
   const goToLotteryRoom = () => {
     router.push('/lottery-room' as never);
@@ -43,13 +46,21 @@ export function useOffseasonActions({ leagueId, season, isDynasty }: Args) {
         destructive: true,
         onPress: async () => {
           setLoading(true);
+          setLoadingLabel('Starting the offseason…');
           try {
             const { error } = await supabase.functions.invoke('advance-season', {
               body: { league_id: leagueId },
             });
             if (error) throw error;
             queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId) });
-            Alert.alert('Season Advanced', 'The offseason has begun!');
+            // The offseason just opened: the draft hub + home lottery card read
+            // the picks/standings advance-season just archived. Without these
+            // they serve a stale per-league cache (e.g. last season's view).
+            queryClient.invalidateQueries({ queryKey: queryKeys.draftHub(leagueId) });
+            queryClient.invalidateQueries({ queryKey: ['offseasonLotteryOrder', leagueId] });
+            // No success popup — the BusyOverlay carried the feedback and the
+            // home now reflects the offseason. A native alert here just adds a
+            // tap.
           } catch (err: unknown) {
             Alert.alert(
               'Error',
@@ -57,6 +68,7 @@ export function useOffseasonActions({ leagueId, season, isDynasty }: Args) {
             );
           } finally {
             setLoading(false);
+            setLoadingLabel(null);
           }
         },
       },
@@ -65,6 +77,7 @@ export function useOffseasonActions({ leagueId, season, isDynasty }: Args) {
 
   const handleCreateRookieDraft = async () => {
     setLoading(true);
+    setLoadingLabel('Creating the rookie draft…');
     try {
       const { error } = await supabase.functions.invoke('create-rookie-draft', {
         body: { league_id: leagueId },
@@ -73,6 +86,11 @@ export function useOffseasonActions({ leagueId, season, isDynasty }: Args) {
       queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId) });
       queryClient.invalidateQueries({ queryKey: ['rookieDraft', leagueId] });
       queryClient.invalidateQueries({ queryKey: queryKeys.activeDraft(leagueId) });
+      // Flip the draft hub + home lottery card + resolution overview off the
+      // cached pre-lottery "odds" view now that the resolution is committed.
+      queryClient.invalidateQueries({ queryKey: queryKeys.draftHub(leagueId) });
+      queryClient.invalidateQueries({ queryKey: ['offseasonLotteryOrder', leagueId] });
+      queryClient.invalidateQueries({ queryKey: ['lotteryResolution', leagueId] });
       Alert.alert('Rookie Draft Created', 'Schedule the date to begin.');
     } catch (err: unknown) {
       Alert.alert(
@@ -81,6 +99,7 @@ export function useOffseasonActions({ leagueId, season, isDynasty }: Args) {
       );
     } finally {
       setLoading(false);
+      setLoadingLabel(null);
     }
   };
 
@@ -93,6 +112,7 @@ export function useOffseasonActions({ leagueId, season, isDynasty }: Args) {
         destructive: true,
         onPress: async () => {
           setLoading(true);
+          setLoadingLabel('Finalizing keepers…');
           try {
             const { error } = await supabase.functions.invoke('finalize-keepers', {
               body: { league_id: leagueId },
@@ -108,6 +128,7 @@ export function useOffseasonActions({ leagueId, season, isDynasty }: Args) {
             );
           } finally {
             setLoading(false);
+            setLoadingLabel(null);
           }
         },
       },
@@ -200,6 +221,7 @@ export function useOffseasonActions({ leagueId, season, isDynasty }: Args) {
         label: 'Start Season',
         onPress: async () => {
           setLoading(true);
+          setLoadingLabel('Starting the season…');
           try {
             const { error } = await supabase.functions.invoke('generate-schedule', {
               body: { league_id: leagueId },
@@ -207,12 +229,20 @@ export function useOffseasonActions({ leagueId, season, isDynasty }: Args) {
             if (error) throw error;
             queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId) });
           } catch (err: unknown) {
-            Alert.alert(
-              'Error',
-              (err instanceof Error && err.message) || 'Failed to start season',
-            );
+            // Pull the real reason out of the FunctionsHttpError body (e.g. a
+            // stale season start date) instead of the generic non-2xx message.
+            let detail =
+              (err instanceof Error && err.message) || 'Failed to start season';
+            try {
+              const body = await (err as { context?: Response }).context?.json?.();
+              if (body?.error) detail = body.error;
+            } catch {
+              // Body wasn't JSON or context unavailable — keep the fallback.
+            }
+            Alert.alert('Error', detail);
           } finally {
             setLoading(false);
+            setLoadingLabel(null);
           }
         },
       },
@@ -221,6 +251,7 @@ export function useOffseasonActions({ leagueId, season, isDynasty }: Args) {
 
   return {
     loading,
+    loadingLabel,
     goToLotteryRoom,
     advanceSeason,
     handleCreateRookieDraft,

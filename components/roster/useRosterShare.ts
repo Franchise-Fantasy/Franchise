@@ -1,3 +1,4 @@
+import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { useRef, useState } from 'react';
 import { Alert, View } from 'react-native';
@@ -39,7 +40,13 @@ export function useRosterShare() {
         return;
       }
 
-      await Sharing.shareAsync(uri, {
+      // captureRef names the tmpfile with a random UUID, which shows up as the
+      // filename in the share sheet. Copy it to a friendly name first.
+      const named = new File(Paths.cache, 'Roster.png');
+      if (named.exists) named.delete();
+      new File(uri).copy(named);
+
+      await Sharing.shareAsync(named.uri, {
         mimeType: 'image/png',
         dialogTitle: 'Share your roster',
         UTI: 'public.png',

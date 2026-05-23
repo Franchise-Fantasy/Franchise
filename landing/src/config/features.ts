@@ -1,6 +1,7 @@
 export interface Feature {
   title: string;
   description: string;
+  isFinale?: boolean;
 }
 
 export const features: Feature[] = [
@@ -25,11 +26,6 @@ export const features: Feature[] = [
       "Know if a guy is steady or a rollercoaster before you trade for him. Per-category breakdowns for H2H leagues.",
   },
   {
-    title: "Roster age that means something",
-    description:
-      "Your team's age weighted by who's actually producing — not just birthdays on a spreadsheet.",
-  },
-  {
     title: "Your own prospect board",
     description:
       "Rank rookies your way, then see where you agree and disagree with staff consensus. Prep for your draft years out.",
@@ -43,6 +39,12 @@ export const features: Feature[] = [
     title: "Commissioner tools that save time",
     description:
       "Force moves, league announcements, division assignments, and trade reversals — without digging through menus.",
+  },
+  {
+    title: "…and plenty more to discover",
+    description:
+      "Weighted roster age, category heatmaps, aging curves, draft capital views, lottery reveals, league records — the list keeps growing.",
+    isFinale: true,
   },
 ];
 

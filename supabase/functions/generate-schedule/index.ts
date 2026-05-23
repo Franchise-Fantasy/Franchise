@@ -13,6 +13,16 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Whether a stored `season_start_date` actually belongs to `season`. Mirrors
+// `startDateBelongsToSeason` in constants/LeagueDefaults.ts — NBA seasons span
+// two calendar years ("2025-26" → 2025 & 2026); WNBA is single-year.
+function startDateBelongsToSeason(season: string, startDate: string | null): boolean {
+  if (!startDate) return false;
+  const startYear = parseInt(String(season).split("-")[0], 10);
+  const dateYear = Number(startDate.slice(0, 4));
+  return dateYear === startYear || dateYear === startYear + 1;
+}
+
 // Berger round-robin: returns one array per round, each element is [homeId, awayId|null]
 function buildRoundRobin(teams: (string | null)[]): Array<Array<[string | null, string | null]>> {
   const n = teams.length;
@@ -70,7 +80,7 @@ Deno.serve(async (req: Request) => {
     // stays required for everything else.
     const { data: league, error: leagueErr } = await supabase
       .from("leagues")
-      .select("regular_season_weeks, playoff_weeks, season, season_start_date, schedule_generated, created_by, offseason_step, imported_from")
+      .select("regular_season_weeks, playoff_weeks, season, season_start_date, schedule_generated, created_by, offseason_step, imported_from, sport")
       .eq("id", league_id)
       .single();
 
@@ -106,8 +116,33 @@ Deno.serve(async (req: Request) => {
       return errorResponse(`Cannot generate schedule during offseason step: ${league.offseason_step}`, 409);
     }
 
-    if (!league.season_start_date) {
-      return errorResponse('League has no season_start_date', 400);
+    // Resolve the season start date. A date that already belongs to the target
+    // season (commish-set, or correct from creation) is used as-is. Otherwise —
+    // missing, or carried over from the season that just ended after
+    // `advance-season` bumped `season` — auto-fill it from the synced game
+    // schedule's opening night so the commish doesn't have to. Only when no
+    // schedule exists yet for the season do we ask them to set it manually.
+    let seasonStartDate = league.season_start_date;
+    if (!startDateBelongsToSeason(league.season, seasonStartDate)) {
+      const { data: firstGame } = await supabase
+        .from("game_schedule")
+        .select("game_date")
+        .eq("sport", league.sport ?? "nba")
+        .eq("season", league.season)
+        .order("game_date", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      if (!firstGame?.game_date) {
+        return errorResponse(
+          `The ${league.season} schedule isn't available yet, so the start date couldn't be set automatically. Set it in League Info → Season Settings, then start the season.`,
+          409,
+        );
+      }
+
+      seasonStartDate = firstGame.game_date;
+      // Persist so League Info + any later calls agree on the resolved date.
+      await supabase.from("leagues").update({ season_start_date: seasonStartDate }).eq("id", league_id);
     }
 
     const { data: teams, error: teamsErr } = await supabase
@@ -130,7 +165,7 @@ Deno.serve(async (req: Request) => {
     const cycleRounds = buildRoundRobin(teamList);
     const cycleLength = cycleRounds.length;
 
-    const [sy, sm, sd] = league.season_start_date.split("-").map(Number);
+    const [sy, sm, sd] = seasonStartDate.split("-").map(Number);
 
     // Week 1 may be a partial week (e.g. Tue–Sun) if the league was
     // created mid-week.  Week 2+ are always full Mon–Sun.

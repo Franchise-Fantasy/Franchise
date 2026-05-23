@@ -31,6 +31,8 @@ interface TradeLaneProps {
   isMultiTeam: boolean;
   isCategories: boolean;
   pickConditionsEnabled: boolean;
+  /** Whether this league trades draft picks at all (false for redraft) — gates the Pick/Swap chips. */
+  draftPickTradingEnabled: boolean;
 
   /** Lane-level controls — chip taps lift up to the parent which opens a fullscreen picker. */
   onAddChipPress: (type: PickerType) => void;
@@ -66,6 +68,7 @@ export function TradeLane({
   isMultiTeam,
   isCategories,
   pickConditionsEnabled,
+  draftPickTradingEnabled,
   onAddChipPress,
   onRemovePlayer,
   onRemovePick,
@@ -85,32 +88,48 @@ export function TradeLane({
         accessibilityLabel={`${team.team_name} sends`}
       >
         <View style={styles.body}>
-          {/* Add-chip row — Swap stays hidden when the league disables pick conditions. */}
+          {/* Add-chip row. Redraft leagues can't trade picks, so the row
+              collapses to a single "Add" button (players only) — no need to
+              distinguish asset types. Dynasty leagues split Player / Pick and,
+              when pick conditions are on, Swap. */}
           <View style={styles.chipRow}>
-            <BrandButton
-              label="Player"
-              icon="add"
-              size="small"
-              variant="secondary"
-              onPress={() => onAddChipPress('player')}
-              accessibilityLabel={`Add player from ${team.team_name}`}
-            />
-            <BrandButton
-              label="Pick"
-              icon="add"
-              size="small"
-              variant="secondary"
-              onPress={() => onAddChipPress('pick')}
-              accessibilityLabel={`Add pick from ${team.team_name}`}
-            />
-            {pickConditionsEnabled && partnerTeams.length > 0 && (
+            {draftPickTradingEnabled ? (
+              <>
+                <BrandButton
+                  label="Player"
+                  icon="add"
+                  size="small"
+                  variant="secondary"
+                  onPress={() => onAddChipPress('player')}
+                  accessibilityLabel={`Add player from ${team.team_name}`}
+                />
+                <BrandButton
+                  label="Pick"
+                  icon="add"
+                  size="small"
+                  variant="secondary"
+                  onPress={() => onAddChipPress('pick')}
+                  accessibilityLabel={`Add pick from ${team.team_name}`}
+                />
+                {pickConditionsEnabled && partnerTeams.length > 0 && (
+                  <BrandButton
+                    label="Swap"
+                    icon="add"
+                    size="small"
+                    variant="secondary"
+                    onPress={() => onAddChipPress('swap')}
+                    accessibilityLabel={`Add pick swap from ${team.team_name}`}
+                  />
+                )}
+              </>
+            ) : (
               <BrandButton
-                label="Swap"
+                label="Add"
                 icon="add"
                 size="small"
                 variant="secondary"
-                onPress={() => onAddChipPress('swap')}
-                accessibilityLabel={`Add pick swap from ${team.team_name}`}
+                onPress={() => onAddChipPress('player')}
+                accessibilityLabel={`Add player from ${team.team_name}`}
               />
             )}
           </View>

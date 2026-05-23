@@ -27,7 +27,6 @@ import { PaymentLedgerModal } from '@/components/commissioner/PaymentLedgerModal
 import { ReverseTradeModal } from '@/components/commissioner/ReverseTradeModal';
 import { SendAnnouncementModal } from '@/components/commissioner/SendAnnouncementModal';
 import { TransferOwnershipModal } from '@/components/commissioner/TransferOwnershipModal';
-import { SeasonHistory } from '@/components/home/SeasonHistory';
 import { TeamAssigner } from '@/components/import/TeamAssigner';
 import { TeamLogo } from '@/components/team/TeamLogo';
 import { Badge } from '@/components/ui/Badge';
@@ -37,7 +36,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Section } from '@/components/ui/Section';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
-import { LEAGUE_TYPE_DISPLAY, PLAYER_LOCK_DISPLAY, SEEDING_DISPLAY, TIEBREAKER_DISPLAY, WAIVER_DAY_LABELS } from '@/constants/LeagueDefaults';
+import { LEAGUE_TYPE_DISPLAY, PLAYER_LOCK_DISPLAY, SEEDING_DISPLAY, SPORT_OPENING_MONTH, TIEBREAKER_DISPLAY, WAIVER_DAY_LABELS, parseSeasonStartYear, startDateBelongsToSeason } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { TIER_LABELS } from '@/constants/Subscriptions';
 import { useAppState } from '@/context/AppStateProvider';
@@ -175,6 +174,17 @@ export default function LeagueInfoScreen() {
 
   const commissionerTeam = league.league_teams?.find((t: any) => t.is_commissioner);
   const teamCount = league.league_teams?.length ?? league.teams ?? 0;
+
+  // In the offseason `league.season` is already the upcoming season, but
+  // `season_start_date` still holds the date that just ended — show a "TBD"
+  // placeholder (with the rough opening month) until the new date is set.
+  const startDateDisplay = startDateBelongsToSeason(league.season, league.season_start_date)
+    ? new Date(league.season_start_date + 'T00:00:00').toLocaleDateString()
+    : (() => {
+        const month = SPORT_OPENING_MONTH[(league.sport as 'nba' | 'wnba') ?? 'nba'];
+        const year = parseSeasonStartYear(league.season);
+        return month ? `TBD · ~${month} ${year}` : 'TBD';
+      })();
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
@@ -404,7 +414,7 @@ export default function LeagueInfoScreen() {
 
         {/* ── Season Settings ── */}
         <SectionCard title="Season" c={c} editable={sectionEditable('season', lifecycle, isCommissioner)} onEdit={() => setShowSeasonModal(true)}>
-          <Row label="Start Date" value={league.season_start_date ? new Date(league.season_start_date + 'T00:00:00').toLocaleDateString() : '-'} c={c} />
+          <Row label="Start Date" value={startDateDisplay} c={c} />
           <Row label="Regular Season" value={`${league.regular_season_weeks ?? '-'} weeks`} c={c} />
           <Row label="Playoffs" value={`${league.playoff_weeks ?? '-'} weeks`} c={c} />
           <Row label="Playoff Teams" value={String(league.playoff_teams ?? '-')} c={c} />
@@ -575,9 +585,6 @@ export default function LeagueInfoScreen() {
             ))}
           </Section>
         )}
-
-        {/* ── Season History ── */}
-        <SeasonHistory leagueId={league.id} />
 
       </ScrollView>
 

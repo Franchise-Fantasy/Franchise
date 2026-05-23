@@ -1,19 +1,15 @@
-import { ReactNode, useEffect, useMemo, useState } from 'react';
-import { LayoutChangeEvent, StyleSheet, View } from 'react-native';
-import Animated, {
-  cancelAnimation,
-  Easing,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withTiming,
-} from 'react-native-reanimated';
+import { useEffect, useMemo, useState } from 'react';
+import { View } from 'react-native';
 
+import { chipStyles, MarqueeBand } from '@/components/matchup/MarqueeBand';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Brand, Fonts } from '@/constants/Colors';
 import { TickerEvent, TickerEventKind } from '@/hooks/useMatchupTickerEvents';
 import { ScoringWeight } from '@/types/player';
-import { ms, s } from '@/utils/scale';
+
+// Live recap fpts colors. Green for a positive contribution, red for a
+// negative one (e.g. a turnover in a league that penalizes it).
+const FPTS_POS = '#7CD083';
+const FPTS_NEG = '#E55353';
 
 interface MatchupTickerProps {
   events: TickerEvent[];
@@ -25,10 +21,6 @@ interface MatchupTickerProps {
    *  resolves to +0.0 on every chip — meaningless noise. Hide it. */
   hideFpts?: boolean;
 }
-
-// Marquee speed. Tuned to feel "live ticker" rather than "stock crawl" —
-// fast enough to read but not so fast you can't catch a name as it passes.
-const SCROLL_SPEED_PX_PER_SEC = 38;
 
 /**
  * Approximates the fantasy-points contribution of a single ticker event by
@@ -112,11 +104,8 @@ function relativeTime(iso: string, now: number): string {
 }
 
 /**
- * Auto-scrolling recap band for the matchup hero. Renders the events twice
- * back-to-back inside an animated row that translates left at a constant
- * speed — when the first copy slides off, the second copy is already in
- * position so the loop is seamless. Falls back to a static row when the
- * content fits the visible track.
+ * Live recap tape for the matchup hero. Turns the stream of live scoring
+ * events into chips and feeds them to {@link MarqueeBand}.
  */
 export function MatchupTicker({
   events,
@@ -125,53 +114,20 @@ export function MatchupTicker({
   hideFpts = false,
 }: MatchupTickerProps) {
   const [now, setNow] = useState(() => Date.now());
-  const [singleCopyWidth, setSingleCopyWidth] = useState(0);
-  const [trackWidth, setTrackWidth] = useState(0);
-  const translateX = useSharedValue(0);
 
-  // Refresh relative time labels every 10s so "Xs ago" actually counts
-  // for fresh events. The whole component re-renders, but it's a tight
-  // marquee — cheap enough to keep the labels honest. Without this the
-  // first 30s of a new event's life all read as "0s ago".
+  // Refresh relative time labels every 10s so "Xs ago" actually counts for
+  // fresh events. The whole component re-renders, but it's a tight marquee —
+  // cheap enough to keep the labels honest. Without this the first 30s of a
+  // new event's life all read as "0s ago".
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 10_000);
     return () => clearInterval(t);
   }, []);
 
-  // Marquee math. We need enough copies of `rendered` end-to-end that
-  // "one cycle" (the distance we translate before looping) covers the
-  // full track width — otherwise the duplicate copy ends up visible
-  // alongside the original, which reads as the same stat appearing
-  // twice on screen. With short content (1–2 events), padFactor grows
-  // so each visible window only ever sees the marquee's "first half".
-  const padFactor = useMemo(() => {
-    if (singleCopyWidth <= 0 || trackWidth <= 0) return 1;
-    return Math.max(1, Math.ceil(trackWidth / singleCopyWidth));
-  }, [singleCopyWidth, trackWidth]);
-  const copies = padFactor * 2;
-  const cycleWidth = singleCopyWidth * padFactor;
-
-  useEffect(() => {
-    cancelAnimation(translateX);
-    if (cycleWidth <= 0) {
-      translateX.value = 0;
-      return;
-    }
-    const duration = (cycleWidth / SCROLL_SPEED_PX_PER_SEC) * 1000;
-    translateX.value = 0;
-    translateX.value = withRepeat(
-      withTiming(-cycleWidth, { duration, easing: Easing.linear }),
-      -1,
-      false,
-    );
-    return () => cancelAnimation(translateX);
-  }, [cycleWidth, translateX]);
-
-  // Points-league filter: drop events whose computed fpts is 0 — e.g. a
-  // foul in a league that doesn't score PF, or a missed FT in a league
-  // that doesn't count attempts. Those are visual noise on the recap
-  // tape. Category leagues skip the filter (no point values exist) and
-  // show every play.
+  // Points-league filter: drop events whose computed fpts is 0 — e.g. a foul
+  // in a league that doesn't score PF, or a missed FT in a league that doesn't
+  // count attempts. Those are visual noise on the recap tape. Category leagues
+  // skip the filter (no point values exist) and show every play.
   const rendered = useMemo(() => {
     const out: {
       id: string;
@@ -199,183 +155,38 @@ export function MatchupTicker({
     return out;
   }, [events, scoring, now, hideFpts]);
 
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: translateX.value }],
-  }));
+  const a11yLabel =
+    rendered.length > 0
+      ? `Recap: ${rendered
+          .map((r) =>
+            hideFpts
+              ? `${r.name} ${r.action} ${r.ago}`
+              : `${r.name} ${r.fptsStr} ${r.action} ${r.ago}`,
+          )
+          .join(', ')}`
+      : `Recap: ${emptyText.toLowerCase()}`;
 
-  const a11yLabel = rendered.length > 0
-    ? `Recap: ${rendered
-        .map((r) =>
-          hideFpts
-            ? `${r.name} ${r.action} ${r.ago}`
-            : `${r.name} ${r.fptsStr} ${r.action} ${r.ago}`,
-        )
-        .join(', ')}`
-    : `Recap: ${emptyText.toLowerCase()}`;
-
-  const renderEventChip = (
-    r: typeof rendered[number],
-    key: string,
-  ): ReactNode => (
-    <View key={key} style={styles.eventChip}>
-      <ThemedText type="varsity" style={styles.name} numberOfLines={1}>
+  const items = rendered.map((r) => (
+    <View key={r.id} style={chipStyles.chip}>
+      <ThemedText type="varsity" style={chipStyles.name} numberOfLines={1}>
         {r.name}
       </ThemedText>
       {!hideFpts && (
-        <ThemedText style={[styles.fpts, r.fptsNeg && styles.fptsNeg]}>
+        <ThemedText
+          style={[chipStyles.value, { color: r.fptsNeg ? FPTS_NEG : FPTS_POS }]}
+        >
           {r.fptsStr}
         </ThemedText>
       )}
-      <ThemedText style={styles.action} numberOfLines={1}>
+      <ThemedText style={chipStyles.detail} numberOfLines={1}>
         {r.action}
       </ThemedText>
-      <ThemedText style={styles.ago} numberOfLines={1}>
+      <ThemedText style={chipStyles.muted} numberOfLines={1}>
         {r.ago}
       </ThemedText>
-      <View style={styles.dot} />
+      <View style={chipStyles.dot} />
     </View>
-  );
+  ));
 
-  return (
-    <View
-      style={styles.bar}
-      accessibilityRole="text"
-      accessibilityLabel={a11yLabel}
-    >
-      <View style={styles.recapChip}>
-        <ThemedText type="varsity" style={styles.recapText}>
-          RECAP
-        </ThemedText>
-      </View>
-      <View
-        style={styles.track}
-        pointerEvents="none"
-        onLayout={(e: LayoutChangeEvent) => setTrackWidth(e.nativeEvent.layout.width)}
-      >
-        {rendered.length === 0 ? (
-          <ThemedText
-            type="varsitySmall"
-            style={styles.emptyText}
-            numberOfLines={1}
-          >
-            {emptyText}
-          </ThemedText>
-        ) : (
-          <>
-            {/* Hidden measurer — renders one copy of the events to
-                determine singleCopyWidth, used by padFactor to size the
-                visible ribbon. Absolutely positioned + opacity 0 so it
-                doesn't affect layout or draw. */}
-            <View
-              style={[styles.row, styles.measurer]}
-              pointerEvents="none"
-              onLayout={(e: LayoutChangeEvent) =>
-                setSingleCopyWidth(e.nativeEvent.layout.width)
-              }
-            >
-              {rendered.map((r, idx) => renderEventChip(r, `m-${r.id}-${idx}`))}
-            </View>
-            <Animated.View style={[styles.row, animatedStyle]}>
-              {Array.from({ length: copies })
-                .flatMap((_, copyIdx) =>
-                  rendered.map((r, idx) => ({ r, key: `${copyIdx}-${r.id}-${idx}` })),
-                )
-                .map(({ r, key }) => renderEventChip(r, key))}
-            </Animated.View>
-          </>
-        )}
-      </View>
-    </View>
-  );
+  return <MarqueeBand label="RECAP" items={items} emptyText={emptyText} a11yLabel={a11yLabel} />;
 }
-
-const styles = StyleSheet.create({
-  bar: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    height: ms(28),
-    // Pull the band edge-to-edge across the hero card AND consume the
-    // card's paddingBottom so the bar bleeds into the rounded bottom edge.
-    // The hero's `overflow: hidden` + `borderRadius: 16` clip the bottom
-    // corners cleanly to the card's curve. Horizontal margin must match
-    // the hero card's paddingHorizontal (currently s(10)).
-    marginHorizontal: s(-10),
-    marginTop: s(10),
-    marginBottom: s(-8),
-    backgroundColor: 'rgba(20, 16, 16, 0.55)',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(181, 123, 48, 0.45)',
-    overflow: 'hidden',
-  },
-  recapChip: {
-    paddingHorizontal: s(10),
-    justifyContent: 'center',
-    backgroundColor: Brand.vintageGold,
-  },
-  recapText: {
-    color: Brand.ink,
-    fontSize: ms(10),
-    letterSpacing: 1.0,
-  },
-  track: {
-    flex: 1,
-    overflow: 'hidden',
-    justifyContent: 'center',
-    paddingLeft: s(10),
-  },
-  emptyText: {
-    color: Brand.ecruMuted,
-    fontSize: ms(9),
-    letterSpacing: 1.0,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  measurer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    opacity: 0,
-  },
-  eventChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(6),
-    paddingRight: s(10),
-  },
-  name: {
-    color: Brand.ecru,
-    fontSize: ms(10),
-    letterSpacing: 0.6,
-  },
-  fpts: {
-    color: '#7CD083',
-    fontFamily: Fonts.mono,
-    fontSize: ms(10),
-    fontWeight: '700',
-  },
-  fptsNeg: {
-    color: '#E55353',
-  },
-  action: {
-    color: Brand.ecru,
-    fontFamily: Fonts.mono,
-    fontSize: ms(9),
-    letterSpacing: 0.4,
-    textTransform: 'uppercase',
-  },
-  ago: {
-    color: Brand.ecruMuted,
-    fontFamily: Fonts.mono,
-    fontSize: ms(9),
-    letterSpacing: 0.3,
-  },
-  dot: {
-    width: 3,
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: 'rgba(181, 123, 48, 0.55)',
-    marginLeft: s(8),
-  },
-});

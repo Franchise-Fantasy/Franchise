@@ -49,6 +49,8 @@ interface TradeFloorProps {
   /** Scoring shape — drives FPTS readout / fairness bar visibility. */
   isCategories: boolean;
   pickConditionsEnabled: boolean;
+  /** Whether this league trades draft picks at all (false for redraft). */
+  draftPickTradingEnabled: boolean;
 
   /** Live fairness + roster warnings. */
   fairness: FairnessEntry[];
@@ -98,6 +100,7 @@ export function TradeFloor({
   teamNameMap,
   isCategories,
   pickConditionsEnabled,
+  draftPickTradingEnabled,
   fairness,
   rosterWarnings,
   hasAssets,
@@ -206,6 +209,7 @@ export function TradeFloor({
                     isMultiTeam={allTradeTeamIds.length > 2}
                     isCategories={isCategories}
                     pickConditionsEnabled={pickConditionsEnabled}
+                    draftPickTradingEnabled={draftPickTradingEnabled}
                     onAddChipPress={(type) => onOpenPicker(bt.team_id, type)}
                     onRemovePlayer={(playerId) => onRemovePlayer(bt.team_id, playerId)}
                     onRemovePick={(pickId) => onRemovePick(bt.team_id, pickId)}

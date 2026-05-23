@@ -1,7 +1,8 @@
 name: Check
 
 # Runs the same `npm run check` that lefthook runs locally — typecheck (app +
-# edge), lint, realtime-channel scanner. Lefthook is bypassable with
+# edge), lint, realtime-channel scanner, paired-files drift scanner, jest unit
+# tests. Lefthook is bypassable with
 # `--no-verify` and only runs on the dev's machine; this Action is the
 # unbypassable backstop.
 #
@@ -50,5 +51,5 @@ jobs:
           restore-keys: |
             deno-${{ runner.os }}-
 
-      - name: Run full check (typecheck + edge typecheck + lint + realtime scanner)
+      - name: Run full check (typecheck + edge typecheck + lint + realtime + paired-files + tests)
         run: npm run check

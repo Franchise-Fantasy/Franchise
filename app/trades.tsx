@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import { ProposeTradeModal } from "@/components/trade/ProposeTradeModal";
 import { TradeBlockSheet } from "@/components/trade/TradeBlockSheet";
 import { TradeCard } from "@/components/trade/TradeCard";
@@ -25,6 +26,7 @@ import { Colors } from "@/constants/Colors";
 import { queryKeys } from "@/constants/queryKeys";
 import { useAppState } from "@/context/AppStateProvider";
 import { useColorScheme } from "@/hooks/useColorScheme";
+import { usePlayerSeasonStats } from "@/hooks/usePlayerSeasonStats";
 import {
   TradeBlockPlayer,
   TradeProposalRow,
@@ -33,6 +35,7 @@ import {
   useTradeProposalsHeadshots,
 } from "@/hooks/useTrades";
 import { supabase } from "@/lib/supabase";
+import { PlayerSeasonStats } from "@/types/player";
 import { TRADE_STATUS } from "@/types/trade";
 import { ms } from "@/utils/scale";
 
@@ -41,6 +44,34 @@ const TABS = ["Active", "History"];
 // generated DB type surfaces proposal.status as plain string.
 const ACTIVE_STATUSES: readonly string[] = [TRADE_STATUS.PENDING, TRADE_STATUS.ACCEPTED, TRADE_STATUS.IN_REVIEW];
 const HISTORY_STATUSES: readonly string[] = [TRADE_STATUS.COMPLETED, TRADE_STATUS.REJECTED, TRADE_STATUS.CANCELLED, TRADE_STATUS.VETOED];
+
+// Zeroed PlayerSeasonStats built from the minimal trade-block player fields —
+// used only as a fallback when the player isn't in the season-stats fetch, so
+// the detail modal still opens with identity info instead of a dead tap.
+function buildStatShell(p: TradeBlockPlayer): PlayerSeasonStats {
+  const zeros = {
+    total_pts: 0, total_reb: 0, total_ast: 0, total_stl: 0, total_blk: 0,
+    total_tov: 0, total_fgm: 0, total_fga: 0, total_3pm: 0, total_3pa: 0,
+    total_ftm: 0, total_fta: 0, total_pf: 0, total_dd: 0, total_td: 0,
+    avg_min: 0, avg_pts: 0, avg_reb: 0, avg_ast: 0, avg_stl: 0, avg_blk: 0,
+    avg_tov: 0, avg_fgm: 0, avg_fga: 0, avg_3pm: 0, avg_3pa: 0, avg_ftm: 0,
+    avg_fta: 0, avg_pf: 0,
+  };
+  return {
+    player_id: p.player_id,
+    name: p.name,
+    position: p.position,
+    pro_team: p.pro_team,
+    status: "Active",
+    external_id_nba: p.external_id_nba,
+    rookie: false,
+    season_added: null,
+    draft_year: null,
+    birthdate: null,
+    games_played: 0,
+    ...zeros,
+  };
+}
 
 export default function Trades() {
   const params = useLocalSearchParams<{
@@ -51,6 +82,7 @@ export default function Trades() {
     proposePlayerTeam?: string;
     proposePlayerFpts?: string;
     proposePlayerExternalId?: string;
+    proposalId?: string;
   }>();
   const scheme = useColorScheme() ?? "light";
   const c = Colors[scheme];
@@ -70,6 +102,10 @@ export default function Trades() {
     useState<TradeProposalRow | null>(null);
   const [editProposal, setEditProposal] = useState<TradeProposalRow | null>(null);
   const [showTradeBlock, setShowTradeBlock] = useState(false);
+  const [detailPlayer, setDetailPlayer] = useState<PlayerSeasonStats | null>(null);
+  // When the detail modal is opened from the trade block, re-open the block
+  // on its close so the user lands back where they were browsing.
+  const [reopenBlockOnDetailClose, setReopenBlockOnDetailClose] = useState(false);
 
   // Auto-open propose modal when navigated with route params
   useEffect(() => {
@@ -96,7 +132,20 @@ export default function Trades() {
   }, [params.proposePlayerId]);
 
   const { data: proposals, isLoading, refetch: refetchProposals } = useTradeProposals(leagueId);
+
+  // Open a specific proposal when deep-linked from a trade notification.
+  useEffect(() => {
+    if (!params.proposalId || !proposals) return;
+    const match = proposals.find((p) => p.id === params.proposalId);
+    if (!match) return;
+    setSelectedProposal(match);
+    // Resolved/old proposals live under the History tab.
+    if (HISTORY_STATUSES.includes(match.status)) setTab(1);
+  }, [params.proposalId, proposals]);
+
   const { data: tradeBlock, refetch: refetchTradeBlock } = useTradeBlock(leagueId);
+  // Full season stats power the player-detail modal opened from a trade-block row.
+  const { data: seasonStats } = usePlayerSeasonStats();
   // Single batched fetch of every player headshot referenced across all
   // visible proposals — pushed down to each TradeCard so cards don't
   // each issue their own query.
@@ -144,6 +193,14 @@ export default function Trades() {
     setPreselectedTradeTeamId(player.team_id);
     setPreselectedPlayer(player);
     setShowPropose(true);
+  };
+
+  // Open the player-detail modal from a trade-block row. Prefer the full
+  // season-stats row; fall back to a zeroed shell so the tap is never dead
+  // (e.g. a player outside the top-600 stats fetch or mid-offseason).
+  const handleViewTradeBlockPlayer = (player: TradeBlockPlayer) => {
+    const full = seasonStats?.find((s) => s.player_id === player.player_id);
+    setDetailPlayer(full ?? buildStatShell(player));
   };
 
   const handleProposeClose = () => {
@@ -308,6 +365,11 @@ export default function Trades() {
           onClose={() => setShowTradeBlock(false)}
           onPlayerPress={(player) => {
             setShowTradeBlock(false);
+            setReopenBlockOnDetailClose(true);
+            handleViewTradeBlockPlayer(player);
+          }}
+          onProposeTrade={(player) => {
+            setShowTradeBlock(false);
             handleTradeBlockPlayerPress(player);
           }}
         />
@@ -344,6 +406,21 @@ export default function Trades() {
           onClose={() => setSelectedProposal(null)}
           onCounteroffer={isPastDeadline ? undefined : handleCounteroffer}
           onEdit={isPastDeadline ? undefined : handleEdit}
+        />
+      )}
+
+      {detailPlayer && leagueId && (
+        <PlayerDetailModal
+          player={detailPlayer}
+          leagueId={leagueId}
+          teamId={teamId ?? undefined}
+          onClose={() => {
+            setDetailPlayer(null);
+            if (reopenBlockOnDetailClose) {
+              setReopenBlockOnDetailClose(false);
+              setShowTradeBlock(true);
+            }
+          }}
         />
       )}
     </SafeAreaView>

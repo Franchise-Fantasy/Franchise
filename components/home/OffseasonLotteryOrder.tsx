@@ -42,8 +42,21 @@ interface OrderRow {
   // so the home card matches the draft hub instead of looking untraded.
   isTraded?: boolean;
   ownerTricode?: string | null;
+  // Receiving team identity, so a straight-up traded pick can LEAD with the
+  // team that actually gets it (logo + full name) rather than the origin.
+  ownerName?: string | null;
+  ownerLogoKey?: string | null;
   protectionThreshold?: number | null;
+  // Protection owner (keeps the pick if it lands within threshold) — used to
+  // lead a protected pick with its projected holder, matching the draft hub.
+  protOwnerId?: string | null;
+  protOwnerName?: string | null;
+  protOwnerLogoKey?: string | null;
+  protOwnerTricode?: string | null;
   swapPartnerTricode?: string | null;
+  // Post-lottery only: the origin team's tricode for a pick that changed hands,
+  // shown as "via TRI" so the resolved order ties back to the lottery slot.
+  viaTricode?: string | null;
 }
 
 /**
@@ -100,39 +113,50 @@ export function OffseasonLotteryOrder({
       const poolSize = isLotteryLeague ? calcLotteryPoolSize(totalTeams, playoffTeams) : 0;
       const odds = lotteryOdds ?? (poolSize > 0 ? generateDefaultOdds(poolSize) : []);
 
-      // If lottery complete, use current draft_picks slot_number ordering for round 1
+      // If lottery complete, use current draft_picks slot_number ordering for
+      // round 1. NOTE: do NOT filter on draft_id — once the commissioner clicks
+      // "Done" (create-rookie-draft) the picks get linked to the new draft, so
+      // an `.is('draft_id', null)` filter would return nothing and silently fall
+      // through to the reverse-standings overlay, showing the WRONG (pre-lottery)
+      // order. season + round + unused (player_id null) is enough to scope it.
       if (lotteryComplete) {
         const { data: picks } = await supabase
           .from('draft_picks')
-          .select('slot_number, current_team_id, team:teams!draft_picks_current_team_id_fkey(id, name, tricode, logo_key)')
+          .select('slot_number, current_team_id, original_team_id, team:teams!draft_picks_current_team_id_fkey(id, name, tricode, logo_key), origin:teams!draft_picks_original_team_id_fkey(tricode, name)')
           .eq('league_id', leagueId)
           .eq('season', season)
           .eq('round', 1)
           .is('player_id', null)
-          .is('draft_id', null)
           .order('slot_number', { ascending: true });
 
         const ordered = (picks ?? []).filter((p: any) => p.slot_number != null);
         if (ordered.length > 0) {
-          return ordered.map((p: any, i: number) => ({
-            position: p.slot_number ?? i + 1,
-            teamId: p.team?.id ?? null,
-            teamName: p.team?.name ?? 'Unknown',
-            tricode: p.team?.tricode ?? null,
-            logoKey: p.team?.logo_key ?? null,
-            wins: 0,
-            losses: 0,
-            oddsPct: '—',
-          }));
+          return ordered.map((p: any, i: number) => {
+            const traded = !!p.original_team_id && !!p.current_team_id && p.original_team_id !== p.current_team_id;
+            const originTri = p.origin?.tricode ?? p.origin?.name?.slice(0, 3).toUpperCase() ?? null;
+            return {
+              position: p.slot_number ?? i + 1,
+              teamId: p.team?.id ?? null,
+              teamName: p.team?.name ?? 'Unknown',
+              tricode: p.team?.tricode ?? null,
+              logoKey: p.team?.logo_key ?? null,
+              wins: 0,
+              losses: 0,
+              oddsPct: '—',
+              // Resolved pick that changed hands — name the slot's origin so the
+              // order visibly ties back to the lottery (slot 2 = "MID via BF").
+              viaTricode: traded ? originTri : null,
+            };
+          });
         }
       }
 
       // Overlay round-1 pick ownership so traded/protected/swapped picks show
       // their conveyance + condition, matching the draft hub (the standings
       // rows are otherwise blind to where each pick is headed).
-      const teamMeta = new Map<string, { name: string; tricode: string | null }>();
+      const teamMeta = new Map<string, { name: string; tricode: string | null; logoKey: string | null }>();
       for (const r of rows as any[]) {
-        if (r.team?.id) teamMeta.set(r.team.id, { name: r.team.name, tricode: r.team.tricode });
+        if (r.team?.id) teamMeta.set(r.team.id, { name: r.team.name, tricode: r.team.tricode, logoKey: r.team.logo_key ?? null });
       }
       const tri = (id: string | null | undefined): string | null => {
         if (!id) return null;
@@ -142,15 +166,19 @@ export function OffseasonLotteryOrder({
 
       const { data: r1picks } = await supabase
         .from('draft_picks')
-        .select('original_team_id, current_team_id, protection_threshold')
+        .select('original_team_id, current_team_id, protection_threshold, protection_owner_id')
         .eq('league_id', leagueId)
         .eq('season', season)
         .eq('round', 1)
         .is('player_id', null);
-      const condByOrig = new Map<string, { ownerId: string | null; threshold: number | null }>();
+      const condByOrig = new Map<string, { ownerId: string | null; threshold: number | null; protOwnerId: string | null }>();
       for (const p of r1picks ?? []) {
         if (p.original_team_id) {
-          condByOrig.set(p.original_team_id, { ownerId: p.current_team_id, threshold: p.protection_threshold });
+          condByOrig.set(p.original_team_id, {
+            ownerId: p.current_team_id,
+            threshold: p.protection_threshold,
+            protOwnerId: p.protection_owner_id,
+          });
         }
       }
 
@@ -172,6 +200,9 @@ export function OffseasonLotteryOrder({
         const cond = teamId ? condByOrig.get(teamId) : undefined;
         const ownerId = cond?.ownerId ?? null;
         const isTraded = !!ownerId && ownerId !== teamId;
+        const ownerMeta = ownerId ? teamMeta.get(ownerId) : undefined;
+        const protOwnerId = cond?.protOwnerId ?? null;
+        const protOwnerMeta = protOwnerId ? teamMeta.get(protOwnerId) : undefined;
         const partnerId = teamId ? swapPartner.get(teamId) : undefined;
         return {
           position: i + 1,
@@ -184,7 +215,15 @@ export function OffseasonLotteryOrder({
           oddsPct: isLotteryLeague && i < poolSize && odds[i] != null ? `${odds[i]}%` : '—',
           isTraded,
           ownerTricode: isTraded ? tri(ownerId) : null,
+          ownerName: isTraded ? (ownerMeta?.name ?? null) : null,
+          ownerLogoKey: isTraded ? (ownerMeta?.logoKey ?? null) : null,
           protectionThreshold: cond?.threshold ?? null,
+          // Protection owner = the team that KEEPS the pick if it lands within
+          // threshold (may differ from both the origin and the convey target).
+          protOwnerId,
+          protOwnerName: protOwnerMeta?.name ?? null,
+          protOwnerLogoKey: protOwnerMeta?.logoKey ?? null,
+          protOwnerTricode: tri(protOwnerId),
           swapPartnerTricode: partnerId ? tri(partnerId) : null,
         };
       });
@@ -240,6 +279,40 @@ export function OffseasonLotteryOrder({
               </View>
               {data.slice(0, 14).map((row, i, arr) => {
                 const isLast = i === arr.length - 1;
+                // A straight-up trade (no protection, no swap) leads with the
+                // team that actually receives the pick — showing the origin's
+                // logo + full name reads as if they keep it. Protected/swapped
+                // picks stay origin-led because the destination is conditional.
+                const straightTraded =
+                  !lotteryComplete && !!row.isTraded && !row.protectionThreshold && !row.swapPartnerTricode;
+                const isProtected = !lotteryComplete && row.protectionThreshold != null;
+                const originTri = row.tricode ?? row.teamName.slice(0, 3).toUpperCase();
+                // Live projection for a protected pick: would it hold at its
+                // current (reverse-standings) slot? Pre-draw this can swing, so
+                // it's framed as "Projected".
+                const wouldHold = isProtected && row.position <= row.protectionThreshold!;
+                // A protected pick leads with its PROJECTED holder (keeper if
+                // within threshold, else the convey target) — matching the draft
+                // hub — and shows "from ORIGIN" unless that holder IS the origin.
+                const protHolderName = wouldHold ? row.protOwnerName : row.ownerName;
+                const protHolderLogoKey = wouldHold ? row.protOwnerLogoKey : row.ownerLogoKey;
+                const protHolderTricode = wouldHold ? row.protOwnerTricode : row.ownerTricode;
+                const protHolderIsOrigin = wouldHold && row.protOwnerId === row.teamId;
+                const primaryName = straightTraded
+                  ? (row.ownerName ?? row.teamName)
+                  : isProtected
+                    ? (protHolderName ?? row.teamName)
+                    : row.teamName;
+                const primaryLogoKey = straightTraded
+                  ? row.ownerLogoKey
+                  : isProtected
+                    ? protHolderLogoKey
+                    : row.logoKey;
+                const primaryTricode = straightTraded
+                  ? row.ownerTricode
+                  : isProtected
+                    ? protHolderTricode
+                    : row.tricode;
                 return (
                   <TouchableOpacity
                     key={`${row.position}-${row.teamId ?? row.teamName}`}
@@ -255,9 +328,19 @@ export function OffseasonLotteryOrder({
                     activeOpacity={0.6}
                     accessibilityRole={row.teamId ? 'button' : undefined}
                     accessibilityLabel={
-                      `${row.teamName}, pick ${row.position}` +
-                      (row.isTraded && row.ownerTricode ? `, traded to ${row.ownerTricode}` : '') +
-                      (row.protectionThreshold ? `, top-${row.protectionThreshold} protected` : '') +
+                      `${primaryName}, pick ${row.position}` +
+                      (straightTraded
+                        ? `, traded from ${originTri}`
+                        : row.viaTricode
+                          ? `, from ${row.viaTricode}`
+                          : isProtected && !protHolderIsOrigin
+                            ? `, from ${originTri}`
+                            : row.isTraded && row.ownerTricode && !isProtected
+                              ? `, traded to ${row.ownerTricode}`
+                              : '') +
+                      (row.protectionThreshold
+                        ? `, top-${row.protectionThreshold} protected, projected ${wouldHold ? 'keeps' : 'conveys'}`
+                        : '') +
                       (row.swapPartnerTricode ? `, pick swap with ${row.swapPartnerTricode}` : '')
                     }
                   >
@@ -266,9 +349,9 @@ export function OffseasonLotteryOrder({
                         {row.position}
                       </ThemedText>
                       <TeamLogo
-                        logoKey={row.logoKey}
-                        teamName={row.teamName}
-                        tricode={row.tricode ?? undefined}
+                        logoKey={primaryLogoKey}
+                        teamName={primaryName}
+                        tricode={primaryTricode ?? undefined}
                         size="small"
                       />
                       <View style={styles.nameWrap}>
@@ -277,9 +360,27 @@ export function OffseasonLotteryOrder({
                           numberOfLines={1}
                           ellipsizeMode="tail"
                         >
-                          {row.teamName}
+                          {primaryName}
                         </ThemedText>
-                        {row.isTraded && row.ownerTricode ? (
+                        {straightTraded ? (
+                          <View style={styles.conveyance}>
+                            <ThemedText type="varsitySmall" style={[styles.fromTri, { color: c.secondaryText }]}>
+                              from {originTri}
+                            </ThemedText>
+                          </View>
+                        ) : row.viaTricode ? (
+                          <View style={styles.conveyance}>
+                            <ThemedText type="varsitySmall" style={[styles.fromTri, { color: c.secondaryText }]}>
+                              from {row.viaTricode}
+                            </ThemedText>
+                          </View>
+                        ) : isProtected && !protHolderIsOrigin ? (
+                          <View style={styles.conveyance}>
+                            <ThemedText type="varsitySmall" style={[styles.fromTri, { color: c.secondaryText }]}>
+                              from {originTri}
+                            </ThemedText>
+                          </View>
+                        ) : row.isTraded && row.ownerTricode && !isProtected ? (
                           <View style={styles.conveyance}>
                             <Ionicons name="arrow-forward" size={ms(10)} color={c.gold} accessible={false} />
                             <ThemedText type="varsitySmall" style={[styles.ownerTri, { color: c.text }]}>
@@ -302,12 +403,20 @@ export function OffseasonLotteryOrder({
                     {!lotteryComplete && (row.protectionThreshold || row.swapPartnerTricode) ? (
                       <View style={styles.conditionLine}>
                         <PickConditionRow
-                          kind={row.swapPartnerTricode ? 'swap' : 'protection_pending'}
+                          kind={
+                            row.swapPartnerTricode
+                              ? 'swap'
+                              : wouldHold
+                                ? 'protection_held'
+                                : 'protection_missed'
+                          }
                           badgeLabel={row.swapPartnerTricode ? row.swapPartnerTricode : `TOP-${row.protectionThreshold}`}
                           storyText={
                             row.swapPartnerTricode
                               ? `Pick swap with ${row.swapPartnerTricode}`
-                              : `Keeps if Top-${row.protectionThreshold}, else conveys to ${row.ownerTricode ?? '—'}`
+                              : wouldHold
+                                ? `Projected No. ${row.position} — kept by ${row.protOwnerTricode ?? '—'}; conveys to ${row.ownerTricode ?? '—'} if it slips past Top-${row.protectionThreshold}`
+                                : `Projected No. ${row.position} — conveys to ${row.ownerTricode ?? '—'}; kept by ${row.protOwnerTricode ?? '—'} if it climbs to Top-${row.protectionThreshold}`
                           }
                         />
                       </View>
@@ -318,24 +427,6 @@ export function OffseasonLotteryOrder({
             </>
           )}
         </View>
-
-        {!!data?.length && (
-          <View style={[styles.footer, { borderTopColor: c.border }]}>
-            <View />
-            <TouchableOpacity
-              style={styles.seeAll}
-              onPress={() => router.push('/draft-hub' as never)}
-              accessibilityRole="button"
-              accessibilityLabel="View full draft hub"
-              hitSlop={8}
-            >
-              <ThemedText type="varsitySmall" style={[styles.seeAllText, { color: c.secondaryText }]}>
-                Draft Hub
-              </ThemedText>
-              <Ionicons name="chevron-forward" size={12} color={c.secondaryText} accessible={false} />
-            </TouchableOpacity>
-          </View>
-        )}
       </View>
     </View>
   );
@@ -360,7 +451,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingHorizontal: s(14),
     paddingTop: s(10),
-    paddingBottom: s(0),
+    paddingBottom: s(8),
     marginBottom: s(16),
     overflow: 'hidden',
   },
@@ -396,6 +487,9 @@ const styles = StyleSheet.create({
   ownerTri: {
     fontSize: ms(11),
   },
+  fromTri: {
+    fontSize: ms(11),
+  },
   conditionLine: {
     marginLeft: s(50),
     marginTop: s(5),
@@ -424,24 +518,6 @@ const styles = StyleSheet.create({
     width: s(52),
     textAlign: 'right',
     fontSize: ms(12),
-  },
-  footer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: s(4),
-    paddingVertical: s(10),
-    borderTopWidth: StyleSheet.hairlineWidth,
-    marginTop: s(4),
-    marginHorizontal: -s(4),
-  },
-  seeAll: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(3),
-  },
-  seeAllText: {
-    fontSize: ms(10),
   },
   empty: {
     fontSize: ms(13),

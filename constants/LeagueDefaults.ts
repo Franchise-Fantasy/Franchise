@@ -286,6 +286,29 @@ export function parseSeasonStartYear(season: string): number {
   return parseInt(season.split('-')[0], 10);
 }
 
+// Whether a stored `season_start_date` (yyyy-mm-dd) actually belongs to the
+// given season. NBA seasons span two calendar years ("2025-26" → 2025 & 2026);
+// WNBA is single-year. After `advance-season` the season string is bumped but
+// `season_start_date` still holds the prior season's date, so this returns
+// false until the commissioner sets the new date — the cue to show a "TBD"
+// placeholder instead of a misleading old date.
+export function startDateBelongsToSeason(
+  season: string,
+  startDate: string | null | undefined,
+): boolean {
+  if (!startDate) return false;
+  const startYear = parseSeasonStartYear(season);
+  const dateYear = Number(startDate.slice(0, 4));
+  return dateYear === startYear || dateYear === startYear + 1;
+}
+
+// Rough opening month per sport, for the placeholder shown before a season's
+// start date has been set. NBA tips off mid-October; the WNBA in mid-May.
+export const SPORT_OPENING_MONTH: Partial<Record<Sport, string>> = {
+  nba: 'Oct',
+  wnba: 'May',
+};
+
 export type DraftType = (typeof DRAFT_TYPE_OPTIONS)[number];
 export type TimePerPick = (typeof TIME_PER_PICK_OPTIONS)[number];
 

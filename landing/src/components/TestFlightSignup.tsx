@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
 import { getSupabase } from "@/lib/supabase";
 
@@ -35,37 +36,54 @@ export default function TestFlightSignup() {
   return (
     <section
       id="signup"
-      className="px-6 py-16 sm:py-20"
-      style={{ background: "var(--signup-gradient)" }}
+      className="relative overflow-hidden px-6 py-24 sm:py-32"
+      style={{ background: "var(--merlot)", color: "var(--ecru)" }}
       aria-labelledby="signup-heading"
     >
-      <div className="mx-auto max-w-md text-center">
+      {/* Winged F watermark */}
+      <div
+        className="pointer-events-none absolute -left-24 top-1/2 -translate-y-1/2 opacity-[0.08]"
+        aria-hidden="true"
+      >
+        <Image
+          src="/winged-light.png"
+          alt=""
+          width={640}
+          height={640}
+          className="h-[440px] w-[440px] object-contain invert brightness-0"
+        />
+      </div>
+
+      <div className="relative z-10 mx-auto max-w-2xl text-center">
         <h2
           id="signup-heading"
-          className="mb-3 text-2xl font-bold tracking-tight text-white sm:text-3xl"
+          className="display mb-5 text-4xl leading-[0.98] sm:text-5xl lg:text-6xl"
         >
           Get in early.
         </h2>
-        <p className="mb-8 text-sm text-ecru/60">
+
+        <p className="mx-auto mb-10 max-w-md text-[15px] leading-relaxed" style={{ color: "rgba(233, 226, 203, 0.72)" }}>
           Join the TestFlight waitlist. We&apos;ll send you a link when
           it&apos;s your turn.
         </p>
 
         {status === "success" ? (
           <div
-            className="rounded-lg border border-turf-green/30 bg-turf-green/10 p-6"
+            className="mx-auto max-w-md border border-[var(--vintage-gold)]/40 bg-[rgba(181,123,48,0.10)] p-6"
             role="status"
             aria-live="polite"
           >
-            <p className="text-sm font-semibold text-ecru">You&apos;re in.</p>
-            <p className="mt-1 text-xs text-cream/50">
+            <p className="varsity text-xs text-[var(--vintage-gold)]">
+              You&apos;re in.
+            </p>
+            <p className="mt-2 text-[13px]" style={{ color: "rgba(233, 226, 203, 0.65)" }}>
               We&apos;ll email you when it&apos;s time.
             </p>
           </div>
         ) : (
           <form
             onSubmit={handleSubmit}
-            className="flex flex-col gap-2.5 sm:flex-row"
+            className="mx-auto flex max-w-md flex-col gap-2.5 sm:flex-row"
           >
             <label htmlFor="email-input" className="sr-only">
               Email address
@@ -81,7 +99,7 @@ export default function TestFlightSignup() {
                 if (status !== "idle" && status !== "loading")
                   setStatus("idle");
               }}
-              className="flex-1 rounded-lg border border-ecru/15 bg-black/40 px-4 py-3 text-sm text-ecru placeholder-cream/25 outline-none transition-colors focus:border-vintage-gold/50"
+              className="flex-1 rounded-md border border-[rgba(233,226,203,0.22)] bg-[rgba(14,16,13,0.35)] px-4 py-3 text-sm text-ecru placeholder-[rgba(233,226,203,0.35)] outline-none transition-colors focus:border-[var(--vintage-gold)]"
               disabled={status === "loading"}
               aria-describedby={
                 status === "error" || status === "duplicate"
@@ -92,7 +110,7 @@ export default function TestFlightSignup() {
             <button
               type="submit"
               disabled={status === "loading"}
-              className="rounded-lg bg-vintage-gold px-6 py-3 text-sm font-semibold text-white transition-all hover:brightness-110 active:scale-[0.97] disabled:opacity-50"
+              className="varsity rounded-md bg-[var(--vintage-gold)] px-6 py-3 text-xs text-[var(--ink)] transition-all hover:brightness-110 active:scale-[0.97] disabled:opacity-50"
             >
               {status === "loading" ? "..." : "Join"}
             </button>
@@ -102,20 +120,24 @@ export default function TestFlightSignup() {
         {status === "duplicate" && (
           <p
             id="signup-error"
-            className="mt-3 text-xs text-vintage-gold"
+            className="mt-4 text-xs text-[var(--vintage-gold)]"
             role="alert"
           >
             Already on the list. We&apos;ll be in touch.
           </p>
         )}
         {status === "error" && (
-          <p id="signup-error" className="mt-3 text-xs text-umber" role="alert">
+          <p
+            id="signup-error"
+            className="mt-4 text-xs text-[var(--cream)]"
+            role="alert"
+          >
             Something went wrong. Try again.
           </p>
         )}
 
-        <p className="mt-5 text-[11px] text-cream/20">
-          No spam. Only Franchise Fantasy updates.
+        <p className="mono-stat mt-6 text-[11px]" style={{ color: "rgba(233, 226, 203, 0.40)" }}>
+          No spam. Only Franchise updates.
         </p>
       </div>
     </section>

@@ -20,6 +20,9 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { runOnJS } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { useWeeks } from "@/components/matchup/matchupData";
+import { OnCourtDot } from "@/components/matchup/PlayerCell";
+import { WeekSummarySheet } from "@/components/matchup/WeekSummarySheet";
 import { FptsBreakdownModal } from "@/components/player/FptsBreakdownModal";
 import { MatchupChip } from "@/components/player/MatchupChip";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
@@ -28,14 +31,20 @@ import { AnimatedFpts } from "@/components/roster/AnimatedFpts";
 import { IrLockBanner } from "@/components/roster/IrLockBanner";
 import { MyPicksSection } from "@/components/roster/MyPicksSection";
 import {
+  buildSeasonAverages,
   computeSlotStats,
   dayToStatRecord,
   fetchTeamRosterForDate,
   type DayGameStats,
   type SlotStats,
 } from "@/components/roster/rosterData";
+import { RosterDayPicker } from "@/components/roster/RosterDayPicker";
 import { RosterHero } from "@/components/roster/RosterHero";
-import { rosterStyles as styles } from "@/components/roster/rosterStyles";
+import {
+  rosterStyles as styles,
+  slotPillVariant,
+} from "@/components/roster/rosterStyles";
+import { SeasonMetaLine } from "@/components/roster/SeasonMetaLine";
 import { SectionEyebrow } from "@/components/roster/SectionEyebrow";
 import {
   DestinationSlot,
@@ -44,6 +53,7 @@ import {
   SlotEntry,
   SlotPickerModal,
 } from "@/components/roster/SlotPickerModal";
+import { UpcomingGame } from "@/components/roster/UpcomingGame";
 import { useRosterShare } from "@/components/roster/useRosterShare";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { InfoModal } from "@/components/ui/InfoModal";
@@ -86,6 +96,7 @@ import {
 import { getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
 import { isOnline } from "@/utils/network";
 import { LineupPlayer, optimizeLineup } from "@/utils/roster/autoLineup";
+import { fetchTeamData } from "@/utils/roster/fetchTeamData";
 import { isIrEligibleStatus } from "@/utils/roster/illegalIR";
 import { isEligibleForSlot, slotLabel } from "@/utils/roster/rosterSlots";
 import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
@@ -148,29 +159,22 @@ export default function RosterScreen() {
   const { data: rosterConfig, isLoading: isLoadingConfig } =
     useLeagueRosterConfig(leagueId ?? "");
 
-  // Current matchup week bounds (used to scope the Auto button + the hero
-  // matchup-score lookup; `id` is the schedule_id used by useWeekScores).
-  const { data: currentWeek } = useQuery({
-    queryKey: queryKeys.currentMatchupWeek(leagueId!, today),
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("league_schedule")
-        .select("id, start_date, end_date, week_number, is_playoff")
-        .eq("league_id", leagueId!)
-        .lte("start_date", today)
-        .gte("end_date", today)
-        .maybeSingle();
-      return data as {
-        id: string;
-        start_date: string;
-        end_date: string;
-        week_number: number;
-        is_playoff: boolean;
-      } | null;
-    },
-    enabled: !!leagueId,
-    staleTime: 1000 * 60 * 60,
-  });
+  // All weeks, fetched once on a stable key. The VIEWED week is derived
+  // synchronously from selectedDate — so navigating day-to-day never blanks
+  // `currentWeek` (which would flash the hero into its offseason layout).
+  const { data: weeks } = useWeeks(leagueId);
+  const currentWeek = useMemo(
+    () =>
+      weeks?.find(
+        (w) => w.start_date <= selectedDate && selectedDate <= w.end_date,
+      ) ?? null,
+    [weeks, selectedDate],
+  );
+
+  // Date-dropdown picker (jump to any day in the current week)
+  const [showDayPicker, setShowDayPicker] = useState(false);
+  // Weekly performance-breakdown sheet, opened from the WK chip
+  const [showWeekSummary, setShowWeekSummary] = useState(false);
 
   // First-visit coach mark for tap-to-move interaction
   const [showMoveHint, setShowMoveHint] = useState(false);
@@ -292,6 +296,32 @@ export default function RosterScreen() {
     ? weekScores?.[heroMatchup.opponent.id] ?? null
     : null;
 
+  // Weekly performance breakdown — lazily fetched only while the summary
+  // sheet is open. This is WEEK-level, not day-level: anchor the fetch date
+  // to `today` for the live week (so player_games stops at yesterday and the
+  // live map supplies today — no overlap/double-count) or the week's end for
+  // a past week (full week from player_games, no live). Independent of which
+  // day the roster is currently showing.
+  const summaryFetchDate = weekIsLive ? today : currentWeek?.end_date ?? today;
+  const { data: weekSummary, isFetching: weekSummaryFetching } = useQuery({
+    queryKey: queryKeys.rosterWeekSummary(
+      currentWeek?.id ?? "",
+      teamId ?? "",
+    ),
+    queryFn: () =>
+      fetchTeamData(
+        teamId!,
+        leagueId!,
+        currentWeek!,
+        summaryFetchDate,
+        scoringWeights ?? [],
+        sport,
+      ),
+    enabled:
+      showWeekSummary && !!currentWeek && !!teamId && !!leagueId,
+    staleTime: 1000 * 60,
+  });
+
   const {
     data: rosterPlayers,
     isLoading: isLoadingRoster,
@@ -333,15 +363,35 @@ export default function RosterScreen() {
     staleTime: 1000 * 60 * 60,
   });
 
-  // Live stats for today (and yesterday's still-live games that crossed midnight)
+  // Live stats. Kept subscribed across the whole live week (not just
+  // today/yesterday) so the weekly-summary live merge has today's data even
+  // while browsing a past day of the current week — matches the matchup page.
   const playerIds = rosterPlayers?.map((p) => p.player_id) ?? [];
-  const rawLiveMap = useLivePlayerStats(playerIds, isToday || isYesterday);
+  const rawLiveMap = useLivePlayerStats(
+    playerIds,
+    weekIsLive || isToday || isYesterday,
+  );
 
   // Filter live stats to only include games matching the selected date.
   // Yesterday's late games (still live past midnight) show on yesterday's view,
   // not today's.
   const liveMap = new Map(
     [...rawLiveMap].filter(([, stats]) => stats.game_date === selectedDate),
+  );
+
+  // Hero/summary live-merge map: today's games (live or final — not yet in
+  // player_games) plus yesterday's still-live games, EXCLUDING yesterday's
+  // finals (already counted in weekPoints via player_games — re-adding them
+  // double-counts). Mirrors the matchup hero's heroLiveMap so the weekly
+  // summary total matches the scoreboard. See matchup.tsx.
+  const heroLiveMap = useMemo(
+    () =>
+      new Map(
+        [...rawLiveMap].filter(
+          ([, stats]) => !(stats.game_date < today && stats.game_status === 3),
+        ),
+      ),
+    [rawLiveMap, today],
   );
 
   // Game start times for locking slots
@@ -504,25 +554,35 @@ export default function RosterScreen() {
   const starterSlots = slots.filter((s) => s.slotPosition !== "BE");
   const benchSlots = slots.filter((s) => s.slotPosition === "BE");
 
-  // Daily-context counts for the hero footer — starters playing on the
-  // selected date, those whose games already started (today only), and
-  // empty starter slots that need filling.
-  let heroPlayCount = 0;
-  let heroLockedCount = 0;
-  let heroEmptyCount = 0;
+  // Per-starter availability for the selected date — drives the hero's
+  // lineup-health bar. Each starter slot falls into exactly one bucket:
+  //   playing — has a game today and is active (will score)
+  //   out     — OUT/SUSP; dead weight in the lineup, the swap-me signal
+  //   idle    — active but their pro team has no game today
+  //   empty   — unfilled slot
+  let heroPlaying = 0;
+  let heroOut = 0;
+  let heroIdle = 0;
+  let heroEmpty = 0;
   for (const slot of starterSlots) {
     if (!slot.player) {
-      heroEmptyCount += 1;
+      heroEmpty += 1;
       continue;
     }
-    const tricode = slot.player.nbaTricode;
-    if (tricode && daySchedule?.has(tricode)) {
-      heroPlayCount += 1;
-    }
-    if (isToday && isPlayerLocked(slot.player)) {
-      heroLockedCount += 1;
-    }
+    const player = slot.player;
+    const isOut = player.status === "OUT" || player.status === "SUSP";
+    const hasGame = !!player.nbaTricode && !!daySchedule?.has(player.nbaTricode);
+    if (isOut) heroOut += 1;
+    else if (hasGame) heroPlaying += 1;
+    else heroIdle += 1;
   }
+  const heroLineupDay = {
+    playing: heroPlaying,
+    out: heroOut,
+    idle: heroIdle,
+    empty: heroEmpty,
+    starterCount: starterSlots.length,
+  };
 
   // Offseason hero stats — only computed/passed when there's no current
   // matchup week. Surfaces roster-management state that Home doesn't cover.
@@ -1211,16 +1271,6 @@ export default function RosterScreen() {
       dayGameStats,
     });
 
-  // Compute eligible destination keys for inline highlights behind the modal
-  const eligibleDestKeys = useMemo(() => {
-    if (!activeSlot?.player) return new Set<string>();
-    const isIrOrTaxiSrc =
-      activeSlot.slotPosition === "IR" || activeSlot.slotPosition === ROSTER_SLOT.TAXI;
-    if (isIrOrTaxiSrc) return new Set<string>();
-    const dests = getEligibleDestinations();
-    return new Set(dests.map((d) => `${d.slot.slotPosition}-${d.slot.slotIndex}`));
-  }, [activeSlot, rosterPlayers, scoringWeights, daySchedule]);
-
   // ─── Render ───────────────────────────────────────────────────────────────
 
   // Horizontal swipe to flip days. Threshold + velocity check so a casual
@@ -1332,6 +1382,15 @@ export default function RosterScreen() {
     const liveData = slot.player ? liveMap.get(slot.player.player_id) : null;
     const isOnCourt = !!(liveData?.oncourt && liveData.game_status === 2);
     const gameInfo = liveData ? formatGameInfo(liveData) : "";
+    // Season context on rows with no actual stats for the date (pre-game and
+    // no-game): a single line beside the position — the fpts average (points
+    // leagues) or the box score (category leagues, which have no fpts). Null
+    // for 0-game players. Suppressed on past dates: the average is forward-
+    // looking lineup context, so it just reads as noise on a locked final day.
+    const seasonAvg =
+      slot.player && !isLive && !statLine && !isPastDate
+        ? buildSeasonAverages(slot.player, scoringWeights, isCategories)
+        : null;
     const isIrOrTaxi =
       slot.slotPosition === "IR" || slot.slotPosition === ROSTER_SLOT.TAXI;
     // Empty slots have no player to lock, but in daily-lock mode after the
@@ -1345,11 +1404,16 @@ export default function RosterScreen() {
       activeSlot?.slotPosition === slot.slotPosition &&
       activeSlot?.slotIndex === slot.slotIndex;
 
-    // Inline highlight: this slot is an eligible destination for the selected player
-    const isEligibleDest =
-      !!activeSlot?.player &&
-      !isActive &&
-      eligibleDestKeys.has(`${slot.slotPosition}-${slot.slotIndex}`);
+    // Can this slot be edited from the current view? Past days are read-only,
+    // and on today a slot locks once its game starts (IR/TAXI stay editable).
+    // Drives the pill's tappable-vs-receded styling so locked/past slots read
+    // as inert rather than mimicking an editable chip.
+    const canEdit = !isPastDate && (!locked || isIrOrTaxi);
+    const pill = slotPillVariant(c, {
+      canEdit,
+      isActive,
+      hasPlayer: !!slot.player,
+    });
 
     return (
       <View
@@ -1361,56 +1425,24 @@ export default function RosterScreen() {
             borderBottomColor: c.border,
             borderBottomWidth: StyleSheet.hairlineWidth,
           },
-          isActive && {
-            backgroundColor: c.activeCard,
-            borderLeftWidth: 3,
-            borderLeftColor: c.gold,
-          },
-          isEligibleDest && {
-            borderLeftWidth: 2,
-            borderLeftColor: c.gold + "66",
-            backgroundColor: c.gold + "0A",
-          },
         ]}
       >
-        {/* Slot pill — refined chip replaces the old column-stripe label. */}
+        {/* Slot pill — a bordered chip when editable, receding to a flat,
+            dimmed label when read-only (past day or game already started). */}
         <TouchableOpacity
-          style={[
-            styles.slotPill,
-            {
-              backgroundColor: slot.player ? c.cardAlt : "transparent",
-              borderColor: isActive ? c.gold : c.border,
-              borderWidth: isActive ? 1.5 : 1,
-            },
-            locked && !isIrOrTaxi && { opacity: 0.6 },
-          ]}
-          onPress={() =>
-            !isPastDate && (!locked || isIrOrTaxi) && setActiveSlot(slot)
-          }
+          style={[styles.slotPill, pill.container]}
+          onPress={() => canEdit && setActiveSlot(slot)}
           accessibilityRole="button"
           accessibilityLabel={`${slotLabel(slot.slotPosition)} slot${slot.player ? `, ${slot.player.name}` : ", empty"}`}
           accessibilityState={{
             selected: isActive,
-            disabled: isPastDate || (locked && !isIrOrTaxi),
+            disabled: !canEdit,
           }}
-          accessibilityHint={
-            isPastDate || (locked && !isIrOrTaxi)
-              ? undefined
-              : "Opens slot picker"
-          }
+          accessibilityHint={canEdit ? "Opens slot picker" : undefined}
         >
           <ThemedText
             type="varsitySmall"
-            style={[
-              styles.slotPillText,
-              {
-                color: isActive
-                  ? c.gold
-                  : slot.player
-                    ? c.text
-                    : c.secondaryText,
-              },
-            ]}
+            style={[styles.slotPillText, { color: pill.textColor }]}
           >
             {slotLabel(slot.slotPosition)}
           </ThemedText>
@@ -1427,7 +1459,7 @@ export default function RosterScreen() {
             }}
             delayLongPress={400}
             accessibilityRole="button"
-            accessibilityLabel={`${slot.player!.name}, ${formatPosition(slot.player!.position)}, ${slot.player!.pro_team}${matchupDisplay ? `, ${matchupDisplay}` : ""}${!isCategories && fpts !== null ? `, ${formatScore(fpts)} fantasy points` : ""}${isLive ? ", live" : ""}${locked ? ", locked" : ""}`}
+            accessibilityLabel={`${slot.player!.name}, ${formatPosition(slot.player!.position)}, ${slot.player!.pro_team}${matchupDisplay ? `, ${matchupDisplay}` : ""}${seasonAvg ? `, season average ${seasonAvg.fpts ? `${seasonAvg.fpts} fantasy points per game, ` : ""}${seasonAvg.stats}` : ""}${!isCategories && fpts !== null ? `, ${formatScore(fpts)} fantasy points` : ""}${isLive ? ", live" : ""}${locked ? ", locked" : ""}`}
             accessibilityHint="Tap for player details, long press to change slot"
           >
             {/* Headshot + team pill + on-court dot (all anchored to the wrap) */}
@@ -1436,7 +1468,7 @@ export default function RosterScreen() {
                 style={[
                   styles.rosterHeadshotCircle,
                   {
-                    borderColor: isOnCourt ? c.success : c.heritageGold,
+                    borderColor: c.heritageGold,
                     backgroundColor: c.cardAlt,
                   },
                 ]}
@@ -1472,8 +1504,11 @@ export default function RosterScreen() {
 
             {/* Player info column */}
             <View style={styles.slotPlayerInfo}>
-              {/* Name + injury badge */}
+              {/* Name + injury badge. On-court dot leads the line (replaces the
+                  old green portrait border) so the live cue matches the matchup
+                  page. */}
               <View style={styles.slotLine1}>
+                {isOnCourt && <OnCourtDot />}
                 <ThemedText
                   type="defaultSemiBold"
                   style={[styles.slotPlayerName, { flexShrink: 1 }]}
@@ -1496,9 +1531,9 @@ export default function RosterScreen() {
                 })()}
               </View>
 
-              {/* Matchup chip + live game info — chip turns success-tinted when live.
-                  Pre-game falls through to the position label here; the upcoming
-                  matchup is shown in the FPTS column instead. */}
+              {/* Context line. Live/final: matchup chip + game info. Otherwise
+                  the position with the season fpts average beside it — the game
+                  itself lives in its own section on the right. */}
               {matchupDisplay && !isPreGame ? (
                 <View style={styles.slotMatchupRow}>
                   <MatchupChip matchup={matchupDisplay} isLive={isLive} c={c} />
@@ -1516,19 +1551,14 @@ export default function RosterScreen() {
                   ) : null}
                 </View>
               ) : (
-                <ThemedText
-                  type="varsitySmall"
-                  style={[
-                    styles.slotMatchupText,
-                    { color: c.secondaryText },
-                  ]}
-                  numberOfLines={1}
-                >
-                  {formatPosition(slot.player.position)}
-                </ThemedText>
+                <SeasonMetaLine
+                  position={slot.player.position}
+                  seasonAvg={seasonAvg}
+                  c={c}
+                />
               )}
 
-              {/* Past-day stat line — mono */}
+              {/* Mono detail line — actual game stats on played days. */}
               {statLine ? (
                 <ThemedText
                   style={[styles.slotStatLine, { color: c.secondaryText }]}
@@ -1539,25 +1569,10 @@ export default function RosterScreen() {
               ) : null}
             </View>
 
-            {/* FPTS column — pre-game shows the upcoming matchup chip + tipoff
-                time here instead of a meaningless 0.0. Live/final keep the
-                animated FPTS readout (with breakdown affordance). */}
-            {!isCategories && isPreGame ? (
-              <View style={styles.slotUpcoming} accessible={false}>
-                <MatchupChip matchup={matchup!} c={c} alignSelf="flex-end" />
-                {gameTimeUtc ? (
-                  <ThemedText
-                    type="varsitySmall"
-                    style={[
-                      styles.slotUpcomingTime,
-                      { color: c.secondaryText },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {formatGameTime(gameTimeUtc)}
-                  </ThemedText>
-                ) : null}
-              </View>
+            {/* Right column — opponent pill + tipoff time on pre-game rows;
+                animated FPTS readout on live/final. */}
+            {isPreGame ? (
+              <UpcomingGame matchup={matchup!} gameTimeUtc={gameTimeUtc} c={c} />
             ) : null}
             {!isCategories && !isPreGame &&
               (() => {
@@ -1624,20 +1639,17 @@ export default function RosterScreen() {
           />
         ) : (
           <TouchableOpacity
-            style={[
-              styles.slotPlayer,
-              locked && !isIrOrTaxi && { opacity: 0.6 },
-            ]}
-            onPress={() => (!locked || isIrOrTaxi) && setActiveSlot(slot)}
+            style={[styles.slotPlayer, !canEdit && { opacity: 0.6 }]}
+            onPress={() => canEdit && setActiveSlot(slot)}
             accessibilityRole="button"
-            accessibilityLabel={`Empty ${slotLabel(slot.slotPosition)} slot, tap to assign`}
-            accessibilityState={{
-              disabled: locked && !isIrOrTaxi,
-            }}
+            accessibilityLabel={
+              canEdit
+                ? `Empty ${slotLabel(slot.slotPosition)} slot, tap to assign`
+                : `Empty ${slotLabel(slot.slotPosition)} slot, locked — game in progress`
+            }
+            accessibilityState={{ disabled: !canEdit }}
             accessibilityHint={
-              locked && !isIrOrTaxi
-                ? undefined
-                : "Opens slot picker to assign a player"
+              canEdit ? "Opens slot picker to assign a player" : undefined
             }
           >
             <View style={styles.rosterPortraitWrap}>
@@ -1647,20 +1659,25 @@ export default function RosterScreen() {
                   { borderColor: c.border, backgroundColor: c.cardAlt },
                 ]}
               >
-                <Ionicons name="add" size={20} color={c.secondaryText} />
+                {canEdit && (
+                  <Ionicons name="add" size={20} color={c.secondaryText} />
+                )}
               </View>
             </View>
             <View style={styles.slotPlayerInfo}>
               <ThemedText
                 type="varsitySmall"
-                style={[styles.emptySlotEyebrow, { color: c.gold }]}
+                style={[
+                  styles.emptySlotEyebrow,
+                  { color: canEdit ? c.gold : c.secondaryText },
+                ]}
               >
-                OPEN SLOT
+                {canEdit ? "OPEN SLOT" : "LOCKED"}
               </ThemedText>
               <ThemedText
                 style={[styles.emptySlotHint, { color: c.secondaryText }]}
               >
-                Tap to assign a player
+                {canEdit ? "Tap to assign a player" : "Game in progress"}
               </ThemedText>
             </View>
           </TouchableOpacity>
@@ -1687,15 +1704,15 @@ export default function RosterScreen() {
         myScore={heroMyScore}
         oppScore={heroOppScore}
         weekIsLive={weekIsLive}
-        playCount={heroPlayCount}
-        lockedCount={heroLockedCount}
-        emptyCount={heroEmptyCount}
+        lineupDay={heroLineupDay}
         rosterStats={heroRosterStats}
         onPrevDay={() =>
           canGoBack && setSelectedDate(addDays(selectedDate, -1))
         }
         onNextDay={() => setSelectedDate(addDays(selectedDate, 1))}
         onGoToToday={() => setSelectedDate(today)}
+        onDatePress={currentWeek ? () => setShowDayPicker(true) : undefined}
+        onWeekPress={currentWeek ? () => setShowWeekSummary(true) : undefined}
       />
 
       {irLocked && <IrLockBanner players={illegalIRPlayers ?? []} />}
@@ -1869,6 +1886,43 @@ export default function RosterScreen() {
         message="Tap the position label (PG, SG, UTIL, BE, etc.) — or long-press a player — to open the move menu. From there you can swap slots, bench a starter, activate from IR, or move someone to the taxi squad. Tapping the player itself opens their details."
       />
 
+      {currentWeek && (
+        <RosterDayPicker
+          visible={showDayPicker}
+          onClose={() => setShowDayPicker(false)}
+          weekStart={currentWeek.start_date}
+          weekEnd={currentWeek.end_date}
+          weekNumber={currentWeek.week_number}
+          isPlayoff={currentWeek.is_playoff}
+          selectedDate={selectedDate}
+          today={today}
+          earliestDate={rosterStartDate ?? null}
+          onSelectDate={(d) => setSelectedDate(d)}
+        />
+      )}
+
+      {currentWeek && scoringWeights && (
+        <WeekSummarySheet
+          visible={showWeekSummary}
+          onClose={() => setShowWeekSummary(false)}
+          weekLabel={`${currentWeek.is_playoff ? "Playoffs · " : ""}Week ${currentWeek.week_number}`}
+          teams={[
+            {
+              teamName: heroMatchup?.me?.name ?? "My Team",
+              tricode: heroMatchup?.me?.tricode ?? null,
+              players: weekSummary
+                ? [...weekSummary.players, ...weekSummary.droppedPlayers]
+                : [],
+            },
+          ]}
+          scoring={scoringWeights}
+          isCategories={isCategories}
+          sport={sport}
+          liveMap={weekIsLive ? heroLiveMap : undefined}
+          loading={weekSummaryFetching && !weekSummary}
+        />
+      )}
+
       {/* Slot Picker Modal */}
       {!isPastDate && (
         <SlotPickerModal
@@ -1878,6 +1932,8 @@ export default function RosterScreen() {
           quickActions={activeSlot ? getQuickActions() : []}
           eligiblePlayers={activeSlot ? getEligibleFillPlayers() : []}
           daySchedule={daySchedule}
+          scoringWeights={scoringWeights}
+          isCategories={isCategories}
           isAssigning={isAssigning}
           deferredToTomorrow={
             !!activeSlot?.player && isPlayerLocked(activeSlot.player)

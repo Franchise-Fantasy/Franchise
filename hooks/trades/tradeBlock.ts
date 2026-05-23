@@ -12,6 +12,8 @@ export interface TradeBlockPlayer {
   name: string;
   position: string;
   pro_team: string;
+  /** NBA/ESPN headshot key — drives the row portrait. */
+  external_id_nba: string | null;
   team_id: string;
   team_name: string;
   trade_block_note: string | null;
@@ -32,7 +34,7 @@ export function useTradeBlock(leagueId: string | null) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('league_players')
-        .select('player_id, team_id, trade_block_note, trade_block_interest, players(name, position, pro_team), teams(name)')
+        .select('player_id, team_id, trade_block_note, trade_block_interest, players(name, position, pro_team, external_id_nba), teams(name)')
         .eq('league_id', leagueId!)
         .eq('on_trade_block', true);
       if (error) throw error;
@@ -75,6 +77,7 @@ export function useTradeBlock(leagueId: string | null) {
           name: row.players?.name ?? 'Unknown',
           position: row.players?.position ?? '',
           pro_team: row.players?.pro_team ?? '',
+          external_id_nba: row.players?.external_id_nba ?? null,
           team_id: tid,
           team_name: row.teams?.name ?? 'Unknown',
           trade_block_note: row.trade_block_note ?? null,

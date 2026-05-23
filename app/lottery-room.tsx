@@ -9,6 +9,7 @@ import type { PickCardEntry } from '@/components/lottery/PickCard';
 import type { PickListHandle } from '@/components/lottery/PickList';
 import { PickList } from '@/components/lottery/PickList';
 import { BrandButton } from '@/components/ui/BrandButton';
+import { BusyOverlay } from '@/components/ui/BusyOverlay';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ThemedText } from '@/components/ui/ThemedText';
@@ -47,6 +48,10 @@ export default function LotteryRoomScreen() {
   const [lotteryResults, setLotteryResults] = useState<LotteryEntry[] | null>(null);
   const [revealedCount, setRevealedCount] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
+  // Commissioner's "Done" tap fires create-rookie-draft (commits the resolution
+  // + builds the draft) — a multi-second edge call. Drives the Done button
+  // spinner + a brand busy overlay so the wait isn't a silent freeze.
+  const [finishing, setFinishing] = useState(false);
   const [ceremonyStarted, setCeremonyStarted] = useState(false);
   const [spinningPosition, setSpinningPosition] = useState<number | null>(null);
   const broadcastChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
@@ -340,6 +345,10 @@ export default function LotteryRoomScreen() {
         // Resolved ownership just changed (protections/swaps applied) — refetch
         // so the locked reveal cards show the correct "➝ owner".
         queryClient.invalidateQueries({ queryKey: ['lotteryPickOwners', leagueId, league?.season] });
+        // The resolution summary reads pick_resolution, which start-lottery just
+        // wrote. Without this it serves a stale/empty cache from an earlier run
+        // in the same session and the summary card silently renders nothing.
+        queryClient.invalidateQueries({ queryKey: ['lotteryResolution', leagueId] });
       }
 
       // Broadcast results to all clients via the shared channel
@@ -406,10 +415,12 @@ export default function LotteryRoomScreen() {
     // intermediate "Create Draft" CTA — the ceremony naturally implies the
     // draft is the next step.
     if (isCommissioner && leagueId) {
+      setFinishing(true);
       const { error } = await supabase.functions.invoke('create-rookie-draft', {
         body: { league_id: leagueId },
       });
       if (error) {
+        setFinishing(false);
         // Supabase wraps non-2xx responses in a generic FunctionsHttpError;
         // the real message lives in the JSON body. Try to extract it so the
         // alert shows *why* it failed instead of "edge function returned non-2xx".
@@ -426,6 +437,13 @@ export default function LotteryRoomScreen() {
       queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId) });
       queryClient.invalidateQueries({ queryKey: ['rookieDraft', leagueId] });
       queryClient.invalidateQueries({ queryKey: queryKeys.activeDraft(leagueId) });
+      // The lottery just committed: the draft hub + home lottery card + the
+      // resolution overview all key off draft_picks/offseason_step that just
+      // changed. Without these, they keep serving the cached pre-lottery
+      // "Lottery Odds" view (staleTime 2-5min) until a manual refetch.
+      queryClient.invalidateQueries({ queryKey: queryKeys.draftHub(leagueId) });
+      queryClient.invalidateQueries({ queryKey: ['offseasonLotteryOrder', leagueId] });
+      queryClient.invalidateQueries({ queryKey: ['lotteryResolution', leagueId] });
     } else if (leagueId) {
       // Non-commish — just navigate back; commish click is what advances state.
       queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId) });
@@ -587,9 +605,11 @@ export default function LotteryRoomScreen() {
                       onPress={handleDone}
                       variant="primary"
                       fullWidth
+                      loading={finishing}
                       accessibilityLabel="Done"
                     />
                   </View>
+                  <BusyOverlay visible={finishing} title="Finalizing the lottery…" />
                 </>
               ) : (
                 <>

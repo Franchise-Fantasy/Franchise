@@ -79,7 +79,7 @@ export async function fetchTeamData(
     supabase
       .from('player_games')
       .select(
-        'player_id, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double, game_date, matchup',
+        'player_id, min, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double, game_date, matchup',
       )
       .in('player_id', allPlayerIds)
       .gte('game_date', week.start_date)
@@ -101,6 +101,7 @@ export async function fetchTeamData(
   for (const p of playerInfoRows ?? []) playerInfoMap.set(p.id, p);
 
   const weekPointsMap = new Map<string, number>();
+  const weekGamesMap = new Map<string, number>();
   const weekStatsMap = new Map<string, Record<string, number>>();
   const dayPointsMap = new Map<string, number>();
   const dayMatchupMap = new Map<string, string>();
@@ -115,6 +116,12 @@ export async function fetchTeamData(
     if (slotIsActive) {
       activeGames.push(game);
       weekPointsMap.set(game.player_id, (weekPointsMap.get(game.player_id) ?? 0) + fp);
+      // Only count games the player actually appeared in — player_games keeps
+      // 0-minute DNP rows, which shouldn't count as "games played" or scale
+      // the season-average expectation.
+      if ((game.min ?? 0) > 0) {
+        weekGamesMap.set(game.player_id, (weekGamesMap.get(game.player_id) ?? 0) + 1);
+      }
 
       // Accumulate per-player weekly stat totals for summary modal
       const existing = weekStatsMap.get(game.player_id) ?? {};
@@ -176,6 +183,11 @@ export async function fetchTeamData(
       nbaTricode,
       roster_slot: displaySlot,
       weekPoints: round1(weekPointsMap.get(pid) ?? 0),
+      weekGames: weekGamesMap.get(pid) ?? 0,
+      // Raw per-game season average — unlike projectedFpts it's NOT zeroed
+      // for dropped/OUT players, so the weekly summary can still compute a
+      // vs-expected baseline for the games they did play.
+      seasonAvgFpts: projMap.get(pid) ?? null,
       dayPoints: round1(dayPointsMap.get(pid) ?? 0),
       dayMatchup: dayMatchupMap.get(pid) ?? null,
       dayStatLine: (() => {

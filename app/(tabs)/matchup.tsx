@@ -26,8 +26,10 @@ import {
   RosterPlayer,
   round1,
 } from "@/components/matchup/PlayerCell";
-import { WeeklySummaryModal } from "@/components/matchup/WeeklySummaryModal";
+import { RecapTicker } from "@/components/matchup/RecapTicker";
+import { ScheduleTicker } from "@/components/matchup/ScheduleTicker";
 import { WeekScheduleModal } from "@/components/matchup/WeekScheduleModal";
+import { WeekSummarySheet } from "@/components/matchup/WeekSummarySheet";
 import { FptsBreakdownModal } from "@/components/player/FptsBreakdownModal";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -65,6 +67,10 @@ import {
 import { fetchNbaScheduleForDate } from "@/utils/nba/nbaSchedule";
 import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
 import { calculateGameFantasyPoints } from "@/utils/scoring/fantasyPoints";
+
+// Slots whose points don't count toward the matchup score — excluded from
+// every ticker (live recap, upcoming games, past recap).
+const NON_SCORING_SLOTS = ["BE", "IR", ROSTER_SLOT.DROPPED, ROSTER_SLOT.TAXI] as const;
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
@@ -440,7 +446,6 @@ export default function MatchupScreen() {
   // picker shows. `tickerPlayerIds` is narrowed to active starting slots
   // only — bench/IR/dropped points don't contribute to the matchup score,
   // so their plays don't belong on the recap tape.
-  const NON_SCORING_SLOTS = ["BE", "IR", ROSTER_SLOT.DROPPED, ROSTER_SLOT.TAXI] as const;
   const allPlayerIds: string[] = [
     ...new Set(
       [
@@ -461,6 +466,19 @@ export default function MatchupScreen() {
           .map((p) => p.player_id) ?? []),
       ]
     : [];
+
+  // Active starters for both sides — the recap (past) and upcoming-games
+  // (future) tickers crawl these. Same non-scoring-slot filter as the live
+  // tape so bench/IR/dropped players never appear on any ticker.
+  const tickerStarters: RosterPlayer[] = useMemo(() => {
+    if (!displayData) return [];
+    const starters = (ps: RosterPlayer[]) =>
+      ps.filter((p) => !(NON_SCORING_SLOTS as readonly string[]).includes(p.roster_slot));
+    return [
+      ...starters(displayData.leftTeam.players),
+      ...starters(displayData.rightTeam?.players ?? []),
+    ];
+  }, [displayData]);
 
   const isToday = selectedDate === today;
   const yesterday = addDays(today, -1);
@@ -874,30 +892,29 @@ export default function MatchupScreen() {
           else router.push(`/team-roster/${id}` as any);
         }}
         tickerSlot={
-          // Recap tape is always present (whenever we have a week + scoring)
-          // so the hero chrome stays visually consistent across day swipes.
-          // Live events only flow for today/yesterday during a live week —
-          // other dates fall through to an empty-state copy.
+          // The band is always present (whenever we have a week + scoring) so
+          // the hero chrome stays consistent across day swipes — but what it
+          // crawls depends on the day: today = live recap events, past = a
+          // top-performers recap from box scores, future = upcoming games.
           currentWeek && scoring && scoring.length > 0 ? (
-            <MatchupTicker
-              events={tickerEvents}
-              scoring={scoring}
-              hideFpts={heroIsCategories}
-              // Stay quiet during the cold-load window — the page reserves
-              // the ticker height with the skeleton body, so a blank tape
-              // reads as "still loading" rather than "no games."
-              emptyText={
-                displayLoading && !displayData
-                  ? ""
-                  : isToday
-                    ? todayHasLiveGames
-                      ? "WAITING FOR FIRST PLAY"
-                      : "NO GAMES STARTED YET"
-                    : isFutureDate
-                      ? "GAMES NOT YET STARTED"
-                      : "NO RECENT PLAYS"
-              }
-            />
+            displayLoading && !displayData ? (
+              // Stay quiet during cold-load — the skeleton body reserves the
+              // ticker height, so a blank tape reads as "still loading."
+              <MatchupTicker events={[]} scoring={scoring} hideFpts={heroIsCategories} emptyText="" />
+            ) : mode === "future" ? (
+              <ScheduleTicker players={tickerStarters} schedule={futureSchedule ?? new Map()} />
+            ) : mode === "past" ? (
+              <RecapTicker players={tickerStarters} hideFpts={heroIsCategories} />
+            ) : (
+              <MatchupTicker
+                events={tickerEvents}
+                scoring={scoring}
+                hideFpts={heroIsCategories}
+                emptyText={
+                  todayHasLiveGames ? "WAITING FOR FIRST PLAY" : "NO GAMES STARTED YET"
+                }
+              />
+            )
           ) : null
         }
       />
@@ -1003,28 +1020,35 @@ export default function MatchupScreen() {
         // Fed from heroData (the today-keyed, day-picker-independent fetch),
         // not the per-day displayData — so the summary total stays fixed as
         // the user clicks through days and matches the hero week score.
-        <WeeklySummaryModal
+        <WeekSummarySheet
           visible={weeklySummaryVisible}
           onClose={() => setWeeklySummaryVisible(false)}
-          homeTeam={{
-            teamName: heroDataLeft.teamName,
-            tricode: heroDataLeft.tricode,
-            players: [...heroDataLeft.players, ...heroDataLeft.droppedPlayers],
-          }}
-          awayTeam={
-            heroDataRight
-              ? {
-                  teamName: heroDataRight.teamName,
-                  tricode: heroDataRight.tricode,
-                  players: [
-                    ...heroDataRight.players,
-                    ...heroDataRight.droppedPlayers,
-                  ],
-                }
-              : null
-          }
-          scoring={scoring}
           weekLabel={`Week ${currentWeek.week_number} · ${formatWeekRange(currentWeek.start_date, currentWeek.end_date)}`}
+          teams={[
+            {
+              teamName: heroDataLeft.teamName,
+              tricode: heroDataLeft.tricode,
+              players: [
+                ...heroDataLeft.players,
+                ...heroDataLeft.droppedPlayers,
+              ],
+            },
+            ...(heroDataRight
+              ? [
+                  {
+                    teamName: heroDataRight.teamName,
+                    tricode: heroDataRight.tricode,
+                    players: [
+                      ...heroDataRight.players,
+                      ...heroDataRight.droppedPlayers,
+                    ],
+                  },
+                ]
+              : []),
+          ]}
+          scoring={scoring}
+          isCategories={heroIsCategories}
+          sport={sport}
           liveMap={heroLiveMap}
         />
       )}

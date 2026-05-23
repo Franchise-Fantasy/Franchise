@@ -13,6 +13,7 @@ import { BottomSheet } from '@/components/ui/BottomSheet';
 import { type ModalAction } from '@/components/ui/InlineAction';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
+import { Fonts } from '@/constants/Colors';
 import { useActionPicker, useConfirm } from '@/context/ConfirmProvider';
 import { useColors } from '@/hooks/useColors';
 import {
@@ -282,11 +283,14 @@ export function PaymentLedgerModal({
       height="85%"
       scrollableBody={false}
     >
+      {/* Season selector — text + gold-underline active, matching the
+          draft-hub year browser. Reads as a broadcast chyron, not an iOS pill. */}
       {seasons.length > 1 && (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.seasonPicker}
+          style={styles.seasonSelector}
+          contentContainerStyle={styles.seasonRow}
         >
           {seasons.map((sn) => {
             const active = sn === selectedSeason;
@@ -294,23 +298,29 @@ export function PaymentLedgerModal({
               <TouchableOpacity
                 key={sn}
                 onPress={() => setSelectedSeason(sn)}
-                style={[
-                  styles.seasonPill,
-                  { borderColor: c.border },
-                  active && { backgroundColor: c.accent, borderColor: c.accent },
-                ]}
+                activeOpacity={0.7}
+                style={styles.yearTab}
                 accessibilityRole="button"
                 accessibilityState={{ selected: active }}
                 accessibilityLabel={`View ${sn} season${sn === season ? ' (current)' : ''}`}
               >
-                <Text
+                <ThemedText
                   style={[
-                    styles.seasonPillText,
-                    { color: active ? c.statusText : c.secondaryText },
+                    styles.yearLabel,
+                    {
+                      fontFamily: active ? Fonts.display : Fonts.bodyMedium,
+                      color: active ? c.text : c.secondaryText,
+                    },
                   ]}
                 >
                   {sn}
-                </Text>
+                </ThemedText>
+                <View
+                  style={[
+                    styles.yearUnderline,
+                    { backgroundColor: active ? c.gold : 'transparent' },
+                  ]}
+                />
               </TouchableOpacity>
             );
           })}
@@ -330,19 +340,11 @@ export function PaymentLedgerModal({
 }
 
 const styles = StyleSheet.create({
-  seasonPicker: {
-    flexDirection: 'row',
-    gap: s(8),
-    paddingVertical: s(10),
-    paddingRight: s(8),
-  },
-  seasonPill: {
-    paddingHorizontal: s(14),
-    paddingVertical: s(6),
-    borderRadius: 999,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  seasonPillText: { fontSize: ms(13), fontWeight: '600' },
+  seasonSelector: { marginBottom: s(6), flexGrow: 0 },
+  seasonRow: { gap: s(20), paddingHorizontal: s(2), paddingTop: s(8) },
+  yearTab: { alignItems: 'center', paddingTop: s(2) },
+  yearLabel: { fontSize: ms(16), lineHeight: ms(20), letterSpacing: -0.2 },
+  yearUnderline: { marginTop: s(4), height: 2, width: '100%', minWidth: s(28) },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

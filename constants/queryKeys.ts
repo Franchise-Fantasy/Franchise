@@ -38,7 +38,6 @@ export const queryKeys = {
   futureMatchups: (leagueId: string) =>
     ["future-matchups", leagueId] as const,
   seasonStatus: (leagueId: string) => ["seasonStatus", leagueId] as const,
-  seasonHistory: (leagueId: string) => ["seasonHistory", leagueId] as const,
   championshipCheck: (leagueId: string, season: number) =>
     ["championship-check", leagueId, season] as const,
   leagueTeamsRecord: (leagueId: string) =>
@@ -69,10 +68,10 @@ export const queryKeys = {
   rosterStartDate: (teamId: string) => ["rosterStartDate", teamId] as const,
   rosterCompliance: (leagueId: string, teamId: string) =>
     ["rosterCompliance", leagueId, teamId] as const,
-  currentMatchupWeek: (leagueId: string, today: string) =>
-    ["currentMatchupWeek", leagueId, today] as const,
   rosterHeroOpponent: (scheduleId: string, teamId: string) =>
     ["rosterHeroOpponent", scheduleId, teamId] as const,
+  rosterWeekSummary: (scheduleId: string, teamId: string) =>
+    ["rosterWeekSummary", scheduleId, teamId] as const,
   dayGameStats: (teamId: string, date: string) =>
     ["dayGameStats", teamId, date] as const,
   daySchedule: (date: string) => ["daySchedule", date] as const,

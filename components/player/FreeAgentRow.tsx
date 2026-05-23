@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useState } from 'react';
 import { Text, TouchableOpacity, View } from 'react-native';
@@ -31,6 +32,9 @@ interface FreeAgentRowProps {
   isDisabled: boolean;
   onPress: () => void;
   onAddOrClaimPress: () => void;
+  /** Present only when the player is rostered by another team — taps open a
+   *  trade proposal pre-seeded with this player on that team's side. */
+  onTradePress?: () => void;
 }
 
 /**
@@ -55,6 +59,7 @@ export function FreeAgentRow({
   isDisabled,
   onPress,
   onAddOrClaimPress,
+  onTradePress,
 }: FreeAgentRowProps) {
   const c = useColors();
 
@@ -228,7 +233,7 @@ export function FreeAgentRow({
             </>
           )}
         </View>
-        {!isRostered && (
+        {!isRostered ? (
           <TouchableOpacity
             style={[
               needsClaim
@@ -245,7 +250,19 @@ export function FreeAgentRow({
               {'+'}
             </ThemedText>
           </TouchableOpacity>
-        )}
+        ) : onTradePress ? (
+          <TouchableOpacity
+            style={[styles.tradeButton, { borderColor: c.link }]}
+            onPress={onTradePress}
+            accessibilityRole="button"
+            accessibilityLabel={
+              `Propose a trade for ${player.name}` +
+              (ownerTeamName ? ` with ${ownerTeamName}` : '')
+            }
+          >
+            <Ionicons name="swap-horizontal" size={ms(16)} color={c.link} />
+          </TouchableOpacity>
+        ) : null}
       </View>
     </TouchableOpacity>
   );

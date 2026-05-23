@@ -85,10 +85,11 @@ function formatItemDescription(item: TransactionItem): string | null {
   const toTeam = item.team_to?.name;
   const fromTeam = item.team_from?.name;
 
+  // The team name already appears in the initiator row above, so we lead with
+  // the action verb and omit the redundant `by {team}` suffix.
   if (fromTeam && toTeam) return `${assetName} → ${toTeam} (from ${fromTeam})`;
-  if (toTeam) return `${assetName} added by ${toTeam}`;
-  if (fromTeam) return `${assetName} dropped by ${fromTeam}`;
-  return `${assetName} dropped`;
+  if (toTeam) return `Added ${assetName}`;
+  return `Dropped ${assetName}`;
 }
 
 function buildTradeSummary(

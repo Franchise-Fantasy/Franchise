@@ -9,15 +9,17 @@ import {
   View,
 } from "react-native";
 
-import { MatchupChip } from "@/components/player/MatchupChip";
 import { PlayerHeadshotImage } from "@/components/player/PlayerHeadshotImage";
+import { buildSeasonAverages } from "@/components/roster/rosterData";
+import { SeasonMetaLine } from "@/components/roster/SeasonMetaLine";
 import { SectionEyebrow } from "@/components/roster/SectionEyebrow";
+import { UpcomingGame } from "@/components/roster/UpcomingGame";
 import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { cardShadow, Colors, Fonts } from "@/constants/Colors";
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColors } from "@/hooks/useColors";
-import { PlayerSeasonStats } from "@/types/player";
+import { PlayerSeasonStats, type ScoringWeight } from "@/types/player";
 import { formatPosition } from "@/utils/formatting";
 import { getInjuryBadge } from "@/utils/nba/injuryBadge";
 import { formatGameTime, ScheduleEntry } from "@/utils/nba/nbaSchedule";
@@ -104,6 +106,9 @@ interface SlotPickerModalProps {
   /** Players that can fill the slot (fill mode). */
   eligiblePlayers: RosterPlayer[];
   daySchedule: Map<string, ScheduleEntry> | undefined;
+  /** League scoring + format — drives the season fpts-per-game average. */
+  scoringWeights: ScoringWeight[] | undefined;
+  isCategories: boolean;
   isAssigning: boolean;
   /** True when the player is locked and IR/TAXI moves would defer to tomorrow. */
   deferredToTomorrow: boolean;
@@ -122,6 +127,8 @@ export function SlotPickerModal({
   quickActions,
   eligiblePlayers,
   daySchedule,
+  scoringWeights,
+  isCategories,
   isAssigning,
   deferredToTomorrow,
   onSelectDestination,
@@ -136,14 +143,29 @@ export function SlotPickerModal({
 
   // ─── Helpers (closures — must be defined before hooks that depend on them) ──
 
-  const gameInfo = useCallback(
+  const gameEntry = useCallback(
+    (p: RosterPlayer): ScheduleEntry | null =>
+      p.nbaTricode ? daySchedule?.get(p.nbaTricode) ?? null : null,
+    [daySchedule],
+  );
+
+  // Combined "matchup · time" string — accessibility labels only; the visual
+  // game pill is rendered by renderUpcomingGame.
+  const gameLabel = useCallback(
     (p: RosterPlayer): string | null => {
-      const entry = p.nbaTricode ? daySchedule?.get(p.nbaTricode) ?? null : null;
+      const entry = gameEntry(p);
       if (!entry) return null;
       const time = entry.gameTimeUtc ? formatGameTime(entry.gameTimeUtc) : null;
       return time ? `${entry.matchup} · ${time}` : entry.matchup;
     },
-    [daySchedule],
+    [gameEntry],
+  );
+
+  // Season fpts-per-game average / box score for a player, fed to SeasonMetaLine.
+  const seasonAvgFor = useCallback(
+    (p: RosterPlayer) =>
+      scoringWeights ? buildSeasonAverages(p, scoringWeights, isCategories) : null,
+    [scoringWeights, isCategories],
   );
 
   // Group destinations by section (memoized so grouped map doesn't rebuild every render)
@@ -177,7 +199,8 @@ export function SlotPickerModal({
   const renderDestRow = useCallback(
     (dest: DestinationSlot, idx: number, total: number, cc: typeof c) => {
       const occ = dest.slot.player;
-      const occGame = occ ? gameInfo(occ) : null;
+      const occGame = occ ? gameLabel(occ) : null;
+      const occEntry = occ ? gameEntry(occ) : null;
       const occBadge = occ ? getInjuryBadge(occ.status) : null;
       return (
         <TouchableOpacity
@@ -236,14 +259,19 @@ export function SlotPickerModal({
                     </View>
                   )}
                 </View>
-                <ThemedText
-                  type="varsitySmall"
-                  style={[styles.metaText, { color: cc.secondaryText }]}
-                >
-                  {formatPosition(occ.position)}
-                </ThemedText>
+                <SeasonMetaLine
+                  position={occ.position}
+                  seasonAvg={seasonAvgFor(occ)}
+                  c={cc}
+                />
               </View>
-              {occGame && <MatchupChip matchup={occGame} c={cc} />}
+              {occEntry && (
+                <UpcomingGame
+                  matchup={occEntry.matchup}
+                  gameTimeUtc={occEntry.gameTimeUtc}
+                  c={cc}
+                />
+              )}
             </>
           ) : (
             <View style={styles.rowInfo}>
@@ -261,7 +289,7 @@ export function SlotPickerModal({
         </TouchableOpacity>
       );
     },
-    [onSelectDestination, gameInfo, sport],
+    [onSelectDestination, gameLabel, gameEntry, seasonAvgFor, sport],
   );
 
   const renderFillSection = useCallback(
@@ -277,7 +305,8 @@ export function SlotPickerModal({
             ]}
           >
             {players.map((item, idx) => {
-              const itemGame = gameInfo(item);
+              const itemEntry = gameEntry(item);
+              const itemGame = gameLabel(item);
               const itemBadge = getInjuryBadge(item.status);
               return (
                 <TouchableOpacity
@@ -322,14 +351,19 @@ export function SlotPickerModal({
                         </View>
                       )}
                     </View>
-                    <ThemedText
-                      type="varsitySmall"
-                      style={[styles.metaText, { color: cc.secondaryText }]}
-                    >
-                      {formatPosition(item.position)}
-                    </ThemedText>
+                    <SeasonMetaLine
+                      position={item.position}
+                      seasonAvg={seasonAvgFor(item)}
+                      c={cc}
+                    />
                   </View>
-                  {itemGame && <MatchupChip matchup={itemGame} c={cc} />}
+                  {itemEntry && (
+                    <UpcomingGame
+                      matchup={itemEntry.matchup}
+                      gameTimeUtc={itemEntry.gameTimeUtc}
+                      c={cc}
+                    />
+                  )}
                 </TouchableOpacity>
               );
             })}
@@ -337,7 +371,7 @@ export function SlotPickerModal({
         </View>
       );
     },
-    [onSelectPlayer, gameInfo, sport],
+    [onSelectPlayer, gameLabel, gameEntry, seasonAvgFor, sport],
   );
 
   if (!sourceSlot) return null;
@@ -452,16 +486,22 @@ export function SlotPickerModal({
                           ) : null;
                         })()}
                       </View>
-                      <ThemedText
-                        type="varsitySmall"
-                        style={[styles.metaText, { color: c.secondaryText }]}
-                      >
-                        {formatPosition(player.position)}
-                      </ThemedText>
+                      <SeasonMetaLine
+                        position={player.position}
+                        seasonAvg={seasonAvgFor(player)}
+                        c={c}
+                      />
                     </View>
-                    {gameInfo(player) && (
-                      <MatchupChip matchup={gameInfo(player)!} c={c} />
-                    )}
+                    {(() => {
+                      const entry = gameEntry(player);
+                      return entry ? (
+                        <UpcomingGame
+                          matchup={entry.matchup}
+                          gameTimeUtc={entry.gameTimeUtc}
+                          c={c}
+                        />
+                      ) : null;
+                    })()}
                   </View>
                   {activeQuickActions.length > 0 && (
                     <View
@@ -734,11 +774,6 @@ const styles = StyleSheet.create({
     gap: s(4),
   },
   nameText: { fontSize: ms(14), flexShrink: 1 },
-  metaText: {
-    fontSize: ms(9.5),
-    letterSpacing: 1.0,
-    marginTop: s(2),
-  },
 
   // Destination headshot — matches the smaller variant used in compact rows.
   rowHeadshot: {

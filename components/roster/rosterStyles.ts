@@ -1,4 +1,4 @@
-import { StyleSheet } from "react-native";
+import { StyleSheet, type ViewStyle } from "react-native";
 
 import { cardShadow, Fonts } from "@/constants/Colors";
 import { ms, s } from "@/utils/scale";
@@ -141,12 +141,44 @@ export const rosterStyles = StyleSheet.create({
     letterSpacing: 1.0,
     flexShrink: 1,
   },
-  // Position fallback when the player has no game today — kept as inline
-  // varsitySmall caps (no chip), since there's nothing for a chip to mark.
-  slotMatchupText: {
+  // Pre-game / no-game context line: position · season fpts average · unit.
+  // Baseline-aligned so the differently-sized pieces (position, dot, the larger
+  // gold number, the small unit) all sit on one line instead of each floating
+  // at its own vertical center.
+  slotFptsRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: s(6),
+    marginTop: s(3),
+  },
+  slotPosLabel: {
     fontSize: ms(9.5),
     letterSpacing: 1.0,
-    marginTop: s(3),
+  },
+  // Dim separator dot between the position and the average on the context line.
+  slotPosDot: {
+    fontSize: ms(11),
+  },
+  slotAvgFpts: {
+    fontFamily: Fonts.mono,
+    fontSize: ms(13),
+    fontWeight: "700",
+    letterSpacing: 0.4,
+  },
+  // Upcoming-game info on pre-game rows: opponent chip (pill) is the headline,
+  // tipoff time a small subordinate caption beneath it. The time is inset by
+  // the chip's horizontal padding (MatchupChip uses s(6)) so its right edge
+  // lands under the opponent text rather than the pill's outer border.
+  slotGameInfo: {
+    alignItems: "flex-end",
+    gap: s(1),
+  },
+  slotGameTime: {
+    fontFamily: Fonts.mono,
+    fontSize: ms(9),
+    lineHeight: ms(11),
+    letterSpacing: 0.5,
+    marginRight: s(6),
   },
   // Mono stat line for past-day actuals — matches the Free Agents row pattern.
   slotStatLine: {
@@ -163,16 +195,6 @@ export const rosterStyles = StyleSheet.create({
     fontSize: ms(15),
     fontWeight: "700",
     letterSpacing: 0.5,
-  },
-  // Pre-game right-column stack: matchup chip on top, tipoff time below.
-  // Replaces the FPTS readout when the game hasn't started yet.
-  slotUpcoming: {
-    alignItems: "flex-end",
-    gap: s(2),
-  },
-  slotUpcomingTime: {
-    fontSize: ms(10),
-    letterSpacing: 0.6,
   },
   // Empty-slot eyebrow + helper text. The headshot is replaced with the
   // dashed `emptyHeadshot` circle, and these two lines sit beside it.
@@ -195,3 +217,41 @@ export const rosterStyles = StyleSheet.create({
     letterSpacing: 0.5,
   },
 });
+
+// Tokens the slot-pill variant reads — a structural subset of the theme so
+// the helper stays decoupled from the full Colors union (and its sport-themed
+// merges).
+type SlotPillColors = {
+  cardAlt: string;
+  gold: string;
+  heritageGold: string;
+  border: string;
+  text: string;
+  secondaryText: string;
+};
+
+/**
+ * Visual variant for a slot-position pill, keyed on whether the slot can be
+ * edited from the current view. The chrome is otherwise identical; only the
+ * border tells them apart — editable pills get a soft gold stroke so they read
+ * as tappable, while read-only pills (a past day, a game already in progress,
+ * or another team's roster) keep the neutral hairline border. The selected
+ * pill steps up to a full-gold, thicker border.
+ */
+export function slotPillVariant(
+  c: SlotPillColors,
+  opts: { canEdit: boolean; isActive: boolean; hasPlayer: boolean },
+): { container: ViewStyle; textColor: string } {
+  return {
+    container: {
+      backgroundColor: opts.hasPlayer ? c.cardAlt : "transparent",
+      borderColor: opts.isActive
+        ? c.gold
+        : opts.canEdit
+          ? c.heritageGold
+          : c.border,
+      borderWidth: opts.isActive ? 1.5 : 1,
+    },
+    textColor: opts.isActive ? c.gold : opts.hasPlayer ? c.text : c.secondaryText,
+  };
+}

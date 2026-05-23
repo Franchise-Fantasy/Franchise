@@ -11,6 +11,7 @@ import {
 
 import { MatchupChip } from "@/components/player/MatchupChip";
 import { PlayerHeadshotImage } from "@/components/player/PlayerHeadshotImage";
+import { rosterStyles } from "@/components/roster/rosterStyles";
 import { Colors, Fonts } from "@/constants/Colors";
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from "@/hooks/useColorScheme";
@@ -22,7 +23,8 @@ import {
   LivePlayerStats,
   liveToGameLog,
 } from "@/utils/nba/nbaLive";
-import { ScheduleEntry } from "@/utils/nba/nbaSchedule";
+import { formatGameTime, ScheduleEntry } from "@/utils/nba/nbaSchedule";
+import { getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
 import { ms, s } from "@/utils/scale";
 import { calculateGameFantasyPoints, formatScore } from "@/utils/scoring/fantasyPoints";
 
@@ -41,10 +43,16 @@ export interface RosterPlayer {
   external_id_nba: number | null;
   status: string;
   weekPoints: number;
+  /** Active (started) games this player had during the week — used to
+   *  scale season-average expectation for the weekly performance bar. */
+  weekGames: number;
   dayPoints: number;
   dayMatchup: string | null;
   dayStatLine: string | null;
   projectedFpts: number | null;
+  /** Raw per-game season average (not zeroed for dropped/OUT) — baseline
+   *  for the weekly summary's vs-expected indicator. */
+  seasonAvgFpts: number | null;
   dayGameStats?: Record<string, number | boolean> | null;
   weekGameStats?: Record<string, number> | null;
 }
@@ -56,10 +64,9 @@ export function round1(n: number) {
 }
 
 // Build a stat line string for a live/historical stat object.
-// Compact single-letter labels keep the line readable in the narrow
-// per-side cell where the matchup page splits horizontal space.
-// Zero-value categories are dropped so the line shows only what the
-// player actually produced.
+// Always shows all three categories (including zeros, e.g. "0R") so the line
+// keeps a stable shape, but stays compact — single-space separated, no digit
+// padding — so it reads cleanly and never grows wide enough to truncate.
 export function buildStatLine(
   stats: Record<string, number>,
   _scoring: ScoringWeight[],
@@ -69,10 +76,7 @@ export function buildStatLine(
     ["reb", "R"],
     ["ast", "A"],
   ];
-  return fields
-    .filter(([key]) => (stats[key] ?? 0) > 0)
-    .map(([key, label]) => `${stats[key]}${label}`)
-    .join(" ");
+  return fields.map(([key, label]) => `${stats[key] ?? 0}${label}`).join(" ");
 }
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
@@ -116,8 +120,9 @@ function PlayerName({
   );
 }
 
-// Static green dot shown when player is actively on the floor.
-function OnCourtDot() {
+// Static green dot shown when player is actively on the floor. Shared with the
+// roster + team-roster rows so the on-court cue reads identically everywhere.
+export function OnCourtDot() {
   const scheme = useColorScheme() ?? "light";
   return (
     <View
@@ -186,6 +191,34 @@ function AnimatedFpts({
   );
 }
 
+// Stat line as fixed-width blocks — each category (P/R/A) sits in its own
+// equal-width slot so single- and double-digit values line up in columns and
+// the whole line is a CONSTANT width. That fixed width is what lets the FPTS
+// after it lock to one position for every player.
+const STAT_FIELDS: [string, string][] = [
+  ["pts", "P"],
+  ["reb", "R"],
+  ["ast", "A"],
+];
+function StatBlocks({
+  stats,
+  color,
+}: {
+  stats: Record<string, number | boolean> | null | undefined;
+  color: string;
+}) {
+  return (
+    <View style={pStyles.statBlocks}>
+      {STAT_FIELDS.map(([key, label]) => (
+        <Text key={label} style={[pStyles.statBlock, { color }]} numberOfLines={1}>
+          {Number(stats?.[key] ?? 0)}
+          {label}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
 // ─── PlayerCell ──────────────────────────────────────────────────────────────
 
 // Renders a single player cell (one side of a matchup row).
@@ -220,8 +253,14 @@ export const PlayerCell = React.memo(function PlayerCell({
   const sport = useActiveLeagueSport();
   const align = side === "right" ? "flex-end" : "flex-start";
   const textAlign = side === "right" ? ("right" as const) : ("left" as const);
-  // Line 2/3 row direction: push fpts & chip toward center (near headshots)
-  const rowDir = side === "left" ? ("row-reverse" as const) : ("row" as const);
+  // Both info lines flow from the portrait/outer side: line 2 leads with the
+  // opponent chip then the game status; line 3 leads with the stat blocks then
+  // the FPTS. row-reverse on the right side mirrors that flow.
+  const rowDir = side === "left" ? ("row" as const) : ("row-reverse" as const);
+  // FPTS locks to a fixed column near the center seam (a spacer fills the gap
+  // between the fixed-width stat blocks and it); centerPad keeps it off the pill.
+  const centerPad =
+    side === "left" ? { paddingRight: s(10) } : { paddingLeft: s(10) };
 
   const injuryBadge = player ? getInjuryBadge(player.status) : null;
 
@@ -257,19 +296,43 @@ export const PlayerCell = React.memo(function PlayerCell({
       }
     : { accessibilityLabel: `${player.name}, ${player.position}` };
 
+  // Headshot + team-logo pill. The gold border is constant in every state —
+  // on-court is signalled by the dot on the name line, not by the border.
+  const logoUrl = player.nbaTricode ? getTeamLogoUrl(player.nbaTricode, sport) : null;
   const headshotEl = (
-    <View
-      style={[
-        pStyles.headshotCircle,
-        { borderColor: c.heritageGold, backgroundColor: c.cardAlt },
-      ]}
-      accessibilityLabel={`${player.name} headshot`}
-    >
-      <PlayerHeadshotImage
-        externalIdNba={player.external_id_nba}
-        sport={sport}
-        style={pStyles.headshotImg}
-      />
+    <View style={pStyles.portraitWrap} accessibilityLabel={`${player.name} headshot`}>
+      <View
+        style={[
+          pStyles.headshotCircle,
+          { borderColor: c.heritageGold, backgroundColor: c.cardAlt },
+        ]}
+      >
+        <PlayerHeadshotImage
+          externalIdNba={player.external_id_nba}
+          sport={sport}
+          style={pStyles.headshotImg}
+        />
+      </View>
+      {player.nbaTricode && (
+        <View
+          style={rosterStyles.rosterTeamPill}
+          importantForAccessibility="no"
+          accessibilityElementsHidden
+        >
+          {logoUrl && (
+            <Image
+              source={{ uri: logoUrl }}
+              style={rosterStyles.rosterTeamPillLogo}
+              contentFit="contain"
+              cachePolicy="memory-disk"
+              recyclingKey={logoUrl}
+            />
+          )}
+          <Text style={[rosterStyles.rosterTeamPillText, { color: c.statusText }]}>
+            {player.nbaTricode}
+          </Text>
+        </View>
+      )}
     </View>
   );
 
@@ -285,7 +348,7 @@ export const PlayerCell = React.memo(function PlayerCell({
     const fptsEl = (
       <AnimatedFpts
         value={value}
-        activeColor={c.text}
+        activeColor={c.accent}
         dimColor={c.secondaryText}
         textStyle={pStyles.pts}
         projected={projected}
@@ -319,8 +382,8 @@ export const PlayerCell = React.memo(function PlayerCell({
         {...wrapperProps}
       >
         {side === "left" && headshotEl}
-        <View style={{ flex: 1, alignItems: align }}>
-          {/* Line 1: Name + injury (injury toward center) */}
+        <View style={[pStyles.infoCol, { alignItems: align }]}>
+          {/* Line 1 — Identity: name + injury (injury toward center) */}
           <View style={[pStyles.nameRow, { justifyContent: align }]}>
             {side === "right" && injuryBadge && (
               <View
@@ -348,44 +411,30 @@ export const PlayerCell = React.memo(function PlayerCell({
               </View>
             )}
           </View>
-          {/* Line 2: position label — kept visible pre-game so we don't lose
-              the at-a-glance "what does this player do" cue. */}
-          <View style={[pStyles.gameInfoRow, { justifyContent: align }]}>
-            <Text style={[pStyles.meta, { color: c.secondaryText }]}>
-              {player.position}
-            </Text>
+          {/* Line 2 — Game: opponent chip (beside the portrait) + tipoff caption.
+              Pre-game has no production, so there's no Line 3. Falls back to the
+              position label with no schedule entry. */}
+          <View
+            style={[
+              pStyles.gameInfoRow,
+              { justifyContent: align, flexDirection: rowDir },
+            ]}
+          >
+            {schedEntry ? (
+              <>
+                <MatchupChip matchup={schedEntry.matchup} isLive={false} c={c} />
+                {schedEntry.gameTimeUtc ? (
+                  <Text style={[pStyles.gameInfo, { color: c.secondaryText }]}>
+                    {formatGameTime(schedEntry.gameTimeUtc)}
+                  </Text>
+                ) : null}
+              </>
+            ) : (
+              <Text style={[pStyles.meta, { color: c.secondaryText }]}>
+                {player.position}
+              </Text>
+            )}
           </View>
-          {/* Line 3: matchup chip + tipoff (replaces a meaningless 0.0).
-              Mirrors the roster pre-game treatment — chip in place of FPTS.
-              For CAT leagues we still want the chip (so users can see when
-              tipoff is) but drop the "—" fallback since there's no fpts to
-              stand in for. */}
-          {(schedEntry || !isCategories) && (
-            <View
-              style={[
-                pStyles.statsRow,
-                { justifyContent: align, flexDirection: rowDir },
-              ]}
-            >
-              {schedEntry ? (
-                <MatchupChip
-                  matchup={schedEntry.matchup}
-                  isLive={false}
-                  c={c}
-                  gameTimeUtc={schedEntry.gameTimeUtc}
-                />
-              ) : (
-                <Text
-                  style={[
-                    pStyles.pts,
-                    { color: c.secondaryText, textAlign },
-                  ]}
-                >
-                  —
-                </Text>
-              )}
-            </View>
-          )}
         </View>
         {side === "right" && headshotEl}
       </Wrapper>
@@ -398,14 +447,14 @@ export const PlayerCell = React.memo(function PlayerCell({
       calculateGameFantasyPoints(liveToGameLog(liveStats) as any, scoring),
     );
     const isLive = liveStats.game_status === 2;
-    const statLine =
-      liveStats.game_status !== 1
-        ? buildStatLine(
-            liveToGameLog(liveStats) as Record<string, number>,
-            scoring,
-          )
-        : null;
+    const hasStarted = liveStats.game_status !== 1;
+    // Live games show the full "3RD 5:16 · 58-43"; finished games drop the
+    // "Final" word entirely and show just the "85-75" score.
+    const isFinalGame = liveStats.game_status === 3;
     const gameInfo = formatGameInfo(liveStats);
+    const finalScore = isFinalGame
+      ? gameInfo.replace(/^Final\s*·\s*/i, "")
+      : null;
 
     return (
       <Wrapper
@@ -416,7 +465,7 @@ export const PlayerCell = React.memo(function PlayerCell({
         {...wrapperProps}
       >
         {side === "left" && headshotEl}
-        <View style={{ flex: 1, alignItems: align }}>
+        <View style={[pStyles.infoCol, { alignItems: align }]}>
           {/* Line 1: Name + injury (toward center) + on-court dot */}
           <View style={[pStyles.nameRow, { justifyContent: align }]}>
             {side === "right" && injuryBadge && (
@@ -447,24 +496,14 @@ export const PlayerCell = React.memo(function PlayerCell({
               </View>
             )}
           </View>
-          {/* Line 2: time/score + matchup chip */}
+          {/* Line 2 — Game: opponent chip (beside the portrait) + condensed
+              clock/score (or empty pre-tip) */}
           <View
             style={[
               pStyles.gameInfoRow,
               { justifyContent: align, flexDirection: rowDir },
             ]}
           >
-            {gameInfo ? (
-              <Text
-                style={[
-                  pStyles.gameInfo,
-                  { color: c.secondaryText, flexShrink: 1 },
-                ]}
-                numberOfLines={1}
-              >
-                {gameInfo}
-              </Text>
-            ) : null}
             {liveStats.matchup ? (
               <MatchupChip
                 matchup={liveStats.matchup}
@@ -472,26 +511,34 @@ export const PlayerCell = React.memo(function PlayerCell({
                 c={c}
               />
             ) : null}
-          </View>
-          {/* Line 3: stats + fpts */}
-          <View style={[pStyles.statsRow, { flexDirection: rowDir }]}>
-            {statLine ? (
+            {gameInfo ? (
               <Text
                 style={[
-                  pStyles.statLine,
-                  { color: c.secondaryText, flexShrink: 1 },
+                  pStyles.gameInfo,
+                  { color: isLive ? c.success : c.secondaryText, flexShrink: 1 },
                 ]}
                 numberOfLines={1}
               >
-                {statLine}
+                {isFinalGame ? finalScore : gameInfo}
               </Text>
             ) : null}
-            {renderFpts(
-              liveFp,
-              liveToGameLog(liveStats) as Record<string, number | boolean>,
-              liveStats.matchup ?? "",
-            )}
           </View>
+          {/* Line 3 — Production: fixed-width stat blocks at the outer edge, a
+              spacer, then the FPTS locked at the center column. Only once the
+              game has tipped. */}
+          {hasStarted ? (
+            <View style={[pStyles.statsRow, { flexDirection: rowDir }, centerPad]}>
+              <StatBlocks
+                stats={liveToGameLog(liveStats) as Record<string, number | boolean>}
+                color={c.secondaryText}
+              />
+              {renderFpts(
+                liveFp,
+                liveToGameLog(liveStats) as Record<string, number | boolean>,
+                liveStats.matchup ?? "",
+              )}
+            </View>
+          ) : null}
         </View>
         {side === "right" && headshotEl}
       </Wrapper>
@@ -512,7 +559,7 @@ export const PlayerCell = React.memo(function PlayerCell({
       {...wrapperProps}
     >
       {side === "left" && headshotEl}
-      <View style={{ flex: 1, alignItems: align }}>
+      <View style={[pStyles.infoCol, { alignItems: align }]}>
         {/* Line 1: Name + injury (injury toward center) */}
         <View style={[pStyles.nameRow, { justifyContent: align }]}>
           {side === "right" && injuryBadge && (
@@ -541,7 +588,8 @@ export const PlayerCell = React.memo(function PlayerCell({
             </View>
           )}
         </View>
-        {/* Line 2: matchup chip */}
+        {/* Line 2 — Game: opponent chip (beside the portrait) + condensed F.
+            No team score on past days (not in player_games), so just "F". */}
         <View
           style={[
             pStyles.gameInfoRow,
@@ -549,33 +597,25 @@ export const PlayerCell = React.memo(function PlayerCell({
           ]}
         >
           {hasDayGame && player.dayMatchup ? (
-            <MatchupChip
-              matchup={player.dayMatchup}
-              isLive={false}
-              c={c}
-            />
+            <MatchupChip matchup={player.dayMatchup} isLive={false} c={c} />
           ) : (
             <Text style={[pStyles.meta, { color: c.secondaryText }]}>
               {player.position}
             </Text>
           )}
         </View>
-        {/* Line 3: stats + fpts */}
-        <View style={[pStyles.statsRow, { flexDirection: rowDir }]}>
-          {hasDayGame && player.dayStatLine ? (
-            <Text
-              style={[pStyles.statLine, { color: c.secondaryText, flexShrink: 1 }]}
-              numberOfLines={1}
-            >
-              {player.dayStatLine}
-            </Text>
-          ) : null}
-          {renderFpts(
-            hasDayGame ? player.dayPoints : null,
-            hasDayGame ? player.dayGameStats : null,
-            player.dayMatchup ?? "",
-          )}
-        </View>
+        {/* Line 3 — Production: fixed-width stat blocks + FPTS locked at the
+            center column (only when the player played). */}
+        {hasDayGame ? (
+          <View style={[pStyles.statsRow, { flexDirection: rowDir }, centerPad]}>
+            <StatBlocks stats={player.dayGameStats} color={c.secondaryText} />
+            {renderFpts(
+              player.dayPoints,
+              player.dayGameStats,
+              player.dayMatchup ?? "",
+            )}
+          </View>
+        ) : null}
       </View>
       {side === "right" && headshotEl}
     </Wrapper>
@@ -594,6 +634,12 @@ export const pStyles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   cell: { flex: 1 },
+  // Each cell's content is vertically centered on its own portrait (the row +
+  // wrapper both center-align), so a played player (3 lines) and an unplayed
+  // one (2 lines) each sit balanced against their headshot with no pinned-to-
+  // top dead space. Names offset between sides when one has more info — that's
+  // the intended broadcast-style per-portrait balance.
+  infoCol: { flex: 1 },
   slotCenter: { width: s(34), alignItems: "center", justifyContent: "center" },
   slotText: { fontSize: ms(10), fontWeight: "600" },
   nameRow: {
@@ -608,11 +654,28 @@ export const pStyles = StyleSheet.create({
     gap: s(4),
     marginTop: s(3),
   },
+  // Line 3 packs the fixed-width stat blocks and the FPTS toward the center
+  // seam (justifyContent flex-end + centerPad), with a small constant gap
+  // between them (gap: s(8)) so the last block isn't flush against the FPTS.
   statsRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: s(4),
+    alignSelf: "stretch",
+    justifyContent: "flex-end",
+    gap: s(8),
     marginTop: s(3),
+  },
+  // Stat line rendered as equal-width blocks (one per category), value centered
+  // in each. Equal widths keep the line a constant total width — single vs
+  // double digits never shift anything — so the FPTS after it stays locked.
+  statBlocks: { flexDirection: "row" },
+  statBlock: {
+    fontFamily: Fonts.mono,
+    fontSize: ms(10),
+    lineHeight: ms(13),
+    letterSpacing: 0.3,
+    minWidth: s(20),
+    textAlign: "center",
   },
   // Explicit lineHeights below tighten the default text bounding boxes so
   // the three rows in a player cell sit at visually equal vertical gaps.
@@ -628,14 +691,15 @@ export const pStyles = StyleSheet.create({
     letterSpacing: 1.0,
     textTransform: "uppercase",
   },
-  // Live game time + score sits next to the matchup chip and competes for
-  // horizontal space, so it reads at a notch smaller than the rest of the
-  // varsity-caps voice.
+  // Game status caption beside the opponent pill — live clock·score, "FINAL",
+  // or tipoff time. Mono (narrower than the varsity caps) at a small size so
+  // the longest case ("3RD 5:16 · 58-43") fits the half-width cell without
+  // truncating. flexShrink on the instance keeps the pill intact if it can't.
   gameInfo: {
-    fontFamily: Fonts.varsityBold,
-    fontSize: ms(8.5),
+    fontFamily: Fonts.mono,
+    fontSize: ms(8),
     lineHeight: ms(11),
-    letterSpacing: 0.5,
+    letterSpacing: 0.2,
     textTransform: "uppercase",
   },
   // Mono stat line ("20P 8R 5A") + FPTS — same family the roster slot uses
@@ -646,10 +710,12 @@ export const pStyles = StyleSheet.create({
     lineHeight: ms(13),
     letterSpacing: 0.4,
   },
+  // Headline FPTS — the matchup's deciding number, so it's the largest, gold
+  // (color applied inline by AnimatedFpts), and weightiest text in the cell.
   pts: {
     fontFamily: Fonts.mono,
-    fontSize: ms(15),
-    lineHeight: ms(16),
+    fontSize: ms(16),
+    lineHeight: ms(17),
     fontWeight: "700",
     letterSpacing: 0.5,
   },
@@ -658,6 +724,13 @@ export const pStyles = StyleSheet.create({
     fontSize: ms(8),
     fontWeight: "800",
     letterSpacing: 0.5,
+  },
+  // Wrap anchors the team-logo pill to the portrait base. No overflow:hidden
+  // here (only on the circle) so the pill can sit slightly below the headshot.
+  portraitWrap: {
+    width: s(38),
+    height: s(38),
+    alignItems: "center",
   },
   headshotCircle: {
     width: s(38),

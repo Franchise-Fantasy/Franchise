@@ -165,21 +165,13 @@ type AccentOverrides = {
 };
 
 export const SPORT_THEMES: Record<string, AccentOverrides> = {
-  // WNBA — burnt orange accent + merlot for the green-baseline tokens
-  // (hero surface/shadow, active state, link, icon, tint). `success`
-  // intentionally stays turfGreen so it doesn't collide with `danger`,
-  // which is also merlot.
+  // WNBA — keeps the gold accent family (no override) and only swaps the
+  // green-baseline tokens to merlot: hero surface/shadow, active state,
+  // link, tint, selected tab icon, primary. `success` intentionally stays
+  // turfGreen so it doesn't collide with `danger`, which is also merlot.
   wnba: {
     light: {
-      accent:           '#BF5C30',
-      gold:             '#BF5C30',
-      goldMuted:        'rgba(191, 92, 48, 0.18)',
       tabIconSelected:  BRAND.merlot,
-      warning:          '#BF5C30',
-      warningMuted:     'rgba(191, 92, 48, 0.12)',
-      analyticsAccent:  '#BF5C30',
-      analyticsBg:      'rgba(191, 92, 48, 0.06)',
-      analyticsBorder:  'rgba(191, 92, 48, 0.18)',
       tint:             BRAND.merlot,
       activeBorder:     BRAND.merlot,
       activeText:       BRAND.merlot,
@@ -196,17 +188,9 @@ export const SPORT_THEMES: Record<string, AccentOverrides> = {
       primary:          BRAND.merlot,
     },
     dark: {
-      accent:           '#A6502A',
-      gold:             '#A6502A',
-      goldMuted:        'rgba(166, 80, 42, 0.25)',
       tint:             BRAND.merlotSoft,
       tabIconSelected:  BRAND.merlotSoft,
-      warning:          '#A6502A',
-      warningMuted:     'rgba(166, 80, 42, 0.20)',
       link:             BRAND.merlotSoft,
-      analyticsAccent:  '#A6502A',
-      analyticsBg:      'rgba(166, 80, 42, 0.10)',
-      analyticsBorder:  'rgba(166, 80, 42, 0.22)',
       activeBorder:     BRAND.merlotSoft,
       activeText:       BRAND.merlotSoft,
       activeCard:       'rgba(142, 44, 54, 0.20)',

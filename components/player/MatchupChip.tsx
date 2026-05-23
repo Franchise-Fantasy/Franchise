@@ -24,8 +24,11 @@ export function MatchupChip({
   gameTimeUtc?: string | null;
   alignSelf?: "flex-start" | "flex-end" | "auto";
 }) {
+  // Away games arrive as "@TEAM"; render the prefix as "AT " so it matches the
+  // 2-letter "VS " home prefix (even pill widths, clearer than the bare "@").
+  const opponent = matchup.startsWith("@") ? `AT ${matchup.slice(1)}` : matchup;
   const timeLabel = gameTimeUtc && !isLive ? formatGameTime(gameTimeUtc) : null;
-  const display = timeLabel ? `${matchup} · ${timeLabel}` : matchup;
+  const display = timeLabel ? `${opponent} · ${timeLabel}` : opponent;
   return (
     <View
       accessible={false}
@@ -37,7 +40,7 @@ export function MatchupChip({
           borderColor: isLive ? c.success : c.border,
         },
       ]}
-      accessibilityLabel={`Matchup: ${matchup}${timeLabel ? `, ${timeLabel}` : ""}${isLive ? ", live" : ""}`}
+      accessibilityLabel={`Matchup: ${opponent}${timeLabel ? `, ${timeLabel}` : ""}${isLive ? ", live" : ""}`}
     >
       <ThemedText
         type="varsitySmall"

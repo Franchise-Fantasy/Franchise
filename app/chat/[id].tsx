@@ -226,7 +226,7 @@ const ChatItem = React.memo(function ChatItem({
 // ─── Main screen ──────────────────────────────────────────────
 
 export default function ConversationScreen() {
-  const { id: conversationId } = useLocalSearchParams<{ id: string }>();
+  const { id: conversationId, messageId } = useLocalSearchParams<{ id: string; messageId?: string }>();
   const c = useColors();
   const { teamId, leagueId } = useAppState();
   const confirm = useConfirm();
@@ -549,6 +549,17 @@ export default function ConversationScreen() {
       flatListRef.current?.scrollToIndex({ index: info.index, animated: true, viewPosition: 0.5 });
     }, 200);
   }, []);
+
+  // Jump to a specific message when deep-linked (e.g. a reported-message
+  // notification opening for the commissioner). Runs once the target loads.
+  const scrolledToTargetRef = useRef(false);
+  useEffect(() => {
+    if (!messageId || scrolledToTargetRef.current || messages.length === 0) return;
+    if (messages.some((m) => m.id === messageId)) {
+      scrolledToTargetRef.current = true;
+      scrollToMessage(messageId);
+    }
+  }, [messageId, messages, scrollToMessage]);
 
   const handleTogglePin = useCallback(() => {
     if (!reactionTargetId || !teamId) return;

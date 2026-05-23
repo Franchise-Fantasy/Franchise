@@ -15,6 +15,11 @@ import { assertNoIllegalIR } from "@/utils/roster/illegalIR";
  * to tomorrow regardless of the added player's individual lock state, so the
  * add and drop apply atomically on the same day.
  *
+ * When this add is part of an add+drop done in one user action, pass `groupId`
+ * (shared with the drop's transaction row) so the activity feed renders both
+ * sides as a single grouped card, and `skipNotify: true` so the caller can
+ * fire one combined "added X (dropped Y)" push instead of two.
+ *
  * Returns { deferred: true } when the add was locked (caller should alert
  * "will appear tomorrow") or { deferred: false } for an immediate add.
  */
@@ -25,8 +30,11 @@ export async function addFreeAgent(params: {
   playerLockType: "daily" | "individual" | null;
   gameTimeMap: GameTimeMap;
   forceDefer?: boolean;
+  groupId?: string;
+  skipNotify?: boolean;
 }): Promise<{ deferred: boolean }> {
-  const { leagueId, teamId, player, playerLockType, gameTimeMap, forceDefer } = params;
+  const { leagueId, teamId, player, playerLockType, gameTimeMap, forceDefer, groupId, skipNotify } =
+    params;
 
   // Block the add if this team has any healthy player parked on IR.
   await assertNoIllegalIR(leagueId, teamId);
@@ -92,6 +100,7 @@ export async function addFreeAgent(params: {
       type: "waiver",
       notes: `Added ${player.name} from free agency`,
       team_id: teamId,
+      group_id: groupId ?? null,
     })
     .select("id")
     .single();
@@ -102,6 +111,9 @@ export async function addFreeAgent(params: {
     player_id: player.player_id,
     team_to_id: teamId,
   });
+
+  // When paired with a drop, the caller owns the single combined notification.
+  if (skipNotify) return { deferred: locked };
 
   // Fire-and-forget notification
   (async () => {

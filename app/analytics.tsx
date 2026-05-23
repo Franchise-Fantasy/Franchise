@@ -4,12 +4,15 @@ import {
   Circle,
   DashPathEffect,
   Group,
+  Path as SkiaPath,
   Rect,
+  rect,
+  Skia,
   Line as SkiaLine,
   vec,
 } from "@shopify/react-native-skia";
 import { scaleLinear } from "d3-scale";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   GestureResponderEvent,
   LayoutChangeEvent,
@@ -20,7 +23,9 @@ import {
   View,
 } from "react-native";
 import Animated, {
+  runOnJS,
   useAnimatedStyle,
+  useDerivedValue,
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
@@ -37,13 +42,14 @@ import {
   type PositionCurve,
 } from "@/constants/agingCurves";
 import { Brand, Fonts, cardShadow } from "@/constants/Colors";
-import { type Sport } from "@/constants/LeagueDefaults";
+import { getCurrentSeason, type Sport } from "@/constants/LeagueDefaults";
 import { useAppState } from "@/context/AppStateProvider";
 import { useColors } from "@/hooks/useColors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { useLeague } from "@/hooks/useLeague";
 import { useLeagueRosterStats } from "@/hooks/useLeagueRosterStats";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
+import { usePlayerHistoricalStats } from "@/hooks/usePlayerHistoricalStats";
 import { usePrevSeasonFpts } from "@/hooks/usePrevSeasonFpts";
 import { PlayerSeasonStats } from "@/types/player";
 import {
@@ -57,6 +63,7 @@ import {
 } from "@/utils/roster/rosterAge";
 import { getEligiblePositions } from "@/utils/roster/rosterSlots";
 import { ms, s } from "@/utils/scale";
+import { seasonAvgRowToFpts } from "@/utils/scoring/fantasyPoints";
 
 // ─── Chart layout ────────────────────────────────────────────────────────────
 
@@ -123,6 +130,12 @@ export default function AnalyticsScreen() {
   const [selectedPlayer, setSelectedPlayer] = useState<AgeFptsPoint | null>(
     null,
   );
+  // Lags behind selectedPlayer so the detail card can fade its current
+  // content out before swapping (cross-fade on switch, fade-out on deselect)
+  // instead of popping. The chart dots/labels track selectedPlayer directly.
+  const [displayedPlayer, setDisplayedPlayer] = useState<AgeFptsPoint | null>(
+    null,
+  );
   const [modalPlayer, setModalPlayer] = useState<PlayerSeasonStats | null>(
     null,
   );
@@ -151,6 +164,45 @@ export default function AnalyticsScreen() {
     return buildLeagueComparison(allPlayers as any, weights, teamId, prevSeasonFptsMap);
   }, [allPlayers, weights, teamId, prevSeasonFptsMap]);
 
+  // Career trajectory for the selected player, plotted on the chart's own
+  // age/FPTS axes: each past season becomes a point at (age that year, FPTS
+  // that year), ending at the current highlighted dot. Tracks displayedPlayer
+  // (not selectedPlayer) so it cross-fades in sync with the detail card and
+  // the new query fires only after a switch's fade-out.
+  const { data: historicalData } = usePlayerHistoricalStats(
+    displayedPlayer?.playerId ?? null,
+  );
+
+  const trajectory = useMemo(() => {
+    if (!displayedPlayer || !weights?.length) return [];
+    const current = getCurrentSeason(sport);
+    const currentStartYear = parseInt(current.slice(0, 4), 10);
+    // The player's age in a past season = current age minus the seasons since
+    // (one year per season). Relies on the YYYY / YYYY-YY season prefix.
+    const hist = (historicalData ?? [])
+      .filter((r) => r.season !== current)
+      .map((r) => {
+        const startYear = parseInt(r.season.slice(0, 4), 10);
+        return {
+          season: r.season,
+          age: displayedPlayer.age - (currentStartYear - startYear),
+          fpts: seasonAvgRowToFpts(r as unknown as Record<string, unknown>, weights),
+        };
+      })
+      .filter((p) => p.fpts > 0 && Number.isFinite(p.age))
+      .sort((a, b) => a.age - b.age);
+    const points = [...hist];
+    // Reuses the dot's effective fpts/age so the endpoint matches the scatter.
+    if (displayedPlayer.avgFpts > 0) {
+      points.push({
+        season: current,
+        age: displayedPlayer.age,
+        fpts: displayedPlayer.avgFpts,
+      });
+    }
+    return points;
+  }, [historicalData, displayedPlayer, weights, sport]);
+
   // Detail card animation
   const detailOpacity = useSharedValue(0);
   const detailStyle = useAnimatedStyle(() => ({
@@ -158,10 +210,47 @@ export default function AnalyticsScreen() {
     transform: [{ translateY: (1 - detailOpacity.value) * 6 }],
   }));
 
-  const selectPlayer = useCallback((player: AgeFptsPoint | null) => {
-    setSelectedPlayer(player);
-    detailOpacity.value = withTiming(player ? 1 : 0, { duration: 180 });
-  }, []);
+  // Float the new content in whenever the displayed player changes (first
+  // selection or after a switch's fade-out completes and swaps the content).
+  useEffect(() => {
+    if (displayedPlayer) {
+      detailOpacity.value = withTiming(1, { duration: 200 });
+    }
+  }, [displayedPlayer]);
+
+  // React to selection changes: show immediately when nothing is displayed,
+  // otherwise fade the current content out first, then swap (switch) or clear
+  // (deselect). Re-runs when displayedPlayer catches up, then no-ops.
+  useEffect(() => {
+    if (selectedPlayer?.playerId === displayedPlayer?.playerId) return;
+    if (!displayedPlayer) {
+      setDisplayedPlayer(selectedPlayer);
+    } else {
+      detailOpacity.value = withTiming(0, { duration: 150 }, (finished) => {
+        if (finished) runOnJS(setDisplayedPlayer)(selectedPlayer);
+      });
+    }
+  }, [selectedPlayer, displayedPlayer]);
+
+  const selectPlayer = useCallback(
+    (player: AgeFptsPoint | null) => setSelectedPlayer(player),
+    [],
+  );
+
+  // Dim the non-selected dots/labels when a player is selected, restore on
+  // deselect. One shared value drives every faded element (selected stays 1).
+  const selectionProgress = useSharedValue(0);
+  useEffect(() => {
+    selectionProgress.value = withTiming(selectedPlayer ? 1 : 0, {
+      duration: 180,
+    });
+  }, [selectedPlayer]);
+  const dimmedDotOpacity = useDerivedValue(
+    () => 1 - selectionProgress.value * 0.8,
+  );
+  const dimmedLabelStyle = useAnimatedStyle(() => ({
+    opacity: 1 - selectionProgress.value * 0.75,
+  }));
 
   const onLayout = (e: LayoutChangeEvent) => {
     setChartWidth(e.nativeEvent.layout.width);
@@ -210,6 +299,20 @@ export default function AnalyticsScreen() {
       yTicks: ys.ticks(5).filter((t) => t > 0 && t < maxFpts),
     };
   }, [scatterData, plotW, plotH]);
+
+  // Skia path through the selected player's career (age, fpts) points, in the
+  // chart's plot-area coordinate space. Null until there are ≥2 seasons.
+  const trajectoryPath = useMemo(() => {
+    if (trajectory.length < 2 || !xScale || !yScale) return null;
+    const path = Skia.Path.Make();
+    trajectory.forEach((p, i) => {
+      const x = xScale(p.age);
+      const y = yScale(p.fpts);
+      if (i === 0) path.moveTo(x, y);
+      else path.lineTo(x, y);
+    });
+    return path;
+  }, [trajectory, xScale, yScale]);
 
   // Filter dots by selected position curve. Uses the full eligibility
   // spectrum so a "PG-SG" player matches both PG and SG chips, not just
@@ -562,6 +665,31 @@ export default function AnalyticsScreen() {
                         );
                       })()}
 
+                      {/* Selected player's career trajectory — past seasons
+                          plotted on the same age/FPTS axes, clipped to the
+                          plot area and ending at the current dot. */}
+                      {trajectoryPath && (
+                        <Group clip={rect(0, 0, plotW, plotH)} opacity={detailOpacity}>
+                          <SkiaPath
+                            path={trajectoryPath}
+                            color={c.gold}
+                            style="stroke"
+                            strokeWidth={2}
+                            strokeJoin="round"
+                            strokeCap="round"
+                          />
+                          {trajectory.slice(0, -1).map((p) => (
+                            <Circle
+                              key={`traj-${p.season}`}
+                              cx={xScale(p.age)}
+                              cy={yScale(p.fpts)}
+                              r={s(3)}
+                              color={c.gold}
+                            />
+                          ))}
+                        </Group>
+                      )}
+
                       {/* Data dots */}
                       {filteredScatter.map((point) => {
                         const cx = xScale(point.age);
@@ -572,7 +700,10 @@ export default function AnalyticsScreen() {
                           selectedPlayer?.playerId === point.playerId;
 
                         return (
-                          <Group key={point.playerId}>
+                          <Group
+                            key={point.playerId}
+                            opacity={isSelected ? 1 : dimmedDotOpacity}
+                          >
                             <Circle
                               cx={cx}
                               cy={cy}
@@ -733,7 +864,7 @@ export default function AnalyticsScreen() {
                       const isSelected =
                         selectedPlayer?.playerId === point.playerId;
                       return (
-                        <Text
+                        <Animated.Text
                           key={`name-${point.playerId}`}
                           style={[
                             styles.playerNameLabel,
@@ -749,10 +880,11 @@ export default function AnalyticsScreen() {
                               top: y,
                               fontWeight: isSelected ? "700" : "600",
                             },
+                            isSelected ? null : dimmedLabelStyle,
                           ]}
                         >
                           {label}
-                        </Text>
+                        </Animated.Text>
                       );
                     });
                   })()}
@@ -779,17 +911,17 @@ export default function AnalyticsScreen() {
                 },
               ]}
             >
-              {selectedPlayer ? (
+              {displayedPlayer ? (
                 <TouchableOpacity
                   activeOpacity={0.7}
                   onPress={() => {
                     const full = players?.find(
-                      (p) => p.player_id === selectedPlayer.playerId,
+                      (p) => p.player_id === displayedPlayer.playerId,
                     );
                     if (full) setModalPlayer(full);
                   }}
                   accessibilityRole="button"
-                  accessibilityLabel={`View ${selectedPlayer.name} details`}
+                  accessibilityLabel={`View ${displayedPlayer.name} details`}
                 >
                   <Animated.View style={detailStyle}>
                     <View style={styles.detailEyebrowRow}>
@@ -809,24 +941,24 @@ export default function AnalyticsScreen() {
                           style={[styles.detailName, { color: c.text }]}
                           numberOfLines={1}
                         >
-                          {selectedPlayer.name}
+                          {displayedPlayer.name}
                         </ThemedText>
                         <ThemedText
                           type="varsitySmall"
                           style={[styles.detailMeta, { color: c.secondaryText }]}
                         >
-                          {selectedPlayer.position} · AGE {selectedPlayer.age}
+                          {displayedPlayer.position} · AGE {displayedPlayer.age}
                         </ThemedText>
                         <View style={styles.detailBadges}>
                           <Badge
                             label={
-                              ageBucket(selectedPlayer.age) === 'rising'
+                              ageBucket(displayedPlayer.age) === 'rising'
                                 ? 'RISING'
-                                : ageBucket(selectedPlayer.age) === 'prime'
+                                : ageBucket(displayedPlayer.age) === 'prime'
                                   ? 'PRIME'
                                   : 'VETERAN'
                             }
-                            variant={bucketBadgeVariant(ageBucket(selectedPlayer.age))}
+                            variant={bucketBadgeVariant(ageBucket(displayedPlayer.age))}
                             size="small"
                           />
                         </View>
@@ -836,7 +968,7 @@ export default function AnalyticsScreen() {
                           type="display"
                           style={[styles.detailFptsValue, { color: c.text }]}
                         >
-                          {selectedPlayer.avgFpts}
+                          {displayedPlayer.avgFpts}
                         </ThemedText>
                         <ThemedText
                           type="varsitySmall"
@@ -1077,7 +1209,10 @@ const styles = StyleSheet.create({
     padding: s(14),
     marginBottom: s(8),
     marginTop: s(8),
-    minHeight: s(112),
+    // Floor sits just above the natural populated-content height so the card
+    // doesn't resize between the empty hint and a player. minHeight (not a
+    // fixed height) still lets it grow gracefully under large-font settings.
+    minHeight: s(118),
     justifyContent: "center",
   },
   detailEyebrowRow: {

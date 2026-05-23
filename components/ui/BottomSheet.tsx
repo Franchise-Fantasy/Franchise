@@ -39,6 +39,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Fonts } from '@/constants/Colors';
@@ -89,6 +90,17 @@ export function BottomSheet({
   children,
 }: BottomSheetProps) {
   const c = useColors();
+  const insets = useSafeAreaInsets();
+
+  // Cap the sheet so its top chrome (handle/gold rule/title) always clears
+  // the status bar / notch — a tall sheet must never slide under the top
+  // inset and get visually cut off. Numeric (not '%') so it resolves
+  // reliably inside the Modal's nested flex tree.
+  const windowHeight = Dimensions.get('window').height;
+  const maxSheetHeight = Math.min(
+    windowHeight * 0.85,
+    windowHeight - insets.top - s(8),
+  );
 
   const slideAnim = useRef(new Animated.Value(Dimensions.get('window').height)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -98,14 +110,14 @@ export function BottomSheet({
       Animated.parallel([
         Animated.timing(fadeAnim, {
           toValue: 1,
-          duration: 250,
+          duration: 160,
           useNativeDriver: true,
         }),
         Animated.spring(slideAnim, {
           toValue: 0,
           useNativeDriver: true,
           bounciness: 0,
-          speed: 14,
+          speed: 22,
         }),
       ]).start();
     }
@@ -115,12 +127,12 @@ export function BottomSheet({
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 0,
-        duration: 200,
+        duration: 150,
         useNativeDriver: true,
       }),
       Animated.timing(slideAnim, {
         toValue: Dimensions.get('window').height,
-        duration: 200,
+        duration: 160,
         useNativeDriver: true,
       }),
     ]).start(() => onClose());
@@ -134,7 +146,7 @@ export function BottomSheet({
       transform: [{ translateY: slideAnim }],
     },
     height != null && { height },
-    height == null && { maxHeight: '85%' as const },
+    height == null && { maxHeight: maxSheetHeight },
   ];
 
   const body = scrollableBody ? (

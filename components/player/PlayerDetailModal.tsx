@@ -27,7 +27,7 @@ import { HorizontalPager } from "@/components/ui/HorizontalPager";
 import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
-import { getCurrentSeason } from "@/constants/LeagueDefaults";
+import { getCurrentSeason, getSeasonEnd } from "@/constants/LeagueDefaults";
 import { queryKeys } from "@/constants/queryKeys";
 import { DialogHost, useConfirm } from "@/context/ConfirmProvider";
 import { useToast } from "@/context/ToastProvider";
@@ -428,14 +428,23 @@ export function PlayerDetailModal({
     queryKey: queryKeys.teamGamesPlayed(sport, currentSeason, player?.pro_team ?? ''),
     queryFn: async () => {
       const today = new Date().toISOString().slice(0, 10);
-      const { count, error } = await supabase
+      // Cap at the regular-season end date so playoff games don't inflate the
+      // denominator — player.games_played comes from BDL regular-season averages.
+      const seasonEnd = getSeasonEnd(sport, currentSeason);
+      const cutoff = seasonEnd && seasonEnd < today ? seasonEnd : today;
+      let query = supabase
         .from("game_schedule")
         .select("id", { count: "exact", head: true })
         .eq("sport", sport)
         .eq("season", currentSeason)
         .or(`home_team.eq.${player!.pro_team},away_team.eq.${player!.pro_team}`)
-        .not("game_id", "like", "001%")
-        .lte("game_date", today);
+        .lte("game_date", cutoff);
+      // NBA games are stored twice: legacy NBA-official ids (game_id LIKE '00%',
+      // incl. preseason) and the canonical BDL-internal ids that
+      // sync-game-schedule + poll-live-stats maintain. Count only the canonical
+      // rows so the total isn't doubled. WNBA has a single id scheme.
+      if (sport === "nba") query = query.not("game_id", "like", "00%");
+      const { count, error } = await query;
       if (error) throw error;
       return count ?? 0;
     },

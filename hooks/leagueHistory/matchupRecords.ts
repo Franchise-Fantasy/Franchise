@@ -13,12 +13,8 @@ export function useAllTimeRecords(leagueId: string | null) {
   return useQuery<RecordEntry[]>({
     queryKey: queryKeys.allTimeRecords(leagueId!),
     queryFn: async () => {
-      // Parallel fetch: team_seasons + matchups + teams + stored records
-      const [teamSeasonsRes, matchupData, teamsRes, storedRecordsRes] = await Promise.all([
-        supabase
-          .from('team_seasons')
-          .select('team_id, season, wins, losses, points_for, team:teams!team_seasons_team_id_fkey(name)')
-          .eq('league_id', leagueId!),
+      // Parallel fetch: matchups + teams + stored records
+      const [matchupData, teamsRes, storedRecordsRes] = await Promise.all([
         fetchAllMatchups(leagueId!),
         supabase
           .from('teams')
@@ -29,30 +25,49 @@ export function useAllTimeRecords(leagueId: string | null) {
           .select('record_type, value, team_id, detail, season')
           .eq('league_id', leagueId!),
       ]);
-      if (teamSeasonsRes.error) throw teamSeasonsRes.error;
       if (teamsRes.error) throw teamsRes.error;
 
-      const teamSeasons = (teamSeasonsRes.data ?? []).map((row) => ({
-        ...row,
-        team: Array.isArray(row.team) ? row.team[0] ?? null : row.team,
-      }));
       const teamNameMap = new Map((teamsRes.data ?? []).map((t) => [t.id, t.name]));
       const records: RecordEntry[] = [];
 
-      // Most points in a season
-      if (teamSeasons.length > 0) {
-        const best = teamSeasons.reduce((a, b) => ((b.points_for ?? 0) > (a.points_for ?? 0) ? b : a));
-        records.push({
-          label: 'Most Points (Season)',
-          value: (best.points_for ?? 0).toFixed(1),
-          teamName: best.team?.name ?? 'Unknown',
-          detail: best.season,
-        });
-      }
-
-      // Highest scoring week + biggest blowout from matchups
+      // Highest scoring week + biggest blowout from matchups. These single-game
+      // records INCLUDE playoffs (a playoff blowup is a legit record). The season
+      // total below is regular-season only, so in a short league a playoff week
+      // can legitimately exceed it.
       const { matchups, scheduleMap } = matchupData;
       if (matchups.length > 0 && scheduleMap) {
+        // Most points in a season — regular-season matchups only. Playoffs are
+        // excluded so teams aren't rewarded for longevity (a deep run = more games
+        // to accumulate points); every team gets the same regular-season game count.
+        // Computed from matchups rather than team_seasons.points_for so the current
+        // in-progress season is included (team_seasons isn't written until archive).
+        const seasonTotals = new Map<string, { teamId: string; season: string; points: number }>();
+        const addPoints = (teamId: string | null, season: string, points: number) => {
+          if (!teamId) return;
+          const key = `${teamId}|${season}`;
+          const existing = seasonTotals.get(key);
+          if (existing) existing.points += points;
+          else seasonTotals.set(key, { teamId, season, points });
+        };
+        for (const m of matchups) {
+          if (m.playoff_round != null) continue; // regular season only
+          const season = scheduleMap.get(m.schedule_id)?.season ?? '';
+          addPoints(m.home_team_id, season, m.home_score);
+          addPoints(m.away_team_id, season, m.away_score);
+        }
+        let bestSeason: { teamId: string; season: string; points: number } | null = null;
+        for (const entry of seasonTotals.values()) {
+          if (!bestSeason || entry.points > bestSeason.points) bestSeason = entry;
+        }
+        if (bestSeason) {
+          records.push({
+            label: 'Most Points (Season)',
+            value: bestSeason.points.toFixed(1),
+            teamName: teamNameMap.get(bestSeason.teamId) ?? 'Unknown',
+            detail: bestSeason.season,
+          });
+        }
+
         // Highest single-week score
         let bestScore = 0;
         let bestScoreTeamId = '';

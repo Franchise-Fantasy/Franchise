@@ -1,4 +1,3 @@
-import { Ionicons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 
@@ -390,22 +389,8 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
                       <View style={styles.teamLine}>
                         {effectiveIsTraded ? (
                           <View style={styles.tradeRow}>
-                            <View style={styles.fadedLogoWrap}>
-                              <TeamLogo
-                                logoKey={row.team.logo_key}
-                                teamName={row.team.name}
-                                tricode={tricodeMap[row.team.id]}
-                                size="small"
-                              />
-                            </View>
-                            <ThemedText
-                              type="varsitySmall"
-                              style={[styles.tricodeFaded, { color: c.secondaryText }]}
-                              numberOfLines={1}
-                            >
-                              {tricodeMap[row.team.id]}
-                            </ThemedText>
-                            <Ionicons name="arrow-forward" size={ms(10)} color={c.gold} />
+                            {/* Canonical: receiving team leads (logo + tricode);
+                                origin shown faded as "from TRI", no arrow. */}
                             {(() => {
                               const ownerTeam = teams.find((t) => t.name === effectiveOwnerName);
                               const ownerTricode =
@@ -426,6 +411,13 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
                                     numberOfLines={1}
                                   >
                                     {ownerTricode}
+                                  </ThemedText>
+                                  <ThemedText
+                                    type="varsitySmall"
+                                    style={[styles.tricodeFaded, { color: c.secondaryText }]}
+                                    numberOfLines={1}
+                                  >
+                                    from {tricodeMap[row.team.id]}
                                   </ThemedText>
                                 </>
                               );
@@ -478,20 +470,20 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
                   {showProtectionStory ? (
                     <View style={styles.storyLineWrap}>
                       <PickConditionRow
-                        kind={
-                          hasResolvedProtection
-                            ? protectionHolds
-                              ? 'protection_held'
-                              : 'protection_missed'
-                            : 'protection_pending'
-                        }
+                        kind={protectionHolds ? 'protection_held' : 'protection_missed'}
                         badgeLabel={`TOP-${ownership.protectionThreshold}`}
-                        storyText={formatProtectionStory(
-                          ownership.protectionThreshold!,
-                          protectionOwnerTricode,
-                          conveyanceTricode,
-                          hasResolvedProtection ? protectionHolds : 'pending',
-                        )}
+                        storyText={
+                          hasResolvedProtection
+                            ? formatProtectionStory(
+                                ownership.protectionThreshold!,
+                                protectionOwnerTricode,
+                                conveyanceTricode,
+                                protectionHolds,
+                              )
+                            : protectionHolds
+                              ? `Projected No. ${row.position} — kept by ${protectionOwnerTricode}; conveys to ${conveyanceTricode} if it slips past Top-${ownership.protectionThreshold}`
+                              : `Projected No. ${row.position} — conveys to ${conveyanceTricode}; kept by ${protectionOwnerTricode} if it climbs to Top-${ownership.protectionThreshold}`
+                        }
                       />
                     </View>
                   ) : null}
@@ -618,62 +610,32 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
                     {/* Team line — both logos when traded (origin faded → effective solid). */}
                     <View style={styles.pickTeamCol}>
                       <View style={styles.pickTeamLine}>
-                        {effectiveIsTraded ? (
-                          <>
-                            {/* Origin abbreviated → receiving team gets the logo + full name. */}
+                        {/* Full-name-led, matching the home Rookie Draft Order:
+                            [logo] Full Name · from ORIG (no redundant tricode —
+                            there's room for the name in this list). */}
+                        <TeamLogo
+                          logoKey={effectiveTeam?.logo_key}
+                          teamName={effectiveName}
+                          tricode={effectiveTricode}
+                          size="small"
+                        />
+                        <View style={styles.teamLineWide}>
+                          <ThemedText
+                            style={[styles.teamNameLead, { color: c.text }]}
+                            numberOfLines={1}
+                          >
+                            {effectiveName}
+                          </ThemedText>
+                          {effectiveIsTraded ? (
                             <ThemedText
                               type="varsitySmall"
                               style={[styles.tricodeFaded, { color: c.secondaryText }]}
                               numberOfLines={1}
                             >
-                              {originTricode}
+                              from {originTricode}
                             </ThemedText>
-                            <Ionicons name="arrow-forward" size={ms(10)} color={c.gold} />
-                            <TeamLogo
-                              logoKey={effectiveTeam?.logo_key}
-                              teamName={effectiveName}
-                              tricode={effectiveTricode}
-                              size="small"
-                            />
-                            <View style={styles.teamLineWide}>
-                              <ThemedText
-                                type="varsity"
-                                style={[styles.tricodeStrong, { color: c.text }]}
-                              >
-                                {effectiveTricode}
-                              </ThemedText>
-                              <ThemedText
-                                style={[styles.teamFullName, { color: c.secondaryText }]}
-                                numberOfLines={1}
-                              >
-                                {effectiveName}
-                              </ThemedText>
-                            </View>
-                          </>
-                        ) : (
-                          <>
-                            <TeamLogo
-                              logoKey={effectiveTeam?.logo_key}
-                              teamName={effectiveName}
-                              tricode={effectiveTricode}
-                              size="small"
-                            />
-                            <View style={styles.teamLineWide}>
-                              <ThemedText
-                                type="varsity"
-                                style={[styles.tricodeStrong, { color: c.text }]}
-                              >
-                                {effectiveTricode}
-                              </ThemedText>
-                              <ThemedText
-                                style={[styles.teamFullName, { color: c.secondaryText }]}
-                                numberOfLines={1}
-                              >
-                                {effectiveName}
-                              </ThemedText>
-                            </View>
-                          </>
-                        )}
+                          ) : null}
+                        </View>
                       </View>
                     </View>
                   </View>
@@ -795,7 +757,6 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   tricodeFaded: { fontSize: ms(10), opacity: 0.85 },
-  fadedLogoWrap: { opacity: 0.4 },
   tricodeStrong: { fontSize: ms(13), letterSpacing: 1.0 },
   movedBadge: { fontSize: ms(10) },
 
@@ -876,8 +837,9 @@ const styles = StyleSheet.create({
     gap: s(8),
     flexShrink: 1,
   },
-  teamFullName: {
-    fontSize: ms(13),
+  teamNameLead: {
+    fontSize: ms(14),
+    fontWeight: '500',
     flexShrink: 1,
   },
   pickStoryLine: {

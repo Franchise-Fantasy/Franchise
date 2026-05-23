@@ -10,7 +10,11 @@ import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Fonts } from '@/constants/Colors';
 import { useColors } from '@/hooks/useColors';
-import { type Transaction, useTransactions } from '@/hooks/useTransactions';
+import {
+  type Transaction,
+  mergeTransactionGroups,
+  useTransactions,
+} from '@/hooks/useTransactions';
 import { ms, s } from '@/utils/scale';
 
 const FILTER_OPTIONS = [
@@ -80,7 +84,10 @@ export default function Activity() {
   const [refreshing, setRefreshing] = useState(false);
   const lastRefresh = useRef(0);
 
-  const transactions = useMemo(() => data?.pages.flat() ?? [], [data?.pages]);
+  const transactions = useMemo(
+    () => mergeTransactionGroups(data?.pages.flat() ?? []),
+    [data?.pages],
+  );
   const sections = useMemo(() => groupByDay(transactions), [transactions]);
 
   const renderItem = useCallback(
@@ -151,12 +158,6 @@ export default function Activity() {
           >
             No moves yet.
           </ThemedText>
-          <ThemedText
-            type="varsitySmall"
-            style={[styles.emptySub, { color: c.secondaryText }]}
-          >
-            TRADES · ADDS · DROPS WILL LAND HERE
-          </ThemedText>
         </View>
       ) : (
         <SectionList
@@ -217,11 +218,6 @@ const styles = StyleSheet.create({
     fontSize: ms(22),
     lineHeight: ms(26),
     letterSpacing: -0.2,
-    textAlign: 'center',
-  },
-  emptySub: {
-    fontSize: ms(11),
-    letterSpacing: 1.3,
     textAlign: 'center',
   },
   list: {

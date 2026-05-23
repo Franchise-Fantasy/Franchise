@@ -5,6 +5,7 @@ import { View } from 'react-native';
 import Auth from '@/components/account/Auth';
 import { useAppState } from '@/context/AppStateProvider';
 import { useSession } from '@/context/AuthProvider';
+import { hasPendingDeepLink } from '@/lib/pendingNav';
 
 export default function IndexScreen() {
   const session = useSession();
@@ -14,7 +15,11 @@ export default function IndexScreen() {
 
   useEffect(() => {
     if (loading || !session) return;
-    if (pathname === '/reset-password') return;
+    // Only redirect from the index route itself — once a deep link or
+    // notification tap has navigated elsewhere, don't yank the user back.
+    if (pathname !== '/') return;
+    // A notification tap owns the launch navigation; let it land first.
+    if (hasPendingDeepLink()) return;
 
     if (leagueId) {
       router.replace('/(tabs)');

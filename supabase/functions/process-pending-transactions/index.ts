@@ -81,11 +81,17 @@ Deno.serve(async (req: Request) => {
 
         const { data: playerData } = await supabase.from("players").select("name").eq("id", txn.player_id).single();
         const playerName = playerData?.name ?? "Unknown";
-        notifBody = `${playerName} has been dropped (queued).`;
+
+        // When this drop is the back half of an add+drop done in one user
+        // action, the add already announced both sides at submit time. Carry
+        // the shared group_id onto this row so the feed groups them, and stay
+        // quiet here to avoid a duplicate push.
+        const groupId = (txn.metadata as { group_id?: string } | null)?.group_id ?? null;
+        notifBody = groupId ? '' : `${playerName} has been dropped (queued).`;
 
         const { data: leagueTxn, error: txnError } = await supabase
           .from("league_transactions")
-          .insert({ league_id: txn.league_id, type: "waiver", notes: `Dropped ${playerName} (queued drop)`, team_id: txn.team_id })
+          .insert({ league_id: txn.league_id, type: "waiver", notes: `Dropped ${playerName} (queued drop)`, team_id: txn.team_id, group_id: groupId })
           .select("id").single();
         if (txnError) throw txnError;
 

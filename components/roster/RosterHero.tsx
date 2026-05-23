@@ -1,7 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import { Fragment } from "react";
+import { Fragment, useEffect, useRef } from "react";
 import {
+  Animated,
+  Easing,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -15,6 +17,11 @@ import { ms, s } from "@/utils/scale";
 
 const PATCH_SOURCE = require("../../assets/images/patch_logo.png");
 const TAP_SLOP = { top: 8, bottom: 8, left: 8, right: 8 };
+const ARROW_SLOP = { top: 8, bottom: 8, left: 4, right: 4 };
+// Brighter than INJURY_COLORS.out (#dc3545) so it reads on the dark turf
+// hero surface — matches the live-dot red already used in the eyebrow.
+const OUT_RED = "#E55353";
+const IDLE_FILL = "rgba(233, 226, 203, 0.42)";
 
 interface HeroTeam {
   tricode: string | null;
@@ -22,6 +29,15 @@ interface HeroTeam {
   wins?: number | null;
   losses?: number | null;
   ties?: number | null;
+}
+
+/** Per-starter availability for the selected day. */
+interface LineupDay {
+  playing: number;
+  out: number;
+  idle: number;
+  empty: number;
+  starterCount: number;
 }
 
 interface RosterHeroProps {
@@ -41,9 +57,8 @@ interface RosterHeroProps {
   myScore?: number | null;
   oppScore?: number | null;
   weekIsLive?: boolean;
-  playCount?: number;
-  lockedCount?: number;
-  emptyCount?: number;
+  /** Drives the lineup-health bar. Omitted (or starterCount 0) hides it. */
+  lineupDay?: LineupDay;
   /** Roster-management stats. Drives the offseason context strip and
    *  contributes a ROSTER fill chip during in-season too. */
   rosterStats?: {
@@ -56,6 +71,10 @@ interface RosterHeroProps {
   onPrevDay: () => void;
   onNextDay: () => void;
   onGoToToday: () => void;
+  /** When set, the eyebrow date becomes a tappable dropdown. */
+  onDatePress?: () => void;
+  /** When set, the week chip opens the weekly summary. */
+  onWeekPress?: () => void;
 }
 
 function formatRecord(t: HeroTeam | null | undefined): string {
@@ -66,45 +85,41 @@ function formatRecord(t: HeroTeam | null | undefined): string {
   return ti > 0 ? `${w}-${l}-${ti}` : `${w}-${l}`;
 }
 
-function lineupSubline(isPastDate: boolean, isToday: boolean): string {
-  if (isPastDate) return "Past lineup · read-only";
-  if (isToday) return "Today's lineup";
-  return "Upcoming lineup";
-}
-
-interface DecisionLine {
+interface StatusLine {
   text: string;
-  /** Renders gold to flag an action the user owes. */
-  urgent: boolean;
-  /** Renders muted ecru — used for read-only/closed states. */
-  muted?: boolean;
+  color: string;
 }
 
-function buildDecision(args: {
-  isPastDate: boolean;
-  isToday: boolean;
-  emptyCount: number;
-  playCount: number;
-  lockedCount: number;
-}): DecisionLine {
-  if (args.emptyCount > 0) {
+/**
+ * The single most useful thing to say about the lineup for this day,
+ * in priority order: read-only past → owed fills → dead-weight OUT →
+ * off day → playing count.
+ */
+function buildLineupStatus(day: LineupDay, isPastDate: boolean): StatusLine {
+  if (isPastDate) return { text: "FINAL", color: Brand.ecruMuted };
+  if (day.empty > 0) {
+    return {
+      text: day.empty === 1 ? "1 OPEN SLOT" : `${day.empty} OPEN SLOTS`,
+      color: Brand.vintageGold,
+    };
+  }
+  if (day.out > 0) {
     return {
       text:
-        args.emptyCount === 1
-          ? "1 OPEN SLOT"
-          : `${args.emptyCount} OPEN SLOTS`,
-      urgent: !args.isPastDate,
-      muted: args.isPastDate,
+        day.out === 1 ? "1 OUT IN LINEUP" : `${day.out} OUT IN LINEUP`,
+      color: OUT_RED,
     };
   }
-  if (args.isPastDate) return { text: "FINAL", urgent: false, muted: true };
-  if (args.isToday && args.playCount > 0) {
-    return {
-      text: `${args.lockedCount}/${args.playCount} PLAYED`,
-      urgent: false,
-    };
+  if (day.playing === 0) {
+    return { text: "OFF DAY · NO GAMES", color: Brand.ecruMuted };
   }
-  return { text: "LINEUP SET", urgent: false };
+  return {
+    text:
+      day.idle > 0
+        ? `${day.playing} PLAYING · ${day.idle} IDLE`
+        : `${day.playing} PLAYING`,
+    color: Brand.ecru,
+  };
 }
 
 interface ContextItem {
@@ -112,26 +127,12 @@ interface ContextItem {
   urgent?: boolean;
 }
 
-function buildInSeasonContext(args: {
-  isToday: boolean;
-  isPastDate: boolean;
-  isBye: boolean;
-  playCount: number;
-  rosterStats: RosterHeroProps["rosterStats"];
-}): ContextItem[] {
+/** In-season context strip — roster-management meta only; daily game
+ *  status now lives in the lineup bar. */
+function buildInSeasonContext(
+  rs: RosterHeroProps["rosterStats"],
+): ContextItem[] {
   const items: ContextItem[] = [];
-  if (args.isBye) {
-    items.push({ label: "REST WEEK" });
-  } else if (args.playCount > 0) {
-    items.push({
-      label: args.isToday
-        ? `${args.playCount} PLAYING`
-        : `${args.playCount} GAMES`,
-    });
-  } else {
-    items.push({ label: "OFF DAY" });
-  }
-  const rs = args.rosterStats;
   if (rs && rs.rosterSize > 0) {
     const rosterFull = rs.rosterCount >= rs.rosterSize;
     items.push({
@@ -140,6 +141,8 @@ function buildInSeasonContext(args: {
     });
   }
   if (rs?.irCount && rs.irCount > 0) items.push({ label: `${rs.irCount} IR` });
+  if (rs?.taxiCount && rs.taxiCount > 0)
+    items.push({ label: `${rs.taxiCount} TAXI` });
   return items;
 }
 
@@ -181,21 +184,21 @@ function formatScoreLine(
 }
 
 /**
- * Roster hero — blends the home-hero identity anchor (BIG display tricode
- * is the focal "this is YOUR team") with the matchup-hero chrome (3-zone
- * eyebrow chips, vintage gold accents, hairline-divided status row).
+ * Roster hero — refined-editorial identity × lineup command center.
  *
- * Bands top-to-bottom:
- *   1. Eyebrow — `[● WK 1]` chip / centered date / icon-only return-to-today
- *   2. Identity — BIG tricode + gold mini-divider + record, team name below
- *   3. Status row — `vs LAS  148.6 — 152.5  │  3 OPEN SLOTS / Today's lineup`
- *                   flanked by ‹ › day-nav arrows. The matchup half is
- *                   context; the decision half goes gold when there's an
- *                   open slot the user owes.
- *   4. Chip strip — roster meta + day-game count
+ * Distinct from the Home and Matchup heroes: a calm, left-aligned team
+ * identity sits beside a demoted matchup scoreline (the Matchup page
+ * owns the big scoreboard), and a lineup-health bar — its signature —
+ * answers "is my lineup actually going to score today, and is anyone
+ * dead weight?" at a glance.
  *
- * Offseason / bye / no-matchup gracefully collapse the status row's
- * matchup half — the rest of the chrome stays put.
+ * Layout:
+ *   1. Eyebrow — `[● WK 1]` chip · tappable date dropdown · today return
+ *   2. Main row — BIG tricode + record (left) │ vs OPP + score (right)
+ *   3. Lineup bar — segmented per-starter availability + smart status
+ *   4. Bottom — ‹ › day-nav chips flanking the roster-meta strip
+ *
+ * Offseason / bye / no-matchup gracefully collapse the matchup + bar.
  */
 export function RosterHero({
   selectedDate,
@@ -211,13 +214,13 @@ export function RosterHero({
   myScore,
   oppScore,
   weekIsLive,
-  playCount = 0,
-  lockedCount = 0,
-  emptyCount = 0,
+  lineupDay,
   rosterStats,
   onPrevDay,
   onNextDay,
   onGoToToday,
+  onDatePress,
+  onWeekPress,
 }: RosterHeroProps) {
   const c = useColors();
   const isOffseason = !currentWeek;
@@ -229,40 +232,35 @@ export function RosterHero({
     ? `${playoffPrefix}WK ${currentWeek.week_number}`
     : "OFFSEASON";
 
-  const decision = isOffseason
-    ? null
-    : buildDecision({
-        isPastDate,
-        isToday,
-        emptyCount,
-        playCount,
-        lockedCount,
-      });
-  const subline = isOffseason ? null : lineupSubline(isPastDate, isToday);
-
   const contextItems = isOffseason
     ? rosterStats
       ? buildOffseasonContext(rosterStats)
       : [{ label: "OFFSEASON" }]
-    : buildInSeasonContext({
-        isToday,
-        isPastDate,
-        isBye: !!isBye,
-        playCount,
-        rosterStats,
-      });
+    : buildInSeasonContext(rosterStats);
 
   const tricode = myTeam?.tricode ?? "—";
   const record = formatRecord(myTeam);
   const teamName = myTeam?.name ?? "";
+  const showLineupBar =
+    !isOffseason && !!lineupDay && lineupDay.starterCount > 0;
+
+  // The week chip opens the weekly summary when in-season; offseason it's
+  // a static label. Mirrors HomeHero's conditional-wrapper pattern.
+  const weekChipTappable = !!onWeekPress && !isOffseason;
+  const WeekWrapper = weekChipTappable ? TouchableOpacity : View;
+  const weekWrapperProps = weekChipTappable
+    ? {
+        onPress: onWeekPress,
+        hitSlop: TAP_SLOP,
+        accessibilityRole: "button" as const,
+        accessibilityLabel: `${weekChipText}. View weekly summary`,
+        accessibilityHint: "Opens this week's performance breakdown",
+      }
+    : {};
 
   return (
     <View
-      style={[
-        styles.card,
-        { backgroundColor: c.heroSurface },
-        c.heroShadow,
-      ]}
+      style={[styles.card, { backgroundColor: c.heroSurface }, c.heroShadow]}
     >
       <Image
         source={PATCH_SOURCE}
@@ -274,87 +272,101 @@ export function RosterHero({
       />
       <View style={styles.topRule} />
 
-      {/* ── Eyebrow ─ week chip / centered date / today return ─────── */}
+      {/* ── Eyebrow ─ week chip / date dropdown + today return ──────── */}
       <View style={styles.eyebrowRow}>
         <View style={styles.eyebrowLeft}>
-          <View style={styles.weekChip}>
+          <WeekWrapper style={styles.weekChip} {...weekWrapperProps}>
             {weekIsLive && <View style={styles.liveDot} />}
             <Text style={styles.weekChipText} numberOfLines={1}>
               {weekChipText}
             </Text>
-          </View>
-          {!isToday && isFutureDate && !isOffseason && (
-            <>
-              <View style={styles.eyebrowSpacer} />
-              <TouchableOpacity
-                onPress={onGoToToday}
-                style={styles.todayIconChip}
-                hitSlop={TAP_SLOP}
-                accessibilityRole="button"
-                accessibilityLabel="Jump to today"
-              >
-                <Ionicons
-                  name="arrow-undo-outline"
-                  size={ms(14)}
-                  color={Brand.vintageGold}
-                />
-              </TouchableOpacity>
-            </>
-          )}
+            {weekChipTappable && (
+              <Ionicons
+                name="stats-chart"
+                size={ms(11)}
+                color={Brand.vintageGold}
+                style={styles.weekChipCaret}
+              />
+            )}
+          </WeekWrapper>
         </View>
 
+        {/* Date sits dead-centre and never moves. The jump-to-today chip
+            lives in the flex-1 right column (inner edge, just beside the
+            date) so showing/hiding it can't shift the date — mirrors the
+            Matchup hero. */}
         <View style={styles.eyebrowCenter}>
-          {!isOffseason && (
-            <ThemedText
-              type="varsity"
-              style={styles.eyebrowDate}
-              numberOfLines={1}
-            >
-              {dayLabel.toUpperCase()}
-            </ThemedText>
-          )}
+          {!isOffseason &&
+            (onDatePress ? (
+              <TouchableOpacity
+                onPress={onDatePress}
+                style={styles.dateButton}
+                hitSlop={TAP_SLOP}
+                accessibilityRole="button"
+                accessibilityLabel={`${dayLabel}. Change day`}
+                accessibilityHint="Opens the day picker"
+              >
+                <ThemedText
+                  type="varsity"
+                  style={styles.eyebrowDate}
+                  numberOfLines={1}
+                >
+                  {dayLabel.toUpperCase()}
+                </ThemedText>
+                <Ionicons
+                  name="chevron-down"
+                  size={ms(12)}
+                  color={Brand.ecruMuted}
+                  style={styles.dateCaret}
+                />
+              </TouchableOpacity>
+            ) : (
+              <ThemedText
+                type="varsity"
+                style={styles.eyebrowDate}
+                numberOfLines={1}
+              >
+                {dayLabel.toUpperCase()}
+              </ThemedText>
+            ))}
         </View>
 
         <View style={styles.eyebrowRight}>
-          {!isToday && !isFutureDate && !isOffseason && (
-            <>
-              <TouchableOpacity
-                onPress={onGoToToday}
-                style={styles.todayIconChip}
-                hitSlop={TAP_SLOP}
-                accessibilityRole="button"
-                accessibilityLabel="Jump to today"
-              >
-                <Ionicons
-                  name="arrow-redo-outline"
-                  size={ms(14)}
-                  color={Brand.vintageGold}
-                />
-              </TouchableOpacity>
-              <View style={styles.eyebrowSpacer} />
-            </>
+          {!isToday && !isOffseason && (
+            <TouchableOpacity
+              onPress={onGoToToday}
+              style={styles.todayIconChip}
+              hitSlop={TAP_SLOP}
+              accessibilityRole="button"
+              accessibilityLabel="Jump to today"
+            >
+              <Ionicons
+                name={isFutureDate ? "arrow-undo-outline" : "arrow-redo-outline"}
+                size={ms(14)}
+                color={Brand.vintageGold}
+              />
+            </TouchableOpacity>
           )}
         </View>
       </View>
 
-      {/* ── Identity ─ BIG tricode + record, team name subline ─────── */}
-      <View style={styles.identityBlock}>
-        <View style={styles.tricodeRow}>
-          <ThemedText
-            type="display"
-            style={styles.tricode}
-            numberOfLines={1}
-            accessibilityLabel={
-              myTeam?.name
-                ? `${myTeam.name}${record ? `, ${record}` : ""}`
-                : tricode
-            }
-          >
-            {tricode}
-          </ThemedText>
-          {record ? (
-            <>
-              <View style={styles.identityDivider} />
+      {/* ── Main row ─ identity (left) + matchup scoreline (right) ───── */}
+      <View style={styles.mainRow}>
+        <View style={styles.identityBlock}>
+          <View style={styles.tricodeRow}>
+            <ThemedText
+              type="display"
+              style={styles.tricode}
+              numberOfLines={1}
+              accessibilityLabel={
+                myTeam?.name
+                  ? `${myTeam.name}${record ? `, ${record}` : ""}`
+                  : tricode
+              }
+            >
+              {tricode}
+            </ThemedText>
+            {record ? (
               <ThemedText
                 type="mono"
                 style={styles.identityRecord}
@@ -362,93 +374,43 @@ export function RosterHero({
               >
                 {record}
               </ThemedText>
-            </>
+            ) : null}
+          </View>
+          {teamName ? (
+            <ThemedText style={styles.teamName} numberOfLines={1}>
+              {teamName}
+            </ThemedText>
           ) : null}
         </View>
-        {teamName ? (
-          <ThemedText style={styles.teamName} numberOfLines={1}>
-            {teamName}
-          </ThemedText>
-        ) : null}
-      </View>
 
-      {/* ── Status row ─ matchup | decision, flanked by day arrows ─── */}
-      {!isOffseason && (
-        <View style={styles.statusRow}>
-          <TouchableOpacity
-            onPress={onPrevDay}
-            disabled={!canGoBack}
-            style={[
-              styles.statusArrow,
-              !canGoBack && styles.statusArrowDisabled,
-            ]}
-            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-            accessibilityRole="button"
-            accessibilityLabel="Previous day"
-            accessibilityState={{ disabled: !canGoBack }}
-          >
-            <Text style={styles.statusArrowText}>‹</Text>
-          </TouchableOpacity>
-
-          {hasMatchup ? (
-            <View style={styles.statusBody}>
-              <View style={styles.statusHalf}>
+        {!isOffseason && (
+          <View style={styles.matchupBlock}>
+            {hasMatchup ? (
+              <>
                 <ThemedText
                   type="varsitySmall"
-                  style={styles.statusLabel}
+                  style={styles.matchupVs}
                   numberOfLines={1}
                 >
-                  vs {opponent?.tricode}
+                  VS {opponent?.tricode}
                 </ThemedText>
                 <ThemedText
+                  type="mono"
                   style={[
-                    styles.statusScore,
+                    styles.matchupScore,
                     { color: scoreColor(myScore, oppScore, weekIsLive) },
                   ]}
                   numberOfLines={1}
                 >
                   {formatScoreLine(myScore, oppScore)}
                 </ThemedText>
-              </View>
-              <View style={styles.statusDivider} />
-              <View style={styles.statusHalf}>
-                <ThemedText
-                  style={[
-                    styles.statusDecision,
-                    {
-                      color: decision!.urgent
-                        ? Brand.vintageGold
-                        : decision!.muted
-                          ? Brand.ecruMuted
-                          : Brand.ecru,
-                    },
-                  ]}
-                  numberOfLines={1}
-                >
-                  {decision!.text}
-                </ThemedText>
-                {subline && (
-                  <ThemedText
-                    type="varsitySmall"
-                    style={styles.statusSubline}
-                    numberOfLines={1}
-                  >
-                    {subline}
-                  </ThemedText>
-                )}
-              </View>
-            </View>
-          ) : (
-            // Bye / eliminated / no-matchup — full-width fallback band.
-            // Drops the matchup half so the decision side gets the full
-            // width without the divider looking lopsided.
-            <View style={styles.statusBodyFallback}>
+              </>
+            ) : (
               <ThemedText
+                type="varsitySmall"
                 style={[
-                  styles.statusFallback,
-                  {
-                    color: isBye ? Brand.ecruMuted : Brand.ecru,
-                  },
+                  styles.matchupFallback,
+                  { color: isBye ? Brand.ecruMuted : Brand.ecru },
                 ]}
                 numberOfLines={1}
               >
@@ -458,32 +420,145 @@ export function RosterHero({
                     ? "ELIMINATED"
                     : "NO MATCHUP"}
               </ThemedText>
-              {subline && (
-                <ThemedText
-                  type="varsitySmall"
-                  style={styles.statusSubline}
-                  numberOfLines={1}
-                >
-                  {subline}
-                </ThemedText>
-              )}
-            </View>
-          )}
+            )}
+          </View>
+        )}
+      </View>
 
-          <TouchableOpacity
-            onPress={onNextDay}
-            style={styles.statusArrow}
-            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-            accessibilityRole="button"
-            accessibilityLabel="Next day"
-          >
-            <Text style={styles.statusArrowText}>›</Text>
-          </TouchableOpacity>
-        </View>
+      {/* ── Lineup health bar ─ per-starter availability + status ────── */}
+      {showLineupBar && (
+        <LineupBar day={lineupDay} isPastDate={isPastDate} />
       )}
 
-      <ContextStrip items={contextItems} />
+      {/* ── Bottom ─ day-nav chips flanking the roster-meta strip ────── */}
+      <View style={styles.bottomRow}>
+        {!isOffseason && (
+          <ArrowChip
+            direction="prev"
+            disabled={!canGoBack}
+            onPress={onPrevDay}
+          />
+        )}
+        <View style={styles.contextStripWrap}>
+          <ContextStrip items={contextItems} />
+        </View>
+        {!isOffseason && <ArrowChip direction="next" onPress={onNextDay} />}
+      </View>
     </View>
+  );
+}
+
+/**
+ * Segmented lineup-health bar. One segment per starter slot, colored by
+ * the player's status for the selected day: playing (gold) → idle, no
+ * game (dim) → OUT/injured (red) → empty slot (faint track). The filled
+ * segments fade in on mount and whenever the composition changes.
+ */
+function LineupBar({
+  day,
+  isPastDate,
+}: {
+  day: LineupDay;
+  isPastDate: boolean;
+}) {
+  const fill = useRef(new Animated.Value(0)).current;
+  const { playing, out, idle, empty, starterCount } = day;
+
+  useEffect(() => {
+    fill.setValue(0);
+    Animated.timing(fill, {
+      toValue: 1,
+      duration: 450,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [fill, playing, out, idle, empty]);
+
+  // Visual order groups contributing slots first, problems last.
+  const segments: ("playing" | "idle" | "out" | "empty")[] = [
+    ...Array(playing).fill("playing"),
+    ...Array(idle).fill("idle"),
+    ...Array(out).fill("out"),
+    ...Array(empty).fill("empty"),
+  ];
+
+  const status = buildLineupStatus(day, isPastDate);
+
+  return (
+    <View
+      style={styles.lineupSection}
+      accessibilityRole="progressbar"
+      accessibilityLabel={`Lineup for this day: ${playing} of ${starterCount} playing${
+        out > 0 ? `, ${out} out` : ""
+      }${idle > 0 ? `, ${idle} idle` : ""}${empty > 0 ? `, ${empty} open` : ""}`}
+    >
+      <View style={styles.lineupBarRow}>
+        <ThemedText type="varsitySmall" style={styles.lineupLabel}>
+          LINEUP
+        </ThemedText>
+        <View style={styles.lineupTrack}>
+          {segments.map((kind, i) => (
+            <View key={i} style={styles.lineupSegment}>
+              {kind !== "empty" && (
+                <Animated.View
+                  style={[
+                    StyleSheet.absoluteFill,
+                    {
+                      borderRadius: 2,
+                      opacity: fill,
+                      backgroundColor:
+                        kind === "playing"
+                          ? Brand.vintageGold
+                          : kind === "out"
+                            ? OUT_RED
+                            : IDLE_FILL,
+                    },
+                  ]}
+                />
+              )}
+            </View>
+          ))}
+        </View>
+        <ThemedText type="mono" style={styles.lineupCount}>
+          {playing}/{starterCount}
+        </ThemedText>
+      </View>
+      <ThemedText
+        type="varsitySmall"
+        style={[styles.lineupStatus, { color: status.color }]}
+        numberOfLines={1}
+      >
+        {status.text}
+      </ThemedText>
+    </View>
+  );
+}
+
+function ArrowChip({
+  direction,
+  disabled,
+  onPress,
+}: {
+  direction: "prev" | "next";
+  disabled?: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      disabled={disabled}
+      style={[styles.arrowChip, disabled && styles.arrowChipDisabled]}
+      hitSlop={ARROW_SLOP}
+      accessibilityRole="button"
+      accessibilityLabel={direction === "prev" ? "Previous day" : "Next day"}
+      accessibilityState={{ disabled: !!disabled }}
+    >
+      <Ionicons
+        name={direction === "prev" ? "chevron-back" : "chevron-forward"}
+        size={ms(15)}
+        color={Brand.ecru}
+      />
+    </TouchableOpacity>
   );
 }
 
@@ -515,18 +590,18 @@ const styles = StyleSheet.create({
     marginTop: s(8),
     marginBottom: s(8),
     borderRadius: 16,
-    paddingHorizontal: s(12),
+    paddingHorizontal: s(14),
     paddingTop: s(10),
     paddingBottom: s(10),
     overflow: "hidden",
-    // Hold height stable across in-season / offseason / bye so the card
-    // doesn't jump when the status-row band collapses.
-    minHeight: s(170),
+    // Floor only — the card sizes to content; this keeps the offseason
+    // (collapsed matchup + bar) variant from looking stubby.
+    minHeight: s(150),
   },
   topRule: {
     position: "absolute",
     top: 0,
-    left: s(12),
+    left: s(14),
     height: 3,
     width: s(36),
     backgroundColor: Brand.vintageGold,
@@ -535,9 +610,9 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: s(-22),
     bottom: s(-28),
-    width: s(130),
-    height: s(130),
-    opacity: 0.14,
+    width: s(124),
+    height: s(124),
+    opacity: 0.12,
   },
 
   // ── Eyebrow ─────────────────────────────────────────────────────────
@@ -545,7 +620,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     marginBottom: s(6),
-    minHeight: ms(20),
+    minHeight: ms(22),
   },
   eyebrowLeft: {
     flex: 1,
@@ -563,16 +638,20 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "flex-end",
-    gap: s(5),
+    justifyContent: "flex-start",
   },
-  eyebrowSpacer: {
-    flex: 1,
+  dateButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: s(4),
   },
   eyebrowDate: {
     color: Brand.ecru,
     fontSize: ms(11),
     letterSpacing: 1.1,
+  },
+  dateCaret: {
+    marginTop: ms(1),
   },
   weekChip: {
     flexDirection: "row",
@@ -592,11 +671,14 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     textTransform: "uppercase",
   },
+  weekChipCaret: {
+    marginLeft: s(1),
+  },
   liveDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: "#E55353",
+    backgroundColor: OUT_RED,
   },
   todayIconChip: {
     width: ms(22),
@@ -609,122 +691,134 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(181, 123, 48, 0.18)",
   },
 
-  // ── Identity ────────────────────────────────────────────────────────
-  identityBlock: {
+  // ── Main row (identity + matchup) ───────────────────────────────────
+  mainRow: {
+    flexDirection: "row",
     alignItems: "center",
-    marginBottom: s(8),
+    justifyContent: "space-between",
+    gap: s(12),
+    marginBottom: s(10),
+  },
+  identityBlock: {
+    flexShrink: 1,
+    alignItems: "flex-start",
   },
   tricodeRow: {
     flexDirection: "row",
     alignItems: "baseline",
-    gap: s(8),
+    gap: s(10),
   },
   tricode: {
     color: Brand.ecru,
-    fontSize: ms(36),
-    lineHeight: ms(42),
-    letterSpacing: -0.4,
-  },
-  identityDivider: {
-    width: s(8),
-    height: 1,
-    backgroundColor: Brand.vintageGold,
-    opacity: 0.65,
-    alignSelf: "center",
+    fontSize: ms(40),
+    // Generous line height + top pad so the slab-serif caps aren't
+    // clipped at the top of their line box.
+    lineHeight: ms(48),
+    paddingTop: ms(2),
+    letterSpacing: -0.5,
   },
   identityRecord: {
-    color: Brand.ecru,
+    color: Brand.ecruMuted,
     fontSize: ms(15),
     letterSpacing: 0.4,
   },
   teamName: {
     color: Brand.ecruMuted,
-    fontSize: ms(11),
-    letterSpacing: 0.4,
-    marginTop: s(2),
-  },
-
-  // ── Status row ──────────────────────────────────────────────────────
-  statusRow: {
-    flexDirection: "row",
-    alignItems: "stretch",
-    marginBottom: s(8),
-  },
-  statusBody: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "stretch",
-    paddingVertical: s(2),
-  },
-  statusBodyFallback: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: s(4),
-  },
-  statusHalf: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: s(2),
-  },
-  statusDivider: {
-    width: StyleSheet.hairlineWidth,
-    backgroundColor: "rgba(233, 226, 203, 0.18)",
-    marginHorizontal: s(6),
-  },
-  statusLabel: {
-    color: Brand.ecruMuted,
-    fontSize: ms(10),
-    letterSpacing: 0.8,
-  },
-  statusScore: {
-    fontFamily: Fonts.varsityBold,
-    fontSize: ms(15),
-    lineHeight: ms(18),
-    fontVariant: ["tabular-nums"],
-    letterSpacing: -0.1,
-  },
-  statusDecision: {
-    fontFamily: Fonts.varsityBold,
-    fontSize: ms(13),
-    lineHeight: ms(16),
-    letterSpacing: 0.4,
-  },
-  statusSubline: {
-    color: Brand.ecruMuted,
-    fontSize: ms(9),
-    letterSpacing: 0.6,
+    fontSize: ms(12),
+    letterSpacing: 0.3,
     marginTop: s(1),
   },
-  statusFallback: {
-    fontFamily: Fonts.varsityBold,
-    fontSize: ms(15),
-    lineHeight: ms(18),
-    letterSpacing: 0.6,
+  matchupBlock: {
+    alignItems: "flex-end",
+    flexShrink: 0,
   },
-  statusArrow: {
-    paddingHorizontal: s(6),
-    justifyContent: "center",
+  matchupVs: {
+    color: Brand.ecruMuted,
+    fontSize: ms(11),
+    letterSpacing: 0.8,
   },
-  statusArrowDisabled: {
-    opacity: 0.3,
+  matchupScore: {
+    fontSize: ms(16),
+    lineHeight: ms(20),
+    letterSpacing: -0.1,
+    fontVariant: ["tabular-nums"],
+    marginTop: s(2),
   },
-  statusArrowText: {
-    color: Brand.ecru,
-    fontSize: ms(24),
-    lineHeight: ms(28),
-    fontWeight: "300",
+  matchupFallback: {
+    fontSize: ms(13),
+    letterSpacing: 0.8,
   },
 
-  // ── Chip strip ──────────────────────────────────────────────────────
+  // ── Lineup health bar (signature) ───────────────────────────────────
+  lineupSection: {
+    marginBottom: s(10),
+    gap: s(4),
+  },
+  lineupBarRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: s(8),
+  },
+  lineupLabel: {
+    color: Brand.ecruMuted,
+    fontSize: ms(10),
+    letterSpacing: 1.4,
+  },
+  lineupTrack: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: s(3),
+    height: ms(8),
+  },
+  lineupSegment: {
+    flex: 1,
+    height: "100%",
+    borderRadius: 2,
+    overflow: "hidden",
+    backgroundColor: "rgba(233, 226, 203, 0.16)",
+  },
+  lineupCount: {
+    color: Brand.ecru,
+    fontSize: ms(13),
+    letterSpacing: 0.2,
+    fontVariant: ["tabular-nums"],
+  },
+  lineupStatus: {
+    fontSize: ms(10),
+    letterSpacing: 1.1,
+  },
+
+  // ── Bottom row (day nav + context strip) ────────────────────────────
+  bottomRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    minHeight: ms(26),
+  },
+  contextStripWrap: {
+    flex: 1,
+  },
+  arrowChip: {
+    width: ms(26),
+    height: ms(26),
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: "rgba(233, 226, 203, 0.22)",
+    backgroundColor: "rgba(233, 226, 203, 0.06)",
+  },
+  arrowChipDisabled: {
+    opacity: 0.3,
+  },
+
+  // ── Context strip ───────────────────────────────────────────────────
   contextStrip: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     flexWrap: "wrap",
     gap: s(6),
-    minHeight: ms(16),
   },
   contextItem: {
     fontSize: ms(10),

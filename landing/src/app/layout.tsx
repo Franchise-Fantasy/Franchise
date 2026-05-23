@@ -1,33 +1,49 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Alfa_Slab_One, Oswald, Inter, JetBrains_Mono } from "next/font/google";
 import ThemeProvider from "@/components/ThemeProvider";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const alfaSlab = Alfa_Slab_One({
+  variable: "--font-alfa-slab-one",
+  weight: "400",
   subsets: ["latin"],
+  display: "swap",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const oswald = Oswald({
+  variable: "--font-oswald",
+  weight: ["500", "700"],
   subsets: ["latin"],
+  display: "swap",
+});
+
+const inter = Inter({
+  variable: "--font-inter",
+  subsets: ["latin"],
+  display: "swap",
+});
+
+const jetBrains = JetBrains_Mono({
+  variable: "--font-jetbrains-mono",
+  subsets: ["latin"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "Franchise Fantasy | Dynasty Fantasy Basketball",
+  title: "Franchise | Dynasty Fantasy Basketball",
   description:
-    "The ultimate fantasy basketball app. Dynasty, keeper, and redraft leagues with live drafts, deep trades, analytics, and more.",
+    "Dynasty-first fantasy basketball. Build, manage, and evolve a franchise over time — with every decision carrying weight across seasons.",
   metadataBase: new URL("https://franchisefantasy.co"),
   openGraph: {
-    title: "Franchise Fantasy | Dynasty Fantasy Basketball",
-    description: "Fantasy basketball, built different.",
+    title: "Franchise | Dynasty Fantasy Basketball",
+    description: "Own the dynasty. Year-round fantasy basketball, built for the long game.",
     type: "website",
     url: "https://franchisefantasy.co",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Franchise Fantasy",
-    description: "Fantasy basketball, built different.",
+    title: "Franchise",
+    description: "Own the dynasty.",
   },
 };
 
@@ -39,8 +55,8 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      data-theme="dark"
-      className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+      data-theme="light"
+      className={`${alfaSlab.variable} ${oswald.variable} ${inter.variable} ${jetBrains.variable} antialiased`}
       suppressHydrationWarning
     >
       <body>

@@ -47,7 +47,16 @@ export function SeasonSection({ leagueId, isCommissioner }: SeasonSectionProps) 
       });
 
       if (res.error || res.data?.error) {
-        Alert.alert('Error', res.data?.error ?? res.error?.message ?? 'Failed to generate schedule.');
+        // FunctionsHttpError stashes the Response on .context — pull the real
+        // reason (e.g. a stale season start date) out of its JSON body.
+        let detail = res.data?.error ?? res.error?.message ?? 'Failed to generate schedule.';
+        try {
+          const body = await (res.error as { context?: Response } | null)?.context?.json?.();
+          if (body?.error) detail = body.error;
+        } catch {
+          // Body wasn't JSON or context unavailable — keep the fallback.
+        }
+        Alert.alert('Error', detail);
         return;
       }
 

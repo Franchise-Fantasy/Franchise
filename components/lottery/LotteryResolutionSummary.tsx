@@ -19,6 +19,7 @@ type ResolutionEvent =
   | { kind: 'protected'; round: number; slot: number | null; threshold: number; fromTeam: string; toTeam: string }
   | { kind: 'conveyed'; round: number; slot: number | null; threshold: number; toTeam: string; protectedBy: string }
   | { kind: 'swap_executed'; round: number; teamA: string; teamB: string }
+  | { kind: 'swap_kept'; round: number; teamA: string; teamB: string }
   | { kind: 'swap_voided'; round: number; teamA: string; teamB: string; missing: string };
 
 interface Props {
@@ -65,6 +66,13 @@ function describe(e: ResolutionEvent, c: (typeof Colors)['light']): Display {
         color: c.gold,
         title: `Rd ${e.round} pick swap executed`,
         subtitle: `${e.teamA} swapped into ${e.teamB}'s better pick.`,
+      };
+    case 'swap_kept':
+      return {
+        icon: 'swap-horizontal',
+        color: c.gold,
+        title: `Rd ${e.round} pick swap resolved`,
+        subtitle: `${e.teamA} kept their own pick — already better than ${e.teamB}'s.`,
       };
     case 'swap_voided':
       return {

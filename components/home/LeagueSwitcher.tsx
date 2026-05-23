@@ -42,7 +42,7 @@ export function LeagueSwitcher({ visible, onClose }: LeagueSwitcherProps) {
   const scheme = useColorScheme() ?? "light";
   const c = Colors[scheme];
   const session = useSession();
-  const { leagueId, switchLeague } = useAppState();
+  const { leagueId, teamId, switchLeague } = useAppState();
   const queryClient = useQueryClient();
   const router = useRouter();
 
@@ -97,15 +97,26 @@ export function LeagueSwitcher({ visible, onClose }: LeagueSwitcherProps) {
   }, [data?.leagues, favoriteLeagueId]);
 
   const handleSelect = (league: UserLeague) => {
+    const prevLeagueId = leagueId;
+    const prevTeamId = teamId;
     switchLeague(league.leagueId, league.teamId);
-    // Clear all league-specific cached data so stale data from the previous
-    // league never appears. User-level queries are preserved.
-    queryClient.removeQueries({
-      predicate: (q) => {
-        const key = q.queryKey[0];
-        return key !== 'user-leagues' && key !== 'userProfile';
-      },
-    });
+
+    // Drop only the cache entries scoped to the league we're LEAVING. Every
+    // league-scoped query key embeds its leagueId/teamId, so the new league's
+    // screens query under fresh keys and can't read stale data regardless —
+    // this just frees the old league's memory. Crucially we leave globally-
+    // shared, league-independent caches warm (NBA player pool / season stats,
+    // schedules, archives, watchlist, subscription); re-fetching those on
+    // every switch is what made switching slow. The target league's own
+    // cached data (if visited recently) also survives, so a switch back is
+    // instant instead of a cold spinner.
+    if (prevLeagueId && prevLeagueId !== league.leagueId) {
+      queryClient.removeQueries({
+        predicate: (q) =>
+          q.queryKey.includes(prevLeagueId) ||
+          (prevTeamId != null && q.queryKey.includes(prevTeamId)),
+      });
+    }
     onClose();
   };
 

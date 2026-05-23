@@ -1,50 +1,97 @@
-import { showcases } from "@/config/features";
+import Image from "next/image";
 import AnimatedSection from "./AnimatedSection";
+import { showcases } from "@/config/features";
+
+type Palette = {
+  bg: string;
+  text: string;
+  textMuted: string;
+  bullet: string;
+};
+
+const palettes: Palette[] = [
+  {
+    // Turf Green — Trade Center
+    bg: "var(--turf-green)",
+    text: "var(--ecru)",
+    textMuted: "rgba(233, 226, 203, 0.70)",
+    bullet: "var(--hardwood)",
+  },
+  {
+    // Merlot — Analytics
+    bg: "var(--merlot)",
+    text: "var(--ecru)",
+    textMuted: "rgba(233, 226, 203, 0.68)",
+    bullet: "var(--vintage-gold)",
+  },
+  {
+    // Vintage Gold — Dynasty
+    bg: "var(--vintage-gold)",
+    text: "var(--ink)",
+    textMuted: "rgba(20, 16, 16, 0.70)",
+    bullet: "var(--merlot)",
+  },
+];
 
 export default function FeatureShowcase() {
   return (
-    <section className="px-6 py-16 sm:py-20" aria-label="Feature deep dives">
-      <div className="mx-auto max-w-5xl space-y-12">
+    <section
+      className="px-6 py-20 sm:py-28"
+      aria-label="Feature deep dives"
+    >
+      <div className="mx-auto max-w-6xl space-y-8">
         {showcases.map((showcase, i) => {
+          const p = palettes[i % palettes.length];
           const reversed = i % 2 !== 0;
+
           return (
             <AnimatedSection key={showcase.title}>
               <div
-                className="overflow-hidden rounded-xl border border-b"
-                style={{
-                  background: `linear-gradient(135deg, var(--showcase-accent-${i + 1}) 0%, var(--bg-raised) 40%, var(--bg-raised) 100%)`,
-                }}
+                className="relative overflow-hidden"
+                style={{ background: p.bg, color: p.text }}
               >
+                {/* F-winged watermark */}
                 <div
-                  className={`flex flex-col gap-0 lg:items-stretch ${
-                    reversed ? "lg:flex-row-reverse" : "lg:flex-row"
-                  }`}
+                  className="pointer-events-none absolute -right-10 -bottom-16 opacity-[0.12]"
+                  aria-hidden="true"
                 >
-                  {/* Screenshot placeholder */}
-                  <div className="flex w-full items-center justify-center border-b border-b p-8 lg:w-5/12 lg:border-b-0 lg:border-r">
-                    <div className="flex aspect-[4/3] w-full items-center justify-center rounded-lg border border-dashed border-b">
-                      <span className="text-xs text-t-faint">
-                        {showcase.imagePlaceholder}
-                      </span>
-                    </div>
-                  </div>
+                  <Image
+                    src="/winged-light.png"
+                    alt=""
+                    width={560}
+                    height={560}
+                    className="h-[380px] w-[380px] object-contain invert brightness-0 lg:h-[460px] lg:w-[460px]"
+                  />
+                </div>
 
-                  {/* Text */}
-                  <div className="w-full p-6 sm:p-8 lg:w-7/12">
-                    <h3 className="mb-3 text-xl font-bold tracking-tight text-t-primary sm:text-2xl">
+                <div
+                  className={`relative z-10 flex flex-col gap-10 p-8 sm:p-12 lg:p-16 ${
+                    reversed ? "lg:flex-row-reverse" : "lg:flex-row"
+                  } lg:items-start lg:gap-16`}
+                >
+                  <div className="lg:w-7/12">
+                    <h3 className="display mb-6 text-4xl leading-[0.98] sm:text-5xl lg:text-6xl">
                       {showcase.title}
                     </h3>
-                    <p className="mb-5 text-sm leading-relaxed text-t-secondary">
+                    <p
+                      className="mb-8 max-w-xl text-[15px] leading-relaxed sm:text-base"
+                      style={{ color: p.textMuted }}
+                    >
                       {showcase.lead}
                     </p>
-                    <ul className="space-y-2" role="list">
+                  </div>
+
+                  <div className="lg:w-5/12 lg:pt-20">
+                    <ul className="space-y-3" role="list">
                       {showcase.bullets.map((bullet) => (
                         <li
                           key={bullet}
-                          className="flex items-start gap-2.5 text-[13px] text-t-muted"
+                          className="flex items-start gap-3 text-[14px] leading-relaxed"
+                          style={{ color: p.textMuted }}
                         >
                           <span
-                            className="mt-1 h-1 w-1 shrink-0 rounded-full bg-vintage-gold/60"
+                            className="mt-[9px] h-[2px] w-4 shrink-0"
+                            style={{ background: p.bullet }}
                             aria-hidden="true"
                           />
                           <span>{bullet}</span>

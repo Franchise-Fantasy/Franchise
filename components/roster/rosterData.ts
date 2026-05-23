@@ -6,7 +6,10 @@ import { liveToGameLog, type LivePlayerStats } from "@/utils/nba/nbaLive";
 import { type ScheduleEntry } from "@/utils/nba/nbaSchedule";
 import { fetchTeamSlots } from "@/utils/roster/fetchTeamSlots";
 import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
-import { calculateGameFantasyPoints } from "@/utils/scoring/fantasyPoints";
+import {
+  calculateAvgFantasyPoints,
+  calculateGameFantasyPoints,
+} from "@/utils/scoring/fantasyPoints";
 
 // Data layer for the roster tab: the per-date roster fetch + the small pure
 // stat-line helpers. Split out of (tabs)/roster.tsx so the route file holds
@@ -45,6 +48,29 @@ export function buildStatLine(stats: Record<string, number>): string {
     .filter(([key]) => (stats[key] ?? 0) > 0)
     .map(([key, label]) => `${stats[key]} ${label}`)
     .join(" · ");
+}
+
+// Season averages for rows without a live/final stat line today (pre-game and
+// no-game rows), split so the caller can style each piece: `fpts` is the bare
+// per-game average (one decimal, e.g. "42.9") shown on the position row, and
+// `stats` is the slash-joined box score for the line below. `fpts` is null in
+// category leagues (no fantasy points) or with no scoring weights; the whole
+// result is null for players with no games logged.
+export type SeasonAverages = { stats: string; fpts: string | null };
+
+export function buildSeasonAverages(
+  player: RosterPlayer,
+  scoringWeights: ScoringWeight[] | undefined,
+  isCategories: boolean,
+): SeasonAverages | null {
+  if ((player.games_played ?? 0) === 0) return null;
+  const stats = `${player.avg_pts.toFixed(1)}P/${player.avg_reb.toFixed(1)}R/${player.avg_ast.toFixed(1)}A`;
+  let fpts: string | null = null;
+  if (!isCategories && scoringWeights) {
+    const value = calculateAvgFantasyPoints(player, scoringWeights);
+    if (value > 0) fpts = value.toFixed(1);
+  }
+  return { stats, fpts };
 }
 
 export interface SlotStats {

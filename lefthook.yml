@@ -10,6 +10,9 @@ pre-commit:
     realtime-channels:
       glob: "*"
       run: npm run check:realtime-channels
+    paired-files:
+      glob: "*"
+      run: npm run check:paired-files
 
 pre-push:
   commands:

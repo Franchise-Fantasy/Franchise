@@ -13,13 +13,20 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { OnCourtDot } from '@/components/matchup/PlayerCell';
 import { MatchupChip } from '@/components/player/MatchupChip';
 import { PlayerDetailModal } from '@/components/player/PlayerDetailModal';
 import { PlayerHeadshotImage } from '@/components/player/PlayerHeadshotImage';
 import { AnimatedFpts } from '@/components/roster/AnimatedFpts';
-import { rosterStyles as styles } from '@/components/roster/rosterStyles';
+import { buildSeasonAverages } from '@/components/roster/rosterData';
+import {
+  rosterStyles as styles,
+  slotPillVariant,
+} from '@/components/roster/rosterStyles';
+import { SeasonMetaLine } from '@/components/roster/SeasonMetaLine';
 import { SectionEyebrow } from '@/components/roster/SectionEyebrow';
 import { RosterPlayer, SlotEntry } from '@/components/roster/SlotPickerModal';
+import { UpcomingGame } from '@/components/roster/UpcomingGame';
 import { TeamLogo } from '@/components/team/TeamLogo';
 import { ProposeTradeModal } from '@/components/trade/ProposeTradeModal';
 import { BottomSheet } from '@/components/ui/BottomSheet';
@@ -431,6 +438,13 @@ export default function TeamRosterScreen() {
     const liveData = slot.player ? liveMap.get(slot.player.player_id) : null;
     const isOnCourt = !!(liveData?.oncourt && liveData.game_status === 2);
     const gameInfo = liveData ? formatGameInfo(liveData) : '';
+    // Season context on rows without actual stats (pre-game and no-game): a
+    // single line beside the position — the fpts average (points leagues) or
+    // the box score (category leagues, no fpts). Null for 0-game players.
+    const seasonAvg =
+      slot.player && !isLive && !statLine
+        ? buildSeasonAverages(slot.player, scoringWeights, isCategories)
+        : null;
 
     return (
       <View
@@ -444,34 +458,33 @@ export default function TeamRosterScreen() {
           },
         ]}
       >
-        {/* Slot pill — read-only chip (matches the visual but not interactive) */}
-        <View
-          style={[
-            styles.slotPill,
-            {
-              backgroundColor: slot.player ? c.cardAlt : 'transparent',
-              borderColor: c.border,
-              borderWidth: 1,
-            },
-          ]}
-        >
-          <ThemedText
-            type="varsitySmall"
-            style={[
-              styles.slotPillText,
-              { color: slot.player ? c.text : c.secondaryText },
-            ]}
-          >
-            {slotLabel(slot.slotPosition)}
-          </ThemedText>
-        </View>
+        {/* Slot pill — always read-only here (another team's roster), so it
+            uses the neutral-border variant matching the locked/past-day pills
+            on the user's own roster. */}
+        {(() => {
+          const pill = slotPillVariant(c, {
+            canEdit: false,
+            isActive: false,
+            hasPlayer: !!slot.player,
+          });
+          return (
+            <View style={[styles.slotPill, pill.container]}>
+              <ThemedText
+                type="varsitySmall"
+                style={[styles.slotPillText, { color: pill.textColor }]}
+              >
+                {slotLabel(slot.slotPosition)}
+              </ThemedText>
+            </View>
+          );
+        })()}
 
         {slot.player ? (
           <TouchableOpacity
             style={styles.slotPlayer}
             onPress={() => setSelectedPlayer(slot.player)}
             accessibilityRole="button"
-            accessibilityLabel={`${slot.player!.name}, ${formatPosition(slot.player!.position)}, ${slot.player!.pro_team}${matchupDisplay ? `, ${matchupDisplay}` : ''}${!isCategories && fpts !== null ? `, ${formatScore(fpts)} fantasy points` : ''}${isLive ? ', live' : ''}`}
+            accessibilityLabel={`${slot.player!.name}, ${formatPosition(slot.player!.position)}, ${slot.player!.pro_team}${matchupDisplay ? `, ${matchupDisplay}` : ''}${seasonAvg ? `, season average ${seasonAvg.fpts ? `${seasonAvg.fpts} fantasy points per game, ` : ''}${seasonAvg.stats}` : ''}${!isCategories && fpts !== null ? `, ${formatScore(fpts)} fantasy points` : ''}${isLive ? ', live' : ''}`}
             accessibilityHint="Opens player details"
           >
             <View style={styles.rosterPortraitWrap} accessible={false}>
@@ -479,7 +492,7 @@ export default function TeamRosterScreen() {
                 style={[
                   styles.rosterHeadshotCircle,
                   {
-                    borderColor: isOnCourt ? c.success : c.heritageGold,
+                    borderColor: c.heritageGold,
                     backgroundColor: c.cardAlt,
                   },
                 ]}
@@ -514,7 +527,9 @@ export default function TeamRosterScreen() {
             </View>
 
             <View style={styles.slotPlayerInfo}>
+              {/* On-court dot leads the name line (mirrors roster + matchup). */}
               <View style={styles.slotLine1}>
+                {isOnCourt && <OnCourtDot />}
                 <ThemedText
                   type="defaultSemiBold"
                   style={[styles.slotPlayerName, { flexShrink: 1 }]}
@@ -532,6 +547,9 @@ export default function TeamRosterScreen() {
                 })()}
               </View>
 
+              {/* Context line. Live/final: matchup chip + game info. Otherwise
+                  the position with the season fpts average beside it — the game
+                  itself lives in its own section on the right. */}
               {matchupDisplay && !isPreGame ? (
                 <View style={styles.slotMatchupRow}>
                   <MatchupChip matchup={matchupDisplay} isLive={isLive} c={c} />
@@ -549,15 +567,14 @@ export default function TeamRosterScreen() {
                   ) : null}
                 </View>
               ) : (
-                <ThemedText
-                  type="varsitySmall"
-                  style={[styles.slotMatchupText, { color: c.secondaryText }]}
-                  numberOfLines={1}
-                >
-                  {formatPosition(slot.player.position)}
-                </ThemedText>
+                <SeasonMetaLine
+                  position={slot.player.position}
+                  seasonAvg={seasonAvg}
+                  c={c}
+                />
               )}
 
+              {/* Mono detail line — actual game stats on played days. */}
               {statLine ? (
                 <ThemedText
                   style={[styles.slotStatLine, { color: c.secondaryText }]}
@@ -568,19 +585,10 @@ export default function TeamRosterScreen() {
               ) : null}
             </View>
 
-            {!isCategories && isPreGame ? (
-              <View style={styles.slotUpcoming} accessible={false}>
-                <MatchupChip matchup={matchup!} c={c} alignSelf="flex-end" />
-                {gameTimeUtc ? (
-                  <ThemedText
-                    type="varsitySmall"
-                    style={[styles.slotUpcomingTime, { color: c.secondaryText }]}
-                    numberOfLines={1}
-                  >
-                    {formatGameTime(gameTimeUtc)}
-                  </ThemedText>
-                ) : null}
-              </View>
+            {/* Right column — opponent pill + tipoff time on pre-game rows;
+                FPTS readout on live/final. */}
+            {isPreGame ? (
+              <UpcomingGame matchup={matchup!} gameTimeUtc={gameTimeUtc} c={c} />
             ) : null}
             {!isCategories && !isPreGame && (
               <AnimatedFpts
