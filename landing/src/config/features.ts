@@ -8,22 +8,22 @@ export const features: Feature[] = [
   {
     title: "Real pick swaps & protections",
     description:
-      "Trade swap rights separately from the pick itself. Set top-N protections with a slider. The way the NBA does it.",
+      "Trade swap rights separately from the pick itself. Set top-N protections. ",
   },
   {
     title: "Multi-team trades",
     description:
-      "Not just two-team swaps. Build deals across multiple teams and see how the math shakes out for everyone involved.",
+      "Build deals across multiple teams, replicating trade deadline and blockbuster deals.",
   },
   {
     title: "A trade block that works",
     description:
-      "Post who's available, see who's interested, start a deal from there. No more fishing in group chat.",
+      "Post who's available, see who's interested, start a deal from there. No more spamming the group chat.",
   },
   {
     title: "Consistency scouting",
     description:
-      "Know if a guy is steady or a rollercoaster before you trade for him. Per-category breakdowns for H2H leagues.",
+      "Know if a player is steady or a rollercoaster before you trade for them. Per-category breakdowns for H2H leagues.",
   },
   {
     title: "Your own prospect board",
@@ -43,7 +43,7 @@ export const features: Feature[] = [
   {
     title: "…and plenty more to discover",
     description:
-      "Weighted roster age, category heatmaps, aging curves, draft capital views, lottery reveals, league records — the list keeps growing.",
+      "Weighted roster age, category heatmaps, aging curves, draft capital views, lottery reveals, league records, and much more.",
     isFinale: true,
   },
 ];
@@ -62,14 +62,13 @@ export const showcases: Showcase[] = [
     bullets: [
       "Live fairness score so nobody gets fleeced quietly",
       "Trade block with private interest tracking",
-      "Commissioner veto or league vote — your league decides",
       "Full trade history so nothing gets lost",
     ],
     imagePlaceholder: "Trade Center",
   },
   {
     title: "Numbers you'll actually look at.",
-    lead: "Not just season averages. How does he play on back-to-backs? Does he bounce back after bad games? Is his usage trending up or are his minutes slipping? The stuff that changes your decision, not just confirms it.",
+    lead: "Not just season averages. How does they play on back-to-backs? Does they bounce back after bad games? Is their usage trending up or are their minutes slipping? The stuff that changes your decision, not just confirms it.",
     bullets: [
       "Home/away and back-to-back splits with real context",
       "Category strengths ranked against the whole league",

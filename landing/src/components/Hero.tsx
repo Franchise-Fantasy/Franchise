@@ -44,20 +44,19 @@ export default function Hero() {
           >
             Build a
             <br />
-            dynasty.
+            Franchise.
           </h1>
 
           <p className="mb-4 max-w-xl text-[17px] leading-[1.55] text-t-primary sm:text-lg">
-            Franchise is a dynasty-first fantasy basketball platform built for
-            the long game. You don&apos;t just draft a team, you'll{" "}
+            Franchise is a dynasty-first fantasy platform built to replicate a General Manager experience. You don&apos;t just draft a team, you'll{" "}
             <strong className="font-semibold">build, manage, and evolve</strong>{" "}
             a franchise over time, with every decision carrying weight across
             seasons.
           </p>
 
           <p className="mb-9 max-w-xl text-[15px] leading-[1.55] text-t-muted">
-            Where traditional fantasy is seasonal, Franchise is year-round.
-            <br />
+            Where traditional fantasy is seasonal, Franchise is year-round. No more external tracking.
+           
             (Keeper and redraft leagues, too.)
           </p>
 
@@ -76,14 +75,7 @@ export default function Hero() {
             </a>
           </div>
 
-          {/* Three-word brand tag, deck-style stacked varsity line */}
-          <div className="mt-14 flex items-center gap-4 text-[11px] text-t-muted">
-            <span className="varsity">Strategic</span>
-            <span className="h-[1px] w-4 bg-[var(--rule-gold)]" aria-hidden="true" />
-            <span className="varsity">Immersive</span>
-            <span className="h-[1px] w-4 bg-[var(--rule-gold)]" aria-hidden="true" />
-            <span className="varsity">Personal</span>
-          </div>
+
         </motion.div>
       </div>
     </section>

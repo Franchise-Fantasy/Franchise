@@ -21,7 +21,7 @@ export default function ImportSection() {
           <div>
             <p className="mb-8 text-[15px] leading-relaxed text-t-secondary sm:text-base">
               The biggest reason people don&apos;t switch is because rebuilding
-              a league from scratch feels like a second job. So we made it
+              a league from scratch feels like a second job. We made it
               easy — import your rosters, settings, draft history, and records.
               Your league picks up right where it left off.
             </p>
@@ -48,7 +48,7 @@ export default function ImportSection() {
             </div>
 
             <p className="mono-stat mt-8 text-[12px] text-t-muted">
-              Up and running in minutes, not hours.
+              Up and running in minutes, customized to your liking.
             </p>
           </div>
         </div>

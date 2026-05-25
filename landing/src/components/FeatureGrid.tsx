@@ -43,8 +43,7 @@ export default function FeatureGrid() {
           </h2>
           <p className="mt-6 max-w-xl text-base leading-relaxed text-t-secondary">
             We centralize what dynasty players piece together across
-            spreadsheets, group chats, and side tools, in one cohesive and
-            intuitive system.
+            spreadsheets, group chats, and side tools, in one cohesive system.
           </p>
         </AnimatedSection>
 

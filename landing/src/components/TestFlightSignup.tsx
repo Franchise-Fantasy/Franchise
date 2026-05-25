@@ -63,7 +63,7 @@ export default function TestFlightSignup() {
         </h2>
 
         <p className="mx-auto mb-10 max-w-md text-[15px] leading-relaxed" style={{ color: "rgba(233, 226, 203, 0.72)" }}>
-          Join the TestFlight waitlist. We&apos;ll send you a link when
+          Join the waitlist. We&apos;ll send you a link when
           it&apos;s your turn.
         </p>
 
