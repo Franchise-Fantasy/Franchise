@@ -49,7 +49,7 @@ export default function Hero() {
 
           <p className="mb-4 max-w-xl text-[17px] leading-[1.55] text-t-primary sm:text-lg">
             Franchise is a dynasty-first fantasy platform built to replicate a General Manager experience. You don&apos;t just draft a team, you'll{" "}
-            <strong className="font-semibold">build, manage, and evolve</strong>{" "}
+            build, manage, and evolve{" "}
             a franchise over time, with every decision carrying weight across
             seasons.
           </p>
