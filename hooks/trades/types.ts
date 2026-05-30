@@ -30,6 +30,11 @@ export interface TradeProposalRow {
   transaction_id: string | null;
   notes: string | null;
   counteroffer_of: string | null;
+  /** When true, this trade was proposed during a live draft — bypasses
+   *  the league's veto/review window and executes immediately on
+   *  counter-party accept. Visibility is limited to involved teams +
+   *  commissioner (see get_trade_proposals_for_league RPC). */
+  is_in_draft: boolean;
   teams: {
     id: string;
     team_id: string;

@@ -547,12 +547,15 @@ export function DraftOrder({
             )}
 
             <View style={styles.pickBody}>
-              {/* Top row — pick number (Alfa Slab) + tricode + via badge */}
+              {/* Top row — round.slot label (Alfa Slab) + tricode + via badge.
+                  "7.5" reads round-and-pick natively for a snake draft;
+                  the old raw pick_number ("50") made it hard to tell what
+                  round you were in mid-board. */}
               <View style={styles.pickTop}>
                 <ThemedText
                   style={[styles.pickNumber, { color: primaryColor }]}
                 >
-                  {pick.pick_number}
+                  {pick.round}.{pick.pick_in_round}
                 </ThemedText>
                 <View style={styles.pickTeam}>
                   <ThemedText

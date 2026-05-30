@@ -126,7 +126,7 @@ const styles = StyleSheet.create({
     // paddingBottom so the bar bleeds into the rounded bottom edge. The hero's
     // overflow:hidden + borderRadius:16 clip the bottom corners to the card's
     // curve. Horizontal margin must match the hero card's paddingHorizontal.
-    marginHorizontal: s(-10),
+    marginHorizontal: s(-14),
     marginTop: s(10),
     marginBottom: s(-8),
     backgroundColor: 'rgba(20, 16, 16, 0.55)',

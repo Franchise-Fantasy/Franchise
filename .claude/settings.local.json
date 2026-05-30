@@ -2,6 +2,7 @@
   "permissions": {
     "allow": [
       "Bash",
+      "PowerShell",
       "mcp__claude_ai_Supabase__list_tables",
       "mcp__claude_ai_Supabase__list_edge_functions",
       "mcp__claude_ai_Supabase__get_edge_function",
@@ -533,7 +534,21 @@
       "PowerShell(npx supabase functions deploy start-lottery --no-verify-jwt --project-ref iuqbossmnsezzgocpcbo)",
       "PowerShell($ErrorActionPreference='SilentlyContinue'; \\(Get-Command supabase\\).Source; \\(Get-Command npx\\).Source)",
       "PowerShell(npx supabase functions deploy generate-schedule --no-verify-jwt --project-ref iuqbossmnsezzgocpcbo 2>&1)",
-      "PowerShell(npx jest seasonAvgRowToFpts 2>&1)"
+      "PowerShell(npx jest seasonAvgRowToFpts 2>&1)",
+      "PowerShell(npx eslint components/banners/MatchupResultModal.tsx)",
+      "PowerShell(node -e \"const p=require\\('./package.json'\\); const d={...p.dependencies,...p.devDependencies}; ['expo-linear-gradient','expo-blur','expo-image','@expo/vector-icons','react-native-reanimated','react-native-svg'].forEach\\(k=>console.log\\(k, d[k]||'-'\\)\\)\")",
+      "PowerShell(if \\($?\\) { \"lint ok\" })",
+      "PowerShell(npx supabase projects list 2>&1)",
+      "PowerShell(npx supabase db query --linked -f supabase/migrations/20260525000000_players_last_google_news_check.sql 2>&1)",
+      "PowerShell(npx supabase db query --linked \"select column_name, data_type from information_schema.columns where table_name='players' and column_name='last_google_news_check_at'\" 2>&1)",
+      "PowerShell(npx supabase functions deploy poll-news-google --no-verify-jwt --project-ref iuqbossmnsezzgocpcbo 2>&1)",
+      "PowerShell(npx supabase functions deploy poll-news --no-verify-jwt --project-ref iuqbossmnsezzgocpcbo 2>&1)",
+      "WebFetch(domain:expo.dev)",
+      "PowerShell(npx supabase db query --linked -f supabase/migrations/20260525000001_poll_news_google_cron.sql 2>$null | Out-String | ForEach-Object { $_.Substring\\([Math]::Max\\(0,$_.IndexOf\\('{'\\)\\)\\) })",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "mcp__plugin_asana_asana__asana_typeahead_search",
+      "mcp__plugin_asana_asana__asana_update_task"
     ],
     "additionalDirectories": [
       "c:\\Users\\jjspo\\OneDrive\\Desktop\\Franchise Wiki\\Franchise Wiki\\Pages",

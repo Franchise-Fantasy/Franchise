@@ -28,8 +28,13 @@ import { ThemedView } from "@/components/ui/ThemedView";
 import { Colors } from "@/constants/Colors";
 import {
   CURRENT_NBA_SEASON,
+  defaultTradeDeadlineWeek,
+  defaultVotesToVeto,
+  getCreationStatus,
   getCurrentSeason,
   getDefaultRosterSlots,
+  getMaxPlayoffWeeks,
+  getMaxRookieDraftRounds,
   DEFAULT_CATEGORIES,
   DEFAULT_SCORING,
   INITIAL_DRAFT_ORDER_TO_DB,
@@ -39,10 +44,14 @@ import {
   ScoringTypeOption,
   PLAYER_LOCK_TO_DB,
   SEEDING_TO_DB,
+  SPORT_OPTIONS,
+  SPORT_TO_DB,
   STEP_LABELS,
   TIEBREAKER_TO_DB,
+  type Sport,
 } from "@/constants/LeagueDefaults";
 import { useConfirm } from "@/context/ConfirmProvider";
+import { SportThemeProvider } from "@/hooks/useColors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { generateDraftPicks, generateFutureDraftPicks } from "@/lib/draft";
 import { capture } from "@/lib/posthog";
@@ -68,6 +77,13 @@ type Action =
 
 const DEFAULT_PLAYOFF_WEEKS = 3;
 const maxWeeks = computeMaxWeeks(CURRENT_NBA_SEASON);
+// Floor at 1: when the current season is fully past its end date,
+// computeMaxWeeks returns 1, and naive subtraction here used to produce -2
+// (rendered as a broken stepper). The wizard mount logic auto-switches
+// the user to an actually-creatable season, but this is the safety belt
+// while the module-level constants are being read.
+const DEFAULT_REG_SEASON_WEEKS = Math.max(1, maxWeeks - DEFAULT_PLAYOFF_WEEKS);
+const DEFAULT_TEAMS = 10;
 const WIZARD_STORAGE_KEY = '@league_wizard';
 
 const initialState: LeagueWizardState = {
@@ -75,7 +91,7 @@ const initialState: LeagueWizardState = {
   leagueType: 'Dynasty',
   keeperCount: 5,
   name: "",
-  teams: 10,
+  teams: DEFAULT_TEAMS,
   isPrivate: false,
   rosterSlots: getDefaultRosterSlots('nba'),
   scoringType: 'Points',
@@ -87,7 +103,7 @@ const initialState: LeagueWizardState = {
   maxDraftYears: 3,
   tradeVetoType: "Commissioner",
   tradeReviewPeriodHours: 24,
-  tradeVotesToVeto: 4,
+  tradeVotesToVeto: defaultVotesToVeto(DEFAULT_TEAMS),
   rookieDraftRounds: 2,
   rookieDraftOrder: "Reverse Record",
   lotteryDraws: 4,
@@ -98,14 +114,14 @@ const initialState: LeagueWizardState = {
   waiverDayOfWeek: 3,
   season: CURRENT_NBA_SEASON,
   seasonStartDate: null,
-  regularSeasonWeeks: maxWeeks - DEFAULT_PLAYOFF_WEEKS,
+  regularSeasonWeeks: DEFAULT_REG_SEASON_WEEKS,
   playoffWeeks: DEFAULT_PLAYOFF_WEEKS,
-  playoffTeams: defaultPlayoffTeams(DEFAULT_PLAYOFF_WEEKS, 10),
+  playoffTeams: defaultPlayoffTeams(DEFAULT_PLAYOFF_WEEKS, DEFAULT_TEAMS),
   playoffSeedingFormat: "Standard",
   reseedEachRound: false,
   pickConditionsEnabled: false,
   draftPickTradingEnabled: false,
-  tradeDeadlineWeek: 0,
+  tradeDeadlineWeek: defaultTradeDeadlineWeek(DEFAULT_REG_SEASON_WEEKS),
   buyIn: 0,
   venmoUsername: '',
   cashappTag: '',
@@ -145,7 +161,19 @@ function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
       const next = { ...state, [action.field]: action.value };
       // Re-clamp lottery settings when dependent fields change
       if (action.field === 'teams' || action.field === 'playoffWeeks' || action.field === 'playoffTeams') {
-        return clampLotteryState(next);
+        // Votes-to-veto is bounded by teams-1. Without this clamp, lowering
+        // teams below the stale votesToVeto value leaves the stepper sitting
+        // at its (now-greyed) max, which reads as "I lowered it and it went
+        // to the highest" when the user lands on the Trade step.
+        const votesMax = Math.max(1, next.teams - 1);
+        const tradeVotesToVeto = Math.min(next.tradeVotesToVeto, votesMax);
+        // Rookie draft rounds are capped by rookie pool / teams, so growing
+        // teams can push the stored value above the new max.
+        const rookieDraftRounds = Math.min(
+          next.rookieDraftRounds,
+          getMaxRookieDraftRounds(next.sport, next.teams),
+        );
+        return clampLotteryState({ ...next, tradeVotesToVeto, rookieDraftRounds });
       }
       // Re-clamp week counts when start date changes
       if (action.field === 'seasonStartDate') {
@@ -155,11 +183,28 @@ function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
         const newMax = computeMaxWeeks(next.season, next.sport, start);
         const playoffWeeks = Math.min(next.playoffWeeks, Math.max(1, newMax - 1));
         const regularSeasonWeeks = Math.min(next.regularSeasonWeeks, Math.max(1, newMax - playoffWeeks));
-        return clampLotteryState({ ...next, regularSeasonWeeks, playoffWeeks });
+        // Trade deadline week can't exceed the new regular season length.
+        const tradeDeadlineWeek = next.tradeDeadlineWeek > 0
+          ? Math.min(next.tradeDeadlineWeek, regularSeasonWeeks)
+          : 0;
+        return clampLotteryState({ ...next, regularSeasonWeeks, playoffWeeks, tradeDeadlineWeek });
       }
-      // When switching away from dynasty, disable pick-related features
+      // Trade deadline week is bounded by regularSeasonWeeks.
+      if (action.field === 'regularSeasonWeeks' && next.tradeDeadlineWeek > 0) {
+        return { ...next, tradeDeadlineWeek: Math.min(next.tradeDeadlineWeek, next.regularSeasonWeeks) };
+      }
+      // When switching away from dynasty, disable pick-related features and
+      // clear any taxi slots — taxi is dynasty-only (you stash kept prospects).
       if (action.field === 'leagueType' && action.value !== 'Dynasty') {
-        return { ...next, draftPickTradingEnabled: false, pickConditionsEnabled: false, maxDraftYears: 0 };
+        return {
+          ...next,
+          draftPickTradingEnabled: false,
+          pickConditionsEnabled: false,
+          maxDraftYears: 0,
+          rosterSlots: next.rosterSlots.map((slot) =>
+            slot.position === ROSTER_SLOT.TAXI ? { ...slot, count: 0 } : slot,
+          ),
+        };
       }
       if (action.field === 'leagueType' && action.value === 'Dynasty') {
         return { ...next, maxDraftYears: 3 };
@@ -170,16 +215,40 @@ function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
       // start date. Position limits reset because the keys differ per sport.
       if (action.field === 'sport') {
         const newSport = action.value as 'nba' | 'wnba';
-        const newSeason = getCurrentSeason(newSport);
+        // Snap to the sport's currently-creatable season (current or next,
+        // per the calendar gate), falling through to the bare current
+        // season for the dev-bypass case where it's calendar-closed.
+        const status = getCreationStatus(newSport);
+        const newSeason = status.season ?? getCurrentSeason(newSport);
+        const newStartDate = status.defaultStartDate;
         const newMax = computeMaxWeeks(newSeason, newSport);
-        const playoffWeeks = Math.min(next.playoffWeeks, Math.max(1, newMax - 1));
+        // Playoff weeks are bounded by both remaining season length AND the
+        // sport's structural max (NBA 4, WNBA 3). NBA→WNBA can leave a stale
+        // 4-week playoff exceeding the new sport's cap.
+        const playoffWeeks = Math.min(
+          next.playoffWeeks,
+          getMaxPlayoffWeeks(newSport),
+          Math.max(1, newMax - 1),
+        );
         const regularSeasonWeeks = Math.min(next.regularSeasonWeeks, Math.max(1, newMax - playoffWeeks));
+        // WNBA's rookie pool is smaller, so switching from NBA can push
+        // rookieDraftRounds above the new sport's per-teams cap.
+        const rookieDraftRounds = Math.min(
+          next.rookieDraftRounds,
+          getMaxRookieDraftRounds(newSport, next.teams),
+        );
+        // Trade deadline week can't exceed the new regular season length.
+        const tradeDeadlineWeek = next.tradeDeadlineWeek > 0
+          ? Math.min(next.tradeDeadlineWeek, regularSeasonWeeks)
+          : 0;
         return clampLotteryState({
           ...next,
           season: newSeason,
-          seasonStartDate: null,
+          seasonStartDate: newStartDate,
           regularSeasonWeeks,
           playoffWeeks,
+          rookieDraftRounds,
+          tradeDeadlineWeek,
           rosterSlots: getDefaultRosterSlots(newSport),
           positionLimits: {},
         });
@@ -233,9 +302,47 @@ export default function CreateLeague() {
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const hasRestoredRef = useRef(false);
+  const hasInitializedSportRef = useRef(false);
   const scrollRef = useRef<ScrollView>(null);
   const [isAtBottom, setIsAtBottom] = useState(false);
   const [hasMoreContent, setHasMoreContent] = useState(false);
+
+  // Auto-pick the first available sport (and pre-fill seasonStartDate +
+  // season) on first mount, BEFORE the saved-progress restore prompt
+  // fires. If the initialState's sport (nba) is gated and we have an
+  // available alternative (wnba), swap to it. Skip when the user has
+  // already typed a name — that's the cue they're past the first step.
+  useEffect(() => {
+    if (hasInitializedSportRef.current) return;
+    if (state.name) return; // saved state being restored
+    hasInitializedSportRef.current = true;
+
+    const today = new Date();
+    const statusForSelected = getCreationStatus(state.sport, today);
+    if (statusForSelected.available) {
+      // Selected sport is fine — just prefill the start date if missing.
+      if (!state.seasonStartDate && statusForSelected.defaultStartDate) {
+        dispatch({ type: 'SET_FIELD', field: 'seasonStartDate', value: statusForSelected.defaultStartDate });
+      }
+      if (statusForSelected.season && statusForSelected.season !== state.season) {
+        dispatch({ type: 'SET_FIELD', field: 'season', value: statusForSelected.season });
+      }
+      return;
+    }
+
+    // Selected sport gated — try the others in order.
+    for (const label of SPORT_OPTIONS) {
+      const candidate: Sport = SPORT_TO_DB[label];
+      if (candidate === state.sport) continue;
+      const status = getCreationStatus(candidate, today);
+      if (status.available) {
+        dispatch({ type: 'SET_FIELD', field: 'sport', value: candidate });
+        return;
+      }
+    }
+    // No sport available — leave state alone; StepBasics will show the
+    // gated tiles and the user can wait for a window to open.
+  }, [state.name, state.sport, state.season, state.seasonStartDate]);
   // Track the ScrollView's viewport height and the rendered content
   // height independently so we can compute "is there more to scroll?"
   // immediately when the step mounts — before the user touches the
@@ -437,8 +544,10 @@ export default function CreateLeague() {
         venmo_username: sanitizeHandle(state.venmoUsername) || null,
         cashapp_tag: sanitizeHandle(state.cashappTag) || null,
         paypal_username: sanitizeHandle(state.paypalUsername) || null,
-        taxi_slots: taxiSlotCount,
-        taxi_max_experience: taxiSlotCount > 0 ? state.taxiMaxExperience : null,
+        // Taxi is dynasty-only — guard the payload even if a stale count lingers
+        // in state from toggling league type.
+        taxi_slots: isDynasty ? taxiSlotCount : 0,
+        taxi_max_experience: isDynasty && taxiSlotCount > 0 ? state.taxiMaxExperience : null,
         weekly_acquisition_limit: state.weeklyAcquisitionLimit,
         player_lock_type: PLAYER_LOCK_TO_DB[state.playerLockType],
         pick_conditions_enabled: isDynasty ? state.pickConditionsEnabled : false,
@@ -569,6 +678,7 @@ export default function CreateLeague() {
           state.rookieDraftRounds,
           state.season,
           state.maxDraftYears,
+          state.sport,
         ),
       );
     }
@@ -613,6 +723,11 @@ export default function CreateLeague() {
   };
 
   return (
+    // Override the active-league sport so the wizard's primary chrome
+    // (Next/Create buttons via BrandButton, StepScoring category chips)
+    // follows the *picked* sport rather than whatever league the user
+    // came from. NBA → turfGreen, WNBA → merlot.
+    <SportThemeProvider sport={state.sport}>
     <ThemedView style={styles.container}>
       <View style={styles.headerRow}>
         <BrandButton
@@ -725,6 +840,7 @@ export default function CreateLeague() {
         </View>
       )}
     </ThemedView>
+    </SportThemeProvider>
   );
 }
 

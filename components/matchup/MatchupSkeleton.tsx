@@ -24,6 +24,58 @@ export function SkeletonBlock({ width, height, color, style }: { width: number |
   return <Animated.View style={[{ width: width as any, height, borderRadius: 4, backgroundColor: color, opacity }, style]} />;
 }
 
+// ─── Pill-bar skeleton ─────────────────────────────────────────────────────────
+// Reserves the MatchupPillBar's vertical footprint while the matchup list is
+// still loading, so the board below doesn't jump down when the real pills pop
+// in. Dimensions mirror MatchupPillBar's styles (bar hairline border + scroll
+// padding + pill size) so the swap is seamless.
+
+export function MatchupPillBarSkeleton() {
+  const c = useColors();
+  return (
+    <View
+      style={[pillSkelStyles.bar, { borderBottomColor: c.border, backgroundColor: c.background }]}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    >
+      <View style={pillSkelStyles.scroll}>
+        {[0, 1, 2].map((i) => (
+          <View
+            key={i}
+            style={[
+              pillSkelStyles.pill,
+              { backgroundColor: c.cardAlt, borderColor: c.border },
+            ]}
+          />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+const pillSkelStyles = StyleSheet.create({
+  bar: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  scroll: {
+    flexDirection: 'row',
+    paddingHorizontal: s(12),
+    paddingTop: s(4),
+    paddingBottom: s(6),
+    gap: s(8),
+  },
+  // width ≈ a two-tricode pill; height matches the pill's text + vertical
+  // padding (ms(10) line + s(5) top/bottom) so the bar lands at the same
+  // height as the live MatchupPillBar.
+  pill: {
+    width: s(96),
+    height: ms(10) + s(10),
+    borderRadius: 8,
+    borderWidth: 1,
+    opacity: 0.5,
+  },
+});
+
 // ─── Body skeleton ───────────────────────────────────────────────────────────
 // Roster-shaped placeholder rendered while the matchup data is loading.
 // Reserves the same vertical space as the live MatchupBoard so the screen

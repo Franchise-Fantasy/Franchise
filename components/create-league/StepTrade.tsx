@@ -7,7 +7,7 @@ import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ToggleRow } from '@/components/ui/ToggleRow';
 import { Colors } from '@/constants/Colors';
-import { LeagueWizardState, TRADE_VETO_OPTIONS } from '@/constants/LeagueDefaults';
+import { defaultTradeDeadlineWeek, LeagueWizardState, TRADE_VETO_OPTIONS } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 
 interface StepTradeProps {
@@ -18,6 +18,8 @@ interface StepTradeProps {
 export function StepTrade({ state, onChange }: StepTradeProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const isDynasty = (state.leagueType ?? 'Dynasty') === 'Dynasty';
+  const deadlineEnabled = state.tradeDeadlineWeek > 0;
 
   return (
     <View style={styles.container}>
@@ -63,21 +65,37 @@ export function StepTrade({ state, onChange }: StepTradeProps) {
       </FormSection>
 
       <FormSection title="Trade Rules">
-        <NumberStepper
-          label="Trade Deadline (Week)"
-          value={state.tradeDeadlineWeek}
-          onValueChange={(v) => onChange('tradeDeadlineWeek', v)}
-          min={0}
-          max={state.regularSeasonWeeks}
-          helperText={
-            state.tradeDeadlineWeek === 0
-              ? 'No trade deadline — trades allowed all season.'
-              : `Trades lock after Week ${state.tradeDeadlineWeek}.`
+        <ToggleRow
+          icon="calendar-outline"
+          label="Trade Deadline"
+          description={
+            deadlineEnabled
+              ? `Trades lock after Week ${state.tradeDeadlineWeek}.`
+              : 'Trades allowed all season.'
           }
-          last={(state.leagueType ?? 'Dynasty') !== 'Dynasty'}
+          value={deadlineEnabled}
+          onToggle={(v) =>
+            onChange(
+              'tradeDeadlineWeek',
+              v ? defaultTradeDeadlineWeek(state.regularSeasonWeeks) : 0,
+            )
+          }
+          c={{ border: c.border, accent: c.accent, secondaryText: c.secondaryText }}
+          last={!deadlineEnabled && !isDynasty}
         />
 
-        {(state.leagueType ?? 'Dynasty') === 'Dynasty' && (
+        <AnimatedSection visible={deadlineEnabled}>
+          <NumberStepper
+            label="Deadline Week"
+            value={state.tradeDeadlineWeek || 1}
+            onValueChange={(v) => onChange('tradeDeadlineWeek', v)}
+            min={1}
+            max={state.regularSeasonWeeks}
+            last={!isDynasty}
+          />
+        </AnimatedSection>
+
+        {isDynasty && (
           <>
             {/* How far ahead rookie-draft picks are tradeable. Lives in
                 Trade Rules (not Rookie Draft) because it's fundamentally

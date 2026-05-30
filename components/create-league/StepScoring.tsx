@@ -114,8 +114,8 @@ export function StepScoring({
               label={`${cat.stat_name} - ${cat.label}`}
               value={cat.point_value}
               onValueChange={(v) => onScoringChange(index, v)}
-              min={-10}
-              max={10}
+              min={-100}
+              max={100}
               step={0.5}
               last={index === state.scoring.length - 1}
             />

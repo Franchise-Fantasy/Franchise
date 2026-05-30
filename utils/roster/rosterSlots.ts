@@ -47,3 +47,14 @@ export function isStarterSlot(slot: string): boolean {
   const base = baseSlotName(slot);
   return base !== 'BE' && base !== 'IR';
 }
+
+/**
+ * True if a slot counts toward active-roster analytics — i.e. starters and
+ * bench, but NOT IR, TAXI, or DROPPED. Those aren't contributing to the team
+ * right now, so they shouldn't inflate roster-strength aggregates. Null/empty
+ * slot defaults to bench, which counts.
+ */
+export function isActiveRosterSlot(slot: string | null | undefined): boolean {
+  const base = baseSlotName(slot ?? 'BE');
+  return base !== 'IR' && base !== 'TAXI' && base !== 'DROPPED';
+}

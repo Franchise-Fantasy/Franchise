@@ -35,7 +35,7 @@ import {
   usePostHog,
 } from "posthog-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Animated, AppState, Image, Platform, StyleSheet } from "react-native";
+import { Alert, Animated, AppState, Easing, Platform, StyleSheet } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 
@@ -281,6 +281,10 @@ function SplashGate() {
     setHomeReady(false);
   }, [session?.user?.id]);
 
+  // Fallback only: the JS overlay normally hides the native splash early (on
+  // its own onLayout) so it can breathe during the wait. This catches the edge
+  // case where that never fires — hideAsync is idempotent, so a double-call is
+  // a no-op.
   useEffect(() => {
     if (canHide) SplashScreen.hideAsync();
   }, [canHide]);
@@ -297,20 +301,48 @@ function SplashGate() {
 }
 
 /**
- * JS-side splash overlay that visually matches the native splash screen
- * (same turf-green bg, same centered patch logo). Rendered on top of the
- * app so that when the native splash hides, the user sees this overlay
- * instead of a hard cut to content — then the overlay fades out to reveal
- * the home screen. Kept in lockstep with app.json's expo-splash-screen
- * config below; if that changes, update this too.
+ * JS-side splash overlay that takes over from the native splash and breathes
+ * the F patch while the app boots, then fades out to reveal the home screen.
+ *
+ * Seamless hand-off: the native splash (expo-splash-screen in app.json) shows a
+ * still F patch on the turf-green bg. This overlay renders the SAME patch on the
+ * SAME bg, and we hide the native splash only once this overlay has painted an
+ * identical still frame (`onLayout`) — so the swap is still-frame → still-frame
+ * with no pop. The patch then begins breathing, and the whole overlay stays
+ * opaque (covering any intermediate app state) until `canHide`, when it fades.
+ *
+ * Kept in lockstep with app.json's expo-splash-screen config:
+ *   - same image (F_patch.png), same backgroundColor (#1B3D2F)
+ *   - native `imageWidth` (216) === SPLASH_LOGO_WIDTH (200) × SPLASH_BREATH_MAX
+ *     (1.08), because the hand-off frame is the breath's expanded extreme.
+ * If any of those change here, change them there too.
  */
 const SPLASH_BG = '#1B3D2F';
 const SPLASH_LOGO_WIDTH = 200;
+// F_patch source art is 200×188 — preserve that ratio so the patch never squashes.
+const SPLASH_LOGO_ASPECT = 200 / 188;
 const SPLASH_FADE_DURATION = 300;
+// Breathing loop per the designer's SwiftUI spec: scale 1.0↔1.08, opacity
+// 0.85↔1.0 (in sync), easeInOut, 1.8s per direction, repeating forever.
+const SPLASH_BREATH_DURATION = 1800;
+const SPLASH_BREATH_MAX = 1.08;
 
 function SplashFadeOverlay({ visible }: { visible: boolean }) {
   const opacity = useRef(new Animated.Value(1)).current;
+  // Start at the expanded/bright extreme (1) so the first painted frame matches
+  // the native splash exactly; breathing eases away from it once it starts.
+  const breath = useRef(new Animated.Value(1)).current;
   const [mounted, setMounted] = useState(true);
+  const [breathing, setBreathing] = useState(false);
+  const handedOff = useRef(false);
+
+  // Hide the native splash the instant our identical still frame has laid out,
+  // then start breathing. Guarded so it only fires once.
+  const handleLayout = useCallback(() => {
+    if (handedOff.current) return;
+    handedOff.current = true;
+    SplashScreen.hideAsync().finally(() => setBreathing(true));
+  }, []);
 
   useEffect(() => {
     if (!visible && mounted) {
@@ -324,16 +356,51 @@ function SplashFadeOverlay({ visible }: { visible: boolean }) {
     }
   }, [visible, mounted, opacity]);
 
+  // Breathe only after the native→JS hand-off, so the seam shows the matched
+  // still frame (breath === 1) before any motion. First leg exhales (1→0).
+  useEffect(() => {
+    if (!breathing) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(breath, {
+          toValue: 0,
+          duration: SPLASH_BREATH_DURATION,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(breath, {
+          toValue: 1,
+          duration: SPLASH_BREATH_DURATION,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [breathing, breath]);
+
   if (!mounted) return null;
+
+  const scale = breath.interpolate({ inputRange: [0, 1], outputRange: [1, SPLASH_BREATH_MAX] });
+  const breathOpacity = breath.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] });
 
   return (
     <Animated.View
       pointerEvents={visible ? 'auto' : 'none'}
+      onLayout={handleLayout}
+      accessibilityLabel="Franchise, loading"
+      accessibilityRole="progressbar"
       style={[StyleSheet.absoluteFill, splashStyles.overlay, { opacity }]}
     >
-      <Image
-        source={require('../assets/images/patch_logo.png')}
-        style={{ width: SPLASH_LOGO_WIDTH, height: SPLASH_LOGO_WIDTH }}
+      <Animated.Image
+        source={require('../assets/images/F_patch.png')}
+        style={{
+          width: SPLASH_LOGO_WIDTH,
+          aspectRatio: SPLASH_LOGO_ASPECT,
+          opacity: breathOpacity,
+          transform: [{ scale }],
+        }}
         resizeMode="contain"
       />
     </Animated.View>

@@ -10,10 +10,15 @@ const Body = z.object({
   league_id: z.string().uuid(),
 });
 
-function nextSeason(current: string): string {
+/** Sport-aware "next season" string. NBA seasons span two calendar years
+ *  ("2025-26" → "2026-27"); WNBA seasons are single-year ("2026" → "2027").
+ *  Hardcoding NBA format produced "2026-27" for WNBA leagues, which then
+ *  didn't match the rest of the app's season-format expectations. */
+function nextSeason(current: string, sport: 'nba' | 'wnba'): string {
   const [startStr] = current.split('-');
   const startYear = parseInt(startStr, 10);
   const next = startYear + 1;
+  if (sport === 'wnba') return String(next);
   return `${next}-${String(next + 1).slice(2)}`;
 }
 
@@ -45,7 +50,7 @@ Deno.serve(async (req) => {
     // Fetch league config
     const { data: league, error: leagueErr } = await supabaseAdmin
       .from('leagues')
-      .select('created_by, name, season, teams, playoff_teams, playoff_weeks, rookie_draft_order, rookie_draft_rounds, lottery_draws, lottery_odds, waiver_type, faab_budget, offseason_step, league_type, taxi_slots, taxi_max_experience')
+      .select('created_by, name, sport, season, teams, playoff_teams, playoff_weeks, rookie_draft_order, rookie_draft_rounds, lottery_draws, lottery_odds, waiver_type, faab_budget, offseason_step, league_type, taxi_slots, taxi_max_experience')
       .eq('id', league_id)
       .single();
     if (leagueErr || !league) throw new HttpError('League not found', 404);
@@ -74,7 +79,8 @@ Deno.serve(async (req) => {
     }
 
     const currentSeason = league.season;
-    const newSeason = nextSeason(currentSeason);
+    const sport = (league.sport as 'nba' | 'wnba' | null) ?? 'nba';
+    const newSeason = nextSeason(currentSeason, sport);
 
     // ── 1. Calculate final standings ──
     const { data: allTeams, error: teamsErr } = await supabaseAdmin

@@ -58,6 +58,15 @@ export type HomeHeroVariant =
       // Optional overlay: during pre-draft signups the draft hero also
       // carries invite affordances in the top-right slot.
       invite?: { code: string; slotsOpen: number } | null;
+      // Dues pill for non-commissioners whose buy-in is still due —
+      // mutually exclusive with `invite` (commissioner-only) in practice
+      // since paymentBadge is null for commissioners.
+      payment?: PaymentBadge;
+      // Manual draft order — when the league's `initial_draft_order` is
+      // 'manual' and this is the initial draft, commissioners need a
+      // way to set / edit the team-by-team order before scheduling.
+      // `null` for non-manual or non-initial drafts.
+      manualOrder?: { slotsAssigned: boolean } | null;
     }
   | {
       kind: 'invite_needed';
@@ -102,6 +111,7 @@ type Props = {
   // Draft callbacks
   onSchedulePress?: () => void;
   onEnterDraft?: () => void;
+  onSetDraftOrder?: () => void;
   // Invite callbacks
   onCopyInvite?: () => void;
   onShareInvite?: () => void;
@@ -119,6 +129,7 @@ export function HomeHero({
   onPaymentPress,
   onSchedulePress,
   onEnterDraft,
+  onSetDraftOrder,
   onCopyInvite,
   onShareInvite,
 }: Props) {
@@ -158,6 +169,8 @@ export function HomeHero({
           onEnterDraft={onEnterDraft}
           onCopyInvite={onCopyInvite}
           onShareInvite={onShareInvite}
+          onPaymentPress={onPaymentPress}
+          onSetDraftOrder={onSetDraftOrder}
         />
       )}
       {variant.kind === 'invite_needed' && (
@@ -202,19 +215,22 @@ function OutlinePill({
   label,
   onPress,
   accessibilityLabel,
+  icon,
 }: {
   label: string;
   onPress?: () => void;
   accessibilityLabel?: string;
+  icon?: Parameters<typeof IconSymbol>[0]['name'];
 }) {
   return (
     <TouchableOpacity
-      style={[styles.actionPill, styles.outlinePill]}
+      style={[styles.actionPill, styles.outlinePill, icon ? styles.actionPillRow : null]}
       onPress={onPress}
       activeOpacity={0.8}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
     >
+      {icon && <IconSymbol name={icon} size={13} color={Brand.ecru} />}
       <ThemedText type="varsity" style={[styles.actionPillText, { color: Brand.ecru }]}>
         {label}
       </ThemedText>
@@ -342,6 +358,7 @@ function TeamIdentity({
       : (
           <OutlinePill
             label="Pending"
+            icon="local-atm.fill"
             onPress={onPaymentPress}
             accessibilityLabel="Payment pending confirmation"
           />
@@ -444,32 +461,74 @@ function DraftPending({
   onEnterDraft,
   onCopyInvite,
   onShareInvite,
+  onPaymentPress,
+  onSetDraftOrder,
 }: {
   variant: Extract<HomeHeroVariant, { kind: 'draft_pending' }>;
   onSchedulePress?: () => void;
   onEnterDraft?: () => void;
   onCopyInvite?: () => void;
   onShareInvite?: () => void;
+  onPaymentPress?: () => void;
+  onSetDraftOrder?: () => void;
 }) {
-  const { draftDate, draftType, season, isReadyToEnter, isCommissioner, invite } =
+  const { draftDate, draftType, season, isReadyToEnter, isCommissioner, invite, payment, manualOrder } =
     variant;
   const dateLabel = formatDraftDate(draftDate);
   const isScheduled = !!draftDate;
+  const needsOrderSet = manualOrder != null && !manualOrder.slotsAssigned;
 
-  // Eyebrow right-slot: invite affordances during pre-draft signups.
-  const eyebrowSlot = invite ? (
-    <View style={styles.iconGroup}>
-      <IconPill icon="doc.on.doc" onPress={onCopyInvite} accessibilityLabel="Copy invite link" />
-      <IconPill
-        icon="square.and.arrow.up"
-        onPress={onShareInvite}
-        accessibilityLabel="Share invite link"
+  // Eyebrow right-slot priority:
+  //   1. invite icons        — commissioner, slots still open
+  //   2. dues pill           — non-commissioner with buy-in due
+  //   3. Edit Order          — commissioner, manual + slots assigned
+  //                            (lets them fix a typo in the order any
+  //                             time before the draft starts).
+  // (1) and (2) are mutually exclusive in practice — paymentBadge
+  // returns null for commissioners. (3) is commissioner-only and only
+  // matters once slots are set, which is typically post-fill (no invite).
+  let eyebrowSlot: ReactNode = null;
+  if (invite) {
+    eyebrowSlot = (
+      <View style={styles.iconGroup}>
+        <IconPill icon="doc.on.doc" onPress={onCopyInvite} accessibilityLabel="Copy invite link" />
+        <IconPill
+          icon="square.and.arrow.up"
+          onPress={onShareInvite}
+          accessibilityLabel="Share invite link"
+        />
+      </View>
+    );
+  } else if (payment) {
+    eyebrowSlot = payment.state === 'due'
+      ? (
+          <PulsingPill
+            label={`Dues · $${payment.amount}`}
+            onPress={onPaymentPress}
+            accessibilityLabel={`League dues due: $${payment.amount}. Tap to pay.`}
+          />
+        )
+      : (
+          <OutlinePill
+            label="Pending"
+            icon="dollarsign.square.fill"
+            onPress={onPaymentPress}
+            accessibilityLabel="Payment pending confirmation"
+          />
+        );
+  } else if (isCommissioner && manualOrder?.slotsAssigned) {
+    eyebrowSlot = (
+      <OutlinePill
+        label="Edit Order"
+        onPress={onSetDraftOrder}
+        accessibilityLabel="Edit the draft order"
       />
-    </View>
-  ) : null;
+    );
+  }
 
   // Stat row: date on the left, action pill (or status label) on the right.
-  // Priority: Enter Now pulsing > Commissioner Schedule/Reschedule > status label.
+  // Priority: Enter Now pulsing > Set Draft Order (manual + unset) >
+  // Commissioner Schedule/Reschedule > status label.
   let statRight: ReactNode;
   if (isReadyToEnter) {
     statRight = (
@@ -477,6 +536,14 @@ function DraftPending({
         label="Enter"
         onPress={onEnterDraft}
         accessibilityLabel="Enter draft room now"
+      />
+    );
+  } else if (isCommissioner && needsOrderSet) {
+    statRight = (
+      <PulsingPill
+        label="Set Order"
+        onPress={onSetDraftOrder}
+        accessibilityLabel="Set the draft order before scheduling"
       />
     );
   } else if (isCommissioner) {
@@ -758,6 +825,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: s(14),
     paddingVertical: s(7),
     borderRadius: 8,
+  },
+  actionPillRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(5),
   },
   outlinePill: {
     borderWidth: 1,

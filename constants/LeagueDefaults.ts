@@ -138,7 +138,11 @@ export const LEAGUE_TYPE_DISPLAY: Record<string, string> = {
 };
 
 export const DRAFT_TYPE_OPTIONS = ['Snake', 'Linear'] as const;
-export const TIME_PER_PICK_OPTIONS = [60, 90, 120] as const;
+// Pick clock bounds, in seconds. Tap-typing into the NumberStepper clamps to
+// the same range — kept wide so async/snail drafts can sit at the cap.
+export const TIME_PER_PICK_MIN = 15;
+export const TIME_PER_PICK_MAX = 300;
+export const TIME_PER_PICK_STEP = 15;
 
 export const TRADE_VETO_OPTIONS = ['Commissioner', 'League Vote', 'None'] as const;
 export type TradeVetoOption = (typeof TRADE_VETO_OPTIONS)[number];
@@ -248,11 +252,27 @@ export const SPORT_DISPLAY: Record<Sport, string> = {
 export const NBA_SEASON_END: Record<string, string> = {
   '2024-25': '2025-04-13',
   '2025-26': '2026-04-12',
+  '2026-27': '2027-04-11',
 };
 
 export const WNBA_SEASON_END: Record<string, string> = {
   '2025': '2025-09-19',
   '2026': '2026-09-13',
+  '2027': '2027-09-12',
+};
+
+// Opening-night dates per season, used as the default seasonStartDate when
+// the wizard pre-fills it. Mirrors the *_SEASON_END shape — bump yearly.
+export const NBA_SEASON_START: Record<string, string> = {
+  '2024-25': '2024-10-22',
+  '2025-26': '2025-10-21',
+  '2026-27': '2026-10-20',
+};
+
+export const WNBA_SEASON_START: Record<string, string> = {
+  '2025': '2025-05-16',
+  '2026': '2026-05-15',
+  '2027': '2027-05-15',
 };
 
 export const CURRENT_NBA_SEASON = '2025-26';
@@ -271,6 +291,164 @@ export function getPreviousSeason(sport: Sport): string {
 
 export function getSeasonEnd(sport: Sport, season: string): string | undefined {
   return sport === 'wnba' ? WNBA_SEASON_END[season] : NBA_SEASON_END[season];
+}
+
+export function getSeasonStart(sport: Sport, season: string): string | undefined {
+  return sport === 'wnba' ? WNBA_SEASON_START[season] : NBA_SEASON_START[season];
+}
+
+// Hardcoded month/day per sport when next-season league creation becomes
+// available. Picked to land post-Finals / pre-Summer League (NBA) and
+// post-Finals / pre-Draft (WNBA). Adjust as the calendar shifts.
+const SPORT_NEXT_SEASON_OPENS: Record<Sport, { month: number; day: number } | undefined> = {
+  nba: { month: 7, day: 1 },
+  wnba: { month: 11, day: 1 },
+  nfl: undefined,
+  nhl: undefined,
+  mlb: undefined,
+};
+
+/** Minimum weeks remaining in the current season for it to still be worth
+ *  creating a league for — below this the regular season is too short to
+ *  produce a meaningful playoff arc. Scaled per-sport: NBA's 25-week season
+ *  affords a higher floor than WNBA's ~17-week season. Both land near 40%
+ *  of total season length so the cutoff feels proportionally consistent. */
+const SPORT_MIN_WEEKS_REMAINING: Record<Sport, number> = {
+  nba: 10,
+  wnba: 7,
+  nfl: 6,
+  nhl: 10,
+  mlb: 12,
+};
+
+export function getMinWeeksRemaining(sport: Sport): number {
+  return SPORT_MIN_WEEKS_REMAINING[sport] ?? 10;
+}
+
+export interface SeasonCreationStatus {
+  /** Sport this status describes. */
+  sport: Sport;
+  /** Season the wizard would create for if this sport were picked — the
+   *  current season when its window is open, otherwise the upcoming one.
+   *  Always populated so the UI can show a season label per tile. */
+  season: string;
+  /** Hardcoded opening-night date (yyyy-mm-dd) for `season`, if known. */
+  defaultStartDate: string | null;
+  /** Whether the wizard can be entered for this sport right now. */
+  available: boolean;
+  /** When `!available`, a short human label for when the window opens
+   *  ("Jul 1"). Composed into "Opens {opensAt}" by the tile component. */
+  opensAt?: string;
+}
+
+
+/** Returns whether a league can currently be created for `sport`. If the
+ *  current season has < SEASON_MIN_WEEKS_REMAINING weeks left, falls forward
+ *  to the next season once today ≥ that sport's hardcoded open date. */
+export function getCreationStatus(sport: Sport, today: Date = new Date()): SeasonCreationStatus {
+  const currentSeason = getCurrentSeason(sport);
+  const currentEnd = getSeasonEnd(sport, currentSeason);
+  const todayMidnight = new Date(today);
+  todayMidnight.setHours(0, 0, 0, 0);
+
+  // Is the current season still creatable (≥ MIN weeks left between today
+  // and the regular-season end)?
+  if (currentEnd) {
+    const [ey, em, ed] = currentEnd.split('-').map(Number);
+    const endDate = new Date(ey, em - 1, ed);
+    const msPerWeek = 7 * 24 * 60 * 60 * 1000;
+    const weeksRemaining = Math.floor((endDate.getTime() - todayMidnight.getTime()) / msPerWeek);
+    if (weeksRemaining >= getMinWeeksRemaining(sport)) {
+      return {
+        sport,
+        season: currentSeason,
+        defaultStartDate: getSeasonStart(sport, currentSeason) ?? null,
+        available: true,
+      };
+    }
+  }
+
+  // Current season's window closed — fall forward to next season. Show it
+  // as the tile's "season" label either way (available once opens past, or
+  // gated until then).
+  const opens = SPORT_NEXT_SEASON_OPENS[sport];
+  const nextSeasonStartYear = parseSeasonStartYear(currentSeason) + 1;
+  const nextSeason = formatSeason(nextSeasonStartYear, sport);
+  if (opens) {
+    const openDate = new Date(todayMidnight.getFullYear(), opens.month - 1, opens.day);
+    if (todayMidnight >= openDate) {
+      return {
+        sport,
+        season: nextSeason,
+        defaultStartDate: getSeasonStart(sport, nextSeason) ?? null,
+        available: true,
+      };
+    }
+    const openLabel = openDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return {
+      sport,
+      season: nextSeason,
+      defaultStartDate: null,
+      available: false,
+      opensAt: openLabel,
+    };
+  }
+
+  return {
+    sport,
+    season: nextSeason,
+    defaultStartDate: null,
+    available: false,
+  };
+}
+
+// Realistic upper bound on the rookie pool each year — caps fantasy rookie
+// draft rounds so total picks (rounds × teams) can't exceed the players that
+// will actually be available. NBA = 60 (2-round real draft × 30 teams);
+// WNBA = 36 (modern 3-round × 12 teams).
+const ROOKIE_POOL_SIZE: Partial<Record<Sport, number>> = {
+  nba: 60,
+  wnba: 36,
+};
+
+// Absolute ceiling on the rounds stepper regardless of league size — keeps
+// small leagues from selecting absurd round counts (4 teams × 15 rounds = 60
+// rookies, technically valid by pool but nonsensical for play).
+const ROOKIE_ROUNDS_CEILING = 5;
+
+export function getMaxRookieDraftRounds(sport: Sport, teams: number): number {
+  const pool = ROOKIE_POOL_SIZE[sport] ?? 60;
+  const byPool = Math.max(1, Math.floor(pool / Math.max(1, teams)));
+  return Math.min(ROOKIE_ROUNDS_CEILING, byPool);
+}
+
+/** Strict majority: ⌊teams/2⌋ + 1 — ensures a veto vote always requires more
+ *  than half the league regardless of team count. */
+export function defaultVotesToVeto(teams: number): number {
+  return Math.floor(teams / 2) + 1;
+}
+
+/** Common real-world convention is a deadline 4 weeks before playoffs. */
+export function defaultTradeDeadlineWeek(regularSeasonWeeks: number): number {
+  return Math.max(1, regularSeasonWeeks - 4);
+}
+
+/** Hard cap on playoff weeks per sport. 4 weeks supports a 16-team
+ *  bracket; 3 weeks tops out at 8 teams. WNBA's shorter regular season
+ *  + smaller typical league size means 3 weeks is the practical ceiling.
+ *  Note: `PLAYOFF_OPTIONS` in utils/league/lottery only defines
+ *  meaningful team counts for 1-4 weeks; anything ≥ 5 falls through
+ *  to `2 ** weeks` which produces unreachable team counts. */
+const SPORT_MAX_PLAYOFF_WEEKS: Record<Sport, number> = {
+  nba: 4,
+  wnba: 3,
+  nfl: 4,
+  nhl: 4,
+  mlb: 4,
+};
+
+export function getMaxPlayoffWeeks(sport: Sport): number {
+  return SPORT_MAX_PLAYOFF_WEEKS[sport] ?? 4;
 }
 
 // Format a season string from its starting calendar year, sport-aware.
@@ -310,7 +488,6 @@ export const SPORT_OPENING_MONTH: Partial<Record<Sport, string>> = {
 };
 
 export type DraftType = (typeof DRAFT_TYPE_OPTIONS)[number];
-export type TimePerPick = (typeof TIME_PER_PICK_OPTIONS)[number];
 
 export interface LeagueWizardState {
   sport: Sport;
@@ -325,7 +502,7 @@ export interface LeagueWizardState {
   categories: CategoryConfig[];
   draftType: DraftType;
   initialDraftOrder: InitialDraftOrderOption;
-  timePerPick: TimePerPick;
+  timePerPick: number;
   maxDraftYears: number;
   tradeVetoType: TradeVetoOption;
   tradeReviewPeriodHours: number;

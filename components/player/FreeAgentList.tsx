@@ -47,6 +47,7 @@ import { useTodayGameTimes } from "@/utils/nba/gameStarted";
 import { fetchNbaScheduleForDate } from "@/utils/nba/nbaSchedule";
 import { addFreeAgent } from "@/utils/roster/addFreeAgent";
 import { guardIllegalIR } from "@/utils/roster/illegalIR";
+import { guardOverCap } from "@/utils/roster/overCap";
 import { checkPositionLimits } from "@/utils/roster/positionLimits";
 import { fetchActiveRosterCount } from "@/utils/roster/rosterCounts";
 import { isEligibleForSlot } from "@/utils/roster/rosterSlots";
@@ -661,6 +662,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     // IR lockout preflight — block before even opening the drop picker so
     // users aren't led through a modal flow only to be rejected at the end.
     if (!(await guardIllegalIR(leagueId, teamId))) return;
+    if (!(await guardOverCap(leagueId, teamId))) return;
     setAddingPlayerId(player.player_id);
     try {
       // Re-check roster limit and weekly acquisition limit before adding
@@ -885,6 +887,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       return;
     }
     if (!(await guardIllegalIR(leagueId, teamId))) return;
+    if (!(await guardOverCap(leagueId, teamId))) return;
     setAddingPlayerId(player.player_id);
     try {
       // Get current waiver priority
@@ -941,6 +944,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       return;
     }
     if (!(await guardIllegalIR(leagueId, teamId))) return;
+    if (!(await guardOverCap(leagueId, teamId))) return;
     setAddingPlayerId(player.player_id);
     try {
       const { data: wp } = await supabase
@@ -1053,6 +1057,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     // IR lockout preflight — applies to every add/claim/drop-picker entry
     // point so users aren't led into a modal flow while locked.
     if (!(await guardIllegalIR(leagueId, teamId))) return;
+    if (!(await guardOverCap(leagueId, teamId))) return;
 
     const needsClaim = isOnWaivers(player.player_id, waiverType, waiverPlayerMap);
 

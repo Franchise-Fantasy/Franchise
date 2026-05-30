@@ -14,7 +14,7 @@ export default function Header() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  const wordmark = theme === "dark" ? "/wordmark-white.png" : "/wordmark-green.png";
+  const wordmark = theme === "dark" ? "/patch-wordmark-mono.png" : "/patch-wordmark.png";
 
   return (
     <header
@@ -31,10 +31,10 @@ export default function Header() {
           <Image
             src={wordmark}
             alt="Franchise"
-            width={140}
-            height={40}
+            width={480}
+            height={160}
             priority
-            className="h-7 w-auto sm:h-8"
+            className="h-9 w-auto sm:h-11"
           />
         </a>
 

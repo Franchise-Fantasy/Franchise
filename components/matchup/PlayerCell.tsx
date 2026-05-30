@@ -19,6 +19,7 @@ import { ScoringWeight } from "@/types/player";
 import { abbreviateFirstName } from "@/utils/formatting";
 import { getInjuryBadge } from "@/utils/nba/injuryBadge";
 import {
+  formatClock,
   formatGameInfo,
   LivePlayerStats,
   liveToGameLog,
@@ -77,6 +78,26 @@ export function buildStatLine(
     ["ast", "A"],
   ];
   return fields.map(([key, label]) => `${stats[key] ?? 0}${label}`).join(" ");
+}
+
+// Compact live game status for the half-width matchup cell, e.g. "Q3 9:43 48-52"
+// or "HALF 48-52". The roster page uses the verbose formatGameInfo ("3rd 9:43 ·
+// 48-52"); here space is tight, so the period abbreviates to Q# and the
+// separators are dropped to fit the chip line without truncating.
+function compactLiveInfo(live: LivePlayerStats): string {
+  const isAway = live.matchup?.startsWith("@");
+  const myScore = isAway ? live.away_score : live.home_score;
+  const oppScore = isAway ? live.home_score : live.away_score;
+  const score = `${myScore}-${oppScore}`;
+  const clock = formatClock(live.game_clock);
+  if (live.period === 2 && (!clock || clock === "0:00")) return `HALF ${score}`;
+  const period =
+    live.period <= 4
+      ? `Q${live.period}`
+      : live.period === 5
+        ? "OT"
+        : `OT${live.period - 4}`;
+  return clock ? `${period} ${clock} ${score}` : `${period} ${score}`;
 }
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
@@ -200,16 +221,26 @@ const STAT_FIELDS: [string, string][] = [
   ["reb", "R"],
   ["ast", "A"],
 ];
+// Category leagues hide the FPTS column, freeing room for two more stat
+// blocks. Steals/blocks are the most-scored extra cats, so we surface them
+// here (the full per-category breakdown still lives in the scoreboard above).
+const CAT_STAT_FIELDS: [string, string][] = [
+  ...STAT_FIELDS,
+  ["stl", "S"],
+  ["blk", "B"],
+];
 function StatBlocks({
   stats,
   color,
+  fields,
 }: {
   stats: Record<string, number | boolean> | null | undefined;
   color: string;
+  fields: [string, string][];
 }) {
   return (
     <View style={pStyles.statBlocks}>
-      {STAT_FIELDS.map(([key, label]) => (
+      {fields.map(([key, label]) => (
         <Text key={label} style={[pStyles.statBlock, { color }]} numberOfLines={1}>
           {Number(stats?.[key] ?? 0)}
           {label}
@@ -230,7 +261,7 @@ export const PlayerCell = React.memo(function PlayerCell({
   mode,
   liveStats,
   scoring,
-  futureSchedule,
+  schedule,
   onPress,
   isCategories,
   onFptsPress,
@@ -241,7 +272,7 @@ export const PlayerCell = React.memo(function PlayerCell({
   mode: DisplayMode;
   liveStats: LivePlayerStats | null;
   scoring: ScoringWeight[];
-  futureSchedule?: Map<string, ScheduleEntry>;
+  schedule?: Map<string, ScheduleEntry>;
   onPress?: (playerId: string) => void;
   isCategories?: boolean;
   onFptsPress?: (
@@ -260,7 +291,7 @@ export const PlayerCell = React.memo(function PlayerCell({
   // FPTS locks to a fixed column near the center seam (a spacer fills the gap
   // between the fixed-width stat blocks and it); centerPad keeps it off the pill.
   const centerPad =
-    side === "left" ? { paddingRight: s(10) } : { paddingLeft: s(10) };
+    side === "left" ? { paddingRight: s(6) } : { paddingLeft: s(6) };
 
   const injuryBadge = player ? getInjuryBadge(player.status) : null;
 
@@ -371,7 +402,7 @@ export const PlayerCell = React.memo(function PlayerCell({
   // ── Future / Today-no-live ────────────────────────────────────────────────
   if (mode === "future" || (mode === "today" && !liveStats)) {
     const schedEntry = player.nbaTricode
-      ? (futureSchedule?.get(player.nbaTricode) ?? null)
+      ? (schedule?.get(player.nbaTricode) ?? null)
       : null;
     return (
       <Wrapper
@@ -448,13 +479,14 @@ export const PlayerCell = React.memo(function PlayerCell({
     );
     const isLive = liveStats.game_status === 2;
     const hasStarted = liveStats.game_status !== 1;
-    // Live games show the full "3RD 5:16 · 58-43"; finished games drop the
+    // Live games show a compact "Q3 9:43 48-52"; finished games drop the
     // "Final" word entirely and show just the "85-75" score.
     const isFinalGame = liveStats.game_status === 3;
-    const gameInfo = formatGameInfo(liveStats);
-    const finalScore = isFinalGame
-      ? gameInfo.replace(/^Final\s*·\s*/i, "")
-      : null;
+    const gameInfo = isFinalGame
+      ? formatGameInfo(liveStats).replace(/^Final\s*·\s*/i, "")
+      : isLive
+        ? compactLiveInfo(liveStats)
+        : "";
 
     return (
       <Wrapper
@@ -519,7 +551,7 @@ export const PlayerCell = React.memo(function PlayerCell({
                 ]}
                 numberOfLines={1}
               >
-                {isFinalGame ? finalScore : gameInfo}
+                {gameInfo}
               </Text>
             ) : null}
           </View>
@@ -531,11 +563,21 @@ export const PlayerCell = React.memo(function PlayerCell({
               <StatBlocks
                 stats={liveToGameLog(liveStats) as Record<string, number | boolean>}
                 color={c.secondaryText}
+                fields={isCategories ? CAT_STAT_FIELDS : STAT_FIELDS}
               />
-              {renderFpts(
-                liveFp,
-                liveToGameLog(liveStats) as Record<string, number | boolean>,
-                liveStats.matchup ?? "",
+              {!isCategories && (
+                <View
+                  style={[
+                    pStyles.fptsSlot,
+                    { alignItems: side === "left" ? "flex-end" : "flex-start" },
+                  ]}
+                >
+                  {renderFpts(
+                    liveFp,
+                    liveToGameLog(liveStats) as Record<string, number | boolean>,
+                    liveStats.matchup ?? "",
+                  )}
+                </View>
               )}
             </View>
           ) : null}
@@ -550,6 +592,11 @@ export const PlayerCell = React.memo(function PlayerCell({
   // who played still need their stat line and matchup chip rendered even
   // though their dayPoints stay at 0 (they don't contribute to the score).
   const hasDayGame = !!(player.dayStatLine || player.dayMatchup);
+  // Real final score for the game, read from the persisted schedule (live stats
+  // have long expired by the time a day is "past"), oriented to this team.
+  const finalScore = player.nbaTricode
+    ? (schedule?.get(player.nbaTricode)?.score ?? null)
+    : null;
   return (
     <Wrapper
       style={[
@@ -588,8 +635,8 @@ export const PlayerCell = React.memo(function PlayerCell({
             </View>
           )}
         </View>
-        {/* Line 2 — Game: opponent chip (beside the portrait) + condensed F.
-            No team score on past days (not in player_games), so just "F". */}
+        {/* Line 2 — Game: opponent chip (beside the portrait) + the real final
+            score, read from the persisted schedule so it survives live-stat TTL. */}
         <View
           style={[
             pStyles.gameInfoRow,
@@ -597,7 +644,17 @@ export const PlayerCell = React.memo(function PlayerCell({
           ]}
         >
           {hasDayGame && player.dayMatchup ? (
-            <MatchupChip matchup={player.dayMatchup} isLive={false} c={c} />
+            <>
+              <MatchupChip matchup={player.dayMatchup} isLive={false} c={c} />
+              {finalScore ? (
+                <Text
+                  style={[pStyles.gameInfo, { color: c.secondaryText }]}
+                  numberOfLines={1}
+                >
+                  {finalScore}
+                </Text>
+              ) : null}
+            </>
           ) : (
             <Text style={[pStyles.meta, { color: c.secondaryText }]}>
               {player.position}
@@ -608,11 +665,24 @@ export const PlayerCell = React.memo(function PlayerCell({
             center column (only when the player played). */}
         {hasDayGame ? (
           <View style={[pStyles.statsRow, { flexDirection: rowDir }, centerPad]}>
-            <StatBlocks stats={player.dayGameStats} color={c.secondaryText} />
-            {renderFpts(
-              player.dayPoints,
-              player.dayGameStats,
-              player.dayMatchup ?? "",
+            <StatBlocks
+              stats={player.dayGameStats}
+              color={c.secondaryText}
+              fields={isCategories ? CAT_STAT_FIELDS : STAT_FIELDS}
+            />
+            {!isCategories && (
+              <View
+                style={[
+                  pStyles.fptsSlot,
+                  { alignItems: side === "left" ? "flex-end" : "flex-start" },
+                ]}
+              >
+                {renderFpts(
+                  player.dayPoints,
+                  player.dayGameStats,
+                  player.dayMatchup ?? "",
+                )}
+              </View>
             )}
           </View>
         ) : null}
@@ -662,21 +732,27 @@ export const pStyles = StyleSheet.create({
     alignItems: "center",
     alignSelf: "stretch",
     justifyContent: "flex-end",
-    gap: s(8),
+    gap: s(6),
     marginTop: s(3),
   },
   // Stat line rendered as equal-width blocks (one per category), value centered
   // in each. Equal widths keep the line a constant total width — single vs
   // double digits never shift anything — so the FPTS after it stays locked.
-  statBlocks: { flexDirection: "row" },
+  // gap guarantees the blocks never touch even when a value grows past the
+  // minWidth (e.g. two double-digit stats like "17P" "10R").
+  statBlocks: { flexDirection: "row", gap: s(3) },
   statBlock: {
     fontFamily: Fonts.mono,
     fontSize: ms(10),
     lineHeight: ms(13),
     letterSpacing: 0.3,
-    minWidth: s(20),
+    minWidth: s(18),
     textAlign: "center",
   },
+  // FPTS gets its own fixed-width slot too, so its (varying) width never drags
+  // the stat blocks around — the number aligns to the center-seam edge of the
+  // slot while the slot's outer edge stays put.
+  fptsSlot: { minWidth: s(40) },
   // Explicit lineHeights below tighten the default text bounding boxes so
   // the three rows in a player cell sit at visually equal vertical gaps.
   // Default lineHeight on RN ≈ 1.3× fontSize, which makes the larger FPTS

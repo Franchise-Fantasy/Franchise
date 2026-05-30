@@ -11,15 +11,19 @@ import { useLeague } from '@/hooks/useLeague';
 import { useLeagueRosterStats } from '@/hooks/useLeagueRosterStats';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { usePrevSeasonFpts } from '@/hooks/usePrevSeasonFpts';
+import { ordinalSuffix } from '@/utils/formatting';
 import {
   buildLeagueComparison,
   calculateRosterAgeProfile,
 } from '@/utils/roster/rosterAge';
+import { isActiveRosterSlot } from '@/utils/roster/rosterSlots';
+import { buildLeagueStrengthComparison } from '@/utils/roster/rosterStrength';
 import { ms, s } from '@/utils/scale';
 import {
   computeTeamCategoryAvgs,
   computeTeamZScores,
 } from '@/utils/scoring/categoryAnalytics';
+import { ANALYTICS_MIN_CURRENT_SEASON_GAMES } from '@/utils/scoring/fantasyPoints';
 
 import { IconSymbol } from '../ui/IconSymbol';
 import { ThemedText } from '../ui/ThemedText';
@@ -69,19 +73,46 @@ export function AnalyticsPreviewCard({
 
   const profile = useMemo(() => {
     if (!myPlayers.length || !weights?.length) return null;
-    return calculateRosterAgeProfile(myPlayers, weights, prevSeasonFptsMap);
+    return calculateRosterAgeProfile(myPlayers, weights, prevSeasonFptsMap, ANALYTICS_MIN_CURRENT_SEASON_GAMES);
   }, [myPlayers, weights, prevSeasonFptsMap]);
 
   const comparison = useMemo(() => {
     if (!allPlayers?.length || !weights?.length || !teamId) return null;
-    return buildLeagueComparison(allPlayers as any, weights, teamId, prevSeasonFptsMap);
+    return buildLeagueComparison(
+      allPlayers as any,
+      weights,
+      teamId,
+      prevSeasonFptsMap,
+      ANALYTICS_MIN_CURRENT_SEASON_GAMES,
+    );
   }, [allPlayers, weights, teamId, prevSeasonFptsMap]);
 
   const isCategories = scoringType === 'h2h_categories';
+  const isDynasty = (league?.league_type ?? 'dynasty') === 'dynasty';
+
+  // Single-year (keeper/redraft) points leagues show roster strength instead
+  // of weighted age. Skipped for dynasty (age columns) and categories
+  // (strongest/weakest cats), so neither pays for the extra grouping pass.
+  const strength = useMemo(() => {
+    if (isDynasty || isCategories || !allPlayers?.length || !weights?.length || !teamId) {
+      return null;
+    }
+    return buildLeagueStrengthComparison(
+      allPlayers as any,
+      weights,
+      teamId,
+      prevSeasonFptsMap,
+      ANALYTICS_MIN_CURRENT_SEASON_GAMES,
+    );
+  }, [isDynasty, isCategories, allPlayers, weights, teamId, prevSeasonFptsMap]);
 
   const teamAvgs = useMemo(() => {
     if (!isCategories || !allPlayers?.length) return null;
-    return computeTeamCategoryAvgs(allPlayers as any);
+    // Exclude IR/TAXI so category strength reflects the active roster (matches
+    // the full analytics screen's radar).
+    return computeTeamCategoryAvgs(
+      (allPlayers as any[]).filter((p) => isActiveRosterSlot(p.roster_slot)),
+    );
   }, [isCategories, allPlayers]);
 
   const zScores = useMemo(() => {
@@ -128,7 +159,9 @@ export function AnalyticsPreviewCard({
     !isLoading &&
     (isCategories
       ? !!bestCategory && !!worstCategory
-      : !!profile && profile.totalWithAge >= 3);
+      : isDynasty
+        ? !!profile && profile.totalWithAge >= 3
+        : !!strength);
 
   const CardWrapper = hasData ? TouchableOpacity : View;
   const wrapperProps = hasData
@@ -194,6 +227,32 @@ export function AnalyticsPreviewCard({
                 labelColor={c.secondaryText}
               />
             </View>
+          ) : !isDynasty ? (
+            strength ? (
+              <View style={styles.dataRow}>
+                <Column
+                  label="Roster Strength"
+                  bigValue={`${strength.myRank}${ordinalSuffix(strength.myRank)}`}
+                  subValue={`of ${strength.totalTeams}`}
+                  bigColor={c.text}
+                  subColor={c.secondaryText}
+                  labelColor={c.secondaryText}
+                />
+                <View style={[styles.divider, { backgroundColor: c.border }]} />
+                <Column
+                  label="vs League"
+                  bigValue={`${strength.myTotalFpts - strength.leagueAvgFpts >= 0 ? '+' : ''}${(strength.myTotalFpts - strength.leagueAvgFpts).toFixed(1)}`}
+                  subValue="FPTS/G vs avg"
+                  bigColor={c.text}
+                  subColor={c.secondaryText}
+                  labelColor={c.secondaryText}
+                />
+              </View>
+            ) : (
+              <ThemedText style={[styles.placeholderText, { color: c.secondaryText }]}>
+                Not enough league data available
+              </ThemedText>
+            )
           ) : !profile || profile.totalWithAge < 3 ? (
             <ThemedText style={[styles.placeholderText, { color: c.secondaryText }]}>
               Not enough age data available
@@ -275,12 +334,6 @@ function Column({
       )}
     </View>
   );
-}
-
-function ordinalSuffix(n: number): string {
-  const s = ['th', 'st', 'nd', 'rd'];
-  const v = n % 100;
-  return s[(v - 20) % 10] || s[v] || s[0];
 }
 
 const styles = StyleSheet.create({

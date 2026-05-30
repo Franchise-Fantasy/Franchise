@@ -79,6 +79,7 @@ export function calculateRosterAgeProfile(
   players: PlayerSeasonStats[],
   scoringWeights: ScoringWeight[],
   prevSeasonFptsMap?: Map<string, number>,
+  minGames?: number,
 ): RosterAgeProfile {
   let totalAge = 0;
   let weightedAgeSum = 0;
@@ -92,9 +93,9 @@ export function calculateRosterAgeProfile(
     if (!p.birthdate) continue;
     const age = calculateAge(p.birthdate);
     // Use prev-season fpts as the weight for players who haven't crossed
-    // MIN_CURRENT_SEASON_GAMES yet — keeps the metric meaningful during
-    // WNBA pre-tipoff and the first month of any season.
-    const fpts = effectiveFantasyPoints(p, scoringWeights, prevSeasonFptsMap);
+    // the games threshold yet — keeps the metric meaningful during WNBA
+    // pre-tipoff and the first weeks of any season.
+    const fpts = effectiveFantasyPoints(p, scoringWeights, prevSeasonFptsMap, minGames);
 
     totalWithAge++;
     totalAge += age;
@@ -125,6 +126,7 @@ export function buildScatterData(
   players: PlayerSeasonStats[],
   scoringWeights: ScoringWeight[],
   prevSeasonFptsMap?: Map<string, number>,
+  minGames?: number,
 ): AgeFptsPoint[] {
   // Players need either a current-season sample OR a prev-season fallback
   // — pre-tipoff WNBA rosters have no current games but should still chart.
@@ -134,7 +136,7 @@ export function buildScatterData(
       name: p.name,
       shortName: shortDisplayName(p.name),
       age: calculateAge(p.birthdate!),
-      avgFpts: effectiveFantasyPoints(p, scoringWeights, prevSeasonFptsMap),
+      avgFpts: effectiveFantasyPoints(p, scoringWeights, prevSeasonFptsMap, minGames),
       playerId: p.player_id,
       position: p.position,
     }));
@@ -146,6 +148,7 @@ export function buildLeagueComparison(
   scoringWeights: ScoringWeight[],
   myTeamId: string,
   prevSeasonFptsMap?: Map<string, number>,
+  minGames?: number,
 ): LeagueAgeComparison | null {
   // Group players by team
   const byTeam = new Map<string, PlayerSeasonStats[]>();
@@ -159,7 +162,7 @@ export function buildLeagueComparison(
   // Compute profile for each team
   const profiles: TeamAgeProfile[] = [];
   for (const [teamId, teamPlayers] of byTeam) {
-    const profile = calculateRosterAgeProfile(teamPlayers, scoringWeights, prevSeasonFptsMap);
+    const profile = calculateRosterAgeProfile(teamPlayers, scoringWeights, prevSeasonFptsMap, minGames);
     if (profile.totalWithAge >= 3) {
       profiles.push({ ...profile, teamId });
     }

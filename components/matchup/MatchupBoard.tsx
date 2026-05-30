@@ -2,6 +2,7 @@ import { Text, View } from "react-native";
 
 import { CategoryScoreboard } from "@/components/matchup/CategoryScoreboard";
 import {
+  computeLiveCategoryResults,
   type MatchupSlotEntry,
   type TeamMatchupData,
 } from "@/components/matchup/matchupData";
@@ -14,13 +15,9 @@ import {
 } from "@/components/matchup/PlayerCell";
 import { SectionEyebrow } from "@/components/roster/SectionEyebrow";
 import { ScoringWeight } from "@/types/player";
-import { liveToGameLog, type LivePlayerStats } from "@/utils/nba/nbaLive";
+import { type LivePlayerStats } from "@/utils/nba/nbaLive";
 import { slotLabel } from "@/utils/roster/rosterSlots";
 import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
-import {
-  computeCategoryResults,
-  type TeamStatTotals,
-} from "@/utils/scoring/categoryScoring";
 
 interface MatchupBoardProps {
   leftTeam: TeamMatchupData;
@@ -31,7 +28,7 @@ interface MatchupBoardProps {
   mode: DisplayMode;
   liveMap: Map<string, LivePlayerStats>;
   scoring: ScoringWeight[];
-  futureSchedule?: Map<string, any>;
+  schedule?: Map<string, any>;
   seedMap?: Map<string, number>;
   onPlayerPress?: (playerId: string) => void;
   onFptsPress?: (
@@ -54,7 +51,7 @@ export function MatchupBoard({
   mode,
   liveMap,
   scoring,
-  futureSchedule,
+  schedule,
   seedMap,
   onPlayerPress,
   onFptsPress,
@@ -62,33 +59,12 @@ export function MatchupBoard({
 }: MatchupBoardProps) {
   const isCategories = scoringType === "h2h_categories";
 
-  // Merge live in-progress game stats into a team's DB-based teamStats
-  const mergeWithLive = (team: TeamMatchupData): TeamStatTotals => {
-    if (liveMap.size === 0) return team.teamStats;
-    const merged = { ...team.teamStats };
-    for (const p of team.players) {
-      if (p.roster_slot === 'BE' || p.roster_slot === 'IR' || p.roster_slot === ROSTER_SLOT.DROPPED) continue;
-      const live = liveMap.get(p.player_id);
-      if (!live) continue;
-      const gameLog = liveToGameLog(live);
-      for (const [key, val] of Object.entries(gameLog)) {
-        if (val == null) continue;
-        const numVal = typeof val === 'boolean' ? (val ? 1 : 0) : Number(val);
-        merged[key] = (merged[key] ?? 0) + numVal;
-      }
-    }
-    return merged;
-  };
-
-  // For category leagues, compute live category comparison
-  const categoryComparison =
-    isCategories && rightTeam
-      ? computeCategoryResults(
-          mergeWithLive(leftTeam),
-          mergeWithLive(rightTeam),
-          scoring.map((s) => ({ stat_name: s.stat_name, inverse: s.inverse ?? false })),
-        )
-      : null;
+  // For category leagues, compute the live category comparison (active
+  // starters only, with in-progress games merged in). Shared helper keeps this
+  // identical to the hero's week-wide tally.
+  const categoryComparison = isCategories
+    ? computeLiveCategoryResults(leftTeam, rightTeam, scoring, liveMap)
+    : null;
 
   // Use the longer slot list (should always be the same length)
   const slotCount = Math.max(leftSlots.length, rightSlots.length);
@@ -152,7 +128,7 @@ export function MatchupBoard({
           lPlayer ? (liveMap.get(lPlayer.player_id) ?? null) : null
         }
         scoring={scoring}
-        futureSchedule={futureSchedule}
+        schedule={schedule}
         onPress={onPlayerPress}
         isCategories={isCategories}
         onFptsPress={onFptsPress}
@@ -183,7 +159,7 @@ export function MatchupBoard({
           rPlayer ? (liveMap.get(rPlayer.player_id) ?? null) : null
         }
         scoring={scoring}
-        futureSchedule={futureSchedule}
+        schedule={schedule}
         onPress={onPlayerPress}
         isCategories={isCategories}
         onFptsPress={onFptsPress}
@@ -193,9 +169,9 @@ export function MatchupBoard({
 
   return (
     <View>
-      {/* Category scoreboard (only for category leagues — replaces the
-          fpts-based score block in the hero conceptually). */}
-      {isCategories && categoryComparison && (
+      {/* Category scoreboard (only for category leagues — the per-category
+          breakdown that backs the win tally shown in the hero). */}
+      {isCategories && categoryComparison && rightTeam && (
         <View style={colStyles.sectionWrap}>
           <SectionEyebrow label="CATEGORIES" />
           <View
@@ -209,12 +185,10 @@ export function MatchupBoard({
               homeWins={categoryComparison.homeWins}
               awayWins={categoryComparison.awayWins}
               ties={categoryComparison.ties}
-              homeTeamName={`${seedMap?.has(leftTeam.teamId) ? `#${seedMap.get(leftTeam.teamId)} ` : ""}${leftTeam.teamName}`}
-              awayTeamName={
-                rightTeam
-                  ? `${rightTeam.teamName}${seedMap?.has(rightTeam.teamId) ? ` #${seedMap.get(rightTeam.teamId)}` : ""}`
-                  : "BYE"
-              }
+              homeName={leftTeam.tricode ?? leftTeam.teamName}
+              awayName={rightTeam.tricode ?? rightTeam.teamName}
+              homeSeed={seedMap?.get(leftTeam.teamId)}
+              awaySeed={seedMap?.get(rightTeam.teamId)}
             />
           </View>
         </View>

@@ -30,6 +30,7 @@ import { PlayerHeadshotImage } from "@/components/player/PlayerHeadshotImage";
 import { AnimatedFpts } from "@/components/roster/AnimatedFpts";
 import { IrLockBanner } from "@/components/roster/IrLockBanner";
 import { MyPicksSection } from "@/components/roster/MyPicksSection";
+import { OverCapBanner } from "@/components/roster/OverCapBanner";
 import {
   buildSeasonAverages,
   computeSlotStats,
@@ -69,6 +70,7 @@ import { useToast } from "@/context/ToastProvider";
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { useIllegalIR } from "@/hooks/useIllegalIR";
+import { useOverCap } from "@/hooks/useOverCap";
 import { useLeague } from "@/hooks/useLeague";
 import { useLeagueRosterConfig } from "@/hooks/useLeagueRosterConfig";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
@@ -97,7 +99,8 @@ import { getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
 import { isOnline } from "@/utils/network";
 import { LineupPlayer, optimizeLineup } from "@/utils/roster/autoLineup";
 import { fetchTeamData } from "@/utils/roster/fetchTeamData";
-import { isIrEligibleStatus } from "@/utils/roster/illegalIR";
+import { guardIllegalIR, isIrEligibleStatus } from "@/utils/roster/illegalIR";
+import { guardOverCap } from "@/utils/roster/overCap";
 import { isEligibleForSlot, slotLabel } from "@/utils/roster/rosterSlots";
 import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
 import { isTaxiEligible } from "@/utils/roster/taxiEligibility";
@@ -156,6 +159,8 @@ export default function RosterScreen() {
 
   const { data: illegalIRPlayers } = useIllegalIR(leagueId, teamId);
   const irLocked = !!illegalIRPlayers && illegalIRPlayers.length > 0;
+  const { data: overCap } = useOverCap(leagueId, teamId);
+  const overCapLocked = !!overCap?.isOver;
   const { data: rosterConfig, isLoading: isLoadingConfig } =
     useLeagueRosterConfig(leagueId ?? "");
 
@@ -827,6 +832,22 @@ export default function RosterScreen() {
         return;
       }
     }
+    // 3. Over-capacity lock: when the team's active roster exceeds the
+    //    league cap, only allow moves that REDUCE the active count
+    //    (active → IR or active → TAXI). Active↔active swaps and
+    //    IR/TAXI→active moves stay blocked until the count is back in
+    //    range. Drops are a separate action and aren't affected.
+    if (overCapLocked) {
+      const reducesActive =
+        !srcIsIR && !srcIsTaxi && (dstIsIR || dstIsTaxi);
+      if (!reducesActive) {
+        Alert.alert(
+          "Roster locked",
+          `Your active roster is over capacity (${overCap!.activeCount}/${overCap!.rosterSize}). Move ${overCap!.overBy} player${overCap!.overBy === 1 ? "" : "s"} to TAXI or IR — or drop them — before making other moves.`,
+        );
+        return;
+      }
+    }
 
     setIsAssigning(true);
     try {
@@ -967,6 +988,9 @@ export default function RosterScreen() {
           queryKey: ["illegal-ir", leagueId, teamId],
         });
         queryClient.invalidateQueries({
+          queryKey: ["over-cap", leagueId, teamId],
+        });
+        queryClient.invalidateQueries({
           queryKey: queryKeys.rosterInfo(leagueId, teamId),
         });
         queryClient.invalidateQueries({
@@ -1053,6 +1077,13 @@ export default function RosterScreen() {
       showToast("error", "No internet connection");
       return;
     }
+
+    // Lineup edits are blocked while either lock is active. Auto-lineup
+    // is a bulk lineup edit so the same gates apply — without these the
+    // user could circumvent the per-move drag-drop guards by tapping
+    // "Optimize" instead.
+    if (!(await guardIllegalIR(leagueId, teamId))) return;
+    if (!(await guardOverCap(leagueId, teamId))) return;
 
     setIsOptimizing(true);
     try {
@@ -1716,6 +1747,13 @@ export default function RosterScreen() {
       />
 
       {irLocked && <IrLockBanner players={illegalIRPlayers ?? []} />}
+      {overCapLocked && overCap && (
+        <OverCapBanner
+          activeCount={overCap.activeCount}
+          rosterSize={overCap.rosterSize}
+          overBy={overCap.overBy}
+        />
+      )}
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Share-capturable roster content */}

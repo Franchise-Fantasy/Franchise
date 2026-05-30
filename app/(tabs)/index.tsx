@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AnalyticsPreviewCard } from '@/components/home/AnalyticsPreviewCard';
 import { DeclareKeepers } from '@/components/home/DeclareKeepers';
+import { ManualDraftOrderModal } from '@/components/commissioner/ManualDraftOrderModal';
 import { HomeHero, type HomeHeroVariant, type PaymentBadge } from '@/components/home/HomeHero';
 import { LeagueSwitcher } from '@/components/home/LeagueSwitcher';
 import { OffseasonLotteryOrder } from '@/components/home/OffseasonLotteryOrder';
@@ -218,6 +219,29 @@ export default function HomeScreen() {
     },
     enabled: !!league?.id,
   });
+
+  // Manual draft order: when the league picked `manual` for initial draft
+  // order, the commissioner must explicitly set the team-by-team order
+  // before scheduling. Slots-assigned check uses round-1 picks because
+  // a team's slot is unchanged across rounds.
+  const isManualOrder = league?.initial_draft_order === 'manual';
+  const isInitialDraft = activeDraft?.type === 'initial';
+  const { data: slotsAssigned } = useQuery({
+    queryKey: activeDraft?.id ? queryKeys.draftSlotsAssigned(activeDraft.id) : ['no-draft-slots'],
+    queryFn: async () => {
+      if (!activeDraft?.id) return false;
+      const { count, error } = await supabase
+        .from('draft_picks')
+        .select('id', { count: 'exact', head: true })
+        .eq('draft_id', activeDraft.id)
+        .eq('round', 1)
+        .not('current_team_id', 'is', null);
+      if (error) throw error;
+      return (count ?? 0) > 0;
+    },
+    enabled: !!activeDraft?.id && isManualOrder && isInitialDraft,
+  });
+  const [showOrderModal, setShowOrderModal] = useState(false);
 
   // Rookie + seasonal draft existence lookups — only needed during
   // offseason to pick the right hero action (create vs start).
@@ -479,6 +503,11 @@ export default function HomeScreen() {
         isReadyToEnter,
         isCommissioner,
         invite,
+        payment: paymentBadge ?? undefined,
+        manualOrder:
+          isManualOrder && activeDraft.type === 'initial'
+            ? { slotsAssigned: !!slotsAssigned }
+            : null,
       };
     }
 
@@ -598,6 +627,8 @@ export default function HomeScreen() {
     claimStatus,
     isCommissioner,
     paymentBadge,
+    isManualOrder,
+    slotsAssigned,
     router,
     activeDraftLoading,
     bracketLoading,
@@ -635,6 +666,14 @@ export default function HomeScreen() {
   };
 
   const onSchedulePress = () => {
+    // Manual draft order leagues must have the order set before the
+    // draft can be scheduled — otherwise the commissioner could lock in
+    // a date with no team-to-slot mapping. Hero shows a separate "Set
+    // Order" pill in this state; we belt-and-suspender it here too.
+    if (isManualOrder && activeDraft?.type === 'initial' && !slotsAssigned) {
+      Alert.alert('Set Draft Order', 'You need to set the draft order before scheduling the draft.');
+      return;
+    }
     setSelectedDate(activeDraft?.draft_date ? new Date(activeDraft.draft_date) : null);
     setShowDatePicker(true);
   };
@@ -816,8 +855,23 @@ export default function HomeScreen() {
                 onPaymentPress={onPaymentPress}
                 onSchedulePress={onSchedulePress}
                 onEnterDraft={onEnterDraft}
+                onSetDraftOrder={() => setShowOrderModal(true)}
                 onCopyInvite={onCopyInvite}
                 onShareInvite={onShareInvite}
+              />
+            )}
+            {/* Manual draft order — commissioner-only modal. Rendered
+                here so it lives at the page root and reliably captures
+                taps from the hero's "Set Order" pill. */}
+            {activeDraft?.id && league?.id && isCommissioner && isManualOrder && (
+              <ManualDraftOrderModal
+                visible={showOrderModal}
+                onClose={() => {
+                  setShowOrderModal(false);
+                  queryClient.invalidateQueries({ queryKey: queryKeys.draftSlotsAssigned(activeDraft.id) });
+                }}
+                leagueId={league.id}
+                draftId={activeDraft.id}
               />
             )}
 

@@ -23,6 +23,9 @@ export function StepRoster({ state, onSlotChange, onChange, onResetRoster }: Ste
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
 
+  // Taxi squads are a dynasty-only feature — you stash long-term prospects you
+  // keep across seasons. Redraft/keeper leagues don't get the taxi config.
+  const isDynasty = (state.leagueType ?? 'Dynasty') === 'Dynasty';
   const posLimitsEnabled = Object.keys(state.positionLimits ?? {}).length > 0;
   const limitablePositions = getLimitablePositions(state.sport);
   const activeSlots = state.rosterSlots.filter((s) => s.position !== 'IR' && s.position !== ROSTER_SLOT.TAXI);
@@ -81,7 +84,7 @@ export function StepRoster({ state, onSlotChange, onChange, onResetRoster }: Ste
           </View>
         )}
 
-        {taxiSlot !== undefined && taxiIndex !== -1 && (
+        {isDynasty && taxiSlot !== undefined && taxiIndex !== -1 && (
           <View style={styles.extraSection}>
             <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.extraHeading}>Taxi Squad</ThemedText>
             <ThemedText style={[styles.extraNote, { color: c.secondaryText }]}>

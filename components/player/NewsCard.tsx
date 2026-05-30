@@ -92,7 +92,9 @@ function NewsCardBase({ article, showHeadshots }: NewsCardProps) {
                 key={i}
                 style={[
                   styles.headshotCircle,
-                  { borderColor: c.heritageGold, backgroundColor: c.cardAlt },
+                  i > 0 && styles.headshotOverlap,
+                  // Leftmost portrait sits on top, each subsequent tucks behind.
+                  { borderColor: c.heritageGold, backgroundColor: c.cardAlt, zIndex: headshotPlayers.length - i },
                 ]}
                 accessibilityLabel={p.name ?? 'Player'}
               >
@@ -172,7 +174,6 @@ const styles = StyleSheet.create({
   },
   headshots: {
     flexDirection: 'row',
-    gap: s(-8),
   },
   headshotCircle: {
     width: s(38),
@@ -180,6 +181,11 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1.5,
     overflow: 'hidden',
+  },
+  // Negative margin overlaps each portrait onto the previous one (a facepile).
+  // RN ignores negative `gap`, so the overlap is done with margin instead.
+  headshotOverlap: {
+    marginLeft: s(-12),
   },
   headshotImg: {
     position: 'absolute',

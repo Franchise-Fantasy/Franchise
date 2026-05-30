@@ -3,7 +3,7 @@ import DateTimePicker, {
   DateTimePickerEvent,
 } from '@react-native-community/datetimepicker';
 import { useState } from 'react';
-import { Modal, Platform, Pressable, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Keyboard, Modal, Platform, Pressable, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { AnimatedSection } from '@/components/ui/AnimatedSection';
 import { BrandButton } from '@/components/ui/BrandButton';
@@ -17,6 +17,7 @@ import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import {
   getCurrentSeason,
+  getMaxPlayoffWeeks,
   getSeasonEnd,
   LeagueWizardState,
   PLAYOFF_SEEDING_OPTIONS,
@@ -143,7 +144,14 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
   };
 
   const maxRegularSeasonWeeks = Math.max(1, maxTotalWeeks - state.playoffWeeks);
-  const maxPlayoffWeeks = Math.max(1, maxTotalWeeks - state.regularSeasonWeeks);
+  // Playoff weeks are capped by both the remaining season AND the sport's
+  // structural max (NBA 4 = 16-team bracket, WNBA 3 = 8-team bracket).
+  // Without the sport cap WNBA leagues could pick 5-7 playoff weeks that
+  // can't form a valid bracket against the supported PLAYOFF_OPTIONS.
+  const maxPlayoffWeeks = Math.min(
+    getMaxPlayoffWeeks(state.sport),
+    Math.max(1, maxTotalWeeks - state.regularSeasonWeeks),
+  );
 
   // Week 1 ends the first Sunday after (or on) seasonStart
   const daysUntilSun = startDow === 0 ? 0 : 7 - startDow;
@@ -188,7 +196,15 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
           <SegmentedControl
             options={['No Divisions', '2 Divisions']}
             selectedIndex={state.divisionCount === 2 ? 1 : 0}
-            onSelect={(i) => onChange('divisionCount', i === 1 ? 2 : 1)}
+            onSelect={(i) => {
+              const next = i === 1 ? 2 : 1;
+              // Switching back to "No Divisions" unmounts the AnimatedSection
+              // holding the division-name inputs. The inputs lose focus, but
+              // RN doesn't auto-dismiss the keyboard on unmount — leaving the
+              // keyboard stranded over the now-empty section.
+              if (next === 1) Keyboard.dismiss();
+              onChange('divisionCount', next);
+            }}
             disabled={!canHaveDivisions && state.divisionCount !== 2}
           />
         </FieldGroup>
@@ -214,7 +230,87 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
         </AnimatedSection>
       </FormSection>
 
-      {/* Schedule */}
+      {/* Playoffs */}
+      <FormSection title="Playoffs">
+        {state.teams >= 2 &&
+          (() => {
+            const options = getPlayoffTeamOptions(state.playoffWeeks, state.teams);
+            const labels = options.map(String);
+            const selectedIdx = options.indexOf(state.playoffTeams);
+            const lotteryPool = calcLotteryPoolSize(state.teams, state.playoffTeams);
+            const helper =
+              lotteryPool > 0
+                ? `${lotteryPool} non-playoff team${lotteryPool !== 1 ? 's' : ''} in the lottery pool`
+                : undefined;
+            return (
+              <FieldGroup label="Playoff Teams" helperText={helper}>
+                <SegmentedControl
+                  options={labels}
+                  selectedIndex={selectedIdx === -1 ? labels.length - 1 : selectedIdx}
+                  onSelect={(i) => onChange('playoffTeams', options[i])}
+                />
+              </FieldGroup>
+            );
+          })()}
+
+        <FieldGroup
+          label="Seeding Format"
+          helperText={
+            state.playoffSeedingFormat === 'Standard'
+              ? 'Highest remaining seed plays lowest remaining seed each round.'
+              : state.playoffSeedingFormat === 'Fixed Bracket'
+                ? 'Traditional bracket halves: 1v8/4v5 one side, 2v7/3v6 the other.'
+                : 'After each round, higher seeds pick their next opponent.'
+          }
+        >
+          <SegmentedControl
+            options={[...PLAYOFF_SEEDING_OPTIONS]}
+            selectedIndex={PLAYOFF_SEEDING_OPTIONS.indexOf(state.playoffSeedingFormat)}
+            onSelect={(i) => {
+              onChange('playoffSeedingFormat', PLAYOFF_SEEDING_OPTIONS[i]);
+              if (PLAYOFF_SEEDING_OPTIONS[i] === 'Fixed Bracket') {
+                onChange('reseedEachRound', false);
+              }
+            }}
+          />
+        </FieldGroup>
+
+        <AnimatedSection visible={state.playoffSeedingFormat === 'Standard'}>
+          <FieldGroup
+            label="Reseed Each Round"
+            helperText={
+              state.reseedEachRound
+                ? 'After each round, remaining teams re-ranked so top seed always faces bottom seed.'
+                : 'Bracket positions fixed from initial seeding.'
+            }
+          >
+            <SegmentedControl
+              options={['Yes', 'No']}
+              selectedIndex={state.reseedEachRound ? 0 : 1}
+              onSelect={(i) => onChange('reseedEachRound', i === 0)}
+            />
+          </FieldGroup>
+        </AnimatedSection>
+
+        <FieldGroup
+          label="Tiebreaker Priority"
+          helperText={
+            state.tiebreakerPrimary === 'Head-to-Head'
+              ? 'Tied teams compared by head-to-head record first, then total points scored.'
+              : 'Tied teams compared by total points scored first, then head-to-head record.'
+          }
+        >
+          <SegmentedControl
+            options={[...TIEBREAKER_OPTIONS]}
+            selectedIndex={TIEBREAKER_OPTIONS.indexOf(state.tiebreakerPrimary)}
+            onSelect={(i) => onChange('tiebreakerPrimary', TIEBREAKER_OPTIONS[i])}
+          />
+        </FieldGroup>
+      </FormSection>
+
+      {/* Schedule — sits below Playoffs so the Season Preview lands
+          right under the regular/playoff week steppers and updates
+          visibly as the user edits them. */}
       <FormSection title="Schedule">
         <FieldGroup
           label="Season Start Date"
@@ -295,84 +391,6 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
           suffix=" wks"
           last
         />
-      </FormSection>
-
-      {/* Playoffs */}
-      <FormSection title="Playoffs">
-        {state.teams >= 2 &&
-          (() => {
-            const options = getPlayoffTeamOptions(state.playoffWeeks, state.teams);
-            const labels = options.map(String);
-            const selectedIdx = options.indexOf(state.playoffTeams);
-            const lotteryPool = calcLotteryPoolSize(state.teams, state.playoffTeams);
-            const helper =
-              lotteryPool > 0
-                ? `${lotteryPool} non-playoff team${lotteryPool !== 1 ? 's' : ''} in the lottery pool`
-                : undefined;
-            return (
-              <FieldGroup label="Playoff Teams" helperText={helper}>
-                <SegmentedControl
-                  options={labels}
-                  selectedIndex={selectedIdx === -1 ? labels.length - 1 : selectedIdx}
-                  onSelect={(i) => onChange('playoffTeams', options[i])}
-                />
-              </FieldGroup>
-            );
-          })()}
-
-        <FieldGroup
-          label="Seeding Format"
-          helperText={
-            state.playoffSeedingFormat === 'Standard'
-              ? 'Highest remaining seed plays lowest remaining seed each round.'
-              : state.playoffSeedingFormat === 'Fixed Bracket'
-                ? 'Traditional bracket halves: 1v8/4v5 one side, 2v7/3v6 the other.'
-                : 'After each round, higher seeds pick their next opponent.'
-          }
-        >
-          <SegmentedControl
-            options={[...PLAYOFF_SEEDING_OPTIONS]}
-            selectedIndex={PLAYOFF_SEEDING_OPTIONS.indexOf(state.playoffSeedingFormat)}
-            onSelect={(i) => {
-              onChange('playoffSeedingFormat', PLAYOFF_SEEDING_OPTIONS[i]);
-              if (PLAYOFF_SEEDING_OPTIONS[i] === 'Fixed Bracket') {
-                onChange('reseedEachRound', false);
-              }
-            }}
-          />
-        </FieldGroup>
-
-        <AnimatedSection visible={state.playoffSeedingFormat === 'Standard'}>
-          <FieldGroup
-            label="Reseed Each Round"
-            helperText={
-              state.reseedEachRound
-                ? 'After each round, remaining teams re-ranked so top seed always faces bottom seed.'
-                : 'Bracket positions fixed from initial seeding.'
-            }
-          >
-            <SegmentedControl
-              options={['Yes', 'No']}
-              selectedIndex={state.reseedEachRound ? 0 : 1}
-              onSelect={(i) => onChange('reseedEachRound', i === 0)}
-            />
-          </FieldGroup>
-        </AnimatedSection>
-
-        <FieldGroup
-          label="Tiebreaker Priority"
-          helperText={
-            state.tiebreakerPrimary === 'Head-to-Head'
-              ? 'Tied teams compared by head-to-head record first, then total points scored.'
-              : 'Tied teams compared by total points scored first, then head-to-head record.'
-          }
-        >
-          <SegmentedControl
-            options={[...TIEBREAKER_OPTIONS]}
-            selectedIndex={TIEBREAKER_OPTIONS.indexOf(state.tiebreakerPrimary)}
-            onSelect={(i) => onChange('tiebreakerPrimary', TIEBREAKER_OPTIONS[i])}
-          />
-        </FieldGroup>
       </FormSection>
 
       {/* Season preview — treated as a Section so it visually aligns

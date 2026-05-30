@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -54,24 +54,6 @@ export default function PlayoffArchiveNhlScreen() {
     useNhlArchiveBracket(selectedSeason);
   const { data: standings, isLoading: standingsLoading } =
     useNhlArchiveStandings(selectedSeason);
-
-  // Auto-open the top-seeded West team's archive sheet on first load when
-  // the cup hasn't been awarded yet — gives a fast path to the in-progress
-  // season's contender without making the user tap into the bracket. Fires
-  // once per screen mount; closing the sheet won't re-trigger it.
-  const autoOpenedRef = useRef(false);
-  useEffect(() => {
-    if (autoOpenedRef.current) return;
-    if (!bracket || !standings) return;
-    if (bracket.year?.champion_franchise_id) return;
-    const target = standings.standings.find(
-      (s) => s.conference === 'West' && s.conference_seed === 1,
-    );
-    if (target) {
-      autoOpenedRef.current = true;
-      setOpenFranchiseId(target.franchise_id);
-    }
-  }, [bracket, standings]);
 
   if (!flagOn) return null;
 

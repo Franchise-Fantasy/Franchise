@@ -47,8 +47,11 @@ interface ProposeTradeModalProps {
   teamId: string;
   preselectedTeamId?: string;
   preselectedPlayer?: PreselectedPlayer;
-  /** When true, trade executes immediately (both teams auto-accepted, no veto). Used in draft room. */
-  instantExecute?: boolean;
+  /** When true, the proposal is flagged `is_in_draft`. Visibility limits
+   *  to the involved teams + commissioner, and counter-party accept
+   *  executes immediately (no review/veto window). Pass from the draft
+   *  room when a draft is in_progress. */
+  isInDraft?: boolean;
   /** Pre-populate with an existing proposal's data for counteroffer */
   counterofferData?: CounterofferData;
   /** Pre-populate with an existing proposal's data for editing */
@@ -63,7 +66,7 @@ export function ProposeTradeModal({
   teamId,
   preselectedTeamId,
   preselectedPlayer,
-  instantExecute = false,
+  isInDraft = false,
   counterofferData,
   editData,
   isPastDeadline = false,
@@ -358,8 +361,8 @@ export function ProposeTradeModal({
         return;
       }
 
-      if (instantExecute && state.selectedTeamIds.length > 1) {
-        Alert.alert('Draft Trades', 'Only 2-team trades can be executed during the draft.');
+      if (isInDraft && state.selectedTeamIds.length > 1) {
+        Alert.alert('Draft Trades', 'Only 2-team trades can be made during the draft.');
         setSubmitting(false);
         return;
       }
@@ -372,6 +375,7 @@ export function ProposeTradeModal({
           status: 'pending',
           notes: state.notes || null,
           counteroffer_of: counterofferData?.originalProposalId ?? null,
+          is_in_draft: isInDraft,
         })
         .select('id')
         .single();
@@ -406,32 +410,6 @@ export function ProposeTradeModal({
         p_proposal_id: proposal.id,
         p_league_id: leagueId,
       }).then(() => {}, () => {});
-
-      if (instantExecute) {
-        const { error: acceptError } = await supabase
-          .from('trade_proposal_teams')
-          .update({ status: 'accepted', responded_at: new Date().toISOString() })
-          .eq('proposal_id', proposal.id);
-        if (acceptError) throw acceptError;
-
-        const { error: statusError } = await supabase
-          .from('trade_proposals')
-          .update({ status: 'accepted', accepted_at: new Date().toISOString() })
-          .eq('id', proposal.id);
-        if (statusError) throw statusError;
-
-        const { error: execError } = await supabase.functions.invoke('execute-trade', {
-          body: { proposal_id: proposal.id },
-        });
-        if (execError) throw execError;
-
-        queryClient.invalidateQueries({ queryKey: queryKeys.tradeProposals(leagueId) });
-        queryClient.invalidateQueries({ queryKey: ['pendingTradeCount'] });
-        queryClient.invalidateQueries({ queryKey: ['tradablePicks'] });
-        queryClient.invalidateQueries({ queryKey: ['draftOrder'] });
-        setOverlay({ visible: true, label: 'Locked In.' });
-        return;
-      }
 
       const notifTitle = isCounteroffer ? 'Counteroffer Received' : isEdit ? 'Trade Updated' : 'Trade Proposed';
       const notifBody = isCounteroffer
@@ -551,18 +529,16 @@ export function ProposeTradeModal({
 
   // ─── Render ───────────────────────────────────────────────────
 
-  const submitLabel = instantExecute
-    ? 'Execute Trade'
-    : isCounteroffer
-      ? 'Send Counteroffer'
-      : isEdit
-        ? 'Update Trade'
-        : 'Propose Trade';
+  const submitLabel = isCounteroffer
+    ? 'Send Counteroffer'
+    : isEdit
+      ? 'Update Trade'
+      : 'Propose Trade';
 
   // Context-driven page title — replaces the prior "Make a Move." flavor
   // copy. The Alfa Slab + deck period rhythm stays, but the words now
   // tell the user what mode they're in.
-  const pageTitle = instantExecute
+  const pageTitle = isInDraft
     ? 'Draft Trade.'
     : isCounteroffer
       ? 'Counteroffer.'
@@ -679,7 +655,7 @@ export function ProposeTradeModal({
               loading={submitting}
               disabled={submitting || !hasAssets || !seeded}
               onPress={handleSubmit}
-              accessibilityLabel={instantExecute ? 'Execute trade' : 'Propose trade'}
+              accessibilityLabel="Propose trade"
             />
           </View>
         </View>
@@ -778,9 +754,6 @@ export function ProposeTradeModal({
         label={overlay?.label ?? ''}
         onDone={() => {
           setOverlay(null);
-          if (instantExecute) {
-            Alert.alert('Trade Completed', 'The trade has been executed.');
-          }
           onClose();
         }}
       />

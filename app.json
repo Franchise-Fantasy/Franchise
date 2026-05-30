@@ -41,8 +41,8 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/patch_logo.png",
-          "imageWidth": 200,
+          "image": "./assets/images/F_patch.png",
+          "imageWidth": 216,
           "resizeMode": "contain",
           "backgroundColor": "#1B3D2F"
         }

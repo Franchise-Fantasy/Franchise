@@ -70,6 +70,10 @@ export interface MatchupHeroProps {
   rightSeed?: number;
 
   isCategories: boolean;
+  /** Live H2H category tally for the displayed matchup. Drives the hero's
+   *  focal number in category leagues (where there's no fpts score). Null
+   *  on bye weeks or before data resolves. */
+  categoryRecord?: { leftWins: number; rightWins: number; ties: number } | null;
 
   weeklyLimit?: number | null;
   leftAdds?: number;
@@ -145,6 +149,7 @@ export function MatchupHero({
   leftSeed,
   rightSeed,
   isCategories,
+  categoryRecord,
   weeklyLimit,
   leftAdds,
   rightAdds,
@@ -185,10 +190,14 @@ export function MatchupHero({
   // shows the selected date, so repeating the weekday here is redundant.
   const dayBadge = "TODAY";
 
-  const myLeading =
-    !!leftTeam && !!rightTeam && leftTeam.weekScore > rightTeam.weekScore;
-  const oppLeading =
-    !!leftTeam && !!rightTeam && rightTeam.weekScore > leftTeam.weekScore;
+  // "Leading" drives the gold focal-score highlight. Categories compare the
+  // win tally; points compare the week score.
+  const myLeading = isCategories
+    ? !!categoryRecord && categoryRecord.leftWins > categoryRecord.rightWins
+    : !!leftTeam && !!rightTeam && leftTeam.weekScore > rightTeam.weekScore;
+  const oppLeading = isCategories
+    ? !!categoryRecord && categoryRecord.rightWins > categoryRecord.leftWins
+    : !!leftTeam && !!rightTeam && rightTeam.weekScore > leftTeam.weekScore;
 
   // ── Swipe-to-navigate-matchups ──────────────────────────────────────
   // Animates the hero card off-screen, swaps to the next/prev matchup,
@@ -409,8 +418,15 @@ export function MatchupHero({
             numberOfLines={1}
           >
             {dayLabel.toUpperCase()}
-            {onSchedulePress ? "  ▾" : ""}
           </ThemedText>
+          {onSchedulePress && (
+            <Ionicons
+              name="chevron-down"
+              size={ms(12)}
+              color={Brand.ecruMuted}
+              style={styles.dateCaret}
+            />
+          )}
         </TouchableOpacity>
 
         <View style={styles.eyebrowRight}>
@@ -489,6 +505,7 @@ export function MatchupHero({
               oppLeading={oppLeading}
               weekIsLive={weekIsLive}
               isCategories={isCategories}
+              categoryRecord={categoryRecord}
               showDayTotals={showDayTotals}
               dayBadge={dayBadge}
               onTeamPress={onTeamPress}
@@ -639,6 +656,7 @@ interface ScoreBlockProps {
   oppLeading: boolean;
   weekIsLive: boolean;
   isCategories: boolean;
+  categoryRecord?: { leftWins: number; rightWins: number; ties: number } | null;
   showDayTotals: boolean;
   dayBadge: string;
   onTeamPress?: (teamId: string) => void;
@@ -664,6 +682,7 @@ function ScoreBlock({
   oppLeading,
   weekIsLive,
   isCategories,
+  categoryRecord,
   showDayTotals,
   dayBadge,
   onTeamPress,
@@ -677,6 +696,38 @@ function ScoreBlock({
     ? (rightTeam.tricode ?? rightTeam.teamName?.slice(0, 4)?.toUpperCase() ?? "OPP")
     : "BYE";
 
+  // The focal number + sub-line differ by scoring type. Categories show the
+  // team's category-win tally with the full W–L–T record beneath; points show
+  // the week score with the day total beneath.
+  const tieSuffix =
+    categoryRecord && categoryRecord.ties > 0 ? `-${categoryRecord.ties}` : "";
+  const leftFocal = isCategories
+    ? categoryRecord
+      ? String(categoryRecord.leftWins)
+      : null
+    : formatScore(leftTeam.weekScore);
+  const rightFocal = isCategories
+    ? categoryRecord
+      ? String(categoryRecord.rightWins)
+      : null
+    : rightTeam
+      ? formatScore(rightTeam.weekScore)
+      : null;
+  const leftSub = isCategories
+    ? categoryRecord
+      ? `${categoryRecord.leftWins}-${categoryRecord.rightWins}${tieSuffix} CATS`
+      : null
+    : showDayTotals
+      ? `${formatScore(leftTeam.dayScore)} ${dayBadge}`
+      : null;
+  const rightSub = isCategories
+    ? categoryRecord
+      ? `${categoryRecord.rightWins}-${categoryRecord.leftWins}${tieSuffix} CATS`
+      : null
+    : showDayTotals && rightTeam
+      ? `${formatScore(rightTeam.dayScore)} ${dayBadge}`
+      : null;
+
   return (
     <View style={styles.scoreRow}>
       <ScoreColumn
@@ -686,9 +737,8 @@ function ScoreBlock({
         seed={leftSeed}
         leading={myLeading}
         colorFor={colorFor}
-        showDayTotals={showDayTotals}
-        dayBadge={dayBadge}
-        showScore={!isCategories}
+        focal={leftFocal}
+        sub={leftSub}
         onTeamPress={onTeamPress}
       />
       <View style={styles.colDivider} />
@@ -699,9 +749,8 @@ function ScoreBlock({
         seed={rightSeed}
         leading={oppLeading}
         colorFor={colorFor}
-        showDayTotals={showDayTotals}
-        dayBadge={dayBadge}
-        showScore={!isCategories && !!rightTeam}
+        focal={rightFocal}
+        sub={rightSub}
         onTeamPress={onTeamPress}
       />
     </View>
@@ -715,9 +764,12 @@ interface ScoreColumnProps {
   seed?: number;
   leading: boolean;
   colorFor: (leading: boolean) => string;
-  showDayTotals: boolean;
-  dayBadge: string;
-  showScore: boolean;
+  /** Big focal number (week score or category-win tally). Null renders the
+   *  "—" placeholder (BYE / cold load). */
+  focal: string | null;
+  /** Small sub-line under the focal number (day total or category record).
+   *  Null reserves the line's height with a spacer. */
+  sub: string | null;
   onTeamPress?: (teamId: string) => void;
 }
 
@@ -728,9 +780,8 @@ function ScoreColumn({
   seed,
   leading,
   colorFor,
-  showDayTotals,
-  dayBadge,
-  showScore,
+  focal,
+  sub,
   onTeamPress,
 }: ScoreColumnProps) {
   // Column anchors the meta row (tri + record) to the OUTER edge so the
@@ -763,22 +814,22 @@ function ScoreColumn({
       accessibilityLabel={team ? `View ${team.teamName} roster` : "BYE"}
     >
       <View style={[styles.metaTopRow, innerAlign]}>{metaOrder}</View>
-      {showScore && team ? (
+      {focal != null && team ? (
         <ThemedText
           style={[styles.bigScore, innerAlign, { color: colorFor(leading) }]}
         >
-          {formatScore(team.weekScore)}
+          {focal}
         </ThemedText>
       ) : (
         <ThemedText style={[styles.bigScorePlaceholder, innerAlign]}>—</ThemedText>
       )}
-      {showDayTotals && team ? (
+      {sub != null && team ? (
         <ThemedText
           type="varsitySmall"
           style={[styles.todayLine, innerAlign]}
           numberOfLines={1}
         >
-          {formatScore(team.dayScore)} {dayBadge}
+          {sub}
         </ThemedText>
       ) : (
         <View style={styles.todayLineSpacer} />
@@ -794,9 +845,9 @@ const styles = StyleSheet.create({
     marginTop: s(8),
     marginBottom: s(8),
     borderRadius: 16,
-    // Horizontal padding matches paddingTop so the eyebrow chips feel
-    // anchored to the card edges rather than floating in extra whitespace.
-    paddingHorizontal: s(10),
+    // Matches the roster hero's card inset so the eyebrow's gold bar + WK
+    // chip + date dropdown line up across the two pages.
+    paddingHorizontal: s(14),
     paddingTop: s(10),
     paddingBottom: s(8),
     overflow: "hidden",
@@ -809,7 +860,7 @@ const styles = StyleSheet.create({
   topRule: {
     position: "absolute",
     top: 0,
-    left: s(10),
+    left: s(14),
     height: 3,
     width: s(36),
     backgroundColor: Brand.vintageGold,
@@ -827,8 +878,8 @@ const styles = StyleSheet.create({
   eyebrowRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: s(8),
-    minHeight: ms(20),
+    marginBottom: s(6),
+    minHeight: ms(22),
   },
   eyebrowLeft: {
     flex: 1,
@@ -840,6 +891,7 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     flexDirection: "row",
     alignItems: "center",
+    gap: s(4),
     paddingHorizontal: s(6),
   },
   eyebrowRight: {
@@ -865,6 +917,9 @@ const styles = StyleSheet.create({
     color: Brand.ecru,
     fontSize: ms(11),
     letterSpacing: 1.1,
+  },
+  dateCaret: {
+    marginTop: ms(1),
   },
 
   // Summary chip — shares the bordered ACQ chip chrome but adds the

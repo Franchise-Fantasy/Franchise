@@ -35,4 +35,11 @@ function abbreviateFirstName(name: string): string {
   return `${name[0]}. ${name.slice(idx + 1)}`;
 }
 
-export { formatPosition, abbreviateFirstName };
+/** Returns the ordinal suffix for a number ("st", "nd", "rd", "th"). */
+function ordinalSuffix(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return s[(v - 20) % 10] || s[v] || s[0]!;
+}
+
+export { formatPosition, abbreviateFirstName, ordinalSuffix };

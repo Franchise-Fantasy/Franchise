@@ -9,9 +9,11 @@ export default function Hero() {
       className="relative flex min-h-[92vh] items-center overflow-hidden px-6 pt-28 pb-20 sm:pt-32"
       aria-labelledby="hero-heading"
     >
-      {/* Embroidered F patch — large, full-color, corner anchor */}
+      {/* Embroidered F patch — large, full-color, corner anchor.
+          On mobile it sits faded behind the copy as a background watermark;
+          from sm up it becomes the full-strength corner anchor. */}
       <div
-        className="pointer-events-none absolute -right-10 -bottom-10 hidden sm:block sm:-right-16 sm:-bottom-16 lg:-right-8 lg:-bottom-16"
+        className="pointer-events-none absolute -right-20 -bottom-16 sm:-right-16 lg:-right-8 lg:-bottom-16"
         aria-hidden="true"
       >
         <Image
@@ -20,7 +22,7 @@ export default function Hero() {
           width={820}
           height={820}
           priority
-          className="h-[420px] w-[420px] object-contain opacity-90 lg:h-[560px] lg:w-[560px]"
+          className="h-[340px] w-[340px] object-contain opacity-[0.10] sm:h-[420px] sm:w-[420px] sm:opacity-90 lg:h-[560px] lg:w-[560px]"
         />
       </div>
 

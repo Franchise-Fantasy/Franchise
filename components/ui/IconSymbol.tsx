@@ -36,6 +36,7 @@ const MAPPING = {
   'calendar': 'event',
   'doc.text': 'description',
   'newspaper': 'article',
+  'dollarsign.square.fill': 'local-atm',
 } as IconMapping;
 
 /**

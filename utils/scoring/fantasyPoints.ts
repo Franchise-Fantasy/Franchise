@@ -112,19 +112,27 @@ export function seasonAvgRowToFpts(
 // to be predictive — ~25% of a WNBA season, ~12% of an NBA season. Until
 // the player crosses this, callers should prefer the previous-season fpts
 // as a more stable signal (mirrors the auto-lineup fallback in roster.tsx).
+// Auto-lineup uses this default; lineup decisions reward a stable sample.
 export const MIN_CURRENT_SEASON_GAMES = 10;
 
+// The analytics screens switch to current-season stats sooner — a roster
+// strength / age read should feel current within a couple of weeks rather
+// than showing last year's numbers deep into the new season. Still enough
+// games to shrug off a single hot/cold night.
+export const ANALYTICS_MIN_CURRENT_SEASON_GAMES = 5;
+
 /** Returns a player's effective fpts-per-game for ranking / weighting:
- *  current-season avg once they've crossed `MIN_CURRENT_SEASON_GAMES`,
+ *  current-season avg once they've played `minGames` games this season,
  *  otherwise the supplied prev-season fpts (if any), otherwise the
  *  current value (which may be 0 during preseason). */
 export function effectiveFantasyPoints(
   player: PlayerSeasonStats,
   scoringWeights: ScoringWeight[],
   prevSeasonFptsMap?: Map<string, number>,
+  minGames: number = MIN_CURRENT_SEASON_GAMES,
 ): number {
   const currentFpts = calculateAvgFantasyPoints(player, scoringWeights);
-  if ((player.games_played ?? 0) >= MIN_CURRENT_SEASON_GAMES) return currentFpts;
+  if ((player.games_played ?? 0) >= minGames) return currentFpts;
   const fallback = prevSeasonFptsMap?.get(player.player_id);
   return fallback != null && fallback > 0 ? fallback : currentFpts;
 }

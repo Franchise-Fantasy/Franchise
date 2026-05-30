@@ -2,26 +2,30 @@ import { Ionicons } from "@expo/vector-icons";
 import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, TouchableOpacity, View } from "react-native";
 
+import { Badge, type BadgeVariant } from "@/components/ui/Badge";
 import { InfoModal } from "@/components/ui/InfoModal";
+import { Section } from "@/components/ui/Section";
 import { ThemedText } from "@/components/ui/ThemedText";
-import { Colors, cardShadow } from "@/constants/Colors";
+import { Colors, Fonts, cardShadow } from "@/constants/Colors";
 import { TREND_COLORS } from "@/constants/StatusColors";
+import { useColors } from "@/hooks/useColors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { PlayerGameLog, ScoringWeight } from "@/types/player";
 import { ms, s } from "@/utils/scale";
 import {
-  B2BInsight,
-  BounceBack,
-  calculateB2BImpact,
-  calculateBounceBack,
   calculateCategoryInsights,
-  calculateHomeSplit,
   calculatePlayerInsights,
   CategoryInsight,
   ConsistencyLabel,
-  SplitComparison,
-  TrendDirection,
 } from "@/utils/scoring/playerInsights";
+import { TREND_CONFIG } from "@/utils/scoring/trendDisplay";
+
+const CONSISTENCY_VARIANT: Record<ConsistencyLabel, BadgeVariant> = {
+  "Rock Solid": "turf",
+  Steady: "gold",
+  Variable: "warning",
+  "Boom or Bust": "merlot",
+};
 
 interface Props {
   games: PlayerGameLog[] | undefined;
@@ -43,17 +47,6 @@ const CONSISTENCY_COLORS: Record<ConsistencyLabel, string> = {
   Steady: TREND_COLORS.neutral,
   Variable: TREND_COLORS.hot,
   "Boom or Bust": TREND_COLORS.scorching,
-};
-
-const TREND_CONFIG: Record<
-  TrendDirection,
-  { label: string; color: string; icon: string }
-> = {
-  scorching: { label: "Scorching", color: TREND_COLORS.scorching, icon: "▲▲" },
-  hot: { label: "Hot", color: TREND_COLORS.hot, icon: "▲" },
-  neutral: { label: "Stable", color: TREND_COLORS.neutral, icon: "—" },
-  cold: { label: "Cold", color: TREND_COLORS.cold, icon: "▼" },
-  frigid: { label: "Frigid", color: TREND_COLORS.frigid, icon: "▼▼" },
 };
 
 const PCT_STATS = new Set(["FG%", "FT%"]);
@@ -90,22 +83,6 @@ export function PlayerInsightsCard({
     return calculatePlayerInsights(games, scoringWeights, seasonAvg, recentWindow);
   }, [isCategories, games, scoringWeights, seasonAvg, recentWindow]);
 
-  const homeSplit = useMemo(() => {
-    if (isCategories || !games || !scoringWeights) return null;
-    return calculateHomeSplit(games, scoringWeights);
-  }, [isCategories, games, scoringWeights]);
-
-  const b2b = useMemo(() => {
-    if (isCategories || !games || !scoringWeights) return null;
-    return calculateB2BImpact(games, scoringWeights);
-  }, [isCategories, games, scoringWeights]);
-
-  const bounceBack = useMemo(() => {
-    if (isCategories || !games || !scoringWeights || seasonAvg == null)
-      return null;
-    return calculateBounceBack(games, scoringWeights, seasonAvg);
-  }, [isCategories, games, scoringWeights, seasonAvg]);
-
   // CAT insights
   const catInsights = useMemo(() => {
     if (!isCategories || !games || !categories) return null;
@@ -113,8 +90,8 @@ export function PlayerInsightsCard({
   }, [isCategories, games, categories, recentWindow]);
 
   const scheme = useColorScheme() ?? "light";
+  const theme = useColors();
 
-  const [expanded, setExpanded] = useState(false);
   const [catTab, setCatTab] = useState<"strengths" | "trends">("strengths");
   const [showWindowPicker, setShowWindowPicker] = useState(false);
   const [infoKey, setInfoKey] = useState<"category" | "player" | null>(null);
@@ -136,11 +113,12 @@ export function PlayerInsightsCard({
     const minTrendCfg = TREND_CONFIG[catInsights.minutesTrend];
 
     return (
-      <View
-        style={styles.container}
-        accessibilityLabel="Category insights"
-        accessibilityRole="summary"
-      >
+      <Section noCard title="INSIGHTS">
+        <View
+          style={[styles.container, { backgroundColor: colors.card, borderColor: colors.border }]}
+          accessibilityLabel="Category insights"
+          accessibilityRole="summary"
+        >
         {/* Tab bar */}
         <View style={styles.catTabBar}>
           {(["strengths", "trends"] as const).map((tab) => (
@@ -310,18 +288,15 @@ export function PlayerInsightsCard({
             "Tap the filter icon to change the recent games window."
           }
         />
-      </View>
+        </View>
+      </Section>
     );
   }
 
   // --- Points league branch (existing) ---
   if (!insights) return null;
 
-  const badgeColor = CONSISTENCY_COLORS[insights.consistency];
-  const trendCfg = TREND_CONFIG[insights.trend];
-  const minTrendCfg = TREND_CONFIG[insights.minutesTrend];
-
-  // Range bar percentages
+  // Box-and-whisker percentages on the low→high scale.
   const range = insights.high - insights.low;
   const avgPct =
     range > 0
@@ -332,320 +307,95 @@ export function PlayerInsightsCard({
   const ceilPct =
     range > 0 ? ((insights.ceiling - insights.low) / range) * 100 : 75;
 
-  const hasExtras = !!homeSplit || !!b2b || !!bounceBack;
-
+  const avgRounded = Math.round(seasonAvg! * 10) / 10;
   return (
-    <View
-      style={styles.container}
-      accessibilityLabel={`Player insights: ${insights.consistency} consistency, standard deviation of ${insights.stdDev} fantasy points per game`}
-      accessibilityRole="summary"
-    >
-      {/* Row 1: Consistency + info */}
-      <View style={styles.topRow}>
-        <View style={[styles.badge, { backgroundColor: badgeColor }]}>
-          <ThemedText style={[styles.badgeText, { color: Colors[scheme].statusText }]}>
-            {insights.consistency}
-          </ThemedText>
-        </View>
-        <ThemedText style={[styles.stdDev, { color: colors.secondaryText }]}>
-          ±{insights.stdDev} FPTS/game
-        </ThemedText>
-        <TouchableOpacity
-          onPress={() => setInfoKey("player")}
-          accessibilityRole="button"
-          accessibilityLabel="Player insights info"
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Ionicons name="information-circle-outline" size={16} color={colors.secondaryText} />
-        </TouchableOpacity>
-      </View>
-
-      {/* Row 2: Range bar with low/floor/ceiling/high markers above the line */}
-      <View
-        style={styles.rangeSection}
-        accessibilityLabel={`Range: low ${insights.low} to high ${insights.high}. Floor ${insights.floor}, ceiling ${insights.ceiling}`}
-      >
-        <View style={[styles.rangeTrack, { backgroundColor: colors.border }]}>
-          <View
-            style={[
-              styles.iqrFill,
-              {
-                left: `${floorPct}%`,
-                width: `${ceilPct - floorPct}%`,
-                backgroundColor: badgeColor,
-                opacity: 0.25,
-              },
-            ]}
-          />
-          {/* Low marker (0%) */}
-          <View style={[styles.rangeMarkerWrap, { left: "0%" }]}>
-            <ThemedText style={[styles.rangeMarkerValue, { color: colors.secondaryText }]}>
-              {insights.low}
-            </ThemedText>
-            <View style={[styles.rangeMarkerLine, { backgroundColor: colors.secondaryText, opacity: 0.4 }]} />
-            <ThemedText style={[styles.rangeMarkerLabel, { color: colors.secondaryText }]}>
-              Low
-            </ThemedText>
-          </View>
-          {/* Floor marker */}
-          <View style={[styles.rangeMarkerWrap, { left: `${floorPct}%` }]}>
-            <ThemedText style={[styles.rangeMarkerValue, { color: colors.secondaryText }]}>
-              {insights.floor}
-            </ThemedText>
-            <View style={[styles.rangeMarkerLine, { backgroundColor: colors.secondaryText, opacity: 0.4 }]} />
-            <ThemedText style={[styles.rangeMarkerLabel, { color: colors.secondaryText }]}>
-              Floor
-            </ThemedText>
-          </View>
-          {/* Ceiling marker */}
-          <View style={[styles.rangeMarkerWrap, { left: `${ceilPct}%` }]}>
-            <ThemedText style={[styles.rangeMarkerValue, { color: colors.secondaryText }]}>
-              {insights.ceiling}
-            </ThemedText>
-            <View style={[styles.rangeMarkerLine, { backgroundColor: colors.secondaryText, opacity: 0.4 }]} />
-            <ThemedText style={[styles.rangeMarkerLabel, { color: colors.secondaryText }]}>
-              Ceiling
-            </ThemedText>
-          </View>
-          {/* High marker (100%) */}
-          <View style={[styles.rangeMarkerWrap, { left: "100%" }]}>
-            <ThemedText style={[styles.rangeMarkerValue, { color: colors.secondaryText }]}>
-              {insights.high}
-            </ThemedText>
-            <View style={[styles.rangeMarkerLine, { backgroundColor: colors.secondaryText, opacity: 0.4 }]} />
-            <ThemedText style={[styles.rangeMarkerLabel, { color: colors.secondaryText }]}>
-              High
-            </ThemedText>
-          </View>
-          {/* Season avg marker */}
-          <View
-            style={[
-              styles.avgMarker,
-              { left: `${avgPct}%`, backgroundColor: colors.accent },
-            ]}
-          />
-        </View>
-      </View>
-
-      {/* Divider */}
-      <View style={styles.sectionDivider} />
-
-      {/* Row 3: Last X (tappable dropdown) + Minutes + Trend label */}
-      <View style={styles.trendRow}>
-        <View style={styles.trendCell}>
-          <TouchableOpacity
-            onPress={() => setShowWindowPicker((v) => !v)}
-            style={styles.stat}
-            accessibilityRole="button"
-            accessibilityLabel={`Last ${recentWindow} games average: ${insights.recentAvg} fantasy points. Tap to change window.`}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: s(2) }}>
-              <ThemedText style={[styles.statLabel, { color: colors.secondaryText }]}>
-                Last {recentWindow}
-              </ThemedText>
-              <ThemedText style={[styles.dropdownArrow, { color: colors.secondaryText }]}>
-                ▾
-              </ThemedText>
-            </View>
-            <ThemedText style={[styles.statValue, trendCfg.color ? { color: trendCfg.color } : undefined]}>
-              {insights.recentAvg}
-            </ThemedText>
-          </TouchableOpacity>
-          {showWindowPicker && (
-            <>
-              <TouchableOpacity
-                style={styles.windowDropdownBackdrop}
-                activeOpacity={1}
-                onPress={() => setShowWindowPicker(false)}
-                accessibilityLabel="Close window picker"
-              />
-              <View
-                style={[styles.windowDropdown, { backgroundColor: colors.card, borderColor: colors.border }]}
-              >
-                {[5, 10, 15, 25, 50].map((w) => (
-                  <TouchableOpacity
-                    key={w}
-                    onPress={() => {
-                      onRecentWindowChange(w);
-                      setShowWindowPicker(false);
-                    }}
-                    style={[
-                      styles.windowDropdownItem,
-                      w === recentWindow && { backgroundColor: colors.accent },
-                    ]}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: w === recentWindow }}
-                    accessibilityLabel={`Last ${w} games`}
-                  >
-                    <ThemedText
-                      style={[
-                        styles.windowDropdownText,
-                        { color: colors.secondaryText },
-                        w === recentWindow && { color: Colors[scheme].statusText },
-                      ]}
-                    >
-                      {w}
-                    </ThemedText>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </>
-          )}
-        </View>
+    <>
+      {/* SCORING RANGE — season-long distribution: how volatile, and the spread. */}
+      <Section noCard title="SCORING RANGE">
         <View
-          style={styles.trendCell}
-          accessibilityLabel={`Minutes ${minTrendCfg.label}, ${insights.minutesDelta > 0 ? "up" : "down"} ${Math.abs(insights.minutesDelta)} minutes`}
+          style={[styles.container, { backgroundColor: colors.card, borderColor: colors.border }]}
+          accessibilityLabel={`Scoring range: ${insights.consistency}, low ${insights.low}, average ${avgRounded}, high ${insights.high}`}
+          accessibilityRole="summary"
         >
-          <ThemedText style={[styles.statLabel, { color: colors.secondaryText }]}>
-            Minutes
-          </ThemedText>
-          <View style={styles.minutesTrendRow}>
-            <ThemedText style={[styles.trendIcon, { color: minTrendCfg.color }]}>
-              {minTrendCfg.icon}
+          <View style={styles.topRow}>
+            <Badge
+              label={insights.consistency}
+              variant={CONSISTENCY_VARIANT[insights.consistency]}
+            />
+            <ThemedText style={[styles.stdDev, { color: colors.secondaryText }]}>
+              ±{insights.stdDev} FPTS/G
             </ThemedText>
-            <ThemedText style={[styles.statValueSmall, { color: minTrendCfg.color }]}>
-              {insights.minutesDelta > 0 ? "+" : ""}{insights.minutesDelta}
-            </ThemedText>
+            <TouchableOpacity
+              onPress={() => setInfoKey("player")}
+              accessibilityRole="button"
+              accessibilityLabel="Scoring range info"
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="information-circle-outline" size={16} color={colors.secondaryText} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Box-and-whisker: whiskers to Low/High, box for Floor–Ceiling, line at avg. */}
+          <View style={styles.bw}>
+            <View style={[styles.bwTrack, { backgroundColor: colors.border }]}>
+              <View
+                style={[
+                  styles.bwBox,
+                  {
+                    left: `${floorPct}%`,
+                    width: `${Math.max(ceilPct - floorPct, 1.5)}%`,
+                    backgroundColor: colors.accent,
+                    borderColor: colors.accent,
+                  },
+                ]}
+              />
+              <View style={[styles.bwCap, { left: 0, backgroundColor: colors.secondaryText }]} />
+              <View style={[styles.bwCap, { right: 0, backgroundColor: colors.secondaryText }]} />
+              <View style={[styles.bwAvg, { left: `${avgPct}%`, backgroundColor: theme.text }]} />
+            </View>
+          </View>
+
+          <View style={styles.legend}>
+            {(
+              [
+                ["LOW", insights.low],
+                ["FLOOR", insights.floor],
+                ["AVG", avgRounded],
+                ["CEIL", insights.ceiling],
+                ["HIGH", insights.high],
+              ] as const
+            ).map(([label, value]) => (
+              <View key={label} style={styles.legendCell}>
+                <ThemedText type="varsitySmall" style={[styles.legendLabel, { color: colors.secondaryText }]}>
+                  {label}
+                </ThemedText>
+                <ThemedText
+                  type="mono"
+                  style={[styles.legendValue, { color: label === "AVG" ? colors.accent : theme.text }]}
+                >
+                  {value}
+                </ThemedText>
+              </View>
+            ))}
           </View>
         </View>
-        <View style={styles.trendCell} accessibilityLabel={`Trend: ${trendCfg.label}`}>
-          <ThemedText style={[styles.statLabel, { color: colors.secondaryText }]}>
-            Trend
-          </ThemedText>
-          <View style={styles.trendBox}>
-            <ThemedText style={[styles.trendIcon, { color: trendCfg.color }]}>
-              {trendCfg.icon}
-            </ThemedText>
-            <ThemedText style={[styles.trendLabel, { color: trendCfg.color }]}>
-              {trendCfg.label}
-            </ThemedText>
-          </View>
-        </View>
-      </View>
-
-      {/* Expandable extras (season-long splits) */}
-      {hasExtras && (
-        <Pressable
-          onPress={() => setExpanded((v) => !v)}
-          style={styles.expandToggle}
-          accessibilityRole="button"
-          accessibilityLabel={expanded ? "Hide detailed insights" : "Show detailed insights"}
-        >
-          <ThemedText style={[styles.expandText, { color: colors.accent }]}>
-            {expanded ? "Less" : "More"}
-          </ThemedText>
-          <ThemedText style={[styles.expandArrow, { color: colors.accent }]}>
-            {expanded ? "▲" : "▼"}
-          </ThemedText>
-        </Pressable>
-      )}
-
-      {expanded && (
-        <>
-          {(homeSplit || b2b) && (
-            <View style={styles.splitsRow}>
-              {homeSplit && <HomeSplitCell split={homeSplit} colors={colors} />}
-              {b2b && <B2BCell b2b={b2b} colors={colors} />}
-            </View>
-          )}
-          {bounceBack && (
-            <View style={styles.bounceRow}>
-              <BounceBackCell bb={bounceBack} colors={colors} />
-            </View>
-          )}
-        </>
-      )}
+      </Section>
 
       <InfoModal
         visible={infoKey === "player"}
         onClose={() => setInfoKey(null)}
-        title="Player Insights"
+        title="Scoring Range"
         message={
-          "Consistency — How predictable this player's scoring is:\n" +
+          "Consistency — How predictable scoring is, season-long:\n" +
           "• Rock Solid: Very consistent output\n" +
           "• Steady: Reliable most nights\n" +
           "• Variable: Notable swings\n" +
           "• Boom or Bust: Huge range\n\n" +
           "± FPTS/game — Standard deviation. Lower = more consistent.\n\n" +
-          "Range Bar — Full scoring range (low to high). Shaded area is 25th–75th percentile. Marker is season average.\n\n" +
-          "Floor / Ceiling — 25th and 75th percentile scoring.\n\n" +
-          "Last X — Recent average. Tap to change the window.\n\n" +
-          "Trend — Recent avg vs season avg relative to variability.\n\n" +
-          "Minutes — Playing time trend over the recent window.\n\n" +
-          "Home / Away — Average FPTS by venue.\n\n" +
-          "Back-to-Back — Performance on 2nd game of B2Bs.\n\n" +
-          "Bounce-Back — How often a player scores above their average after a below-average game. Higher = more resilient."
+          "Box plot — Whiskers reach the season Low and High; the box is the Floor–Ceiling (25th–75th percentile) typical range; the line is the season average."
         }
       />
-    </View>
-  );
-}
-
-function HomeSplitCell({
-  split,
-  colors,
-}: {
-  split: SplitComparison;
-  colors: Props["colors"];
-}) {
-  const scheme = useColorScheme() ?? "light";
-  const delta = split.homeAvg - split.awayAvg;
-  const betterAt = delta > 1 ? "home" : delta < -1 ? "away" : null;
-  const highlightStyle = { color: Colors[scheme].success };
-  return (
-    <View
-      style={styles.splitCard}
-      accessibilityLabel={`Home average: ${split.homeAvg} in ${split.homeGames} games. Away average: ${split.awayAvg} in ${split.awayGames} games`}
-    >
-      <ThemedText style={[styles.miniLabel, { color: colors.secondaryText }]}>
-        Home / Away
-      </ThemedText>
-      <View style={styles.splitValues}>
-        <ThemedText style={[styles.splitValue, betterAt === "home" && highlightStyle]}>
-          {split.homeAvg}
-        </ThemedText>
-        <ThemedText style={[styles.splitDivider, { color: colors.secondaryText }]}>
-          /
-        </ThemedText>
-        <ThemedText style={[styles.splitValue, betterAt === "away" && highlightStyle]}>
-          {split.awayAvg}
-        </ThemedText>
-      </View>
-      <ThemedText style={[styles.splitSub, { color: colors.secondaryText }]}>
-        {split.homeGames}G / {split.awayGames}G
-      </ThemedText>
-    </View>
-  );
-}
-
-function B2BCell({ b2b, colors }: { b2b: B2BInsight; colors: Props["colors"] }) {
-  const scheme = useColorScheme() ?? "light";
-  const deltaPct =
-    b2b.restAvg > 0
-      ? Math.round(((b2b.b2bAvg - b2b.restAvg) / b2b.restAvg) * 100)
-      : 0;
-  const deltaColor = deltaPct >= 0 ? Colors[scheme].success : Colors[scheme].danger;
-
-  return (
-    <View
-      style={styles.splitCard}
-      accessibilityLabel={`Back to back average: ${b2b.b2bAvg} in ${b2b.b2bGames} games versus rest average: ${b2b.restAvg}. Sat out ${b2b.b2bSatOut} of ${b2b.totalB2Bs} back to backs`}
-    >
-      <ThemedText style={[styles.miniLabel, { color: colors.secondaryText }]}>
-        Back-to-Back
-      </ThemedText>
-      <View style={styles.splitValues}>
-        <ThemedText style={styles.splitValue}>{b2b.b2bAvg}</ThemedText>
-        {deltaPct !== 0 && (
-          <ThemedText style={[styles.splitDelta, { color: deltaColor }]}>
-            {deltaPct > 0 ? "+" : ""}{deltaPct}%
-          </ThemedText>
-        )}
-      </View>
-      <ThemedText style={[styles.splitSub, { color: colors.secondaryText }]}>
-        {b2b.b2bGames}G played{b2b.b2bSatOut > 0 ? ` · ${b2b.b2bSatOut} DNP` : ""}
-      </ThemedText>
-    </View>
+    </>
   );
 }
 
@@ -733,35 +483,13 @@ function CategoryTrendRow({
   );
 }
 
-function BounceBackCell({ bb, colors }: { bb: BounceBack; colors: Props["colors"] }) {
-  const scheme = useColorScheme() ?? "light";
-  const rateColor = bb.rate >= 60 ? Colors[scheme].success : bb.rate >= 40 ? Colors[scheme].warning : Colors[scheme].danger;
-  return (
-    <View
-      style={styles.bounceCard}
-      accessibilityLabel={`Bounce back rate: ${bb.rate} percent. Bounced back ${bb.bounced} of ${bb.badGames} bad games`}
-    >
-      <ThemedText style={[styles.miniLabel, { color: colors.secondaryText }]}>
-        Bounce-Back Rate
-      </ThemedText>
-      <View style={styles.bounceValues}>
-        <ThemedText style={[styles.bounceRate, { color: rateColor }]}>
-          {bb.rate}%
-        </ThemedText>
-        <ThemedText style={[styles.bounceSub, { color: colors.secondaryText }]}>
-          Recovered {bb.bounced} of {bb.badGames} bad games
-        </ThemedText>
-      </View>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   container: {
-    paddingHorizontal: s(16),
-    marginTop: s(10),
-    marginBottom: s(4),
-    borderRadius: 12,
+    paddingHorizontal: s(14),
+    paddingVertical: s(12),
+    marginTop: s(2),
+    borderRadius: 14,
+    borderWidth: 1,
     ...cardShadow,
   },
   topRow: {
@@ -770,16 +498,8 @@ const styles = StyleSheet.create({
     gap: s(6),
     marginBottom: s(6),
   },
-  badge: {
-    paddingHorizontal: s(8),
-    paddingVertical: s(3),
-    borderRadius: 10,
-  },
-  badgeText: {
-    fontSize: ms(11),
-    fontWeight: "700",
-  },
   stdDev: {
+    fontFamily: Fonts.mono,
     fontSize: ms(12),
     flex: 1,
   },
@@ -796,50 +516,84 @@ const styles = StyleSheet.create({
     fontSize: ms(12),
     fontWeight: "600",
   },
-  rangeSection: {
-    marginBottom: s(10),
+  // Box-and-whisker distribution
+  bw: {
+    height: s(24),
+    justifyContent: "center",
+    marginTop: s(14),
   },
-  rangeTrack: {
-    height: s(6),
-    borderRadius: 3,
-    marginTop: s(18),
-    marginBottom: s(14),
-    overflow: "visible",
+  bwTrack: {
+    height: 2,
+    borderRadius: 1,
     position: "relative",
   },
-  iqrFill: {
+  bwBox: {
     position: "absolute",
-    top: 0,
-    bottom: 0,
-    borderRadius: 4,
+    top: s(-7),
+    height: s(16),
+    borderRadius: 3,
+    borderWidth: 1,
+    opacity: 0.32,
   },
-  avgMarker: {
+  bwCap: {
     position: "absolute",
-    top: s(-2),
-    width: s(4),
-    height: s(10),
-    borderRadius: 2,
-    marginLeft: s(-2),
+    top: s(-6),
+    width: 2,
+    height: s(14),
+    borderRadius: 1,
   },
-  rangeMarkerWrap: {
+  bwAvg: {
     position: "absolute",
+    top: s(-9),
+    width: 3,
+    height: s(20),
+    borderRadius: 1.5,
+    marginLeft: -1.5,
+  },
+  legend: {
+    flexDirection: "row",
+    marginTop: s(6),
+    marginBottom: s(2),
+  },
+  legendCell: {
+    flex: 1,
     alignItems: "center",
-    top: s(-18),
-    marginLeft: s(-18),
-    width: s(36),
   },
-  rangeMarkerValue: {
+  legendLabel: {
+    fontSize: ms(8.5),
+    letterSpacing: 0.6,
+    marginBottom: s(2),
+  },
+  legendValue: {
+    fontSize: ms(13),
+  },
+  // Recent-window segmented control
+  windowRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: s(8),
+    marginBottom: s(12),
+  },
+  windowCaption: {
     fontSize: ms(9),
-    fontWeight: "600",
-    marginBottom: s(4),
+    letterSpacing: 0.8,
   },
-  rangeMarkerLine: {
-    width: 1,
-    height: s(8),
+  windowSeg: {
+    flexDirection: "row",
+    borderWidth: 1,
+    borderRadius: 8,
+    overflow: "hidden",
   },
-  rangeMarkerLabel: {
-    fontSize: ms(8),
-    marginTop: 1,
+  windowSegItem: {
+    paddingVertical: s(5),
+    paddingHorizontal: s(11),
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  windowSegText: {
+    fontSize: ms(10),
+    letterSpacing: 0.5,
   },
   sectionDivider: {
     height: StyleSheet.hairlineWidth,
@@ -870,16 +624,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   statLabel: {
-    fontSize: ms(10),
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(9.5),
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
     marginBottom: s(2),
   },
   statValue: {
-    fontSize: ms(14),
-    fontWeight: "700",
+    fontFamily: Fonts.mono,
+    fontSize: ms(15),
   },
   statValueSmall: {
-    fontSize: ms(12),
-    fontWeight: "700",
+    fontFamily: Fonts.mono,
+    fontSize: ms(13),
   },
   minutesTrendRow: {
     flexDirection: "row",
@@ -902,11 +659,11 @@ const styles = StyleSheet.create({
     fontSize: ms(9),
   },
   miniLabel: {
-    fontSize: ms(10),
-    fontWeight: "600",
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(9.5),
     marginBottom: s(4),
     textTransform: "uppercase",
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
   },
   // Splits (home/away, B2B)
   splitsRow: {
@@ -923,15 +680,15 @@ const styles = StyleSheet.create({
     gap: s(4),
   },
   splitValue: {
-    fontSize: ms(14),
-    fontWeight: "700",
+    fontFamily: Fonts.mono,
+    fontSize: ms(15),
   },
   splitDivider: {
     fontSize: ms(12),
   },
   splitDelta: {
+    fontFamily: Fonts.mono,
     fontSize: ms(11),
-    fontWeight: "600",
   },
   splitSub: {
     fontSize: ms(10),
@@ -948,8 +705,8 @@ const styles = StyleSheet.create({
     gap: s(6),
   },
   bounceRate: {
-    fontSize: ms(14),
-    fontWeight: "700",
+    fontFamily: Fonts.mono,
+    fontSize: ms(15),
   },
   bounceSub: {
     fontSize: ms(11),
@@ -969,8 +726,10 @@ const styles = StyleSheet.create({
     borderBottomColor: "transparent",
   },
   catTabText: {
-    fontSize: ms(13),
-    fontWeight: "600",
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(12),
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
   },
   catContent: {
     gap: s(8),
@@ -987,15 +746,16 @@ const styles = StyleSheet.create({
     gap: s(2),
   },
   catStatName: {
+    fontFamily: Fonts.varsityBold,
     fontSize: ms(12),
-    fontWeight: "700",
+    letterSpacing: 0.6,
   },
   catInverse: {
     fontSize: ms(10),
   },
   catAvgValue: {
+    fontFamily: Fonts.mono,
     fontSize: ms(14),
-    fontWeight: "700",
     width: s(50),
     textAlign: "right",
   },
@@ -1006,8 +766,10 @@ const styles = StyleSheet.create({
     marginLeft: "auto",
   },
   catBadgeText: {
-    fontSize: ms(10),
-    fontWeight: "700",
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(9),
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
   },
   catTrendInfo: {
     flex: 1,
@@ -1016,8 +778,8 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   catDelta: {
+    fontFamily: Fonts.mono,
     fontSize: ms(12),
-    fontWeight: "600",
   },
   // CAT trends sub-header
   recentHeader: {
@@ -1027,10 +789,10 @@ const styles = StyleSheet.create({
     marginBottom: s(8),
   },
   recentTitle: {
-    fontSize: ms(12),
-    fontWeight: "600",
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(10),
     textTransform: "uppercase",
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
   },
   // Window picker
   windowPickerBtn: {

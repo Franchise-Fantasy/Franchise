@@ -50,9 +50,10 @@ export default function FeatureShowcase() {
                 className="relative overflow-hidden"
                 style={{ background: p.bg, color: p.text }}
               >
-                {/* F-winged watermark */}
+                {/* F-winged watermark — kept faint so the copy stays legible,
+                    extra-faint on mobile where text overlaps it more. */}
                 <div
-                  className="pointer-events-none absolute -right-10 -bottom-16 opacity-[0.12]"
+                  className="pointer-events-none absolute -right-10 -bottom-16 opacity-[0.06] sm:opacity-[0.09]"
                   aria-hidden="true"
                 >
                   <Image

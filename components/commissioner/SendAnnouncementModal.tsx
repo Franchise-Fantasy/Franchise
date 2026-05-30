@@ -13,6 +13,7 @@ import { ThemedText } from '@/components/ui/ThemedText';
 import { useColors } from '@/hooks/useColors';
 import { sendNotification } from '@/lib/notifications';
 import { supabase } from '@/lib/supabase';
+import { containsBlockedContent } from '@/utils/moderation';
 import { ms, s } from '@/utils/scale';
 
 const MAX_LENGTH = 500;
@@ -38,6 +39,11 @@ export function SendAnnouncementModal({ visible, leagueId, teamId, onClose }: Pr
   async function handleSend() {
     const trimmed = content.trim();
     if (!trimmed) return;
+
+    if (containsBlockedContent(trimmed)) {
+      Alert.alert('Announcement blocked', 'Your announcement contains language that isn’t allowed.');
+      return;
+    }
 
     setSending(true);
     try {

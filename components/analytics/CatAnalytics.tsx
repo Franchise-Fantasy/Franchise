@@ -34,6 +34,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
+import { ComingSoonTeaser } from "@/components/analytics/ComingSoonTeaser";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import { InfoModal } from "@/components/ui/InfoModal";
 import { ThemedText } from "@/components/ui/ThemedText";
@@ -45,6 +46,7 @@ import {
   BUCKET_COLORS,
   PEAK_YEARS,
 } from "@/utils/roster/rosterAge";
+import { isActiveRosterSlot } from "@/utils/roster/rosterSlots";
 import { ms, s } from "@/utils/scale";
 import {
   AgeTierBreakdown,
@@ -82,10 +84,13 @@ const STAT_LABELS: Record<string, string> = {
 type Section = "radar" | "scatter" | "tiers";
 
 interface CatAnalyticsProps {
-  allPlayers: (PlayerSeasonStats & { team_id: string })[];
+  allPlayers: (PlayerSeasonStats & { team_id: string; roster_slot?: string | null })[];
   myPlayers: PlayerSeasonStats[];
   teamId: string;
   leagueId: string;
+  // Non-dynasty (keeper/redraft) leagues drop the age-based sections — age
+  // framing only matters for multi-year rosters. They see Radar + a teaser.
+  isDynasty: boolean;
 }
 
 export function CatAnalytics({
@@ -93,6 +98,7 @@ export function CatAnalytics({
   myPlayers,
   teamId,
   leagueId,
+  isDynasty,
 }: CatAnalyticsProps) {
   const scheme = useColorScheme() ?? "light";
   const c = Colors[scheme];
@@ -111,8 +117,10 @@ export function CatAnalytics({
 
   // ── Computed data ──
 
+  // IR/TAXI players aren't active contributors, so they shouldn't sway the
+  // category strength comparison (radar + z-scores) for any team.
   const teamAvgs = useMemo(
-    () => computeTeamCategoryAvgs(allPlayers),
+    () => computeTeamCategoryAvgs(allPlayers.filter((p) => isActiveRosterSlot(p.roster_slot))),
     [allPlayers]
   );
 
@@ -148,43 +156,51 @@ export function CatAnalytics({
       contentContainerStyle={styles.scrollContent}
       showsVerticalScrollIndicator={false}
     >
-      {/* Section tabs */}
+      {/* Section tabs — age sections (scatter/tiers) only for dynasty
+          leagues. Non-dynasty leagues see Radar alone, so the tab strip
+          collapses to just the info button beside the section header. */}
       <View style={styles.tabRow}>
-        {(
-          [
-            { key: "radar", label: "Radar" },
-            { key: "scatter", label: "Age" },
-            { key: "tiers", label: "Breakdown" },
-          ] as const
-        ).map(({ key, label }) => {
-          const active = section === key;
-          return (
-            <TouchableOpacity
-              key={key}
-              style={[
-                styles.tab,
-                active && { borderBottomColor: c.accent, borderBottomWidth: 2 },
-              ]}
-              onPress={() => setSection(key as Section)}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: active }}
-              accessibilityLabel={`${label} tab`}
-            >
-              <Text
+        {isDynasty &&
+          (
+            [
+              { key: "radar", label: "Radar" },
+              { key: "scatter", label: "Age" },
+              { key: "tiers", label: "Breakdown" },
+            ] as const
+          ).map(({ key, label }) => {
+            const active = section === key;
+            return (
+              <TouchableOpacity
+                key={key}
                 style={[
-                  styles.tabText,
-                  { color: active ? c.accent : c.secondaryText },
+                  styles.tab,
+                  active && { borderBottomColor: c.accent, borderBottomWidth: 2 },
                 ]}
+                onPress={() => setSection(key as Section)}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={`${label} tab`}
               >
-                {label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
+                <Text
+                  style={[
+                    styles.tabText,
+                    { color: active ? c.accent : c.secondaryText },
+                  ]}
+                >
+                  {label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        {!isDynasty && (
+          <Text style={[styles.tabText, styles.soloHeader, { color: c.text }]}>
+            Category Radar
+          </Text>
+        )}
         <TouchableOpacity
           onPress={() => setInfoVisible(true)}
           accessibilityRole="button"
-          accessibilityLabel={`Info about ${section} section`}
+          accessibilityLabel={`Info about ${isDynasty ? section : "radar"} section`}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           style={{ justifyContent: "center", paddingLeft: 4 }}
         >
@@ -206,7 +222,7 @@ export function CatAnalytics({
         />
       )}
 
-      {section === "scatter" && (
+      {isDynasty && section === "scatter" && (
         <ScatterSection
           data={scatterData}
           stat={scatterStat}
@@ -222,9 +238,11 @@ export function CatAnalytics({
         />
       )}
 
-      {section === "tiers" && (
+      {isDynasty && section === "tiers" && (
         <TiersSection data={ageTiers} colors={c} isDark={isDark} />
       )}
+
+      {!isDynasty && <ComingSoonTeaser />}
 
       <InfoModal
         visible={infoVisible}
@@ -1124,6 +1142,7 @@ const styles = StyleSheet.create({
     borderBottomColor: "transparent",
   },
   tabText: { fontSize: ms(13), fontWeight: "600" },
+  soloHeader: { flex: 1, paddingVertical: s(8), fontWeight: "700" },
 
   // Radar
   radarWrap: {

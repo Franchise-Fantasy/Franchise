@@ -6,6 +6,7 @@ import {
   View,
 } from 'react-native';
 
+import { AnimatedSection } from '@/components/ui/AnimatedSection';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { NumberStepper } from '@/components/ui/NumberStepper';
@@ -213,19 +214,32 @@ export function EditTradeSettingsModal({
         c={c}
       />
 
-      {/* Trade Deadline */}
-      <NumberStepper
-        label="Trade Deadline (Week)"
-        value={tradeDeadlineWeek}
-        onValueChange={setTradeDeadlineWeek}
-        min={0}
-        max={maxDeadlineWeek}
+      {/* Trade Deadline — toggle gates the week stepper so "no deadline"
+          is a clear binary choice instead of the confusing "0 = no limit"
+          stepper convention. */}
+      <ToggleRow
+        icon="calendar-outline"
+        label="Trade Deadline"
+        description={
+          tradeDeadlineWeek > 0
+            ? `Trades lock after Week ${tradeDeadlineWeek}.`
+            : 'Trades allowed all season.'
+        }
+        value={tradeDeadlineWeek > 0}
+        onToggle={(v) =>
+          setTradeDeadlineWeek(v ? Math.max(1, maxDeadlineWeek - 4) : 0)
+        }
+        c={c}
       />
-      <ThemedText style={[styles.helperText, { color: c.secondaryText }]}>
-        {tradeDeadlineWeek === 0
-          ? 'No trade deadline — trades allowed all season.'
-          : `Trades lock after Week ${tradeDeadlineWeek}.`}
-      </ThemedText>
+      <AnimatedSection visible={tradeDeadlineWeek > 0}>
+        <NumberStepper
+          label="Deadline Week"
+          value={tradeDeadlineWeek || 1}
+          onValueChange={setTradeDeadlineWeek}
+          min={1}
+          max={maxDeadlineWeek}
+        />
+      </AnimatedSection>
     </BottomSheet>
   );
 }

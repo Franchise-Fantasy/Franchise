@@ -119,7 +119,7 @@ export default function CreateTeam() {
 
       const { data: league, error: leagueError } = await supabase
         .from('leagues')
-        .select('current_teams, teams, faab_budget, division_count')
+        .select('current_teams, teams, faab_budget, division_count, initial_draft_order')
         .eq('id', leagueId)
         .single();
 
@@ -132,6 +132,33 @@ export default function CreateTeam() {
         priority: league.current_teams ?? undefined,
         faab_remaining: league.faab_budget ?? 100,
       }]);
+
+      // Tentatively assign this team's draft picks based on join order.
+      // Without this, picks have current_team_id = NULL until the league
+      // fills (when checkAndAssignDraftSlots runs), so commissioners
+      // testing solo see "no picks" in roster/draft hub/etc. The full-
+      // league logic below still shuffles for Random order — `current_team_id`
+      // is overwritten by `assignDraftSlots` regardless of prior value.
+      //
+      // Skip for Manual leagues: there the commissioner explicitly chose
+      // to set the order themselves, and auto-assigning here would make
+      // `slotsAssigned` true → the "Set Draft Order" gate never fires →
+      // they'd accidentally use join-order as the draft order. Manual
+      // leagues keep current_team_id = NULL until the commissioner
+      // confirms an order in ManualDraftOrderModal.
+      const joinSlot = league.current_teams;
+      const isManualOrder = league.initial_draft_order === 'manual';
+      if (!isManualOrder && joinSlot != null && joinSlot >= 1) {
+        const { error: pickAssignErr } = await supabase
+          .from('draft_picks')
+          .update({ current_team_id: teamData.id, original_team_id: teamData.id })
+          .eq('league_id', leagueId as string)
+          .eq('slot_number', joinSlot)
+          .is('current_team_id', null);
+        if (pickAssignErr) {
+          logger.warn('Tentative pick assignment failed (non-fatal)', pickAssignErr);
+        }
+      }
 
       switchLeague(leagueId, teamData.id);
       router.replace('/(tabs)');

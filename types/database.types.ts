@@ -3607,6 +3607,7 @@ export type Database = {
           external_id_nba: string | null
           id: string
           is_prospect: boolean
+          last_google_news_check_at: string | null
           name: string
           position: string | null
           pro_team: string | null
@@ -3626,6 +3627,7 @@ export type Database = {
           external_id_nba?: string | null
           id?: string
           is_prospect?: boolean
+          last_google_news_check_at?: string | null
           name: string
           position?: string | null
           pro_team?: string | null
@@ -3645,6 +3647,7 @@ export type Database = {
           external_id_nba?: string | null
           id?: string
           is_prospect?: boolean
+          last_google_news_check_at?: string | null
           name?: string
           position?: string | null
           pro_team?: string | null

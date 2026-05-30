@@ -3,6 +3,7 @@ import { supabase } from "@/lib/supabase";
 import { nextSlateRollover } from "@/utils/leagueTime";
 import { GameTimeMap, hasAnyGameStarted, isGameStarted } from "@/utils/nba/gameStarted";
 import { assertNoIllegalIR } from "@/utils/roster/illegalIR";
+import { assertNoOverCap } from "@/utils/roster/overCap";
 
 /**
  * Insert a free agent into league_players, log the transaction, and notify.
@@ -38,6 +39,10 @@ export async function addFreeAgent(params: {
 
   // Block the add if this team has any healthy player parked on IR.
   await assertNoIllegalIR(leagueId, teamId);
+
+  // Block the add if the team's active roster is already over capacity
+  // (common post-startup-draft state when mid-draft trades net-added picks).
+  await assertNoOverCap(leagueId, teamId);
 
   // Block the add if pending trades would push the team over its roster
   // size after this player is added (counting already-queued drops).

@@ -1,3 +1,4 @@
+import { formatSeason, type Sport } from '@/constants/LeagueDefaults';
 import { supabase } from '@/lib/supabase';
 
 export async function generateDraftPicks(
@@ -53,6 +54,11 @@ export async function generateDraftPicks(
  * Generate placeholder draft_picks rows for future seasons.
  * These have no draft_id (the draft doesn't exist yet) and use slot_number
  * so that team ownership can be assigned later via assignDraftSlots.
+ *
+ * `sport` is required so the season string format matches the rest of the
+ * app (NBA two-year "2027-28" vs WNBA single-year "2027"). Without it,
+ * picks for WNBA leagues used to be stored as NBA-format and were silently
+ * filtered out by every consumer (`useDraftHub`, `useTeamTradablePicks`).
  */
 export async function generateFutureDraftPicks(
   leagueId: string,
@@ -60,14 +66,13 @@ export async function generateFutureDraftPicks(
   roundsCount: number,
   currentSeason: string,
   maxFutureSeasons: number,
+  sport: Sport,
 ) {
   const startYear = parseInt(currentSeason.split('-')[0], 10);
   const picks = [];
 
   for (let offset = 1; offset <= maxFutureSeasons; offset++) {
-    const futureStart = startYear + offset;
-    const futureEnd = (futureStart + 1) % 100;
-    const season = `${futureStart}-${String(futureEnd).padStart(2, '0')}`;
+    const season = formatSeason(startYear + offset, sport);
 
     for (let round = 1; round <= roundsCount; round++) {
       for (let slot = 1; slot <= numberOfTeams; slot++) {

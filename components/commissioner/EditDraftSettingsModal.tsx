@@ -13,7 +13,7 @@ import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ToggleRow } from '@/components/ui/ToggleRow';
-import { DRAFT_TYPE_OPTIONS, INITIAL_DRAFT_ORDER_DISPLAY, INITIAL_DRAFT_ORDER_OPTIONS, INITIAL_DRAFT_ORDER_TO_DB, ROOKIE_DRAFT_ORDER_OPTIONS, TIME_PER_PICK_OPTIONS } from '@/constants/LeagueDefaults';
+import { DRAFT_TYPE_OPTIONS, getMaxRookieDraftRounds, INITIAL_DRAFT_ORDER_DISPLAY, INITIAL_DRAFT_ORDER_OPTIONS, INITIAL_DRAFT_ORDER_TO_DB, ROOKIE_DRAFT_ORDER_OPTIONS, TIME_PER_PICK_MAX, TIME_PER_PICK_MIN, TIME_PER_PICK_STEP } from '@/constants/LeagueDefaults';
 import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
 import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/league/lottery';
@@ -28,8 +28,6 @@ const ORDER_TO_DB: Record<string, string> = {
   'Reverse Record': 'reverse_record',
   Lottery: 'lottery',
 };
-
-const TIME_LABELS = TIME_PER_PICK_OPTIONS.map((t) => `${t}s`);
 
 interface EditDraftSettingsModalProps {
   visible: boolean;
@@ -131,9 +129,6 @@ export function EditDraftSettingsModal({
   const draftTypeIndex = DRAFT_TYPE_OPTIONS.indexOf(
     draftType as (typeof DRAFT_TYPE_OPTIONS)[number]
   );
-  const timeIndex = TIME_PER_PICK_OPTIONS.indexOf(
-    timePick as (typeof TIME_PER_PICK_OPTIONS)[number]
-  );
   const orderIndex = ROOKIE_DRAFT_ORDER_OPTIONS.indexOf(
     rookieOrder as (typeof ROOKIE_DRAFT_ORDER_OPTIONS)[number]
   );
@@ -183,16 +178,15 @@ export function EditDraftSettingsModal({
       </View>
 
       {/* Time Per Pick */}
-      <View style={[styles.editRow, { borderBottomColor: c.border }]}>
-        <ThemedText style={styles.rowLabel}>Time Per Pick</ThemedText>
-      </View>
-      <View style={{ paddingVertical: s(8) }}>
-        <SegmentedControl
-          options={TIME_LABELS}
-          selectedIndex={timeIndex >= 0 ? timeIndex : 1}
-          onSelect={(i) => setTimePick(TIME_PER_PICK_OPTIONS[i])}
-        />
-      </View>
+      <NumberStepper
+        label="Time Per Pick"
+        value={timePick}
+        onValueChange={setTimePick}
+        min={TIME_PER_PICK_MIN}
+        max={TIME_PER_PICK_MAX}
+        step={TIME_PER_PICK_STEP}
+        suffix="s"
+      />
 
       {/* Draft Order */}
       <View style={[styles.editRow, { borderBottomColor: c.border }]}>
@@ -228,7 +222,7 @@ export function EditDraftSettingsModal({
             value={rookieRounds}
             onValueChange={setRookieRounds}
             min={1}
-            max={5}
+            max={getMaxRookieDraftRounds(league?.sport ?? 'nba', teamCount)}
           />
 
           {/* Rookie Draft Order */}
@@ -284,7 +278,11 @@ export function EditDraftSettingsModal({
           <ToggleRow
             icon="swap-horizontal-outline"
             label="Initial Draft Pick Trading"
-            description="Allow trading of startup draft picks before and during the draft"
+            description={
+              draftPickTrading
+                ? 'Allow trading of startup draft picks before and during the draft. In-draft trades execute immediately on acceptance — no review period, no vetoes.'
+                : 'Allow trading of startup draft picks before and during the draft'
+            }
             value={draftPickTrading}
             onToggle={setDraftPickTrading}
             c={c}

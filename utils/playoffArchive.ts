@@ -14,6 +14,12 @@ const SUPABASE_URL =
 
 const STORAGE_BASE = `${SUPABASE_URL}/storage/v1/object/public/pro-team-logos`;
 
+// Cache-bust token appended to every logo URL. Logos upload with a 1-year
+// cache-control, so re-uploading to the same path won't refresh expo-image's
+// memory/disk cache (it keys by URL). Bump this whenever logo PNGs are
+// re-rendered so clients pick up the new bytes immediately.
+const LOGO_CACHE_VERSION = 2;
+
 export type ArchiveSport = 'nba' | 'nhl' | 'nfl';
 
 export function hasHistoricalLogo(logoKey?: string | null): boolean {
@@ -25,10 +31,10 @@ export function getProLogoUrl(
   logoKey?: string | null,
   sport: ArchiveSport = 'nba',
 ): string {
-  if (logoKey) {
-    return `${STORAGE_BASE}/${sport}-historical/${logoKey}.png`;
-  }
-  return `${STORAGE_BASE}/${sport}/${franchiseId}.png`;
+  const path = logoKey
+    ? `${STORAGE_BASE}/${sport}-historical/${logoKey}.png`
+    : `${STORAGE_BASE}/${sport}/${franchiseId}.png`;
+  return `${path}?v=${LOGO_CACHE_VERSION}`;
 }
 
 // Prefetches every logo URL referenced by a season's franchises so the first

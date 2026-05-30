@@ -194,6 +194,9 @@ export async function fetchTeamData(
         const ds = dayStatsMap.get(pid);
         return ds ? buildStatLine(ds, scoring) : null;
       })(),
+      // Raw per-day box score — feeds the matchup cell's stat blocks + the
+      // FPTS breakdown. Without this the past-day blocks render all zeros.
+      dayGameStats: dayStatsMap.get(pid) ?? null,
       projectedFpts: (() => {
         if (isDropped) return 0;
         const st = info?.status;

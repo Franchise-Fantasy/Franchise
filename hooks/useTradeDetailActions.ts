@@ -85,8 +85,13 @@ export function useTradeDetailActions({
       // conflicting proposals — all in one transaction. Fixes the double-accept
       // race where concurrent accepts each missed the other's write and the
       // proposal silently stayed un-executed.
-      const vetoType = leagueSettings?.trade_veto_type ?? 'commissioner';
-      const reviewHours = leagueSettings?.trade_review_period_hours ?? 24;
+      //
+      // Mid-draft trades skip the veto/review window entirely — they execute
+      // immediately on counter-party accept. The league chose `Allow Pick
+      // Trading` knowing this tradeoff (and is warned of it in the toggle copy).
+      const isInDraft = proposal.is_in_draft;
+      const vetoType = isInDraft ? 'none' : (leagueSettings?.trade_veto_type ?? 'commissioner');
+      const reviewHours = isInDraft ? 0 : (leagueSettings?.trade_review_period_hours ?? 24);
 
       // p_drop_player_ids is generated as `string[]` in TS but the underlying SQL
       // function treats NULL as "preserve existing drops" (COALESCE), distinct from

@@ -135,6 +135,7 @@ export function EditBasicsModal({ visible, onClose, league, leagueId, canChangeS
             league.rookie_draft_rounds ?? 3,
             league.season,
             league.max_future_seasons,
+            (league.sport as 'nba' | 'wnba' | null) ?? 'nba',
           );
         }
       } catch {

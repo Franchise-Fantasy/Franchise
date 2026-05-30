@@ -33,7 +33,7 @@ import { BottomSheet } from '@/components/ui/BottomSheet';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Fonts } from '@/constants/Colors';
+import { Brand, Fonts } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
@@ -66,6 +66,10 @@ import {
   formatScore,
 } from '@/utils/scoring/fantasyPoints';
 
+// Heritage deck watermark — same patch that bleeds into the corner of the
+// matchup / roster heroes, so this header reads as part of that family.
+const PATCH_SOURCE = require('../../assets/images/patch_logo.png');
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface LeagueTeamMeta {
@@ -73,6 +77,18 @@ interface LeagueTeamMeta {
   name: string;
   tricode: string | null;
   logo_key: string | null;
+  wins: number | null;
+  losses: number | null;
+  ties: number;
+}
+
+function formatRecord(
+  t: { wins: number | null; losses: number | null; ties: number } | null,
+): string {
+  if (!t) return '';
+  const w = t.wins ?? 0;
+  const l = t.losses ?? 0;
+  return t.ties > 0 ? `${w}-${l}-${t.ties}` : `${w}-${l}`;
 }
 
 // `Record<string, number>` for the matchup PlayerCell stat parser. Mirrors
@@ -140,7 +156,7 @@ export default function TeamRosterScreen() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('teams')
-        .select('id, name, tricode, logo_key')
+        .select('id, name, tricode, logo_key, wins, losses, ties')
         .eq('league_id', leagueId!);
       if (error) throw error;
       return data ?? [];
@@ -157,6 +173,11 @@ export default function TeamRosterScreen() {
     [leagueTeams, myTeamId],
   );
   const canSwitch = opponentTeams.length > 1;
+
+  const viewedTeam = useMemo(
+    () => (leagueTeams ?? []).find((t) => t.id === viewTeamId) ?? null,
+    [leagueTeams, viewTeamId],
+  );
 
   // Fetch roster — today only, current players only. Adds nbaTricode so the
   // matchup chip / live-game data resolves the same way as (tabs)/roster.
@@ -658,21 +679,77 @@ export default function TeamRosterScreen() {
             </TouchableOpacity>
           ) : undefined
         }
-        rightAction={
-          !isOwnTeam && !isPastDeadline && myTeamId && leagueId ? (
-            <TouchableOpacity
-              onPress={() => setShowTradeModal(true)}
-              style={[titleStyles.headerTradeBtn, { backgroundColor: c.accent }]}
-              accessibilityRole="button"
-              accessibilityLabel={`Propose Trade with ${teamName}`}
-            >
-              <Text style={[titleStyles.headerTradeBtnText, { color: c.accentText }]}>Trade</Text>
-            </TouchableOpacity>
-          ) : undefined
-        }
       />
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
+        {/* Team identity — hero band: logo + name + record on the turf
+            surface, matching the matchup / roster heroes. */}
+        {viewedTeam && (
+          <View
+            style={[titleStyles.identityCard, { backgroundColor: c.heroSurface }, c.heroShadow]}
+            accessible
+            accessibilityLabel={`${viewedTeam.name}, record ${formatRecord(viewedTeam) || 'none'}`}
+          >
+            <Image
+              source={PATCH_SOURCE}
+              style={titleStyles.identityPatch}
+              contentFit="contain"
+              cachePolicy="memory-disk"
+              transition={0}
+              accessible={false}
+            />
+            <View style={titleStyles.identityRule} />
+            <View style={titleStyles.identityLogoRing}>
+              <TeamLogo
+                logoKey={viewedTeam.logo_key}
+                teamName={viewedTeam.name}
+                tricode={viewedTeam.tricode ?? undefined}
+                size="large"
+              />
+            </View>
+            <View style={titleStyles.identityLabels}>
+              <ThemedText
+                type="display"
+                style={titleStyles.identityName}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+              >
+                {viewedTeam.name}
+              </ThemedText>
+              <View style={titleStyles.identityMetaRow}>
+                {viewedTeam.tricode ? (
+                  <ThemedText type="varsitySmall" style={titleStyles.identityTricode}>
+                    {viewedTeam.tricode.toUpperCase()}
+                  </ThemedText>
+                ) : null}
+                {formatRecord(viewedTeam) !== '' && (
+                  <>
+                    {viewedTeam.tricode ? (
+                      <View style={titleStyles.identityDot} />
+                    ) : null}
+                    <ThemedText type="mono" style={titleStyles.identityRecord}>
+                      {formatRecord(viewedTeam)}
+                    </ThemedText>
+                  </>
+                )}
+              </View>
+            </View>
+            {!isOwnTeam && !isPastDeadline && myTeamId && leagueId ? (
+              <TouchableOpacity
+                onPress={() => setShowTradeModal(true)}
+                style={[titleStyles.identityTradeBtn, { backgroundColor: c.accent }]}
+                accessibilityRole="button"
+                accessibilityLabel={`Propose trade with ${viewedTeam.name}`}
+              >
+                <Text style={[titleStyles.identityTradeBtnText, { color: c.accentText }]}>
+                  TRADE
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        )}
+
         {/* Starters */}
         <View style={styles.section}>
           <SectionEyebrow
@@ -849,12 +926,87 @@ const titleStyles = StyleSheet.create({
     letterSpacing: 1.2,
   },
   titleChevron: { marginTop: 1 },
-  headerTradeBtn: {
-    paddingHorizontal: s(10),
-    paddingVertical: s(5),
-    borderRadius: 6,
+
+  // Team identity hero band — turf surface + gold top-rule + patch
+  // watermark, mirroring RosterHero / MatchupHero chrome.
+  identityCard: {
+    position: 'relative',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(14),
+    borderRadius: 16,
+    paddingVertical: s(14),
+    paddingHorizontal: s(16),
+    marginHorizontal: s(16),
+    marginTop: s(12),
+    marginBottom: s(4),
+    overflow: 'hidden',
   },
-  headerTradeBtnText: { fontSize: ms(12), fontWeight: '700' },
+  identityRule: {
+    position: 'absolute',
+    top: 0,
+    left: s(16),
+    height: 3,
+    width: s(36),
+    backgroundColor: Brand.vintageGold,
+  },
+  identityPatch: {
+    position: 'absolute',
+    right: s(-20),
+    bottom: s(-24),
+    width: s(108),
+    height: s(108),
+    opacity: 0.12,
+  },
+  // Thin gold ring around the logo so it reads as a framed crest rather
+  // than a floating avatar.
+  identityLogoRing: {
+    padding: s(2),
+    borderRadius: 999,
+    borderWidth: 1.5,
+    borderColor: 'rgba(181, 123, 48, 0.65)',
+  },
+  identityLabels: { flex: 1, gap: s(4) },
+  identityName: {
+    color: Brand.ecru,
+    fontSize: ms(24),
+    lineHeight: ms(30),
+    letterSpacing: -0.5,
+  },
+  identityMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(7),
+  },
+  identityTricode: {
+    color: Brand.vintageGold,
+    fontSize: ms(11),
+    letterSpacing: 1.2,
+  },
+  identityDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: Brand.ecruFaint,
+  },
+  identityRecord: {
+    color: Brand.ecruMuted,
+    fontSize: ms(13),
+    letterSpacing: 0.5,
+  },
+  // Gold CTA pinned to the right edge of the band — the primary action
+  // for an opponent roster now lives in the hero instead of the header.
+  identityTradeBtn: {
+    flexShrink: 0,
+    paddingHorizontal: s(14),
+    paddingVertical: s(8),
+    borderRadius: 8,
+  },
+  identityTradeBtnText: {
+    fontFamily: Fonts.varsityBold,
+    fontSize: ms(12),
+    letterSpacing: 1,
+  },
 });
 
 const switcherStyles = StyleSheet.create({

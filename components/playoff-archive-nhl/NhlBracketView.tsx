@@ -127,8 +127,17 @@ export function NhlBracketView({ bracket, onTeamTap }: Props) {
     prefetchSeasonLogos(bracket.franchises, 'nhl');
   }, [bracket.franchises]);
 
+  // Default selection: the Stanley Cup Final when the season is complete
+  // (the bracket's climax), otherwise the first R1 matchup — so an
+  // in-progress season opens on a populated detail card instead of blank.
+  const defaultSeriesId = useMemo(() => {
+    if (idx.scf?.id) return idx.scf.id;
+    const r1Slots = [...idx.west.r1, ...idx.east.r1];
+    return r1Slots.find((sr) => sr)?.id ?? null;
+  }, [idx]);
+
   const [selectedSeriesId, setSelectedSeriesId] = useState<string | null>(
-    () => idx.scf?.id ?? null,
+    () => defaultSeriesId,
   );
 
   // Reset selection when season changes.
@@ -139,8 +148,8 @@ export function NhlBracketView({ bracket, onTeamTap }: Props) {
     ) {
       return;
     }
-    setSelectedSeriesId(idx.scf?.id ?? null);
-  }, [bracket.series, idx.scf, selectedSeriesId]);
+    setSelectedSeriesId(defaultSeriesId);
+  }, [bracket.series, defaultSeriesId, selectedSeriesId]);
 
   const selectedSeries = useMemo(
     () => bracket.series.find((sr) => sr.id === selectedSeriesId) ?? null,

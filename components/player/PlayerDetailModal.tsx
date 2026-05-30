@@ -1,38 +1,34 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Crypto from "expo-crypto";
-import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Animated,
-  Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
   PanResponder,
   ScrollView,
-  TouchableOpacity,
   View,
 } from "react-native";
 
-import { NewsCard } from "@/components/player/NewsCard";
+import { PlayerActionBar } from "@/components/player/PlayerActionBar";
+import { PlayerDetailHeader } from "@/components/player/PlayerDetailHeader";
 import { PlayerGameLog, PlayerGameLogHeader } from "@/components/player/PlayerGameLog";
-import { PlayerHeadshotImage } from "@/components/player/PlayerHeadshotImage";
 import { PlayerHistory } from "@/components/player/PlayerHistory";
 import { PlayerInsightsCard } from "@/components/player/PlayerInsights";
-import { PreviousSeasons } from "@/components/player/PreviousSeasons";
+import { PlayerNewsSection } from "@/components/player/PlayerNewsSection";
 import { SeasonAverages } from "@/components/player/SeasonAverages";
-import { HorizontalPager } from "@/components/ui/HorizontalPager";
-import { LogoSpinner } from "@/components/ui/LogoSpinner";
+import { Badge } from "@/components/ui/Badge";
+import { BottomSheet } from "@/components/ui/BottomSheet";
 import { ThemedText } from "@/components/ui/ThemedText";
-import { Colors } from "@/constants/Colors";
 import { getCurrentSeason, getSeasonEnd } from "@/constants/LeagueDefaults";
 import { queryKeys } from "@/constants/queryKeys";
-import { DialogHost, useConfirm } from "@/context/ConfirmProvider";
+import { useConfirm, useTextPrompt } from "@/context/ConfirmProvider";
 import { useToast } from "@/context/ToastProvider";
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
-import { useColorScheme } from "@/hooks/useColorScheme";
+import { useColors } from "@/hooks/useColors";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
 import { usePlayerGameLog } from "@/hooks/usePlayerGameLog";
 import { usePlayerHistoricalStats } from "@/hooks/usePlayerHistoricalStats";
@@ -43,33 +39,29 @@ import { sendNotification } from "@/lib/notifications";
 import { capture } from "@/lib/posthog";
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
-import { formatPosition } from "@/utils/formatting";
 import {
   getSportToday,
   getSportTomorrow,
   nextSlateRollover,
 } from "@/utils/leagueTime";
 import { GameTimeMap, hasAnyGameStarted, isGameStarted, useTodayGameTimes } from "@/utils/nba/gameStarted";
-import { getInjuryBadge } from "@/utils/nba/injuryBadge";
 import {
   formatGameInfo,
   liveToGameLog,
   useLivePlayerStats,
 } from "@/utils/nba/nbaLive";
-import { getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
 import { isOnline } from "@/utils/network";
 import { addFreeAgent } from "@/utils/roster/addFreeAgent";
 import { guardIllegalIR } from "@/utils/roster/illegalIR";
-import { calculateAge } from "@/utils/roster/rosterAge";
+import { guardOverCap } from "@/utils/roster/overCap";
 import { isEligibleForSlot } from "@/utils/roster/rosterSlots";
 import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
 import { isTaxiEligible } from "@/utils/roster/taxiEligibility";
-import { ms, s } from "@/utils/scale";
+import { s } from "@/utils/scale";
 import { calculateAvgFantasyPoints } from "@/utils/scoring/fantasyPoints";
 
 import { DropPickerModal } from "./DropPickerModal";
 import { playerDetailStyles as styles } from "./playerDetailStyles";
-import { TradeBlockPrompt } from "./TradeBlockPrompt";
 
 interface PlayerDetailModalProps {
   player: PlayerSeasonStats | null;
@@ -84,13 +76,13 @@ interface PlayerDetailModalProps {
   onDropForClaim?: (dropPlayer: PlayerSeasonStats) => void;
   /** When provided, the Add/Claim button calls this instead of doing an instant add */
   onClaimPlayer?: () => void;
-  /** Pre-fetched owner team name from parent — avoids flash while ownership query loads */
+  /** Pre-fetched owner team name from parent - avoids flash while ownership query loads */
   ownerTeamName?: string;
   /** Lock mode passed from FreeAgentList for add-drop game-time checks */
   playerLockType?: "daily" | "individual";
   /** Today's game times passed from FreeAgentList */
   gameTimeMap?: GameTimeMap;
-  /** When true, swap the "Add" CTA for "Draft" — used when this modal is
+  /** When true, swap the "Add" CTA for "Draft" - used when this modal is
    *  opened from inside the draft room. Requires `onDraftPlayer`. */
   draftMode?: boolean;
   /** Whether the Draft button should be enabled (typically `isMyTurn && !isDrafting`). */
@@ -117,12 +109,12 @@ export function PlayerDetailModal({
   gameTimeMap: parentGameTimeMap,
 }: PlayerDetailModalProps) {
   const router = useRouter();
-  const scheme = useColorScheme() ?? "light";
-  const c = Colors[scheme];
+  const c = useColors();
   const sport = useActiveLeagueSport(leagueId);
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const confirm = useConfirm();
+  const promptInput = useTextPrompt();
   const { isWatchlisted, toggleWatchlist } = useWatchlist();
 
   const [isProcessing, setIsProcessing] = useState(false);
@@ -130,12 +122,9 @@ export function PlayerDetailModal({
   const [activateFromIR, setActivateFromIR] = useState(false);
   const [insightsWindow, setInsightsWindow] = useState(10);
 
-  const [tradeBlockPromptVisible, setTradeBlockPromptVisible] = useState(false);
-  const [tradeBlockInitialNote, setTradeBlockInitialNote] = useState("");
-
   const [gameLogExpanded, setGameLogExpanded] = useState(false);
 
-  // Local in-modal toast — the global ToastProvider renders beneath the Modal
+  // Local in-modal toast - the global ToastProvider renders beneath the Modal
   // on native, so confirmations triggered inside the modal (e.g. watchlist
   // toggle) get hidden. This inline pill sits inside the sheet itself.
   const [inlineToast, setInlineToast] = useState<string | null>(null);
@@ -215,7 +204,7 @@ export function PlayerDetailModal({
   const playerRosterSlot = ownershipInfo?.rosterSlot ?? null;
   const isOnTradeBlock = ownershipInfo?.onTradeBlock ?? false;
 
-  // Check if player is owned by another team — use prop from parent if available, otherwise query
+  // Check if player is owned by another team - use prop from parent if available, otherwise query
   const { data: queriedOwnerInfo, isLoading: ownershipLoading } = useQuery({
     queryKey: queryKeys.playerLeagueOwnership(leagueId, player?.player_id),
     queryFn: async () => {
@@ -327,7 +316,7 @@ export function PlayerDetailModal({
     enabled: !!teamId && !!leagueId,
   });
 
-  // Fetch roster players for the drop picker (exclude IR — dropping them doesn't free active spots)
+  // Fetch roster players for the drop picker (exclude IR - dropping them doesn't free active spots)
   const { data: rosterPlayers } = useQuery<PlayerSeasonStats[]>({
     queryKey: queryKeys.teamRoster(teamId!),
     queryFn: async () => {
@@ -429,7 +418,7 @@ export function PlayerDetailModal({
     queryFn: async () => {
       const today = new Date().toISOString().slice(0, 10);
       // Cap at the regular-season end date so playoff games don't inflate the
-      // denominator — player.games_played comes from BDL regular-season averages.
+      // denominator - player.games_played comes from BDL regular-season averages.
       const seasonEnd = getSeasonEnd(sport, currentSeason);
       const cutoff = seasonEnd && seasonEnd < today ? seasonEnd : today;
       let query = supabase
@@ -615,6 +604,9 @@ export function PlayerDetailModal({
     queryClient.invalidateQueries({
       queryKey: ["illegal-ir", leagueId, teamId],
     });
+    queryClient.invalidateQueries({
+      queryKey: ["over-cap", leagueId, teamId],
+    });
     onRosterChange?.();
   };
 
@@ -675,9 +667,11 @@ export function PlayerDetailModal({
       return;
     }
 
-    // IR lockout preflight — block before opening the drop picker or starting
+    // IR lockout preflight - block before opening the drop picker or starting
     // any other flow, so users aren't led into a modal they'll be rejected from.
     if (!(await guardIllegalIR(leagueId, teamId))) return;
+    // Over-capacity lockout — same rationale: surface before the flow opens.
+    if (!(await guardOverCap(leagueId, teamId))) return;
 
     // If this player requires a waiver claim, delegate to the claim callback
     // or handle natively if no callback provided
@@ -690,7 +684,7 @@ export function PlayerDetailModal({
         onClaimPlayer();
         return;
       }
-      // No callback — handle the claim natively
+      // No callback - handle the claim natively
       setIsProcessing(true);
       try {
         await submitWaiverClaim();
@@ -785,7 +779,7 @@ export function PlayerDetailModal({
       return;
     }
 
-    // Exempt the player we're about to drop — if *that* player is the
+    // Exempt the player we're about to drop - if *that* player is the
     // illegal-IR one, dropping them resolves the lockout. Any other
     // illegal-IR players still block.
     if (!(await guardIllegalIR(leagueId, teamId, [dropping.player_id]))) return;
@@ -840,7 +834,7 @@ export function PlayerDetailModal({
       }
 
       // For add-and-drop on a locked day, queue the drop for tomorrow so the
-      // dropped player stays visible in today's lineup (any slot — starter,
+      // dropped player stays visible in today's lineup (any slot - starter,
       // bench, IR, taxi). process-pending-transactions executes the drop
       // tomorrow.
       if (playerToDrop && player && parentGameTimeMap && playerLockType) {
@@ -852,7 +846,7 @@ export function PlayerDetailModal({
         if (droppingGameStarted) {
           // Queue the drop for the next slate rollover (5am ET). Stored as
           // a timestamptz so the cron fires at the exact rollover moment
-          // regardless of any GM's TZ — see utils/leagueTime.ts.
+          // regardless of any GM's TZ - see utils/leagueTime.ts.
           const executeAfter = nextSlateRollover(sport).toISOString();
 
           // Shared group_id links the (deferred) add row written now with the
@@ -877,7 +871,7 @@ export function PlayerDetailModal({
           if (error) throw error;
 
           // Defer the add to tomorrow as well, so the add/drop applies
-          // atomically — otherwise the added player shows up today while the
+          // atomically - otherwise the added player shows up today while the
           // dropped player lingers until the cron, putting the team over its
           // size limit and confusing the user. Roll back the queued drop on
           // failure so a rejected add doesn't strand the player.
@@ -967,7 +961,7 @@ export function PlayerDetailModal({
             // Non-fatal: the queued drop is still in flight via cron. Log
             // but don't unwind, since the add already succeeded.
             console.warn(
-              "Failed to write queued-drop daily_lineups markers — roster will reconcile when cron runs:",
+              "Failed to write queued-drop daily_lineups markers - roster will reconcile when cron runs:",
               lineupErr,
             );
           }
@@ -1066,7 +1060,7 @@ export function PlayerDetailModal({
       // Put dropped player on waivers if league has waivers enabled.
       // Expiry = next slate rollover (5am ET) + (waiverDays - 1) days, so
       // a 2-day waiver clears at the rollover boundary two days from now
-      // — consistent for every GM regardless of TZ.
+      // - consistent for every GM regardless of TZ.
       const wt = rosterInfo?.waiverType ?? "none";
       const wpDays = rosterInfo?.waiverPeriodDays ?? 2;
       if (wt !== "none" && wpDays > 0) {
@@ -1206,7 +1200,7 @@ export function PlayerDetailModal({
     try {
       const today = getSportToday(sport);
 
-      // Check if the player's game is in progress — defer to tomorrow if so
+      // Check if the player's game is in progress - defer to tomorrow if so
       const isLocked =
         (playerLockType === "daily" && hasAnyGameStarted(parentGameTimeMap ?? gameTimeMap)) ||
         (playerLockType === "individual" && playerGameStarted);
@@ -1264,7 +1258,7 @@ export function PlayerDetailModal({
         return;
       }
 
-      // No game lock — move immediately
+      // No game lock - move immediately
       await supabase.from("daily_lineups").upsert(
         {
           league_id: leagueId,
@@ -1365,7 +1359,7 @@ export function PlayerDetailModal({
         },
         { onConflict: "team_id,player_id,lineup_date" },
       );
-      // Flip any future daily_lineups from IR → BE
+      // Flip any future daily_lineups from IR -> BE
       await supabase
         .from("daily_lineups")
         .update({ roster_slot: "BE" })
@@ -1400,7 +1394,7 @@ export function PlayerDetailModal({
     }
     setIsProcessing(true);
     try {
-      // ── Snapshot & drop the selected player ──
+      // ---- Snapshot & drop the selected player ----
       const today = getSportToday(sport);
       const { data: lpRow } = await supabase
         .from("league_players")
@@ -1457,7 +1451,7 @@ export function PlayerDetailModal({
         .eq("player_id", playerToDrop.player_id);
       if (delError) throw delError;
 
-      // Place on waivers — slate-anchored expiry, matches handleDropPlayer.
+      // Place on waivers - slate-anchored expiry, matches handleDropPlayer.
       const wt = rosterInfo?.waiverType ?? "none";
       const wpDays = rosterInfo?.waiverPeriodDays ?? 2;
       if (wt !== "none" && wpDays > 0) {
@@ -1471,7 +1465,7 @@ export function PlayerDetailModal({
         });
       }
 
-      // ── Activate from IR into the dropped player's slot (if eligible) ──
+      // ---- Activate from IR into the dropped player's slot (if eligible) ----
       const destSlot =
         isEligibleForSlot(player.position, slot) ? slot : "BE";
 
@@ -1486,7 +1480,7 @@ export function PlayerDetailModal({
         },
         { onConflict: "team_id,player_id,lineup_date" },
       );
-      // Flip any future daily_lineups from IR → destSlot
+      // Flip any future daily_lineups from IR -> destSlot
       await supabase
         .from("daily_lineups")
         .update({ roster_slot: destSlot })
@@ -1504,7 +1498,7 @@ export function PlayerDetailModal({
         .eq("player_id", player.player_id);
       if (activateError) throw activateError;
 
-      // ── Transaction log ──
+      // ---- Transaction log ----
       const { data: txn, error: txnError } = await supabase
         .from("league_transactions")
         .insert({
@@ -1582,7 +1576,7 @@ export function PlayerDetailModal({
     if (!teamId || !player) return;
     confirm({
       title: "Promote from Taxi",
-      message: `Move ${player.name} to bench? This is permanent — they cannot return to the taxi squad.`,
+      message: `Move ${player.name} to bench? This is permanent - they cannot return to the taxi squad.`,
       action: {
         label: "Promote",
         onPress: async () => {
@@ -1610,9 +1604,19 @@ export function PlayerDetailModal({
   const handleToggleTradeBlock = () => {
     if (!teamId || !player) return;
     if (!isOnTradeBlock) {
-      // Adding — show prompt for asking price / note
-      setTradeBlockInitialNote(ownershipInfo?.tradeBlockNote ?? "");
-      setTradeBlockPromptVisible(true);
+      // Adding - prompt for asking price / note
+      promptInput({
+        title: "Add to Trade Block",
+        message: "What are you looking for? (optional)",
+        placeholder: 'e.g. "2nd Rounder", "Wing player"',
+        defaultValue: ownershipInfo?.tradeBlockNote ?? "",
+        maxLength: 100,
+        action: {
+          label: "Add",
+          onSubmit: (note) =>
+            submitTradeBlockUpdate(true, note.trim() || null),
+        },
+      });
     } else {
       // Removing
       confirm({
@@ -1662,7 +1666,7 @@ export function PlayerDetailModal({
 
   const handleQueueDrop = async () => {
     if (!teamId || !player || !leagueId) return;
-    // Queueing a drop of the illegal-IR player itself is allowed — that's
+    // Queueing a drop of the illegal-IR player itself is allowed - that's
     // the move that resolves the lockout. Other illegal-IR players still block.
     if (!(await guardIllegalIR(leagueId, teamId, [player.player_id]))) return;
     setIsProcessing(true);
@@ -1755,7 +1759,7 @@ export function PlayerDetailModal({
           .gt("lineup_date", tomorrowSlate);
       } catch (lineupErr) {
         console.warn(
-          "Failed to write queued-drop daily_lineups markers — roster will reconcile when cron runs:",
+          "Failed to write queued-drop daily_lineups markers - roster will reconcile when cron runs:",
           lineupErr,
         );
       }
@@ -1813,607 +1817,301 @@ export function PlayerDetailModal({
     );
   }
 
+  const hasMinutesRestriction =
+    playerNews?.some((a) => a.has_minutes_restriction) ?? false;
+  const isTaxiSlot = playerRosterSlot === ROSTER_SLOT.TAXI;
+  const canShowIR =
+    canMoveToIR &&
+    !playerGameStarted &&
+    playerRosterSlot !== "IR" &&
+    playerRosterSlot !== ROSTER_SLOT.TAXI;
+  const canMoveToTaxi =
+    !!rosterInfo &&
+    rosterInfo.taxiSlotCount > 0 &&
+    rosterInfo.taxiCount < rosterInfo.taxiSlotCount &&
+    playerRosterSlot !== ROSTER_SLOT.TAXI &&
+    playerRosterSlot !== "IR" &&
+    (!playerRosterSlot || playerRosterSlot === "BE") &&
+    isTaxiEligible(player.draft_year, rosterInfo.season, rosterInfo.taxiMaxExperience);
+  const canTrade = !!teamId && !isFreeAgent && playerRosterSlot !== "IR";
+  const showFooter =
+    !!teamId &&
+    ownershipInfo !== undefined &&
+    (isOnMyTeam || !!draftMode || isFreeAgent);
+
+  const handleToggleWatch = () => {
+    const wasWatched = isWatchlisted(player.player_id);
+    toggleWatchlist(player.player_id);
+    showInlineToast(wasWatched ? "Removed from watchlist" : "Added to watchlist");
+  };
+
+  const handleTradePress = () => {
+    handleClose();
+    router.push({
+      pathname: "/trades",
+      params: {
+        proposeTeamId: isOwnedByOther ? ownerTeamId ?? undefined : undefined,
+        proposePlayerId: player.player_id,
+        proposePlayerName: player.name,
+        proposePlayerPos: player.position,
+        proposePlayerTeam: player.pro_team,
+        proposePlayerFpts: avgFpts != null ? String(avgFpts) : undefined,
+        proposePlayerExternalId: player.external_id_nba ?? undefined,
+      },
+    });
+  };
+
+  const handleDropPress = () => {
+    if (playerGameStarted) {
+      confirm({
+        title: "Drop Player",
+        message: `${player.name}'s game has already started. Drop will be queued for tomorrow.`,
+        action: { label: "Drop", destructive: true, onPress: () => handleQueueDrop() },
+      });
+    } else {
+      confirm({
+        title: "Drop Player",
+        message: `Are you sure you want to drop ${player.name}?`,
+        action: { label: "Drop", destructive: true, onPress: () => handleDropPlayer() },
+      });
+    }
+  };
+
+  // Games remaining for this player's team between now and Sunday.
+  const gamesThisWeek = (() => {
+    if (!upcomingGames || upcomingGames.length === 0) return 0;
+    const now = new Date();
+    const day = now.getDay();
+    const daysUntilSunday = day === 0 ? 0 : 7 - day;
+    const endOfWeek = new Date(now);
+    endOfWeek.setDate(now.getDate() + daysUntilSunday);
+    const endStr = endOfWeek.toISOString().slice(0, 10);
+    return upcomingGames.filter((g) => g.game_date <= endStr).length;
+  })();
+
+  const gameLogColors = {
+    border: c.border,
+    secondaryText: c.secondaryText,
+    accent: c.accent,
+  };
+
+  // Insights need at least 5 played games (matches calculatePlayerInsights /
+  // calculateCategoryInsights). Gate the eyebrow so it never orphans above an
+  // empty card; the wrapper View still renders so the sticky index stays put.
+  const hasInsights =
+    (gameLog ?? []).filter((g) => g.min > 0).length >= 5;
+
   return (
-    <Modal visible={!!player} animationType="slide" transparent>
-      <View style={styles.overlay}>
-        <Animated.View
-          style={[
-            styles.sheet,
-            { backgroundColor: c.background, transform: [{ translateY }] },
-          ]}
-          accessibilityViewIsModal={true}
+    <BottomSheet
+      visible={!!player}
+      onClose={handleClose}
+      title={null}
+      scrollableBody={false}
+      height="92%"
+      bodyStyle={styles.body}
+      footer={
+        showFooter ? (
+          <PlayerActionBar
+            playerName={player.name}
+            isOnMyTeam={isOnMyTeam}
+            isFreeAgent={isFreeAgent}
+            draftMode={!!draftMode}
+            playerRosterSlot={playerRosterSlot}
+            isTaxiSlot={isTaxiSlot}
+            isProcessing={isProcessing}
+            canTransact={canTransact}
+            canAdd={canAdd}
+            canDraft={!!canDraft}
+            needsWaiverClaim={needsWaiverClaim}
+            playerGameStarted={playerGameStarted}
+            canMoveToIR={canShowIR}
+            canMoveToTaxi={canMoveToTaxi}
+            isOnTradeBlock={isOnTradeBlock}
+            onAdd={handleAddPlayer}
+            onDraft={() => {
+              if (!canDraft || !onDraftPlayer) return;
+              onDraftPlayer(player);
+              onClose();
+            }}
+            onActivateFromIR={handleActivateFromIR}
+            onPromoteFromTaxi={handlePromoteFromTaxi}
+            onDrop={handleDropPress}
+            onMoveToIR={handleMoveToIR}
+            onMoveToTaxi={handleMoveToTaxi}
+            onToggleTradeBlock={handleToggleTradeBlock}
+          />
+        ) : undefined
+      }
+    >
+      <View style={styles.bodyInner}>
+        <PlayerDetailHeader
+          player={player}
+          sport={sport}
+          teamGamesPlayed={teamGamesPlayed}
+          hasMinutesRestriction={hasMinutesRestriction}
+          ownership={{
+            isOnMyTeam,
+            isOwnedByOther,
+            ownerName: resolvedOwnerName,
+            isFreeAgent,
+          }}
+          lock={{
+            draftLocked: !!hasActiveDraft,
+            offseasonLocked: isOffseason && !hasActiveDraft,
+          }}
+          isWatched={isWatchlisted(player.player_id)}
+          onToggleWatchlist={handleToggleWatch}
+          canTrade={canTrade}
+          onTrade={handleTradePress}
+          onClose={handleClose}
+        />
+
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={styles.scrollContent}
+          stickyHeaderIndices={[4]}
+          showsVerticalScrollIndicator={false}
         >
-          {/* Header - swipe area */}
-          <View {...panResponder.panHandlers}>
-            <View style={[styles.header, { borderBottomColor: c.border }]}>
-              {/* Portrait with injury chip */}
-              <View style={styles.headerHeadshotWrap}>
-                <View
-                  style={[
-                    styles.headerHeadshotCircle,
-                    { borderColor: c.heritageGold, backgroundColor: c.cardAlt },
-                  ]}
-                  accessibilityLabel={`${player.name} headshot`}
-                >
-                  <PlayerHeadshotImage
-                    externalIdNba={player.external_id_nba}
-                    sport={sport}
-                    style={styles.headerHeadshotImg}
-                  />
-                </View>
-                {(() => {
-                  const badge = getInjuryBadge(player.status);
-                  return badge ? (
-                    <View
-                      style={[
-                        styles.injuryChip,
-                        { backgroundColor: badge.color },
-                      ]}
-                      accessibilityLabel={`Injury status: ${badge.label}`}
-                    >
-                      <ThemedText style={[styles.injuryChipText, { color: c.statusText }]}>
-                        {badge.label}
-                      </ThemedText>
-                    </View>
-                  ) : null;
-                })()}
-                {playerNews?.some(a => a.has_minutes_restriction) && (
-                  <View
-                    style={[styles.injuryChip, { backgroundColor: c.warning }]}
-                    accessibilityLabel="Minutes restriction"
-                  >
-                    <ThemedText style={[styles.injuryChipText, { color: c.statusText }]}>
-                      MIN RESTRICT
-                    </ThemedText>
-                  </View>
-                )}
-              </View>
-              <View style={styles.headerInfo}>
-                {/* Line 1: Name + trade + watchlist */}
-                <View style={styles.nameRow}>
-                  <ThemedText
-                    type="title"
-                    style={styles.playerName}
-                    numberOfLines={1}
-                  >
-                    {player.name}
-                  </ThemedText>
-                  {teamId && !isFreeAgent && playerRosterSlot !== 'IR' && (
-                    <TouchableOpacity
-                      onPress={() => {
-                        handleClose();
-                        router.push({
-                          pathname: "/trades",
-                          params: {
-                            proposeTeamId: isOwnedByOther ? ownerTeamId ?? undefined : undefined,
-                            proposePlayerId: player.player_id,
-                            proposePlayerName: player.name,
-                            proposePlayerPos: player.position,
-                            proposePlayerTeam: player.pro_team,
-                            proposePlayerFpts: avgFpts != null ? String(avgFpts) : undefined,
-                            proposePlayerExternalId: player.external_id_nba ?? undefined,
-                          },
-                        });
-                      }}
-                      hitSlop={8}
-                      style={{ marginLeft: s(6) }}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Trade ${player.name}`}
-                    >
-                      <Ionicons
-                        name="swap-horizontal"
-                        size={18}
-                        color={c.secondaryText}
-                      />
-                    </TouchableOpacity>
-                  )}
-                  <TouchableOpacity
-                    onPress={() => {
-                      const wasWatched = isWatchlisted(player.player_id);
-                      toggleWatchlist(player.player_id);
-                      showInlineToast(wasWatched ? 'Removed from watchlist' : 'Added to watchlist');
-                    }}
-                    hitSlop={8}
-                    style={{ marginLeft: s(6) }}
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      isWatchlisted(player.player_id)
-                        ? `Remove ${player.name} from watchlist`
-                        : `Add ${player.name} to watchlist`
-                    }
-                  >
-                    <Ionicons
-                      name={
-                        isWatchlisted(player.player_id) ? "eye" : "eye-outline"
-                      }
-                      size={18}
-                      color={
-                        isWatchlisted(player.player_id)
-                          ? c.link
-                          : c.secondaryText
-                      }
-                    />
-                  </TouchableOpacity>
-                </View>
-                {/* Line 2: Identity — team + positions + GP */}
-                <View style={styles.subtitleRow}>
-                  {(() => {
-                    const logoUrl = getTeamLogoUrl(player.pro_team, sport);
-                    return logoUrl ? (
-                      <Image
-                        source={{ uri: logoUrl }}
-                        style={styles.modalTeamLogo}
-                        contentFit="contain"
-                        cachePolicy="memory-disk"
-                        recyclingKey={logoUrl}
-                      />
-                    ) : null;
-                  })()}
-                  <ThemedText
-                    style={[styles.subtitle, { color: c.secondaryText }]}
-                  >
-                    {player.pro_team} · {formatPosition(player.position)}
-                    {player.birthdate ? ` · ${calculateAge(player.birthdate)}y` : ""}
-                    {" · "}
-                    {player.games_played}
-                    {teamGamesPlayed ? `/${teamGamesPlayed}` : ""} GP
-                  </ThemedText>
-                </View>
-                {/* Line 3: Ownership + action buttons */}
-                <View style={styles.subtitleRow}>
-                  {isOnMyTeam ? (
-                    <ThemedText
-                      style={[styles.subtitle, { color: c.accent }]}
-                    >
-                      Your team
-                    </ThemedText>
-                  ) : isOwnedByOther ? (
-                    <ThemedText
-                      style={[styles.subtitle, { color: c.secondaryText }]}
-                    >
-                      {resolvedOwnerName}
-                    </ThemedText>
-                  ) : (
-                    <ThemedText
-                      style={[styles.subtitle, { color: c.secondaryText }]}
-                    >
-                      Free Agent
-                    </ThemedText>
-                  )}
-                  {hasActiveDraft && (
-                    <ThemedText
-                      style={[styles.headerWarning, { color: c.secondaryText }]}
-                    >
-                      {" "}· Draft locked
-                    </ThemedText>
-                  )}
-                  {isOffseason && !hasActiveDraft && (
-                    <ThemedText
-                      style={[styles.headerWarning, { color: c.secondaryText }]}
-                    >
-                      {" "}· Offseason locked
-                    </ThemedText>
-                  )}
-                  {teamId && ownershipInfo !== undefined && (
-                    <View style={styles.headerActions}>
-                      {isOnMyTeam ? (
-                        <>
-                          {playerRosterSlot === "IR" && (
-                            <TouchableOpacity
-                              style={[
-                                styles.headerBtn,
-                                { backgroundColor: c.success },
-                                (!canTransact || playerGameStarted) &&
-                                  styles.buttonDisabled,
-                              ]}
-                              onPress={handleActivateFromIR}
-                              disabled={!canTransact || playerGameStarted}
-                              accessibilityRole="button"
-                              accessibilityLabel={`Activate ${player.name} from IR`}
-                            >
-                              {isProcessing ? (
-                                <LogoSpinner size={18} />
-                              ) : (
-                                <ThemedText style={[styles.headerBtnText, { color: c.statusText }]}>
-                                  Activate
-                                </ThemedText>
-                              )}
-                            </TouchableOpacity>
-                          )}
-                          {playerRosterSlot === ROSTER_SLOT.TAXI && (
-                            <TouchableOpacity
-                              style={[
-                                styles.headerBtn,
-                                { backgroundColor: c.success },
-                                !canTransact && styles.buttonDisabled,
-                              ]}
-                              onPress={handlePromoteFromTaxi}
-                              disabled={!canTransact}
-                              accessibilityRole="button"
-                              accessibilityLabel={`Promote ${player.name} from taxi squad`}
-                            >
-                              {isProcessing ? (
-                                <LogoSpinner size={18} />
-                              ) : (
-                                <ThemedText style={[styles.headerBtnText, { color: c.statusText }]}>
-                                  Promote
-                                </ThemedText>
-                              )}
-                            </TouchableOpacity>
-                          )}
-                          <TouchableOpacity
-                            style={[
-                              styles.headerBtn,
-                              { backgroundColor: c.danger },
-                              !canTransact && styles.buttonDisabled,
-                            ]}
-                            accessibilityRole="button"
-                            accessibilityLabel={`Drop ${player.name}`}
-                            onPress={() => {
-                              if (playerGameStarted) {
-                                confirm({
-                                  title: "Drop Player",
-                                  message: `${player.name}'s game has already started. Drop will be queued for tomorrow.`,
-                                  action: {
-                                    label: "Drop",
-                                    destructive: true,
-                                    onPress: () => handleQueueDrop(),
-                                  },
-                                });
-                              } else {
-                                confirm({
-                                  title: "Drop Player",
-                                  message: `Are you sure you want to drop ${player.name}?`,
-                                  action: {
-                                    label: "Drop",
-                                    destructive: true,
-                                    onPress: () => handleDropPlayer(),
-                                  },
-                                });
-                              }
-                            }}
-                            disabled={!canTransact}
-                          >
-                            {isProcessing && playerRosterSlot !== "IR" ? (
-                              <LogoSpinner size={18} />
-                            ) : (
-                              <ThemedText style={[styles.headerBtnText, { color: c.statusText }]}>
-                                Drop
-                              </ThemedText>
-                            )}
-                          </TouchableOpacity>
-                          {canMoveToIR &&
-                            !playerGameStarted &&
-                            playerRosterSlot !== "IR" &&
-                            playerRosterSlot !== ROSTER_SLOT.TAXI && (
-                              <TouchableOpacity
-                                style={[
-                                  styles.headerBtn,
-                                  { backgroundColor: c.warning },
-                                  !canTransact && styles.buttonDisabled,
-                                ]}
-                                onPress={handleMoveToIR}
-                                disabled={!canTransact}
-                                accessibilityRole="button"
-                                accessibilityLabel={`Move ${player.name} to IR`}
-                              >
-                                <ThemedText style={[styles.headerBtnText, { color: c.statusText }]}>
-                                  IR
-                                </ThemedText>
-                              </TouchableOpacity>
-                            )}
-                          {rosterInfo &&
-                            rosterInfo.taxiSlotCount > 0 &&
-                            rosterInfo.taxiCount < rosterInfo.taxiSlotCount &&
-                            playerRosterSlot !== ROSTER_SLOT.TAXI &&
-                            playerRosterSlot !== "IR" &&
-                            (!playerRosterSlot || playerRosterSlot === "BE") &&
-                            isTaxiEligible(
-                              player.draft_year,
-                              rosterInfo.season,
-                              rosterInfo.taxiMaxExperience,
-                            ) && (
-                              <TouchableOpacity
-                                style={[
-                                  styles.headerBtn,
-                                  styles.headerBtnTaxi,
-                                  !canTransact && styles.buttonDisabled,
-                                ]}
-                                onPress={handleMoveToTaxi}
-                                disabled={!canTransact}
-                                accessibilityRole="button"
-                                accessibilityLabel={`Move ${player.name} to taxi squad`}
-                              >
-                                <ThemedText style={[styles.headerBtnText, { color: c.statusText }]}>
-                                  Taxi
-                                </ThemedText>
-                              </TouchableOpacity>
-                            )}
-                          <TouchableOpacity
-                            style={[
-                              styles.headerBtn,
-                              isOnTradeBlock
-                                ? { backgroundColor: c.warning }
-                                : {
-                                    backgroundColor: "transparent",
-                                    borderWidth: 1,
-                                    borderColor: c.warning,
-                                  },
-                              isProcessing && styles.buttonDisabled,
-                            ]}
-                            onPress={handleToggleTradeBlock}
-                            disabled={isProcessing}
-                            accessibilityRole="button"
-                            accessibilityLabel={
-                              isOnTradeBlock
-                                ? `Remove ${player.name} from trade block`
-                                : `Add ${player.name} to trade block`
-                            }
-                          >
-                            <Ionicons
-                              name={
-                                isOnTradeBlock
-                                  ? "megaphone"
-                                  : "megaphone-outline"
-                              }
-                              size={12}
-                              color={isOnTradeBlock ? c.statusText : c.warning}
-                            />
-                          </TouchableOpacity>
-                        </>
-                      ) : draftMode ? (
-                        <TouchableOpacity
-                          style={[
-                            styles.headerBtn,
-                            { backgroundColor: c.primary },
-                            !canDraft && styles.buttonDisabled,
-                          ]}
-                          onPress={() => {
-                            if (!canDraft || !onDraftPlayer) return;
-                            onDraftPlayer(player);
-                            onClose();
-                          }}
-                          disabled={!canDraft}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Draft ${player.name}`}
-                        >
-                          <ThemedText style={[styles.headerBtnText, { color: c.onPrimary }]}>
-                            Draft
-                          </ThemedText>
-                        </TouchableOpacity>
-                      ) : isFreeAgent ? (
-                        <TouchableOpacity
-                          style={[
-                            styles.headerBtn,
-                            needsWaiverClaim
-                              ? { backgroundColor: c.gold }
-                              : [styles.headerBtnAdd, { backgroundColor: c.success }],
-                            !canAdd && styles.buttonDisabled,
-                          ]}
-                          onPress={handleAddPlayer}
-                          disabled={!canAdd}
-                          accessibilityRole="button"
-                          accessibilityLabel={
-                            needsWaiverClaim
-                              ? `Claim ${player.name}`
-                              : `Add ${player.name}`
-                          }
-                        >
-                          {isProcessing ? (
-                            <LogoSpinner size={18} />
-                          ) : (
-                            <ThemedText style={[styles.headerBtnText, { color: c.statusText }]}>
-                              {needsWaiverClaim ? "Claim" : "Add"}
-                            </ThemedText>
-                          )}
-                        </TouchableOpacity>
-                      ) : null}
-                    </View>
-                  )}
-                </View>
-              </View>
-              <TouchableOpacity
-                onPress={handleClose}
-                style={styles.closeButton}
-                accessibilityRole="button"
-                accessibilityLabel="Close player details"
-              >
-                <ThemedText style={styles.closeText}>✕</ThemedText>
-              </TouchableOpacity>
-            </View>
+          {/* 0 - Scoring Range (box plot) — the FPTS-distribution showcase, up
+                 top. (Category insights for CAT leagues.) Always-present wrapper
+                 keeps the sticky index stable. */}
+          <View style={styles.sectionPad}>
+            {hasInsights && (
+              <PlayerInsightsCard
+                games={gameLog}
+                scoringWeights={scoringWeights}
+                seasonAvg={avgFpts}
+                recentWindow={insightsWindow}
+                onRecentWindowChange={setInsightsWindow}
+                colors={{
+                  border: c.border,
+                  secondaryText: c.secondaryText,
+                  accent: c.accent,
+                  card: c.card,
+                }}
+                scoringType={leagueScoringType ?? undefined}
+              />
+            )}
           </View>
 
-          <ScrollView
-            ref={scrollRef}
-            contentContainerStyle={styles.scrollContent}
-            stickyHeaderIndices={[6]}
-          >
-            {/* Stats + Insights (unified block) */}
+          {/* 1 - Averages — windowable box-score (recent windows + seasons),
+                 with the situational splits strip. Ranks sit on the eyebrow. */}
+          <View style={styles.sectionPad}>
+            <View style={styles.eyebrowRow}>
+              <View style={styles.eyebrowLeft}>
+                <View style={[styles.goldRule, { backgroundColor: c.gold }]} />
+                <ThemedText type="sectionLabel" accessibilityRole="header">
+                  AVERAGES
+                </ThemedText>
+              </View>
+              {rankings && !isCategories && (
+                <View style={styles.rankBadges}>
+                  <Badge label={`#${rankings.overallRank} OVR`} variant="gold" />
+                  <Badge
+                    label={`#${rankings.positionRank} ${rankings.primaryPosition}`}
+                    variant="neutral"
+                  />
+                </View>
+              )}
+            </View>
             <SeasonAverages
               player={player}
+              currentSeasonLabel={currentSeason}
+              currentGamesDenominator={teamGamesPlayed}
               avgFpts={avgFpts}
               isCategories={isCategories}
-              rankings={rankings}
-              colors={{
-                secondaryText: c.secondaryText,
-                accent: c.accent,
-                card: c.card,
-                statusText: c.statusText,
-              }}
-            />
-            <PlayerInsightsCard
-              games={gameLog}
+              historicalStats={historicalStats}
               scoringWeights={scoringWeights}
-              seasonAvg={avgFpts}
-              recentWindow={insightsWindow}
-              onRecentWindowChange={setInsightsWindow}
-              colors={{
-                border: c.border,
-                secondaryText: c.secondaryText,
-                accent: c.accent,
-                card: c.card,
-              }}
-              scoringType={leagueScoringType ?? undefined}
-            />
-
-            {/* Divider */}
-            <View style={styles.divider} />
-
-            {/* Tab pager: News, Transactions, Previous Seasons */}
-            <HorizontalPager
-              minHeight={120}
-              pageLabels={[
-                "News",
-                "Transactions",
-                ...(historicalStats && historicalStats.length > 0
-                  ? ["Previous Seasons"]
-                  : []),
-              ]}
-            >
-              {[
-                <View key="news" style={{ paddingHorizontal: s(16), gap: s(10) }}>
-                  {isLoadingNews ? (
-                    <View style={{ marginTop: s(20) }}><LogoSpinner /></View>
-                  ) : playerNews && playerNews.length > 0 ? (
-                    playerNews.slice(0, 10).map((article) => (
-                      <NewsCard key={article.id} article={article} />
-                    ))
-                  ) : (
-                    <ThemedText style={{ color: c.secondaryText, fontSize: ms(13), marginTop: s(8) }}>
-                      No recent news for {player?.name ?? 'this player'}
-                    </ThemedText>
-                  )}
-                </View>,
-                <PlayerHistory
-                  key="transactions"
-                  playerId={player?.player_id}
-                  leagueId={leagueId}
-                />,
-                ...(historicalStats && historicalStats.length > 0
-                  ? [
-                      <PreviousSeasons
-                        key="prev-seasons"
-                        historicalStats={historicalStats}
-                        colors={{ border: c.border, secondaryText: c.secondaryText }}
-                      />,
-                    ]
-                  : []),
-              ]}
-            </HorizontalPager>
-
-            {/* Divider */}
-            <View style={styles.divider} />
-
-            {/* Game Log */}
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <ThemedText type="subtitle" style={styles.sectionTitle}>
-                  Game Log
-                </ThemedText>
-                {(() => {
-                  if (!upcomingGames || upcomingGames.length === 0) return null;
-                  const now = new Date();
-                  const day = now.getDay();
-                  const daysUntilSunday = day === 0 ? 0 : 7 - day;
-                  const endOfWeek = new Date(now);
-                  endOfWeek.setDate(now.getDate() + daysUntilSunday);
-                  const endStr = endOfWeek.toISOString().slice(0, 10);
-                  const remaining = upcomingGames.filter((g) => g.game_date <= endStr).length;
-                  if (remaining === 0) return null;
-                  return (
-                    <ThemedText
-                      style={[styles.gamesThisWeek, { color: c.secondaryText }]}
-                      accessibilityLabel={`${remaining} game${remaining !== 1 ? "s" : ""} remaining this week`}
-                    >
-                      {remaining} game{remaining !== 1 ? "s" : ""} this week
-                    </ThemedText>
-                  );
-                })()}
-              </View>
-            </View>
-
-            {/* Sticky header: pins to bottom of player header while scrolling;
-                stays horizontally in sync with the body via shared refs. */}
-            <PlayerGameLogHeader
-              scoringWeights={scoringWeights}
-              isCategories={isCategories}
-              headerScrollRef={gameLogHeaderScrollRef}
-              backgroundColor={c.background}
-              colors={{
-                border: c.border,
-                secondaryText: c.secondaryText,
-                accent: c.accent,
-              }}
-            />
-
-            <PlayerGameLog
               gameLog={gameLog}
-              isLoading={isLoadingGameLog}
-              scoringWeights={scoringWeights}
-              upcomingGames={upcomingGames}
-              liveStats={liveStats}
-              liveToGameLog={liveToGameLog}
-              formatGameInfo={formatGameInfo}
-              playerName={player?.name ?? ""}
-              expanded={gameLogExpanded}
-              onExpand={() => setGameLogExpanded(true)}
-              isCategories={isCategories}
-              bodyScrollRef={gameLogBodyScrollRef}
-              onBodyScroll={handleGameLogBodyScroll}
-              colors={{
-                border: c.border,
-                secondaryText: c.secondaryText,
-                accent: c.accent,
-              }}
             />
-          </ScrollView>
+          </View>
 
-          {/* Inline toast — sits inside the sheet so it isn't hidden by the Modal */}
-          {inlineToast && (
-            <View
-              pointerEvents="none"
-              style={styles.inlineToastWrap}
-              accessibilityRole="alert"
-              accessibilityLiveRegion="assertive"
-              accessibilityLabel={inlineToast}
-            >
-              <View style={[styles.inlineToastPill, { backgroundColor: c.success }]}>
-                <Ionicons
-                  name="checkmark-circle"
-                  size={16}
-                  color={c.statusText}
-                  style={{ marginRight: s(6) }}
-                />
-                <ThemedText style={[styles.inlineToastText, { color: c.statusText }]}>
-                  {inlineToast}
+          {/* 2 - News (outer View always present to keep the sticky index stable) */}
+          <View style={styles.sectionPad}>
+            <PlayerNewsSection news={playerNews} isLoading={isLoadingNews} />
+          </View>
+
+          {/* 3 - Game log eyebrow */}
+          <View style={[styles.sectionPad, styles.eyebrowRow]}>
+            <View style={styles.eyebrowLeft}>
+              <View style={[styles.goldRule, { backgroundColor: c.gold }]} />
+              <ThemedText type="sectionLabel" accessibilityRole="header">
+                GAME LOG
+              </ThemedText>
+            </View>
+            {gamesThisWeek > 0 && (
+              <Badge
+                label={`${gamesThisWeek} this week`}
+                variant="neutral"
+                size="small"
+              />
+            )}
+          </View>
+
+          {/* 4 - Sticky column header (pins to top of the body on scroll) */}
+          <PlayerGameLogHeader
+            scoringWeights={scoringWeights}
+            isCategories={isCategories}
+            headerScrollRef={gameLogHeaderScrollRef}
+            backgroundColor={c.background}
+            colors={gameLogColors}
+          />
+
+          {/* 5 - Game log body */}
+          <PlayerGameLog
+            gameLog={gameLog}
+            isLoading={isLoadingGameLog}
+            scoringWeights={scoringWeights}
+            upcomingGames={upcomingGames}
+            liveStats={liveStats}
+            liveToGameLog={liveToGameLog}
+            formatGameInfo={formatGameInfo}
+            playerName={player.name}
+            expanded={gameLogExpanded}
+            onExpand={() => setGameLogExpanded(true)}
+            isCategories={isCategories}
+            bodyScrollRef={gameLogBodyScrollRef}
+            onBodyScroll={handleGameLogBodyScroll}
+            colors={gameLogColors}
+          />
+
+          {/* 6 - Transactions (moved below the game log; no side tabs) */}
+          <View style={styles.txnWrap}>
+            <View style={[styles.sectionPad, styles.eyebrowRow]}>
+              <View style={styles.eyebrowLeft}>
+                <View style={[styles.goldRule, { backgroundColor: c.gold }]} />
+                <ThemedText type="sectionLabel" accessibilityRole="header">
+                  TRANSACTIONS
                 </ThemedText>
               </View>
             </View>
-          )}
-
-          {/* Trade block note prompt — rendered inside the main modal */}
-          {tradeBlockPromptVisible && (
-            <TradeBlockPrompt
-              initialNote={tradeBlockInitialNote}
-              colors={{
-                card: c.card,
-                secondaryText: c.secondaryText,
-                text: c.text,
-                border: c.border,
-                background: c.background,
-                warning: c.warning,
-                statusText: c.statusText,
-              }}
-              onCancel={() => setTradeBlockPromptVisible(false)}
-              onConfirm={(note) => {
-                setTradeBlockPromptVisible(false);
-                submitTradeBlockUpdate(true, note);
-              }}
-            />
-          )}
-        </Animated.View>
-        <DialogHost />
+            <PlayerHistory playerId={player.player_id} leagueId={leagueId} />
+          </View>
+        </ScrollView>
       </View>
-    </Modal>
+
+      {/* Inline toast - sits inside the sheet so it isn't hidden by the Modal */}
+      {inlineToast && (
+        <View
+          pointerEvents="none"
+          style={styles.inlineToastWrap}
+          accessibilityRole="alert"
+          accessibilityLiveRegion="assertive"
+          accessibilityLabel={inlineToast}
+        >
+          <View style={[styles.inlineToastPill, { backgroundColor: c.success }]}>
+            <Ionicons
+              name="checkmark-circle"
+              size={16}
+              color={c.statusText}
+              style={{ marginRight: s(6) }}
+            />
+            <ThemedText style={[styles.inlineToastText, { color: c.statusText }]}>
+              {inlineToast}
+            </ThemedText>
+          </View>
+        </View>
+      )}
+    </BottomSheet>
   );
 }

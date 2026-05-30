@@ -7,6 +7,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { MatchupBoard } from "@/components/matchup/MatchupBoard";
 import {
   buildMatchupSlots,
+  computeLiveCategoryResults,
   fetchAllWeekMatchups,
   fetchMatchupDataById,
   fetchTeamSeeds,
@@ -18,7 +19,10 @@ import {
 } from "@/components/matchup/matchupData";
 import { MatchupHero } from "@/components/matchup/MatchupHero";
 import { MatchupPillBar } from "@/components/matchup/MatchupPillBar";
-import { MatchupBoardSkeleton } from "@/components/matchup/MatchupSkeleton";
+import {
+  MatchupBoardSkeleton,
+  MatchupPillBarSkeleton,
+} from "@/components/matchup/MatchupSkeleton";
 import { styles } from "@/components/matchup/matchupStyles";
 import { MatchupTicker } from "@/components/matchup/MatchupTicker";
 import {
@@ -34,7 +38,6 @@ import { FptsBreakdownModal } from "@/components/player/FptsBreakdownModal";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { InfoModal } from "@/components/ui/InfoModal";
-import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { ThemedView } from "@/components/ui/ThemedView";
 import { Colors } from "@/constants/Colors";
@@ -58,7 +61,6 @@ import {
   formatDayLabel,
   useToday,
 } from "@/utils/dates";
-import { getSportToday } from "@/utils/leagueTime";
 import {
   LivePlayerStats,
   liveToGameLog,
@@ -367,6 +369,21 @@ export default function MatchupScreen() {
     pillTransitioning ||
     (isViewingOwnMatchup ? matchupLoading : otherMatchupLoading);
 
+  // First-load gate. True until we have real matchup data to show AND the
+  // boot queries (weeks → scoring → matchup list → matchup data) are still
+  // settling. Drives the hero, pill-bar, and board skeletons so the full
+  // layout is reserved from the first frame — no spinner→chrome jump. Note
+  // that a disabled React Query (e.g. matchup query before scoring loads)
+  // reports `isLoading: false`, so we OR in the upstream conditions
+  // explicitly rather than leaning on `displayLoading` alone.
+  const coldLoading =
+    !displayData &&
+    (weeksLoading ||
+      !scoring ||
+      scoring.length === 0 ||
+      displayLoading ||
+      (!!currentWeek && allMatchups === undefined));
+
   // Parallel "today" fetch for the hero week score. The hero score is
   // week-wide and must not change when the user swipes the day picker —
   // but `displayData` is keyed on `selectedDate`, so its `weekTotal` and
@@ -483,7 +500,6 @@ export default function MatchupScreen() {
   const isToday = selectedDate === today;
   const yesterday = addDays(today, -1);
   const isYesterday = selectedDate === yesterday;
-  const isFutureDate = selectedDate > today;
   const weekIsLive = !!currentWeek && currentWeek.start_date <= today && today <= currentWeek.end_date;
   // Live stats — kept subscribed across the whole live week (not just
   // today/yesterday) so the hero week score and the weekly summary always
@@ -580,11 +596,12 @@ export default function MatchupScreen() {
     return () => clearTimeout(timer);
   }, [pillTransitioning, weekIsLive]);
 
-  // Future schedule: tricode → matchup string for the selected future date
-  const { data: futureSchedule } = useQuery<Map<string, any>>({
+  // Schedule for the selected date: tricode → { matchup, tipoff, final score }.
+  // Fetched for every day state — future/today use it for the tipoff caption,
+  // past days use the persisted final score (live stats expire).
+  const { data: daySchedule } = useQuery<Map<string, any>>({
     queryKey: [...queryKeys.futureSchedule(selectedDate), sport],
     queryFn: () => fetchNbaScheduleForDate(selectedDate, sport),
-    enabled: isToday || isFutureDate,
     staleTime: 1000 * 60 * 60,
   });
 
@@ -597,7 +614,6 @@ export default function MatchupScreen() {
       addDays(selectedDate, 1),
       addDays(selectedDate, 2),
     ];
-    const todayStr = getSportToday(sport);
 
     for (const day of adjacent) {
       const wk = weeks.find((w) => w.start_date <= day && day <= w.end_date);
@@ -622,13 +638,11 @@ export default function MatchupScreen() {
         });
       }
 
-      if (day >= todayStr) {
-        queryClient.prefetchQuery({
-          queryKey: [...queryKeys.futureSchedule(day), sport],
-          queryFn: () => fetchNbaScheduleForDate(day, sport),
-          staleTime: 1000 * 60 * 60,
-        });
-      }
+      queryClient.prefetchQuery({
+        queryKey: [...queryKeys.futureSchedule(day), sport],
+        queryFn: () => fetchNbaScheduleForDate(day, sport),
+        staleTime: 1000 * 60 * 60,
+      });
     }
   }, [selectedDate, weeks, teamId, leagueId, scoring, sport, selectedMatchupId, isViewingOwnMatchup]);
 
@@ -727,26 +741,17 @@ export default function MatchupScreen() {
     );
   }
 
-  if (weeksLoading) {
-    return (
-      <SafeAreaView
-        style={[styles.container, { backgroundColor: c.background }]}
-      >
-        <View style={styles.spinnerWrap}>
-          <LogoSpinner />
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  if (!weeks || weeks.length === 0) {
+  // Season-not-started copy only once the weeks query has actually settled —
+  // while it's still loading we fall through to the skeleton chrome below so
+  // the layout is reserved from the first frame.
+  if (!weeksLoading && (!weeks || weeks.length === 0)) {
     return (
       <ThemedView style={styles.center}>
         <ThemedText type="defaultSemiBold">Season not started yet.</ThemedText>
         <ThemedText
           style={{ color: c.secondaryText, marginTop: 6, textAlign: "center" }}
         >
-          The commissioner needs to generate the schedule after the draft.
+          The schedule is generated automatically once the draft is complete.
         </ThemedText>
       </ThemedView>
     );
@@ -830,6 +835,27 @@ export default function MatchupScreen() {
 
   const heroIsCategories = league?.scoring_type === "h2h_categories";
 
+  // Hero category tally — week-wide (today-keyed heroData + heroLiveMap), so
+  // it stays fixed across day-picker switches just like the points week score.
+  // Cheap to recompute each render (a handful of categories); the board does
+  // the same per-day computation via the shared helper.
+  const heroCategoryResult =
+    heroIsCategories && heroDataLeft
+      ? computeLiveCategoryResults(
+          heroDataLeft,
+          heroDataRight,
+          scoring ?? [],
+          heroLiveMap,
+        )
+      : null;
+  const heroCategoryRecord = heroCategoryResult
+    ? {
+        leftWins: heroCategoryResult.homeWins,
+        rightWins: heroCategoryResult.awayWins,
+        ties: heroCategoryResult.ties,
+      }
+    : null;
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
       <MatchupHero
@@ -854,10 +880,11 @@ export default function MatchupScreen() {
             : undefined
         }
         isCategories={heroIsCategories}
+        categoryRecord={heroCategoryRecord}
         weeklyLimit={weeklyLimit}
         leftAdds={leftAdds ?? undefined}
         rightAdds={rightAdds ?? undefined}
-        isLoading={displayLoading && !displayData}
+        isLoading={coldLoading}
         liveActivitySupported={
           liveActivitySupported && isViewingOwnMatchup && weekIsLive
         }
@@ -897,12 +924,12 @@ export default function MatchupScreen() {
           // crawls depends on the day: today = live recap events, past = a
           // top-performers recap from box scores, future = upcoming games.
           currentWeek && scoring && scoring.length > 0 ? (
-            displayLoading && !displayData ? (
+            coldLoading ? (
               // Stay quiet during cold-load — the skeleton body reserves the
               // ticker height, so a blank tape reads as "still loading."
               <MatchupTicker events={[]} scoring={scoring} hideFpts={heroIsCategories} emptyText="" />
             ) : mode === "future" ? (
-              <ScheduleTicker players={tickerStarters} schedule={futureSchedule ?? new Map()} />
+              <ScheduleTicker players={tickerStarters} schedule={daySchedule ?? new Map()} />
             ) : mode === "past" ? (
               <RecapTicker players={tickerStarters} hideFpts={heroIsCategories} />
             ) : (
@@ -919,8 +946,10 @@ export default function MatchupScreen() {
         }
       />
 
-      {/* Matchup pill bar */}
-      {allMatchups && allMatchups.length > 1 && teamNames && (
+      {/* Matchup pill bar. During cold load the matchup list isn't known
+          yet, so we reserve the bar's height with a skeleton — otherwise the
+          real pills popping in shove the board below them downward. */}
+      {allMatchups && allMatchups.length > 1 && teamNames ? (
         <MatchupPillBar
           allMatchups={allMatchups}
           teamNames={teamNames}
@@ -932,7 +961,9 @@ export default function MatchupScreen() {
             setSelectedMatchupId(id);
           }}
         />
-      )}
+      ) : coldLoading ? (
+        <MatchupPillBarSkeleton />
+      ) : null}
 
       {/* Matchup body — always rendered so the page reserves layout
           height. Order of precedence:
@@ -971,7 +1002,7 @@ export default function MatchupScreen() {
             mode={mode}
             liveMap={liveMap}
             scoring={scoring ?? []}
-            futureSchedule={futureSchedule}
+            schedule={daySchedule}
             seedMap={seedMap ?? undefined}
             onPlayerPress={handlePlayerPress}
             onFptsPress={(stats, name, label) =>
@@ -979,7 +1010,7 @@ export default function MatchupScreen() {
             }
             scoringType={league?.scoring_type}
           />
-        ) : displayLoading ? (
+        ) : coldLoading ? (
           <MatchupBoardSkeleton />
         ) : !currentWeek ? (
           <View style={styles.center}>
@@ -1055,7 +1086,7 @@ export default function MatchupScreen() {
 
       <WeekScheduleModal
         visible={scheduleVisible}
-        weeks={weeks}
+        weeks={weeks ?? []}
         currentWeek={currentWeek}
         today={today}
         colors={{

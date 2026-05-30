@@ -11,12 +11,6 @@ export const styles = StyleSheet.create({
     alignItems: "center",
     padding: s(24),
   },
-  spinnerWrap: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingVertical: s(48),
-  },
   body: { paddingBottom: s(56), flexGrow: 1 },
   modalOverlay: {
     flex: 1,

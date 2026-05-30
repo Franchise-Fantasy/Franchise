@@ -60,7 +60,7 @@ export default function FranchisePage() {
   const { id } = useLocalSearchParams<{ id: string }>();
 
   const { data: meta } = useFranchiseMeta(id);
-  const { data: history, isLoading } = useArchiveFranchiseHistory(id);
+  const { data: history, isLoading, isError } = useArchiveFranchiseHistory(id);
   const { data: seasons } = useArchiveSeasons();
 
   // Determine the latest season known to the archive (header subtitle).
@@ -147,7 +147,13 @@ export default function FranchisePage() {
             YEAR BY YEAR
           </ThemedText>
 
-          {isLoading || !history ? (
+          {isError ? (
+            <View style={styles.loading}>
+              <ThemedText style={{ color: c.secondaryText }}>
+                Couldn’t load franchise history.
+              </ThemedText>
+            </View>
+          ) : isLoading || !history ? (
             <View style={styles.loading}>
               <LogoSpinner />
             </View>

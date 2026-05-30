@@ -147,6 +147,8 @@ export const queryKeys = {
   playerSeasonStat: (playerId: string, sport: string) =>
     ["playerSeasonStat", playerId, sport] as const,
   playerGameLog: (playerId: string) => ["playerGameLog", playerId] as const,
+  rosterGameLogs: (playerIds: string[]) =>
+    ["rosterGameLogs", playerIds.join(",")] as const,
   playerHistoricalStats: (playerId: string) =>
     ["playerHistoricalStats", playerId] as const,
   playerHistory: (leagueId: string, playerId: string) =>

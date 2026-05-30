@@ -7,8 +7,14 @@ import { RosterConfigSlot } from "@/hooks/useLeagueRosterConfig";
 import { supabase } from "@/lib/supabase";
 import { ScoringWeight } from "@/types/player";
 import { parseLocalDate } from "@/utils/dates";
+import { liveToGameLog, type LivePlayerStats } from "@/utils/nba/nbaLive";
 import { fetchTeamData, sumStarterDayPoints } from "@/utils/roster/fetchTeamData";
-import { TeamStatTotals } from "@/utils/scoring/categoryScoring";
+import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
+import {
+  computeCategoryResults,
+  type CategoryMatchupResult,
+  type TeamStatTotals,
+} from "@/utils/scoring/categoryScoring";
 
 // Data layer for the Matchup tab: types, pure slot/label helpers, Supabase
 // fetchers, and the React Query hooks. Split out of (tabs)/matchup.tsx so the
@@ -103,6 +109,56 @@ export function buildMatchupSlots(
     }
   }
   return slots;
+}
+
+// ─── Category scoring (live merge) ─────────────────────────────────────────────
+
+// Merge live in-progress game stats into a team's DB-based teamStats. Skips
+// non-scoring slots (bench/IR/dropped) so only active starters count, mirroring
+// the matchup score. Returns the stored totals untouched when no live data is
+// present. Shared by the category scoreboard (board) and the hero category
+// tally (screen) so the two always agree.
+export function mergeTeamStatsWithLive(
+  team: TeamMatchupData,
+  liveMap: Map<string, LivePlayerStats>,
+): TeamStatTotals {
+  if (liveMap.size === 0) return team.teamStats;
+  const merged = { ...team.teamStats };
+  for (const p of team.players) {
+    if (
+      p.roster_slot === "BE" ||
+      p.roster_slot === "IR" ||
+      p.roster_slot === ROSTER_SLOT.DROPPED
+    )
+      continue;
+    const live = liveMap.get(p.player_id);
+    if (!live) continue;
+    const gameLog = liveToGameLog(live);
+    for (const [key, val] of Object.entries(gameLog)) {
+      if (val == null) continue;
+      const numVal = typeof val === "boolean" ? (val ? 1 : 0) : Number(val);
+      merged[key] = (merged[key] ?? 0) + numVal;
+    }
+  }
+  return merged;
+}
+
+// Compute the live H2H category comparison between two teams, merging any
+// in-progress game stats first. Returns null when the right team is absent
+// (bye week). The `scoring` rows carry which categories are enabled + which
+// are inverse (lower-is-better, e.g. turnovers).
+export function computeLiveCategoryResults(
+  leftTeam: TeamMatchupData,
+  rightTeam: TeamMatchupData | null,
+  scoring: ScoringWeight[],
+  liveMap: Map<string, LivePlayerStats>,
+): CategoryMatchupResult | null {
+  if (!rightTeam) return null;
+  return computeCategoryResults(
+    mergeTeamStatsWithLive(leftTeam, liveMap),
+    mergeTeamStatsWithLive(rightTeam, liveMap),
+    scoring.map((s) => ({ stat_name: s.stat_name, inverse: s.inverse ?? false })),
+  );
 }
 
 // ─── Data fetching ────────────────────────────────────────────────────────────

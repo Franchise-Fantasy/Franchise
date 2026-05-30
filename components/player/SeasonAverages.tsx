@@ -1,166 +1,334 @@
-import { StyleSheet, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { useMemo, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 
+import { PlayerSplits } from "@/components/player/PlayerSplits";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { cardShadow } from "@/constants/Colors";
-import { PlayerSeasonStats } from "@/types/player";
+import { useColors } from "@/hooks/useColors";
+import type { HistoricalSeasonStats } from "@/hooks/usePlayerHistoricalStats";
+import { PlayerGameLog, PlayerSeasonStats, ScoringWeight } from "@/types/player";
 import { ms, s } from "@/utils/scale";
+import { seasonAvgRowToFpts } from "@/utils/scoring/fantasyPoints";
+import { averageGames } from "@/utils/scoring/windowAverages";
 
 interface SeasonAveragesProps {
   player: PlayerSeasonStats;
+  /** Label for the current season, e.g. "2025-26". */
+  currentSeasonLabel: string;
+  /** Pro-team games played so far (the GP denominator for the current season). */
+  currentGamesDenominator?: number;
   avgFpts: number | null;
   isCategories: boolean;
-  rankings: {
-    overallRank: number;
-    positionRank: number;
-    primaryPosition: string;
-  } | null;
-  colors: {
-    secondaryText: string;
-    accent: string;
-    card: string;
-    statusText: string;
-  };
+  historicalStats: HistoricalSeasonStats[] | undefined;
+  scoringWeights: ScoringWeight[] | undefined;
+  gameLog: PlayerGameLog[] | undefined;
 }
 
-function StatBox({
+/** Source stat shape shared by season rows and windowed averages. */
+type AvgRow = {
+  games_played: number;
+  avg_pts: number; avg_reb: number; avg_ast: number; avg_stl: number;
+  avg_blk: number; avg_tov: number; avg_min: number;
+  avg_fgm: number; avg_fga: number; avg_3pm: number; avg_3pa: number;
+  avg_ftm: number; avg_fta: number;
+};
+
+type Lens = {
+  key: string;
+  /** Short chip label, e.g. "L10" or "2025-26". */
+  chip: string;
+  gpText: string;
+  fpts: number | null;
+  rows: [[string, string], [string, string]][];
+  /** Games backing this lens (for the splits strip); empty for past seasons. */
+  games: PlayerGameLog[];
+};
+
+const RECENT_WINDOWS = [5, 10, 15, 25] as const;
+
+const f1 = (n: unknown) => {
+  const num = Number(n);
+  return Number.isFinite(num) ? num.toFixed(1) : "—";
+};
+
+const pct = (made: unknown, att: unknown) => {
+  const a = Number(att);
+  const m = Number(made);
+  return a > 0 ? `${((m / a) * 100).toFixed(1)}%` : "—";
+};
+
+function rowsFrom(r: AvgRow): [[string, string], [string, string]][] {
+  return [
+    [["PTS", f1(r.avg_pts)], ["FG%", pct(r.avg_fgm, r.avg_fga)]],
+    [["REB", f1(r.avg_reb)], ["3P%", pct(r.avg_3pm, r.avg_3pa)]],
+    [["AST", f1(r.avg_ast)], ["FT%", pct(r.avg_ftm, r.avg_fta)]],
+    [["STL", f1(r.avg_stl)], ["MIN", f1(r.avg_min)]],
+    [["BLK", f1(r.avg_blk)], ["TO", f1(r.avg_tov)]],
+  ];
+}
+
+function StatCell({
   label,
   value,
-  color,
+  labelColor,
+  valueColor,
 }: {
   label: string;
   value: string;
-  color: string;
+  labelColor: string;
+  valueColor: string;
 }) {
   return (
-    <View style={styles.statBox} accessibilityLabel={`${label}: ${value}`}>
-      <ThemedText style={[styles.statLabel, { color }]}>{label}</ThemedText>
-      <ThemedText style={styles.statValue}>{value}</ThemedText>
+    <View style={styles.cell} accessibilityLabel={`${label}: ${value}`}>
+      <ThemedText type="varsitySmall" style={[styles.cellLabel, { color: labelColor }]}>
+        {label}
+      </ThemedText>
+      <ThemedText type="mono" style={[styles.cellValue, { color: valueColor }]}>
+        {value}
+      </ThemedText>
     </View>
   );
 }
 
+/**
+ * Player averages box-score with a unified lens selector — recent windows
+ * (Last 5/10/15/25 games, pulled from the game log) plus the current season
+ * and previous seasons. Picking a lens recomputes the whole box-score, FPTS/G
+ * (with a vs-season trend on recent windows), and the situational splits.
+ */
 export function SeasonAverages({
   player,
+  currentSeasonLabel,
+  currentGamesDenominator,
   avgFpts,
   isCategories,
-  rankings,
-  colors: c,
+  historicalStats,
+  scoringWeights,
+  gameLog,
 }: SeasonAveragesProps) {
-  const fgPct =
-    player.avg_fga > 0
-      ? ((player.avg_fgm / player.avg_fga) * 100).toFixed(1)
-      : "0.0";
-  const threePct =
-    player.avg_3pa > 0
-      ? ((player.avg_3pm / player.avg_3pa) * 100).toFixed(1)
-      : "0.0";
-  const ftPct =
-    player.avg_fta > 0
-      ? ((player.avg_ftm / player.avg_fta) * 100).toFixed(1)
-      : "0.0";
+  const c = useColors();
+
+  const lenses: Lens[] = useMemo(() => {
+    const log = gameLog ?? [];
+    const out: Lens[] = [];
+
+    // Recent windows — only when the log actually has that many games, so we
+    // don't show "L25" that's identical to a shorter window.
+    for (const n of RECENT_WINDOWS) {
+      if (log.length < n) continue;
+      const slice = log.slice(0, n);
+      const avg = averageGames(slice);
+      if (!avg) continue;
+      out.push({
+        key: `L${n}`,
+        chip: `L${n}`,
+        gpText: `${avg.games_played}`,
+        fpts:
+          !isCategories && scoringWeights
+            ? seasonAvgRowToFpts(avg as unknown as Record<string, unknown>, scoringWeights)
+            : null,
+        rows: rowsFrom(avg),
+        games: slice,
+      });
+    }
+
+    // Current season
+    out.push({
+      key: "season",
+      chip: currentSeasonLabel,
+      gpText: `${player.games_played}${currentGamesDenominator ? `/${currentGamesDenominator}` : ""}`,
+      fpts: isCategories ? null : avgFpts,
+      rows: rowsFrom(player),
+      games: log,
+    });
+
+    // Previous seasons
+    for (const row of historicalStats ?? []) {
+      out.push({
+        key: row.season,
+        chip: row.season,
+        gpText: `${row.games_played}`,
+        fpts:
+          !isCategories && scoringWeights
+            ? seasonAvgRowToFpts(row as unknown as Record<string, unknown>, scoringWeights)
+            : null,
+        rows: rowsFrom(row),
+        games: [],
+      });
+    }
+    return out;
+  }, [
+    gameLog,
+    historicalStats,
+    player,
+    avgFpts,
+    isCategories,
+    scoringWeights,
+    currentSeasonLabel,
+    currentGamesDenominator,
+  ]);
+
+  const seasonIdx = Math.max(0, lenses.findIndex((l) => l.key === "season"));
+  const [activeKey, setActiveKey] = useState<string>("season");
+  const active = lenses.find((l) => l.key === activeKey) ?? lenses[seasonIdx];
+
+  // Trend arrow on recent windows: window FPTS vs season FPTS.
+  const trend = useMemo(() => {
+    if (!active || active.key === "season" || active.fpts == null || avgFpts == null) {
+      return null;
+    }
+    const delta = active.fpts - avgFpts;
+    if (Math.abs(delta) < Math.max(1, avgFpts * 0.05)) {
+      return { icon: "remove" as const, color: c.secondaryText };
+    }
+    return delta > 0
+      ? { icon: "caret-up" as const, color: c.success }
+      : { icon: "caret-down" as const, color: c.danger };
+  }, [active, avgFpts, c.success, c.danger, c.secondaryText]);
+
+  if (!active) return null;
+
+  const showChips = lenses.length > 1;
 
   return (
-    <View style={styles.section}>
-      <View style={styles.badgeRow}>
-        {rankings && !isCategories && (
-          <View style={styles.rankGroup}>
-            <View
-              style={[styles.rankBadge, { backgroundColor: c.accent }]}
-              accessibilityLabel={`Ranked number ${rankings.overallRank} overall`}
-            >
-              <ThemedText
-                style={[styles.rankBadgeText, { color: c.statusText }]}
+    <View>
+      {showChips && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chipRow}
+        >
+          {lenses.map((lens) => {
+            const sel = lens.key === active.key;
+            return (
+              <Pressable
+                key={lens.key}
+                onPress={() => setActiveKey(lens.key)}
+                style={[
+                  styles.chip,
+                  { borderColor: c.border },
+                  sel && { backgroundColor: c.accent, borderColor: c.accent },
+                ]}
+                accessibilityRole="button"
+                accessibilityState={{ selected: sel }}
+                accessibilityLabel={
+                  lens.key.startsWith("L") ? `Last ${lens.chip.slice(1)} games` : `${lens.chip} season`
+                }
               >
-                #{rankings.overallRank} Overall
-              </ThemedText>
-            </View>
-            <View
-              style={[
-                styles.rankBadge,
-                { backgroundColor: c.accent, opacity: 0.85 },
-              ]}
-              accessibilityLabel={`Ranked number ${rankings.positionRank} among ${rankings.primaryPosition}`}
-            >
-              <ThemedText
-                style={[styles.rankBadgeText, { color: c.statusText }]}
-              >
-                #{rankings.positionRank} {rankings.primaryPosition}
-              </ThemedText>
-            </View>
+                <ThemedText
+                  type="varsitySmall"
+                  style={[styles.chipText, { color: sel ? c.statusText : c.secondaryText }]}
+                >
+                  {lens.chip}
+                </ThemedText>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      )}
+
+      <View style={styles.metaRow}>
+        <ThemedText type="varsitySmall" style={[styles.gp, { color: c.secondaryText }]}>
+          {active.gpText} GP
+        </ThemedText>
+        {active.fpts != null && (
+          <View style={styles.fptsCallout}>
+            {trend && <Ionicons name={trend.icon} size={ms(15)} color={trend.color} />}
+            <ThemedText type="mono" style={[styles.fptsValue, { color: c.accent }]}>
+              {Math.round(active.fpts * 10) / 10}
+            </ThemedText>
+            <ThemedText type="varsitySmall" style={[styles.fptsLabel, { color: c.secondaryText }]}>
+              FPTS/G
+            </ThemedText>
           </View>
         )}
-        {avgFpts !== null && !isCategories && (
-          <ThemedText style={[styles.fptsInline, { color: c.accent }]}>
-            {Math.round(avgFpts * 10) / 10} FPTS
-          </ThemedText>
-        )}
       </View>
-      <View style={[styles.statsGrid, { backgroundColor: c.card }]}>
-        <StatBox label="PPG" value={String(player.avg_pts)} color={c.secondaryText} />
-        <StatBox label="RPG" value={String(player.avg_reb)} color={c.secondaryText} />
-        <StatBox label="APG" value={String(player.avg_ast)} color={c.secondaryText} />
-        <StatBox label="SPG" value={String(player.avg_stl)} color={c.secondaryText} />
-        <StatBox label="BPG" value={String(player.avg_blk)} color={c.secondaryText} />
-        <StatBox label="TPG" value={String(player.avg_tov)} color={c.secondaryText} />
-        <StatBox label="FG%" value={`${fgPct}%`} color={c.secondaryText} />
-        <StatBox label="3P%" value={`${threePct}%`} color={c.secondaryText} />
-        <StatBox label="FT%" value={`${ftPct}%`} color={c.secondaryText} />
-        <StatBox label="MPG" value={String(player.avg_min)} color={c.secondaryText} />
+
+      <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
+        {active.rows.map((row, i) => (
+          <View key={i} style={[styles.row, i % 2 === 1 && { backgroundColor: c.cardAlt }]}>
+            <StatCell label={row[0][0]} value={row[0][1]} labelColor={c.secondaryText} valueColor={c.text} />
+            <View style={[styles.rowDivider, { backgroundColor: c.border }]} />
+            <StatCell label={row[1][0]} value={row[1][1]} labelColor={c.secondaryText} valueColor={c.text} />
+          </View>
+        ))}
       </View>
+
+      <PlayerSplits games={active.games} scoringWeights={scoringWeights} seasonAvg={avgFpts} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  section: {
-    paddingHorizontal: s(16),
-    marginBottom: 0,
+  chipRow: {
+    flexDirection: "row",
+    gap: s(6),
+    paddingBottom: s(10),
   },
-  badgeRow: {
+  chip: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: s(5),
+    paddingHorizontal: s(11),
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  chipText: {
+    fontSize: ms(10),
+    letterSpacing: 0.5,
+  },
+  metaRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: s(4),
+    marginBottom: s(8),
+    minHeight: s(26),
   },
-  rankGroup: {
+  gp: {
+    fontSize: ms(9.5),
+  },
+  fptsCallout: {
     flexDirection: "row",
     alignItems: "center",
-    gap: s(6),
+    gap: s(4),
   },
-  fptsInline: {
-    fontSize: ms(13),
-    fontWeight: "700",
+  fptsValue: {
+    fontSize: ms(26),
+    letterSpacing: 0,
   },
-  rankBadge: {
-    paddingHorizontal: s(5),
-    paddingVertical: s(1),
-    borderRadius: 8,
-  },
-  rankBadgeText: {
+  fptsLabel: {
     fontSize: ms(9),
-    fontWeight: "700",
   },
-  statsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
+  card: {
     borderRadius: 12,
-    paddingHorizontal: s(4),
-    paddingTop: s(2),
-    paddingBottom: s(6),
+    borderWidth: 1,
+    overflow: "hidden",
     ...cardShadow,
   },
-  statBox: {
-    width: "20%",
+  row: {
+    flexDirection: "row",
     alignItems: "center",
-    paddingVertical: s(4),
+    paddingVertical: s(6),
   },
-  statValue: {
-    fontSize: ms(14),
-    fontWeight: "600",
-    lineHeight: ms(18),
+  rowDivider: {
+    width: StyleSheet.hairlineWidth,
+    alignSelf: "stretch",
+    marginVertical: s(4),
+    opacity: 0.8,
   },
-  statLabel: {
+  cell: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: s(12),
+  },
+  cellLabel: {
     fontSize: ms(10),
-    marginBottom: s(1),
+    letterSpacing: 1,
+  },
+  cellValue: {
+    fontSize: ms(15),
   },
 });

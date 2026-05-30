@@ -10,10 +10,13 @@ import { ToggleRow } from '@/components/ui/ToggleRow';
 import { Colors } from '@/constants/Colors';
 import {
   DRAFT_TYPE_OPTIONS,
+  getMaxRookieDraftRounds,
   INITIAL_DRAFT_ORDER_OPTIONS,
   LeagueWizardState,
   ROOKIE_DRAFT_ORDER_OPTIONS,
-  TIME_PER_PICK_OPTIONS,
+  TIME_PER_PICK_MAX,
+  TIME_PER_PICK_MIN,
+  TIME_PER_PICK_STEP,
 } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/league/lottery';
@@ -27,11 +30,11 @@ interface StepDraftProps {
 export function StepDraft({ state, onChange }: StepDraftProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
-  const timeLabels = TIME_PER_PICK_OPTIONS.map((t) => `${t}s`);
   const isDynasty = (state.leagueType ?? 'Dynasty') === 'Dynasty';
 
   const lotteryTeams = calcLotteryPoolSize(state.teams, state.playoffTeams);
   const effectiveOdds = state.lotteryOdds ?? generateDefaultOdds(lotteryTeams);
+  const maxRookieRounds = getMaxRookieDraftRounds(state.sport, state.teams);
 
   return (
     <View style={styles.container}>
@@ -44,13 +47,15 @@ export function StepDraft({ state, onChange }: StepDraftProps) {
           />
         </FieldGroup>
 
-        <FieldGroup label="Time Per Pick">
-          <SegmentedControl
-            options={timeLabels}
-            selectedIndex={TIME_PER_PICK_OPTIONS.indexOf(state.timePerPick)}
-            onSelect={(i) => onChange('timePerPick', TIME_PER_PICK_OPTIONS[i])}
-          />
-        </FieldGroup>
+        <NumberStepper
+          label="Time Per Pick"
+          value={state.timePerPick}
+          onValueChange={(v) => onChange('timePerPick', v)}
+          min={TIME_PER_PICK_MIN}
+          max={TIME_PER_PICK_MAX}
+          step={TIME_PER_PICK_STEP}
+          suffix="s"
+        />
 
         <FieldGroup
           label="Draft Order"
@@ -71,7 +76,11 @@ export function StepDraft({ state, onChange }: StepDraftProps) {
           <ToggleRow
             icon="swap-horizontal-outline"
             label="Allow Pick Trading"
-            description="Trade startup draft picks before and during the draft"
+            description={
+              state.draftPickTradingEnabled
+                ? 'Trade startup draft picks before and during the draft. In-draft trades execute immediately on acceptance — no review period, no vetoes.'
+                : 'Trade startup draft picks before and during the draft'
+            }
             value={state.draftPickTradingEnabled}
             onToggle={(v) => onChange('draftPickTradingEnabled', v)}
             c={{ border: c.border, accent: c.accent, secondaryText: c.secondaryText }}
@@ -87,7 +96,8 @@ export function StepDraft({ state, onChange }: StepDraftProps) {
             value={state.rookieDraftRounds}
             onValueChange={(v) => onChange('rookieDraftRounds', v)}
             min={1}
-            max={5}
+            max={maxRookieRounds}
+            helperText={`Max ${maxRookieRounds} round${maxRookieRounds === 1 ? '' : 's'} for ${state.teams} teams — keeps total picks within the realistic rookie pool.`}
           />
 
           <FieldGroup label="Draft Order">

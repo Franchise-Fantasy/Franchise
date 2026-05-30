@@ -1,5 +1,6 @@
 import { StyleSheet, View } from "react-native";
 
+import { SportSelector } from "@/components/create-league/SportSelector";
 import { AnimatedSection } from "@/components/ui/AnimatedSection";
 import { BrandTextInput } from "@/components/ui/BrandTextInput";
 import { FieldGroup } from "@/components/ui/FieldGroup";
@@ -9,9 +10,6 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import {
   LEAGUE_TYPE_OPTIONS,
   LeagueWizardState,
-  SPORT_OPTIONS,
-  SPORT_DISPLAY,
-  SPORT_TO_DB,
 } from "@/constants/LeagueDefaults";
 import { s } from "@/utils/scale";
 
@@ -30,15 +28,14 @@ export function StepBasics({ state, onChange }: StepBasicsProps) {
           placeholder="Enter league name"
           value={state.name}
           onChangeText={(text) => onChange("name", text)}
+          maxLength={40}
           accessibilityLabel="League name"
         />
 
         <FieldGroup label="Sport">
-          <SegmentedControl
-            options={[...SPORT_OPTIONS]}
-            selectedIndex={[...SPORT_OPTIONS as readonly string[]].indexOf(SPORT_DISPLAY[state.sport])}
-            onSelect={(i) => onChange("sport", SPORT_TO_DB[SPORT_OPTIONS[i]])}
-            accessibilityLabel="Select sport"
+          <SportSelector
+            selected={state.sport}
+            onSelect={(sport) => onChange("sport", sport)}
           />
         </FieldGroup>
 

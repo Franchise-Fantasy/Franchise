@@ -569,6 +569,7 @@ export default function DraftRoomScreen() {
         <ProposeTradeModal
           leagueId={draftData.league_id}
           teamId={teamData.id}
+          isInDraft={draftState?.status === 'in_progress'}
           onClose={() => {
             setShowTradeModal(false);
             queryClient.invalidateQueries({ queryKey: queryKeys.tradeProposals(draftData.league_id) });
