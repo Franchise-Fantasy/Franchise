@@ -27,6 +27,7 @@ import { PaymentLedgerModal } from '@/components/commissioner/PaymentLedgerModal
 import { ReverseTradeModal } from '@/components/commissioner/ReverseTradeModal';
 import { SendAnnouncementModal } from '@/components/commissioner/SendAnnouncementModal';
 import { TransferOwnershipModal } from '@/components/commissioner/TransferOwnershipModal';
+import { ScoringSummary } from '@/components/create-league/ScoringSummary';
 import { TeamAssigner } from '@/components/import/TeamAssigner';
 import { TeamLogo } from '@/components/team/TeamLogo';
 import { Badge } from '@/components/ui/Badge';
@@ -344,13 +345,14 @@ export default function LeagueInfoScreen() {
 
         {/* ── Scoring ── */}
         <SectionCard title={league?.scoring_type === 'h2h_categories' ? 'Categories' : 'Scoring'} c={c} editable={sectionEditable('scoring', lifecycle, isCommissioner)} onEdit={() => setShowScoringModal(true)}>
-          <ThemedText style={[styles.summaryText, { color: c.secondaryText }]}>
-            {scoring
-              ? league?.scoring_type === 'h2h_categories'
-                ? scoring.map((s) => `${s.stat_name}${s.inverse ? ' ▼' : ''}`).join('  |  ')
-                : scoring.map((s) => `${s.stat_name}: ${s.point_value > 0 ? '+' : ''}${s.point_value}`).join('  |  ')
-              : 'Loading...'}
-          </ThemedText>
+          {scoring ? (
+            <ScoringSummary
+              mode={league?.scoring_type === 'h2h_categories' ? 'categories' : 'points'}
+              stats={scoring}
+            />
+          ) : (
+            <ThemedText style={[styles.summaryText, { color: c.secondaryText }]}>Loading…</ThemedText>
+          )}
         </SectionCard>
 
         {/* ── Draft Settings ── */}

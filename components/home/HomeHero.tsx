@@ -305,32 +305,6 @@ function PulsingPill({
   );
 }
 
-/**
- * Circular icon button used for compact actions (copy, share). Sized to
- * fit a pair inline with the eyebrow text on mobile.
- */
-function IconPill({
-  icon,
-  onPress,
-  accessibilityLabel,
-}: {
-  icon: Parameters<typeof IconSymbol>[0]['name'];
-  onPress?: () => void;
-  accessibilityLabel: string;
-}) {
-  return (
-    <TouchableOpacity
-      style={styles.iconPill}
-      onPress={onPress}
-      activeOpacity={0.75}
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
-    >
-      <IconSymbol name={icon} size={15} color={Brand.ecru} />
-    </TouchableOpacity>
-  );
-}
-
 // ── Variants ─────────────────────────────────────────────────────────
 
 function TeamIdentity({
@@ -491,9 +465,10 @@ function DraftPending({
   if (invite) {
     eyebrowSlot = (
       <View style={styles.iconGroup}>
-        <IconPill icon="doc.on.doc" onPress={onCopyInvite} accessibilityLabel="Copy invite link" />
-        <IconPill
+        <OutlinePill icon="doc.on.doc" label="Copy" onPress={onCopyInvite} accessibilityLabel="Copy invite link" />
+        <OutlinePill
           icon="square.and.arrow.up"
+          label="Share"
           onPress={onShareInvite}
           accessibilityLabel="Share invite link"
         />
@@ -718,13 +693,15 @@ function InviteNeeded({
         segments={[shortSeason(season), eyebrowCount]}
         rightSlot={
           <View style={styles.iconGroup}>
-            <IconPill
+            <OutlinePill
               icon="doc.on.doc"
+              label="Copy"
               onPress={onCopyInvite}
               accessibilityLabel="Copy invite link"
             />
-            <IconPill
+            <OutlinePill
               icon="square.and.arrow.up"
+              label="Share"
               onPress={onShareInvite}
               accessibilityLabel="Share invite link"
             />
@@ -843,16 +820,6 @@ const styles = StyleSheet.create({
   iconGroup: {
     flexDirection: 'row',
     gap: s(8),
-  },
-  iconPill: {
-    width: s(32),
-    height: s(32),
-    borderRadius: s(16),
-    borderWidth: 1,
-    borderColor: 'rgba(233, 226, 203, 0.45)',
-    backgroundColor: 'rgba(233, 226, 203, 0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   tricode: {
     color: Brand.ecru,

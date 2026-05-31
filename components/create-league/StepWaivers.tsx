@@ -7,7 +7,7 @@ import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ToggleRow } from '@/components/ui/ToggleRow';
 import { Colors } from '@/constants/Colors';
-import { LeagueWizardState, PLAYER_LOCK_OPTIONS, WAIVER_DAY_LABELS, WAIVER_TYPE_OPTIONS } from '@/constants/LeagueDefaults';
+import { LeagueWizardState, PLAYER_LOCK_OPTIONS, WAIVER_DAY_LABELS, WAIVER_TYPE_OPTIONS, WaiverTypeOption } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { s } from '@/utils/scale';
 
@@ -18,6 +18,17 @@ interface StepWaiversProps {
 
 const DEFAULT_WEEKLY_ADD_LIMIT = 5;
 
+// One-line explainer under the Waiver Type picker so commissioners
+// understand each option before committing.
+const WAIVER_TYPE_DESCRIPTIONS: Record<WaiverTypeOption, string> = {
+  Standard:
+    'Free agents pass through a waiver period before they can be added, then go to the team with the highest waiver priority.',
+  FAAB:
+    'Free-Agent Acquisition Budget — each team gets a budget to bid on players. Highest bid wins, processed on your chosen day.',
+  None:
+    'No waiver wire. Dropped players and free agents can be picked up instantly, first come first served.',
+};
+
 export function StepWaivers({ state, onChange }: StepWaiversProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
@@ -25,7 +36,7 @@ export function StepWaivers({ state, onChange }: StepWaiversProps) {
   return (
     <View style={styles.container}>
       <FormSection title="Waiver Wire">
-        <FieldGroup label="Waiver Type">
+        <FieldGroup label="Waiver Type" helperText={WAIVER_TYPE_DESCRIPTIONS[state.waiverType]}>
           <SegmentedControl
             options={WAIVER_TYPE_OPTIONS}
             selectedIndex={WAIVER_TYPE_OPTIONS.indexOf(state.waiverType)}

@@ -1,6 +1,7 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 
+import { ScoringSummary } from '@/components/create-league/ScoringSummary';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { Section } from '@/components/ui/Section';
 import { ThemedText } from '@/components/ui/ThemedText';
@@ -74,14 +75,12 @@ export function StepReview({
       <Section title="Scoring">
         <Row label="Type" value={state.scoringType} c={c} />
         {state.scoringType === 'H2H Categories' ? (
-          <ThemedText style={[styles.summaryLine, { color: c.secondaryText }]}>
-            {state.categories.filter((cat) => cat.is_enabled).map((cat) => cat.label).join('  |  ')}
-            {'\n'}({state.categories.filter((cat) => cat.is_enabled).length} categories)
-          </ThemedText>
+          <ScoringSummary
+            mode="categories"
+            stats={state.categories.filter((cat) => cat.is_enabled)}
+          />
         ) : (
-          <ThemedText style={[styles.summaryLine, { color: c.secondaryText }]}>
-            {state.scoring.map((s) => `${s.stat_name}: ${s.point_value > 0 ? '+' : ''}${s.point_value}`).join('  |  ')}
-          </ThemedText>
+          <ScoringSummary mode="points" stats={state.scoring} />
         )}
       </Section>
 
