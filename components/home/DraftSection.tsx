@@ -10,6 +10,7 @@ import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ThemedView } from '@/components/ui/ThemedView';
 import { Colors, cardShadow } from '@/constants/Colors';
+import { getRookieClassAvailableDate, type Sport } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase, uniqueChannelTopic } from '@/lib/supabase';
@@ -119,6 +120,21 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
     rounded.setSeconds(0, 0);
     const startTime = rounded.toISOString();
 
+    // A rookie draft can't run before its season's rookie class exists in the
+    // player pool (after the real draft) — otherwise it drafts last year's
+    // rookies. Same date source as the next-season-creation gate.
+    const rookieMinDate =
+      draft.type === 'rookie' && leagueSettings?.sport
+        ? getRookieClassAvailableDate(leagueSettings.sport as Sport, draft.season)
+        : null;
+    if (rookieMinDate && rounded < rookieMinDate) {
+      Alert.alert(
+        'Rookies not available yet',
+        `The ${draft.season} rookie class isn't in the player pool until after the draft. Schedule the rookie draft on or after ${rookieMinDate.toLocaleDateString([], { month: 'long', day: 'numeric', year: 'numeric' })}.`,
+      );
+      return;
+    }
+
     // Fantasy scoring can't begin on/before the draft, can't begin before
     // the IRL opening night, and Week 1 must be ≥ 5 days.
     const currentStart = leagueSettings?.season_start_date ?? null;
@@ -207,6 +223,16 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
   const isActive = isDraftEnterable;
   const showPreDraft = !isActive && (draft.status === 'unscheduled' || draft.status === 'pending');
 
+  // Rookie drafts can't be scheduled before their season's rookie class exists
+  // (after the real draft) — floor the date picker so a too-early date can't
+  // be picked. Initial drafts are unaffected (floor stays "now").
+  const rookieMinDate =
+    draft.type === 'rookie' && leagueSettings?.sport
+      ? getRookieClassAvailableDate(leagueSettings.sport as Sport, draft.season)
+      : null;
+  const pickerMinDate =
+    rookieMinDate && rookieMinDate.getTime() > Date.now() ? rookieMinDate : new Date();
+
   return (
     <View style={[styles.section, { backgroundColor: isActive ? c.activeCard : c.card, borderColor: isActive ? c.activeBorder : c.border }]}>
       <TouchableOpacity
@@ -293,8 +319,16 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
               mode="datetime"
               display="spinner"
               onChange={handleDateChange}
-              minimumDate={new Date()}
+              minimumDate={pickerMinDate}
             />
+            {rookieMinDate && rookieMinDate.getTime() > Date.now() && (
+              <ThemedText
+                style={{ color: c.secondaryText, fontSize: ms(12), textAlign: 'center', marginTop: s(4) }}
+              >
+                {draft.season} rookies are draftable after{' '}
+                {rookieMinDate.toLocaleDateString([], { month: 'short', day: 'numeric' })}.
+              </ThemedText>
+            )}
 
             <View style={styles.buttonContainer}>
               <TouchableOpacity

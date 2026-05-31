@@ -19,11 +19,11 @@ import { PlayerDetailModal } from '@/components/player/PlayerDetailModal';
 import { PlayerHeadshotImage } from '@/components/player/PlayerHeadshotImage';
 import { AnimatedFpts } from '@/components/roster/AnimatedFpts';
 import { buildSeasonAverages } from '@/components/roster/rosterData';
-import { RosterWindowPicker } from '@/components/roster/RosterWindowPicker';
 import {
   rosterStyles as styles,
   slotPillVariant,
 } from '@/components/roster/rosterStyles';
+import { RosterWindowPicker } from '@/components/roster/RosterWindowPicker';
 import { SeasonMetaLine } from '@/components/roster/SeasonMetaLine';
 import { SectionEyebrow } from '@/components/roster/SectionEyebrow';
 import { RosterPlayer, SlotEntry } from '@/components/roster/SlotPickerModal';

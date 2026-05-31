@@ -55,6 +55,7 @@ import {
 import { ConfirmProvider, useConfirm } from "@/context/ConfirmProvider";
 import { globalToastRef, ToastProvider } from "@/context/ToastProvider";
 import { useColorScheme } from "@/hooks/useColorScheme";
+import { useSeasonConfig } from "@/hooks/useSeasonConfig";
 import { isDraftRoomOpen } from "@/lib/activeScreen";
 import { setPendingDeepLink } from "@/lib/pendingNav";
 import { posthog, setPostHogAdmin } from "@/lib/posthog";
@@ -455,6 +456,13 @@ function ScreenTracker() {
   return null;
 }
 
+// Hydrates the season-config cache (current season + opening-night dates) from
+// the DB so the values can be updated without an app deploy. No-op render.
+function SeasonConfigHydrator() {
+  useSeasonConfig();
+  return null;
+}
+
 function NotificationAndLinkHandler() {
   const router = useRouter();
   const session = useSession();
@@ -714,6 +722,7 @@ export default function RootLayout() {
                     <OtaUpdateChecker />
                     <PostHogIdentifier />
                     <ScreenTracker />
+                    <SeasonConfigHydrator />
                     <NotificationAndLinkHandler />
                     <OfflineBanner />
                     <AnnouncementBanner />

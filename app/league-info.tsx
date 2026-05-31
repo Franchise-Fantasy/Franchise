@@ -37,7 +37,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Section } from '@/components/ui/Section';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
-import { LEAGUE_TYPE_DISPLAY, PLAYER_LOCK_DISPLAY, SEEDING_DISPLAY, SPORT_OPENING_MONTH, TIEBREAKER_DISPLAY, WAIVER_DAY_LABELS, parseSeasonStartYear, startDateBelongsToSeason } from '@/constants/LeagueDefaults';
+import { LEAGUE_TYPE_DISPLAY, PLAYER_LOCK_DISPLAY, seedingDisplay, SPORT_OPENING_MONTH, TIEBREAKER_DISPLAY, parseSeasonStartYear, startDateBelongsToSeason } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { TIER_LABELS } from '@/constants/Subscriptions';
 import { useAppState } from '@/context/AppStateProvider';
@@ -405,10 +405,7 @@ export default function LeagueInfoScreen() {
             <Row label="Waiver Period" value={`${league.waiver_period_days ?? 0} days`} c={c} />
           )}
           {league.waiver_type === 'faab' && (
-            <>
-              <Row label="Process Day" value={WAIVER_DAY_LABELS[league.waiver_day_of_week ?? 3]} c={c} />
-              <Row label="FAAB Budget" value={`$${league.faab_budget ?? 100}`} c={c} />
-            </>
+            <Row label="FAAB Budget" value={`$${league.faab_budget ?? 100}`} c={c} />
           )}
           <Row label="Weekly Add Limit" value={league.weekly_acquisition_limit != null ? String(league.weekly_acquisition_limit) : 'Unlimited'} c={c} />
           <Row label="Player Lock" value={PLAYER_LOCK_DISPLAY[league.player_lock_type] ?? 'Daily'} c={c} last />
@@ -420,10 +417,7 @@ export default function LeagueInfoScreen() {
           <Row label="Regular Season" value={`${league.regular_season_weeks ?? '-'} weeks`} c={c} />
           <Row label="Playoffs" value={`${league.playoff_weeks ?? '-'} weeks`} c={c} />
           <Row label="Playoff Teams" value={String(league.playoff_teams ?? '-')} c={c} />
-          <Row label="Seeding Format" value={SEEDING_DISPLAY[league.playoff_seeding_format] ?? 'Standard'} c={c} />
-          {league.playoff_seeding_format === 'standard' && (
-            <Row label="Reseed Each Round" value={league.reseed_each_round ? 'Yes' : 'No'} c={c} />
-          )}
+          <Row label="Seeding Format" value={seedingDisplay(league.playoff_seeding_format, league.reseed_each_round ?? false)} c={c} />
           <Row
             label="Tiebreaker"
             value={

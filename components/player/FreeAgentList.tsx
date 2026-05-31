@@ -193,7 +193,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         supabase
           .from("leagues")
           .select(
-            "roster_size, waiver_type, waiver_day_of_week, offseason_step, weekly_acquisition_limit, player_lock_type, position_limits",
+            "roster_size, waiver_type, offseason_step, weekly_acquisition_limit, player_lock_type, position_limits",
           )
           .eq("id", leagueId)
           .single(),
@@ -210,7 +210,6 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
           | "standard"
           | "faab"
           | "none",
-        waiverDayOfWeek: leagueRes.data?.waiver_day_of_week ?? 3,
         offseasonStep: leagueRes.data?.offseason_step as string | null,
         weeklyAcquisitionLimit: leagueRes.data?.weekly_acquisition_limit as
           | number
@@ -655,8 +654,6 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     setSelectedPlayer(seasonStatsMap.get(player.player_id) ?? player);
   };
 
-  const waiverDayOfWeek = rosterInfo?.waiverDayOfWeek ?? 3;
-
   // Instant add (free agent, no waivers)
   const handleAddPlayer = async (player: PlayerSeasonStats) => {
     // IR lockout preflight — block before even opening the drop picker so
@@ -1095,7 +1092,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         : undefined;
     const needsClaim = isOnWaivers(item.player_id, waiverType, waiverPlayerMap);
     const waiverLabel = needsClaim
-      ? getWaiverBadgeLabel(item.player_id, waiverType, waiverPlayerMap, waiverDayOfWeek)
+      ? getWaiverBadgeLabel(item.player_id, waiverType, waiverPlayerMap)
       : null;
     const schedEntry = todaySchedule?.get(item.pro_team) ?? null;
     const gameToday = schedEntry?.matchup ?? null;
@@ -1233,7 +1230,6 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
           weeklyAddsUsed={weeklyAddsUsed ?? 0}
           weeklyLimitReached={weeklyLimitReached}
           waiverType={waiverType}
-          waiverDayOfWeek={waiverDayOfWeek}
           faabRemaining={faabRemaining ?? null}
           pendingClaims={pendingClaims ?? []}
           rosterIsFull={rosterIsFull}

@@ -41,11 +41,11 @@ import {
 } from "@/components/roster/rosterData";
 import { RosterDayPicker } from "@/components/roster/RosterDayPicker";
 import { RosterHero } from "@/components/roster/RosterHero";
-import { RosterWindowPicker } from "@/components/roster/RosterWindowPicker";
 import {
   rosterStyles as styles,
   slotPillVariant,
 } from "@/components/roster/rosterStyles";
+import { RosterWindowPicker } from "@/components/roster/RosterWindowPicker";
 import { SeasonMetaLine } from "@/components/roster/SeasonMetaLine";
 import { SectionEyebrow } from "@/components/roster/SectionEyebrow";
 import {
@@ -105,7 +105,7 @@ import { guardIllegalIR, isIrEligibleStatus } from "@/utils/roster/illegalIR";
 import { guardOverCap } from "@/utils/roster/overCap";
 import { isEligibleForSlot, slotLabel } from "@/utils/roster/rosterSlots";
 import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
-import { isTaxiEligible } from "@/utils/roster/taxiEligibility";
+import { canSendToTaxi } from "@/utils/roster/taxiEligibility";
 import { buildCompositeScatter } from "@/utils/scoring/categoryAnalytics";
 import {
   calculateAvgFantasyPoints,
@@ -739,10 +739,11 @@ export default function RosterScreen() {
     if (
       srcSlot === "BE" &&
       taxiSlots.length > 0 &&
-      isTaxiEligible(
+      canSendToTaxi(
         player.draft_year ?? null,
         league?.season ?? "",
         league?.taxi_max_experience ?? null,
+        player.promoted_from_taxi ?? false,
       )
     )
       actions.push("taxi");
@@ -769,14 +770,16 @@ export default function RosterScreen() {
         );
       }
 
-      // TAXI: only bench players who are taxi-eligible
+      // TAXI: only bench players who are taxi-eligible and haven't already
+      // been promoted off the taxi squad (promotion is one-way).
       if (isTaxi) {
         const isOnBench = !p.roster_slot || p.roster_slot === "BE";
         if (!isOnBench) return false;
-        return isTaxiEligible(
+        return canSendToTaxi(
           p.draft_year ?? null,
           league?.season ?? "",
           league?.taxi_max_experience ?? null,
+          p.promoted_from_taxi ?? false,
         );
       }
 
@@ -979,7 +982,7 @@ export default function RosterScreen() {
         await runUpdate(
           supabase
             .from("league_players")
-            .update({ roster_slot: ROSTER_SLOT.TAXI })
+            .update({ roster_slot: ROSTER_SLOT.TAXI, promoted_from_taxi: false })
             .eq("league_id", leagueId)
             .eq("team_id", teamId)
             .eq("player_id", sourcePlayer.player_id),
@@ -1014,10 +1017,12 @@ export default function RosterScreen() {
             .eq("roster_slot", ROSTER_SLOT.TAXI)
             .gt("lineup_date", effectiveDate),
         );
+        // Promotion off the taxi squad is one-way: flag the player so they
+        // can't be sent back to taxi (see getQuickActions / getEligibleFillPlayers).
         await runUpdate(
           supabase
             .from("league_players")
-            .update({ roster_slot: destSlotPosition })
+            .update({ roster_slot: destSlotPosition, promoted_from_taxi: true })
             .eq("league_id", leagueId)
             .eq("team_id", teamId)
             .eq("player_id", sourcePlayer.player_id),

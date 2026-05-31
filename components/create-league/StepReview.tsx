@@ -6,7 +6,7 @@ import { BrandButton } from '@/components/ui/BrandButton';
 import { Section } from '@/components/ui/Section';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
-import { getLimitablePositions, LeagueWizardState, SPORT_DISPLAY, WAIVER_DAY_LABELS } from '@/constants/LeagueDefaults';
+import { getLimitablePositions, LeagueWizardState, SPORT_DISPLAY } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ROSTER_SLOT } from '@/utils/roster/rosterSlotsShared';
 import { taxiExperienceLabel } from '@/utils/roster/taxiEligibility';
@@ -125,10 +125,7 @@ export function StepReview({
           <Row label="Waiver Period" value={`${state.waiverPeriodDays} days`} c={c} />
         )}
         {state.waiverType === 'FAAB' && (
-          <>
-            <Row label="Process Day" value={WAIVER_DAY_LABELS[state.waiverDayOfWeek]} c={c} />
-            <Row label="FAAB Budget" value={`$${state.faabBudget}`} c={c} />
-          </>
+          <Row label="FAAB Budget" value={`$${state.faabBudget}`} c={c} />
         )}
         <Row label="Player Lock" value={state.playerLockType} c={c} />
       </Section>
@@ -139,9 +136,6 @@ export function StepReview({
         <Row label="Playoffs" value={`${state.playoffWeeks} weeks`} c={c} />
         <Row label="Playoff Teams" value={String(state.playoffTeams)} c={c} />
         <Row label="Seeding Format" value={state.playoffSeedingFormat} c={c} />
-        {state.playoffSeedingFormat === 'Standard' && (
-          <Row label="Reseed Each Round" value={state.reseedEachRound ? 'Yes' : 'No'} c={c} />
-        )}
         <Row
           label="Divisions"
           value={state.divisionCount === 2 ? `${state.division1Name} & ${state.division2Name}` : 'None'}

@@ -7,9 +7,8 @@ import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ToggleRow } from '@/components/ui/ToggleRow';
 import { Colors } from '@/constants/Colors';
-import { LeagueWizardState, PLAYER_LOCK_OPTIONS, WAIVER_DAY_LABELS, WAIVER_TYPE_OPTIONS, WaiverTypeOption } from '@/constants/LeagueDefaults';
+import { LeagueWizardState, PLAYER_LOCK_OPTIONS, WAIVER_TYPE_OPTIONS, WaiverTypeOption } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { s } from '@/utils/scale';
 
 interface StepWaiversProps {
   state: LeagueWizardState;
@@ -24,7 +23,7 @@ const WAIVER_TYPE_DESCRIPTIONS: Record<WaiverTypeOption, string> = {
   Standard:
     'Free agents pass through a waiver period before they can be added, then go to the team with the highest waiver priority.',
   FAAB:
-    'Free-Agent Acquisition Budget — each team gets a budget to bid on players. Highest bid wins, processed on your chosen day.',
+    'Free-Agent Acquisition Budget — each team gets a budget to bid on dropped players while they sit on waivers. When the waiver period ends, the highest bid wins; unclaimed players become free agents.',
   None:
     'No waiver wire. Dropped players and free agents can be picked up instantly, first come first served.',
 };
@@ -56,25 +55,16 @@ export function StepWaivers({ state, onChange }: StepWaiversProps) {
         </AnimatedSection>
 
         <AnimatedSection visible={state.waiverType === 'FAAB'}>
-          <View style={styles.inlineGroup}>
-            <FieldGroup label="FAAB Process Day">
-              <SegmentedControl
-                options={[...WAIVER_DAY_LABELS]}
-                selectedIndex={state.waiverDayOfWeek}
-                onSelect={(i) => onChange('waiverDayOfWeek', i)}
-              />
-            </FieldGroup>
-
-            <NumberStepper
-              label="FAAB Budget ($)"
-              value={state.faabBudget}
-              onValueChange={(v) => onChange('faabBudget', v)}
-              min={10}
-              max={1000}
-              step={10}
-              last
-            />
-          </View>
+          <NumberStepper
+            label="FAAB Budget ($)"
+            value={state.faabBudget}
+            onValueChange={(v) => onChange('faabBudget', v)}
+            min={10}
+            max={1000}
+            step={10}
+            last
+            accessibilityLabel="FAAB budget in dollars"
+          />
         </AnimatedSection>
       </FormSection>
 
@@ -125,11 +115,5 @@ export function StepWaivers({ state, onChange }: StepWaiversProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  // AnimatedSection collapses to a single direct child so inside it we
-  // need a wrapper with its own gap between the FAAB day + budget
-  // fields — FormSection's gap doesn't reach into animated children.
-  inlineGroup: {
-    gap: s(14),
   },
 });

@@ -50,14 +50,17 @@ Deno.serve(async (req: Request) => {
   }
 
   const now = new Date();
-  const todayDow = now.getDay();
   let processed = 0;
   let failed = 0;
   const errors: string[] = [];
 
-  // Step A: Process Standard Waiver Claims (expired waiver periods)
-  // Atomically claim expired waivers by deleting them upfront — if two
-  // cron invocations overlap, only one gets each row (DELETE is atomic).
+  // Resolve expired waivers for BOTH standard and FAAB leagues. Every dropped
+  // player sits on its own per-player clock (`on_waivers_until`); when it
+  // expires we resolve that player's pending claims by the league's waiver
+  // type — standard by priority, FAAB by highest bid. A player that clears
+  // with no pending claims simply becomes a free agent (its row is gone).
+  // Atomically claim expired waivers by deleting them upfront — if two cron
+  // invocations overlap, only one gets each row (DELETE is atomic).
   try {
     const { data: expiredWaivers, error: ewErr } = await supabase
       .from('league_waivers')
@@ -77,16 +80,21 @@ Deno.serve(async (req: Request) => {
       for (const waiver of expiredWaivers) {
         const league = leagueMap.get(waiver.league_id);
 
-        if (!league || league.waiver_type !== 'standard') {
-          // Already deleted atomically at Step A start — just skip processing
+        if (!league || (league.waiver_type !== 'standard' && league.waiver_type !== 'faab')) {
+          // No-waiver league or already-removed row — player clears to free agency.
           continue;
         }
+        const isFaab = league.waiver_type === 'faab';
 
-        const { data: claims } = await supabase
+        // FAAB resolves by highest bid first, then both fall back to waiver
+        // priority + submission order.
+        const baseQuery = supabase
           .from('waiver_claims')
           .select('id, league_id, team_id, player_id, status, bid_amount, priority, created_at, drop_player_id')
           .eq('league_id', waiver.league_id).eq('player_id', waiver.player_id)
-          .eq('status', 'pending')
+          .eq('status', 'pending');
+        const orderedQuery = isFaab ? baseQuery.order('bid_amount', { ascending: false }) : baseQuery;
+        const { data: claims } = await orderedQuery
           .order('priority', { ascending: true })
           .order('created_at', { ascending: true });
 
@@ -107,13 +115,27 @@ Deno.serve(async (req: Request) => {
             const result = await checkAndProcessClaim(claim, waiver.league_id, league.waiver_period_days);
             if (result.ok) {
               awarded = true;
-              await bumpWaiverPriority(waiver.league_id, claim.team_id);
+              if (isFaab) {
+                // Deduct the winning bid from the team's FAAB budget.
+                const { data: wp } = await supabase
+                  .from('waiver_priority').select('faab_remaining')
+                  .eq('league_id', waiver.league_id).eq('team_id', claim.team_id).single();
+                if (wp) {
+                  await supabase.from('waiver_priority')
+                    .update({ faab_remaining: Math.max(0, (wp.faab_remaining ?? 0) - claim.bid_amount) })
+                    .eq('league_id', waiver.league_id).eq('team_id', claim.team_id);
+                }
+              } else {
+                await bumpWaiverPriority(waiver.league_id, claim.team_id);
+              }
 
-              // Notify league about the waiver claim
+              // Notify league about the awarded claim/bid
               try {
                 const ln = league.name ?? 'Your League';
                 const tn = teamName(claim.team_id);
-                let claimBody = `${tn} claimed ${playerName(claim.player_id)} off waivers`;
+                let claimBody = isFaab
+                  ? `${tn} claimed ${playerName(claim.player_id)} for $${claim.bid_amount}`
+                  : `${tn} claimed ${playerName(claim.player_id)} off waivers`;
                 if (claim.drop_player_id) claimBody += ` (dropped ${playerName(claim.drop_player_id)})`;
                 await notifyLeague(supabase, waiver.league_id, 'roster_moves',
                   `${ln} — Waiver Claim`,
@@ -122,8 +144,10 @@ Deno.serve(async (req: Request) => {
                 );
                 // Also notify the winning team directly
                 await notifyTeams(supabase, [claim.team_id], 'waivers',
-                  `${ln} — Waiver Claim Successful`,
-                  `You claimed ${playerName(claim.player_id)} off waivers!`,
+                  `${ln} — ${isFaab ? 'FAAB Bid Won' : 'Waiver Claim Successful'}`,
+                  isFaab
+                    ? `You won ${playerName(claim.player_id)} for $${claim.bid_amount}!`
+                    : `You claimed ${playerName(claim.player_id)} off waivers!`,
                   { screen: 'roster' }
                 );
               } catch (err) { log.warn('Notification failed (non-fatal)', { error: String(err) }); }
@@ -140,8 +164,8 @@ Deno.serve(async (req: Request) => {
                   const lnLost = league.name ?? 'Your League';
                   await notifyTeamsBulk(supabase, 'waivers', failedClaims.map(fc => ({
                     teamIds: [fc.team_id],
-                    title: `${lnLost} — Waiver Claim Lost`,
-                    body: 'Your waiver claim was not awarded.',
+                    title: `${lnLost} — ${isFaab ? 'FAAB Bid Lost' : 'Waiver Claim Lost'}`,
+                    body: isFaab ? 'Your bid was not the highest.' : 'Your waiver claim was not awarded.',
                     data: { screen: 'free-agents' },
                   })));
                 } catch (err) { log.warn('Bulk notification failed (non-fatal)', { error: String(err) }); }
@@ -150,20 +174,21 @@ Deno.serve(async (req: Request) => {
               processed++;
               break;
             } else {
-              // Notify team why their claim failed
+              // Notify team why their claim/bid failed
               const ln = league.name ?? 'Your League';
               if (result.reason === 'roster_full' || result.reason === 'drop_player_unavailable' || result.reason === 'position_limit') {
                 await supabase.from('waiver_claims')
                   .update({ status: 'failed', processed_at: now.toISOString() })
                   .eq('id', claim.id);
+                const word = isFaab ? 'bid' : 'claim';
                 const msg = result.reason === 'drop_player_unavailable'
-                  ? `Your claim for ${playerName(claim.player_id)} failed: the player you selected to drop is no longer on your roster.`
+                  ? `Your ${word} for ${playerName(claim.player_id)} failed: the player you selected to drop is no longer on your roster.`
                   : result.reason === 'position_limit'
-                  ? `Your claim for ${playerName(claim.player_id)} failed: adding this player would exceed a position limit.`
-                  : `Your claim for ${playerName(claim.player_id)} failed: roster is full. Select a player to drop when placing claims.`;
+                  ? `Your ${word} for ${playerName(claim.player_id)} failed: adding this player would exceed a position limit.`
+                  : `Your ${word} for ${playerName(claim.player_id)} failed: roster is full. Select a player to drop when placing ${isFaab ? 'bids' : 'claims'}.`;
                 try {
                   await notifyTeams(supabase, [claim.team_id], 'waivers',
-                    `${ln} — Waiver Claim Failed`, msg, { screen: 'free-agents' }
+                    `${ln} — ${isFaab ? 'FAAB Bid Failed' : 'Waiver Claim Failed'}`, msg, { screen: 'free-agents' }
                   );
                 } catch (err) { log.warn('Notification failed (non-fatal)', { error: String(err) }); }
                 failed++;
@@ -179,141 +204,12 @@ Deno.serve(async (req: Request) => {
           }
         }
 
-        // No need to delete league_waivers — already deleted atomically at Step A start
+        // No need to delete league_waivers — already deleted atomically upfront
       }
     }
   } catch (err: any) {
-    errors.push(`Step A error: ${err.message}`);
+    errors.push(`Waiver resolution error: ${err.message}`);
   }
-
-  // Step B: Process FAAB Claims (weekly cycle)
-  try {
-    const { data: faabLeagues, error: flErr } = await supabase
-      .from('leagues').select('id, name, waiver_day_of_week, waiver_period_days')
-      .eq('waiver_type', 'faab');
-    if (flErr) throw flErr;
-
-    for (const league of faabLeagues ?? []) {
-      if (league.waiver_day_of_week !== todayDow) continue;
-
-      const { data: claims } = await supabase
-        .from('waiver_claims')
-        .select('id, league_id, team_id, player_id, status, bid_amount, priority, created_at, drop_player_id')
-        .eq('league_id', league.id).eq('status', 'pending')
-        .order('bid_amount', { ascending: false })
-        .order('priority', { ascending: true })
-        .order('created_at', { ascending: true });
-
-      if (!claims || claims.length === 0) continue;
-
-      // Pre-fetch all player + team names for this league's claims
-      const allPlayerIds = claims.flatMap(c =>
-        [c.player_id, c.drop_player_id].filter(Boolean) as string[]
-      );
-      const allClaimTeamIds = claims.map(c => c.team_id);
-      await Promise.all([
-        resolvePlayerNames(allPlayerIds),
-        resolveTeamNames(allClaimTeamIds),
-      ]);
-
-      const byPlayer = new Map<string, typeof claims>();
-      for (const claim of claims) {
-        const existing = byPlayer.get(claim.player_id) ?? [];
-        existing.push(claim);
-        byPlayer.set(claim.player_id, existing);
-      }
-
-      const awardedPlayers = new Set<string>();
-
-      for (const [playerId, playerClaims] of byPlayer) {
-        let awarded = false;
-
-        for (const claim of playerClaims) {
-          if (awardedPlayers.has(playerId)) {
-            await supabase.from('waiver_claims')
-              .update({ status: 'failed', processed_at: now.toISOString() })
-              .eq('id', claim.id);
-
-            try {
-              const ln = league.name ?? 'Your League';
-              await notifyTeams(supabase, [claim.team_id], 'waivers',
-                `${ln} — FAAB Bid Lost`,
-                'Your bid was not the highest.',
-                { screen: 'free-agents' }
-              );
-            } catch (err) { log.warn('Notification failed (non-fatal)', { error: String(err) }); }
-            failed++;
-            continue;
-          }
-
-          try {
-            const result = await checkAndProcessClaim(claim, league.id, league.waiver_period_days);
-            if (result.ok) {
-              awarded = true;
-              awardedPlayers.add(playerId);
-
-              const { data: wp } = await supabase
-                .from('waiver_priority').select('faab_remaining')
-                .eq('league_id', league.id).eq('team_id', claim.team_id).single();
-
-              if (wp) {
-                await supabase.from('waiver_priority')
-                  .update({ faab_remaining: Math.max(0, (wp.faab_remaining ?? 0) - claim.bid_amount) })
-                  .eq('league_id', league.id).eq('team_id', claim.team_id);
-              }
-
-              // Notify league about the FAAB claim
-              try {
-                const ln = league.name ?? 'Your League';
-                const tn = teamName(claim.team_id);
-                let faabBody = `${tn} claimed ${playerName(claim.player_id)} for $${claim.bid_amount}`;
-                if (claim.drop_player_id) faabBody += ` (dropped ${playerName(claim.drop_player_id)})`;
-                await notifyLeague(supabase, league.id, 'roster_moves',
-                  `${ln} — Waiver Claim`,
-                  faabBody,
-                  { screen: 'activity' }
-                );
-              } catch (err) { log.warn('Notification failed (non-fatal)', { error: String(err) }); }
-
-              processed++;
-            } else if (result.reason === 'roster_full' || result.reason === 'drop_player_unavailable' || result.reason === 'position_limit') {
-              await supabase.from('waiver_claims')
-                .update({ status: 'failed', processed_at: now.toISOString() })
-                .eq('id', claim.id);
-              try {
-                const ln = league.name ?? 'Your League';
-                const msg = result.reason === 'drop_player_unavailable'
-                  ? `Your bid for ${playerName(claim.player_id)} failed: the player you selected to drop is no longer on your roster.`
-                  : result.reason === 'position_limit'
-                  ? `Your bid for ${playerName(claim.player_id)} failed: adding this player would exceed a position limit.`
-                  : `Your bid for ${playerName(claim.player_id)} failed: roster is full. Select a player to drop when placing bids.`;
-                await notifyTeams(supabase, [claim.team_id], 'waivers',
-                  `${ln} — FAAB Bid Failed`, msg, { screen: 'free-agents' }
-                );
-              } catch (err) { log.warn('Notification failed (non-fatal)', { error: String(err) }); }
-              failed++;
-            }
-          } catch (err: any) {
-            errors.push(`FAAB claim ${claim.id}: ${err.message}`);
-            await supabase.from('waiver_claims')
-              .update({ status: 'failed', processed_at: now.toISOString() })
-              .eq('id', claim.id);
-            failed++;
-          }
-        }
-
-        if (awarded) {
-          await supabase.from('waiver_claims')
-            .update({ status: 'failed', processed_at: now.toISOString() })
-            .eq('league_id', league.id).eq('player_id', playerId).eq('status', 'pending');
-        }
-      }
-    }
-  } catch (err: any) {
-    errors.push(`Step B error: ${err.message}`);
-  }
-
-  // Step C removed — expired league_waivers are now atomically deleted at Step A start
 
   return jsonResponse({ ok: true, processed, failed, errors });
 });

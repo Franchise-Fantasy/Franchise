@@ -35,6 +35,7 @@ import {
   getDefaultRosterSlots,
   getMaxPlayoffWeeks,
   getMaxRookieDraftRounds,
+  getSeasonStart,
   DEFAULT_CATEGORIES,
   DEFAULT_SCORING,
   INITIAL_DRAFT_ORDER_TO_DB,
@@ -111,14 +112,12 @@ const initialState: LeagueWizardState = {
   waiverType: "Standard",
   waiverPeriodDays: 2,
   faabBudget: 100,
-  waiverDayOfWeek: 3,
   season: CURRENT_NBA_SEASON,
   seasonStartDate: null,
   regularSeasonWeeks: DEFAULT_REG_SEASON_WEEKS,
   playoffWeeks: DEFAULT_PLAYOFF_WEEKS,
   playoffTeams: defaultPlayoffTeams(DEFAULT_PLAYOFF_WEEKS, DEFAULT_TEAMS),
   playoffSeedingFormat: "Standard",
-  reseedEachRound: false,
   pickConditionsEnabled: false,
   draftPickTradingEnabled: false,
   tradeDeadlineWeek: defaultTradeDeadlineWeek(DEFAULT_REG_SEASON_WEEKS),
@@ -155,6 +154,23 @@ function clampLotteryState(s: LeagueWizardState): LeagueWizardState {
   return { ...s, playoffTeams: pt, lotteryDraws: draws, lotteryOdds: odds };
 }
 
+// The default start for a (sport, season): its hardcoded opening night when
+// that's still in the future, otherwise null so the wizard falls back to
+// computeSeasonStart() (today) for mid-season / past-opener creation. Anchoring
+// to opening night keeps week math measuring the real season window instead of
+// counting from today for a season that hasn't tipped off yet — without it a
+// future season defaults to far more weeks than the season actually has.
+function seasonStartDefault(sport: Sport, season: string): { date: Date; iso: string | null } {
+  const opening = getSeasonStart(sport, season);
+  if (opening) {
+    const openDate = new Date(`${opening}T00:00:00`);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (openDate > today) return { date: openDate, iso: opening };
+  }
+  return { date: computeSeasonStart(), iso: null };
+}
+
 function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
   switch (action.type) {
     case "SET_FIELD": {
@@ -189,6 +205,25 @@ function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
           : 0;
         return clampLotteryState({ ...next, regularSeasonWeeks, playoffWeeks, tradeDeadlineWeek });
       }
+      // When the season changes — the mount auto-switch to a creatable season,
+      // or the user picking a different year — refill the schedule to the new
+      // season's full window. A fresh calendar means we default to as many
+      // regular-season weeks as fit rather than carrying over a stale count
+      // (the module-level default floors to 1 once the current season ends).
+      if (action.field === 'season') {
+        // Keep a custom start date; otherwise anchor to the new season's
+        // opening night (future) so weeks measure the real window, not today.
+        const fallback = seasonStartDefault(next.sport, next.season);
+        const seasonStartDate = next.seasonStartDate ?? fallback.iso;
+        const start = seasonStartDate ? new Date(`${seasonStartDate}T00:00:00`) : fallback.date;
+        const newMax = computeMaxWeeks(next.season, next.sport, start);
+        const playoffWeeks = Math.min(next.playoffWeeks, Math.max(1, newMax - 1));
+        const regularSeasonWeeks = Math.max(1, newMax - playoffWeeks);
+        const tradeDeadlineWeek = next.tradeDeadlineWeek > 0
+          ? defaultTradeDeadlineWeek(regularSeasonWeeks)
+          : 0;
+        return clampLotteryState({ ...next, seasonStartDate, regularSeasonWeeks, playoffWeeks, tradeDeadlineWeek });
+      }
       // Trade deadline week is bounded by regularSeasonWeeks.
       if (action.field === 'regularSeasonWeeks' && next.tradeDeadlineWeek > 0) {
         return { ...next, tradeDeadlineWeek: Math.min(next.tradeDeadlineWeek, next.regularSeasonWeeks) };
@@ -220,8 +255,12 @@ function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
         // season for the dev-bypass case where it's calendar-closed.
         const status = getCreationStatus(newSport);
         const newSeason = status.season ?? getCurrentSeason(newSport);
-        const newStartDate = status.defaultStartDate;
-        const newMax = computeMaxWeeks(newSeason, newSport);
+        // For a gated (future) season getCreationStatus returns no start date;
+        // anchor to opening night so week math reflects the real season window.
+        const fallback = seasonStartDefault(newSport, newSeason);
+        const newStartDate = status.defaultStartDate ?? fallback.iso;
+        const startDate = newStartDate ? new Date(`${newStartDate}T00:00:00`) : fallback.date;
+        const newMax = computeMaxWeeks(newSeason, newSport, startDate);
         // Playoff weeks are bounded by both remaining season length AND the
         // sport's structural max (NBA 4, WNBA 3). NBA→WNBA can leave a stale
         // 4-week playoff exceeding the new sport's cap.
@@ -230,16 +269,20 @@ function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
           getMaxPlayoffWeeks(newSport),
           Math.max(1, newMax - 1),
         );
-        const regularSeasonWeeks = Math.min(next.regularSeasonWeeks, Math.max(1, newMax - playoffWeeks));
+        // A sport switch resets the calendar, so fill the new season's window:
+        // default to as many regular-season weeks as fit after playoffs rather
+        // than carrying over the previous sport's (possibly stale) count.
+        const regularSeasonWeeks = Math.max(1, newMax - playoffWeeks);
         // WNBA's rookie pool is smaller, so switching from NBA can push
         // rookieDraftRounds above the new sport's per-teams cap.
         const rookieDraftRounds = Math.min(
           next.rookieDraftRounds,
           getMaxRookieDraftRounds(newSport, next.teams),
         );
-        // Trade deadline week can't exceed the new regular season length.
+        // Re-derive the trade deadline default off the new season length when
+        // it's enabled (the carried-over value tracks the old, often stale, count).
         const tradeDeadlineWeek = next.tradeDeadlineWeek > 0
-          ? Math.min(next.tradeDeadlineWeek, regularSeasonWeeks)
+          ? defaultTradeDeadlineWeek(regularSeasonWeeks)
           : 0;
         return clampLotteryState({
           ...next,
@@ -477,22 +520,15 @@ export default function CreateLeague() {
     const rosterSize = state.rosterSlots.reduce((sum, s) => (s.position === 'IR' || s.position === ROSTER_SLOT.TAXI) ? sum : sum + s.count, 0);
     const taxiSlotCount = state.rosterSlots.find((s) => s.position === ROSTER_SLOT.TAXI)?.count ?? 0;
 
-    // Use custom start date if set, otherwise compute automatically
+    // Use the custom start date if set, otherwise the wizard default
+    // (tomorrow — week1Length absorbs whatever leading days fall before the
+    // first Sunday, so no weekday-snapping is needed here).
     let seasonStart: Date;
     if (state.seasonStartDate) {
       const [sy, sm, sd] = state.seasonStartDate.split('-').map(Number);
       seasonStart = new Date(sy, sm - 1, sd);
     } else {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const dow = today.getDay(); // 0=Sun
-      const daysSinceMon = dow === 0 ? 6 : dow - 1;
-      const daysLeft = 7 - daysSinceMon;
-      seasonStart = today;
-      if (daysLeft < 5) {
-        seasonStart = new Date(today);
-        seasonStart.setDate(today.getDate() + (7 - daysSinceMon));
-      }
+      seasonStart = computeSeasonStart();
     }
     const seasonStartDate = `${seasonStart.getFullYear()}-${String(seasonStart.getMonth() + 1).padStart(2, "0")}-${String(seasonStart.getDate()).padStart(2, "0")}`;
 
@@ -536,9 +572,8 @@ export default function CreateLeague() {
             : 'none',
         waiver_period_days: state.waiverType === 'None' ? 0 : state.waiverPeriodDays,
         faab_budget: state.faabBudget,
-        waiver_day_of_week: state.waiverDayOfWeek,
-        playoff_seeding_format: SEEDING_TO_DB[state.playoffSeedingFormat] ?? 'standard',
-        reseed_each_round: state.reseedEachRound,
+        playoff_seeding_format: (SEEDING_TO_DB[state.playoffSeedingFormat] ?? SEEDING_TO_DB.Standard).format,
+        reseed_each_round: (SEEDING_TO_DB[state.playoffSeedingFormat] ?? SEEDING_TO_DB.Standard).reseed,
         scoring_type: SCORING_TYPE_TO_DB[state.scoringType] ?? 'points',
         buy_in_amount: state.buyIn || null,
         venmo_username: sanitizeHandle(state.venmoUsername) || null,

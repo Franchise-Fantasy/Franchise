@@ -11,7 +11,7 @@ import { BrandButton } from '@/components/ui/BrandButton';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { PLAYER_LOCK_DISPLAY, PLAYER_LOCK_OPTIONS, PLAYER_LOCK_TO_DB, WAIVER_DAY_LABELS, WAIVER_TYPE_OPTIONS } from '@/constants/LeagueDefaults';
+import { PLAYER_LOCK_DISPLAY, PLAYER_LOCK_OPTIONS, PLAYER_LOCK_TO_DB, WAIVER_TYPE_OPTIONS } from '@/constants/LeagueDefaults';
 import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
 import { ms, s } from '@/utils/scale';
@@ -33,7 +33,6 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
   const [waiverType, setWaiverType] = useState('Standard');
   const [waiverPeriod, setWaiverPeriod] = useState(2);
   const [faabBudget, setFaabBudget] = useState(100);
-  const [waiverDay, setWaiverDay] = useState(3);
   const [weeklyLimit, setWeeklyLimit] = useState(0);
   const [playerLock, setPlayerLock] = useState('Daily');
   const [saving, setSaving] = useState(false);
@@ -44,7 +43,6 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
       setWaiverType(WAIVER_DISPLAY[league.waiver_type] ?? 'Standard');
       setWaiverPeriod(league.waiver_period_days ?? 2);
       setFaabBudget(league.faab_budget ?? 100);
-      setWaiverDay(league.waiver_day_of_week ?? 3);
       setWeeklyLimit(league.weekly_acquisition_limit ?? 0);
       setPlayerLock(PLAYER_LOCK_DISPLAY[league.player_lock_type] ?? 'Daily');
     }
@@ -57,7 +55,6 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
       waiver_type: waiverDb,
       waiver_period_days: waiverDb === 'none' ? 0 : waiverPeriod,
       faab_budget: faabBudget,
-      waiver_day_of_week: waiverDay,
       weekly_acquisition_limit: weeklyLimit === 0 ? null : weeklyLimit,
       player_lock_type: PLAYER_LOCK_TO_DB[playerLock as keyof typeof PLAYER_LOCK_TO_DB] ?? 'daily',
     }).eq('id', leagueId);
@@ -120,22 +117,6 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
           max={5}
           suffix=" days"
         />
-      )}
-
-      {/* Process Day (FAAB only) */}
-      {waiverType === 'FAAB' && (
-        <>
-          <View style={[styles.editRow, { borderBottomColor: c.border }]}>
-            <ThemedText style={styles.rowLabel}>Process Day</ThemedText>
-          </View>
-          <View style={{ paddingVertical: s(8) }}>
-            <SegmentedControl
-              options={WAIVER_DAY_LABELS}
-              selectedIndex={waiverDay}
-              onSelect={setWaiverDay}
-            />
-          </View>
-        </>
       )}
 
       {/* FAAB Budget (FAAB only) */}

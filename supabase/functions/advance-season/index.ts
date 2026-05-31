@@ -354,7 +354,7 @@ Deno.serve(async (req) => {
         if (promotedIds.length > 0) {
           await supabaseAdmin
             .from('league_players')
-            .update({ roster_slot: 'BE' })
+            .update({ roster_slot: 'BE', promoted_from_taxi: true })
             .in('id', promotedIds);
 
           // Log auto-promotions

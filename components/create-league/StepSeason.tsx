@@ -35,14 +35,17 @@ interface StepSeasonProps {
   onChange: (field: keyof LeagueWizardState, value: any) => void;
 }
 
-// Default fantasy-season start: today, regardless of weekday. Week 1
-// absorbs whatever leading days fall before the next Sunday — see
-// `week1Length` in utils/leagueTime: Mon/Tue/Wed produce a 5-7 day Week 1,
-// Thu/Fri/Sat/Sun produce an 8-11 day Week 1 ending the second Sunday.
+// Default fantasy-season start: tomorrow, regardless of weekday. A league can
+// never start on the day it's created — scoring needs at least a full day's
+// lead so the opening slate isn't already underway. Week 1 then absorbs
+// whatever leading days fall before the next Sunday — see `week1Length` in
+// utils/leagueTime: Mon/Tue/Wed produce a 5-7 day Week 1, Thu/Fri/Sat/Sun
+// produce an 8-11 day Week 1 ending the second Sunday.
 export function computeSeasonStart(): Date {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return today;
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() + 1);
+  return start;
 }
 
 function formatDate(date: Date): string {
@@ -102,9 +105,11 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
 
   const maxTotalWeeks = computeMaxWeeks(state.season, state.sport, seasonStart);
 
-  // Earliest selectable date is today
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // Earliest selectable date is tomorrow — a league can't start the day it's
+  // created (matches computeSeasonStart's default).
+  const earliestStart = new Date();
+  earliestStart.setHours(0, 0, 0, 0);
+  earliestStart.setDate(earliestStart.getDate() + 1);
 
   const commitDate = (date: Date) => {
     date.setHours(0, 0, 0, 0);
@@ -127,7 +132,7 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
       DateTimePickerAndroid.open({
         value: seasonStart,
         mode: 'date',
-        minimumDate: today,
+        minimumDate: earliestStart,
         maximumDate: proSeasonEnd,
         onChange: (_e, date) => {
           if (date) commitDate(date);
@@ -253,40 +258,18 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
           label="Seeding Format"
           helperText={
             state.playoffSeedingFormat === 'Standard'
-              ? 'Highest remaining seed plays lowest remaining seed each round.'
-              : state.playoffSeedingFormat === 'Fixed Bracket'
-                ? 'Traditional bracket halves: 1v8/4v5 one side, 2v7/3v6 the other.'
+              ? 'Fixed bracket: positions set from initial seeding (1v8/4v5 one side, 2v7/3v6 the other) and feed straight through.'
+              : state.playoffSeedingFormat === 'Reseed'
+                ? 'Remaining teams are re-ranked each round so the top seed always faces the lowest survivor.'
                 : 'After each round, higher seeds pick their next opponent.'
           }
         >
           <SegmentedControl
             options={[...PLAYOFF_SEEDING_OPTIONS]}
-            selectedIndex={PLAYOFF_SEEDING_OPTIONS.indexOf(state.playoffSeedingFormat)}
-            onSelect={(i) => {
-              onChange('playoffSeedingFormat', PLAYOFF_SEEDING_OPTIONS[i]);
-              if (PLAYOFF_SEEDING_OPTIONS[i] === 'Fixed Bracket') {
-                onChange('reseedEachRound', false);
-              }
-            }}
+            selectedIndex={Math.max(0, PLAYOFF_SEEDING_OPTIONS.indexOf(state.playoffSeedingFormat))}
+            onSelect={(i) => onChange('playoffSeedingFormat', PLAYOFF_SEEDING_OPTIONS[i])}
           />
         </FieldGroup>
-
-        <AnimatedSection visible={state.playoffSeedingFormat === 'Standard'}>
-          <FieldGroup
-            label="Reseed Each Round"
-            helperText={
-              state.reseedEachRound
-                ? 'After each round, remaining teams re-ranked so top seed always faces bottom seed.'
-                : 'Bracket positions fixed from initial seeding.'
-            }
-          >
-            <SegmentedControl
-              options={['Yes', 'No']}
-              selectedIndex={state.reseedEachRound ? 0 : 1}
-              onSelect={(i) => onChange('reseedEachRound', i === 0)}
-            />
-          </FieldGroup>
-        </AnimatedSection>
 
         <FieldGroup
           label="Tiebreaker Priority"
@@ -351,7 +334,7 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
                   value={seasonStart}
                   mode="date"
                   display="spinner"
-                  minimumDate={today}
+                  minimumDate={earliestStart}
                   maximumDate={proSeasonEnd}
                   onChange={handleIOSChange}
                   textColor={c.text}

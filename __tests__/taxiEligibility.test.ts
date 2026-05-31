@@ -1,4 +1,4 @@
-import { isTaxiEligible, taxiExperienceLabel } from '@/utils/roster/taxiEligibility';
+import { canSendToTaxi, isTaxiEligible, taxiExperienceLabel } from '@/utils/roster/taxiEligibility';
 
 // ─── isTaxiEligible ─────────────────────────────────────────────────────────
 
@@ -58,5 +58,31 @@ describe('taxiExperienceLabel', () => {
 
   it('returns "4 Years" for 4', () => {
     expect(taxiExperienceLabel(4)).toBe('4 Years');
+  });
+});
+
+// ─── canSendToTaxi ──────────────────────────────────────────────────────────
+
+describe('canSendToTaxi', () => {
+  it('returns false for an already-promoted player (promotion is one-way)', () => {
+    // Eligible by experience, but they've been promoted off taxi before.
+    expect(canSendToTaxi(2026, '2025-26', 1, true)).toBe(false);
+  });
+
+  it('returns true for an eligible, never-promoted player', () => {
+    expect(canSendToTaxi(2026, '2025-26', 1, false)).toBe(true);
+  });
+
+  it('returns false when not taxi-eligible, even if never promoted', () => {
+    // experience 3 > maxExperience 2
+    expect(canSendToTaxi(2023, '2025-26', 2, false)).toBe(false);
+  });
+
+  it('honors "no max" eligibility for a never-promoted player', () => {
+    expect(canSendToTaxi(2010, '2025-26', null, false)).toBe(true);
+  });
+
+  it('stays false for a promoted player even under "no max" eligibility', () => {
+    expect(canSendToTaxi(2010, '2025-26', null, true)).toBe(false);
   });
 });

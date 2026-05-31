@@ -34,6 +34,8 @@ export interface RosterPlayer extends PlayerSeasonStats {
   roster_slot: string | null;
   nbaTricode: string | null;
   acquired_at?: string | null;
+  /** True once promoted off the taxi squad — blocks returning to taxi. */
+  promoted_from_taxi?: boolean;
 }
 
 export interface SlotEntry {

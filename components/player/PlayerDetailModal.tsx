@@ -555,15 +555,17 @@ export function PlayerDetailModal({
       !!player &&
       !!leagueId &&
       !isOnMyTeam &&
-      rosterInfo?.waiverType === "standard",
+      (rosterInfo?.waiverType === "standard" ||
+        rosterInfo?.waiverType === "faab"),
   });
 
   if (!player) return null;
 
   const waiverType = rosterInfo?.waiverType ?? "none";
-  const needsWaiverClaim =
-    waiverType === "faab" ||
-    (waiverType === "standard" && (playerOnWaivers ?? false));
+  // A player is only biddable/claimable while sitting on the waiver wire after
+  // being dropped. Never-rostered free agents (and players who clear with no
+  // bid) are instant adds in every waiver mode.
+  const needsWaiverClaim = waiverType !== "none" && (playerOnWaivers ?? false);
 
   const rosterIsFull = rosterInfo
     ? rosterInfo.activeCount >= rosterInfo.maxSize

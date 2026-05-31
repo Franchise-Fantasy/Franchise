@@ -854,6 +854,7 @@ export type Database = {
         Row: {
           created_at: string | null
           current_pick_number: number
+          current_pick_time_limit: number | null
           current_pick_timestamp: string | null
           draft_date: string | null
           draft_type: string
@@ -869,6 +870,7 @@ export type Database = {
         Insert: {
           created_at?: string | null
           current_pick_number?: number
+          current_pick_time_limit?: number | null
           current_pick_timestamp?: string | null
           draft_date?: string | null
           draft_type?: string
@@ -884,6 +886,7 @@ export type Database = {
         Update: {
           created_at?: string | null
           current_pick_number?: number
+          current_pick_time_limit?: number | null
           current_pick_timestamp?: string | null
           draft_date?: string | null
           draft_type?: string
@@ -1204,6 +1207,7 @@ export type Database = {
           on_trade_block: boolean
           player_id: string
           position: string
+          promoted_from_taxi: boolean
           roster_slot: string | null
           team_id: string
           trade_block_interest: string[]
@@ -1217,6 +1221,7 @@ export type Database = {
           on_trade_block?: boolean
           player_id: string
           position: string
+          promoted_from_taxi?: boolean
           roster_slot?: string | null
           team_id: string
           trade_block_interest?: string[]
@@ -1230,6 +1235,7 @@ export type Database = {
           on_trade_block?: boolean
           player_id?: string
           position?: string
+          promoted_from_taxi?: boolean
           roster_slot?: string | null
           team_id?: string
           trade_block_interest?: string[]
@@ -4643,6 +4649,36 @@ export type Database = {
           request_count?: number
           user_id?: string
           window_start?: string
+        }
+        Relationships: []
+      }
+      season_config: {
+        Row: {
+          creation_opens_at: string | null
+          end_date: string
+          is_current: boolean
+          season: string
+          sport: string
+          start_date: string
+          updated_at: string
+        }
+        Insert: {
+          creation_opens_at?: string | null
+          end_date: string
+          is_current?: boolean
+          season: string
+          sport: string
+          start_date: string
+          updated_at?: string
+        }
+        Update: {
+          creation_opens_at?: string | null
+          end_date?: string
+          is_current?: boolean
+          season?: string
+          sport?: string
+          start_date?: string
+          updated_at?: string
         }
         Relationships: []
       }

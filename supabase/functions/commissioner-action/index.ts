@@ -83,7 +83,23 @@ Deno.serve(async (req) => {
 
     } else if (action === 'force_move') {
       if (!target_slot) throw new HttpError('target_slot is required for force_move');
-      const { error } = await supabaseAdmin.from('league_players').update({ roster_slot: target_slot })
+
+      const { data: current } = await supabaseAdmin.from('league_players')
+        .select('roster_slot')
+        .eq('league_id', league_id).eq('team_id', team_id).eq('player_id', player_id)
+        .single();
+
+      // Promotion off the taxi squad is one-way: flag the player so they can't
+      // be sent back to taxi (mirrors the GM roster flow in roster.tsx).
+      // Entering taxi clears the flag.
+      const update: { roster_slot: string; promoted_from_taxi?: boolean } = { roster_slot: target_slot };
+      if (current?.roster_slot === 'TAXI' && target_slot !== 'TAXI') {
+        update.promoted_from_taxi = true;
+      } else if (target_slot === 'TAXI') {
+        update.promoted_from_taxi = false;
+      }
+
+      const { error } = await supabaseAdmin.from('league_players').update(update)
         .eq('league_id', league_id).eq('team_id', team_id).eq('player_id', player_id);
       if (error) throw error;
       const today = new Date().toISOString().split('T')[0];

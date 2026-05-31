@@ -14,6 +14,10 @@ interface DraftState {
   type: 'initial' | 'rookie';
   current_pick_number: number;
   current_pick_timestamp: string;
+  /** Snapshot of time_limit captured when the current pick started, so a
+   *  mid-draft pick-time change only affects future picks. Falls back to
+   *  time_limit when absent (pre-migration / pre-deploy). */
+  current_pick_time_limit?: number;
   time_limit: number;
   rounds: number;
   picks_per_round: number;

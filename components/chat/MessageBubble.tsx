@@ -570,6 +570,7 @@ export function MessageBubble({
             <TeamLogo
               logoKey={teamLogoKey}
               teamName={message.team_name ?? ""}
+              tricode={teamTricode ?? undefined}
               size="small"
             />
           </Animated.View>

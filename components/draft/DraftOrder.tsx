@@ -165,7 +165,7 @@ export function DraftOrder({
   }, [draftState?.status, draftState?.draft_date, draftId, queryClient]);
 
   // NEW: Use the timer hook with the fetched draft state
-  const { display: countdown, expired: countdownExpired } = useDraftTimer(currentPickTimestamp || draftState?.current_pick_timestamp, draftState?.time_limit);
+  const { display: countdown, expired: countdownExpired } = useDraftTimer(currentPickTimestamp || draftState?.current_pick_timestamp, draftState?.current_pick_time_limit ?? draftState?.time_limit);
 
   // Gold flash overlay — tighter than the prior fade so the celebration
   // reads as a stadium light rather than a toast notification.

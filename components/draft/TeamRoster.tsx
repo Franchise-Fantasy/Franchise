@@ -100,8 +100,11 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
   if (rosterConfig && rosterPlayers) {
     const benchConfig = rosterConfig.find((c) => c.position === "BE");
     const irConfig = rosterConfig.find((c) => c.position === "IR");
+    // TAXI is a reserve slot like BE/IR — exclude it from the starter
+    // configs so taxi slots don't render as starter rows (mirrors the
+    // roster page). Taxi-slotted players fall through to the Bench list.
     const activeConfigs = rosterConfig.filter(
-      (c) => c.position !== "BE" && c.position !== "IR",
+      (c) => c.position !== "BE" && c.position !== "IR" && c.position !== "TAXI",
     );
 
     const validSlotNames = new Set<string>();

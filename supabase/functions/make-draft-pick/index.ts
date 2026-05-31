@@ -183,6 +183,13 @@ Deno.serve(async (req)=>{
         }
 
         await scheduleAutodraft(draft_id, nextPickNumber, delay, nextIsAutopick);
+
+        // Snapshot the limit for the new current pick so a mid-draft time
+        // change only affects future picks (on-the-clock pick keeps its clock).
+        await supabaseAdmin
+          .from('drafts')
+          .update({ current_pick_time_limit: draft.time_limit })
+          .eq('id', draft_id);
       } catch (schedErr) {
         console.warn('Failed to schedule autodraft (non-fatal):', schedErr);
       }

@@ -17,6 +17,24 @@ export function isTaxiEligible(
   return experience >= 0 && experience <= maxExperience;
 }
 
+/**
+ * Whether a player may be SENT to the taxi squad: taxi-eligible by experience
+ * AND not already promoted off taxi (promotion is one-way — a promoted player
+ * can never return, even if still young enough). Single source of truth for the
+ * rule so the roster page, draft room, and any edge taxi-writer enforce it
+ * identically. Slot-availability / on-bench checks stay at the call site —
+ * they're context-specific.
+ */
+export function canSendToTaxi(
+  nbaDraftYear: number | null,
+  currentSeason: string,
+  maxExperience: number | null,
+  promotedFromTaxi: boolean,
+): boolean {
+  if (promotedFromTaxi) return false;
+  return isTaxiEligible(nbaDraftYear, currentSeason, maxExperience);
+}
+
 /** Human-readable label for a taxi max experience setting. */
 export function taxiExperienceLabel(maxExperience: number | null): string {
   if (maxExperience === null) return 'No Max';

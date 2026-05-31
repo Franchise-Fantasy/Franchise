@@ -37,7 +37,6 @@ interface FreeAgentStatusRibbonProps {
   weeklyAddsUsed: number;
   weeklyLimitReached: boolean;
   waiverType: WaiverType;
-  waiverDayOfWeek: number;
   faabRemaining: number | null;
   pendingClaims: PendingClaim[];
   rosterIsFull: boolean;
@@ -69,7 +68,6 @@ export function FreeAgentStatusRibbon({
   weeklyAddsUsed,
   weeklyLimitReached,
   waiverType,
-  waiverDayOfWeek,
   faabRemaining,
   pendingClaims,
   rosterIsFull,
@@ -180,7 +178,6 @@ export function FreeAgentStatusRibbon({
                         claim.player_id,
                         waiverType,
                         waiverPlayerMap,
-                        waiverDayOfWeek,
                       )}
                   </ThemedText>
                   <ThemedText

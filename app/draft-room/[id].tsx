@@ -8,6 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { PresenceAvatars } from '@/components/chat/PresenceAvatars';
 import { PresenceListSheet, type PresenceEntry } from '@/components/chat/PresenceListSheet';
 import { AvailablePlayers } from '@/components/draft/AvailablePlayers';
+import { CommishDraftControlsSheet } from '@/components/draft/CommishDraftControlsSheet';
 import { DraftChatModal } from '@/components/draft/DraftChatModal';
 import { DraftOrder, PresenceTeam } from '@/components/draft/DraftOrder';
 import { DraftQueue } from '@/components/draft/DraftQueue';
@@ -92,6 +93,7 @@ export default function DraftRoomScreen() {
   const [presentTeams, setPresentTeams] = useState<PresenceTeam[]>([]);
   const [showPresenceList, setShowPresenceList] = useState(false);
   const [showChat, setShowChat] = useState(false);
+  const [showCommishControls, setShowCommishControls] = useState(false);
   const [autopickOn, setAutopickOn] = useState(false);
   const handlePresenceChange = useCallback((teams: PresenceTeam[]) => setPresentTeams(teams), []);
 
@@ -372,6 +374,17 @@ export default function DraftRoomScreen() {
         </View>
 
         <View style={styles.headerRight}>
+          {teamData?.isCommissioner && !isDraftComplete && (
+            <TouchableOpacity
+              onPress={() => setShowCommishControls(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Commissioner controls"
+              hitSlop={6}
+              style={styles.chatIconButton}
+            >
+              <Ionicons name="settings-outline" size={20} color={colors.icon} />
+            </TouchableOpacity>
+          )}
           {teamData && (
             <TouchableOpacity
               onPress={() => setShowChat(true)}
@@ -602,6 +615,15 @@ export default function DraftRoomScreen() {
           teamName={teamData.name}
           isCommissioner={teamData.isCommissioner ?? false}
           onClose={() => setShowChat(false)}
+        />
+      )}
+
+      {draftState && (
+        <CommishDraftControlsSheet
+          visible={showCommishControls}
+          onClose={() => setShowCommishControls(false)}
+          draftId={draftId}
+          timeLimit={draftState.time_limit}
         />
       )}
     </SafeAreaView>

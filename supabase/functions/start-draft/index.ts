@@ -120,7 +120,7 @@ Deno.serve(async (req) => {
     // duplicate QStash job for pick #1.
     const { data: updated, error: updateError } = await supabaseAdmin
       .from('drafts')
-      .update({ status: 'in_progress', current_pick_timestamp: now })
+      .update({ status: 'in_progress', current_pick_timestamp: now, current_pick_time_limit: draft.time_limit })
       .eq('id', draft_id)
       .eq('status', 'pending')
       .select('id');

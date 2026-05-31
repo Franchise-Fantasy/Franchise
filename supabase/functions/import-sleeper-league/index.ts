@@ -373,7 +373,6 @@ async function handleExecute(
       waiver_type: string;
       waiver_period_days: number;
       faab_budget: number;
-      waiver_day_of_week: number;
       playoff_seeding_format: string;
       reseed_each_round: boolean;
       buy_in_amount: number | null;
@@ -463,7 +462,6 @@ async function handleExecute(
       waiver_type: settings.waiver_type,
       waiver_period_days: settings.waiver_period_days,
       faab_budget: settings.faab_budget,
-      waiver_day_of_week: settings.waiver_day_of_week,
       playoff_seeding_format: settings.playoff_seeding_format,
       reseed_each_round: settings.reseed_each_round,
       buy_in_amount: settings.buy_in_amount,

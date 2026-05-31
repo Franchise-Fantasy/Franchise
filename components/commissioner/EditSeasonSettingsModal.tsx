@@ -17,7 +17,7 @@ import { BrandButton } from '@/components/ui/BrandButton';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { getSeasonEnd, parseSeasonStartYear, PLAYOFF_SEEDING_OPTIONS, SEEDING_DISPLAY, SEEDING_TO_DB, SPORT_OPENING_MONTH, startDateBelongsToSeason, TIEBREAKER_DISPLAY, TIEBREAKER_OPTIONS, TIEBREAKER_TO_DB, TiebreakerOption } from '@/constants/LeagueDefaults';
+import { getSeasonEnd, parseSeasonStartYear, PLAYOFF_SEEDING_OPTIONS, PlayoffSeedingOption, seedingDisplay, SEEDING_TO_DB, SPORT_OPENING_MONTH, startDateBelongsToSeason, TIEBREAKER_DISPLAY, TIEBREAKER_OPTIONS, TIEBREAKER_TO_DB, TiebreakerOption } from '@/constants/LeagueDefaults';
 import { useColors } from '@/hooks/useColors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
@@ -61,8 +61,7 @@ export function EditSeasonSettingsModal({
   const [regWeeks, setRegWeeks] = useState(20);
   const [playoffWeeks, setPlayoffWeeks] = useState(3);
   const [playoffTeams, setPlayoffTeams] = useState(4);
-  const [seedingFormat, setSeedingFormat] = useState('Standard');
-  const [reseed, setReseed] = useState(false);
+  const [seedingFormat, setSeedingFormat] = useState<PlayoffSeedingOption>('Standard');
   const [tiebreakerPrimary, setTiebreakerPrimary] = useState<TiebreakerOption>('Head-to-Head');
   // ISO `yyyy-mm-dd`, or null when no date is set for the upcoming season yet.
   const [startDate, setStartDate] = useState<string | null>(null);
@@ -79,8 +78,7 @@ export function EditSeasonSettingsModal({
       setPlayoffTeams(
         league.playoff_teams ?? Math.min(2 ** (league.playoff_weeks ?? 3), teamCount)
       );
-      setSeedingFormat(SEEDING_DISPLAY[league.playoff_seeding_format] ?? 'Standard');
-      setReseed(league.reseed_each_round ?? false);
+      setSeedingFormat(seedingDisplay(league.playoff_seeding_format, league.reseed_each_round ?? false));
       const primaryKey = (league.tiebreaker_order ?? ['head_to_head', 'points_for'])[0];
       setTiebreakerPrimary((TIEBREAKER_DISPLAY[primaryKey] ?? 'Head-to-Head') as TiebreakerOption);
       // A stored date that predates `league.season` (offseason carry-over)
@@ -106,14 +104,6 @@ export function EditSeasonSettingsModal({
         options[0]
       );
       setPlayoffTeams(closest);
-    }
-  }
-
-  function handleSeedingChange(index: number) {
-    const format = PLAYOFF_SEEDING_OPTIONS[index];
-    setSeedingFormat(format);
-    if (format === 'Fixed Bracket') {
-      setReseed(false);
     }
   }
 
@@ -155,8 +145,8 @@ export function EditSeasonSettingsModal({
       regular_season_weeks: regWeeks,
       playoff_weeks: playoffWeeks,
       playoff_teams: playoffTeams,
-      playoff_seeding_format: SEEDING_TO_DB[seedingFormat] ?? 'standard',
-      reseed_each_round: reseed,
+      playoff_seeding_format: (SEEDING_TO_DB[seedingFormat] ?? SEEDING_TO_DB.Standard).format,
+      reseed_each_round: (SEEDING_TO_DB[seedingFormat] ?? SEEDING_TO_DB.Standard).reseed,
       tiebreaker_order: TIEBREAKER_TO_DB[tiebreakerPrimary],
     };
     // Only persist the start date when one has actually been picked — never
@@ -340,28 +330,10 @@ export function EditSeasonSettingsModal({
       <View style={{ marginBottom: s(12) }}>
         <SegmentedControl
           options={PLAYOFF_SEEDING_OPTIONS}
-          selectedIndex={PLAYOFF_SEEDING_OPTIONS.indexOf(
-            seedingFormat as (typeof PLAYOFF_SEEDING_OPTIONS)[number]
-          )}
-          onSelect={handleSeedingChange}
+          selectedIndex={Math.max(0, PLAYOFF_SEEDING_OPTIONS.indexOf(seedingFormat))}
+          onSelect={(i) => setSeedingFormat(PLAYOFF_SEEDING_OPTIONS[i])}
         />
       </View>
-
-      {/* Reseed Each Round (only for Standard) */}
-      {seedingFormat === 'Standard' && (
-        <>
-          <View style={[styles.editRow, { borderBottomColor: c.border }]}>
-            <ThemedText style={styles.rowLabel}>Reseed Each Round</ThemedText>
-          </View>
-          <View style={{ marginBottom: s(12) }}>
-            <SegmentedControl
-              options={['Yes', 'No']}
-              selectedIndex={reseed ? 0 : 1}
-              onSelect={(i) => setReseed(i === 0)}
-            />
-          </View>
-        </>
-      )}
 
       {/* Tiebreaker Priority */}
       <View style={[styles.editRow, { borderBottomColor: c.border }]}>

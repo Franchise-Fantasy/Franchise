@@ -358,6 +358,7 @@ export async function fetchTeamRosterForDate(
         status: info?.status ?? stats.status,
         roster_slot: slots.slotMap.get(pid) ?? null,
         nbaTricode: nbaTricodeMap.get(pid) ?? null,
+        promoted_from_taxi: slots.promotedFromTaxiSet.has(pid),
         acquired_at: (() => {
           const acq = slots.acquiredDateMap.get(pid);
           // Return original ISO string from league_players if available
@@ -410,6 +411,7 @@ export async function fetchTeamRosterForDate(
       avg_pf: 0,
       roster_slot: slots.slotMap.get(pid) ?? null,
       nbaTricode: nbaTricodeMap.get(pid) ?? null,
+      promoted_from_taxi: slots.promotedFromTaxiSet.has(pid),
       acquired_at: slots.acquiredDateMap.get(pid) ?? null,
     } as RosterPlayer;
   });

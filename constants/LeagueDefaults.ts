@@ -65,7 +65,7 @@ export const DEFAULT_SCORING: ScoringCategory[] = [
   { stat_name: 'BLK', label: 'Blocks', point_value: 3 },
   { stat_name: 'TO', label: 'Turnovers', point_value: -1 },
   { stat_name: '3PM', label: '3-Pointers Made', point_value: 1 },
-  { stat_name: '3PA', label: '3-Pointers Attempted', point_value: 0 },
+  { stat_name: '3PA', label: '3-Pointers Attempted', point_value: -0.5 },
   { stat_name: 'FGM', label: 'Field Goals Made', point_value: 2 },
   { stat_name: 'FGA', label: 'Field Goals Attempted', point_value: -1 },
   { stat_name: 'FTM', label: 'Free Throws Made', point_value: 1 },
@@ -150,8 +150,6 @@ export type TradeVetoOption = (typeof TRADE_VETO_OPTIONS)[number];
 export const WAIVER_TYPE_OPTIONS = ['Standard', 'FAAB', 'None'] as const;
 export type WaiverTypeOption = (typeof WAIVER_TYPE_OPTIONS)[number];
 
-export const WAIVER_DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
-
 export const PLAYER_LOCK_OPTIONS = ['Daily', 'Individual'] as const;
 export type PlayerLockOption = (typeof PLAYER_LOCK_OPTIONS)[number];
 
@@ -179,19 +177,31 @@ export const INITIAL_DRAFT_ORDER_DISPLAY: Record<string, string> = {
   manual: 'Manual',
 };
 
-export const PLAYOFF_SEEDING_OPTIONS = ['Standard', 'Fixed Bracket', 'Higher Seed Picks'] as const;
+export const PLAYOFF_SEEDING_OPTIONS = ['Standard', 'Reseed', 'Higher Seed Picks'] as const;
 export type PlayoffSeedingOption = (typeof PLAYOFF_SEEDING_OPTIONS)[number];
 
-export const SEEDING_TO_DB: Record<string, string> = {
-  'Standard': 'standard',
-  'Fixed Bracket': 'fixed',
-  'Higher Seed Picks': 'higher_seed_picks',
+// A single seeding choice drives two DB columns: the format enum and the reseed
+// flag. buildNextRound (utils/league/playoff.ts) only re-ranks when
+// format='standard' AND reseed=true, so "Standard" is a fixed bracket and
+// "Reseed" re-ranks each round. The legacy 'Fixed Bracket' label is kept here so
+// in-progress create-league drafts saved before this change still resolve.
+export const SEEDING_TO_DB: Record<string, { format: string; reseed: boolean }> = {
+  'Standard': { format: 'standard', reseed: false },
+  'Reseed': { format: 'standard', reseed: true },
+  'Higher Seed Picks': { format: 'higher_seed_picks', reseed: false },
+  'Fixed Bracket': { format: 'standard', reseed: false }, // legacy label
 };
-export const SEEDING_DISPLAY: Record<string, string> = {
-  standard: 'Standard',
-  fixed: 'Fixed Bracket',
-  higher_seed_picks: 'Higher Seed Picks',
-};
+
+/**
+ * Map the stored (format, reseed) columns back to a UI label. Legacy 'fixed'
+ * rows — and any 'standard' row with reseed off — are the fixed bracket =
+ * "Standard"; they behave identically in buildNextRound.
+ */
+export function seedingDisplay(format: string, reseed: boolean): PlayoffSeedingOption {
+  if (format === 'higher_seed_picks') return 'Higher Seed Picks';
+  if (format === 'standard' && reseed) return 'Reseed';
+  return 'Standard';
+}
 
 // ── Tiebreaker ──────────────────────────────────────────────────────────────
 
@@ -278,7 +288,35 @@ export const WNBA_SEASON_START: Record<string, string> = {
 export const CURRENT_NBA_SEASON = '2025-26';
 export const CURRENT_WNBA_SEASON = '2026';
 
+// ── Season config cache ───────────────────────────────────────────────────
+// Hydrated from the `season_config` table on app startup (see
+// hooks/useSeasonConfig). Until then — and if the fetch fails or runs offline —
+// the lookups below fall back to the hardcoded constants above, so the table is
+// a no-deploy override, never a hard dependency.
+export interface SeasonConfigRow {
+  sport: Sport;
+  season: string;
+  start_date: string;
+  end_date: string;
+  creation_opens_at: string | null;
+  is_current: boolean;
+}
+
+let seasonConfigCache: SeasonConfigRow[] | null = null;
+
+/** Populate the season-config cache. Called once from the hydration hook; an
+ *  empty array clears it so the hardcoded fallbacks resume. */
+export function setSeasonConfigCache(rows: SeasonConfigRow[]): void {
+  seasonConfigCache = rows.length > 0 ? rows : null;
+}
+
+function cachedSeasonRow(sport: Sport, season: string): SeasonConfigRow | undefined {
+  return seasonConfigCache?.find((r) => r.sport === sport && r.season === season);
+}
+
 export function getCurrentSeason(sport: Sport): string {
+  const current = seasonConfigCache?.find((r) => r.sport === sport && r.is_current);
+  if (current) return current.season;
   return sport === 'wnba' ? CURRENT_WNBA_SEASON : CURRENT_NBA_SEASON;
 }
 
@@ -290,19 +328,26 @@ export function getPreviousSeason(sport: Sport): string {
 }
 
 export function getSeasonEnd(sport: Sport, season: string): string | undefined {
+  const cached = cachedSeasonRow(sport, season);
+  if (cached) return cached.end_date;
   return sport === 'wnba' ? WNBA_SEASON_END[season] : NBA_SEASON_END[season];
 }
 
 export function getSeasonStart(sport: Sport, season: string): string | undefined {
+  const cached = cachedSeasonRow(sport, season);
+  if (cached) return cached.start_date;
   return sport === 'wnba' ? WNBA_SEASON_START[season] : NBA_SEASON_START[season];
 }
 
 // Hardcoded month/day per sport when next-season league creation becomes
-// available. Picked to land post-Finals / pre-Summer League (NBA) and
-// post-Finals / pre-Draft (WNBA). Adjust as the calendar shifts.
+// available. Picked to land AFTER that sport's rookie draft, so the new rookie
+// class is already in the player pool (otherwise a dynasty league drafts last
+// year's rookies): NBA post-late-June draft (Jul 1, pre-Summer League), WNBA
+// post-mid-April draft (Apr 20, a few weeks before the mid-May tipoff). Adjust
+// as the calendar shifts; per-year overrides live in season_config.creation_opens_at.
 const SPORT_NEXT_SEASON_OPENS: Record<Sport, { month: number; day: number } | undefined> = {
   nba: { month: 7, day: 1 },
-  wnba: { month: 11, day: 1 },
+  wnba: { month: 4, day: 20 },
   nfl: undefined,
   nhl: undefined,
   mlb: undefined,
@@ -379,11 +424,22 @@ export function getCreationStatus(sport: Sport, today: Date = new Date()): Seaso
   // Current season's window closed — fall forward to next season. Show it
   // as the tile's "season" label either way (available once opens past, or
   // gated until then).
-  const opens = SPORT_NEXT_SEASON_OPENS[sport];
   const nextSeasonStartYear = parseSeasonStartYear(currentSeason) + 1;
   const nextSeason = formatSeason(nextSeasonStartYear, sport);
-  if (opens) {
-    const openDate = new Date(todayMidnight.getFullYear(), opens.month - 1, opens.day);
+
+  // Prefer a concrete opens date from season_config (set when the schedule is
+  // known); otherwise the recurring hardcoded month/day for the current year.
+  const nextRow = cachedSeasonRow(sport, nextSeason);
+  const opens = SPORT_NEXT_SEASON_OPENS[sport];
+  let openDate: Date | null = null;
+  if (nextRow?.creation_opens_at) {
+    const [oy, om, od] = nextRow.creation_opens_at.split('-').map(Number);
+    openDate = new Date(oy, om - 1, od);
+  } else if (opens) {
+    openDate = new Date(todayMidnight.getFullYear(), opens.month - 1, opens.day);
+  }
+
+  if (openDate) {
     if (todayMidnight >= openDate) {
       const defaultStart = getSeasonStart(sport, nextSeason) ?? null;
       const isPast = defaultStart
@@ -412,6 +468,23 @@ export function getCreationStatus(sport: Sport, today: Date = new Date()): Seaso
     defaultStartDate: null,
     available: false,
   };
+}
+
+/** The date `season`'s rookie class becomes draftable — once that sport's real
+ *  draft has happened (and sync-players has ingested the class). Mirrors the
+ *  next-season-creation gate so the offseason rookie draft can't be scheduled
+ *  before its rookies exist (else it drafts last year's class): prefers the
+ *  season_config `creation_opens_at` override, else the hardcoded post-draft
+ *  month/day for the season's start year. Null when the sport has no open date. */
+export function getRookieClassAvailableDate(sport: Sport, season: string): Date | null {
+  const row = cachedSeasonRow(sport, season);
+  if (row?.creation_opens_at) {
+    const [y, m, d] = row.creation_opens_at.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }
+  const opens = SPORT_NEXT_SEASON_OPENS[sport];
+  if (!opens) return null;
+  return new Date(parseSeasonStartYear(season), opens.month - 1, opens.day);
 }
 
 // Realistic upper bound on the rookie pool each year — caps fantasy rookie
@@ -529,12 +602,10 @@ export interface LeagueWizardState {
   waiverType: WaiverTypeOption;
   waiverPeriodDays: number;
   faabBudget: number;
-  waiverDayOfWeek: number;
   regularSeasonWeeks: number;
   playoffWeeks: number;
   playoffTeams: number;
   playoffSeedingFormat: PlayoffSeedingOption;
-  reseedEachRound: boolean;
   pickConditionsEnabled: boolean;
   draftPickTradingEnabled: boolean;
   /** 0 = no deadline, 1+ = trades locked after this week ends */

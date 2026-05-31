@@ -280,6 +280,9 @@ Deno.serve(async (req) => {
     const draftUpdate: Record<string, unknown> = {
       current_pick_number: nextPickNumber,
       current_pick_timestamp: timestamp,
+      // Snapshot the limit for the new current pick so a mid-draft time change
+      // only affects future picks (client countdown reads this snapshot).
+      current_pick_time_limit: draft.time_limit,
     };
     if (isDraftComplete) draftUpdate.status = 'complete';
 

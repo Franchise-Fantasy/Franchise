@@ -29,6 +29,8 @@ export interface TeamSlotData {
   dailyByPlayer: Map<string, DailyEntry[]>;
   /** Player ID → default roster_slot from league_players */
   defaultSlotMap: Map<string, string>;
+  /** Player IDs that have been promoted off the taxi squad (can't return) */
+  promotedFromTaxiSet: Set<string>;
 }
 
 export async function fetchTeamSlots(
@@ -60,7 +62,7 @@ export async function fetchTeamSlots(
   const [{ data: leaguePlayers, error: lpErr }, { data: dailyEntries }] = await Promise.all([
     supabase
       .from('league_players')
-      .select('player_id, roster_slot, acquired_at')
+      .select('player_id, roster_slot, acquired_at, promoted_from_taxi')
       .eq('team_id', teamId)
       .eq('league_id', leagueId),
     supabase
@@ -79,6 +81,12 @@ export async function fetchTeamSlots(
 
   const defaultSlotMap = new Map<string, string>(
     (leaguePlayers ?? []).map((lp: any) => [lp.player_id, lp.roster_slot ?? 'BE']),
+  );
+
+  const promotedFromTaxiSet = new Set<string>(
+    (leaguePlayers ?? [])
+      .filter((lp: any) => lp.promoted_from_taxi)
+      .map((lp: any) => lp.player_id),
   );
 
   const acquiredDateMap = new Map<string, string>();
@@ -164,5 +172,6 @@ export async function fetchTeamSlots(
     acquiredDateMap,
     dailyByPlayer,
     defaultSlotMap,
+    promotedFromTaxiSet,
   };
 }
