@@ -358,7 +358,7 @@ function TeamIdentity({
       : (
           <OutlinePill
             label="Pending"
-            icon="local-atm.fill"
+            icon="dollarsign.square.fill"
             onPress={onPaymentPress}
             accessibilityLabel="Payment pending confirmation"
           />

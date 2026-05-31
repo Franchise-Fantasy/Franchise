@@ -165,3 +165,30 @@ export function addSlateDays(dateStr: string, n: number): string {
   t.setUTCDate(t.getUTCDate() + n);
   return toDateString(t.getUTCFullYear(), t.getUTCMonth() + 1, t.getUTCDate());
 }
+
+/**
+ * Number of days in Week 1 given the season-start day-of-week.
+ *
+ * Mon/Tue/Wed starts produce a "short" Week 1 (5-7 days) ending on the
+ * first Sunday. Thu/Fri/Sat/Sun starts produce a "long" Week 1 (8-11 days)
+ * ending on the SECOND Sunday — the 1-4 leading days get bolted onto Week 1
+ * so a league never waits a full week for its first matchup just because
+ * the IRL opener is mid-week. Equivalent to the wizard's preview math.
+ *
+ *   Mon → 7, Tue → 6, Wed → 5, Thu → 11, Fri → 10, Sat → 9, Sun → 8
+ */
+export function week1Length(startDow: number): number {
+  if (startDow === 0) return 8; // Sun
+  if (startDow <= 3) return 8 - startDow; // Mon=7, Tue=6, Wed=5
+  return 15 - startDow; // Thu=11, Fri=10, Sat=9
+}
+
+/**
+ * "YYYY-MM-DD" of Week 1's last day (always a Sunday) given the start date.
+ * Uses {@link week1Length} so the rule stays consistent across the wizard
+ * preview, schedule generator, and auto-bump on draft scheduling.
+ */
+export function week1EndDate(startYmd: string): string {
+  const dow = new Date(`${startYmd}T12:00:00Z`).getUTCDay();
+  return addSlateDays(startYmd, week1Length(dow) - 1);
+}

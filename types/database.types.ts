@@ -5052,6 +5052,7 @@ export type Database = {
           completed_at: string | null
           counteroffer_of: string | null
           id: string
+          is_in_draft: boolean
           league_id: string
           notes: string | null
           proposed_at: string
@@ -5066,6 +5067,7 @@ export type Database = {
           completed_at?: string | null
           counteroffer_of?: string | null
           id?: string
+          is_in_draft?: boolean
           league_id: string
           notes?: string | null
           proposed_at?: string
@@ -5080,6 +5082,7 @@ export type Database = {
           completed_at?: string | null
           counteroffer_of?: string | null
           id?: string
+          is_in_draft?: boolean
           league_id?: string
           notes?: string | null
           proposed_at?: string
@@ -6128,6 +6131,10 @@ export type Database = {
       pro_archive_team_run: {
         Args: { p_franchise_id: string; p_season: number }
         Returns: Json
+      }
+      prune_player_news: {
+        Args: { p_keep?: number; p_window_hours?: number }
+        Returns: number
       }
       record_cron_heartbeat: {
         Args: { p_error?: string; p_job: string; p_status: string }

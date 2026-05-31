@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import { Fragment, useEffect, useRef } from "react";
+import { Fragment, type ReactNode, useEffect, useRef } from "react";
 import {
   Animated,
   Easing,
@@ -75,6 +75,10 @@ interface RosterHeroProps {
   onDatePress?: () => void;
   /** When set, the week chip opens the weekly summary. */
   onWeekPress?: () => void;
+  /** Optional outer-right slot in the eyebrow — pinned to the far edge,
+   *  mirror of the week chip on the far left. Used by the page to host the
+   *  share action so the section-level eyebrows stay clean. */
+  headerRight?: ReactNode;
 }
 
 function formatRecord(t: HeroTeam | null | undefined): string {
@@ -221,6 +225,7 @@ export function RosterHero({
   onGoToToday,
   onDatePress,
   onWeekPress,
+  headerRight,
 }: RosterHeroProps) {
   const c = useColors();
   const isOffseason = !currentWeek;
@@ -332,21 +337,28 @@ export function RosterHero({
         </View>
 
         <View style={styles.eyebrowRight}>
-          {!isToday && !isOffseason && (
-            <TouchableOpacity
-              onPress={onGoToToday}
-              style={styles.todayIconChip}
-              hitSlop={TAP_SLOP}
-              accessibilityRole="button"
-              accessibilityLabel="Jump to today"
-            >
-              <Ionicons
-                name={isFutureDate ? "arrow-undo-outline" : "arrow-redo-outline"}
-                size={ms(14)}
-                color={Brand.vintageGold}
-              />
-            </TouchableOpacity>
-          )}
+          {/* Inner edge — jump-to-today chip sits flush against the date so
+              it reads as a date-nav utility. */}
+          <View style={styles.eyebrowRightInner}>
+            {!isToday && !isOffseason && (
+              <TouchableOpacity
+                onPress={onGoToToday}
+                style={styles.todayIconChip}
+                hitSlop={TAP_SLOP}
+                accessibilityRole="button"
+                accessibilityLabel="Jump to today"
+              >
+                <Ionicons
+                  name={isFutureDate ? "arrow-undo-outline" : "arrow-redo-outline"}
+                  size={ms(14)}
+                  color={Brand.vintageGold}
+                />
+              </TouchableOpacity>
+            )}
+          </View>
+          {/* Outer edge — page-level action mirror of the week chip on the
+              far left. Currently hosts the share button. */}
+          <View style={styles.eyebrowRightOuter}>{headerRight}</View>
         </View>
       </View>
 
@@ -638,7 +650,19 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "flex-start",
+    // Two anchored slots: inner-edge (today-chip, hugging the date) and
+    // outer-edge (headerRight slot — mirror of the week chip far left).
+    justifyContent: "space-between",
+  },
+  eyebrowRightInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: s(6),
+  },
+  eyebrowRightOuter: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: s(6),
   },
   dateButton: {
     flexDirection: "row",

@@ -22,6 +22,7 @@ import { useColors } from '@/hooks/useColors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import { getPlayoffTeamOptions } from '@/utils/league/lottery';
+import { minSeasonStartForDraft } from '@/utils/league/seasonStart';
 import { ms, s } from '@/utils/scale';
 
 // Format an ISO `yyyy-mm-dd` (parsed as local midnight) for display.
@@ -118,6 +119,38 @@ export function EditSeasonSettingsModal({
 
   async function handleSave() {
     setSaving(true);
+
+    // Refuse to set a start date that lands on or before a scheduled draft's
+    // slate — fantasy scoring must begin the day AFTER the draft so games
+    // played before picks were made don't count.
+    if (startDate) {
+      const { data: activeDraft } = await supabase
+        .from('drafts')
+        .select('draft_date, status')
+        .eq('league_id', leagueId)
+        .neq('status', 'complete')
+        .not('draft_date', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (activeDraft?.draft_date) {
+        const minStart = minSeasonStartForDraft({
+          sport,
+          season: league?.season ?? null,
+          draftDate: new Date(activeDraft.draft_date),
+        });
+        if (startDate < minStart) {
+          setSaving(false);
+          Alert.alert(
+            'Pick a later start date',
+            `Your draft is scheduled for ${formatIsoDate(activeDraft.draft_date.slice(0, 10))}. The season needs to start on or after ${formatIsoDate(minStart)} so Week 1 has games and isn't a short stub.`,
+          );
+          return;
+        }
+      }
+    }
+
     const update: Record<string, unknown> = {
       regular_season_weeks: regWeeks,
       playoff_weeks: playoffWeeks,

@@ -141,4 +141,35 @@ describe('optimizeLineup', () => {
     expect(getSlot(result, 'p2')).toBe('C');
     expect(getSlot(result, 'p1')).toBe('BE');
   });
+
+  it('TAXI players stay on the taxi squad', () => {
+    const config = [
+      { position: 'PG', slot_count: 1 },
+      { position: 'BE', slot_count: 1 },
+      { position: 'TAXI', slot_count: 2 },
+    ];
+    const players = [
+      // High-FPTS taxi prospect must NOT be promoted into the open PG slot
+      makePlayer({ player_id: 'p1', position: 'PG', roster_slot: 'TAXI', avgFpts: 50 }),
+      makePlayer({ player_id: 'p2', position: 'PG', roster_slot: 'PG', avgFpts: 20 }),
+      makePlayer({ player_id: 'p3', position: 'SG', roster_slot: 'BE', avgFpts: 5 }),
+    ];
+    const result = optimizeLineup(players, config);
+    expect(getSlot(result, 'p1')).toBe('TAXI');
+    expect(getSlot(result, 'p2')).toBe('PG');
+  });
+
+  it('locked bench player is not promoted into a starter slot', () => {
+    // p1 is benched and its game has started (locked). Even though it has the
+    // highest day-FPTS, it must stay on BE — promoting it would mirror an
+    // illegal mid-game drag.
+    const players = [
+      makePlayer({ player_id: 'p1', position: 'PG', roster_slot: 'BE', locked: true, avgFpts: 50 }),
+      makePlayer({ player_id: 'p2', position: 'PG', roster_slot: 'PG', avgFpts: 20 }),
+      makePlayer({ player_id: 'p3', position: 'SG', roster_slot: 'SG', avgFpts: 15 }),
+    ];
+    const result = optimizeLineup(players, SIMPLE_CONFIG);
+    expect(getSlot(result, 'p1')).toBe('BE');
+    expect(getSlot(result, 'p2')).toBe('PG');
+  });
 });

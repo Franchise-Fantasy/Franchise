@@ -1,4 +1,5 @@
 import { PlayerGameLog, PlayerSeasonStats, ScoringWeight } from '@/types/player';
+import { lastNPlayedGames } from '@/utils/scoring/windowAverages';
 
 // Maps league_scoring_settings stat_name to player_season_stats total column
 export const STAT_TO_TOTAL: Record<string, keyof PlayerSeasonStats> = {
@@ -152,6 +153,38 @@ export function calculateGameFantasyPoints(
     }
   }
   return Math.round(total * 100) / 100;
+}
+
+/** Time-window for comparative analytics. "L5" = last 5 played games per
+ *  player, etc. "season" uses player_season_stats season averages directly.
+ *  Game-based (not day-based) because uneven schedules biased a day window:
+ *  Team A with 8 games and Team B with 12 in the same 14 days wasn't an
+ *  apples-to-apples FPTS/G comparison. Sliced per-player so each player
+ *  contributes equal samples to the team avg. */
+export type GameWindow = 'L5' | 'L10' | 'L15' | 'season';
+
+export const GAME_WINDOW_VALUES: readonly GameWindow[] = ['L5', 'L10', 'L15', 'season'] as const;
+
+/** Last-N count for a Lx window. Returns null for 'season'. */
+export function gameWindowSize(w: GameWindow): number | null {
+  if (w === 'season') return null;
+  return parseInt(w.slice(1), 10);
+}
+
+/** Returns FPTS/G averaged over the player's last N played games (DNPs with
+ *  min === 0 are skipped so a stretch of healthy scratches doesn't drag the
+ *  average down). null when the log is empty or has no played games — caller
+ *  decides whether to fall back to season / prev-season. */
+export function windowFantasyPoints(
+  log: PlayerGameLog[] | undefined,
+  scoringWeights: ScoringWeight[],
+  windowSize: number,
+): number | null {
+  const played = lastNPlayedGames(log, windowSize);
+  if (played.length === 0) return null;
+  let total = 0;
+  for (const g of played) total += calculateGameFantasyPoints(g, scoringWeights);
+  return Math.round((total / played.length) * 10) / 10;
 }
 
 // Returns per-stat breakdown of fantasy points for a single game.

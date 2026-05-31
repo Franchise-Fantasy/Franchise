@@ -1,36 +1,63 @@
-import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
+import { PlayerGameLog, PlayerSeasonStats, ScoringWeight } from '@/types/player';
 import { isActiveRosterSlot } from '@/utils/roster/rosterSlots';
-import { effectiveFantasyPoints } from '@/utils/scoring/fantasyPoints';
+import {
+  effectiveFantasyPoints,
+  GameWindow,
+  gameWindowSize,
+  windowFantasyPoints,
+} from '@/utils/scoring/fantasyPoints';
 
 /**
  * Non-age roster analytics for single-year (keeper/redraft) leagues, where a
- * roster's weighted age means nothing. Ranks each team by the total FPTS/G its
- * roster produces — a current-season strength signal — instead of by age.
+ * roster's weighted age means nothing. Ranks each team by its AVERAGE FPTS/G
+ * per active player — a current-season strength signal that doesn't move just
+ * because a team is carrying one more or one fewer body. (Summing roster totals
+ * instead made the metric track active-roster count: every add/drop or IR move
+ * swung a team's number by a full player's worth and could flip the ranking
+ * between two equal-quality rosters. Averaging is size-independent, so the
+ * "vs avg" figure is a real per-player FPTS/G delta — matching its label.)
  * Mirrors the team-grouping/ranking shape of buildLeagueComparison in
  * rosterAge.ts so the two stay legible side by side.
  */
 
 export interface TeamStrengthProfile {
   teamId: string;
-  totalFpts: number; // sum of effectiveFantasyPoints across the roster
+  avgFpts: number; // mean effectiveFantasyPoints across active roster players
   playerCount: number;
 }
 
 export interface LeagueStrengthComparison {
-  myRank: number; // 1 = highest total FPTS/G in the league
+  myRank: number; // 1 = highest avg FPTS/G per player in the league
   totalTeams: number;
-  myTotalFpts: number;
+  myAvgFpts: number;
   leagueAvgFpts: number;
   allProfiles: TeamStrengthProfile[]; // sorted desc (index 0 = strongest)
+}
+
+export interface BuildLeagueStrengthComparisonOptions {
+  prevSeasonFptsMap?: Map<string, number>;
+  /** Minimum games threshold for the season window (passed to
+   *  effectiveFantasyPoints — below this we fall back to prev-season). */
+  minGames?: number;
+  /** Time window for the FPTS/G calc. Defaults to 'season' (existing behavior:
+   *  player_season_stats avg with prev-season fallback). Lx slices each
+   *  player's last-N played games. */
+  gameWindow?: GameWindow;
+  /** Required when gameWindow is L5/L10/L15. Player_id → DESC-ordered game
+   *  logs (matches useRosterGameLogs / useLeagueGameLogs output). Missing
+   *  players fall back to season average. */
+  gameLogsByPlayer?: Map<string, PlayerGameLog[]>;
 }
 
 export function buildLeagueStrengthComparison(
   allPlayers: (PlayerSeasonStats & { team_id: string; roster_slot?: string | null })[],
   scoringWeights: ScoringWeight[],
   myTeamId: string,
-  prevSeasonFptsMap?: Map<string, number>,
-  minGames?: number,
+  options: BuildLeagueStrengthComparisonOptions = {},
 ): LeagueStrengthComparison | null {
+  const { prevSeasonFptsMap, minGames, gameWindow = 'season', gameLogsByPlayer } = options;
+  const windowSize = gameWindowSize(gameWindow);
+
   // Group players by team. IR/TAXI players aren't active contributors, so they
   // don't count toward roster strength — otherwise a team stashing injured
   // stars on IR looks stronger than its actual lineup.
@@ -43,18 +70,33 @@ export function buildLeagueStrengthComparison(
     byTeam.get(tid)!.push(p);
   }
 
-  // Sum each team's effective FPTS/G (clamp negatives to 0 so a bad sample
-  // never drags a team's strength below zero, matching the weighting in
-  // calculateRosterAgeProfile).
+  // Average each team's effective FPTS/G across its active players (clamp
+  // negatives to 0 so a bad sample never drags a team's strength below zero,
+  // matching the weighting in calculateRosterAgeProfile). Averaging — not
+  // summing — keeps the metric independent of how many bodies a team carries.
+  // For Lx windows we score each player from their last N played games;
+  // players with no logs fall back to effectiveFantasyPoints so a thin sample
+  // doesn't zero them out.
   const profiles: TeamStrengthProfile[] = [];
   for (const [teamId, teamPlayers] of byTeam) {
     let totalFpts = 0;
     for (const p of teamPlayers) {
-      totalFpts += Math.max(effectiveFantasyPoints(p, scoringWeights, prevSeasonFptsMap, minGames), 0);
+      let fpts: number;
+      if (windowSize != null) {
+        const windowed = windowFantasyPoints(
+          gameLogsByPlayer?.get(p.player_id),
+          scoringWeights,
+          windowSize,
+        );
+        fpts = windowed ?? effectiveFantasyPoints(p, scoringWeights, prevSeasonFptsMap, minGames);
+      } else {
+        fpts = effectiveFantasyPoints(p, scoringWeights, prevSeasonFptsMap, minGames);
+      }
+      totalFpts += Math.max(fpts, 0);
     }
     profiles.push({
       teamId,
-      totalFpts: Math.round(totalFpts * 10) / 10,
+      avgFpts: Math.round((totalFpts / teamPlayers.length) * 10) / 10,
       playerCount: teamPlayers.length,
     });
   }
@@ -63,16 +105,16 @@ export function buildLeagueStrengthComparison(
   if (!myProfile || profiles.length < 2) return null;
 
   const leagueAvgFpts =
-    Math.round((profiles.reduce((s, p) => s + p.totalFpts, 0) / profiles.length) * 10) / 10;
+    Math.round((profiles.reduce((s, p) => s + p.avgFpts, 0) / profiles.length) * 10) / 10;
 
-  // Rank by total FPTS (1 = strongest)
-  const sorted = [...profiles].sort((a, b) => b.totalFpts - a.totalFpts);
+  // Rank by avg FPTS/G per player (1 = strongest)
+  const sorted = [...profiles].sort((a, b) => b.avgFpts - a.avgFpts);
   const myRank = sorted.findIndex((p) => p.teamId === myTeamId) + 1;
 
   return {
     myRank,
     totalTeams: profiles.length,
-    myTotalFpts: myProfile.totalFpts,
+    myAvgFpts: myProfile.avgFpts,
     leagueAvgFpts,
     allProfiles: sorted,
   };

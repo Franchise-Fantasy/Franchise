@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
   ScrollView,
@@ -19,6 +19,7 @@ import { PlayerDetailModal } from '@/components/player/PlayerDetailModal';
 import { PlayerHeadshotImage } from '@/components/player/PlayerHeadshotImage';
 import { AnimatedFpts } from '@/components/roster/AnimatedFpts';
 import { buildSeasonAverages } from '@/components/roster/rosterData';
+import { RosterWindowPicker } from '@/components/roster/RosterWindowPicker';
 import {
   rosterStyles as styles,
   slotPillVariant,
@@ -41,6 +42,7 @@ import { useColors } from '@/hooks/useColors';
 import { useLeague } from '@/hooks/useLeague';
 import { useLeagueRosterConfig } from '@/hooks/useLeagueRosterConfig';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
+import { useRosterGameLogs } from '@/hooks/useRosterGameLogs';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats, PlayerGameLog } from '@/types/player';
 import { formatPosition } from '@/utils/formatting';
@@ -64,6 +66,8 @@ import { ms, s } from '@/utils/scale';
 import {
   calculateGameFantasyPoints,
   formatScore,
+  GameWindow,
+  gameWindowSize,
 } from '@/utils/scoring/fantasyPoints';
 
 // Heritage deck watermark — same patch that bleeds into the corner of the
@@ -114,6 +118,10 @@ export default function TeamRosterScreen() {
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerSeasonStats | null>(null);
   const [showTradeModal, setShowTradeModal] = useState(false);
   const [showSwitcher, setShowSwitcher] = useState(false);
+  // Forward-facing stat window — only affects pre-game / no-game rows, just
+  // like in (tabs)/roster.tsx. Past dates aren't selectable on this page,
+  // and live/finished games render their real stats unchanged.
+  const [windowSel, setWindowSel] = useState<GameWindow>('season');
 
   const isOwnTeam = viewTeamId === myTeamId;
   const today = getSportToday(sport);
@@ -257,6 +265,34 @@ export default function TeamRosterScreen() {
   const liveMap = new Map(
     [...rawLiveMap].filter(([, stats]) => stats.game_date === today),
   );
+
+  // Window state for forward-facing stat display. Same gating + adaptive
+  // options as the user's roster page so the two views read identically.
+  const winSize = gameWindowSize(windowSel);
+  const { data: rosterLogsByPlayer } = useRosterGameLogs(
+    winSize != null ? playerIdList : [],
+  );
+  const maxRosterGames = useMemo(() => {
+    let max = 0;
+    for (const p of rosterPlayers ?? []) {
+      const g = (p as Partial<PlayerSeasonStats>).games_played ?? 0;
+      if (g > max) max = g;
+    }
+    return max;
+  }, [rosterPlayers]);
+  const availableWindows = useMemo<readonly GameWindow[]>(() => {
+    const out: GameWindow[] = [];
+    if (maxRosterGames >= 5) out.push('L5');
+    if (maxRosterGames >= 10) out.push('L10');
+    if (maxRosterGames >= 15) out.push('L15');
+    out.push('season');
+    return out;
+  }, [maxRosterGames]);
+  // Snap stale selection back to 'season' so the picker never lands on a
+  // hidden option after a season rollover.
+  useEffect(() => {
+    if (!availableWindows.includes(windowSel)) setWindowSel('season');
+  }, [availableWindows, windowSel]);
 
   const isLoading = isLoadingConfig || isLoadingRoster;
 
@@ -464,7 +500,17 @@ export default function TeamRosterScreen() {
     // the box score (category leagues, no fpts). Null for 0-game players.
     const seasonAvg =
       slot.player && !isLive && !statLine
-        ? buildSeasonAverages(slot.player, scoringWeights, isCategories)
+        ? buildSeasonAverages(
+            slot.player,
+            scoringWeights,
+            isCategories,
+            winSize != null
+              ? {
+                  gameLog: rosterLogsByPlayer?.get(slot.player.player_id),
+                  windowSize: winSize,
+                }
+              : undefined,
+          )
         : null;
 
     return (
@@ -754,29 +800,38 @@ export default function TeamRosterScreen() {
         <View style={styles.section}>
           <SectionEyebrow
             label="STARTERS"
+            leftAccessory={
+              <RosterWindowPicker
+                windowSel={windowSel}
+                onWindowChange={setWindowSel}
+                availableWindows={availableWindows}
+              />
+            }
             right={
-              !isCategories && starterTotal !== null ? (
-                <View
-                  style={[
-                    styles.headerPill,
-                    { backgroundColor: c.cardAlt, borderColor: c.border },
-                  ]}
-                  accessibilityLabel={`Fantasy points: ${formatScore(starterTotal)}`}
-                >
-                  <ThemedText
-                    type="varsitySmall"
-                    style={[styles.headerPillLabel, { color: c.gold }]}
+              <>
+                {!isCategories && starterTotal !== null ? (
+                  <View
+                    style={[
+                      styles.headerPill,
+                      { backgroundColor: c.cardAlt, borderColor: c.border },
+                    ]}
+                    accessibilityLabel={`Fantasy points: ${formatScore(starterTotal)}`}
                   >
-                    FPTS
-                  </ThemedText>
-                  <ThemedText
-                    type="mono"
-                    style={[styles.headerPillValue, { color: c.text }]}
-                  >
-                    {formatScore(starterTotal)}
-                  </ThemedText>
-                </View>
-              ) : null
+                    <ThemedText
+                      type="varsitySmall"
+                      style={[styles.headerPillLabel, { color: c.gold }]}
+                    >
+                      FPTS
+                    </ThemedText>
+                    <ThemedText
+                      type="mono"
+                      style={[styles.headerPillValue, { color: c.text }]}
+                    >
+                      {formatScore(starterTotal)}
+                    </ThemedText>
+                  </View>
+                ) : null}
+              </>
             }
           />
           <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>

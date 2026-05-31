@@ -27,6 +27,7 @@ import {
 } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { calcLotteryPoolSize, getPlayoffTeamOptions } from '@/utils/league/lottery';
+import { week1Length } from '@/utils/leagueTime';
 import { ms, s } from '@/utils/scale';
 
 interface StepSeasonProps {
@@ -34,24 +35,14 @@ interface StepSeasonProps {
   onChange: (field: keyof LeagueWizardState, value: any) => void;
 }
 
-// Returns the date that starts the fantasy season.
-// Mon/Tue/Wed: start today (Week 1 may be a short week ending Sunday).
-// Thu–Sun: start next Monday (full week).
+// Default fantasy-season start: today, regardless of weekday. Week 1
+// absorbs whatever leading days fall before the next Sunday — see
+// `week1Length` in utils/leagueTime: Mon/Tue/Wed produce a 5-7 day Week 1,
+// Thu/Fri/Sat/Sun produce an 8-11 day Week 1 ending the second Sunday.
 export function computeSeasonStart(): Date {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const dow = today.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-  const daysSinceMonday = dow === 0 ? 6 : dow - 1;
-  const daysLeftInWeek = 7 - daysSinceMonday;
-
-  if (daysLeftInWeek >= 5) {
-    // Mon/Tue/Wed — start today
-    return today;
-  }
-  // Thu–Sun — start next Monday
-  const nextMonday = new Date(today);
-  nextMonday.setDate(today.getDate() + (7 - daysSinceMonday));
-  return nextMonday;
+  return today;
 }
 
 function formatDate(date: Date): string {
@@ -59,7 +50,8 @@ function formatDate(date: Date): string {
 }
 
 /** Max weeks between season start and pro season end (sport-aware).
- *  Week 1 may be partial (e.g. Tue–Sun), Week 2+ are full Mon–Sun.
+ *  Week 1 absorbs any Thu/Fri/Sat/Sun leading days (8-11 day long week);
+ *  Mon/Tue/Wed starts give a 5-7 day Week 1. Week 2+ are full Mon–Sun.
  *  `sport` defaults to 'nba' for back-compat with module-level callers
  *  that initialize NBA wizards. */
 export function computeMaxWeeks(season: string, sport: Sport = 'nba', customStart?: Date): number {
@@ -71,10 +63,12 @@ export function computeMaxWeeks(season: string, sport: Sport = 'nba', customStar
   const startUtc = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
   const endUtc = Date.UTC(y, m - 1, d);
 
-  // Week 1 ends the first Sunday after (or on) start
+  // Week 1 ends the FIRST Sunday for Mon/Tue/Wed starts, the SECOND
+  // Sunday for Thu/Fri/Sat/Sun — keeps Week 1 ≥ 5 days without ever
+  // delaying the first matchup beyond the league's opener.
   const startDow = start.getDay(); // 0=Sun
-  const daysUntilSun = startDow === 0 ? 0 : 7 - startDow;
-  const week1EndUtc = startUtc + daysUntilSun * msPerDay;
+  const week1Len = week1Length(startDow); // 5..11 days
+  const week1EndUtc = startUtc + (week1Len - 1) * msPerDay;
 
   // Week 2+ starts the Monday after Week 1
   const week2StartUtc = week1EndUtc + msPerDay;
@@ -97,7 +91,8 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
       })()
     : computeSeasonStart();
   const startDow = seasonStart.getDay(); // 0=Sun
-  const shortFirstWeek = startDow !== 1; // not Monday
+  const week1Days = week1Length(startDow);
+  const week1IsAtypical = week1Days !== 7; // anything other than Mon-Sun
 
   // Pro-league season boundary (sport-aware) — parse as local midnight to
   // avoid UTC timezone shift.
@@ -153,10 +148,11 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
     Math.max(1, maxTotalWeeks - state.regularSeasonWeeks),
   );
 
-  // Week 1 ends the first Sunday after (or on) seasonStart
-  const daysUntilSun = startDow === 0 ? 0 : 7 - startDow;
+  // Week 1 absorbs Thu/Fri/Sat/Sun leading days (long first week ending
+  // the second Sunday) so the league never waits a full week for its first
+  // matchup. Mon/Tue/Wed start give a short 5-7 day Week 1.
   const week1End = new Date(seasonStart);
-  week1End.setDate(seasonStart.getDate() + daysUntilSun);
+  week1End.setDate(seasonStart.getDate() + week1Days - 1);
 
   // Regular season end = Week 1 Sunday + (regularSeasonWeeks - 1) full weeks
   const regularSeasonEnd = new Date(week1End);
@@ -396,9 +392,9 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
       {/* Season preview — treated as a Section so it visually aligns
           with the brand's gold-rule rhythm used in FormSection above. */}
       <Section title="Season Preview">
-        {shortFirstWeek && (
+        {week1IsAtypical && (
           <ThemedText style={[styles.note, { color: c.secondaryText }]}>
-            Week 1 is a short week ({daysUntilSun + 1} days) ending Sunday.
+            Week 1 is {week1Days > 7 ? 'a long' : 'a short'} week ({week1Days} days) ending Sunday.
           </ThemedText>
         )}
 

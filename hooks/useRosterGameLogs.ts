@@ -7,12 +7,16 @@ import { PlayerGameLog } from '@/types/player';
 import { dedupeGameLogsByDate } from '@/utils/scoring/gameLogDedup';
 
 /**
- * Batch game-log fetch for a whole roster in one query, keyed by player_id.
- * Powers the roster hot/cold trend board. Roster-bounded (~15-20 players) and
- * only fetched when the analytics tab is open, so a single `.in()` query is
- * cheap; the recent-window slice happens in-memory in calculatePlayerInsights.
- * Same same-date dedup as usePlayerGameLog (shared helper) so a board row's
+ * Batch game-log fetch for a roster in one query, keyed by player_id.
+ *
+ * Powers the roster hot/cold trend board AND the windowed league-strength
+ * comparison (when fed every active league player_id). Recent-window slicing
+ * happens in-memory. Same same-date dedup as usePlayerGameLog so a board row's
  * trend matches the player-detail modal exactly.
+ *
+ * Supabase's default row cap (1000) was previously truncating mid-season for
+ * deep dynasty leagues — bumped to 50k explicitly. The largest realistic
+ * payload is ~12 teams × 15 players × ~80 games = ~14,400 rows.
  */
 export function useRosterGameLogs(playerIds: string[]) {
   const sport = useActiveLeagueSport();
@@ -27,7 +31,8 @@ export function useRosterGameLogs(playerIds: string[]) {
         .select('*')
         .eq('sport', sport)
         .in('player_id', sortedIds)
-        .order('game_date', { ascending: false });
+        .order('game_date', { ascending: false })
+        .limit(50000);
 
       if (error) throw error;
 

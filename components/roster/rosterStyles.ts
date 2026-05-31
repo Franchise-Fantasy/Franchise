@@ -25,6 +25,18 @@ export const rosterStyles = StyleSheet.create({
     fontSize: ms(13),
     fontWeight: "700",
   },
+  // Compact square icon button for the hero eyebrow — sibling chrome to
+  // the today-chip on the inner edge.
+  heroShareBtn: {
+    width: ms(22),
+    height: ms(22),
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "rgba(181, 123, 48, 0.55)",
+    backgroundColor: "rgba(181, 123, 48, 0.18)",
+  },
   scrollContent: { paddingBottom: s(56) },
   centered: {
     flex: 1,

@@ -25,7 +25,19 @@ export const useDraftPlayer = (leagueId: string, draftId: string ) => {
         },
       });
 
-      if (error) throw new Error(error.message);
+      if (error) {
+        // FunctionsHttpError surfaces "non-2xx" by default; the real
+        // HttpError message lives in the response body (e.g. position-limit
+        // violations from make-draft-pick).
+        let detail = error.message;
+        try {
+          const body = await (error as { context?: Response }).context?.json?.();
+          if (body?.error) detail = body.error;
+        } catch {
+          // Body wasn't JSON — keep the fallback.
+        }
+        throw new Error(detail);
+      }
       return data;
     },
     onSuccess: (_data, selectedPlayer) => {

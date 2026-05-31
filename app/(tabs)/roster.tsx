@@ -41,6 +41,7 @@ import {
 } from "@/components/roster/rosterData";
 import { RosterDayPicker } from "@/components/roster/RosterDayPicker";
 import { RosterHero } from "@/components/roster/RosterHero";
+import { RosterWindowPicker } from "@/components/roster/RosterWindowPicker";
 import {
   rosterStyles as styles,
   slotPillVariant,
@@ -61,7 +62,7 @@ import { InfoModal } from "@/components/ui/InfoModal";
 import { type ModalAction } from "@/components/ui/InlineAction";
 import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { ThemedText } from "@/components/ui/ThemedText";
-import { Colors } from "@/constants/Colors";
+import { Brand, Colors } from "@/constants/Colors";
 import { getCurrentSeason, getPreviousSeason } from "@/constants/LeagueDefaults";
 import { queryKeys } from "@/constants/queryKeys";
 import { useAppState } from "@/context/AppStateProvider";
@@ -70,11 +71,12 @@ import { useToast } from "@/context/ToastProvider";
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { useIllegalIR } from "@/hooks/useIllegalIR";
-import { useOverCap } from "@/hooks/useOverCap";
 import { useLeague } from "@/hooks/useLeague";
 import { useLeagueRosterConfig } from "@/hooks/useLeagueRosterConfig";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
+import { useOverCap } from "@/hooks/useOverCap";
 import { useRosterChanges } from "@/hooks/useRosterChanges";
+import { useRosterGameLogs } from "@/hooks/useRosterGameLogs";
 import { useWeekScores } from "@/hooks/useWeekScores";
 import { capture } from "@/lib/posthog";
 import { supabase } from "@/lib/supabase";
@@ -108,7 +110,11 @@ import { buildCompositeScatter } from "@/utils/scoring/categoryAnalytics";
 import {
   calculateAvgFantasyPoints,
   formatScore,
+  GameWindow,
+  gameWindowSize,
+  windowFantasyPoints,
 } from "@/utils/scoring/fantasyPoints";
+import { buildWindowedStatRow } from "@/utils/scoring/windowAverages";
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
@@ -144,6 +150,10 @@ export default function RosterScreen() {
   const [activeSlot, setActiveSlot] = useState<SlotEntry | null>(null);
   const [isAssigning, setIsAssigning] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
+  // Window for forward-facing stat display (pre-game / no-game / future rows).
+  // Past dates + live/finished games render their real stats and never go
+  // through buildSeasonAverages — see the gating at the renderSlotRow call.
+  const [windowSel, setWindowSel] = useState<GameWindow>('season');
   const pickAction = useActionPicker();
 
 
@@ -372,6 +382,38 @@ export default function RosterScreen() {
   // today/yesterday) so the weekly-summary live merge has today's data even
   // while browsing a past day of the current week — matches the matchup page.
   const playerIds = rosterPlayers?.map((p) => p.player_id) ?? [];
+
+  // Game logs for windowed stat display (Lx → last N played games per player).
+  // Only fetched when a non-season window is active so we don't pay the round
+  // trip on the default view. The logs apply to forward-facing rows only —
+  // past dates and live/finished games render their real stats unchanged.
+  const winSize = gameWindowSize(windowSel);
+  const { data: rosterLogsByPlayer } = useRosterGameLogs(
+    winSize != null ? playerIds : [],
+  );
+  // Adaptive window options — only show Lx when at least one rostered player
+  // has that many games played. Mirrors the rule in PointsStrengthAnalytics.
+  const maxRosterGames = useMemo(() => {
+    let max = 0;
+    for (const p of rosterPlayers ?? []) {
+      const g = p.games_played ?? 0;
+      if (g > max) max = g;
+    }
+    return max;
+  }, [rosterPlayers]);
+  const availableWindows = useMemo<readonly GameWindow[]>(() => {
+    const out: GameWindow[] = [];
+    if (maxRosterGames >= 5) out.push('L5');
+    if (maxRosterGames >= 10) out.push('L10');
+    if (maxRosterGames >= 15) out.push('L15');
+    out.push('season');
+    return out;
+  }, [maxRosterGames]);
+  // Snap stale selection back to 'season' so the SegmentedControl never lands
+  // on a hidden option after a season rollover.
+  useEffect(() => {
+    if (!availableWindows.includes(windowSel)) setWindowSel('season');
+  }, [availableWindows, windowSel]);
   const rawLiveMap = useLivePlayerStats(
     playerIds,
     weekIsLive || isToday || isYesterday,
@@ -1057,9 +1099,16 @@ export default function RosterScreen() {
         onPress: () => runAutoLineup("week"),
       },
     ];
+    // Surface the ranking basis so it's clear auto-sort follows the stat
+    // window the user is currently viewing (L5/L10/L15 → recent form;
+    // Season → season averages).
+    const basisLabel =
+      windowSel === "season"
+        ? "SEASON AVERAGES"
+        : `LAST ${gameWindowSize(windowSel)} GAMES`;
     pickAction({
       title: "Auto-Lineup",
-      subtitle: "OPTIMIZE THE STARTING LINEUP",
+      subtitle: `OPTIMIZE BY ${basisLabel}`,
       actions: autoLineupActions,
     });
   };
@@ -1138,10 +1187,16 @@ export default function RosterScreen() {
       // small early-season samples.
       const MIN_CURRENT_SEASON_GAMES = 10;
       const prevSeasonFptsMap = new Map<string, number>();
+      const prevSeasonStatsMap = new Map<string, PlayerSeasonStats>();
       const playersNeedingFallback = rosterPlayers.filter(
         (p) => (p.games_played ?? 0) < MIN_CURRENT_SEASON_GAMES,
       );
-      if (!isCategories && playersNeedingFallback.length > 0) {
+      // Pull last season's stats for under-sampled players regardless of
+      // scoring type. Points leagues rank by the fpts derived from these rows;
+      // category leagues feed the raw rows into the composite below. Without
+      // this, early-season cat lineups (and WNBA pre-tipoff) rank everyone off
+      // near-empty current stats and produce an arbitrary lineup.
+      if (playersNeedingFallback.length > 0) {
         const { data: histRows } = await supabase
           .from("player_historical_stats")
           .select("*")
@@ -1153,10 +1208,9 @@ export default function RosterScreen() {
           );
         for (const h of histRows ?? []) {
           if (!h.player_id) continue;
-          const fpts = calculateAvgFantasyPoints(
-            h as unknown as PlayerSeasonStats,
-            scoringWeights,
-          );
+          const row = h as unknown as PlayerSeasonStats;
+          prevSeasonStatsMap.set(h.player_id, row);
+          const fpts = calculateAvgFantasyPoints(row, scoringWeights);
           if (fpts > 0) prevSeasonFptsMap.set(h.player_id, fpts);
         }
       }
@@ -1178,13 +1232,40 @@ export default function RosterScreen() {
       let totalMoves = 0;
       let daysChanged = 0;
 
+      // The roster's stat-window selector (L5/L10/L15/Season) doubles as the
+      // ranking basis for auto-lineup: optimizing while looking at "Last 10"
+      // sorts by last-10 form, not season averages. Season → unchanged. When
+      // a window is set but a player has no game log (fresh acquisition), each
+      // path falls back to its season/prev-season value so nobody zeroes out.
+      const windowedFptsFor = (p: RosterPlayer): number | null =>
+        winSize != null
+          ? windowFantasyPoints(rosterLogsByPlayer?.get(p.player_id), scoringWeights, winSize)
+          : null;
+
       // For CAT leagues, rank players by composite z-score instead of FPTS.
       // Shift all values so the minimum is at least 1, because the optimizer
       // treats 0 as "no game today" — negative z-scores would rank below
       // players with no game, breaking the lineup.
       const catRankMap = new Map<string, number>();
       if (isCategories && rosterPlayers.length >= 3) {
-        const composite = buildCompositeScatter(rosterPlayers);
+        // Per-player ranking row, in priority order:
+        //   1. windowed slice (when a window is active + the log has games)
+        //   2. last season's stats (under-sampled current season)
+        //   3. the player's own current-season row
+        const statsForComposite = rosterPlayers.map((p) => {
+          if (winSize != null) {
+            const windowed = buildWindowedStatRow(
+              p,
+              rosterLogsByPlayer?.get(p.player_id),
+              winSize,
+            );
+            if (windowed) return windowed;
+          }
+          return (p.games_played ?? 0) >= MIN_CURRENT_SEASON_GAMES
+            ? p
+            : (prevSeasonStatsMap.get(p.player_id) ?? p);
+        });
+        const composite = buildCompositeScatter(statsForComposite);
         const minVal = composite.reduce(
           (m, pt) => Math.min(m, pt.value),
           Infinity,
@@ -1215,6 +1296,9 @@ export default function RosterScreen() {
               (p.games_played ?? 0) >= MIN_CURRENT_SEASON_GAMES;
             const currentFpts = calculateAvgFantasyPoints(p, scoringWeights);
             const fallbackFpts = prevSeasonFptsMap.get(p.player_id) ?? 0;
+            // Points-league ranking: windowed form when a window is active
+            // (and the log has games), else season, else prev-season.
+            const windowedFpts = windowedFptsFor(p);
             return {
               player_id: p.player_id,
               position: p.position,
@@ -1222,9 +1306,11 @@ export default function RosterScreen() {
               roster_slot: prevSlots.get(p.player_id) ?? "BE",
               avgFpts: isCategories
                 ? catRankMap.get(p.player_id) ?? 0
-                : hasMeaningfulSample
-                  ? currentFpts
-                  : fallbackFpts || currentFpts,
+                : windowedFpts != null
+                  ? windowedFpts
+                  : hasMeaningfulSample
+                    ? currentFpts
+                    : fallbackFpts || currentFpts,
               locked: isDateToday ? isPlayerLocked(p) : false,
               hasGame: noRosterGamesToday
                 ? true
@@ -1420,7 +1506,17 @@ export default function RosterScreen() {
     // looking lineup context, so it just reads as noise on a locked final day.
     const seasonAvg =
       slot.player && !isLive && !statLine && !isPastDate
-        ? buildSeasonAverages(slot.player, scoringWeights, isCategories)
+        ? buildSeasonAverages(
+            slot.player,
+            scoringWeights,
+            isCategories,
+            winSize != null
+              ? {
+                  gameLog: rosterLogsByPlayer?.get(slot.player.player_id),
+                  windowSize: winSize,
+                }
+              : undefined,
+          )
         : null;
     const isIrOrTaxi =
       slot.slotPosition === "IR" || slot.slotPosition === ROSTER_SLOT.TAXI;
@@ -1744,6 +1840,23 @@ export default function RosterScreen() {
         onGoToToday={() => setSelectedDate(today)}
         onDatePress={currentWeek ? () => setShowDayPicker(true) : undefined}
         onWeekPress={currentWeek ? () => setShowWeekSummary(true) : undefined}
+        headerRight={
+          <TouchableOpacity
+            onPress={shareRoster}
+            disabled={isSharing}
+            style={styles.heroShareBtn}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Share roster as image"
+            accessibilityState={{ disabled: isSharing }}
+          >
+            {isSharing ? (
+              <LogoSpinner size={14} delay={0} />
+            ) : (
+              <Ionicons name="share-outline" size={14} color={Brand.vintageGold} />
+            )}
+          </TouchableOpacity>
+        }
       />
 
       {irLocked && <IrLockBanner players={illegalIRPlayers ?? []} />}
@@ -1792,6 +1905,11 @@ export default function RosterScreen() {
             }
             right={
               <>
+                <RosterWindowPicker
+                  windowSel={windowSel}
+                  onWindowChange={setWindowSel}
+                  availableWindows={availableWindows}
+                />
                 {!isCategories && starterTotal !== null && (
                   <View
                     style={[
@@ -1814,24 +1932,6 @@ export default function RosterScreen() {
                     </ThemedText>
                   </View>
                 )}
-                <TouchableOpacity
-                  onPress={shareRoster}
-                  disabled={isSharing}
-                  style={[
-                    styles.headerPill,
-                    { backgroundColor: c.cardAlt, borderColor: c.border },
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityLabel="Share roster as image"
-                  accessibilityState={{ disabled: isSharing }}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  {isSharing ? (
-                    <LogoSpinner size={14} delay={0} />
-                  ) : (
-                    <Ionicons name="share-outline" size={14} color={c.gold} />
-                  )}
-                </TouchableOpacity>
               </>
             }
           />

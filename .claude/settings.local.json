@@ -548,14 +548,17 @@
       "Skill(update-config)",
       "Skill(update-config:*)",
       "mcp__plugin_asana_asana__asana_typeahead_search",
-      "mcp__plugin_asana_asana__asana_update_task"
+      "mcp__plugin_asana_asana__asana_update_task",
+      "mcp__plugin_asana_asana__asana_get_task",
+      "mcp__plugin_asana_asana__asana_create_task"
     ],
     "additionalDirectories": [
       "c:\\Users\\jjspo\\OneDrive\\Desktop\\Franchise Wiki\\Franchise Wiki\\Pages",
       "c:\\Users\\jjspo\\OneDrive\\Desktop\\Franchise Wiki\\Franchise Wiki\\Tables",
       "C:\\Users\\Joe\\Desktop\\Franchise Wiki\\Franchise Wiki\\Pages",
       "C:\\Users\\Joe\\Desktop\\Franchise Wiki\\Franchise Wiki",
-      "c:\\Users\\Joe\\.claude\\plans"
+      "c:\\Users\\Joe\\.claude\\plans",
+      "c:\\Users\\Joe\\.claude\\projects\\c--Users-Joe-OneDrive-Desktop-franchise-v2\\memory"
     ]
   }
 }

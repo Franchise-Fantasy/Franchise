@@ -114,6 +114,7 @@ export default function AnalyticsScreen() {
         weights={weights}
         prevSeasonFptsMap={prevSeasonFptsMap}
         teamId={teamId!}
+        leagueId={leagueId!}
         sport={sport}
       />
     );

@@ -107,10 +107,13 @@ interface StatsLookup {
   /** ESPN-only — birthdate (YYYY-MM-DD) keyed the same way the IDs are. */
   birthdateByNameTeam?: Map<string, string>;
   birthdateByName?: Map<string, string>;
+  /** ESPN-only — draft year derived from `experience.years`, keyed the same. */
+  draftYearByNameTeam?: Map<string, number>;
+  draftYearByName?: Map<string, number>;
 }
 
 async function fetchStatsIds(sport: Sport, season: string): Promise<StatsLookup> {
-  if (sport === 'wnba') return fetchEspnWnbaAthletes();
+  if (sport === 'wnba') return fetchEspnWnbaAthletes(season);
   return fetchNbaStatsIds(season);
 }
 
@@ -151,11 +154,20 @@ const ESPN_WNBA_TEAMS_URL = 'https://site.api.espn.com/apis/site/v2/sports/baske
 const ESPN_WNBA_ROSTER_URL = (teamId: string) =>
   `https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/teams/${teamId}/roster`;
 
-async function fetchEspnWnbaAthletes(): Promise<StatsLookup> {
+async function fetchEspnWnbaAthletes(season: string): Promise<StatsLookup> {
   const byNameTeam = new Map<string, number>();
   const byName = new Map<string, number>();
   const birthdateByNameTeam = new Map<string, string>();
   const birthdateByName = new Map<string, string>();
+  const draftYearByNameTeam = new Map<string, number>();
+  const draftYearByName = new Map<string, number>();
+
+  // WNBA season is a single calendar year ("2026"). ESPN reports completed
+  // pro seasons in `experience.years` (0 for a not-yet-played rookie), so
+  // draft_year = seasonYear - experience.years. Accurate for recent draftees
+  // (all that taxi-squad rookie eligibility cares about); veterans with
+  // gap-year careers can drift a year, which doesn't affect eligibility.
+  const seasonYear = parseInt(season, 10);
 
   const teamsRes = await fetch(ESPN_WNBA_TEAMS_URL, { signal: AbortSignal.timeout(10000) });
   if (!teamsRes.ok) throw new Error(`ESPN WNBA teams returned ${teamsRes.status}`);
@@ -185,11 +197,25 @@ async function fetchEspnWnbaAthletes(): Promise<StatsLookup> {
           if (tricode) birthdateByNameTeam.set(`${norm}|${tricode}`, dob);
           birthdateByName.set(norm, dob);
         }
+
+        const expYears = a.experience?.years;
+        if (Number.isInteger(seasonYear) && Number.isInteger(expYears) && expYears >= 0) {
+          const draftYear = seasonYear - expYears;
+          if (tricode) draftYearByNameTeam.set(`${norm}|${tricode}`, draftYear);
+          draftYearByName.set(norm, draftYear);
+        }
       }
     }),
   );
 
-  return { byNameTeam, byName, birthdateByNameTeam, birthdateByName };
+  return {
+    byNameTeam,
+    byName,
+    birthdateByNameTeam,
+    birthdateByName,
+    draftYearByNameTeam,
+    draftYearByName,
+  };
 }
 
 Deno.serve(async (req: Request) => {
@@ -224,6 +250,7 @@ Deno.serve(async (req: Request) => {
       normName: string;
       pro_team: string;
       bdl_position: string | null;
+      draft_year: number | null;
     }> = [];
 
     for (const bp of bdlPlayers) {
@@ -233,12 +260,18 @@ Deno.serve(async (req: Request) => {
       const name = `${bp.first_name ?? ''} ${bp.last_name ?? ''}`.trim();
       if (!name) continue;
 
+      // BDL's draft_year is a plain calendar year (e.g. 2018) for both sports,
+      // or null for undrafted/unknown. Drives taxi-squad rookie eligibility.
+      const draftYear =
+        typeof bp.draft_year === 'number' && bp.draft_year > 1900 ? bp.draft_year : null;
+
       activePlayers.push({
         bdl_id: bp.id,
         name,
         normName: normalizeName(name),
         pro_team: team,
         bdl_position: coerceBdlPosition(bp.position, sport),
+        draft_year: draftYear,
       });
     }
 
@@ -290,11 +323,20 @@ Deno.serve(async (req: Request) => {
       );
     };
 
+    const lookupDraftYear = (norm: string, team: string): number | null => {
+      if (!statsIds?.draftYearByNameTeam || !statsIds.draftYearByName) return null;
+      return (
+        statsIds.draftYearByNameTeam.get(`${norm}|${team}`)
+        ?? statsIds.draftYearByName.get(norm)
+        ?? null
+      );
+    };
+
     // 4. Fetch our existing players, scoped to this sport (BDL ID namespaces
     // are separate per sport, so cross-sport name collisions don't matter).
     const { data: existing, error: fetchErr } = await supabase
       .from('players')
-      .select('id, name, position, pro_team, external_id_bdl, external_id_nba, birthdate')
+      .select('id, name, position, pro_team, external_id_bdl, external_id_nba, birthdate, draft_year')
       .eq('sport', sport);
     if (fetchErr) throw new Error(`Failed to fetch players: ${fetchErr.message}`);
 
@@ -305,6 +347,7 @@ Deno.serve(async (req: Request) => {
       external_id_bdl: number | null;
       external_id_nba: number | null;
       birthdate: string | null;
+      draft_year: number | null;
     };
 
     const existingByBdlId = new Map<number, ExistingRec>();
@@ -318,6 +361,7 @@ Deno.serve(async (req: Request) => {
         external_id_bdl: p.external_id_bdl,
         external_id_nba: p.external_id_nba ? Number(p.external_id_nba) : null,
         birthdate: (p as { birthdate?: string | null }).birthdate ?? null,
+        draft_year: (p as { draft_year?: number | null }).draft_year ?? null,
       };
       if (p.external_id_bdl) existingByBdlId.set(Number(p.external_id_bdl), rec);
       existingByName.set(normalizeName(p.name), rec);
@@ -339,6 +383,7 @@ Deno.serve(async (req: Request) => {
       position?: string;
       external_id_nba?: number;
       birthdate?: string;
+      draft_year?: number;
     }> = [];
 
     for (const bp of activePlayers) {
@@ -387,6 +432,14 @@ Deno.serve(async (req: Request) => {
           hasChange = true;
         }
       }
+      // Back-fill draft_year when currently NULL (drives taxi-squad rookie
+      // eligibility). NBA gets it from BDL; WNBA from ESPN experience (BDL's
+      // WNBA feed omits draft_year).
+      const derivedDraftYear = bp.draft_year ?? lookupDraftYear(bp.normName, bp.pro_team);
+      if (!match.draft_year && derivedDraftYear) {
+        update.draft_year = derivedDraftYear;
+        hasChange = true;
+      }
 
       if (hasChange) updates.push(update);
     }
@@ -418,6 +471,8 @@ Deno.serve(async (req: Request) => {
         if (nbaId) row.external_id_nba = nbaId;
         const dob = lookupBirthdate(p.normName, p.pro_team);
         if (dob) row.birthdate = dob;
+        const draftYear = p.draft_year ?? lookupDraftYear(p.normName, p.pro_team);
+        if (draftYear) row.draft_year = draftYear;
         return row;
       });
       const { error: insertErr } = await supabase.from('players').insert(toInsert);
@@ -430,6 +485,7 @@ Deno.serve(async (req: Request) => {
     let positionsBackfilled = 0;
     let nbaIdsBackfilled = 0;
     let birthdatesBackfilled = 0;
+    let draftYearsBackfilled = 0;
     for (let i = 0; i < updates.length; i += 50) {
       const chunk = updates.slice(i, i + 50);
       await Promise.all(chunk.map((u) => {
@@ -447,6 +503,10 @@ Deno.serve(async (req: Request) => {
         if (u.birthdate !== undefined) {
           patch.birthdate = u.birthdate;
           birthdatesBackfilled++;
+        }
+        if (u.draft_year !== undefined) {
+          patch.draft_year = u.draft_year;
+          draftYearsBackfilled++;
         }
         return supabase.from('players').update(patch).eq('id', u.id);
       }));
@@ -480,6 +540,7 @@ Deno.serve(async (req: Request) => {
       positions_backfilled: positionsBackfilled,
       nba_ids_backfilled: nbaIdsBackfilled,
       birthdates_backfilled: birthdatesBackfilled,
+      draft_years_backfilled: draftYearsBackfilled,
       waived_cleared: waivedCount,
       sleeper_ok: sleeperPos !== null,
       nba_stats_ok: statsIds !== null,

@@ -80,7 +80,10 @@ export function buildMatchupSlots(
   config: RosterConfigSlot[],
 ): MatchupSlotEntry[] {
   const activeConfigs = config.filter(
-    (c) => c.position !== "BE" && c.position !== "IR",
+    (c) =>
+      c.position !== "BE" &&
+      c.position !== "IR" &&
+      c.position !== ROSTER_SLOT.TAXI,
   );
   const slots: MatchupSlotEntry[] = [];
   // Track placed players so duplicate-slot collisions fall to bench

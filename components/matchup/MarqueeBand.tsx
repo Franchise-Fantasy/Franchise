@@ -59,12 +59,29 @@ export function MarqueeBand({ label, items, emptyText, a11yLabel }: MarqueeBandP
       translateX.value = 0;
       return;
     }
-    const duration = (cycleWidth / SCROLL_SPEED_PX_PER_SEC) * 1000;
-    translateX.value = 0;
-    translateX.value = withRepeat(
-      withTiming(-cycleWidth, { duration, easing: Easing.linear }),
-      -1,
-      false,
+    const fullDuration = (cycleWidth / SCROLL_SPEED_PX_PER_SEC) * 1000;
+    // Don't snap back to 0 when items change. Wrap the current offset into
+    // [-cycleWidth, 0) so the new loop picks up where the eye left off —
+    // otherwise every new live event (and every 10s "Xs ago" refresh) flicks
+    // the ticker back to the left edge. The first sweep finishes the
+    // remaining distance at full speed, then withRepeat takes over.
+    const wrapped = ((translateX.value % cycleWidth) + cycleWidth) % cycleWidth;
+    translateX.value = -wrapped;
+    const remaining = cycleWidth - wrapped;
+    const firstDuration = (remaining / SCROLL_SPEED_PX_PER_SEC) * 1000;
+    translateX.value = withTiming(
+      -cycleWidth,
+      { duration: firstDuration, easing: Easing.linear },
+      (finished) => {
+        'worklet';
+        if (!finished) return;
+        translateX.value = 0;
+        translateX.value = withRepeat(
+          withTiming(-cycleWidth, { duration: fullDuration, easing: Easing.linear }),
+          -1,
+          false,
+        );
+      },
     );
     return () => cancelAnimation(translateX);
   }, [cycleWidth, translateX]);

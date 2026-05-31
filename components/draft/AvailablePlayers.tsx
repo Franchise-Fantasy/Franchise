@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   FlatList,
   StyleSheet,
   Text,
@@ -28,6 +29,7 @@ import { PlayerSeasonStats } from "@/types/player";
 import { formatPosition } from "@/utils/formatting";
 import { getInjuryBadge } from "@/utils/nba/injuryBadge";
 import { getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
+import { checkPositionLimits, type PositionLimits } from "@/utils/roster/positionLimits";
 import { ms, s } from "@/utils/scale";
 import { calculateAvgFantasyPoints } from "@/utils/scoring/fantasyPoints";
 
@@ -77,6 +79,42 @@ export function AvailablePlayers({
     staleTime: 1000 * 60 * 30,
   });
   const isCategories = scoringType === "h2h_categories";
+
+  // Block the Draft button for players whose position would push the team over
+  // a per-position limit — mirrors the edge function's checkPositionLimits()
+  // so the violation surfaces visually before the round-trip.
+  const { data: positionLimits } = useQuery<PositionLimits | null>({
+    queryKey: queryKeys.leaguePositionLimits(leagueId),
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("leagues")
+        .select("position_limits")
+        .eq("id", leagueId)
+        .single();
+      return (data?.position_limits as PositionLimits) ?? null;
+    },
+    enabled: !!leagueId,
+    staleTime: 1000 * 60 * 30,
+  });
+
+  const { data: myRoster } = useQuery<{ position: string; roster_slot?: string }[]>({
+    queryKey: queryKeys.teamRoster(teamId),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("league_players")
+        .select("position, roster_slot")
+        .eq("team_id", teamId);
+      if (error) throw error;
+      return (data ?? []).map((r) => ({
+        position: r.position,
+        roster_slot: r.roster_slot ?? undefined,
+      }));
+    },
+    enabled: !!teamId,
+    staleTime: 0,
+  });
+
+  const hasLimits = !!positionLimits && Object.keys(positionLimits).length > 0;
 
   const [timeRange, setTimeRange] = useState<TimeRange>("season");
 
@@ -342,6 +380,16 @@ export function AvailablePlayers({
 
   const handleDraft = (player: PlayerSeasonStats) => {
     if (!isMyTurn || !currentPick) return;
+    if (hasLimits) {
+      const violation = checkPositionLimits(positionLimits, myRoster ?? [], player.position);
+      if (violation) {
+        Alert.alert(
+          "Position limit reached",
+          `Your roster already has ${violation.current} of ${violation.max} players eligible at ${violation.position}. Pick someone else.`,
+        );
+        return;
+      }
+    }
     draftPlayer({
       id: player.player_id,
       name: player.name,
@@ -360,6 +408,11 @@ export function AvailablePlayers({
         : undefined;
       const logoUrl = getTeamLogoUrl(item.pro_team, sport);
       const badge = getInjuryBadge(item.status);
+      const limitViolation = hasLimits
+        ? checkPositionLimits(positionLimits, myRoster ?? [], item.position)
+        : null;
+      const limitBlocked = !!limitViolation;
+      const draftDisabled = !isMyTurn || isDrafting || limitBlocked;
 
       return (
         <TouchableOpacity
@@ -432,21 +485,25 @@ export function AvailablePlayers({
             <TouchableOpacity
               style={[
                 styles.draftButton,
-                { backgroundColor: (!isMyTurn || isDrafting) ? c.buttonDisabled : c.link },
+                { backgroundColor: draftDisabled ? c.buttonDisabled : c.link },
               ]}
               onPress={() => handleDraft(item)}
-              disabled={!isMyTurn || isDrafting}
+              disabled={draftDisabled}
               accessibilityRole="button"
-              accessibilityLabel={`Draft ${item.name}`}
-              accessibilityState={{ disabled: !isMyTurn || isDrafting }}
+              accessibilityLabel={
+                limitBlocked
+                  ? `${item.name} blocked — roster already has ${limitViolation.max} at ${limitViolation.position}`
+                  : `Draft ${item.name}`
+              }
+              accessibilityState={{ disabled: draftDisabled }}
             >
               <ThemedText
                 style={[
                   styles.draftButtonText,
-                  { color: (!isMyTurn || isDrafting) ? c.secondaryText : c.statusText },
+                  { color: draftDisabled ? c.secondaryText : c.statusText },
                 ]}
               >
-                Draft
+                {limitBlocked ? `Max ${limitViolation.position}` : "Draft"}
               </ThemedText>
             </TouchableOpacity>
             {addToQueue && (
@@ -477,7 +534,7 @@ export function AvailablePlayers({
         </TouchableOpacity>
       );
     },
-    [c, scoringWeights, isMyTurn, isDrafting, addToQueue, queuedPlayerIds],
+    [c, scoringWeights, isCategories, isMyTurn, isDrafting, addToQueue, queuedPlayerIds, sport, players, hasLimits, positionLimits, myRoster],
   );
 
   if (isLoading) {

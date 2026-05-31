@@ -3,6 +3,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { errorResponse, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { parseBody, z } from '../_shared/validate.ts';
+import { week1Length } from '../../../utils/leagueTime.ts';
 
 const Body = z.object({
   league_id: z.string().uuid(),
@@ -145,6 +146,29 @@ Deno.serve(async (req: Request) => {
       await supabase.from("leagues").update({ season_start_date: seasonStartDate }).eq("id", league_id);
     }
 
+    // Hard guard: the season must start AFTER the latest draft in this league
+    // (calendar-day, league-TZ). Otherwise games played on draft day would
+    // retroactively credit newly-drafted players. Client paths auto-bump the
+    // start date when scheduling; this catches the case where the date was
+    // edited directly in the DB or via a path that skipped that check.
+    const { data: latestDraft } = await supabase
+      .from('drafts')
+      .select('draft_date')
+      .eq('league_id', league_id)
+      .not('draft_date', 'is', null)
+      .order('draft_date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (latestDraft?.draft_date) {
+      const draftDay = latestDraft.draft_date.slice(0, 10); // YYYY-MM-DD (UTC-ish, good enough here)
+      if (seasonStartDate <= draftDay) {
+        return errorResponse(
+          `Season start (${seasonStartDate}) must be after the draft date (${draftDay}). Update the start date in League Info → Season Settings, or reschedule the draft.`,
+          409,
+        );
+      }
+    }
+
     const { data: teams, error: teamsErr } = await supabase
       .from("teams")
       .select("id")
@@ -167,12 +191,13 @@ Deno.serve(async (req: Request) => {
 
     const [sy, sm, sd] = seasonStartDate.split("-").map(Number);
 
-    // Week 1 may be a partial week (e.g. Tue–Sun) if the league was
-    // created mid-week.  Week 2+ are always full Mon–Sun.
+    // Week 1 absorbs any Thu/Fri/Sat/Sun leading days (8-11 day long week
+    // ending the second Sunday); Mon/Tue/Wed starts give a 5-7 day Week 1.
+    // Week 2+ are always full Mon–Sun. See week1Length in utils/leagueTime.
     const w1Start = new Date(Date.UTC(sy, sm - 1, sd));
-    const w1Dow = w1Start.getUTCDay(); // 0=Sun, 1=Mon, …, 6=Sat
-    const daysUntilSun = w1Dow === 0 ? 0 : 7 - w1Dow;
-    const w1EndDay = sd + daysUntilSun; // day-of-month for Week 1 Sunday
+    const w1Dow = w1Start.getUTCDay();
+    const w1Len = week1Length(w1Dow);
+    const w1EndDay = sd + w1Len - 1; // day-of-month for Week 1 Sunday
     const week2StartDay = w1EndDay + 1;  // Monday after Week 1
 
     const totalWeeks = league.regular_season_weeks + league.playoff_weeks;

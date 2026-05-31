@@ -75,6 +75,20 @@ describe('extractReturnEstimate', () => {
     expect(extractReturnEstimate('He is out for the season')).toBe('out for season');
   });
 
+  it('treats "season-ending" as out-for-season only in an injury context', () => {
+    expect(extractReturnEstimate('Suffers season-ending knee injury')).toBe('out for season');
+    expect(extractReturnEstimate('To undergo season-ending surgery')).toBe('out for season');
+    expect(extractReturnEstimate('Diagnosed with a season-ending Achilles tear')).toBe('out for season');
+  });
+
+  // Regression: a playoff-elimination recap ("season-ending loss/defeat") is
+  // about the team's season, not the player's availability — must NOT label.
+  it('does not label a "season-ending loss" recap as out-for-season', () => {
+    expect(extractReturnEstimate('Scores 35 in season-ending loss')).toBeNull();
+    expect(extractReturnEstimate('Drops 40 in season-ending defeat to the Nuggets')).toBeNull();
+    expect(extractReturnEstimate('Logs a triple-double in season-ending Game 7 loss')).toBeNull();
+  });
+
   it('extracts a week range', () => {
     expect(extractReturnEstimate('expected to miss 2 to 4 weeks')).toBe('2-4 weeks');
   });

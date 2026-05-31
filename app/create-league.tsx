@@ -126,7 +126,7 @@ const initialState: LeagueWizardState = {
   venmoUsername: '',
   cashappTag: '',
   paypalUsername: '',
-  taxiMaxExperience: null,
+  taxiMaxExperience: 1,
   weeklyAcquisitionLimit: null,
   playerLockType: 'Daily',
   autoRumorsEnabled: false,

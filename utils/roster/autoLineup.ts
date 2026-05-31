@@ -1,4 +1,4 @@
-import { isEligibleForSlot, baseSlotName, isStarterSlot } from './rosterSlots';
+import { isEligibleForSlot, baseSlotName, isStarterSlot, ROSTER_SLOT } from './rosterSlots';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -43,10 +43,11 @@ export function optimizeLineup(
   players: LineupPlayer[],
   config: SlotConfig[],
 ): SlotAssignment[] {
-  // Build list of starter seat names
+  // Build list of starter seat names. BE/IR/TAXI are non-starter holding
+  // slots — players there are preserved as-is below, never optimized into.
   const starterSeats: string[] = [];
   for (const c of config) {
-    if (c.position === 'BE' || c.position === 'IR') continue;
+    if (c.position === 'BE' || c.position === 'IR' || c.position === ROSTER_SLOT.TAXI) continue;
     if (c.position === 'UTIL') {
       for (let i = 1; i <= c.slot_count; i++) starterSeats.push(`UTIL${i}`);
     } else {
@@ -57,26 +58,34 @@ export function optimizeLineup(
   const result: SlotAssignment[] = [];
   const assignedIds = new Set<string>();
 
-  // 1. IR players stay on IR
+  // 1. IR and TAXI players stay where they are — these are holding slots
+  //    (injured reserve / dynasty taxi squad) that the optimizer must never
+  //    pull a player out of. Leaving a taxi player in the pool would let the
+  //    greedy fill promote them into a starting slot, silently clearing the
+  //    taxi assignment via the daily_lineups write.
   for (const p of players) {
-    if (p.roster_slot === 'IR') {
-      result.push({ player_id: p.player_id, slot: 'IR' });
-      assignedIds.add(p.player_id);
-    }
-  }
-
-  // 2. Locked starters stay in their current seat
-  for (const p of players) {
-    if (assignedIds.has(p.player_id)) continue;
-    if (p.locked && isStarterSlot(p.roster_slot)) {
+    if (p.roster_slot === ROSTER_SLOT.IR || p.roster_slot === ROSTER_SLOT.TAXI) {
       result.push({ player_id: p.player_id, slot: p.roster_slot });
       assignedIds.add(p.player_id);
     }
   }
 
-  // Remove seats claimed by locked players
+  // 2. Locked players stay in their current slot — bench or starter. `locked`
+  //    means the player's game has already started, so the same rule that
+  //    blocks a manual drag applies: a locked bench player must NOT be promoted
+  //    into a starting slot, and a locked starter must NOT be benched.
+  for (const p of players) {
+    if (assignedIds.has(p.player_id)) continue;
+    if (p.locked) {
+      result.push({ player_id: p.player_id, slot: p.roster_slot });
+      assignedIds.add(p.player_id);
+    }
+  }
+
+  // Remove starter seats claimed by locked starters (locked bench players hold
+  // a 'BE' slot, which isStarterSlot already excludes).
   const lockedSeats = result
-    .filter(r => isStarterSlot(r.slot) && r.slot !== 'IR')
+    .filter(r => isStarterSlot(r.slot) && r.slot !== 'IR' && r.slot !== ROSTER_SLOT.TAXI)
     .map(r => r.slot);
   const openSeats = [...starterSeats];
   for (const ls of lockedSeats) {
@@ -180,7 +189,7 @@ export function optimizeLineup(
       for (let j = 0; j < result.length; j++) {
         if (i === j) continue;
         const otherAssign = result[j];
-        if (otherAssign.slot === 'IR') continue;
+        if (otherAssign.slot === 'IR' || otherAssign.slot === ROSTER_SLOT.TAXI) continue;
         const other = playerMap.get(otherAssign.player_id)!;
         if (other.locked) continue;
 

@@ -5,6 +5,7 @@ import {
   isEligibleForSlot,
   POSITION_SPECTRUM,
   POSITION_TOKEN_RANGES,
+  ROSTER_SLOT,
   SLOT_ELIGIBLE_POSITIONS,
 } from '@/utils/roster/rosterSlotsShared';
 
@@ -18,6 +19,7 @@ export {
   isEligibleForSlot,
   POSITION_SPECTRUM,
   POSITION_TOKEN_RANGES,
+  ROSTER_SLOT,
   SLOT_ELIGIBLE_POSITIONS,
 };
 

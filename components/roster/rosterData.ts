@@ -10,6 +10,7 @@ import {
   calculateAvgFantasyPoints,
   calculateGameFantasyPoints,
 } from "@/utils/scoring/fantasyPoints";
+import { averageGames, lastNPlayedGames } from "@/utils/scoring/windowAverages";
 
 // Data layer for the roster tab: the per-date roster fetch + the small pure
 // stat-line helpers. Split out of (tabs)/roster.tsx so the route file holds
@@ -58,11 +59,40 @@ export function buildStatLine(stats: Record<string, number>): string {
 // result is null for players with no games logged.
 export type SeasonAverages = { stats: string; fpts: string | null };
 
+/** Optional last-N-played-games override for buildSeasonAverages. When set,
+ *  the displayed P/R/A and FPTS slice the player's most recent `windowSize`
+ *  played games (DNPs skipped) instead of using their season averages — the
+ *  picker in PointsStrengthAnalytics + the roster header pill both feed this
+ *  so "Last 10" means the same thing across surfaces. Forward-facing only:
+ *  callers already gate on `!isLive && !statLine && !isPastDate`, so past
+ *  dates and games-in-progress never go through this path. Falls back to
+ *  season averages when the player has no game log / no played games in the
+ *  window so a fresh acquisition doesn't render as "—". */
 export function buildSeasonAverages(
   player: RosterPlayer,
   scoringWeights: ScoringWeight[] | undefined,
   isCategories: boolean,
+  windowOverride?: { gameLog: PlayerGameLog[] | undefined; windowSize: number },
 ): SeasonAverages | null {
+  if (windowOverride && windowOverride.windowSize > 0) {
+    const played = lastNPlayedGames(windowOverride.gameLog, windowOverride.windowSize);
+    if (played.length > 0) {
+      const avg = averageGames(played);
+      if (avg) {
+        const stats = `${avg.avg_pts.toFixed(1)}P/${avg.avg_reb.toFixed(1)}R/${avg.avg_ast.toFixed(1)}A`;
+        let fpts: string | null = null;
+        if (!isCategories && scoringWeights) {
+          let total = 0;
+          for (const g of played) total += calculateGameFantasyPoints(g, scoringWeights);
+          const value = total / played.length;
+          if (value > 0) fpts = value.toFixed(1);
+        }
+        return { stats, fpts };
+      }
+    }
+    // No game log / no played games — fall through to season averages.
+  }
+
   if ((player.games_played ?? 0) === 0) return null;
   const stats = `${player.avg_pts.toFixed(1)}P/${player.avg_reb.toFixed(1)}R/${player.avg_ast.toFixed(1)}A`;
   let fpts: string | null = null;

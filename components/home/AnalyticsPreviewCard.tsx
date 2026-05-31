@@ -97,13 +97,10 @@ export function AnalyticsPreviewCard({
     if (isDynasty || isCategories || !allPlayers?.length || !weights?.length || !teamId) {
       return null;
     }
-    return buildLeagueStrengthComparison(
-      allPlayers as any,
-      weights,
-      teamId,
+    return buildLeagueStrengthComparison(allPlayers as any, weights, teamId, {
       prevSeasonFptsMap,
-      ANALYTICS_MIN_CURRENT_SEASON_GAMES,
-    );
+      minGames: ANALYTICS_MIN_CURRENT_SEASON_GAMES,
+    });
   }, [isDynasty, isCategories, allPlayers, weights, teamId, prevSeasonFptsMap]);
 
   const teamAvgs = useMemo(() => {
@@ -241,7 +238,7 @@ export function AnalyticsPreviewCard({
                 <View style={[styles.divider, { backgroundColor: c.border }]} />
                 <Column
                   label="vs League"
-                  bigValue={`${strength.myTotalFpts - strength.leagueAvgFpts >= 0 ? '+' : ''}${(strength.myTotalFpts - strength.leagueAvgFpts).toFixed(1)}`}
+                  bigValue={`${strength.myAvgFpts - strength.leagueAvgFpts >= 0 ? '+' : ''}${(strength.myAvgFpts - strength.leagueAvgFpts).toFixed(1)}`}
                   subValue="FPTS/G vs avg"
                   bigColor={c.text}
                   subColor={c.secondaryText}

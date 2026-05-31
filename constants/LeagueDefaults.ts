@@ -32,7 +32,7 @@ export const DEFAULT_ROSTER_SLOTS: RosterSlot[] = [
   { position: 'F', label: 'Forward', count: 1 },
   { position: 'UTIL', label: 'Utility', count: 3 },
   { position: 'BE', label: 'Bench', count: 3 },
-  { position: 'IR', label: 'Injured Reserve', count: 0 },
+  { position: 'IR', label: 'Injured Reserve', count: 1 },
   { position: 'TAXI', label: 'Taxi Squad', count: 0 },
 ];
 
@@ -42,7 +42,7 @@ export const WNBA_DEFAULT_ROSTER_SLOTS: RosterSlot[] = [
   { position: 'C', label: 'Center', count: 1 },
   { position: 'UTIL', label: 'Utility', count: 2 },
   { position: 'BE', label: 'Bench', count: 3 },
-  { position: 'IR', label: 'Injured Reserve', count: 0 },
+  { position: 'IR', label: 'Injured Reserve', count: 1 },
   { position: 'TAXI', label: 'Taxi Squad', count: 0 },
 ];
 
@@ -359,10 +359,18 @@ export function getCreationStatus(sport: Sport, today: Date = new Date()): Seaso
     const msPerWeek = 7 * 24 * 60 * 60 * 1000;
     const weeksRemaining = Math.floor((endDate.getTime() - todayMidnight.getTime()) / msPerWeek);
     if (weeksRemaining >= getMinWeeksRemaining(sport)) {
+      // Opening-night defaults are hardcoded per season — once the season is
+      // mid-flight (e.g. creating a WNBA league in June, after May 15 tipoff),
+      // the date is in the past. Null it out so the wizard falls back to
+      // computeSeasonStart() (today or the next Monday).
+      const defaultStart = getSeasonStart(sport, currentSeason) ?? null;
+      const isPast = defaultStart
+        ? new Date(`${defaultStart}T00:00:00`).getTime() < todayMidnight.getTime()
+        : false;
       return {
         sport,
         season: currentSeason,
-        defaultStartDate: getSeasonStart(sport, currentSeason) ?? null,
+        defaultStartDate: isPast ? null : defaultStart,
         available: true,
       };
     }
@@ -377,10 +385,14 @@ export function getCreationStatus(sport: Sport, today: Date = new Date()): Seaso
   if (opens) {
     const openDate = new Date(todayMidnight.getFullYear(), opens.month - 1, opens.day);
     if (todayMidnight >= openDate) {
+      const defaultStart = getSeasonStart(sport, nextSeason) ?? null;
+      const isPast = defaultStart
+        ? new Date(`${defaultStart}T00:00:00`).getTime() < todayMidnight.getTime()
+        : false;
       return {
         sport,
         season: nextSeason,
-        defaultStartDate: getSeasonStart(sport, nextSeason) ?? null,
+        defaultStartDate: isPast ? null : defaultStart,
         available: true,
       };
     }

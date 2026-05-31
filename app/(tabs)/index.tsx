@@ -15,9 +15,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ManualDraftOrderModal } from '@/components/commissioner/ManualDraftOrderModal';
 import { AnalyticsPreviewCard } from '@/components/home/AnalyticsPreviewCard';
 import { DeclareKeepers } from '@/components/home/DeclareKeepers';
-import { ManualDraftOrderModal } from '@/components/commissioner/ManualDraftOrderModal';
 import { HomeHero, type HomeHeroVariant, type PaymentBadge } from '@/components/home/HomeHero';
 import { LeagueSwitcher } from '@/components/home/LeagueSwitcher';
 import { OffseasonLotteryOrder } from '@/components/home/OffseasonLotteryOrder';
@@ -45,6 +45,7 @@ import { markSplashReady } from '@/lib/splashReady';
 import { supabase } from '@/lib/supabase';
 import { openPaymentConfirmed } from '@/utils/league/paymentLinks';
 import { calcRounds } from '@/utils/league/playoff';
+import { minSeasonStartForDraft } from '@/utils/league/seasonStart';
 import { isIrEligibleStatus } from '@/utils/roster/illegalIR';
 import { ms, s } from '@/utils/scale';
 
@@ -698,6 +699,19 @@ export default function HomeScreen() {
     const rounded = new Date(target);
     rounded.setSeconds(0, 0);
     const startTime = rounded.toISOString();
+
+    // Fantasy scoring can't begin on or before the draft, can't begin
+    // before the IRL season's opening night, and Week 1 must be ≥ 5 days.
+    // See minSeasonStartForDraft for the full stack.
+    const minSeasonStart = minSeasonStartForDraft({
+      sport: league.sport,
+      season: league.season,
+      draftDate: rounded,
+    });
+    const currentStart = league.season_start_date as string | null;
+    const bumpedSeasonStart =
+      !currentStart || currentStart < minSeasonStart ? minSeasonStart : null;
+
     const { error } = await supabase
       .from('drafts')
       .update({ status: 'pending', draft_date: startTime })
@@ -706,6 +720,26 @@ export default function HomeScreen() {
       Alert.alert('Error', 'Failed to schedule draft');
       return;
     }
+
+    if (bumpedSeasonStart) {
+      const { error: seasonErr } = await supabase
+        .from('leagues')
+        .update({ season_start_date: bumpedSeasonStart })
+        .eq('id', league.id);
+      if (seasonErr) {
+        Alert.alert(
+          'Heads up',
+          'Draft scheduled, but the season start date couldn\'t be auto-adjusted. Set it manually in League Info → Season Settings.',
+        );
+      } else {
+        Alert.alert(
+          'Season start adjusted',
+          `Season Day 1 moved to ${bumpedSeasonStart} so games played before the draft finishes don\'t count.`,
+        );
+        queryClient.invalidateQueries({ queryKey: queryKeys.league(league.id) });
+      }
+    }
+
     queryClient.invalidateQueries({ queryKey: queryKeys.activeDraft(league.id) });
     setShowDatePicker(false);
     setSelectedDate(null);

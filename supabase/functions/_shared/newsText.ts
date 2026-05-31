@@ -86,10 +86,20 @@ interface ReturnPattern {
   extract: (m: RegExpMatchArray) => string;
 }
 
+// The bare "season-ending" adjective is ambiguous: "season-ending surgery /
+// injury / Achilles tear" is a real availability signal, but "season-ending
+// loss / defeat / Game 7" describes a team's playoff elimination and must NOT
+// produce an "Out For Season" label. We gate this one rule on an injury context
+// appearing somewhere in the text (the explicit "out/done for the season"
+// patterns below are unambiguous and stay unguarded).
+const SEASON_ENDING_RE = /season[\s-]*ending/i;
+const INJURY_CONTEXT_RE =
+  /injur|surger|surgical|procedure|operation|\btears?\b|\btorn\b|ruptur|fracture|sprain|strain|ligament|\bACL\b|\bMCL\b|achilles|sideline|undergo/i;
+
 const RETURN_PATTERNS: ReturnPattern[] = [
   { re: /out\s+for\s+the\s+(season|year)/i, extract: () => 'out for season' },
   { re: /done\s+for\s+the\s+(season|year)/i, extract: () => 'out for season' },
-  { re: /season[\s-]*ending/i, extract: () => 'out for season' },
+  { re: SEASON_ENDING_RE, extract: () => 'out for season' },
   { re: /out\s+indefinitely/i, extract: () => 'out indefinitely' },
   { re: /no\s+timetable/i, extract: () => 'out indefinitely' },
   { re: /day[\s-]*to[\s-]*day/i, extract: () => 'day-to-day' },
@@ -111,7 +121,10 @@ const RETURN_PATTERNS: ReturnPattern[] = [
 export function extractReturnEstimate(text: string): string | null {
   for (const { re, extract } of RETURN_PATTERNS) {
     const m = text.match(re);
-    if (m) return extract(m);
+    if (!m) continue;
+    // "season-ending" only counts as an injury signal in an injury context.
+    if (re === SEASON_ENDING_RE && !INJURY_CONTEXT_RE.test(text)) continue;
+    return extract(m);
   }
   return null;
 }

@@ -13,6 +13,7 @@ import { Colors, cardShadow } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase, uniqueChannelTopic } from '@/lib/supabase';
+import { minSeasonStartForDraft } from '@/utils/league/seasonStart';
 import { logger } from '@/utils/logger';
 import { ms, s } from '@/utils/scale';
 
@@ -57,13 +58,14 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
     enabled: !!leagueId
   });
 
-  // Fetch league's initial_draft_order setting
+  // Fetch league's initial_draft_order setting + the sport + current season
+  // start so confirm can auto-bump season_start_date if it overlaps the draft.
   const { data: leagueSettings } = useQuery({
     queryKey: queryKeys.leagueDraftOrder(leagueId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('leagues')
-        .select('initial_draft_order')
+        .select('initial_draft_order, sport, season, season_start_date')
         .eq('id', leagueId)
         .single();
       if (error) throw error;
@@ -117,6 +119,17 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
     rounded.setSeconds(0, 0);
     const startTime = rounded.toISOString();
 
+    // Fantasy scoring can't begin on/before the draft, can't begin before
+    // the IRL opening night, and Week 1 must be ≥ 5 days.
+    const currentStart = leagueSettings?.season_start_date ?? null;
+    const minSeasonStart = minSeasonStartForDraft({
+      sport: leagueSettings?.sport ?? null,
+      season: leagueSettings?.season ?? null,
+      draftDate: rounded,
+    });
+    const bumpedSeasonStart =
+      !currentStart || currentStart < minSeasonStart ? minSeasonStart : null;
+
     const { error } = await supabase
       .from('drafts')
       .update({
@@ -129,6 +142,25 @@ export function DraftSection({ leagueId, isCommissioner }: DraftSectionProps) {
       logger.error('Draft scheduling failed', error);
       Alert.alert('Error', 'Failed to schedule draft');
       return;
+    }
+
+    if (bumpedSeasonStart) {
+      const { error: seasonErr } = await supabase
+        .from('leagues')
+        .update({ season_start_date: bumpedSeasonStart })
+        .eq('id', leagueId);
+      if (seasonErr) {
+        Alert.alert(
+          'Heads up',
+          'Draft scheduled, but the season start date couldn\'t be auto-adjusted. Set it manually in League Info → Season Settings.',
+        );
+      } else {
+        Alert.alert(
+          'Season start adjusted',
+          `Season Day 1 moved to ${bumpedSeasonStart} so games played before the draft finishes don\'t count.`,
+        );
+        queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId) });
+      }
     }
 
     queryClient.invalidateQueries({ queryKey: queryKeys.activeDraft(leagueId) });
