@@ -150,6 +150,7 @@ interface ChatItemProps {
   isSelected: boolean;
   teamId: string | undefined;
   teamLogoKey: string | null;
+  teamTricode: string | null;
   swipeReveal: SharedValue<number>;
   secondaryTextColor: string;
   onLongPress: (messageId: string) => void;
@@ -169,6 +170,7 @@ const ChatItem = React.memo(function ChatItem({
   isSelected,
   teamId,
   teamLogoKey,
+  teamTricode,
   swipeReveal,
   secondaryTextColor,
   onLongPress,
@@ -210,6 +212,7 @@ const ChatItem = React.memo(function ChatItem({
         onReactionPress={handleReactionPress}
         teamId={teamId}
         teamLogoKey={teamLogoKey}
+        teamTricode={teamTricode}
         isCommissioner={isCommissioner}
         swipeReveal={swipeReveal}
         showSwipeTime={meta.showSwipeTime}
@@ -308,6 +311,24 @@ export default function ConversationScreen() {
         .eq('league_id', leagueId!);
       const map: Record<string, string | null> = {};
       for (const t of data ?? []) map[t.id] = t.logo_key;
+      return map;
+    },
+    enabled: !!leagueId,
+    staleTime: 1000 * 60 * 10,
+  });
+
+  // team_id → tricode for message-avatar initials. Kept separate from
+  // teamLogoMap so that map's plain logo-key shape (shared by presence
+  // avatars + draft chat) stays untouched.
+  const { data: teamTricodeMap } = useQuery<Record<string, string | null>>({
+    queryKey: queryKeys.teamTricodes(leagueId!),
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('teams')
+        .select('id, tricode')
+        .eq('league_id', leagueId!);
+      const map: Record<string, string | null> = {};
+      for (const t of data ?? []) map[t.id] = t.tricode;
       return map;
     },
     enabled: !!leagueId,
@@ -706,6 +727,7 @@ export default function ConversationScreen() {
           isSelected={reactionTargetId === item.id}
           teamId={teamId ?? undefined}
           teamLogoKey={teamLogoMap?.[item.team_id] ?? null}
+          teamTricode={teamTricodeMap?.[item.team_id] ?? null}
           swipeReveal={swipeReveal}
           secondaryTextColor={secondaryTextColor}
           onLongPress={handleLongPress}
@@ -713,7 +735,7 @@ export default function ConversationScreen() {
         />
       );
     },
-    [teamId, teamLogoMap, messageMeta, isDM, showSenders, isCommissioner, pinnedIds, reactionsMap, readReceiptsByMessageId, reactionTargetId, swipeReveal, secondaryTextColor, handleLongPress, handleItemReactionPress],
+    [teamId, teamLogoMap, teamTricodeMap, messageMeta, isDM, showSenders, isCommissioner, pinnedIds, reactionsMap, readReceiptsByMessageId, reactionTargetId, swipeReveal, secondaryTextColor, handleLongPress, handleItemReactionPress],
   );
 
   const keyExtractor = useCallback((item: ChatMessage) => item.id, []);

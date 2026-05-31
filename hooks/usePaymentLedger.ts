@@ -148,6 +148,11 @@ export function useTogglePayment(leagueId: string, season: string) {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey });
+      // Keep the commissioner's "unconfirmed payments" pip in sync — it's a
+      // separate count query that won't refetch off the ledger invalidation.
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.unconfirmedPaymentCount(leagueId, season),
+      });
     },
   });
 }
@@ -205,6 +210,11 @@ export function useSelfReportPayment(leagueId: string, season: string) {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey });
+      // A self-report bumps the commissioner's unconfirmed count — invalidate
+      // it so the League Info pip updates without waiting out staleTime.
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.unconfirmedPaymentCount(leagueId, season),
+      });
     },
   });
 }

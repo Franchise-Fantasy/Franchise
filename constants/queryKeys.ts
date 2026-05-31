@@ -12,6 +12,8 @@ export const queryKeys = {
   leagueScoring: (leagueId: string) => ["leagueScoring", leagueId] as const,
   leagueScoringType: (leagueId: string) =>
     ["leagueScoringType", leagueId] as const,
+  leaguePositionLimits: (leagueId: string) =>
+    ["leaguePositionLimits", leagueId] as const,
   leagueRosterConfig: (leagueId: string) =>
     ["leagueRosterConfig", leagueId] as const,
   leagueRosterStats: (leagueId: string) =>
@@ -91,6 +93,7 @@ export const queryKeys = {
     ["pendingDropPlayerIds", teamId, leagueId] as const,
   myTeamInfo: (teamId: string) => ["myTeamInfo", teamId] as const,
   teamLogos: (leagueId: string) => ["teamLogos", leagueId] as const,
+  teamTricodes: (leagueId: string) => ["teamTricodes", leagueId] as const,
   teamGamesPlayed: (sport: string, season: string, proTeam: string) =>
     ["teamGamesPlayed", sport, season, proTeam] as const,
   importedTeamStatus: (leagueId: string) =>

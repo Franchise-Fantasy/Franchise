@@ -104,6 +104,7 @@ interface Props {
   onReactionPress: (emoji: string) => void;
   teamId?: string;
   teamLogoKey?: string | null;
+  teamTricode?: string | null;
   isCommissioner?: boolean;
   swipeReveal: SharedValue<number>;
   showSwipeTime: boolean;
@@ -122,6 +123,7 @@ export function MessageBubble({
   onReactionPress,
   teamId,
   teamLogoKey,
+  teamTricode,
   isCommissioner = false,
   swipeReveal,
   showSwipeTime,
@@ -393,6 +395,7 @@ export function MessageBubble({
               <TeamLogo
                 logoKey={teamLogoKey}
                 teamName={message.team_name ?? ""}
+                tricode={teamTricode ?? undefined}
                 size="small"
               />
             </Animated.View>

@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/Badge';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { type Sport } from '@/constants/LeagueDefaults';
 import { useColors } from '@/hooks/useColors';
+import { useColorScheme } from '@/hooks/useColorScheme';
 import { type PlayerSeasonStats } from '@/types/player';
 import { abbreviateFirstName, formatPosition } from '@/utils/formatting';
 import { getInjuryBadge } from '@/utils/nba/injuryBadge';
@@ -62,6 +63,7 @@ export function FreeAgentRow({
   onTradePress,
 }: FreeAgentRowProps) {
   const c = useColors();
+  const scheme = useColorScheme() ?? 'light';
 
   const logoUrl = getTeamLogoUrl(player.pro_team, sport);
   const injury = getInjuryBadge(player.status);
@@ -182,7 +184,10 @@ export function FreeAgentRow({
               label={gameToday}
               size="small"
               backgroundColor={c.link + '22'}
-              textColor={c.link}
+              // `c.link` is sport-tinted and goes dark-merlot in WNBA dark mode
+              // (~1.8:1 on the dark bg). Light text reads cleanly on the tint
+              // there; light mode keeps the accent-colored label (~15:1).
+              textColor={scheme === 'dark' ? c.text : c.link}
             />
           )}
         </View>

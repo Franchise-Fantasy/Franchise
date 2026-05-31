@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -17,6 +17,7 @@ import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
+import { useSession } from '@/context/AuthProvider';
 import { useToast } from '@/context/ToastProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
@@ -39,6 +40,8 @@ export default function ClaimTeamScreen() {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const { switchLeague } = useAppState();
+  const session = useSession();
+  const queryClient = useQueryClient();
   const { showToast } = useToast();
   const [claiming, setClaiming] = useState(false);
 
@@ -99,6 +102,10 @@ export default function ClaimTeamScreen() {
 
       showToast('success', `Claimed "${team.name}"`);
       switchLeague(leagueId!, team.id);
+      // Surface the claimed league in the home switcher immediately.
+      if (session?.user) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.userLeagues(session.user.id) });
+      }
       router.replace('/(tabs)');
     } catch (err: any) {
       logger.error('Claim team error', err);

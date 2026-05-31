@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
 import {
@@ -52,6 +52,7 @@ export default function CreateTeam() {
   const [loading, setLoading] = useState(false);
   const tricodeRef = useRef<TextInput>(null);
   const { switchLeague } = useAppState();
+  const queryClient = useQueryClient();
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
 
@@ -161,6 +162,9 @@ export default function CreateTeam() {
       }
 
       switchLeague(leagueId, teamData.id);
+      // Surface the new membership in the home league switcher immediately —
+      // its list query is otherwise cached and won't include this league.
+      queryClient.invalidateQueries({ queryKey: queryKeys.userLeagues(user.id) });
       router.replace('/(tabs)');
 
       if (league && league.current_teams === league.teams) {
