@@ -307,6 +307,13 @@ export function PointsAgeAnalytics({
     });
   }, [scatterData, selectedCurve]);
 
+  // When the position-curve filter changes, clear any selected dot — the
+  // filtered scatter may no longer include it, so its detail card and
+  // career-trajectory line would otherwise linger over a hidden dot.
+  useEffect(() => {
+    setSelectedPlayer(null);
+  }, [selectedCurve]);
+
   // Handle dot taps via responder on an overlay View
   const handleTap = useCallback(
     (evt: GestureResponderEvent) => {
