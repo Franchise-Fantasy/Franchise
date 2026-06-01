@@ -1,4 +1,6 @@
-import { Alert, Linking } from 'react-native';
+import { Linking } from 'react-native';
+
+export type PaymentMethod = 'venmo' | 'paypal' | 'cashapp';
 
 interface VenmoParams {
   amount?: number;
@@ -26,56 +28,73 @@ export function buildCashAppUrl(cashtag: string): string {
   return `https://cash.app/$${cashtag}`;
 }
 
-/** Try native URL scheme, fall back to web URL */
-async function openWithFallback(url: string, webFallback?: string): Promise<void> {
+export interface OpenPaymentResult {
+  ok: boolean;
+  /** Why the open failed. `not-installed` = no app and no web fallback. */
+  reason?: 'not-installed' | 'error';
+}
+
+/** Try native URL scheme, fall back to web URL. Never shows UI itself. */
+async function openWithFallback(url: string, webFallback?: string): Promise<OpenPaymentResult> {
   try {
     const canOpen = await Linking.canOpenURL(url);
     if (canOpen) {
       await Linking.openURL(url);
-    } else if (webFallback) {
-      await Linking.openURL(webFallback);
-    } else {
-      Alert.alert('Cannot Open', 'The payment app does not appear to be installed.');
+      return { ok: true };
     }
-  } catch {
     if (webFallback) {
       await Linking.openURL(webFallback);
-    } else {
-      Alert.alert('Error', 'Could not open the payment app.');
+      return { ok: true };
     }
+    return { ok: false, reason: 'not-installed' };
+  } catch {
+    if (webFallback) {
+      try {
+        await Linking.openURL(webFallback);
+        return { ok: true };
+      } catch {
+        return { ok: false, reason: 'error' };
+      }
+    }
+    return { ok: false, reason: 'error' };
   }
 }
 
-/** Show confirmation, then open the payment app */
-export function openPaymentConfirmed(
-  method: 'venmo' | 'paypal' | 'cashapp',
+/**
+ * Open the payment app/web URL for a method. Pure side-effect — no confirm,
+ * no UI. Callers show the branded confirm via `usePaymentLink()` first.
+ */
+export function openPayment(
+  method: PaymentMethod,
   handle: string,
   opts?: { amount?: number; note?: string },
-): void {
+): Promise<OpenPaymentResult> {
+  if (method === 'venmo') {
+    const urls = buildVenmoUrl(handle, { amount: opts?.amount, note: opts?.note });
+    return openWithFallback(urls.native, urls.web);
+  }
+  if (method === 'paypal') {
+    return openWithFallback(buildPayPalUrl(handle, opts?.amount));
+  }
+  return openWithFallback(buildCashAppUrl(handle));
+}
+
+/** Title + message for the "are you sure you want to pay" confirm. */
+export function paymentConfirmCopy(
+  method: PaymentMethod,
+  handle: string,
+  opts?: { amount?: number },
+): { title: string; message: string } {
   const displayHandle =
     method === 'venmo' ? `@${handle}` : method === 'cashapp' ? `$${handle}` : handle;
+  const appName = method === 'venmo' ? 'Venmo' : method === 'paypal' ? 'PayPal' : 'Cash App';
   const amountStr = opts?.amount ? `$${opts.amount}` : '';
-  const title = `Pay via ${method === 'venmo' ? 'Venmo' : method === 'paypal' ? 'PayPal' : 'Cash App'}?`;
-  const message = amountStr
-    ? `You'll be paying ${displayHandle} ${amountStr}.`
-    : `You'll be paying ${displayHandle}.`;
-
-  Alert.alert(title, message, [
-    { text: 'Cancel', style: 'cancel' },
-    {
-      text: 'Continue',
-      onPress: () => {
-        if (method === 'venmo') {
-          const urls = buildVenmoUrl(handle, { amount: opts?.amount, note: opts?.note });
-          openWithFallback(urls.native, urls.web);
-        } else if (method === 'paypal') {
-          openWithFallback(buildPayPalUrl(handle, opts?.amount));
-        } else {
-          openWithFallback(buildCashAppUrl(handle));
-        }
-      },
-    },
-  ]);
+  return {
+    title: `Pay via ${appName}?`,
+    message: amountStr
+      ? `You'll be paying ${displayHandle} ${amountStr}.`
+      : `You'll be paying ${displayHandle}.`,
+  };
 }
 
 /** Strip leading @/$ and non-alphanumeric chars (except - and _) */

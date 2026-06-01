@@ -23,7 +23,7 @@ import {
   useSelfReportPayment,
   useTogglePayment,
 } from '@/hooks/usePaymentLedger';
-import { openPaymentConfirmed } from '@/utils/league/paymentLinks';
+import { usePaymentLink } from '@/hooks/usePaymentLink';
 import { ms, s } from '@/utils/scale';
 
 interface Props {
@@ -78,6 +78,7 @@ export function PaymentLedgerModal({
   const selfReport = useSelfReportPayment(leagueId, selectedSeason);
   const pickAction = useActionPicker();
   const confirm = useConfirm();
+  const payWithConfirm = usePaymentLink();
 
   const paymentMap = new Map((payments ?? []).map((p) => [p.team_id, p]));
   const confirmedCount = (payments ?? []).filter((p) => p.status === 'confirmed').length;
@@ -100,7 +101,7 @@ export function PaymentLedgerModal({
       icon: 'wallet-outline',
       hidden: !venmoUsername,
       onPress: () =>
-        openPaymentConfirmed('venmo', venmoUsername!, {
+        payWithConfirm('venmo', venmoUsername!, {
           amount: buyInAmount ?? undefined,
           note: leagueName ? `${leagueName} buy-in` : undefined,
         }),
@@ -111,14 +112,14 @@ export function PaymentLedgerModal({
       icon: 'card-outline',
       hidden: !paypalUsername,
       onPress: () =>
-        openPaymentConfirmed('paypal', paypalUsername!, { amount: buyInAmount ?? undefined }),
+        payWithConfirm('paypal', paypalUsername!, { amount: buyInAmount ?? undefined }),
     },
     {
       id: 'cashapp',
       label: 'Cash App',
       icon: 'cash-outline',
       hidden: !cashappTag,
-      onPress: () => openPaymentConfirmed('cashapp', cashappTag!),
+      onPress: () => payWithConfirm('cashapp', cashappTag!),
     },
   ];
 

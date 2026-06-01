@@ -68,7 +68,7 @@ export const showcases: Showcase[] = [
   },
   {
     title: "Numbers you'll actually look at.",
-    lead: "Not just season averages. How does they play on back-to-backs? Does they bounce back after bad games? Is their usage trending up or are their minutes slipping? The stuff that changes your decision, not just confirms it.",
+    lead: "Not just season averages. How do they play on back-to-backs? Do they bounce back after bad games? Is their usage trending up or are their minutes slipping? The stuff that changes your decision, not just confirms it.",
     bullets: [
       "Home/away and back-to-back splits with real context",
       "Category strengths ranked against the whole league",

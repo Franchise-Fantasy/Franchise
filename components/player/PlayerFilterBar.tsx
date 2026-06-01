@@ -123,6 +123,8 @@ interface PlayerFilterBarProps {
   showWatchlistOnly?: boolean;
   onWatchlistOnlyChange?: (show: boolean) => void;
   hasWatchlistData?: boolean;
+  showRookiesOnly?: boolean;
+  onRookiesOnlyChange?: (show: boolean) => void;
   showFreeAgentsOnly?: boolean;
   onFreeAgentsOnlyChange?: (show: boolean) => void;
   hasRosteredData?: boolean;
@@ -139,6 +141,7 @@ export function countActiveFilters(args: {
   playingOnDate?: string | null;
   timeRange?: TimeRange;
   showWatchlistOnly?: boolean;
+  showRookiesOnly?: boolean;
   injuryFilter?: InjuryFilter;
 }): number {
   return (
@@ -149,6 +152,7 @@ export function countActiveFilters(args: {
     (args.playingOnDate ? 1 : 0) +
     (args.timeRange && args.timeRange !== 'season' ? 1 : 0) +
     (args.showWatchlistOnly ? 1 : 0) +
+    (args.showRookiesOnly ? 1 : 0) +
     (args.injuryFilter && args.injuryFilter !== 'all' ? 1 : 0)
   );
 }
@@ -186,6 +190,8 @@ export function PlayerFilterBar({
   showWatchlistOnly,
   onWatchlistOnlyChange,
   hasWatchlistData,
+  showRookiesOnly,
+  onRookiesOnlyChange,
   showFreeAgentsOnly,
   onFreeAgentsOnlyChange,
   hasRosteredData,
@@ -220,6 +226,7 @@ export function PlayerFilterBar({
     playingOnDate,
     timeRange,
     showWatchlistOnly,
+    showRookiesOnly,
     injuryFilter,
   });
 
@@ -231,6 +238,7 @@ export function PlayerFilterBar({
     onPlayingOnDateChange?.(null);
     onTimeRangeChange?.('season');
     onWatchlistOnlyChange?.(false);
+    onRookiesOnlyChange?.(false);
     onFreeAgentsOnlyChange?.(true);
     onInjuryFilterChange?.('all');
   };
@@ -372,7 +380,7 @@ export function PlayerFilterBar({
 
             <ScrollView showsVerticalScrollIndicator={false}>
               {/* Quick Filters */}
-              {(onWatchlistOnlyChange || hasMinutesData || hasScheduleData) && (
+              {(onWatchlistOnlyChange || onRookiesOnlyChange || hasMinutesData || hasScheduleData) && (
               <View style={styles.section}>
                 <View style={styles.sectionLabelRow}>
                   <View style={[styles.sectionRule, { backgroundColor: c.gold }]} />
@@ -399,6 +407,24 @@ export function PlayerFilterBar({
                       <Ionicons name={showWatchlistOnly ? 'eye' : 'eye-outline'} size={14} color={showWatchlistOnly ? c.link : c.secondaryText} />
                       <ThemedText style={[styles.toggleCompactLabel, showWatchlistOnly && { color: c.link }]}>
                         Watchlist
+                      </ThemedText>
+                    </TouchableOpacity>
+                  )}
+                  {onRookiesOnlyChange && (
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      accessibilityLabel="Show only rookies"
+                      accessibilityState={{ selected: showRookiesOnly }}
+                      style={[
+                        styles.toggleCompact,
+                        { borderColor: c.border },
+                        showRookiesOnly && { backgroundColor: c.gold + '20', borderColor: c.gold },
+                      ]}
+                      onPress={() => onRookiesOnlyChange(!showRookiesOnly)}
+                    >
+                      <Ionicons name={showRookiesOnly ? 'sparkles' : 'sparkles-outline'} size={14} color={showRookiesOnly ? c.gold : c.secondaryText} />
+                      <ThemedText style={[styles.toggleCompactLabel, showRookiesOnly && { color: c.gold }]}>
+                        Rookies
                       </ThemedText>
                     </TouchableOpacity>
                   )}
@@ -456,7 +482,7 @@ export function PlayerFilterBar({
                       >
                         <Ionicons name="calendar-outline" size={14} color={isCustomDate ? c.success : c.secondaryText} />
                         <ThemedText style={[styles.toggleCompactLabel, isCustomDate && { color: c.success }]} numberOfLines={1}>
-                          {isCustomDate ? formatGameDateLabel(playingOnDate!) : 'Pick date'}
+                          {isCustomDate ? formatGameDateLabel(playingOnDate!) : 'Date'}
                         </ThemedText>
                       </TouchableOpacity>
                     </>

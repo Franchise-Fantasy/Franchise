@@ -112,8 +112,7 @@ type Props = {
   onSchedulePress?: () => void;
   onEnterDraft?: () => void;
   onSetDraftOrder?: () => void;
-  // Invite callbacks
-  onCopyInvite?: () => void;
+  // Invite callback
   onShareInvite?: () => void;
 };
 
@@ -130,7 +129,6 @@ export function HomeHero({
   onSchedulePress,
   onEnterDraft,
   onSetDraftOrder,
-  onCopyInvite,
   onShareInvite,
 }: Props) {
   const colors = useColors();
@@ -167,18 +165,13 @@ export function HomeHero({
           variant={variant}
           onSchedulePress={onSchedulePress}
           onEnterDraft={onEnterDraft}
-          onCopyInvite={onCopyInvite}
           onShareInvite={onShareInvite}
           onPaymentPress={onPaymentPress}
           onSetDraftOrder={onSetDraftOrder}
         />
       )}
       {variant.kind === 'invite_needed' && (
-        <InviteNeeded
-          variant={variant}
-          onCopyInvite={onCopyInvite}
-          onShareInvite={onShareInvite}
-        />
+        <InviteNeeded variant={variant} onShareInvite={onShareInvite} />
       )}
       {variant.kind === 'offseason' && <Offseason variant={variant} />}
     </Wrapper>
@@ -433,7 +426,6 @@ function DraftPending({
   variant,
   onSchedulePress,
   onEnterDraft,
-  onCopyInvite,
   onShareInvite,
   onPaymentPress,
   onSetDraftOrder,
@@ -441,7 +433,6 @@ function DraftPending({
   variant: Extract<HomeHeroVariant, { kind: 'draft_pending' }>;
   onSchedulePress?: () => void;
   onEnterDraft?: () => void;
-  onCopyInvite?: () => void;
   onShareInvite?: () => void;
   onPaymentPress?: () => void;
   onSetDraftOrder?: () => void;
@@ -464,15 +455,12 @@ function DraftPending({
   let eyebrowSlot: ReactNode = null;
   if (invite) {
     eyebrowSlot = (
-      <View style={styles.iconGroup}>
-        <OutlinePill icon="doc.on.doc" label="Copy" onPress={onCopyInvite} accessibilityLabel="Copy invite link" />
-        <OutlinePill
-          icon="square.and.arrow.up"
-          label="Share"
-          onPress={onShareInvite}
-          accessibilityLabel="Share invite link"
-        />
-      </View>
+      <OutlinePill
+        icon="square.and.arrow.up"
+        label="Invite"
+        onPress={onShareInvite}
+        accessibilityLabel="Share invite link"
+      />
     );
   } else if (payment) {
     eyebrowSlot = payment.state === 'due'
@@ -668,11 +656,9 @@ function RosterOverageChip({ warning }: { warning: OverageWarning }) {
 
 function InviteNeeded({
   variant,
-  onCopyInvite,
   onShareInvite,
 }: {
   variant: Extract<HomeHeroVariant, { kind: 'invite_needed' }>;
-  onCopyInvite?: () => void;
   onShareInvite?: () => void;
 }) {
   const { inviteCode, season, slotsRemaining, claimProgress } = variant;
@@ -692,20 +678,12 @@ function InviteNeeded({
       <EyebrowRow
         segments={[shortSeason(season), eyebrowCount]}
         rightSlot={
-          <View style={styles.iconGroup}>
-            <OutlinePill
-              icon="doc.on.doc"
-              label="Copy"
-              onPress={onCopyInvite}
-              accessibilityLabel="Copy invite link"
-            />
-            <OutlinePill
-              icon="square.and.arrow.up"
-              label="Share"
-              onPress={onShareInvite}
-              accessibilityLabel="Share invite link"
-            />
-          </View>
+          <OutlinePill
+            icon="square.and.arrow.up"
+            label="Invite"
+            onPress={onShareInvite}
+            accessibilityLabel="Share invite link"
+          />
         }
       />
 
@@ -816,10 +794,6 @@ const styles = StyleSheet.create({
   actionPillText: {
     fontSize: ms(11),
     letterSpacing: 0.8,
-  },
-  iconGroup: {
-    flexDirection: 'row',
-    gap: s(8),
   },
   tricode: {
     color: Brand.ecru,

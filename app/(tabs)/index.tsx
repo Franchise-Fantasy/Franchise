@@ -1,6 +1,5 @@
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import * as Clipboard from 'expo-clipboard';
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -27,6 +26,7 @@ import { BusyOverlay } from '@/components/ui/BusyOverlay';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { type ModalAction } from '@/components/ui/InlineAction';
+import { LeagueMetaChips } from '@/components/ui/LeagueMetaChips';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ThemedView } from '@/components/ui/ThemedView';
@@ -40,10 +40,10 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeague } from '@/hooks/useLeague';
 import { useOffseasonActions } from '@/hooks/useOffseasonActions';
 import { usePaymentLedger, useSelfReportPayment } from '@/hooks/usePaymentLedger';
+import { usePaymentLink } from '@/hooks/usePaymentLink';
 import { usePlayoffBracket } from '@/hooks/usePlayoffBracket';
 import { markSplashReady } from '@/lib/splashReady';
 import { supabase } from '@/lib/supabase';
-import { openPaymentConfirmed } from '@/utils/league/paymentLinks';
 import { calcRounds } from '@/utils/league/playoff';
 import { minSeasonStartForDraft } from '@/utils/league/seasonStart';
 import { isIrEligibleStatus } from '@/utils/roster/illegalIR';
@@ -197,6 +197,7 @@ export default function HomeScreen() {
   const [switcherVisible, setSwitcherVisible] = useState(false);
   const pickAction = useActionPicker();
   const confirm = useConfirm();
+  const payWithConfirm = usePaymentLink();
 
   // Draft schedule modal state — same pattern DraftSection used
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -747,13 +748,6 @@ export default function HomeScreen() {
 
   // ── Invite actions ─────────────────────────────────────────────────
 
-  const onCopyInvite = async () => {
-    if (!league?.invite_code) return;
-    const link = `franchisev2://join?code=${league.invite_code}`;
-    await Clipboard.setStringAsync(link);
-    Alert.alert('Copied', 'Invite link copied to clipboard.');
-  };
-
   const onShareInvite = async () => {
     if (!league?.invite_code) return;
     const link = `franchisev2://join?code=${league.invite_code}`;
@@ -791,7 +785,7 @@ export default function HomeScreen() {
         icon: 'wallet-outline',
         hidden: !league.venmo_username,
         onPress: () =>
-          openPaymentConfirmed('venmo', league.venmo_username!, {
+          payWithConfirm('venmo', league.venmo_username!, {
             amount: league.buy_in_amount!,
             note: `${league.name} buy-in`,
           }),
@@ -802,7 +796,7 @@ export default function HomeScreen() {
         icon: 'card-outline',
         hidden: !league.paypal_username,
         onPress: () =>
-          openPaymentConfirmed('paypal', league.paypal_username!, {
+          payWithConfirm('paypal', league.paypal_username!, {
             amount: league.buy_in_amount!,
           }),
       },
@@ -811,7 +805,7 @@ export default function HomeScreen() {
         label: 'Pay via Cash App',
         icon: 'cash-outline',
         hidden: !league.cashapp_tag,
-        onPress: () => openPaymentConfirmed('cashapp', league.cashapp_tag!),
+        onPress: () => payWithConfirm('cashapp', league.cashapp_tag!),
       },
       {
         id: 'mark-paid',
@@ -855,6 +849,15 @@ export default function HomeScreen() {
           >
             {isLoading ? 'Loading' : league?.name ?? 'Franchise'}
           </ThemedText>
+          {league && (
+            <LeagueMetaChips
+              sport={league.sport}
+              leagueType={league.league_type}
+              scoringType={league.scoring_type}
+              size="small"
+              style={styles.headerChips}
+            />
+          )}
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.chatButton}
@@ -890,7 +893,6 @@ export default function HomeScreen() {
                 onSchedulePress={onSchedulePress}
                 onEnterDraft={onEnterDraft}
                 onSetDraftOrder={() => setShowOrderModal(true)}
-                onCopyInvite={onCopyInvite}
                 onShareInvite={onShareInvite}
               />
             )}
@@ -1039,18 +1041,23 @@ const styles = StyleSheet.create({
     padding: s(8),
     borderBottomWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
-    height: s(50),
+    minHeight: s(50),
     justifyContent: 'space-between',
   },
   headerTitleHit: {
     flex: 1,
     marginHorizontal: s(40),
+    alignItems: 'center',
   },
   headerText: {
     textAlign: 'center',
     fontFamily: Fonts.varsityBold,
     fontSize: ms(12),
     letterSpacing: 1.2,
+  },
+  headerChips: {
+    justifyContent: 'center',
+    marginTop: s(5),
   },
   leagueSwitcher: {
     padding: s(8),

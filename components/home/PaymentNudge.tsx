@@ -7,7 +7,7 @@ import { Colors } from '@/constants/Colors';
 import { useActionPicker, useConfirm } from '@/context/ConfirmProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { PaymentStatus, usePaymentLedger, useSelfReportPayment } from '@/hooks/usePaymentLedger';
-import { openPaymentConfirmed } from '@/utils/league/paymentLinks';
+import { usePaymentLink } from '@/hooks/usePaymentLink';
 import { ms, s } from '@/utils/scale';
 
 interface PaymentNudgeProps {
@@ -38,6 +38,7 @@ export function PaymentNudge({
   const selfReport = useSelfReportPayment(leagueId, season);
   const pickAction = useActionPicker();
   const confirm = useConfirm();
+  const payWithConfirm = usePaymentLink();
 
   const myPayment = payments?.find((p) => p.team_id === teamId);
   const status: PaymentStatus = myPayment?.status ?? 'unpaid';
@@ -91,7 +92,7 @@ export function PaymentNudge({
         icon: 'wallet-outline',
         hidden: !venmoUsername,
         onPress: () =>
-          openPaymentConfirmed('venmo', venmoUsername!, {
+          payWithConfirm('venmo', venmoUsername!, {
             amount: buyInAmount,
             note: `${leagueName} buy-in`,
           }),
@@ -102,14 +103,14 @@ export function PaymentNudge({
         icon: 'card-outline',
         hidden: !paypalUsername,
         onPress: () =>
-          openPaymentConfirmed('paypal', paypalUsername!, { amount: buyInAmount }),
+          payWithConfirm('paypal', paypalUsername!, { amount: buyInAmount }),
       },
       {
         id: 'cashapp',
         label: 'Pay via Cash App',
         icon: 'cash-outline',
         hidden: !cashappTag,
-        onPress: () => openPaymentConfirmed('cashapp', cashappTag!),
+        onPress: () => payWithConfirm('cashapp', cashappTag!),
       },
       {
         id: 'mark-paid',

@@ -49,10 +49,10 @@ import { useLeague } from '@/hooks/useLeague';
 import { useLeagueRosterConfig } from '@/hooks/useLeagueRosterConfig';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { useOffseasonActions } from '@/hooks/useOffseasonActions';
+import { usePaymentLink } from '@/hooks/usePaymentLink';
 import { usePlayoffBracket } from '@/hooks/usePlayoffBracket';
 import { useSubscription } from '@/hooks/useSubscription';
 import { supabase } from '@/lib/supabase';
-import { openPaymentConfirmed } from '@/utils/league/paymentLinks';
 import { calcRounds } from '@/utils/league/playoff';
 import { ms, s } from '@/utils/scale';
 
@@ -161,6 +161,8 @@ export default function LeagueInfoScreen() {
     season: league?.season ?? '',
     isDynasty: (league?.league_type ?? 'dynasty') === 'dynasty',
   });
+
+  const payWithConfirm = usePaymentLink();
 
 
   // ── Render ─────────────────────────────────────────────────────
@@ -301,7 +303,7 @@ export default function LeagueInfoScreen() {
           <Row label="Buy-In" value={league.buy_in_amount ? `$${league.buy_in_amount}` : 'Free'} c={c} />
           {league.venmo_username && (
             isCommissioner ? (
-              <TouchableOpacity onPress={() => openPaymentConfirmed('venmo', league.venmo_username!, { amount: league.buy_in_amount ?? undefined, note: `${league.name} buy-in` })} accessibilityRole="button" accessibilityLabel="Test Venmo link">
+              <TouchableOpacity onPress={() => payWithConfirm('venmo', league.venmo_username!, { amount: league.buy_in_amount ?? undefined, note: `${league.name} buy-in` })} accessibilityRole="button" accessibilityLabel="Test Venmo link">
                 <Row label="Venmo" value={`@${league.venmo_username}  ↗`} c={c} />
               </TouchableOpacity>
             ) : (
@@ -310,7 +312,7 @@ export default function LeagueInfoScreen() {
           )}
           {league.cashapp_tag && (
             isCommissioner ? (
-              <TouchableOpacity onPress={() => openPaymentConfirmed('cashapp', league.cashapp_tag!)} accessibilityRole="button" accessibilityLabel="Test Cash App link">
+              <TouchableOpacity onPress={() => payWithConfirm('cashapp', league.cashapp_tag!)} accessibilityRole="button" accessibilityLabel="Test Cash App link">
                 <Row label="Cash App" value={`$${league.cashapp_tag}  ↗`} c={c} />
               </TouchableOpacity>
             ) : (
@@ -319,7 +321,7 @@ export default function LeagueInfoScreen() {
           )}
           {league.paypal_username && (
             isCommissioner ? (
-              <TouchableOpacity onPress={() => openPaymentConfirmed('paypal', league.paypal_username!, { amount: league.buy_in_amount ?? undefined })} accessibilityRole="button" accessibilityLabel="Test PayPal link">
+              <TouchableOpacity onPress={() => payWithConfirm('paypal', league.paypal_username!, { amount: league.buy_in_amount ?? undefined })} accessibilityRole="button" accessibilityLabel="Test PayPal link">
                 <Row label="PayPal" value={`${league.paypal_username}  ↗`} c={c} />
               </TouchableOpacity>
             ) : (

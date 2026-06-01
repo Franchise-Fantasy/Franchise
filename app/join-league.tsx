@@ -13,14 +13,17 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Badge } from '@/components/ui/Badge';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { BrandTextInput } from '@/components/ui/BrandTextInput';
+import {
+  LeagueMetaChips,
+  formatLeagueType,
+  formatScoringType,
+} from '@/components/ui/LeagueMetaChips';
 import { ListRow } from '@/components/ui/ListRow';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Section } from '@/components/ui/Section';
-import { SportBadge } from '@/components/ui/SportBadge';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
-import { type Sport } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
@@ -38,17 +41,6 @@ interface League {
   league_type: string;
   scoring_type: string;
 }
-
-const FORMAT_LABEL: Record<string, string> = {
-  dynasty: 'Dynasty',
-  keeper: 'Keeper',
-  redraft: 'Redraft',
-};
-
-const SCORING_LABEL: Record<string, string> = {
-  points: 'Points',
-  h2h_categories: 'H2H Categories',
-};
 
 export default function JoinLeagueScreen() {
   const router = useRouter();
@@ -294,9 +286,11 @@ export default function JoinLeagueScreen() {
           ) : (
             leagues.map((league, idx) => {
               const slots = slotsAvailable(league);
-              const formatLabel = FORMAT_LABEL[league.league_type] ?? league.league_type;
-              const scoringLabel = SCORING_LABEL[league.scoring_type] ?? league.scoring_type;
-              const a11yDetails = [formatLabel, scoringLabel, league.sport?.toUpperCase()]
+              const a11yDetails = [
+                formatLeagueType(league.league_type),
+                formatScoringType(league.scoring_type),
+                league.sport?.toUpperCase(),
+              ]
                 .filter(Boolean)
                 .join(', ');
               return (
@@ -316,11 +310,12 @@ export default function JoinLeagueScreen() {
                     >
                       {league.name}
                     </ThemedText>
-                    <View style={styles.leagueTypeRow}>
-                      {league.sport && <SportBadge sport={league.sport as Sport} />}
-                      {formatLabel && <Badge label={formatLabel} variant="neutral" size="small" />}
-                      {scoringLabel && <Badge label={scoringLabel} variant="neutral" size="small" />}
-                    </View>
+                    <LeagueMetaChips
+                      sport={league.sport}
+                      leagueType={league.league_type}
+                      scoringType={league.scoring_type}
+                      size="small"
+                    />
                     <View style={styles.leagueMetaRow}>
                       <Ionicons name="people-outline" size={12} color={c.secondaryText} accessible={false} />
                       <ThemedText style={[styles.leagueMeta, { color: c.secondaryText }]}>
@@ -411,12 +406,6 @@ const styles = StyleSheet.create({
   leagueName: {
     fontSize: ms(15),
     lineHeight: ms(20),
-  },
-  leagueTypeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: s(6),
   },
   leagueMetaRow: {
     flexDirection: 'row',

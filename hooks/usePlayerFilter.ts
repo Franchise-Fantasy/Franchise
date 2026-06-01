@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react';
 
+import { getCurrentSeason, parseSeasonStartYear } from '@/constants/LeagueDefaults';
+import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
 import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
 import { getEligiblePositions } from '@/utils/roster/rosterSlots';
@@ -70,8 +72,16 @@ export function usePlayerFilter(
   const [sortBy, setSortBy] = useState<SortKey>('FPTS');
   const [showMinutesUp, setShowMinutesUp] = useState(false);
   const [showWatchlistOnly, setShowWatchlistOnly] = useState(false);
+  const [showRookiesOnly, setShowRookiesOnly] = useState(false);
   const [showFreeAgentsOnly, setShowFreeAgentsOnly] = useState(true);
   const [injuryFilter, setInjuryFilter] = useState<InjuryFilter>('all');
+
+  // A "rookie" is a player drafted in the current season. The `rookie` boolean
+  // on player_season_stats is only populated for NBA draft prospects, so we
+  // match on draft_year instead — populated for both sports and sport-correct
+  // (NBA "2025-26" → 2025, WNBA "2026" → 2026).
+  const sport = useActiveLeagueSport();
+  const rookieDraftYear = parseSeasonStartYear(getCurrentSeason(sport));
 
   const filteredPlayers = useMemo(() => {
     if (!players) return [];
@@ -125,6 +135,11 @@ export function usePlayerFilter(
       result = result.filter(p => watchlistedIds.has(p.player_id));
     }
 
+    // Rookies only — players drafted in the current season
+    if (showRookiesOnly) {
+      result = result.filter(p => p.draft_year === rookieDraftYear);
+    }
+
     // Injury status filter
     if (injuryFilter === 'healthy') {
       result = result.filter(p => !OUT_STATUSES.has(p.status));
@@ -150,7 +165,7 @@ export function usePlayerFilter(
     }
 
     return result;
-  }, [players, searchText, selectedPosition, selectedProTeam, sortBy, scoringWeights, showMinutesUp, minutesUpPlayerIds, playingOnDate, scheduleMap, showWatchlistOnly, watchlistedIds, showFreeAgentsOnly, rosteredPlayerIds, injuryFilter]);
+  }, [players, searchText, selectedPosition, selectedProTeam, sortBy, scoringWeights, showMinutesUp, minutesUpPlayerIds, playingOnDate, scheduleMap, showWatchlistOnly, watchlistedIds, showRookiesOnly, rookieDraftYear, showFreeAgentsOnly, rosteredPlayerIds, injuryFilter]);
 
   const filterBarProps = {
     searchText,
@@ -170,6 +185,8 @@ export function usePlayerFilter(
     showWatchlistOnly,
     onWatchlistOnlyChange: setShowWatchlistOnly,
     hasWatchlistData: !!watchlistedIds && watchlistedIds.size > 0,
+    showRookiesOnly,
+    onRookiesOnlyChange: setShowRookiesOnly,
     showFreeAgentsOnly,
     onFreeAgentsOnlyChange: setShowFreeAgentsOnly,
     injuryFilter,

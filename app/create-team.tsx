@@ -12,15 +12,13 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Badge } from '@/components/ui/Badge';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { BrandTextInput } from '@/components/ui/BrandTextInput';
+import { LeagueMetaChips } from '@/components/ui/LeagueMetaChips';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Section } from '@/components/ui/Section';
-import { SportBadge } from '@/components/ui/SportBadge';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
-import { type Sport } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -30,17 +28,6 @@ import { containsBlockedContent } from '@/utils/moderation';
 import { ms, s } from '@/utils/scale';
 
 import { supabase } from '../lib/supabase';
-
-const FORMAT_LABEL: Record<string, string> = {
-  dynasty: 'Dynasty',
-  keeper: 'Keeper',
-  redraft: 'Redraft',
-};
-
-const SCORING_LABEL: Record<string, string> = {
-  points: 'Points',
-  h2h_categories: 'H2H Categories',
-};
 
 export default function CreateTeam() {
   const router = useRouter();
@@ -202,13 +189,6 @@ export default function CreateTeam() {
     }
   };
 
-  const formatLabel = leagueInfo?.league_type
-    ? FORMAT_LABEL[leagueInfo.league_type] ?? leagueInfo.league_type
-    : null;
-  const scoringLabel = leagueInfo?.scoring_type
-    ? SCORING_LABEL[leagueInfo.scoring_type] ?? leagueInfo.scoring_type
-    : null;
-
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]} edges={['top']}>
       <PageHeader title="Create Team" />
@@ -229,13 +209,12 @@ export default function CreateTeam() {
           </ThemedText>
 
           {leagueInfo && (
-            <View style={styles.metaRow}>
-              {leagueInfo.sport && (
-                <SportBadge sport={leagueInfo.sport as Sport} />
-              )}
-              {formatLabel && <Badge label={formatLabel} variant="neutral" />}
-              {scoringLabel && <Badge label={scoringLabel} variant="neutral" />}
-            </View>
+            <LeagueMetaChips
+              sport={leagueInfo.sport}
+              leagueType={leagueInfo.league_type}
+              scoringType={leagueInfo.scoring_type}
+              style={styles.metaRow}
+            />
           )}
 
           <Section title="Team Details" cardStyle={styles.card}>
@@ -316,10 +295,7 @@ const styles = StyleSheet.create({
     marginBottom: s(12),
   },
   metaRow: {
-    flexDirection: 'row',
     justifyContent: 'center',
-    flexWrap: 'wrap',
-    gap: s(6),
     marginBottom: s(20),
   },
   card: {
