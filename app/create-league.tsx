@@ -101,6 +101,8 @@ const initialState: LeagueWizardState = {
   draftType: "Snake",
   initialDraftOrder: "Random",
   timePerPick: 90,
+  accelerateAfterRound: null,
+  acceleratedTimePerPick: 30,
   maxDraftYears: 3,
   tradeVetoType: "Commissioner",
   tradeReviewPeriodHours: 24,
@@ -534,6 +536,14 @@ export default function CreateLeague() {
 
     const isDynasty = state.leagueType === 'Dynasty';
 
+    // Final clamp on season length. The steppers enforce min=1 on user
+    // interaction, but a value replayed from saved wizard progress (resume
+    // flow) bypasses that — a stale negative count persisted before the
+    // computeMaxWeeks floor existed could otherwise reach the DB and silently
+    // break schedule generation (zero matchups). Belt to the stepper's braces.
+    const regularSeasonWeeks = Math.max(1, state.regularSeasonWeeks);
+    const playoffWeeks = Math.max(0, state.playoffWeeks);
+
     // 1. Create league
     const { data: leagueData, error: leagueError } = await supabase
       .from("leagues")
@@ -548,8 +558,8 @@ export default function CreateLeague() {
         roster_size: rosterSize,
         private: state.isPrivate,
         season: state.season,
-        regular_season_weeks: state.regularSeasonWeeks,
-        playoff_weeks: state.playoffWeeks,
+        regular_season_weeks: regularSeasonWeeks,
+        playoff_weeks: playoffWeeks,
         season_start_date: seasonStartDate,
         trade_review_period_hours: state.tradeVetoType === 'None' ? 0 : state.tradeReviewPeriodHours,
         trade_veto_type: state.tradeVetoType === 'Commissioner'
@@ -682,6 +692,16 @@ export default function CreateLeague() {
         rounds: rosterSize,
         picks_per_round: state.teams,
         time_limit: state.timePerPick,
+        // Round acceleration only persists when both halves are set; the
+        // threshold must be inside the draft to ever fire.
+        accelerate_after_round:
+          state.accelerateAfterRound != null && state.accelerateAfterRound < rosterSize
+            ? state.accelerateAfterRound
+            : null,
+        accelerated_time_limit:
+          state.accelerateAfterRound != null && state.accelerateAfterRound < rosterSize
+            ? state.acceleratedTimePerPick ?? 30
+            : null,
         draft_type: state.draftType.toLowerCase(),
       })
       .select()

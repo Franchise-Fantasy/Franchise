@@ -4,6 +4,7 @@ import { corsResponse } from '../_shared/cors.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkPositionLimits } from '../_shared/positionLimits.ts';
 import { notifyTeams, notifyLeague } from '../_shared/push.ts';
+import { effectiveTimeLimit } from '../_shared/draftClock.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { parseBody, z } from '../_shared/validate.ts';
 import { isEligibleForSlot } from '../../../utils/roster/rosterSlotsShared.ts';
@@ -93,7 +94,7 @@ Deno.serve(async (req)=>{
     const { data: userTeam, error: teamError } = await supabaseAdmin.from('teams').select('id').eq('league_id', league_id).eq('user_id', user.id).single();
     if (teamError || !userTeam) throw new HttpError('User does not have a team in this league.', 403);
 
-    const { data: draft, error: draftError } = await supabaseAdmin.from('drafts').select('current_pick_number, rounds, picks_per_round, time_limit, type').eq('id', draft_id).single();
+    const { data: draft, error: draftError } = await supabaseAdmin.from('drafts').select('current_pick_number, rounds, picks_per_round, time_limit, accelerate_after_round, accelerated_time_limit, type').eq('id', draft_id).single();
     if (draftError || !draft) throw new HttpError('Draft not found.', 404);
 
     if (draft.current_pick_number > draft.rounds * draft.picks_per_round) {
@@ -158,8 +159,10 @@ Deno.serve(async (req)=>{
 
     if (!isDraftComplete) {
       try {
+        // Effective clock for the NEXT pick (honors round acceleration).
+        const nextLimit = effectiveTimeLimit(nextPickNumber, draft);
         // Check if the next team has autopick enabled — if so, fire immediately
-        let delay = draft.time_limit;
+        let delay = nextLimit;
         let nextIsAutopick = false;
         const { data: nextPick } = await supabaseAdmin
           .from('draft_picks')
@@ -188,7 +191,7 @@ Deno.serve(async (req)=>{
         // change only affects future picks (on-the-clock pick keeps its clock).
         await supabaseAdmin
           .from('drafts')
-          .update({ current_pick_time_limit: draft.time_limit })
+          .update({ current_pick_time_limit: nextLimit })
           .eq('id', draft_id);
       } catch (schedErr) {
         console.warn('Failed to schedule autodraft (non-fatal):', schedErr);

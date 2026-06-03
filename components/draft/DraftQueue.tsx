@@ -13,6 +13,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { useDraftPlayer } from '@/hooks/useDraftPlayer';
 import { useDraftQueue , QueuedPlayer } from '@/hooks/useDraftQueue';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
+import { useLeagueScoringType } from '@/hooks/useLeagueScoringType';
 import { formatPosition } from '@/utils/formatting';
 import { getInjuryBadge } from '@/utils/nba/injuryBadge';
 import { getTeamLogoUrl } from '@/utils/nba/playerHeadshot';
@@ -35,6 +36,7 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
 
   const { queue, isLoading, removeFromQueue, moveUp, moveDown, reorderQueue } = useDraftQueue(draftId, teamId, leagueId);
   const { data: scoringWeights } = useLeagueScoring(leagueId);
+  const { isCategories } = useLeagueScoringType(leagueId);
   const { mutate: draftPlayer, isPending: isDrafting } = useDraftPlayer(leagueId, draftId);
 
   const handleDraft = useCallback((item: QueuedPlayer) => {
@@ -49,7 +51,7 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
 
   const renderItem = useCallback(({ item, getIndex, drag, isActive }: RenderItemParams<QueuedPlayer>) => {
     const index = getIndex() ?? 0;
-    const fpts = scoringWeights
+    const fpts = scoringWeights && !isCategories
       ? calculateAvgFantasyPoints(item.player, scoringWeights)
       : undefined;
     const logoUrl = getTeamLogoUrl(item.player.pro_team, sport);
@@ -172,7 +174,7 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
         </View>
       </View>
     );
-  }, [c, scoringWeights, isMyTurn, isDrafting, queue.length, handleDraft, moveUp, moveDown, removeFromQueue]);
+  }, [c, scoringWeights, isCategories, isMyTurn, isDrafting, queue.length, handleDraft, moveUp, moveDown, removeFromQueue]);
 
   if (isLoading) {
     return (

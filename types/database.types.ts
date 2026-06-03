@@ -852,9 +852,10 @@ export type Database = {
       }
       drafts: {
         Row: {
+          accelerate_after_round: number | null
+          accelerated_time_limit: number | null
           created_at: string | null
           current_pick_number: number
-          current_pick_time_limit: number | null
           current_pick_timestamp: string | null
           draft_date: string | null
           draft_type: string
@@ -868,9 +869,10 @@ export type Database = {
           type: string
         }
         Insert: {
+          accelerate_after_round?: number | null
+          accelerated_time_limit?: number | null
           created_at?: string | null
           current_pick_number?: number
-          current_pick_time_limit?: number | null
           current_pick_timestamp?: string | null
           draft_date?: string | null
           draft_type?: string
@@ -884,9 +886,10 @@ export type Database = {
           type: string
         }
         Update: {
+          accelerate_after_round?: number | null
+          accelerated_time_limit?: number | null
           created_at?: string | null
           current_pick_number?: number
-          current_pick_time_limit?: number | null
           current_pick_timestamp?: string | null
           draft_date?: string | null
           draft_type?: string
@@ -3603,6 +3606,120 @@ export type Database = {
           },
         ]
       }
+      player_projections: {
+        Row: {
+          games_remaining: number | null
+          horizon: string
+          id: string
+          model_version: string
+          player_id: string
+          proj_3pa: number | null
+          proj_3pm: number | null
+          proj_ast: number | null
+          proj_blk: number | null
+          proj_fg_pct: number | null
+          proj_fga: number | null
+          proj_fgm: number | null
+          proj_ft_pct: number | null
+          proj_fta: number | null
+          proj_ftm: number | null
+          proj_min: number | null
+          proj_pts: number | null
+          proj_reb: number | null
+          proj_stl: number | null
+          proj_tov: number | null
+          projected_games: number | null
+          projection_date: string
+          sd_ast: number | null
+          sd_fantasy_pg: number | null
+          sd_pts: number | null
+          sd_reb: number | null
+          season: string
+          source: string
+          sport: string
+          updated_at: string
+        }
+        Insert: {
+          games_remaining?: number | null
+          horizon: string
+          id?: string
+          model_version: string
+          player_id: string
+          proj_3pa?: number | null
+          proj_3pm?: number | null
+          proj_ast?: number | null
+          proj_blk?: number | null
+          proj_fg_pct?: number | null
+          proj_fga?: number | null
+          proj_fgm?: number | null
+          proj_ft_pct?: number | null
+          proj_fta?: number | null
+          proj_ftm?: number | null
+          proj_min?: number | null
+          proj_pts?: number | null
+          proj_reb?: number | null
+          proj_stl?: number | null
+          proj_tov?: number | null
+          projected_games?: number | null
+          projection_date: string
+          sd_ast?: number | null
+          sd_fantasy_pg?: number | null
+          sd_pts?: number | null
+          sd_reb?: number | null
+          season: string
+          source?: string
+          sport: string
+          updated_at?: string
+        }
+        Update: {
+          games_remaining?: number | null
+          horizon?: string
+          id?: string
+          model_version?: string
+          player_id?: string
+          proj_3pa?: number | null
+          proj_3pm?: number | null
+          proj_ast?: number | null
+          proj_blk?: number | null
+          proj_fg_pct?: number | null
+          proj_fga?: number | null
+          proj_fgm?: number | null
+          proj_ft_pct?: number | null
+          proj_fta?: number | null
+          proj_ftm?: number | null
+          proj_min?: number | null
+          proj_pts?: number | null
+          proj_reb?: number | null
+          proj_stl?: number | null
+          proj_tov?: number | null
+          projected_games?: number | null
+          projection_date?: string
+          sd_ast?: number | null
+          sd_fantasy_pg?: number | null
+          sd_pts?: number | null
+          sd_reb?: number | null
+          season?: string
+          source?: string
+          sport?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "player_projections_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "player_season_stats"
+            referencedColumns: ["player_id"]
+          },
+          {
+            foreignKeyName: "player_projections_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       players: {
         Row: {
           birthdate: string | null
@@ -5553,6 +5670,56 @@ export type Database = {
       }
     }
     Views: {
+      current_player_projections: {
+        Row: {
+          games_remaining: number | null
+          horizon: string | null
+          id: string | null
+          model_version: string | null
+          player_id: string | null
+          proj_3pa: number | null
+          proj_3pm: number | null
+          proj_ast: number | null
+          proj_blk: number | null
+          proj_fg_pct: number | null
+          proj_fga: number | null
+          proj_fgm: number | null
+          proj_ft_pct: number | null
+          proj_fta: number | null
+          proj_ftm: number | null
+          proj_min: number | null
+          proj_pts: number | null
+          proj_reb: number | null
+          proj_stl: number | null
+          proj_tov: number | null
+          projected_games: number | null
+          projection_date: string | null
+          sd_ast: number | null
+          sd_fantasy_pg: number | null
+          sd_pts: number | null
+          sd_reb: number | null
+          season: string | null
+          source: string | null
+          sport: string | null
+          updated_at: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "player_projections_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "player_season_stats"
+            referencedColumns: ["player_id"]
+          },
+          {
+            foreignKeyName: "player_projections_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       full_transaction_log: {
         Row: {
           created_at: string | null

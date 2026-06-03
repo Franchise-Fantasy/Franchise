@@ -904,7 +904,11 @@ export default function MatchupScreen() {
         onNextMatchup={
           nextMatchupId ? () => setSelectedMatchupId(nextMatchupId) : undefined
         }
-        onGoToToday={() => setSelectedDate(today)}
+        onGoToToday={() => {
+          // Gate like the prev/next-day controls: don't jump to today when
+          // it falls outside the season's week range (off-season / pre-tipoff).
+          if (today >= minDate && today <= maxDate) setSelectedDate(today);
+        }}
         onSchedulePress={() => setScheduleVisible(true)}
         onSummaryPress={
           heroDataLeft && currentWeek

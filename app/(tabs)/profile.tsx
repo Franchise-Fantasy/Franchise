@@ -29,6 +29,7 @@ import { useSession } from '@/context/AuthProvider';
 import { useConfirm, useTextPrompt } from '@/context/ConfirmProvider';
 import { useColors } from '@/hooks/useColors';
 import { useLeague } from '@/hooks/useLeague';
+import { useProjectionToggle } from '@/hooks/useProjectionToggle';
 import { useSubscription } from '@/hooks/useSubscription';
 import {
   getPushPrefs,
@@ -57,6 +58,8 @@ export default function ProfileScreen() {
   const promptInput = useTextPrompt();
   const { teamId } = useAppState();
   const { data: league } = useLeague();
+  const { enabled: projectionsEnabled, setEnabled: setProjectionsEnabled } =
+    useProjectionToggle();
   const queryClient = useQueryClient();
   const [loading, setLoading] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
@@ -559,6 +562,36 @@ export default function ProfileScreen() {
               </View>
             </ListRow>
           )}
+        </Section>
+
+        {/* ─── Preferences ─────────────────────────────────────────────────── */}
+        <Section title="Preferences">
+          <ListRow index={0} total={1}>
+            <View style={styles.rowContent}>
+              <View style={styles.rowLeft}>
+                <Ionicons
+                  name="stats-chart-outline"
+                  size={ms(18)}
+                  color={c.text}
+                  accessible={false}
+                />
+                <ThemedText style={[styles.rowLabel, { color: c.text }]}>
+                  Show Projections
+                </ThemedText>
+              </View>
+              <Switch
+                value={projectionsEnabled}
+                onValueChange={setProjectionsEnabled}
+                trackColor={{ false: c.border, true: c.accent }}
+                thumbColor={Platform.OS === 'android' ? '#FFFFFF' : undefined}
+                ios_backgroundColor={c.border}
+                accessibilityLabel="Show Projections"
+                accessibilityHint="Shows projected stats on player detail, free agents and analytics"
+                accessibilityRole="switch"
+                accessibilityState={{ checked: projectionsEnabled }}
+              />
+            </View>
+          </ListRow>
         </Section>
 
         {/* ─── Beta (gated) ────────────────────────────────────────────────── */}

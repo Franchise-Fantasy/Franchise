@@ -18,6 +18,7 @@ import Animated, {
 import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { Fonts } from "@/constants/Colors";
 import { queryKeys } from "@/constants/queryKeys";
+import { useToast } from "@/context/ToastProvider";
 import { useColors } from "@/hooks/useColors";
 import { useDraftTimer } from "@/hooks/useDraftTimer";
 import { supabase, uniqueChannelTopic } from "@/lib/supabase";
@@ -61,6 +62,7 @@ export function DraftOrder({
   onPresenceChange,
 }: DraftOrderProps) {
   const colors = useColors();
+  const { showToast } = useToast();
   const scrollRef = useAnimatedRef<Animated.ScrollView>();
   const queryClient = useQueryClient();
   const [flashingPickId, setFlashingPickId] = useState<string | null>(null);
@@ -287,7 +289,23 @@ export function DraftOrder({
           filter: `id=eq.${draftId}`,
         },
         (payload) => {
-          queryClient.setQueryData(queryKeys.draftState(draftId), payload.new);
+          const prev = queryClient.getQueryData<DraftState>(queryKeys.draftState(draftId));
+          const next = payload.new as DraftState;
+          // Surface a mid-draft pick-clock change so other GMs aren't blindsided
+          // by the timer suddenly shifting. The commissioner made the change, so
+          // they don't need the toast; and we only fire while the draft is live
+          // (the initial seed and the start transition aren't "changes").
+          if (
+            prev &&
+            next.status === "in_progress" &&
+            typeof prev.time_limit === "number" &&
+            typeof next.time_limit === "number" &&
+            next.time_limit !== prev.time_limit &&
+            !isCommissioner
+          ) {
+            showToast("info", `Commissioner set the pick clock to ${next.time_limit}s.`);
+          }
+          queryClient.setQueryData(queryKeys.draftState(draftId), next);
         },
       )
       .on(
@@ -347,7 +365,7 @@ export function DraftOrder({
     return () => {
       supabase.removeChannel(draftChannel);
     };
-  }, [draftId, queryClient, teamId, catchUpDraft]);
+  }, [draftId, queryClient, teamId, catchUpDraft, showToast, isCommissioner]);
 
   // Presence channel — DETERMINISTIC name (no Date.now() suffix) because
   // Supabase routes presence by channel name and every client must share

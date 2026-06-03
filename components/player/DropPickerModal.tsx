@@ -38,6 +38,8 @@ interface DropPickerModalProps {
   startInActivateFromIR?: boolean;
   needsWaiverClaim: boolean;
   scoringWeights: Parameters<typeof calculateAvgFantasyPoints>[1] | undefined;
+  /** Categories leagues have no fantasy points — hides the FPTS readout */
+  isCategories: boolean;
   playerLockType: "daily" | "individual" | undefined;
   gameTimeMap: GameTimeMap;
   translateY: Animated.Value;
@@ -68,6 +70,7 @@ export function DropPickerModal({
   startInActivateFromIR,
   needsWaiverClaim,
   scoringWeights,
+  isCategories,
   playerLockType,
   gameTimeMap,
   translateY,
@@ -157,7 +160,7 @@ export function DropPickerModal({
     item: PlayerSeasonStats;
     index: number;
   }) => {
-    const fpts = scoringWeights
+    const fpts = scoringWeights && !isCategories
       ? calculateAvgFantasyPoints(item, scoringWeights)
       : null;
     const badge = getInjuryBadge(item.status);

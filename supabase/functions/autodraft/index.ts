@@ -4,6 +4,7 @@ import { Receiver } from 'https://esm.sh/@upstash/qstash';
 import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
 import { checkPositionLimits } from '../_shared/positionLimits.ts';
 import { notifyTeams, notifyLeague } from '../_shared/push.ts';
+import { effectiveTimeLimit } from '../_shared/draftClock.ts';
 import { parseBody, z } from '../_shared/validate.ts';
 import { isEligibleForSlot } from '../../../utils/roster/rosterSlotsShared.ts';
 
@@ -103,7 +104,7 @@ Deno.serve(async (req) => {
     const [draftResult, pickResult] = await Promise.all([
       supabaseAdmin
         .from('drafts')
-        .select('current_pick_number, rounds, picks_per_round, time_limit, league_id, type')
+        .select('current_pick_number, rounds, picks_per_round, time_limit, accelerate_after_round, accelerated_time_limit, league_id, type')
         .eq('id', draft_id)
         .single(),
       supabaseAdmin
@@ -163,7 +164,7 @@ Deno.serve(async (req) => {
     // re-check that the team still has autopick enabled — they may have toggled off.
     if (autopick_triggered && !teamStatusResult.data?.autopick_on) {
       // User turned off autopick before this fired — schedule normal clock instead
-      await scheduleAutodraft(draft_id, pick_number, draft.time_limit);
+      await scheduleAutodraft(draft_id, pick_number, effectiveTimeLimit(pick_number, draft));
       return jsonResponse({ message: 'Autopick cancelled, normal clock scheduled' });
     }
 
@@ -277,12 +278,15 @@ Deno.serve(async (req) => {
     const totalPicks = draft.rounds * draft.picks_per_round;
     const isDraftComplete = nextPickNumber > totalPicks;
 
+    // Effective clock for the new current pick (honors round acceleration).
+    const nextLimit = effectiveTimeLimit(nextPickNumber, draft);
+
     const draftUpdate: Record<string, unknown> = {
       current_pick_number: nextPickNumber,
       current_pick_timestamp: timestamp,
       // Snapshot the limit for the new current pick so a mid-draft time change
       // only affects future picks (client countdown reads this snapshot).
-      current_pick_time_limit: draft.time_limit,
+      current_pick_time_limit: nextLimit,
     };
     if (isDraftComplete) draftUpdate.status = 'complete';
 
@@ -328,7 +332,7 @@ Deno.serve(async (req) => {
             .single();
           nextPickTeamId = nextPick?.current_team_id ?? null;
 
-          let delay = draft.time_limit;
+          let delay = nextLimit;
           let nextIsAutopick = false;
           if (nextPickTeamId) {
             const { data: teamStatus } = await supabaseAdmin

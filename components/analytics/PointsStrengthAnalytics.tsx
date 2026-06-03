@@ -1,9 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { Platform, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
+import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
-import { ComingSoonTeaser } from "@/components/analytics/ComingSoonTeaser";
+import { DependencyRiskCard } from "@/components/analytics/DependencyRiskCard";
+import { PerformanceVsExpected } from "@/components/analytics/PerformanceVsExpected";
+import { RosterStrengthCard } from "@/components/analytics/RosterStrengthCard";
 import { TeamLogo } from "@/components/team/TeamLogo";
 import { Badge } from "@/components/ui/Badge";
 import { InfoModal } from "@/components/ui/InfoModal";
@@ -47,6 +49,7 @@ interface PointsStrengthAnalyticsProps {
   players: RosterStatPlayer[];
   allPlayers: (PlayerSeasonStats & { team_id: string; roster_slot?: string | null })[];
   weights: ScoringWeight[] | undefined;
+  scoringType: string | undefined;
   prevSeasonFptsMap?: Map<string, number>;
   teamId: string;
   leagueId: string;
@@ -78,6 +81,7 @@ export function PointsStrengthAnalytics({
   players,
   allPlayers,
   weights,
+  scoringType,
   prevSeasonFptsMap,
   teamId,
   leagueId,
@@ -219,8 +223,6 @@ export function PointsStrengthAnalytics({
     return m;
   }, [players, weights, gameLogsByPlayer, trendWindow]);
 
-  const vsAvg = comparison ? comparison.myAvgFpts - comparison.leagueAvgFpts : 0;
-
   // Bar scale for the full-league leaderboard — the strongest roster fills the
   // track; the league-average marker sits proportionally within it.
   const maxAvgFpts = comparison
@@ -265,61 +267,11 @@ export function PointsStrengthAnalytics({
           and expands what the preview teased. Not the focus — the trend board
           below is the actionable hero. */}
       {comparison && (
-        <View
-          style={[
-            styles.strengthCard,
-            {
-              backgroundColor: c.heritageGoldMuted,
-              borderColor: c.border,
-              ...cardShadow,
-              ...(Platform.OS === "android" && { elevation: 0 }),
-            },
-          ]}
-        >
-          <View style={[styles.topNotch, { backgroundColor: c.primary }]} />
-          <ThemedText type="varsitySmall" style={[styles.eyebrow, { color: c.primary }]}>
-            {`ROSTER STRENGTH · ${selectedWindowLabel.toUpperCase()}`}
-          </ThemedText>
-          <View style={styles.columnsRow}>
-            <View
-              style={styles.column}
-              accessibilityLabel={`Ranked ${comparison.myRank}${ordinalSuffix(comparison.myRank)} of ${comparison.totalTeams} teams by roster strength`}
-            >
-              <ThemedText type="varsitySmall" style={[styles.columnLabel, { color: c.secondaryText }]}>
-                LEAGUE RANK
-              </ThemedText>
-              <ThemedText type="display" style={[styles.columnBig, { color: c.text }]} numberOfLines={1}>
-                {`${comparison.myRank}${ordinalSuffix(comparison.myRank)}`}
-              </ThemedText>
-              <ThemedText type="varsitySmall" style={[styles.columnSub, { color: c.secondaryText }]}>
-                {`OF ${comparison.totalTeams}`}
-              </ThemedText>
-            </View>
-
-            <View style={[styles.columnDivider, { backgroundColor: c.border }]} />
-
-            <View
-              style={styles.column}
-              accessibilityLabel={`${vsAvg >= 0 ? "plus" : "minus"} ${Math.abs(vsAvg).toFixed(1)} fantasy points per game versus the league average`}
-            >
-              <ThemedText type="varsitySmall" style={[styles.columnLabel, { color: c.secondaryText }]}>
-                VS LEAGUE
-              </ThemedText>
-              <ThemedText type="display" style={[styles.columnBig, { color: c.text }]} numberOfLines={1}>
-                {`${vsAvg >= 0 ? "+" : ""}${vsAvg.toFixed(1)}`}
-              </ThemedText>
-              <ThemedText type="varsitySmall" style={[styles.columnSub, { color: c.secondaryText }]}>
-                FPTS/G VS AVG
-              </ThemedText>
-            </View>
-          </View>
-
-          {hasInactive && (
-            <ThemedText type="varsitySmall" style={[styles.strengthNote, { color: c.secondaryText }]}>
-              ACTIVE ROSTER ONLY · IR &amp; TAXI NOT COUNTED
-            </ThemedText>
-          )}
-        </View>
+        <RosterStrengthCard
+          comparison={comparison}
+          windowLabel={selectedWindowLabel}
+          hasInactive={hasInactive}
+        />
       )}
 
       {/* ── Full-league leaderboard ── gives the rank + vs-avg numbers above
@@ -440,7 +392,15 @@ export function PointsStrengthAnalytics({
         </View>
       )}
 
-      <ComingSoonTeaser />
+      <DependencyRiskCard
+        allPlayers={allPlayers as any}
+        weights={weights}
+        scoringType={scoringType}
+        teamId={teamId}
+        leagueId={leagueId}
+      />
+
+      <PerformanceVsExpected players={players} weights={weights} sport={sport} />
 
       <InfoModal
         visible={infoVisible}
@@ -545,65 +505,6 @@ const styles = StyleSheet.create({
   // Time-window pill bar at the top of the screen
   windowRow: {
     marginBottom: s(12),
-  },
-
-  // Roster-strength overview card — mirrors the home preview chrome
-  strengthCard: {
-    position: "relative",
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: s(16),
-    paddingTop: s(18),
-    paddingBottom: s(14),
-    marginBottom: s(14),
-    overflow: "hidden",
-  },
-  topNotch: {
-    position: "absolute",
-    top: 0,
-    left: s(16),
-    height: 3,
-    width: s(44),
-  },
-  eyebrow: {
-    fontSize: ms(10),
-    letterSpacing: 1.3,
-    marginBottom: s(12),
-  },
-  columnsRow: {
-    flexDirection: "row",
-    alignItems: "stretch",
-  },
-  column: {
-    flex: 1,
-    alignItems: "flex-start",
-    justifyContent: "center",
-    paddingHorizontal: s(2),
-  },
-  columnLabel: {
-    fontSize: ms(9.5),
-    letterSpacing: 1.2,
-    marginBottom: s(4),
-  },
-  columnBig: {
-    fontFamily: Fonts.display,
-    fontSize: ms(22),
-    lineHeight: ms(26),
-    letterSpacing: -0.3,
-    marginBottom: s(2),
-  },
-  columnSub: {
-    fontSize: ms(9.5),
-    letterSpacing: 1.0,
-  },
-  columnDivider: {
-    width: 1,
-    marginHorizontal: s(8),
-  },
-  strengthNote: {
-    fontSize: ms(8.5),
-    letterSpacing: 0.8,
-    marginTop: s(12),
   },
 
   // Trend group card

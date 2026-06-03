@@ -20,6 +20,7 @@ import {
 } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/league/lottery';
+import { ROSTER_SLOT } from '@/utils/roster/rosterSlotsShared';
 import { ms, s } from '@/utils/scale';
 
 interface StepDraftProps {
@@ -35,6 +36,16 @@ export function StepDraft({ state, onChange }: StepDraftProps) {
   const lotteryTeams = calcLotteryPoolSize(state.teams, state.playoffTeams);
   const effectiveOdds = state.lotteryOdds ?? generateDefaultOdds(lotteryTeams);
   const maxRookieRounds = getMaxRookieDraftRounds(state.sport, state.teams);
+
+  // Startup draft rounds = active roster slots (mirrors `rosterSize` in
+  // create-league). IR/Taxi don't get drafted into, so they don't add rounds.
+  const totalRounds = state.rosterSlots.reduce(
+    (sum, slot) =>
+      slot.position === 'IR' || slot.position === ROSTER_SLOT.TAXI ? sum : sum + slot.count,
+    0,
+  );
+  const accelEnabled = state.accelerateAfterRound != null;
+  const acceleratedTime = state.acceleratedTimePerPick ?? 30;
 
   return (
     <View style={styles.container}>
@@ -56,6 +67,47 @@ export function StepDraft({ state, onChange }: StepDraftProps) {
           step={TIME_PER_PICK_STEP}
           suffix="s"
         />
+
+        {totalRounds > 1 && (
+          <>
+            <ToggleRow
+              icon="flash-outline"
+              label="Speed Up Later Rounds"
+              description={
+                accelEnabled
+                  ? `Rounds after ${Math.min(state.accelerateAfterRound ?? 1, totalRounds - 1)} drop to ${acceleratedTime}s per pick — like a real draft tightening the clock late.`
+                  : 'Tighten the pick clock for the back half of the draft.'
+              }
+              value={accelEnabled}
+              onToggle={(on) =>
+                onChange('accelerateAfterRound', on ? Math.min(5, totalRounds - 1) : null)
+              }
+              c={{ border: c.border, accent: c.accent, secondaryText: c.secondaryText }}
+            />
+
+            {accelEnabled && (
+              <>
+                <NumberStepper
+                  label="Speed Up After Round"
+                  value={Math.min(state.accelerateAfterRound ?? 1, totalRounds - 1)}
+                  onValueChange={(v) => onChange('accelerateAfterRound', v)}
+                  min={1}
+                  max={totalRounds - 1}
+                  helperText={`Picks in rounds 1–${Math.min(state.accelerateAfterRound ?? 1, totalRounds - 1)} use ${state.timePerPick}s; later rounds use the faster clock below.`}
+                />
+                <NumberStepper
+                  label="Faster Pick Time"
+                  value={Math.min(acceleratedTime, state.timePerPick)}
+                  onValueChange={(v) => onChange('acceleratedTimePerPick', v)}
+                  min={TIME_PER_PICK_MIN}
+                  max={state.timePerPick}
+                  step={TIME_PER_PICK_STEP}
+                  suffix="s"
+                />
+              </>
+            )}
+          </>
+        )}
 
         <FieldGroup
           label="Draft Order"

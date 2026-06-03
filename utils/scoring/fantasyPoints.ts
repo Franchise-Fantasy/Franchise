@@ -39,6 +39,25 @@ export const STAT_TO_GAME: Record<string, keyof PlayerGameLog> = {
   TD: 'triple_double',
 };
 
+// Maps league_scoring_settings stat_name to a player_projections proj_* column.
+// Projections are already per-game means, so fpts is a direct weighted sum.
+// DD/TD/PF are intentionally absent — the model doesn't project them, so they
+// contribute 0 (same limitation as seasonAvgRowToFpts).
+export const STAT_TO_PROJ: Record<string, string> = {
+  PTS: 'proj_pts',
+  REB: 'proj_reb',
+  AST: 'proj_ast',
+  STL: 'proj_stl',
+  BLK: 'proj_blk',
+  TO: 'proj_tov',
+  '3PM': 'proj_3pm',
+  '3PA': 'proj_3pa',
+  FGM: 'proj_fgm',
+  FGA: 'proj_fga',
+  FTM: 'proj_ftm',
+  FTA: 'proj_fta',
+};
+
 // Computes true average FPTS per game using season totals, then dividing by games played.
 // This avoids rounding drift from averaging stats first then multiplying by weights.
 export function calculateAvgFantasyPoints(
@@ -107,6 +126,25 @@ export function seasonAvgRowToFpts(
   scoringWeights: ScoringWeight[],
 ): number {
   return calculateAvgFantasyPoints(reconstructTotals(row), scoringWeights);
+}
+
+// Turns a player_projections row (per-game projected means) into projected
+// FPTS/G using this league's scoring weights. The projections table stores the
+// raw stat line (league-agnostic); fantasy value is derived per-league here,
+// exactly like season stats. DD/TD/PF aren't projected and score as 0.
+export function projAvgRowToFpts(
+  proj: Record<string, unknown>,
+  scoringWeights: ScoringWeight[],
+): number {
+  let total = 0;
+  for (const weight of scoringWeights) {
+    const field = STAT_TO_PROJ[weight.stat_name];
+    if (!field) continue;
+    const v = Number(proj[field]);
+    if (!Number.isFinite(v)) continue;
+    total += v * weight.point_value;
+  }
+  return Math.round(total * 100) / 100;
 }
 
 // Threshold below which we treat the current-season sample as too small

@@ -15,6 +15,8 @@ import type {
   SettingsExtractionResult,
 } from '@/hooks/useImportScreenshot';
 
+import type { DraftPhase, TradedPickDraft } from '../draftPhase';
+
 /**
  * State + reducer + initial values for the Screenshot Import flow.
  *
@@ -59,6 +61,9 @@ export interface ScreenshotImportState {
   settingsMode: 'choose' | 'screenshot' | 'manual';
   historySeasons: HistorySeasonData[];
   currentHistoryIndex: number;
+  draftPhase: DraftPhase;
+  lotteryOrder: string[];
+  tradedPicks: TradedPickDraft[];
 }
 
 export type Action =
@@ -84,7 +89,10 @@ export type Action =
   | { type: 'SET_CURRENT_HISTORY'; index: number }
   | { type: 'RESET_SCORING' }
   | { type: 'RESET_ROSTER' }
-  | { type: 'RESET_CATEGORIES' };
+  | { type: 'RESET_CATEGORIES' }
+  | { type: 'SET_DRAFT_PHASE'; value: DraftPhase }
+  | { type: 'SET_LOTTERY_ORDER'; value: string[] }
+  | { type: 'SET_TRADED_PICKS'; value: TradedPickDraft[] };
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -158,6 +166,9 @@ export const initialState: ScreenshotImportState = {
   settingsMode: 'choose',
   historySeasons: [],
   currentHistoryIndex: 0,
+  draftPhase: 'in_season',
+  lotteryOrder: [],
+  tradedPicks: [],
 };
 
 // ─── Reducer ──────────────────────────────────────────────────────
@@ -182,6 +193,11 @@ export function reducer(state: ScreenshotImportState, action: Action): Screensho
           ...state,
           wizardState: { ...next, season: newSeason, seasonStartDate: null, regularSeasonWeeks, playoffWeeks },
         };
+      }
+      // Phases + future picks are dynasty-only — clear them if the league
+      // leaves Dynasty so a stale phase can't leak into the payload.
+      if (action.field === 'leagueType' && action.value !== 'Dynasty') {
+        return { ...state, wizardState: next, draftPhase: 'in_season', lotteryOrder: [], tradedPicks: [] };
       }
       return { ...state, wizardState: next };
     }
@@ -322,6 +338,21 @@ export function reducer(state: ScreenshotImportState, action: Action): Screensho
     case 'RESET_CATEGORIES':
       return { ...state, wizardState: { ...state.wizardState, categories: DEFAULT_CATEGORIES.map(c => ({ ...c })) } };
 
+    case 'SET_DRAFT_PHASE': {
+      // Switching to "Order Set" seeds a full default order (teams' order) so
+      // the payload always carries a complete order even without reordering.
+      const needsOrder =
+        action.value === 'lottery_done' && state.lotteryOrder.length !== state.teams.length;
+      const lotteryOrder = needsOrder ? state.teams.map(t => t.team_name) : state.lotteryOrder;
+      return { ...state, draftPhase: action.value, lotteryOrder };
+    }
+
+    case 'SET_LOTTERY_ORDER':
+      return { ...state, lotteryOrder: action.value };
+
+    case 'SET_TRADED_PICKS':
+      return { ...state, tradedPicks: action.value };
+
     default:
       return state;
   }
@@ -367,6 +398,9 @@ export interface PersistedState {
   settingsMode: 'choose' | 'screenshot' | 'manual';
   historySeasons: PersistedHistorySeason[];
   currentHistoryIndex: number;
+  draftPhase: DraftPhase;
+  lotteryOrder: string[];
+  tradedPicks: TradedPickDraft[];
   step: number;
 }
 
@@ -386,6 +420,9 @@ export function serializeState(s: ScreenshotImportState, step: number): Persiste
     settingsMode: s.settingsMode,
     historySeasons: s.historySeasons.map((h) => ({ extracted: h.extracted })),
     currentHistoryIndex: s.currentHistoryIndex,
+    draftPhase: s.draftPhase,
+    lotteryOrder: s.lotteryOrder,
+    tradedPicks: s.tradedPicks,
     step,
   };
 }
@@ -411,5 +448,8 @@ export function deserializeState(p: PersistedState): ScreenshotImportState {
       extracted: h.extracted ?? null,
     })),
     currentHistoryIndex: p.currentHistoryIndex ?? 0,
+    draftPhase: p.draftPhase ?? 'in_season',
+    lotteryOrder: p.lotteryOrder ?? [],
+    tradedPicks: p.tradedPicks ?? [],
   };
 }

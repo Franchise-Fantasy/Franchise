@@ -17,6 +17,7 @@ import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { useLeagueRosterConfig } from "@/hooks/useLeagueRosterConfig";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
+import { useLeagueScoringType } from "@/hooks/useLeagueScoringType";
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
 import { formatPosition } from "@/utils/formatting";
@@ -53,6 +54,7 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
     useState<PlayerSeasonStats | null>(null);
 
   const { data: scoringWeights } = useLeagueScoring(leagueId);
+  const { isCategories } = useLeagueScoringType(leagueId);
   const { data: rosterConfig, isLoading: isLoadingConfig } =
     useLeagueRosterConfig(leagueId);
 
@@ -223,7 +225,7 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
 
   const renderSlotRow = (slot: SlotEntry, idx: number, list: SlotEntry[]) => {
     const avgFpts =
-      slot.player && scoringWeights
+      slot.player && scoringWeights && !isCategories
         ? calculateAvgFantasyPoints(slot.player, scoringWeights)
         : null;
 

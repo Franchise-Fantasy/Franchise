@@ -10,7 +10,7 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
-    "typecheck:edge": "deno check --config supabase/functions/deno.json supabase/functions/finalize-week/index.ts supabase/functions/execute-trade/index.ts supabase/functions/import-screenshot-league/index.ts supabase/functions/poll-live-stats/index.ts supabase/functions/process-waivers/index.ts supabase/functions/sync-game-schedule/index.ts supabase/functions/sync-headshots/index.ts",
+    "typecheck:edge": "deno check --config supabase/functions/deno.json supabase/functions/finalize-week/index.ts supabase/functions/execute-trade/index.ts supabase/functions/import-screenshot-league/index.ts supabase/functions/import-sleeper-league/index.ts supabase/functions/poll-live-stats/index.ts supabase/functions/process-waivers/index.ts supabase/functions/sync-game-schedule/index.ts supabase/functions/sync-headshots/index.ts",
     "check": "npm run typecheck && npm run typecheck:edge && npm run lint && npm run check:realtime-channels && npm run check:paired-files && npm test",
     "test": "jest",
     "test:watch": "jest --watch",

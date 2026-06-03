@@ -22,6 +22,11 @@ import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
 import { StepBasics } from '@/components/create-league/StepBasics';
 import {
+  computeImportSeasons,
+  validateLotteryOrder,
+} from '@/components/import/draftPhase';
+import { DraftPhaseSelector } from '@/components/import/DraftPhaseSelector';
+import {
   deserializeState,
   initialState,
   reducer,
@@ -35,6 +40,7 @@ import { StepHistory } from '@/components/import/screenshot/StepHistory';
 import { StepReview } from '@/components/import/screenshot/StepReview';
 import { StepRosters } from '@/components/import/screenshot/StepRosters';
 import { StepSettings } from '@/components/import/screenshot/StepSettings';
+import { TradedPicksEditor } from '@/components/import/TradedPicksEditor';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { StepIndicator } from '@/components/ui/StepIndicator';
 import { ThemedView } from '@/components/ui/ThemedView';
@@ -397,8 +403,22 @@ export function ScreenshotImport() {
       scoring,
       categories,
       history,
+      draft_phase: state.draftPhase,
+      lottery_order:
+        state.draftPhase === 'lottery_done'
+          ? (validateLotteryOrder(state.lotteryOrder, state.teams.length)
+              ? state.lotteryOrder
+              : state.teams.map((t) => t.team_name))
+          : [],
+      traded_future_picks: state.tradedPicks.map((p) => ({
+        season: p.season,
+        round: p.round,
+        original_team_name: p.fromKey,
+        new_owner_team_name: p.toKey,
+      })),
       settings: {
         season: ws.season,
+        sport: ws.sport,
         regular_season_weeks: ws.regularSeasonWeeks,
         playoff_weeks: ws.playoffWeeks,
         playoff_teams: ws.playoffTeams,
@@ -542,7 +562,34 @@ export function ScreenshotImport() {
               />
             )}
 
-            {step === 4 && <StepConfig state={state.wizardState} onChange={handleWizardChange} />}
+            {step === 4 && (
+              <>
+                <StepConfig state={state.wizardState} onChange={handleWizardChange} />
+                <DraftPhaseSelector
+                  isDynasty={state.wizardState.leagueType === 'Dynasty'}
+                  usesLottery={state.wizardState.rookieDraftOrder === 'Lottery'}
+                  phase={state.draftPhase}
+                  onPhaseChange={(v) => dispatch({ type: 'SET_DRAFT_PHASE', value: v })}
+                  teams={state.teams.map((t) => ({ key: t.team_name, name: t.team_name }))}
+                  lotteryOrder={state.lotteryOrder}
+                  onLotteryOrderChange={(v) => dispatch({ type: 'SET_LOTTERY_ORDER', value: v })}
+                />
+                {state.wizardState.leagueType === 'Dynasty' && (
+                  <TradedPicksEditor
+                    teams={state.teams.map((t) => ({ key: t.team_name, name: t.team_name }))}
+                    seasons={computeImportSeasons(
+                      state.wizardState.season,
+                      state.wizardState.sport,
+                      state.wizardState.maxDraftYears,
+                      state.draftPhase !== 'in_season',
+                    )}
+                    rounds={state.wizardState.rookieDraftRounds}
+                    value={state.tradedPicks}
+                    onChange={(v) => dispatch({ type: 'SET_TRADED_PICKS', value: v })}
+                  />
+                )}
+              </>
+            )}
 
             {step === 5 && (
               <StepReview

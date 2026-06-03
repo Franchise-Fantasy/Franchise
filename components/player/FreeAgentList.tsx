@@ -30,7 +30,10 @@ import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColors } from "@/hooks/useColors";
 import { useLeagueRosterConfig } from "@/hooks/useLeagueRosterConfig";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
+import { useLeagueScoringType } from "@/hooks/useLeagueScoringType";
 import { TimeRange, usePlayerFilter } from "@/hooks/usePlayerFilter";
+import { usePlayerProjections } from "@/hooks/usePlayerProjections";
+import { useProjectionToggle } from "@/hooks/useProjectionToggle";
 import { useWatchlist } from "@/hooks/useWatchlist";
 import { supabase, uniqueChannelTopic } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
@@ -51,7 +54,7 @@ import { guardOverCap } from "@/utils/roster/overCap";
 import { checkPositionLimits } from "@/utils/roster/positionLimits";
 import { fetchActiveRosterCount } from "@/utils/roster/rosterCounts";
 import { isEligibleForSlot } from "@/utils/roster/rosterSlots";
-import { calculateAvgFantasyPoints } from "@/utils/scoring/fantasyPoints";
+import { calculateAvgFantasyPoints, projAvgRowToFpts } from "@/utils/scoring/fantasyPoints";
 
 import { freeAgentListStyles as styles } from "./freeAgentListStyles";
 
@@ -102,25 +105,18 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   const { data: scoringWeights } = useLeagueScoring(leagueId);
 
   // Detect category leagues to show cat stats instead of FPTS
-  const { data: leagueScoringType } = useQuery({
-    queryKey: queryKeys.leagueScoringType(leagueId),
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("leagues")
-        .select("scoring_type")
-        .eq("id", leagueId)
-        .single();
-      return data?.scoring_type as string | null;
-    },
-    enabled: !!leagueId,
-    staleTime: 1000 * 60 * 30,
-  });
-  const isCategories = leagueScoringType === "h2h_categories";
+  const { isCategories } = useLeagueScoringType(leagueId);
+
+  // Projected rest-of-season fpts shown beneath each row's season fpts (points
+  // leagues), gated by the global projection toggle.
+  const { enabled: projectionsEnabled } = useProjectionToggle();
+  const projectionsActive = projectionsEnabled && !isCategories;
 
   // User-selected "playing on date" filter — null means filter is off
   const [playingOnDate, setPlayingOnDate] = useState<string | null>(null);
 
   const sport = useActiveLeagueSport(leagueId);
+  const { data: projections } = usePlayerProjections(sport, 'ros', projectionsActive);
   // Fetch schedule for the selected date (defaults to today so row badges still show)
   const todayStr = getSportToday(sport);
   const scheduleDate = playingOnDate ?? todayStr;
@@ -630,6 +626,8 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     rosteredPlayerIds,
     playingOnDate,
     setPlayingOnDate,
+    leagueId,
+    isCategories,
   );
 
   // Look up original season stats for PlayerDetailModal (avoid passing time-range-adjusted stats)
@@ -1090,6 +1088,11 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       scoringWeights && !isCategories
         ? calculateAvgFantasyPoints(item, scoringWeights)
         : undefined;
+    const projRow = projectionsActive ? projections?.get(item.player_id) : null;
+    const projFpts =
+      projRow && scoringWeights
+        ? projAvgRowToFpts(projRow as Record<string, unknown>, scoringWeights)
+        : null;
     const needsClaim = isOnWaivers(item.player_id, waiverType, waiverPlayerMap);
     const waiverLabel = needsClaim
       ? getWaiverBadgeLabel(item.player_id, waiverType, waiverPlayerMap)
@@ -1107,6 +1110,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         index={index}
         isLast={index === (filteredPlayers ?? []).length - 1}
         fpts={fpts}
+        projFpts={projFpts}
         isCategories={isCategories}
         isAdding={addingPlayerId === item.player_id}
         needsClaim={needsClaim}

@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { notifyLeague, notifyTeams } from '../_shared/push.ts';
+import { effectiveTimeLimit } from '../_shared/draftClock.ts';
 import { CORS_HEADERS } from '../_shared/cors.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
@@ -71,7 +72,7 @@ Deno.serve(async (req) => {
 
     const { data: draft, error: draftError } = await supabaseAdmin
       .from('drafts')
-      .select('status, draft_date, time_limit, current_pick_number, league_id')
+      .select('status, draft_date, time_limit, picks_per_round, accelerate_after_round, accelerated_time_limit, current_pick_number, league_id')
       .eq('id', draft_id)
       .single();
 
@@ -114,13 +115,18 @@ Deno.serve(async (req) => {
 
     const now = new Date().toISOString();
 
+    // Acceleration normally kicks in in later rounds, so pick #1 is the base
+    // clock — but compute it the same way every other pick does so the rules
+    // live in exactly one place.
+    const firstLimit = effectiveTimeLimit(draft.current_pick_number, draft);
+
     // Conditional UPDATE atomically transitions pending→in_progress. If a
     // concurrent caller (e.g. cron and client racing) already won the
     // transition, this matches 0 rows — return early so we don't schedule a
     // duplicate QStash job for pick #1.
     const { data: updated, error: updateError } = await supabaseAdmin
       .from('drafts')
-      .update({ status: 'in_progress', current_pick_timestamp: now, current_pick_time_limit: draft.time_limit })
+      .update({ status: 'in_progress', current_pick_timestamp: now, current_pick_time_limit: firstLimit })
       .eq('id', draft_id)
       .eq('status', 'pending')
       .select('id');
@@ -130,7 +136,7 @@ Deno.serve(async (req) => {
       return jsonResponse({ message: 'Draft already starting' });
     }
 
-    const qstashResult = await scheduleAutodraft(draft_id, draft.current_pick_number, draft.time_limit);
+    const qstashResult = await scheduleAutodraft(draft_id, draft.current_pick_number, firstLimit);
 
     // Notify all league members that draft started
     try {

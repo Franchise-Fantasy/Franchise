@@ -19,6 +19,7 @@ import { PlayerGameLog, PlayerGameLogHeader } from "@/components/player/PlayerGa
 import { PlayerHistory } from "@/components/player/PlayerHistory";
 import { PlayerInsightsCard } from "@/components/player/PlayerInsights";
 import { PlayerNewsSection } from "@/components/player/PlayerNewsSection";
+import { PlayerProjectionCard } from "@/components/player/PlayerProjectionCard";
 import { SeasonAverages } from "@/components/player/SeasonAverages";
 import { Badge } from "@/components/ui/Badge";
 import { BottomSheet } from "@/components/ui/BottomSheet";
@@ -30,6 +31,7 @@ import { useToast } from "@/context/ToastProvider";
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColors } from "@/hooks/useColors";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
+import { useLeagueScoringType } from "@/hooks/useLeagueScoringType";
 import { usePlayerGameLog } from "@/hooks/usePlayerGameLog";
 import { usePlayerHistoricalStats } from "@/hooks/usePlayerHistoricalStats";
 import { usePlayerNews } from "@/hooks/usePlayerNews";
@@ -159,20 +161,8 @@ export function PlayerDetailModal({
   const { data: playerNews, isLoading: isLoadingNews } = usePlayerNews(player?.player_id);
 
   // Fetch scoring type for insights branching
-  const { data: leagueScoringType } = useQuery({
-    queryKey: queryKeys.leagueScoringType(leagueId),
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("leagues")
-        .select("scoring_type")
-        .eq("id", leagueId)
-        .single();
-      return data?.scoring_type as string | null;
-    },
-    enabled: !!leagueId,
-    staleTime: 1000 * 60 * 30,
-  });
-  const isCategories = leagueScoringType === "h2h_categories";
+  const { scoringType: leagueScoringType, isCategories } =
+    useLeagueScoringType(leagueId);
   const rankings = usePlayerRankings(player?.player_id, player?.position, scoringWeights);
 
   // Check if this player is on the user's team and get their current slot
@@ -1802,6 +1792,7 @@ export function PlayerDetailModal({
         startInActivateFromIR={startInActivateFromIR}
         needsWaiverClaim={needsWaiverClaim}
         scoringWeights={scoringWeights}
+        isCategories={isCategories}
         playerLockType={playerLockType}
         gameTimeMap={gameTimeMap}
         translateY={translateY}
@@ -1991,7 +1982,7 @@ export function PlayerDetailModal({
                   accent: c.accent,
                   card: c.card,
                 }}
-                scoringType={leagueScoringType ?? undefined}
+                scoringType={leagueScoringType}
               />
             )}
           </View>
@@ -2025,6 +2016,12 @@ export function PlayerDetailModal({
               historicalStats={historicalStats}
               scoringWeights={scoringWeights}
               gameLog={gameLog}
+            />
+            <PlayerProjectionCard
+              player={player}
+              sport={sport}
+              scoringWeights={scoringWeights}
+              isCategories={isCategories}
             />
           </View>
 

@@ -35,12 +35,13 @@ import Animated, {
 } from "react-native-reanimated";
 
 import { ComingSoonTeaser } from "@/components/analytics/ComingSoonTeaser";
+import { DependencyRiskCard } from "@/components/analytics/DependencyRiskCard";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import { InfoModal } from "@/components/ui/InfoModal";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
 import { useColorScheme } from "@/hooks/useColorScheme";
-import { PlayerSeasonStats } from "@/types/player";
+import { PlayerSeasonStats, ScoringWeight } from "@/types/player";
 import {
   ageBucket,
   BUCKET_COLORS,
@@ -86,6 +87,8 @@ type Section = "radar" | "scatter" | "tiers";
 interface CatAnalyticsProps {
   allPlayers: (PlayerSeasonStats & { team_id: string; roster_slot?: string | null })[];
   myPlayers: PlayerSeasonStats[];
+  weights: ScoringWeight[] | undefined;
+  scoringType: string | undefined;
   teamId: string;
   leagueId: string;
   // Non-dynasty (keeper/redraft) leagues drop the age-based sections — age
@@ -96,6 +99,8 @@ interface CatAnalyticsProps {
 export function CatAnalytics({
   allPlayers,
   myPlayers,
+  weights,
+  scoringType,
   teamId,
   leagueId,
   isDynasty,
@@ -241,6 +246,14 @@ export function CatAnalytics({
       {isDynasty && section === "tiers" && (
         <TiersSection data={ageTiers} colors={c} isDark={isDark} />
       )}
+
+      <DependencyRiskCard
+        allPlayers={allPlayers as any}
+        weights={weights}
+        scoringType={scoringType}
+        teamId={teamId}
+        leagueId={leagueId}
+      />
 
       {!isDynasty && <ComingSoonTeaser />}
 

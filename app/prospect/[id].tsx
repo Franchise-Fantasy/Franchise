@@ -32,6 +32,9 @@ import { ms, s } from '@/utils/scale';
 // scope so the require runs once, not on every render.
 const PATCH_SOURCE = require('../../assets/images/patch_logo.png');
 
+// players.id is a UUID; a Contentful entry id is short base62 (e.g. "6tFmFM4P0bD9q3uVH9Tplb").
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 
 export default function ProspectProfileScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -41,7 +44,12 @@ export default function ProspectProfileScreen() {
   const { canAccess } = useSubscription();
   const isPremium = canAccess('prospects');
 
-  const { data: prospect, isLoading } = useProspect(id);
+  // The list can navigate here with either a players.id UUID (synced prospects)
+  // or a raw Contentful entry id (un-synced prospects, or browsing with no active
+  // league). Detect which so useProspect runs the right lookup — otherwise a
+  // Contentful id gets mis-queried as a player UUID and the profile 404s.
+  const isUuid = UUID_RE.test(id ?? '');
+  const { data: prospect, isLoading } = useProspect(id, isUuid ? 'player' : 'contentful');
 
   if (isLoading) {
     return (

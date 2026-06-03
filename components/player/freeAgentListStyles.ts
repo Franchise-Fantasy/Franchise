@@ -233,6 +233,11 @@ export const freeAgentListStyles = StyleSheet.create({
     fontWeight: "700",
     marginTop: s(2),
   },
+  projValue: {
+    fontSize: ms(9.5),
+    textAlign: "right" as const,
+    marginTop: 1,
+  },
   catLine: {
     fontSize: ms(10),
     marginTop: 1,

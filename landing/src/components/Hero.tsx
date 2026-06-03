@@ -59,7 +59,7 @@ export default function Hero() {
           <p className="mb-9 max-w-xl text-[15px] leading-[1.55] text-t-muted">
             Where traditional fantasy is seasonal, Franchise is year-round. No more external tracking.
            
-            (Keeper and redraft leagues, too.)
+            Keeper and redraft leagues, too.
           </p>
 
           <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">

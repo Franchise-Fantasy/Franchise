@@ -107,7 +107,7 @@ export default function LeagueInfoScreen() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('drafts')
-        .select('id, draft_type, time_limit, status, season, type')
+        .select('id, draft_type, time_limit, accelerate_after_round, accelerated_time_limit, status, season, type')
         .eq('league_id', leagueId!)
         .eq('type', 'initial')
         .maybeSingle();

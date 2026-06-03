@@ -260,15 +260,30 @@ async function switchLeagueContext(
  */
 const HOME_READY_TIMEOUT_MS = 3000;
 
+// Minimum time the splash stays up regardless of how fast the app is ready.
+// Without this the splash can vanish near-instantly on a warm cache, cutting
+// off the breathing animation and exposing the home screen while downstream
+// content is still painting in. A short floor lets at least one breath leg
+// play and gives late-settling UI a moment to land before the fade.
+const MIN_SPLASH_MS = 1600;
+
 function SplashGate() {
   const authReady = useAuthInitialized();
   const { loading } = useAppState();
   const session = useSession();
   const [homeReady, setHomeReady] = useState(false);
+  const [minElapsed, setMinElapsed] = useState(false);
+
+  // Hold the splash for at least MIN_SPLASH_MS from first mount.
+  useEffect(() => {
+    const t = setTimeout(() => setMinElapsed(true), MIN_SPLASH_MS);
+    return () => clearTimeout(t);
+  }, []);
 
   // Signed-out users have no home data to wait on — skip the gate.
   const needsHomeData = !!session?.user;
-  const canHide = authReady && !loading && (!needsHomeData || homeReady);
+  const canHide =
+    authReady && !loading && (!needsHomeData || homeReady) && minElapsed;
 
   // Register the handler consumers (home screen) can call once their
   // queries resolve. Unregister on unmount so a stale setter can't fire.
@@ -313,7 +328,10 @@ function SplashGate() {
  * opaque (covering any intermediate app state) until `canHide`, when it fades.
  *
  * Kept in lockstep with app.json's expo-splash-screen config:
- *   - same image (F_patch.png), same backgroundColor (#1B3D2F)
+ *   - same artwork — native points at F_patch@3x.png (600px) so it downscales
+ *     to imageWidth sharply instead of upscaling the 200px base and blurring;
+ *     this overlay's require('F_patch.png') resolves to the same @3x asset.
+ *     Same backgroundColor (#1B3D2F).
  *   - native `imageWidth` (216) === SPLASH_LOGO_WIDTH (200) × SPLASH_BREATH_MAX
  *     (1.08), because the hand-off frame is the breath's expanded extreme.
  * If any of those change here, change them there too.

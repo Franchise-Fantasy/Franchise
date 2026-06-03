@@ -1,6 +1,11 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { HttpError, errorResponse, handleError, jsonResponse } from '../_shared/http.ts';
+import {
+  planDraftPhaseSeeding,
+  type ImportSport,
+  type ResolvedTradedPick,
+} from '../_shared/importDraftPhase.ts';
 import { createLogger } from '../_shared/log.ts';
 import { normalizeName } from '../_shared/normalize.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
@@ -74,8 +79,17 @@ const ExecuteBody = z.object({
       standing: z.number().nullable(),
     })),
   })).optional(),
+  draft_phase: z.enum(['in_season', 'pre_lottery', 'lottery_done']).default('in_season'),
+  lottery_order: z.array(z.string()).optional(),
+  traded_future_picks: z.array(z.object({
+    season: z.string(),
+    round: z.number().int().min(1),
+    original_team_name: z.string(),
+    new_owner_team_name: z.string(),
+  })).optional().default([]),
   settings: z.object({
     season: z.string(),
+    sport: z.enum(['nba', 'wnba']).default('nba'),
     regular_season_weeks: z.number(),
     playoff_weeks: z.number(),
     playoff_teams: z.number(),
@@ -584,8 +598,12 @@ async function handleExecute(
         standing: number;
       }>;
     }>;
+    draft_phase?: 'in_season' | 'pre_lottery' | 'lottery_done';
+    lottery_order?: string[];
+    traded_future_picks?: Array<{ season: string; round: number; original_team_name: string; new_owner_team_name: string }>;
     settings: {
       season: string;
+      sport?: ImportSport;
       regular_season_weeks: number;
       playoff_weeks: number;
       playoff_teams: number;
@@ -627,6 +645,12 @@ async function handleExecute(
   if (!league_name || !teams?.length) {
     throw new HttpError('league_name and teams are required');
   }
+
+  const sport: ImportSport = settings.sport ?? 'nba';
+  const draftPhase = body.draft_phase ?? 'in_season';
+  const manualTradedPicks = body.traded_future_picks ?? [];
+  const lotteryOrder = body.lottery_order ?? [];
+  const isDynasty = league_type === 'dynasty';
 
   log.info('execute_import called', {
     league_name,
@@ -800,6 +824,47 @@ async function handleExecute(
     .update({ current_teams: teams.length })
     .eq('id', leagueId);
 
+  // Fuzzy team-name → team-id matcher, shared by traded-pick resolution and
+  // historical-season import. Screenshots carry no stable team ids, so names
+  // (which the user can lightly mistype between screens) are matched leniently.
+  const normalizedCreated = Array.from(teamNameToId.entries()).map(([name, id]) => ({
+    name,
+    id,
+    norm: normalizeName(name),
+  }));
+  function fuzzyMatchTeam(historyName: string): string | null {
+    const exact = teamNameToId.get(historyName);
+    if (exact) return exact;
+    const normHistory = normalizeName(historyName);
+    const normMatch = normalizedCreated.find(t => t.norm === normHistory);
+    if (normMatch) return normMatch.id;
+    const containsMatch = normalizedCreated.find(
+      t => t.norm.includes(normHistory) || normHistory.includes(t.norm),
+    );
+    if (containsMatch) return containsMatch.id;
+    const histWords = normHistory.split(' ');
+    const wordMatch = normalizedCreated.find(t => {
+      const tWords = t.norm.split(' ');
+      return histWords.some(hw => hw.length >= 3 && tWords.some(tw => tw.startsWith(hw) || hw.startsWith(tw)));
+    });
+    if (wordMatch) return wordMatch.id;
+    return null;
+  }
+
+  // Reverse-standings order from the most recent imported season — used to seed a
+  // pre-draft reverse_record order. Returns undefined (→ unordered) if history is
+  // missing or doesn't cover every team.
+  function reverseStandingsOrderFromHistory(): string[] | undefined {
+    if (!history?.length) return undefined;
+    const latest = [...history].sort((a, b) => (a.season < b.season ? 1 : -1))[0];
+    if (!latest?.teams?.length) return undefined;
+    const sorted = [...latest.teams].sort((a, b) => (a.wins - b.wins) || (a.points_for - b.points_for));
+    const order = sorted
+      .map(t => fuzzyMatchTeam(t.team_name))
+      .filter((id): id is string => !!id);
+    return order.length === teamIds.length ? order : undefined;
+  }
+
   // Insert roster players in chunks
   for (let i = 0; i < leaguePlayerRows.length; i += 100) {
     const chunk = leaguePlayerRows.slice(i, i + 100);
@@ -823,27 +888,58 @@ async function handleExecute(
 
   if (draftError) throw draftError;
 
-  // 6. Create future draft picks (dynasty only)
-  if (league_type === 'dynasty') {
-    const startYear = parseInt(settings.season.split('-')[0], 10);
+  // 6. Seed draft picks: future tradable picks (+1..+N) plus, when the upcoming
+  //    rookie draft hasn't happened yet (draft_phase), the offset-0 rookie picks
+  //    that drive the in-app lottery / rookie draft. Dynasty only. Staged
+  //    offseason flip happens last (after history) so standings exist first.
+  let offseasonUpdate: { offseason_step?: string; lottery_status?: string } | null = null;
 
-    for (let offset = 1; offset <= settings.max_future_seasons; offset++) {
-      const futureStart = startYear + offset;
-      const futureEnd = (futureStart + 1) % 100;
-      const season = `${futureStart}-${String(futureEnd).padStart(2, '0')}`;
+  // Resolve manually-entered traded picks (by team name) to team UUIDs.
+  const resolvedTraded: ResolvedTradedPick[] = [];
+  for (const tp of manualTradedPicks) {
+    const originalTeamId = fuzzyMatchTeam(tp.original_team_name);
+    const newOwnerTeamId = fuzzyMatchTeam(tp.new_owner_team_name);
+    if (!originalTeamId || !newOwnerTeamId) {
+      log.warn('Traded pick references an unmatched team — skipped', { pick: tp });
+      continue;
+    }
+    resolvedTraded.push({ season: tp.season, round: tp.round, originalTeamId, newOwnerTeamId });
+  }
 
-      for (let round = 1; round <= settings.rookie_draft_rounds; round++) {
-        for (let slot = 0; slot < teamIds.length; slot++) {
-          await supabaseAdmin.from('draft_picks').insert({
-            league_id: leagueId,
-            season,
-            round,
-            slot_number: slot + 1,
-            current_team_id: teamIds[slot],
-            original_team_id: teamIds[slot],
-          });
-        }
+  if (isDynasty) {
+    const usesLottery = settings.rookie_draft_order === 'lottery';
+
+    // Resolve the S0 draft order (identity-specific; the planner is order-agnostic).
+    let order: string[] | undefined;
+    if (draftPhase === 'lottery_done') {
+      order = lotteryOrder
+        .map(name => fuzzyMatchTeam(name))
+        .filter((id): id is string => !!id);
+      if (order.length !== teamIds.length || new Set(order).size !== teamIds.length) {
+        throw new HttpError('lottery_order must list every team exactly once', 400);
       }
+    } else if (draftPhase === 'pre_lottery' && !usesLottery) {
+      order = reverseStandingsOrderFromHistory();
+    }
+
+    const { pickRows, offseasonUpdate: planned } = planDraftPhaseSeeding({
+      leagueId,
+      teamIds,
+      rounds: settings.rookie_draft_rounds,
+      currentSeason: settings.season,
+      sport,
+      maxFutureSeasons: settings.max_future_seasons,
+      draftPhase,
+      usesLottery,
+      order,
+      resolvedTraded,
+    });
+    offseasonUpdate = planned;
+
+    for (let i = 0; i < pickRows.length; i += 100) {
+      const chunk = pickRows.slice(i, i + 100);
+      const { error } = await supabaseAdmin.from('draft_picks').insert(chunk);
+      if (error) throw error;
     }
   }
 
@@ -867,42 +963,7 @@ async function handleExecute(
     created_team_names: Array.from(teamNameToId.keys()),
   });
   if (history?.length) {
-    // Build normalized lookup for fuzzy matching
-    const createdTeamNames = Array.from(teamNameToId.entries());
-    const normalizedCreated = createdTeamNames.map(([name, id]) => ({
-      name,
-      id,
-      norm: normalizeName(name),
-    }));
-
-    function fuzzyMatchTeam(historyName: string): string | null {
-      // 1. Exact match
-      const exact = teamNameToId.get(historyName);
-      if (exact) return exact;
-
-      const normHistory = normalizeName(historyName);
-
-      // 2. Normalized exact match
-      const normMatch = normalizedCreated.find(t => t.norm === normHistory);
-      if (normMatch) return normMatch.id;
-
-      // 3. Contains match (either direction)
-      const containsMatch = normalizedCreated.find(
-        t => t.norm.includes(normHistory) || normHistory.includes(t.norm),
-      );
-      if (containsMatch) return containsMatch.id;
-
-      // 4. First word match (useful for "Team Spoe" vs "Spoelstra")
-      const histWords = normHistory.split(' ');
-      const wordMatch = normalizedCreated.find(t => {
-        const tWords = t.norm.split(' ');
-        return histWords.some(hw => hw.length >= 3 && tWords.some(tw => tw.startsWith(hw) || hw.startsWith(tw)));
-      });
-      if (wordMatch) return wordMatch.id;
-
-      return null;
-    }
-
+    // Team-name matching uses the function-scoped `fuzzyMatchTeam` defined above.
     const teamSeasonRows: any[] = [];
 
     for (const hs of history) {
@@ -938,6 +999,14 @@ async function handleExecute(
         log.info('Inserted team_season chunk', { chunk_size: chunk.length });
       }
     }
+  }
+
+  // 9. Move the league into its offseason state LAST — after picks + standings
+  //    exist — so a partial failure never leaves a league claiming a pending
+  //    lottery/draft with nothing to draw from.
+  if (offseasonUpdate) {
+    const { error } = await supabaseAdmin.from('leagues').update(offseasonUpdate).eq('id', leagueId);
+    if (error) throw error;
   }
 
   return jsonResponse({

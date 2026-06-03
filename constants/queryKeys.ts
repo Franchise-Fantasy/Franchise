@@ -220,6 +220,8 @@ export const queryKeys = {
     ["freeAgentHistoricalStats", leagueId] as const,
   prevSeasonFpts: (leagueId: string, season: string) =>
     ["prevSeasonFpts", leagueId, season] as const,
+  playerProjections: (sport: string, horizon: string) =>
+    ["playerProjections", sport, horizon] as const,
   activeDraft: (leagueId: string) => ["activeDraft", leagueId] as const,
   leagueDraftOrder: (leagueId: string) =>
     ["leagueDraftOrder", leagueId] as const,

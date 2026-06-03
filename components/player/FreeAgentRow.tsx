@@ -22,6 +22,9 @@ interface FreeAgentRowProps {
   index: number;
   isLast: boolean;
   fpts: number | undefined;
+  /** Projected rest-of-season FPTS/G. Present only when projections are
+   *  enabled and exist for this player; shown beneath the season fpts. */
+  projFpts?: number | null;
   isCategories: boolean;
   isAdding: boolean;
   needsClaim: boolean;
@@ -49,6 +52,7 @@ export function FreeAgentRow({
   index,
   isLast,
   fpts,
+  projFpts,
   isCategories,
   isAdding,
   needsClaim,
@@ -233,6 +237,14 @@ export function FreeAgentRow({
                   style={[styles.fptsValue, { color: c.gold }]}
                 >
                   {fpts.toFixed(1)}
+                </ThemedText>
+              )}
+              {projFpts != null && projFpts > 0 && (
+                <ThemedText
+                  type="mono"
+                  style={[styles.projValue, { color: c.secondaryText }]}
+                >
+                  {projFpts.toFixed(1)} proj
                 </ThemedText>
               )}
             </>

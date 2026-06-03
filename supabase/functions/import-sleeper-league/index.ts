@@ -1,6 +1,11 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
+import {
+  planDraftPhaseSeeding,
+  type ImportSport,
+  type ResolvedTradedPick,
+} from '../_shared/importDraftPhase.ts';
 import { normalizeName } from '../_shared/normalize.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { parseBody, z } from '../_shared/validate.ts';
@@ -346,6 +351,11 @@ async function handleExecute(
   body: {
     sleeper_league_id: string;
     league_name: string;
+    sport?: ImportSport;
+    is_dynasty?: boolean;
+    draft_phase?: 'in_season' | 'pre_lottery' | 'lottery_done';
+    lottery_order?: number[];
+    traded_future_picks?: Array<{ season: string; round: number; original_roster_id: number; new_owner_roster_id: number }>;
     player_mappings: Array<{ sleeper_id: string; player_id: string; position: string }>;
     roster_slots: Array<{ position: string; count: number }>;
     scoring: Array<{ stat_name: string; point_value: number }>;
@@ -395,6 +405,12 @@ async function handleExecute(
     settings,
     roster_positions,
   } = body;
+
+  const sport: ImportSport = body.sport ?? 'nba';
+  const isDynasty = body.is_dynasty ?? false;
+  const draftPhase = body.draft_phase ?? 'in_season';
+  const manualTradedPicks = body.traded_future_picks ?? [];
+  const lotteryOrder = body.lottery_order ?? [];
 
   // Re-fetch live roster data from Sleeper (starters/players/reserve arrays)
   const sleeperRosters = await sleeperGet(`/league/${sleeper_league_id}/rosters`);
@@ -466,6 +482,7 @@ async function handleExecute(
       reseed_each_round: settings.reseed_each_round,
       buy_in_amount: settings.buy_in_amount,
       imported_from: 'sleeper',
+      league_type: isDynasty ? 'dynasty' : 'redraft',
     })
     .select('id')
     .single();
@@ -643,42 +660,82 @@ async function handleExecute(
 
   if (draftError) throw draftError;
 
-  // 7. Create future draft picks with correct ownership based on traded_picks
-  const teamIds = Array.from(rosterIdToTeamId.entries());
-  const startYear = parseInt(settings.season.split('-')[0], 10);
+  // 7. Seed draft picks: future tradable picks (+1..+N) plus, when the upcoming
+  //    rookie draft hasn't happened yet (draft_phase), the offset-0 rookie picks
+  //    that drive the in-app lottery / rookie draft. Dynasty only.
+  const orderedTeamIds = teams
+    .map(t => rosterIdToTeamId.get(t.roster_id))
+    .filter((id): id is string => !!id);
 
-  for (let offset = 1; offset <= settings.max_future_seasons; offset++) {
-    const futureStart = startYear + offset;
-    const futureEnd = (futureStart + 1) % 100;
-    const season = `${futureStart}-${String(futureEnd).padStart(2, '0')}`;
+  // Reverse-standings order from the most recent imported season — used to seed
+  // a pre-draft reverse_record order. Returns undefined (→ unordered) if history
+  // is missing or doesn't cover every team.
+  function reverseStandingsOrderFromHistory(): string[] | undefined {
+    if (!historical_seasons?.length) return undefined;
+    const latest = [...historical_seasons].sort((a, b) => (a.season < b.season ? 1 : -1))[0];
+    if (!latest?.teams?.length) return undefined;
+    const sorted = [...latest.teams].sort((a, b) => (a.wins - b.wins) || (a.fpts - b.fpts));
+    const order = sorted
+      .map(t => rosterIdToTeamId.get(t.roster_id))
+      .filter((id): id is string => !!id);
+    return order.length === orderedTeamIds.length ? order : undefined;
+  }
 
-    for (let round = 1; round <= settings.rookie_draft_rounds; round++) {
-      for (let slot = 0; slot < teamIds.length; slot++) {
-        const [rosterId, teamId] = teamIds[slot];
+  // Resolve traded future picks to team UUIDs: Sleeper's auto-detected set plus
+  // any manual overrides from the wizard (manual wins on the same pick).
+  const tradedByKey = new Map<string, ResolvedTradedPick>();
+  const addTrade = (season: string, round: number, origRosterId: number, ownerRosterId: number) => {
+    const originalTeamId = rosterIdToTeamId.get(origRosterId);
+    const newOwnerTeamId = rosterIdToTeamId.get(ownerRosterId);
+    if (!originalTeamId || !newOwnerTeamId) return;
+    tradedByKey.set(`${season}|${round}|${originalTeamId}`, { season, round, originalTeamId, newOwnerTeamId });
+  };
+  for (const tp of traded_picks) addTrade(tp.season, tp.round, tp.roster_id, tp.owner_id);
+  for (const tp of manualTradedPicks) addTrade(tp.season, tp.round, tp.original_roster_id, tp.new_owner_roster_id);
+  const resolvedTraded = Array.from(tradedByKey.values());
 
-        // Check if this pick was traded
-        const trade = traded_picks.find(
-          tp => tp.season === season && tp.round === round && tp.roster_id === rosterId
-        );
+  // Staged until after history is inserted so start-lottery has standings to read.
+  let offseasonUpdate: { offseason_step?: string; lottery_status?: string } | null = null;
 
-        const currentOwnerId = trade
-          ? (rosterIdToTeamId.get(trade.owner_id) ?? teamId)
-          : teamId;
+  if (isDynasty) {
+    const usesLottery = settings.rookie_draft_order === 'lottery';
 
-        await supabaseAdmin.from('draft_picks').insert({
-          league_id: leagueId,
-          season,
-          round,
-          slot_number: slot + 1,
-          current_team_id: currentOwnerId,
-          original_team_id: teamId,
-        });
+    // Resolve the S0 draft order (identity-specific; the planner is order-agnostic).
+    let order: string[] | undefined;
+    if (draftPhase === 'lottery_done') {
+      order = lotteryOrder
+        .map(rid => rosterIdToTeamId.get(rid))
+        .filter((id): id is string => !!id);
+      if (order.length !== orderedTeamIds.length || new Set(order).size !== orderedTeamIds.length) {
+        throw new HttpError('lottery_order must list every team exactly once', 400);
       }
+    } else if (draftPhase === 'pre_lottery' && !usesLottery) {
+      order = reverseStandingsOrderFromHistory();
+    }
+
+    const { pickRows, offseasonUpdate: planned } = planDraftPhaseSeeding({
+      leagueId,
+      teamIds: orderedTeamIds,
+      rounds: settings.rookie_draft_rounds,
+      currentSeason: settings.season,
+      sport,
+      maxFutureSeasons: settings.max_future_seasons,
+      draftPhase,
+      usesLottery,
+      order,
+      resolvedTraded,
+    });
+    offseasonUpdate = planned;
+
+    for (let i = 0; i < pickRows.length; i += 100) {
+      const chunk = pickRows.slice(i, i + 100);
+      const { error } = await supabaseAdmin.from('draft_picks').insert(chunk);
+      if (error) throw error;
     }
   }
 
   // 8. Initialize waiver priority
-  const waiverRows = teamIds.map(([_, teamId], index) => ({
+  const waiverRows = orderedTeamIds.map((teamId, index) => ({
     league_id: leagueId,
     team_id: teamId,
     priority: index + 1,
@@ -719,6 +776,14 @@ async function handleExecute(
       const { error } = await supabaseAdmin.from('team_seasons').insert(chunk);
       if (error) console.warn('Failed to insert team_seasons:', error.message);
     }
+  }
+
+  // 10. Move the league into its offseason state LAST — after picks + standings
+  //     exist — so a partial failure never leaves a league claiming a pending
+  //     lottery/draft with nothing to draw from.
+  if (offseasonUpdate) {
+    const { error } = await supabaseAdmin.from('leagues').update(offseasonUpdate).eq('id', leagueId);
+    if (error) throw error;
   }
 
   return jsonResponse({

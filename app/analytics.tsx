@@ -83,6 +83,8 @@ export default function AnalyticsScreen() {
       <CatAnalytics
         allPlayers={allPlayers as any}
         myPlayers={players}
+        weights={weights}
+        scoringType={league?.scoring_type}
         teamId={teamId!}
         leagueId={leagueId!}
         isDynasty={isDynasty}
@@ -99,6 +101,7 @@ export default function AnalyticsScreen() {
         players={players}
         allPlayers={(allPlayers ?? []) as any}
         weights={weights}
+        scoringType={league?.scoring_type}
         prevSeasonFptsMap={prevSeasonFptsMap}
         teamId={teamId!}
         leagueId={leagueId!}
@@ -112,6 +115,7 @@ export default function AnalyticsScreen() {
         players={players}
         allPlayers={(allPlayers ?? []) as any}
         weights={weights}
+        scoringType={league?.scoring_type}
         prevSeasonFptsMap={prevSeasonFptsMap}
         teamId={teamId!}
         leagueId={leagueId!}

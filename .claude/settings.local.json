@@ -550,7 +550,8 @@
       "mcp__plugin_asana_asana__asana_typeahead_search",
       "mcp__plugin_asana_asana__asana_update_task",
       "mcp__plugin_asana_asana__asana_get_task",
-      "mcp__plugin_asana_asana__asana_create_task"
+      "mcp__plugin_asana_asana__asana_create_task",
+      "mcp__plugin_asana_asana__asana_create_task_story"
     ],
     "additionalDirectories": [
       "c:\\Users\\jjspo\\OneDrive\\Desktop\\Franchise Wiki\\Franchise Wiki\\Pages",

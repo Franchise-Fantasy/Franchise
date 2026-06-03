@@ -23,6 +23,7 @@ import { ThemedView } from '@/components/ui/ThemedView';
 import { Colors, Fonts } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useConfirm } from '@/context/ConfirmProvider';
+import { useToast } from '@/context/ToastProvider';
 import { useColors } from '@/hooks/useColors';
 import { useDraftQueue } from '@/hooks/useDraftQueue';
 import { useRosterChanges } from '@/hooks/useRosterChanges';
@@ -85,6 +86,7 @@ function ToggleTab({
 export default function DraftRoomScreen() {
   const confirm = useConfirm();
   const colors = useColors();
+  const { showToast } = useToast();
   const queryClient = useQueryClient();
   const { id: draftId } = useLocalSearchParams<{ id: string }>();
   const [viewMode, setViewMode] = useState<ViewMode>('players');
@@ -167,17 +169,38 @@ export default function DraftRoomScreen() {
     return () => setDraftRoomOpen(false);
   }, []);
 
-  // Auto-generate schedule when initial draft completes (idempotent — edge fn ignores duplicates)
-  // Rookie drafts don't trigger schedule generation (offseason handles that separately)
+  // Auto-generate schedule when the initial draft completes.
+  // Rookie drafts don't trigger schedule generation (offseason handles that separately).
+  // Only the commissioner is authorized for this (non-imported) path, so only they
+  // fire it — this avoids every member's client racing redundant 403s, and lets us
+  // surface a real failure to the one person who can act on it (rather than the old
+  // fail-silent behavior that left the draft looking "stuck" with no signal). The
+  // benign "already generated" conflict on re-entry is ignored — the edge fn is
+  // idempotent and that's not an error worth a toast.
   useEffect(() => {
     if (!isDraftComplete || !draftData?.league_id) return;
     // Unlock free-agent adds across all screens that cache this query
     queryClient.invalidateQueries({ queryKey: queryKeys.hasActiveDraft(draftData.league_id) });
-    if (isRookieDraft) return;
-    supabase.functions
-      .invoke('generate-schedule', { body: { league_id: draftData.league_id } })
-      .catch(() => {});
-  }, [isDraftComplete, draftData?.league_id, isRookieDraft, queryClient]);
+    if (isRookieDraft || !teamData?.isCommissioner) return;
+
+    const leagueId = draftData.league_id;
+    (async () => {
+      const res = await supabase.functions.invoke('generate-schedule', { body: { league_id: leagueId } });
+      if (!res.error && !res.data?.error) return;
+
+      // FunctionsHttpError stashes the Response on .context — pull the real reason
+      // (stale season start, invalid season length, etc.) out of its JSON body.
+      let detail = res.data?.error ?? res.error?.message ?? 'Failed to generate schedule.';
+      try {
+        const body = await (res.error as { context?: Response } | null)?.context?.json?.();
+        if (body?.error) detail = body.error;
+      } catch {
+        // Body wasn't JSON or context unavailable — keep the fallback.
+      }
+      if (detail === 'Schedule already generated') return; // idempotent re-entry, not a failure
+      showToast('error', `Couldn't start the season: ${detail}`);
+    })();
+  }, [isDraftComplete, draftData?.league_id, isRookieDraft, teamData?.isCommissioner, queryClient, showToast]);
 
   // Map presence data for PresenceAvatars (exclude self)
   const otherTeams = useMemo(
@@ -445,7 +468,14 @@ export default function DraftRoomScreen() {
 
         {/* Main Content Area */}
         <View style={styles.mainContent}>
-          {viewMode === 'players' ? (
+          {/* AvailablePlayers stays mounted across tab switches so its
+              position/team/sort filters survive — unmounting reset them (and
+              reverted CAT-league sorts back to FPTS) whenever the user dipped
+              into Queue / My Team / Trades and came back. */}
+          <View
+            style={[styles.tabPane, viewMode !== 'players' && styles.hiddenPane]}
+            pointerEvents={viewMode === 'players' ? 'auto' : 'none'}
+          >
             <AvailablePlayers
               draftId={draftId}
               currentPick={currentPick}
@@ -455,7 +485,8 @@ export default function DraftRoomScreen() {
               addToQueue={addToQueue}
               queuedPlayerIds={queuedPlayerIds}
             />
-          ) : viewMode === 'queue' ? (
+          </View>
+          {viewMode === 'queue' ? (
             <DraftQueue
               draftId={draftId}
               leagueId={draftData?.league_id || ''}
@@ -519,12 +550,12 @@ export default function DraftRoomScreen() {
                 }}
               />
             </View>
-          ) : (
+          ) : viewMode === 'roster' ? (
             <TeamRoster
               teamId={teamData?.id || ''}
               leagueId={draftData?.league_id || ''}
             />
-          )}
+          ) : null}
         </View>
 
         {/* Bottom toggle bar — varsity caps with gold-underline active.
@@ -698,6 +729,14 @@ const styles = StyleSheet.create({
   },
   mainContent: {
     flex: 1,
+  },
+  tabPane: {
+    flex: 1,
+  },
+  // Keeps AvailablePlayers mounted (filter state intact) while another tab is
+  // shown — display:none removes it from layout so siblings fill the space.
+  hiddenPane: {
+    display: 'none',
   },
   // Compact completion notice — sits BELOW the pick strip so the last
   // pick stays visible. Gold rule + varsity eyebrow keeps the brand voice

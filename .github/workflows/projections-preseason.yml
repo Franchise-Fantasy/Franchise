@@ -1,0 +1,43 @@
+name: Projections — preseason snapshot
+
+# Pre-season / draft snapshot. Fires daily through the offseason/preseason so
+# the draft board absorbs injuries, trades and role changes right up to opening
+# night. resolve_phase.py no-ops once the season tips off (the daily ROS job
+# takes over then). Also runnable on demand via workflow_dispatch.
+on:
+  schedule:
+    - cron: '0 12 * * *' # 12:00 UTC daily (offset from the ROS job)
+  workflow_dispatch:
+
+concurrency:
+  group: projections-preseason
+  cancel-in-progress: false
+
+jobs:
+  project:
+    runs-on: ubuntu-latest
+    env:
+      PG_DSN: ${{ secrets.PG_DSN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: projections/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r projections/requirements.txt
+
+      - name: Resolve season phase
+        id: phase
+        run: echo "season=$(python projections/resolve_phase.py season)" >> "$GITHUB_OUTPUT"
+
+      - name: Generate season snapshot
+        if: steps.phase.outputs.season != 'SKIP'
+        run: python projections/franchise_project.py --sport wnba --season ${{ steps.phase.outputs.season }} --horizon season
+
+      - name: In season — skipped
+        if: steps.phase.outputs.season == 'SKIP'
+        run: echo "Season already underway; the daily ROS job owns projections now."

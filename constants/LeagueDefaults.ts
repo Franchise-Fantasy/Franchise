@@ -588,6 +588,10 @@ export interface LeagueWizardState {
   draftType: DraftType;
   initialDraftOrder: InitialDraftOrderOption;
   timePerPick: number;
+  /** Round after which the pick clock speeds up. null = no acceleration. */
+  accelerateAfterRound?: number | null;
+  /** Seconds-per-pick once past `accelerateAfterRound` (only used when set). */
+  acceleratedTimePerPick?: number;
   maxDraftYears: number;
   tradeVetoType: TradeVetoOption;
   tradeReviewPeriodHours: number;

@@ -26,7 +26,6 @@ import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColors } from '@/hooks/useColors';
 import { useLeague } from '@/hooks/useLeague';
-import { useLeagueRosterStats } from '@/hooks/useLeagueRosterStats';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { supabase } from '@/lib/supabase';
 import {
@@ -41,19 +40,16 @@ import {
   type AllPlayResult,
   type ScoringCategory,
 } from '@/utils/scoring/allPlayRecord';
-import { computeDependencyRisk, computeDependencyThresholds, type DependencyResult } from '@/utils/scoring/dependencyRisk';
 import { computeStrengthOfSchedule, type SoSResult } from '@/utils/scoring/strengthOfSchedule';
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
 const DEFAULT_TIEBREAKER = ['head_to_head', 'points_for'];
 
-// Segmented switcher labels — short forms picked to fit a 5-option row.
-// "Risk" stands in for Dependency Risk in the switcher (full title still
-// appears above the content for clarity).
-const SEGMENTS = ['Standings', 'All-Play', 'Luck', 'Risk', 'SoS'] as const;
+// Segmented switcher labels — short forms picked to fit the row.
+const SEGMENTS = ['Standings', 'All-Play', 'Luck', 'SoS'] as const;
 type Segment = typeof SEGMENTS[number];
-type InfoKey = 'luck' | 'allplay' | 'dependency' | 'sos';
+type InfoKey = 'luck' | 'allplay' | 'sos';
 
 export default function StandingsScreen() {
   const c = useColors();
@@ -111,7 +107,6 @@ export default function StandingsScreen() {
     return counts;
   }, [futureMatchups]);
 
-  const { data: allPlayers } = useLeagueRosterStats(leagueId!);
   const { data: scoringWeights } = useLeagueScoring(leagueId!);
 
   // ─── Computed data ───────────────────────────────────────────────────
@@ -158,27 +153,6 @@ export default function StandingsScreen() {
     [luckSorted],
   );
 
-  const depResults = useMemo(() => {
-    if (!allPlayers?.length || !scoringWeights?.length) return [];
-    return computeDependencyRisk(allPlayers, scoringWeights, scoringType);
-  }, [allPlayers, scoringWeights, scoringType]);
-
-  const depSorted = useMemo(
-    () => [...depResults].sort((a, b) => b.topThreePct - a.topThreePct),
-    [depResults],
-  );
-
-  const depThresholds = useMemo(
-    () => computeDependencyThresholds(depResults),
-    [depResults],
-  );
-
-  const depMap = useMemo(() => {
-    const map = new Map<string, DependencyResult>();
-    for (const r of depResults) map.set(r.teamId, r);
-    return map;
-  }, [depResults]);
-
   const sosResults = useMemo(() => {
     if (!rawTeams?.length) return [];
     return computeStrengthOfSchedule(matchups ?? [], futureMatchups ?? [], rawTeams);
@@ -203,7 +177,6 @@ export default function StandingsScreen() {
   }, [sosResults]);
 
   const myAllPlay = teamId ? allPlayMap.get(teamId) : null;
-  const myDep = teamId ? depMap.get(teamId) : null;
   const mySoS = teamId ? sosMap.get(teamId) : null;
 
   const teamNameMap = useMemo(() => {
@@ -222,18 +195,6 @@ export default function StandingsScreen() {
     if (streak.startsWith('W')) return c.success;
     if (streak.startsWith('L')) return c.danger;
     return c.secondaryText;
-  }
-
-  function depColor(pct: number): string {
-    if (pct >= depThresholds.high) return c.danger;
-    if (pct >= depThresholds.moderate) return c.warning;
-    return c.success;
-  }
-
-  function depLabel(pct: number): string {
-    if (pct >= depThresholds.high) return 'High';
-    if (pct >= depThresholds.moderate) return 'Moderate';
-    return 'Deep';
   }
 
   const handleTeamPress = (id: string) => {
@@ -616,50 +577,6 @@ export default function StandingsScreen() {
     </Section>
   );
 
-  // ─── Sub-renders: Dependency Risk view ───────────────────────────────
-
-  const renderRiskView = () => (
-    <Section
-      title="Dependency Risk"
-      onInfoPress={() => setInfoModal('dependency')}
-      cardStyle={styles.tableCard}
-    >
-      {depSorted.length === 0 ? (
-        <ThemedText style={[styles.placeholderText, { color: c.secondaryText }]}>
-          Roster data unavailable
-        </ThemedText>
-      ) : (
-        depSorted.map((r, idx) => {
-          const team = teamNameMap.get(r.teamId);
-          if (!team) return null;
-          const isMe = r.teamId === teamId;
-          const pct = Math.round(r.topThreePct * 100);
-          const color = depColor(r.topThreePct);
-          return (
-            <ListRow
-              key={r.teamId}
-              index={idx}
-              total={depSorted.length}
-              isActive={isMe}
-              accessibilityLabel={`${team.name}, ${pct}% from top 3: ${r.topThreePlayers.join(', ')}`}
-            >
-              <ThemedText
-                style={[styles.depTeamName, { color: c.text, fontWeight: isMe ? '700' : '500' }]}
-                numberOfLines={1}
-              >
-                {team.tricode ?? team.name.slice(0, 10)}
-              </ThemedText>
-              <View style={[styles.depBarOuter, { backgroundColor: c.border }]}>
-                <View style={[styles.depBarInner, { width: `${pct}%`, backgroundColor: color }]} />
-              </View>
-              <Text style={[styles.depPct, { color }]}>{pct}%</Text>
-            </ListRow>
-          );
-        })
-      )}
-    </Section>
-  );
-
   // ─── Sub-renders: Schedule view ──────────────────────────────────────
 
   const renderScheduleView = () => (
@@ -732,7 +649,7 @@ export default function StandingsScreen() {
   // ─── Your Team Insights tiles (above segmented switcher) ─────────────
 
   const renderInsightsTiles = () => {
-    if (!teamId || !(myAllPlay || myDep || mySoS)) return null;
+    if (!teamId || !(myAllPlay || mySoS)) return null;
     return (
       <Section title="Your Team" noCard>
         <View style={styles.insightGrid}>
@@ -770,17 +687,6 @@ export default function StandingsScreen() {
               accessibilityLabel={`Schedule strength ${(mySoS.pastSoS * 100).toFixed(0)} percent. Tap to view league comparison.`}
             />
           )}
-
-          {myDep && (
-            <StatTile
-              label="Risk"
-              value={`${Math.round(myDep.topThreePct * 100)}%`}
-              sub={depLabel(myDep.topThreePct)}
-              valueColor={depColor(myDep.topThreePct)}
-              onPress={() => setSegment('Risk')}
-              accessibilityLabel={`Dependency risk ${Math.round(myDep.topThreePct * 100)} percent. Tap to view league comparison.`}
-            />
-          )}
         </View>
       </Section>
     );
@@ -807,7 +713,6 @@ export default function StandingsScreen() {
             {segment === 'Standings' && renderStandingsView()}
             {segment === 'All-Play' && renderAllPlayView()}
             {segment === 'Luck' && renderLuckView()}
-            {segment === 'Risk' && renderRiskView()}
             {segment === 'SoS' && renderScheduleView()}
           </>
         )}
@@ -832,8 +737,7 @@ export default function StandingsScreen() {
               <ThemedText type="sectionLabel" style={{ color: c.text }}>
                 {infoModal === 'luck' ? 'Luck Index'
                   : infoModal === 'allplay' ? 'All-Play Standings'
-                    : infoModal === 'dependency' ? 'Dependency Risk'
-                      : 'Strength of Schedule'}
+                    : 'Strength of Schedule'}
               </ThemedText>
             </View>
 
@@ -865,21 +769,6 @@ export default function StandingsScreen() {
                 </ThemedText>
                 <ThemedText style={[styles.modalBody, { color: c.secondaryText }]}>
                   <ThemedText style={{ fontWeight: '700', color: c.text }}>Luck</ThemedText> — the difference between your actual wins and expected wins.
-                </ThemedText>
-              </>
-            ) : infoModal === 'dependency' ? (
-              <>
-                <ThemedText style={[styles.modalBody, { color: c.secondaryText }]}>
-                  Dependency Risk measures how much of a team's total season production is concentrated in their top 3 players, weighted by games played.
-                </ThemedText>
-                <ThemedText style={[styles.modalBody, { color: c.secondaryText }]}>
-                  Teams labeled <ThemedText style={{ fontWeight: '700', color: c.text }}>High</ThemedText> are more fragile — if a key player gets injured or rests, the team's output drops significantly.
-                </ThemedText>
-                <ThemedText style={[styles.modalBody, { color: c.secondaryText }]}>
-                  Teams labeled <ThemedText style={{ fontWeight: '700', color: c.text }}>Deep</ThemedText> have balanced rosters that can absorb injuries and rest days more easily.
-                </ThemedText>
-                <ThemedText style={[styles.modalBody, { color: c.secondaryText }]}>
-                  Labels are relative to your league — "High" means higher concentration than most teams in this league.
                 </ThemedText>
               </>
             ) : (
@@ -1166,33 +1055,6 @@ const styles = StyleSheet.create({
     opacity: 0.75,
   },
   luckValue: {
-    width: s(40),
-    textAlign: 'right',
-    fontSize: ms(11.5),
-    fontFamily: Fonts.mono,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-
-  // ─── Dependency Risk bars ────────────────────────────
-  depTeamName: {
-    width: s(68),
-    fontSize: ms(12),
-  },
-  depBarOuter: {
-    flex: 1,
-    height: s(10),
-    borderRadius: 4,
-    marginHorizontal: s(10),
-    overflow: 'hidden',
-    opacity: 0.35,
-  },
-  depBarInner: {
-    height: '100%',
-    borderRadius: 4,
-    opacity: 1,
-  },
-  depPct: {
     width: s(40),
     textAlign: 'right',
     fontSize: ms(11.5),

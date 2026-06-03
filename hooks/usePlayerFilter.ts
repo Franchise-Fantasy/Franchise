@@ -1,10 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { getCurrentSeason, parseSeasonStartYear } from '@/constants/LeagueDefaults';
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
-import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
 import { getEligiblePositions } from '@/utils/roster/rosterSlots';
+import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
 
 export type SortKey = 'FPTS' | 'PPG' | 'RPG' | 'APG' | 'SPG' | 'BPG' | 'MPG' | 'FG%' | 'FT%' | 'TO';
 export type TimeRange = 'season' | '7d' | '14d' | '30d' | 'lastSeason';
@@ -65,16 +65,44 @@ export function usePlayerFilter(
   playingOnDate?: string | null,
   /** Setter for the "playing on date" filter */
   onPlayingOnDateChange?: (date: string | null) => void,
+  /** When this value changes, the free-text search resets (e.g. league switch) */
+  resetKey?: string,
+  /** Categories leagues have no fantasy points — default to PPG, hide FPTS sort */
+  isCategories?: boolean,
 ) {
+  // Categories leagues can't sort by FPTS (it doesn't exist), so they default
+  // to PPG. Points leagues keep FPTS as the default.
+  const defaultSort: SortKey = isCategories ? 'PPG' : 'FPTS';
   const [searchText, setSearchText] = useState('');
   const [selectedPosition, setSelectedPosition] = useState<string>('All');
   const [selectedProTeam, setSelectedProTeam] = useState<string>('All');
-  const [sortBy, setSortBy] = useState<SortKey>('FPTS');
+  const [sortBy, setSortBy] = useState<SortKey>(defaultSort);
   const [showMinutesUp, setShowMinutesUp] = useState(false);
   const [showWatchlistOnly, setShowWatchlistOnly] = useState(false);
   const [showRookiesOnly, setShowRookiesOnly] = useState(false);
   const [showFreeAgentsOnly, setShowFreeAgentsOnly] = useState(true);
   const [injuryFilter, setInjuryFilter] = useState<InjuryFilter>('all');
+
+  // Clear the free-text search when the caller's resetKey changes (the active
+  // league switched). The search query is per-league context that shouldn't
+  // carry over; position/sort chips intentionally persist. No-op on mount.
+  const prevResetKey = useRef(resetKey);
+  useEffect(() => {
+    if (resetKey !== prevResetKey.current) {
+      prevResetKey.current = resetKey;
+      setSearchText('');
+    }
+  }, [resetKey]);
+
+  // scoring_type can resolve after mount (cold cache), so the initial `useState`
+  // default may have been computed while isCategories was still false. Once we
+  // know it's a categories league, coerce the stale FPTS default to PPG — FPTS
+  // is never a valid sort there, so this can't clobber a real user choice.
+  useEffect(() => {
+    if (isCategories) {
+      setSortBy(prev => (prev === 'FPTS' ? 'PPG' : prev));
+    }
+  }, [isCategories]);
 
   // A "rookie" is a player drafted in the current season. The `rookie` boolean
   // on player_season_stats is only populated for NBA draft prospects, so we
@@ -192,6 +220,7 @@ export function usePlayerFilter(
     injuryFilter,
     onInjuryFilterChange: setInjuryFilter,
     hasRosteredData: rosteredPlayerIds !== undefined,
+    isCategories: !!isCategories,
   };
 
   return { filteredPlayers, filterBarProps };

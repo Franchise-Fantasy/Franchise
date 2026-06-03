@@ -112,6 +112,7 @@ import {
   formatScore,
   GameWindow,
   gameWindowSize,
+  projAvgRowToFpts,
   windowFantasyPoints,
 } from "@/utils/scoring/fantasyPoints";
 import { buildWindowedStatRow } from "@/utils/scoring/windowAverages";
@@ -138,6 +139,16 @@ export default function RosterScreen() {
       prevToday.current = today;
     }
   }, [today]);
+
+  // Snap back to today when the active league switches — the day you were
+  // viewing in one roster shouldn't carry over to a different league's roster.
+  const prevLeague = useRef(leagueId);
+  useEffect(() => {
+    if (leagueId !== prevLeague.current) {
+      prevLeague.current = leagueId;
+      setSelectedDate(today);
+    }
+  }, [leagueId, today]);
 
   const [selectedPlayer, setSelectedPlayer] =
     useState<PlayerSeasonStats | null>(null);
@@ -1220,6 +1231,31 @@ export default function RosterScreen() {
         }
       }
 
+      // Projection fallback (preferred over raw prev-season averages): the
+      // projections engine blends prior + current-season data and absorbs
+      // injuries / role changes, so for under-sampled players we rank by
+      // projected fpts before falling back to last season's flat average.
+      // Points-league only — the category composite (below) keeps using the
+      // historical row, which carries the shooting splits the ROS projection
+      // doesn't model.
+      const projFptsMap = new Map<string, number>();
+      if (!isCategories && playersNeedingFallback.length > 0) {
+        const { data: projRows } = await supabase
+          .from("current_player_projections")
+          .select("*")
+          .eq("sport", sport)
+          .eq("horizon", "ros")
+          .in(
+            "player_id",
+            playersNeedingFallback.map((p) => p.player_id),
+          );
+        for (const pr of projRows ?? []) {
+          if (!pr.player_id) continue;
+          const fpts = projAvgRowToFpts(pr as Record<string, unknown>, scoringWeights);
+          if (fpts > 0) projFptsMap.set(pr.player_id, fpts);
+        }
+      }
+
       // 3. Optimize each day. Write ALL players for ALL days so stale entries
       //    from previous runs get overwritten (upsert key is per-player+date).
       const allRows: {
@@ -1300,9 +1336,12 @@ export default function RosterScreen() {
             const hasMeaningfulSample =
               (p.games_played ?? 0) >= MIN_CURRENT_SEASON_GAMES;
             const currentFpts = calculateAvgFantasyPoints(p, scoringWeights);
+            const projFpts = projFptsMap.get(p.player_id) ?? 0;
             const fallbackFpts = prevSeasonFptsMap.get(p.player_id) ?? 0;
             // Points-league ranking: windowed form when a window is active
-            // (and the log has games), else season, else prev-season.
+            // (and the log has games), else current season once it's a
+            // meaningful sample, else the projection, else last season, else
+            // whatever current value we have.
             const windowedFpts = windowedFptsFor(p);
             return {
               player_id: p.player_id,
@@ -1315,7 +1354,7 @@ export default function RosterScreen() {
                   ? windowedFpts
                   : hasMeaningfulSample
                     ? currentFpts
-                    : fallbackFpts || currentFpts,
+                    : projFpts || fallbackFpts || currentFpts,
               locked: isDateToday ? isPlayerLocked(p) : false,
               hasGame: noRosterGamesToday
                 ? true

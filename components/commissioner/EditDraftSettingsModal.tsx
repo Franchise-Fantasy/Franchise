@@ -34,7 +34,14 @@ interface EditDraftSettingsModalProps {
   onClose: () => void;
   league: any;
   leagueId: string;
-  draft: { id: string; draft_type: string; time_limit: number; status: string | null } | null;
+  draft: {
+    id: string;
+    draft_type: string;
+    time_limit: number;
+    accelerate_after_round: number | null;
+    accelerated_time_limit: number | null;
+    status: string | null;
+  } | null;
   teamCount: number;
 }
 
@@ -54,6 +61,9 @@ export function EditDraftSettingsModal({
   const [draftType, setDraftType] = useState('Snake');
   const [initialOrder, setInitialOrder] = useState('Random');
   const [timePick, setTimePick] = useState(90);
+  const [accelEnabled, setAccelEnabled] = useState(false);
+  const [accelAfterRound, setAccelAfterRound] = useState(5);
+  const [accelTime, setAccelTime] = useState(30);
   const [maxYears, setMaxYears] = useState(3);
   const [rookieRounds, setRookieRounds] = useState(2);
   const [rookieOrder, setRookieOrder] = useState('Reverse Record');
@@ -72,6 +82,10 @@ export function EditDraftSettingsModal({
     );
     setInitialOrder(INITIAL_DRAFT_ORDER_DISPLAY[league.initial_draft_order] ?? 'Random');
     setTimePick(draft?.time_limit ?? 90);
+    const enabled = draft?.accelerate_after_round != null && draft?.accelerated_time_limit != null;
+    setAccelEnabled(enabled);
+    setAccelAfterRound(draft?.accelerate_after_round ?? 5);
+    setAccelTime(draft?.accelerated_time_limit ?? 30);
     setMaxYears(league.max_future_seasons ?? 3);
     setRookieRounds(league.rookie_draft_rounds ?? 2);
     setRookieOrder(ORDER_DISPLAY[league.rookie_draft_order] ?? 'Reverse Record');
@@ -85,6 +99,12 @@ export function EditDraftSettingsModal({
     teamCount
   );
   const lotteryPool = calcLotteryPoolSize(teamCount, pt);
+
+  // Startup draft rounds = active roster slots. roster_size already excludes
+  // IR/Taxi (create-league derives it that way), so it's the round count.
+  const totalRounds = league?.roster_size ?? 0;
+  const canAccelerate = totalRounds > 1;
+  const accelRoundMax = Math.max(1, totalRounds - 1);
 
   async function handleSave() {
     if (!draft) return;
@@ -106,11 +126,18 @@ export function EditDraftSettingsModal({
       ? await supabase.from('leagues').update(leagueUpdate).eq('id', leagueId)
       : { error: null };
 
+    // Acceleration persists only when enabled AND the threshold sits inside
+    // the draft (otherwise it could never fire) — store NULL/NULL when off so
+    // the edge clock helper falls straight through to the base time_limit.
+    const accelActive = accelEnabled && canAccelerate && accelAfterRound < totalRounds;
+
     const { error: draftErr } = await supabase
       .from('drafts')
       .update({
         draft_type: draftType.toLowerCase(),
         time_limit: timePick,
+        accelerate_after_round: accelActive ? accelAfterRound : null,
+        accelerated_time_limit: accelActive ? Math.min(accelTime, timePick) : null,
       })
       .eq('id', draft.id);
 
@@ -187,6 +214,44 @@ export function EditDraftSettingsModal({
         step={TIME_PER_PICK_STEP}
         suffix="s"
       />
+
+      {/* Speed up later rounds */}
+      {canAccelerate && (
+        <>
+          <ToggleRow
+            icon="flash-outline"
+            label="Speed Up Later Rounds"
+            description={
+              accelEnabled
+                ? `Rounds after ${Math.min(accelAfterRound, accelRoundMax)} drop to ${Math.min(accelTime, timePick)}s per pick.`
+                : 'Tighten the pick clock for the back half of the draft.'
+            }
+            value={accelEnabled}
+            onToggle={setAccelEnabled}
+            c={c}
+          />
+          {accelEnabled && (
+            <>
+              <NumberStepper
+                label="Speed Up After Round"
+                value={Math.min(accelAfterRound, accelRoundMax)}
+                onValueChange={setAccelAfterRound}
+                min={1}
+                max={accelRoundMax}
+              />
+              <NumberStepper
+                label="Faster Pick Time"
+                value={Math.min(accelTime, timePick)}
+                onValueChange={setAccelTime}
+                min={TIME_PER_PICK_MIN}
+                max={timePick}
+                step={TIME_PER_PICK_STEP}
+                suffix="s"
+              />
+            </>
+          )}
+        </>
+      )}
 
       {/* Draft Order */}
       <View style={[styles.editRow, { borderBottomColor: c.border }]}>

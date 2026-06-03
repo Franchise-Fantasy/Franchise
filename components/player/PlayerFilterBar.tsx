@@ -130,6 +130,13 @@ interface PlayerFilterBarProps {
   hasRosteredData?: boolean;
   injuryFilter?: InjuryFilter;
   onInjuryFilterChange?: (filter: InjuryFilter) => void;
+  /** Categories leagues have no fantasy points — hides the FPTS sort option */
+  isCategories?: boolean;
+}
+
+/** Default sort key per scoring type — categories leagues can't sort by FPTS. */
+function defaultSortKey(isCategories?: boolean): SortKey {
+  return isCategories ? 'PPG' : 'FPTS';
 }
 
 /** Number of filters in non-default state — drives the header pip. */
@@ -143,11 +150,12 @@ export function countActiveFilters(args: {
   showWatchlistOnly?: boolean;
   showRookiesOnly?: boolean;
   injuryFilter?: InjuryFilter;
+  isCategories?: boolean;
 }): number {
   return (
     (args.selectedPosition !== 'All' ? 1 : 0) +
     (args.selectedProTeam && args.selectedProTeam !== 'All' ? 1 : 0) +
-    (args.sortBy !== 'FPTS' ? 1 : 0) +
+    (args.sortBy !== defaultSortKey(args.isCategories) ? 1 : 0) +
     (args.showMinutesUp ? 1 : 0) +
     (args.playingOnDate ? 1 : 0) +
     (args.timeRange && args.timeRange !== 'season' ? 1 : 0) +
@@ -197,10 +205,13 @@ export function PlayerFilterBar({
   hasRosteredData,
   injuryFilter,
   onInjuryFilterChange,
+  isCategories,
 }: PlayerFilterBarProps) {
   const c = useColors();
   const scheme = useColorScheme() ?? 'light';
   const sport = useActiveLeagueSport();
+  // Categories leagues have no fantasy points — drop FPTS from the sort chips.
+  const sortOptions = isCategories ? SORT_OPTIONS.filter(o => o !== 'FPTS') : SORT_OPTIONS;
   const TIME_RANGE_OPTIONS: { key: TimeRange; label: string }[] = [
     { key: 'season', label: 'Season' },
     { key: '7d', label: '7D' },
@@ -228,12 +239,13 @@ export function PlayerFilterBar({
     showWatchlistOnly,
     showRookiesOnly,
     injuryFilter,
+    isCategories,
   });
 
   const resetFilters = () => {
     onPositionChange('All');
     onProTeamChange?.('All');
-    onSortChange('FPTS');
+    onSortChange(defaultSortKey(isCategories));
     onMinutesUpChange?.(false);
     onPlayingOnDateChange?.(null);
     onTimeRangeChange?.('season');
@@ -638,7 +650,7 @@ export function PlayerFilterBar({
               {/* Sort section */}
               <View style={styles.section}>
                 <ChipScrollRow label="Sort By" goldColor={c.gold} chevronColor={c.secondaryText}>
-                  {SORT_OPTIONS.map(opt => {
+                  {sortOptions.map(opt => {
                     const active = sortBy === opt;
                     return (
                       <TouchableOpacity

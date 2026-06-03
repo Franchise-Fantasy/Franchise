@@ -19,6 +19,10 @@ interface DraftState {
    *  time_limit when absent (pre-migration / pre-deploy). */
   current_pick_time_limit?: number;
   time_limit: number;
+  /** When both set, rounds after `accelerate_after_round` use
+   *  `accelerated_time_limit` seconds. NULL/absent = no acceleration. */
+  accelerate_after_round?: number | null;
+  accelerated_time_limit?: number | null;
   rounds: number;
   picks_per_round: number;
   draft_date?: string;

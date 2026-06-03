@@ -3,7 +3,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { errorResponse, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { parseBody, z } from '../_shared/validate.ts';
-import { week1Length } from '../../../utils/leagueTime.ts';
+import { sportSlateDate, week1Length } from '../../../utils/leagueTime.ts';
 
 const Body = z.object({
   league_id: z.string().uuid(),
@@ -117,6 +117,18 @@ Deno.serve(async (req: Request) => {
       return errorResponse(`Cannot generate schedule during offseason step: ${league.offseason_step}`, 409);
     }
 
+    // Defensive: a non-positive week count (seen in the wild from a non-wizard
+    // write path) would otherwise silently produce a schedule with zero
+    // matchups — the regular-season matchup loop just doesn't run. The creation
+    // wizard clamps these to >= 1; this catches DB/edit-path drift before it
+    // becomes a silent correctness bug.
+    if (league.regular_season_weeks < 1 || league.playoff_weeks < 0) {
+      return errorResponse(
+        `League season length is invalid (regular: ${league.regular_season_weeks} weeks, playoff: ${league.playoff_weeks} weeks). Fix it in League Info → Season Settings before starting the season.`,
+        409,
+      );
+    }
+
     // Resolve the season start date. A date that already belongs to the target
     // season (commish-set, or correct from creation) is used as-is. Otherwise —
     // missing, or carried over from the season that just ended after
@@ -160,7 +172,11 @@ Deno.serve(async (req: Request) => {
       .limit(1)
       .maybeSingle();
     if (latestDraft?.draft_date) {
-      const draftDay = latestDraft.draft_date.slice(0, 10); // YYYY-MM-DD (UTC-ish, good enough here)
+      // Bucket the draft to its league-TZ slate day (5am-ET rollover), matching
+      // how game_schedule rows are dated. A raw UTC `.slice(0,10)` would mis-bucket
+      // an evening-ET draft that crosses midnight UTC (e.g. 9:53pm ET = next-day
+      // UTC), falsely colliding with a next-day season start and blocking it.
+      const draftDay = sportSlateDate(league.sport, new Date(latestDraft.draft_date));
       if (seasonStartDate <= draftDay) {
         return errorResponse(
           `Season start (${seasonStartDate}) must be after the draft date (${draftDay}). Update the start date in League Info → Season Settings, or reschedule the draft.`,

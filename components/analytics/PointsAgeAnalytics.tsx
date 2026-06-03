@@ -17,6 +17,7 @@ import {
   GestureResponderEvent,
   LayoutChangeEvent,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -31,6 +32,8 @@ import Animated, {
 } from "react-native-reanimated";
 
 import { AnalyticsEmptyState } from "@/components/analytics/AnalyticsEmptyState";
+import { DependencyRiskCard } from "@/components/analytics/DependencyRiskCard";
+import { RosterStrengthCard } from "@/components/analytics/RosterStrengthCard";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import { Badge, type BadgeVariant } from "@/components/ui/Badge";
 import { InfoModal } from "@/components/ui/InfoModal";
@@ -52,7 +55,8 @@ import {
   buildScatterData,
   calculateRosterAgeProfile,
 } from "@/utils/roster/rosterAge";
-import { getEligiblePositions } from "@/utils/roster/rosterSlots";
+import { getEligiblePositions, isActiveRosterSlot } from "@/utils/roster/rosterSlots";
+import { buildLeagueStrengthComparison } from "@/utils/roster/rosterStrength";
 import { ms, s } from "@/utils/scale";
 import {
   ANALYTICS_MIN_CURRENT_SEASON_GAMES,
@@ -75,8 +79,9 @@ function bucketBadgeVariant(bucket: 'rising' | 'prime' | 'vet'): BadgeVariant {
 
 interface PointsAgeAnalyticsProps {
   players: PlayerSeasonStats[];
-  allPlayers: (PlayerSeasonStats & { team_id: string })[];
+  allPlayers: (PlayerSeasonStats & { team_id: string; roster_slot?: string | null })[];
   weights: ScoringWeight[] | undefined;
+  scoringType: string | undefined;
   prevSeasonFptsMap?: Map<string, number>;
   teamId: string;
   leagueId: string;
@@ -93,6 +98,7 @@ export function PointsAgeAnalytics({
   players,
   allPlayers,
   weights,
+  scoringType,
   prevSeasonFptsMap,
   teamId,
   leagueId,
@@ -140,6 +146,22 @@ export function PointsAgeAnalytics({
       ANALYTICS_MIN_CURRENT_SEASON_GAMES,
     );
   }, [allPlayers, weights, teamId, prevSeasonFptsMap]);
+
+  // Roster-strength overview (season window — no game logs needed). Mirrors
+  // the overview card on the redraft analytics view so both points views lead
+  // with a roster-strength summary.
+  const strengthComparison = useMemo(() => {
+    if (!allPlayers?.length || !weights?.length || !teamId) return null;
+    return buildLeagueStrengthComparison(allPlayers as any, weights, teamId, {
+      prevSeasonFptsMap,
+      minGames: ANALYTICS_MIN_CURRENT_SEASON_GAMES,
+    });
+  }, [allPlayers, weights, teamId, prevSeasonFptsMap]);
+
+  const hasInactive = useMemo(
+    () => allPlayers.some((p) => !isActiveRosterSlot(p.roster_slot)),
+    [allPlayers],
+  );
 
   // Career trajectory for the selected player, plotted on the chart's own
   // age/FPTS axes: each past season becomes a point at (age that year, FPTS
@@ -358,7 +380,21 @@ export function PointsAgeAnalytics({
   }
 
   return (
-    <>
+    <ScrollView
+      style={{ flex: 1 }}
+      contentContainerStyle={styles.scrollContent}
+      showsVerticalScrollIndicator={false}
+    >
+      {/* ── Roster-strength overview ── season rank + vs-league FPTS/G,
+          matching the redraft analytics view's overview card. */}
+      {strengthComparison && (
+        <RosterStrengthCard
+          comparison={strengthComparison}
+          windowLabel="Season"
+          hasInactive={hasInactive}
+        />
+      )}
+
       {/* ── Narrative Card ── matches AnalyticsPreviewCard chrome
           (heritage-gold surface + turf notch + column-divider-column),
           adapted to three stat columns. */}
@@ -940,6 +976,14 @@ export function PointsAgeAnalytics({
         </Text>
       )}
 
+      <DependencyRiskCard
+        allPlayers={allPlayers as any}
+        weights={weights}
+        scoringType={scoringType}
+        teamId={teamId}
+        leagueId={leagueId}
+      />
+
       {/* ── Info Modal ── */}
       <InfoModal
         visible={infoModalVisible}
@@ -999,11 +1043,15 @@ export function PointsAgeAnalytics({
         teamId={teamId ?? undefined}
         onClose={() => setModalPlayer(null)}
       />
-    </>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
+  scrollContent: {
+    paddingBottom: s(32),
+  },
+
   // Narrative Card — mirrors AnalyticsPreviewCard chrome
   narrativeCard: {
     position: "relative",

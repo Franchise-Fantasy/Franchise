@@ -27,8 +27,16 @@ import {
 } from '@/components/create-league/StepSeason';
 import { StepTrade } from '@/components/create-league/StepTrade';
 import { StepWaivers } from '@/components/create-league/StepWaivers';
+import {
+  computeImportSeasons,
+  validateLotteryOrder,
+  type DraftPhase,
+  type TradedPickDraft,
+} from '@/components/import/draftPhase';
+import { DraftPhaseSelector } from '@/components/import/DraftPhaseSelector';
 import { PlayerMatchList } from '@/components/import/PlayerMatchList';
 import { ScreenshotImport } from '@/components/import/ScreenshotImport';
+import { TradedPicksEditor } from '@/components/import/TradedPicksEditor';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { BrandTextInput } from '@/components/ui/BrandTextInput';
 import { FormSection } from '@/components/ui/FormSection';
@@ -99,6 +107,9 @@ interface ImportState {
   resolvedMappings: Map<string, { player_id: string; name: string; position: string }>;
   skippedPlayers: Set<string>;
   wizardState: LeagueWizardState;
+  draftPhase: DraftPhase;
+  lotteryOrder: string[];
+  manualTradedPicks: TradedPickDraft[];
 }
 
 type Action =
@@ -114,7 +125,10 @@ type Action =
   | { type: 'RESET_ROSTER' }
   | { type: 'SET_SCORING_TYPE'; value: ScoringTypeOption }
   | { type: 'SET_CATEGORY_ENABLED'; index: number; enabled: boolean }
-  | { type: 'RESET_CATEGORIES' };
+  | { type: 'RESET_CATEGORIES' }
+  | { type: 'SET_DRAFT_PHASE'; value: DraftPhase }
+  | { type: 'SET_LOTTERY_ORDER'; value: string[] }
+  | { type: 'SET_TRADED_PICKS'; value: TradedPickDraft[] };
 
 const SLEEPER_STORAGE_KEY = '@sleeper_import_wizard';
 
@@ -124,6 +138,9 @@ interface PersistedSleeperState {
   resolvedMappings: [string, { player_id: string; name: string; position: string }][];
   skippedPlayers: string[];
   wizardState: LeagueWizardState;
+  draftPhase: DraftPhase;
+  lotteryOrder: string[];
+  manualTradedPicks: TradedPickDraft[];
   step: number;
   source: ImportSource;
 }
@@ -135,6 +152,9 @@ function serializeSleeperState(s: ImportState, step: number, src: ImportSource):
     resolvedMappings: Array.from(s.resolvedMappings.entries()),
     skippedPlayers: Array.from(s.skippedPlayers),
     wizardState: s.wizardState,
+    draftPhase: s.draftPhase,
+    lotteryOrder: s.lotteryOrder,
+    manualTradedPicks: s.manualTradedPicks,
     step,
     source: src,
   };
@@ -147,7 +167,22 @@ function deserializeSleeperState(p: PersistedSleeperState): ImportState {
     resolvedMappings: new Map(p.resolvedMappings ?? []),
     skippedPlayers: new Set(p.skippedPlayers ?? []),
     wizardState: p.wizardState,
+    draftPhase: p.draftPhase ?? 'in_season',
+    lotteryOrder: p.lotteryOrder ?? [],
+    manualTradedPicks: p.manualTradedPicks ?? [],
   };
+}
+
+// Seed the traded-picks editor from Sleeper's auto-detected traded picks so it
+// opens pre-populated (the user can then edit/remove/add). Sleeper's owner_id
+// is itself a roster_id, so both keys are roster_id strings.
+function seedTradedPicks(data: SleeperPreviewResult): TradedPickDraft[] {
+  return (data.traded_picks ?? []).map(tp => ({
+    season: tp.season,
+    round: tp.round,
+    fromKey: String(tp.roster_id),
+    toKey: String(tp.owner_id),
+  }));
 }
 
 const maxWeeks = computeMaxWeeks(CURRENT_NBA_SEASON);
@@ -228,6 +263,9 @@ const initialState: ImportState = {
   previewData: null,
   resolvedMappings: new Map(),
   skippedPlayers: new Set(),
+  draftPhase: 'in_season',
+  lotteryOrder: [],
+  manualTradedPicks: [],
   wizardState: {
     sport: 'nba',
     leagueType: 'Dynasty',
@@ -293,6 +331,9 @@ function reducer(state: ImportState, action: Action): ImportState {
         wizardState: buildWizardState(action.data),
         resolvedMappings: new Map(),
         skippedPlayers: new Set(),
+        draftPhase: 'in_season',
+        lotteryOrder: [],
+        manualTradedPicks: seedTradedPicks(action.data),
       };
     case 'RESOLVE_PLAYER': {
       const newMap = new Map(state.resolvedMappings);
@@ -324,12 +365,18 @@ function reducer(state: ImportState, action: Action): ImportState {
         return updateWizard(clampLotteryState({ ...next, regularSeasonWeeks, playoffWeeks }));
       }
       if (action.field === 'leagueType' && action.value !== 'Dynasty') {
-        return updateWizard({
-          ...next,
-          draftPickTradingEnabled: false,
-          pickConditionsEnabled: false,
-          maxDraftYears: 0,
-        });
+        return {
+          ...state,
+          wizardState: {
+            ...next,
+            draftPickTradingEnabled: false,
+            pickConditionsEnabled: false,
+            maxDraftYears: 0,
+          },
+          draftPhase: 'in_season',
+          lotteryOrder: [],
+          manualTradedPicks: [],
+        };
       }
       if (action.field === 'leagueType' && action.value === 'Dynasty') {
         return updateWizard({ ...next, maxDraftYears: 3 });
@@ -374,6 +421,22 @@ function reducer(state: ImportState, action: Action): ImportState {
     }
     case 'RESET_CATEGORIES':
       return updateWizard({ ...state.wizardState, categories: DEFAULT_CATEGORIES.map(c => ({ ...c })) });
+    case 'SET_DRAFT_PHASE': {
+      // Switching to "Order Set" seeds a full default order (teams' import
+      // order) so the payload always has a complete order even if the user
+      // doesn't reorder.
+      const needsOrder =
+        action.value === 'lottery_done' &&
+        state.lotteryOrder.length !== (state.previewData?.teams.length ?? 0);
+      const lotteryOrder = needsOrder
+        ? (state.previewData?.teams ?? []).map(t => String(t.roster_id))
+        : state.lotteryOrder;
+      return { ...state, draftPhase: action.value, lotteryOrder };
+    }
+    case 'SET_LOTTERY_ORDER':
+      return { ...state, lotteryOrder: action.value };
+    case 'SET_TRADED_PICKS':
+      return { ...state, manualTradedPicks: action.value };
     default:
       return state;
   }
@@ -479,6 +542,15 @@ export default function ImportLeague() {
 
     const ws = state.wizardState;
 
+    if (
+      ws.leagueType === 'Dynasty' &&
+      state.draftPhase === 'lottery_done' &&
+      !validateLotteryOrder(state.lotteryOrder, state.previewData.teams.length)
+    ) {
+      Alert.alert('Set the draft order', 'Each team must appear exactly once in the rookie draft order.');
+      return;
+    }
+
     const playerMappings: { sleeper_id: string; player_id: string; position: string }[] = [];
 
     for (const m of state.previewData.player_matches) {
@@ -518,7 +590,19 @@ export default function ImportLeague() {
         roster_id: t.roster_id,
         team_name: t.team_name,
       })),
-      traded_picks: state.previewData.traded_picks,
+      // The traded-picks editor (seeded from Sleeper's auto-detected set) is the
+      // single source of truth so edits/removals stick — pass only its contents.
+      traded_picks: [],
+      traded_future_picks: state.manualTradedPicks.map(p => ({
+        season: p.season,
+        round: p.round,
+        original_roster_id: Number(p.fromKey),
+        new_owner_roster_id: Number(p.toKey),
+      })),
+      sport: ws.sport,
+      is_dynasty: ws.leagueType === 'Dynasty',
+      draft_phase: state.draftPhase,
+      lottery_order: state.lotteryOrder.map(Number),
       historical_seasons: state.previewData.historical_seasons,
       roster_positions: state.previewData.league.roster_positions,
       settings: {
@@ -582,6 +666,9 @@ export default function ImportLeague() {
     if (step === STEP_PLAYERS) return unresolvedCount === 0;
     if (step === STEP_BASICS) return state.wizardState.name.trim().length > 0;
     if (step === STEP_SEASON) return !isOddTeamByeInvalid;
+    if (step === STEP_DRAFT && state.draftPhase === 'lottery_done') {
+      return validateLotteryOrder(state.lotteryOrder, state.previewData?.teams.length ?? 0);
+    }
     return true;
   })();
 
@@ -872,7 +959,20 @@ export default function ImportLeague() {
             )}
 
             {step === STEP_DRAFT && (
-              <StepDraft state={state.wizardState} onChange={handleWizardChange} />
+              <>
+                <StepDraft state={state.wizardState} onChange={handleWizardChange} />
+                {state.previewData && (
+                  <DraftPhaseSelector
+                    isDynasty={state.wizardState.leagueType === 'Dynasty'}
+                    usesLottery={state.wizardState.rookieDraftOrder === 'Lottery'}
+                    phase={state.draftPhase}
+                    onPhaseChange={v => dispatch({ type: 'SET_DRAFT_PHASE', value: v })}
+                    teams={state.previewData.teams.map(t => ({ key: String(t.roster_id), name: t.team_name }))}
+                    lotteryOrder={state.lotteryOrder}
+                    onLotteryOrderChange={v => dispatch({ type: 'SET_LOTTERY_ORDER', value: v })}
+                  />
+                )}
+              </>
             )}
 
             {step === STEP_REVIEW && state.previewData && (
@@ -899,7 +999,7 @@ export default function ImportLeague() {
                       />
                       <SummaryRow
                         label="Traded Picks"
-                        value={String(state.previewData.traded_picks.length)}
+                        value={String(state.manualTradedPicks.length)}
                         last
                       />
                     </Section>
@@ -927,6 +1027,21 @@ export default function ImportLeague() {
                         </View>
                       ))}
                     </Section>
+
+                    {state.wizardState.leagueType === 'Dynasty' && (
+                      <TradedPicksEditor
+                        teams={state.previewData.teams.map(t => ({ key: String(t.roster_id), name: t.team_name }))}
+                        seasons={computeImportSeasons(
+                          state.wizardState.season,
+                          state.wizardState.sport,
+                          state.wizardState.maxDraftYears,
+                          state.draftPhase !== 'in_season',
+                        )}
+                        rounds={state.wizardState.rookieDraftRounds}
+                        value={state.manualTradedPicks}
+                        onChange={v => dispatch({ type: 'SET_TRADED_PICKS', value: v })}
+                      />
+                    )}
                   </>
                 }
               />

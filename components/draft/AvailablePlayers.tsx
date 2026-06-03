@@ -23,6 +23,7 @@ import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { useDraftPlayer } from "@/hooks/useDraftPlayer";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
+import { useLeagueScoringType } from "@/hooks/useLeagueScoringType";
 import { TimeRange, usePlayerFilter } from "@/hooks/usePlayerFilter";
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
@@ -65,20 +66,7 @@ export function AvailablePlayers({
   );
   const { data: scoringWeights } = useLeagueScoring(leagueId);
 
-  const { data: scoringType } = useQuery<string>({
-    queryKey: queryKeys.leagueScoringType(leagueId),
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("leagues")
-        .select("scoring_type")
-        .eq("id", leagueId)
-        .single();
-      return data?.scoring_type ?? "points";
-    },
-    enabled: !!leagueId,
-    staleTime: 1000 * 60 * 30,
-  });
-  const isCategories = scoringType === "h2h_categories";
+  const { isCategories } = useLeagueScoringType(leagueId);
 
   // Block the Draft button for players whose position would push the team over
   // a per-position limit — mirrors the edge function's checkPositionLimits()
@@ -376,6 +364,10 @@ export function AvailablePlayers({
     undefined,
     undefined,
     emptySet,
+    undefined,
+    undefined,
+    undefined,
+    isCategories,
   );
 
   const handleDraft = (player: PlayerSeasonStats) => {
