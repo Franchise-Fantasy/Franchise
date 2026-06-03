@@ -52,11 +52,18 @@ export PG_DSN="postgresql://...see Connection string below..."
 
 ## Connection string (least-privilege)
 
-The engine runs as the dedicated **`projections_engine`** Postgres role created
-by migration `20260603000001_projections_engine_role.sql`. That role can only
-`SELECT` the four tables it reads (`player_games`, `players`, `game_schedule`,
-`season_config`) and `INSERT`/`UPDATE` `player_projections` — nothing else, and
-no `DELETE`/DDL. RLS stays on; the role has its own permissive policies.
+The engine connects directly as the dedicated **`projections_engine`** role
+created by migration `20260603000001_projections_engine_role.sql`. That role can
+only `SELECT` the four tables it reads (`player_games`, `players`,
+`game_schedule`, `season_config`) and `INSERT`/`UPDATE` `player_projections` —
+nothing else, no `DELETE`/DDL. RLS stays on; the role has its own permissive
+policies. So if the secret ever leaks, the blast radius is exactly those five
+tables — never `postgres`.
+
+GitHub Actions runners are IPv4-only, so use the Supabase **Session pooler** (the
+direct `db.<ref>.supabase.co` host is IPv6-only). The shared pooler authenticates
+any database role, including this one, via the role-qualified username
+`projections_engine.<project-ref>`.
 
 One-time setup:
 
@@ -64,18 +71,22 @@ One-time setup:
    ```sql
    ALTER ROLE projections_engine WITH LOGIN PASSWORD '<generated-strong-secret>';
    ```
-2. Build `PG_DSN` from the Supabase **Session pooler** string
-   (Dashboard → Project Settings → Database → Connection string → "Session"),
-   swapping in the role + password. GitHub Actions runners are IPv4, so use the
-   pooler host (the direct `db.<ref>.supabase.co` host is IPv6-only). The pooler
-   username is role-qualified with the project ref:
+2. Build `PG_DSN` from the **Session pooler** string (Dashboard → Connect →
+   Session pooler), swapping in the role + password:
    ```
-   postgresql://projections_engine.<project-ref>:<password>@<region>.pooler.supabase.com:5432/postgres
+   postgresql://projections_engine.<project-ref>:<password>@<host>:5432/postgres?sslmode=require
    ```
-3. Store that as the GitHub `PG_DSN` repo secret
-   (Settings → Secrets and variables → Actions → New repository secret).
+   ⚠️ **Use the EXACT host from that dialog.** Supabase assigns each project to a
+   specific shared-pooler instance (`aws-0-…`, `aws-1-…`, …); hitting the wrong
+   one fails with `FATAL (ENOTFOUND) tenant/user … not found` even when the
+   username + password are correct. For this project the host is
+   **`aws-1-us-east-2.pooler.supabase.com`**. (To identify the right host without
+   a password: connect with a bogus one — the correct host replies `password
+   authentication failed`, a wrong host replies `tenant/user not found`.)
+3. Store that as the GitHub `PG_DSN` repo secret (Settings → Secrets and
+   variables → Actions). Paste with **no trailing newline** — `franchise_db` /
+   `resolve_phase` also `.strip()` it defensively, since a stray newline folds
+   into the last DSN value (`invalid sslmode value: "require\n"`).
 
-On the very first run, confirm the role authenticates through the pooler (custom
-roles are supported by Supavisor, but verify in the workflow logs). If auth
-fails, double-check the `projections_engine.<ref>` username format and that the
-password was set with `LOGIN`.
+Smoke-test the string locally before trusting CI: set `PG_DSN` in your shell and
+run `python projections/check_connection.py`.
