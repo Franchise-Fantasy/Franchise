@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 
 import { queryKeys } from '@/constants/queryKeys';
+import { getPreviousSeason, getSeasonEnd } from '@/constants/LeagueDefaults';
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { supabase } from '@/lib/supabase';
 import { PlayerGameLog } from '@/types/player';
@@ -26,11 +27,19 @@ export function useRosterGameLogs(playerIds: string[]) {
   return useQuery<Map<string, PlayerGameLog[]>>({
     queryKey: [...queryKeys.rosterGameLogs(sortedIds), sport],
     queryFn: async () => {
-      const { data, error } = await supabase
+      // Scope to the CURRENT season. player_games holds prior seasons too (for
+      // the projections engine), so without this floor the windowed averages
+      // (L5/L10/L15) would bleed into last season for players with fewer
+      // current-season games than the window. Floor = the prior season's end,
+      // identical to the player_season_stats matview.
+      const priorEnd = getSeasonEnd(sport, getPreviousSeason(sport));
+      let query = supabase
         .from('player_games')
         .select('*')
         .eq('sport', sport)
-        .in('player_id', sortedIds)
+        .in('player_id', sortedIds);
+      if (priorEnd) query = query.gt('game_date', priorEnd);
+      const { data, error } = await query
         .order('game_date', { ascending: false })
         .limit(50000);
 

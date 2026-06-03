@@ -34,7 +34,10 @@ from psycopg2.extras import execute_values
 from dotenv import load_dotenv
 
 load_dotenv()
-PG_DSN = os.environ["PG_DSN"]
+# .strip() — hand-pasted secrets (GitHub Actions secret box, .env.local) often
+# carry a trailing newline; psycopg2 folds it into the last DSN value and fails
+# (e.g. invalid sslmode value: "require\n").
+PG_DSN = os.environ["PG_DSN"].strip()
 
 # Bumped independently of the engine's MODEL_VERSION — this is the
 # Franchise-data flavor of the model.

@@ -25,7 +25,9 @@ SPORT = "wnba"
 
 def main():
     today = date.today()
-    conn = psycopg2.connect(os.environ["PG_DSN"])
+    # .strip() — a hand-pasted secret often carries a trailing newline, which
+    # psycopg2 folds into the last DSN value (invalid sslmode value: "require\n").
+    conn = psycopg2.connect(os.environ["PG_DSN"].strip())
     try:
         cur = conn.cursor()
         if HORIZON == "ros":

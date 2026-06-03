@@ -19,9 +19,9 @@ jobs:
     env:
       PG_DSN: ${{ secrets.PG_DSN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
           cache: pip
@@ -32,10 +32,15 @@ jobs:
 
       - name: Resolve season phase
         id: phase
-        run: echo "season=$(python projections/resolve_phase.py season)" >> "$GITHUB_OUTPUT"
+        # Assign first (not `echo "$(…)"`) so a non-zero exit from the resolver
+        # — e.g. a failed DB connection — fails this step loudly instead of
+        # silently emitting an empty season that breaks the next step's args.
+        run: |
+          season="$(python projections/resolve_phase.py season)"
+          echo "season=$season" >> "$GITHUB_OUTPUT"
 
       - name: Generate season snapshot
-        if: steps.phase.outputs.season != 'SKIP'
+        if: steps.phase.outputs.season != 'SKIP' && steps.phase.outputs.season != ''
         run: python projections/franchise_project.py --sport wnba --season ${{ steps.phase.outputs.season }} --horizon season
 
       - name: In season — skipped
