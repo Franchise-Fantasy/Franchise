@@ -8,7 +8,7 @@ import type { Database } from '@/types/database.types';
 export type ProjectionRow =
   Database['public']['Views']['current_player_projections']['Row'];
 
-export type ProjectionHorizon = 'season' | 'ros';
+export type ProjectionHorizon = 'season' | 'next_game';
 
 /** Loads the latest projection per player for a sport + horizon, keyed by
  *  player_id. These are global reference data (not league-scoped, produced by
@@ -20,7 +20,7 @@ export type ProjectionHorizon = 'season' | 'ros';
  *  (utils/scoring/fantasyPoints.ts) — mirrors how season-stat fpts work. */
 export function usePlayerProjections(
   sport: Sport,
-  horizon: ProjectionHorizon = 'ros',
+  horizon: ProjectionHorizon = 'next_game',
   enabled = true,
 ) {
   return useQuery<Map<string, ProjectionRow>>({

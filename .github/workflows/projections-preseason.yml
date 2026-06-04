@@ -2,12 +2,23 @@ name: Projections — preseason snapshot
 
 # Pre-season / draft snapshot. Fires daily through the offseason/preseason so
 # the draft board absorbs injuries, trades and role changes right up to opening
-# night. resolve_phase.py no-ops once the season tips off (the daily ROS job
-# takes over then). Also runnable on demand via workflow_dispatch.
+# night. resolve_phase.py no-ops once the season tips off (the daily game-by-game
+# job takes over then).
+#
+# workflow_dispatch also accepts an explicit `season` — use it to snapshot the
+# CURRENT season mid-stream (e.g. 2026). That's the "what we expected before the
+# season" baseline the analytics "Performance vs Expected" card compares actuals
+# against; the season model ignores current-season games, so it's a true
+# preseason expectation regardless of when you run it.
 on:
   schedule:
-    - cron: '0 12 * * *' # 12:00 UTC daily (offset from the ROS job)
+    - cron: '0 12 * * *' # 12:00 UTC daily (offset from the game-by-game job)
   workflow_dispatch:
+    inputs:
+      season:
+        description: 'Explicit season to snapshot (e.g. 2026). Blank = auto (offseason gating, targets the next season).'
+        required: false
+        default: ''
 
 concurrency:
   group: projections-preseason
@@ -36,7 +47,11 @@ jobs:
         # — e.g. a failed DB connection — fails this step loudly instead of
         # silently emitting an empty season that breaks the next step's args.
         run: |
-          season="$(python projections/resolve_phase.py season)"
+          if [ -n "${{ inputs.season }}" ]; then
+            season="${{ inputs.season }}"   # explicit override (e.g. current season for the PvE baseline)
+          else
+            season="$(python projections/resolve_phase.py season)"
+          fi
           echo "season=$season" >> "$GITHUB_OUTPUT"
 
       - name: Generate season snapshot
@@ -45,4 +60,4 @@ jobs:
 
       - name: In season — skipped
         if: steps.phase.outputs.season == 'SKIP'
-        run: echo "Season already underway; the daily ROS job owns projections now."
+        run: echo "Season already underway; the daily game-by-game job owns projections now."

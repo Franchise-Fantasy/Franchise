@@ -8,17 +8,17 @@ player IDs to integer indices for the model run, then mapping back before the
 write. All Franchise-specific DB access lives in `franchise_db.py`.
 
 Two horizons:
-  ros    — in-season rest-of-season Bayesian projection (run daily during the
-           season). Hierarchical Negative Binomial on per-36 rates + recency
-           weighting + b2b + injury-aware minutes. Opponent/home adjustments
-           are neutral (Franchise box scores carry no per-game team context).
-  season — pre-season / draft snapshot (run on a schedule through the
-           offseason so it absorbs injuries & trades). Recency-weighted prior
-           seasons + experience curve + games-played model.
+  next_game — in-season game-by-game Bayesian projection (run daily). Hierarchical
+              Negative Binomial on per-36 rates + recency weighting + archetype
+              prior + injury-aware minutes, tilted toward each player's ACTUAL
+              next opponent + venue + back-to-back.
+  season    — pre-season / draft snapshot (run on a schedule through the
+              offseason so it absorbs injuries & trades). Recency-weighted prior
+              seasons + experience curve + games-played model.
 
 USAGE
 -----
-    python franchise_project.py --sport wnba --season 2026 --horizon ros
+    python franchise_project.py --sport wnba --season 2026 --horizon next_game
     python franchise_project.py --sport wnba --season 2027 --horizon season
 """
 import argparse
@@ -47,42 +47,42 @@ def _to_int_ids(df: pd.DataFrame):
 
 
 # ================================================================
-# ROS horizon (Bayesian, daily)
+# Game-by-game (next_game) horizon — Bayesian, daily
 # ================================================================
 
-def run_ros(sport: str, season: int):
+def run_next_game(sport: str, season: int):
     conn = fdb.get_conn()
     try:
-        print(f"[ros] loading box scores for {sport} (season<= {season})...")
+        print(f"[next_game] loading box scores for {sport} (season<= {season})...")
         df = fdb.load_box_scores(conn, sport, season)
         if df.empty:
             raise RuntimeError(f"No box scores for {sport} {season}")
 
-        unavailable = fdb.get_unavailable_players(conn, sport)  # uuid -> 'Out'
+        unavailable = fdb.get_unavailable_players(conn, sport)   # uuid -> 'Out'
+        upcoming = fdb.load_upcoming_context(conn, sport)        # uuid -> {opp_team_id, is_home, is_b2b}
 
         df, to_int, to_uuid = _to_int_ids(df)
         injuries = {to_int[u]: s for u, s in unavailable.items() if u in to_int}
+        upcoming_ctx = {to_int[u]: ctx for u, ctx in upcoming.items() if u in to_int}
 
         df = ros_model.add_b2b_flag(df)
         df = ros_model.add_recency_weights(df)
 
-        # Opponent-defense factors (keyed by opponent tricode + season). Used to
-        # de-bias each training observation for schedule strength via
-        # opp_log_offset. is_home + is_b2b are already on df (load_box_scores /
-        # add_b2b_flag), so the home-court and back-to-back effects are learned
-        # too. We still PROJECT at a neutral opponent (opp_f=1.0) and half-home
-        # (is_home=0.5) because a rest-of-season line faces an average slate —
-        # summarize_posterior does this automatically when upcoming_ctx is {}.
-        # int() guards against psycopg2 failing to adapt numpy int64 in ANY(%s).
+        # Opponent-defense factors (keyed by opponent tricode + season), used both
+        # to de-bias each training observation for schedule strength (opp_log_offset
+        # below) AND — via upcoming_ctx — to tilt each player's projection toward
+        # their ACTUAL next opponent + venue + back-to-back. is_home/is_b2b effects
+        # are learned from the training rows. int() guards numpy int64 in ANY(%s).
         opp_factors = fdb.compute_opp_factors(conn, sport, sorted(int(s) for s in df["season"].unique()))
 
-        print("[ros] estimating projected minutes...")
+        print("[next_game] estimating projected minutes...")
         projected_min = ros_model.estimate_projected_minutes(df, injuries)
-        print(f"[ros] projecting {len(projected_min)} players")
+        print(f"[next_game] projecting {len(projected_min)} players; "
+              f"{len(upcoming_ctx)} have a scheduled next game")
 
         summaries = []
         for stat in ros_model.COUNT_STATS:
-            print(f"[ros] fitting {stat}...")
+            print(f"[next_game] fitting {stat}...")
             df_stat = df.copy()
             df_stat["opp_log_offset"] = df_stat.apply(
                 lambda r: float(np.log(max(
@@ -93,7 +93,7 @@ def run_ros(sport: str, season: int):
             )
             fit = ros_model.fit_count_stat(df_stat, stat)
             summaries.append(
-                ros_model.summarize_posterior(fit, projected_min, {}, opp_factors, season)
+                ros_model.summarize_posterior(fit, projected_min, upcoming_ctx, opp_factors, season)
             )
 
         result = summaries[0]
@@ -103,8 +103,8 @@ def run_ros(sport: str, season: int):
         result = ros_model.compute_fantasy_score(result)   # provides sd_fantasy_pg
 
         result["player_id"] = result["player_id"].map(to_uuid)
-        n = fdb.write_projections(conn, result, sport, season, "ros")
-        print(f"[ros] wrote {n} projections.")
+        n = fdb.write_projections(conn, result, sport, season, "next_game")
+        print(f"[next_game] wrote {n} projections.")
     finally:
         conn.close()
 
@@ -172,9 +172,9 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--sport", choices=["nba", "wnba"], default="wnba")
     ap.add_argument("--season", type=int, required=True)
-    ap.add_argument("--horizon", choices=["ros", "season"], default="ros")
+    ap.add_argument("--horizon", choices=["next_game", "season"], default="next_game")
     args = ap.parse_args()
-    if args.horizon == "ros":
-        run_ros(args.sport, args.season)
+    if args.horizon == "next_game":
+        run_next_game(args.sport, args.season)
     else:
         run_season(args.sport, args.season)

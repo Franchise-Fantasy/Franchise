@@ -1,8 +1,9 @@
-name: Projections — daily ROS
+name: Projections — daily game-by-game
 
-# In-season rest-of-season projections. Fires daily after the WNBA slate
-# settles; resolve_phase.py no-ops outside the season window so this never
-# overlaps the offseason snapshot job.
+# In-season game-by-game (next-game) projections. Re-clusters player archetypes,
+# then projects each player against their actual next opponent / venue / rest.
+# Fires daily after the WNBA slate settles; resolve_phase.py no-ops outside the
+# season window so this never overlaps the offseason snapshot job.
 on:
   schedule:
     - cron: '0 11 * * *' # 11:00 UTC daily
@@ -35,12 +36,16 @@ jobs:
         # — e.g. a failed DB connection — fails this step loudly instead of
         # silently emitting an empty season that breaks the next step's args.
         run: |
-          season="$(python projections/resolve_phase.py ros)"
+          season="$(python projections/resolve_phase.py next_game)"
           echo "season=$season" >> "$GITHUB_OUTPUT"
 
-      - name: Generate ROS projections
+      - name: Cluster player archetypes
         if: steps.phase.outputs.season != 'SKIP' && steps.phase.outputs.season != ''
-        run: python projections/franchise_project.py --sport wnba --season ${{ steps.phase.outputs.season }} --horizon ros
+        run: python projections/franchise_archetype.py --sport wnba --season ${{ steps.phase.outputs.season }}
+
+      - name: Generate game-by-game projections
+        if: steps.phase.outputs.season != 'SKIP' && steps.phase.outputs.season != ''
+        run: python projections/franchise_project.py --sport wnba --season ${{ steps.phase.outputs.season }} --horizon next_game
 
       - name: Out of season — skipped
         if: steps.phase.outputs.season == 'SKIP'

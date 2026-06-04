@@ -107,7 +107,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   // Detect category leagues to show cat stats instead of FPTS
   const { isCategories } = useLeagueScoringType(leagueId);
 
-  // Projected rest-of-season fpts shown beneath each row's season fpts (points
+  // Projected next-game fpts shown beneath each row's season fpts (points
   // leagues), gated by the global projection toggle.
   const { enabled: projectionsEnabled } = useProjectionToggle();
   const projectionsActive = projectionsEnabled && !isCategories;
@@ -116,7 +116,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   const [playingOnDate, setPlayingOnDate] = useState<string | null>(null);
 
   const sport = useActiveLeagueSport(leagueId);
-  const { data: projections } = usePlayerProjections(sport, 'ros', projectionsActive);
+  const { data: projections } = usePlayerProjections(sport, 'next_game', projectionsActive);
   // Fetch schedule for the selected date (defaults to today so row badges still show)
   const todayStr = getSportToday(sport);
   const scheduleDate = playingOnDate ?? todayStr;

@@ -8,9 +8,10 @@ this ships in the React Native bundle.
 
 | File | Role |
 |------|------|
-| `franchise_project.py` | **Entry point.** Orchestrates a run and writes to `player_projections`. |
-| `franchise_db.py` | Franchise Supabase data adapter (reads `player_games` / `game_schedule` / `players`, writes `player_projections`). |
-| `project.py` | Upstream engine — hierarchical Negative-Binomial model (ROS). Pure model functions reused as-is. |
+| `franchise_project.py` | **Entry point.** Orchestrates a run and writes to `player_projections`. Horizons: `next_game` (in-season) and `season` (offseason). |
+| `franchise_db.py` | Franchise Supabase data adapter (reads `player_games` / `game_schedule` / `players` / `player_archetypes`, writes `player_projections`). |
+| `franchise_archetype.py` | K-means role clustering → `player_archetypes` (the model's archetype prior). Port of the source `archetype.py`. |
+| `project.py` | Upstream engine — hierarchical Negative-Binomial model (game-by-game). Pure model functions reused as-is. |
 | `season_project.py` | Upstream engine — pre-season snapshot model. Pure functions reused as-is. |
 
 `project.py` / `season_project.py` are vendored copies of the standalone
@@ -26,16 +27,18 @@ upstream if the model math changes — the franchise glue doesn't touch the math
   mapped back before writing).
 - **Output:** the Franchise `player_projections` table. Fantasy points are NOT
   written — they're league-specific and computed client-side in the app.
-- **Per-game context (ROS):** home/away and opponent ARE used. They're derived
-  from the immutable `player_games.matchup` (`'vs XXX'`=home, `'@XXX'`=away)
-  joined to `game_schedule` — trade-safe, never from the mutable
-  `players.pro_team`. So `is_home`/`is_b2b` effects are learned and each
-  training observation is de-biased for opponent strength
-  (`compute_opp_factors` reconstructs "stats allowed" by summing the box scores
-  of players who faced each team, since Franchise has no team box-score table).
-  The projection itself uses a neutral opponent + half-home, which is correct
-  for a rest-of-season line (an average remaining slate). Still deferred:
-  archetype clustering and Vegas-props (`next_game`) blending.
+- **Per-game context (next_game):** home/away and opponent are derived from the
+  immutable `player_games.matchup` (`'vs XXX'`=home, `'@XXX'`=away) joined to
+  `game_schedule` — trade-safe, never from the mutable `players.pro_team`. Each
+  training observation is de-biased for opponent strength (`compute_opp_factors`
+  reconstructs "stats allowed" by summing the box scores of players who faced
+  each team, since Franchise has no team box-score table), and the projection is
+  tilted toward each player's ACTUAL next matchup via
+  `franchise_db.load_upcoming_context` (next opponent + venue + back-to-back).
+- **Archetypes:** `franchise_archetype.py` k-means-clusters players into role
+  tiers (6 clusters) feeding the model's hierarchical prior — without them the
+  shrinkage drags every starter toward the bench average. Still deferred:
+  Vegas-props blending.
 
 ## Run locally
 
@@ -43,8 +46,9 @@ upstream if the model math changes — the franchise glue doesn't touch the math
 python3 -m venv venv && ./venv/bin/pip install -r requirements.txt
 export PG_DSN="postgresql://...see Connection string below..."
 
-# In-season rest-of-season (daily):
-./venv/bin/python franchise_project.py --sport wnba --season 2026 --horizon ros
+# In-season game-by-game (daily) — cluster archetypes first, then project:
+./venv/bin/python franchise_archetype.py --sport wnba --season 2026
+./venv/bin/python franchise_project.py --sport wnba --season 2026 --horizon next_game
 
 # Pre-season / draft snapshot (scheduled through the offseason):
 ./venv/bin/python franchise_project.py --sport wnba --season 2027 --horizon season

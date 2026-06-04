@@ -47,7 +47,10 @@ interface Row {
 export function PerformanceVsExpected({ players, weights, sport }: PerformanceVsExpectedProps) {
   const c = useColors();
   const { enabled, toggle } = useProjectionToggle();
-  const { data: projections } = usePlayerProjections(sport, 'ros', enabled);
+  // "vs expected" uses the season-long projection as the baseline (the
+  // pre-season expectation), not the volatile next-game line. Dormant until a
+  // pre-season snapshot exists for the current season.
+  const { data: projections } = usePlayerProjections(sport, 'season', enabled);
 
   const rows = useMemo<Row[]>(() => {
     if (!enabled || !projections || !weights?.length) return [];
@@ -139,11 +142,11 @@ export function PerformanceVsExpected({ players, weights, sport }: PerformanceVs
       ) : (
         <>
           <ThemedText type="display" style={[styles.title, { color: c.text }]}>
-            {enabled ? 'Gathering games' : 'Projections off'}
+            {enabled ? 'No baseline yet' : 'Projections off'}
           </ThemedText>
           <ThemedText style={[styles.body, { color: c.secondaryText }]}>
             {enabled
-              ? "Once your players have enough games this season, this charts each one against their projection — so you can see who's overperforming and who's a sell-high."
+              ? "This charts each player's actual average against what we expected them to average — so you can spot who's over- and under-performing. Waiting on a pre-season projection plus a few games logged."
               : 'Projections are hidden. Turn them on to compare each player against their expected output.'}
           </ThemedText>
         </>

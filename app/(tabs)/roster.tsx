@@ -1236,15 +1236,15 @@ export default function RosterScreen() {
       // injuries / role changes, so for under-sampled players we rank by
       // projected fpts before falling back to last season's flat average.
       // Points-league only — the category composite (below) keeps using the
-      // historical row, which carries the shooting splits the ROS projection
-      // doesn't model.
+      // historical row, which carries the shooting splits the game-by-game
+      // projection doesn't model.
       const projFptsMap = new Map<string, number>();
       if (!isCategories && playersNeedingFallback.length > 0) {
         const { data: projRows } = await supabase
           .from("current_player_projections")
           .select("*")
           .eq("sport", sport)
-          .eq("horizon", "ros")
+          .eq("horizon", "next_game")
           .in(
             "player_id",
             playersNeedingFallback.map((p) => p.player_id),

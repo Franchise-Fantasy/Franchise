@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.1"
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
@@ -3319,6 +3319,51 @@ export type Database = {
             columns: ["league_id"]
             isOneToOne: false
             referencedRelation: "leagues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      player_archetypes: {
+        Row: {
+          archetype: string
+          archetype_confidence: number | null
+          id: string
+          player_id: string
+          season: string
+          sport: string
+          updated_at: string
+        }
+        Insert: {
+          archetype: string
+          archetype_confidence?: number | null
+          id?: string
+          player_id: string
+          season: string
+          sport: string
+          updated_at?: string
+        }
+        Update: {
+          archetype?: string
+          archetype_confidence?: number | null
+          id?: string
+          player_id?: string
+          season?: string
+          sport?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "player_archetypes_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "player_season_stats"
+            referencedColumns: ["player_id"]
+          },
+          {
+            foreignKeyName: "player_archetypes_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
             referencedColumns: ["id"]
           },
         ]

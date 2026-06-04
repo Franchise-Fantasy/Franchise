@@ -57,6 +57,14 @@ def get_conn():
 # Loaders (shape matches what the engine model functions expect)
 # ================================================================
 
+def load_archetypes(conn, sport: str, season: int) -> dict:
+    """player_id (uuid str) -> archetype label for `season` (from
+    player_archetypes, written by franchise_archetype.py)."""
+    q = "SELECT player_id, archetype FROM player_archetypes WHERE sport = %s AND season = %s"
+    df = pd.read_sql(q, conn, params=(sport, str(season)))
+    return {str(r["player_id"]): r["archetype"] for _, r in df.iterrows()}
+
+
 def load_box_scores(conn, sport: str, current_season: int,
                     lookback_seasons: int = 3) -> pd.DataFrame:
     """Per-game box scores for the last N seasons, shaped for `project.py`.
@@ -71,7 +79,8 @@ def load_box_scores(conn, sport: str, current_season: int,
     two team tricodes. We derive is_home from the matchup prefix and opp_team by
     joining game_schedule on (game_id, sport) — never from players.pro_team
     (which is mutated to the player's CURRENT team and is wrong for past games).
-    archetype stays 'unclassified' (no clustering yet).
+    archetype is the player's current-season role tier (see load_archetypes;
+    written by franchise_archetype.py).
     """
     first = current_season - lookback_seasons + 1
     # NB: '%%' escapes the literal % for psycopg2's paramstyle.
@@ -107,7 +116,12 @@ def load_box_scores(conn, sport: str, current_season: int,
     """
     df = pd.read_sql(q, conn, params=(sport, first, current_season))
     df["game_date"] = pd.to_datetime(df["game_date"])
-    df["archetype"] = "unclassified"
+    # Archetype = the player's current-season role tier (k-means, written by
+    # franchise_archetype.py), applied to ALL of a player's games so the model's
+    # per-player archetype prior reflects their role. Unclustered players (too
+    # few games) fall back to a single "unclassified" pool.
+    arch = load_archetypes(conn, sport, current_season)
+    df["archetype"] = df["player_id"].astype(str).map(arch).fillna("unclassified")
     df["is_home"] = df["is_home"].astype(float)
     return df
 
@@ -188,6 +202,57 @@ def get_unavailable_players(conn, sport: str) -> dict:
     q = "SELECT id, status FROM players WHERE sport = %s AND status IN ('OUT', 'SUSP')"
     df = pd.read_sql(q, conn, params=(sport,))
     return {r["id"]: "Out" for _, r in df.iterrows()}
+
+
+def load_upcoming_context(conn, sport: str) -> dict:
+    """player_id (uuid str) -> {opp_team_id (tricode), is_home, is_b2b} for each
+    player's NEXT unplayed game.
+
+    Current team is derived from the player's most recent game (matchup prefix +
+    game_schedule), never the mutable players.pro_team. Powers the game-by-game
+    (next_game) horizon: each player is projected against their actual next
+    opponent + venue + rest rather than a neutral average game.
+    """
+    team_df = pd.read_sql("""
+        SELECT DISTINCT ON (pg.player_id) pg.player_id,
+               CASE WHEN pg.matchup LIKE 'vs%%' THEN gs.home_team ELSE gs.away_team END AS team
+        FROM player_games pg
+        JOIN game_schedule gs ON gs.game_id = pg.game_id AND gs.sport = pg.sport
+        WHERE pg.sport = %s
+        ORDER BY pg.player_id, pg.game_date DESC
+    """, conn, params=(sport,))
+    player_team = {str(r["player_id"]): r["team"] for _, r in team_df.iterrows()}
+
+    # Next unplayed game per team (no score yet = not played), earliest first.
+    games_df = pd.read_sql("""
+        SELECT game_date, home_team, away_team
+        FROM game_schedule
+        WHERE sport = %s AND game_date >= CURRENT_DATE
+          AND (home_score IS NULL OR away_score IS NULL)
+        ORDER BY game_date
+    """, conn, params=(sport,))
+
+    # Teams that played yesterday → on a back-to-back for their next game.
+    yest_df = pd.read_sql("""
+        SELECT home_team AS team FROM game_schedule
+        WHERE sport = %s AND game_date = CURRENT_DATE - 1
+        UNION
+        SELECT away_team FROM game_schedule
+        WHERE sport = %s AND game_date = CURRENT_DATE - 1
+    """, conn, params=(sport, sport))
+    played_yesterday = {r["team"] for _, r in yest_df.iterrows()}
+
+    team_next: dict = {}
+    for _, g in games_df.iterrows():
+        for team, is_home in ((g["home_team"], 1), (g["away_team"], 0)):
+            if team not in team_next:
+                team_next[team] = {
+                    "opp_team_id": g["away_team"] if is_home else g["home_team"],
+                    "is_home": is_home,
+                    "is_b2b": 1 if team in played_yesterday else 0,
+                }
+
+    return {pid: team_next[t] for pid, t in player_team.items() if t in team_next}
 
 
 def fetch_player_seasons(conn, sport: str, seasons: list) -> pd.DataFrame:

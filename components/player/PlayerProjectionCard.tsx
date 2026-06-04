@@ -26,11 +26,11 @@ const STAT_CHIPS: { key: string; label: string }[] = [
 ];
 
 /**
- * "Projected" section for the player detail modal — the rest-of-season
- * projected per-game line plus, for points leagues, projected FPTS/G with its
- * uncertainty band. Gated by the global projection toggle and only shown when
- * a projection exists for this player. Lives in its own file to keep
- * PlayerDetailModal from growing.
+ * "Projected" section for the player detail modal — the next-game projected
+ * line plus, for points leagues, projected FPTS with its uncertainty band.
+ * Gated by the global projection toggle and only shown when a projection
+ * exists for this player. Lives in its own file to keep PlayerDetailModal
+ * from growing.
  */
 export function PlayerProjectionCard({
   player,
@@ -40,7 +40,7 @@ export function PlayerProjectionCard({
 }: PlayerProjectionCardProps) {
   const c = useColors();
   const { enabled } = useProjectionToggle();
-  const { data: projections } = usePlayerProjections(sport, 'ros', enabled);
+  const { data: projections } = usePlayerProjections(sport, 'next_game', enabled);
 
   if (!enabled) return null;
   const proj = projections?.get(player.player_id);
@@ -54,14 +54,14 @@ export function PlayerProjectionCard({
   return (
     <View
       style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}
-      accessibilityLabel={`Projected rest of season. ${STAT_CHIPS.map(
+      accessibilityLabel={`Projected next game. ${STAT_CHIPS.map(
         (chip) => `${formatScore(Number((proj as Record<string, unknown>)[chip.key] ?? 0))} ${chip.label}`,
       ).join(', ')}${!isCategories && projFpts > 0 ? `, ${formatScore(projFpts)} fantasy points per game` : ''}.`}
     >
       <View style={styles.headerRow}>
         <View style={[styles.rule, { backgroundColor: c.gold }]} />
         <ThemedText type="sectionLabel" accessibilityRole="header">
-          PROJECTED · REST OF SEASON
+          PROJECTED · NEXT GAME
         </ThemedText>
       </View>
 
@@ -84,7 +84,7 @@ export function PlayerProjectionCard({
       {!isCategories && projFpts > 0 && (
         <View style={[styles.fptsRow, { borderTopColor: c.border }]}>
           <ThemedText style={[styles.fptsLabel, { color: c.secondaryText }]}>
-            Projected FPTS/G
+            Projected FPTS
           </ThemedText>
           <ThemedText style={[styles.fptsValue, { color: c.text }]}>
             {formatScore(projFpts)}

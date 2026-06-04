@@ -22,7 +22,7 @@ interface FreeAgentRowProps {
   index: number;
   isLast: boolean;
   fpts: number | undefined;
-  /** Projected rest-of-season FPTS/G. Present only when projections are
+  /** Projected next-game FPTS. Present only when projections are
    *  enabled and exist for this player; shown beneath the season fpts. */
   projFpts?: number | null;
   isCategories: boolean;
