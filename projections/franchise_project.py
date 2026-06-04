@@ -2,16 +2,17 @@
 Franchise projection runner.
 ========================================================================
 Generates player projections from LIVE Franchise data and writes them to the
-Franchise `player_projections` table. Reuses the engine's pure model functions
-(`project.py`, `season_project.py`) unchanged by remapping Franchise UUID
-player IDs to integer indices for the model run, then mapping back before the
-write. All Franchise-specific DB access lives in `franchise_db.py`.
+Franchise `player_projections` table. next_game uses the empirical projector
+ported in `franchise_edge.py`; the season snapshot reuses `season_project.py`.
+All Franchise-specific DB access lives in `franchise_db.py`.
 
 Two horizons:
-  next_game — in-season game-by-game Bayesian projection (run daily). Hierarchical
-              Negative Binomial on per-36 rates + recency weighting + archetype
-              prior + injury-aware minutes, tilted toward each player's ACTUAL
-              next opponent + venue + back-to-back.
+  next_game — in-season game-by-game projection (run daily). Exact port of the
+              original engine's PRODUCTION projector (edge.py): each player's
+              in-progress season blended toward their last completed season by
+              sample size, scaled by a recent-minutes factor. Self-anchored to
+              the player's own logs — no cross-player regression — so stars and
+              breakouts stay accurate.
   season    — pre-season / draft snapshot (run on a schedule through the
               offseason so it absorbs injuries & trades). Recency-weighted prior
               seasons + experience curve + games-played model.
@@ -22,127 +23,67 @@ USAGE
     python franchise_project.py --sport wnba --season 2027 --horizon season
 """
 import argparse
+import math
 
-import numpy as np
 import pandas as pd
 
 import franchise_db as fdb
-import project as ros_model
+import franchise_edge as fedge
 import season_project as sea_model
 
 
 # ================================================================
-# UUID <-> integer remap (so engine int-keyed functions can be reused)
+# Game-by-game (next_game) horizon — port of edge.py, daily
 # ================================================================
 
-def _to_int_ids(df: pd.DataFrame):
-    """Replace the UUID player_id column with integer indices. Returns the
-    rewritten frame and the int->uuid lookup for mapping results back."""
-    uuids = df["player_id"].astype(str).unique().tolist()
-    to_int = {u: i for i, u in enumerate(uuids)}
-    to_uuid = {i: u for u, i in to_int.items()}
-    df = df.copy()
-    df["player_id"] = df["player_id"].astype(str).map(to_int)
-    return df, to_int, to_uuid
+# Generic fantasy-points SD for the analytics uncertainty band. The per-league
+# fantasy mean is computed client-side, so this is a typical-weights estimate,
+# not a league-specific one — variance of a weighted sum of independent stats.
+_FANTASY_W = {"pts": 1.0, "reb": 1.2, "ast": 1.5, "stl": 3.0, "blk": 3.0, "tov": 1.0, "fg3m": 0.5}
 
 
-# Vegas market blend (next_game). Lines exist for these stats; the rest keep the
-# model value. The weight leans heavily on the market because the line is
-# matchup-priced and the raw model under-projects. NB: the model's threes column
-# is `proj_fg3m` (mapped to proj_3pm on write).
-VEGAS_BLEND = 0.85
-_PROP_STAT_COL = {"pts": "proj_pts", "reb": "proj_reb", "ast": "proj_ast", "3pm": "proj_fg3m"}
+def _fantasy_sd(d: dict) -> float:
+    return float(math.sqrt(sum((w * d[s][1]) ** 2 for s, w in _FANTASY_W.items())))
 
-
-def _apply_vegas_blend(result: pd.DataFrame, vegas: dict) -> int:
-    """In place: blend the market line into pts/reb/ast/3pm where one is posted
-    for the player's next game. Returns the number of cells blended."""
-    blended = 0
-    for stat, col in _PROP_STAT_COL.items():
-        new_vals = []
-        for _, r in result.iterrows():
-            line = vegas.get(r["player_id"], {}).get(stat)
-            cur = r[col]
-            if line is None:
-                new_vals.append(cur)
-            elif pd.isna(cur):
-                new_vals.append(line)
-                blended += 1
-            else:
-                new_vals.append(VEGAS_BLEND * line + (1 - VEGAS_BLEND) * float(cur))
-                blended += 1
-        result[col] = new_vals
-    return blended
-
-
-# ================================================================
-# Game-by-game (next_game) horizon — Bayesian + market blend, daily
-# ================================================================
 
 def run_next_game(sport: str, season: int):
     conn = fdb.get_conn()
     try:
-        print(f"[next_game] loading box scores for {sport} (season<= {season})...")
-        df = fdb.load_box_scores(conn, sport, season)
-        if df.empty:
-            raise RuntimeError(f"No box scores for {sport} {season}")
-
+        print(f"[next_game] projecting {sport} {season} "
+              f"(current+prior empirical blend — port of edge.py)...")
+        dists = fedge.get_player_distributions(conn, sport, season)
+        if not dists:
+            raise RuntimeError(f"No {sport} game logs to project for {season}")
         unavailable = fdb.get_unavailable_players(conn, sport)   # uuid -> 'Out'
-        upcoming = fdb.load_upcoming_context(conn, sport)        # uuid -> {opp_team_id, is_home, is_b2b}
+        out_ids = set(unavailable)
 
-        df, to_int, to_uuid = _to_int_ids(df)
-        injuries = {to_int[u]: s for u, s in unavailable.items() if u in to_int}
-        upcoming_ctx = {to_int[u]: ctx for u, ctx in upcoming.items() if u in to_int}
+        # Absence redistribution (port of the source): an Out player's minutes
+        # flow to their active teammates by minute share, scaling every stat
+        # (capped +40%). Out players are still in `dists` (they have history) so
+        # their minutes can be redistributed before we drop them from the write.
+        player_teams, player_names = fdb.load_player_meta(conn, sport)
+        boosts = fedge.compute_absence_boosts(out_ids, dists, player_teams, player_names)
+        fedge.apply_absence_boosts(dists, boosts)
 
-        df = ros_model.add_b2b_flag(df)
-        df = ros_model.add_recency_weights(df)
+        rows = []
+        for pid, d in dists.items():
+            if pid in out_ids:
+                continue   # Out — dropped from the board, same as the source
+            row = {"player_id": pid, "proj_min": d["_proj_min"]}
+            for s in fedge.STATS:
+                row[f"proj_{s}"] = d[s][0]
+            row["sd_pts"] = d["pts"][1]
+            row["sd_reb"] = d["reb"][1]
+            row["sd_ast"] = d["ast"][1]
+            row["sd_fantasy_pg"] = _fantasy_sd(d)
+            rows.append(row)
 
-        # Opponent-defense factors (keyed by opponent tricode + season), used both
-        # to de-bias each training observation for schedule strength (opp_log_offset
-        # below) AND — via upcoming_ctx — to tilt each player's projection toward
-        # their ACTUAL next opponent + venue + back-to-back. is_home/is_b2b effects
-        # are learned from the training rows. int() guards numpy int64 in ANY(%s).
-        opp_factors = fdb.compute_opp_factors(conn, sport, sorted(int(s) for s in df["season"].unique()))
-
-        print("[next_game] estimating projected minutes...")
-        projected_min = ros_model.estimate_projected_minutes(df, injuries)
-        print(f"[next_game] projecting {len(projected_min)} players; "
-              f"{len(upcoming_ctx)} have a scheduled next game")
-
-        summaries = []
-        for stat in ros_model.COUNT_STATS:
-            print(f"[next_game] fitting {stat}...")
-            df_stat = df.copy()
-            df_stat["opp_log_offset"] = df_stat.apply(
-                lambda r: float(np.log(max(
-                    opp_factors.get((r["opp_team_id"], int(r["season"])), {}).get(stat, 1.0),
-                    0.5,
-                ))),
-                axis=1,
-            )
-            fit = ros_model.fit_count_stat(df_stat, stat)
-            summaries.append(
-                ros_model.summarize_posterior(fit, projected_min, upcoming_ctx, opp_factors, season)
-            )
-
-        result = summaries[0]
-        for s in summaries[1:]:
-            result = result.merge(s, on="player_id", how="outer")
-        result["proj_min"] = result["player_id"].map(projected_min)
-        result["player_id"] = result["player_id"].map(to_uuid)
-
-        # Vegas blend — market lines for pts/reb/ast/3pm are matchup-priced and
-        # accurate; the raw model under-projects, so lean heavily on the line for
-        # those stats. Unlined stats (stl/blk/tov/min) keep the model value.
-        vegas = fdb.load_vegas_props(conn, sport)
-        n_blended = _apply_vegas_blend(result, vegas)
-        print(f"[next_game] blended market lines into {n_blended} stat cells "
-              f"({len(vegas)} players with posted props)")
-
-        result = ros_model.compute_fantasy_score(result)   # fpts from the blended line
-
+        result = pd.DataFrame(rows)
         n = fdb.write_projections(conn, result, sport, season, "next_game")
-        print(f"[next_game] wrote {n} projections.")
+        n_blend = sum(1 for d in dists.values() if d["_basis"] == "blend")
+        print(f"[next_game] wrote {n} projections "
+              f"({n_blend} current+prior blends, {len(boosts)} absence-boosted, "
+              f"{len(out_ids)} out dropped)")
     finally:
         conn.close()
 

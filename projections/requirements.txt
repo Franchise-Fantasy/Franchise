@@ -1,6 +1,11 @@
 # Projections engine (Python) — run by .github/workflows/projections-*.yml.
 # Not part of the React Native app bundle; CI-only.
-pymc==5.12.0
+#
+# next_game uses the empirical projector (franchise_edge.py — a port of the
+# original engine's edge.py): pure pandas/psycopg2, no PyMC. The hierarchical
+# Bayesian model (project.py) + archetype clustering (franchise_archetype.py)
+# and the Vegas-props path (franchise_props.py) are retained as dormant
+# experimental code; re-add `pymc==5.12.0` if you wire project.py back in.
 numpy<2.0
 pandas>=2.0
 psycopg2-binary>=2.9

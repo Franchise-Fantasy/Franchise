@@ -208,7 +208,19 @@ def get_unavailable_players(conn, sport: str) -> dict:
     """
     q = "SELECT id, status FROM players WHERE sport = %s AND status IN ('OUT', 'SUSP')"
     df = pd.read_sql(q, conn, params=(sport,))
-    return {r["id"]: "Out" for _, r in df.iterrows()}
+    return {str(r["id"]): "Out" for _, r in df.iterrows()}
+
+
+def load_player_meta(conn, sport: str):
+    """(player_teams, player_names): uuid str -> pro_team, uuid str -> name.
+    Used by the absence-boost redistribution. pro_team is the LIVE roster team —
+    correct here because absences are evaluated as of now (unlike historical
+    box-score opponents, which must come from the immutable matchup)."""
+    df = pd.read_sql("SELECT id, pro_team, name FROM players WHERE sport = %s",
+                     conn, params=(sport,))
+    teams = {str(r["id"]): r["pro_team"] for _, r in df.iterrows() if r["pro_team"]}
+    names = {str(r["id"]): r["name"] for _, r in df.iterrows()}
+    return teams, names
 
 
 def load_upcoming_context(conn, sport: str) -> dict:
