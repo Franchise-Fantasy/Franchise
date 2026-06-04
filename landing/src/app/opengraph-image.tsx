@@ -3,15 +3,24 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 // Branded social-share card shown when franchisefantasy.co is unfurled in
-// messages, Slack, Discord, etc. Mirrors the landing-page brand: ecru field,
-// full-colour F patch, wordmark, and tagline.
+// messages, Slack, Discord, etc. Built from FLAT brand elements (solid-colour
+// wordmark + tagline) so it stays crisp after the platform recompresses it —
+// the embroidered patch is kept small/secondary because its photographic
+// texture is what blurs under that recompression.
 export const alt = "Franchise — Own the dynasty.";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
+async function dataUri(relPath: string) {
+  const buf = await readFile(join(process.cwd(), relPath));
+  return `data:image/png;base64,${buf.toString("base64")}`;
+}
+
 export default async function OpengraphImage() {
-  const patch = await readFile(join(process.cwd(), "public/patch-f.png"));
-  const patchSrc = `data:image/png;base64,${patch.toString("base64")}`;
+  const [patchSrc, wordmarkSrc] = await Promise.all([
+    dataUri("public/patch-f.png"),
+    dataUri("public/wordmark-green.png"),
+  ]);
 
   return new ImageResponse(
     (
@@ -31,7 +40,7 @@ export default async function OpengraphImage() {
         <div
           style={{
             position: "absolute",
-            top: 64,
+            top: 60,
             left: "50%",
             transform: "translateX(-50%)",
             width: 96,
@@ -40,28 +49,22 @@ export default async function OpengraphImage() {
           }}
         />
 
+        {/* Embroidered emblem — kept small so its texture isn't the focal point */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={patchSrc} width={300} height={281} alt="" />
+        <img src={patchSrc} width={192} height={180} alt="" />
+
+        {/* Flat script wordmark — the crisp hero element (6796x1789 native) */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={wordmarkSrc} width={760} height={200} alt="" style={{ marginTop: 28 }} />
 
         <div
           style={{
-            marginTop: 36,
-            fontSize: 92,
-            fontWeight: 800,
-            letterSpacing: -2,
-            color: "#1C552E",
-          }}
-        >
-          Franchise
-        </div>
-
-        <div
-          style={{
-            marginTop: 8,
+            marginTop: 20,
             fontSize: 34,
-            letterSpacing: 8,
+            fontWeight: 600,
+            letterSpacing: 10,
             textTransform: "uppercase",
-            color: "rgba(20, 16, 16, 0.6)",
+            color: "rgba(20, 16, 16, 0.62)",
           }}
         >
           Own the dynasty.
