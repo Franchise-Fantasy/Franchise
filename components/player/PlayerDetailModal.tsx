@@ -157,6 +157,7 @@ export function PlayerDetailModal({
     player?.player_id ?? "",
   );
   const { data: seasonProjections } = usePlayerProjections(sport, "season");
+  const { data: nextGameProjections } = usePlayerProjections(sport, "next_game");
   const { data: historicalStats } = usePlayerHistoricalStats(
     player?.player_id ?? null,
   );
@@ -1962,7 +1963,7 @@ export function PlayerDetailModal({
         />
 
         <NextGameProjStrip
-          projection={seasonProjections?.get(player.player_id) ?? null}
+          projection={nextGameProjections?.get(player.player_id) ?? null}
           nextGame={upcomingGames?.[0] ?? null}
           scoringWeights={scoringWeights}
           isCategories={isCategories}
@@ -2075,7 +2076,7 @@ export function PlayerDetailModal({
             isCategories={isCategories}
             bodyScrollRef={gameLogBodyScrollRef}
             onBodyScroll={handleGameLogBodyScroll}
-            projection={seasonProjections?.get(player.player_id) ?? null}
+            projection={nextGameProjections?.get(player.player_id) ?? null}
             colors={gameLogColors}
           />
 

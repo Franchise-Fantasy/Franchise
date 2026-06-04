@@ -88,8 +88,8 @@ interface PlayerGameLogProps {
   isCategories?: boolean;
   bodyScrollRef?: RefObject<ScrollView | null>;
   onBodyScroll?: (e: NativeSyntheticEvent<NativeScrollEvent>) => void;
-  /** Season projection for this player — rendered (clearly marked) as the
-   *  projected per-game line on upcoming game rows. Null hides projections. */
+  /** Next-game projection for this player — rendered (clearly marked) as the
+   *  projected line on the next upcoming game row. Null hides projections. */
   projection?: ProjectionRow | null;
   colors: {
     border: string;
