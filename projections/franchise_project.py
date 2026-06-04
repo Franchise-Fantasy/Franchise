@@ -46,8 +46,37 @@ def _to_int_ids(df: pd.DataFrame):
     return df, to_int, to_uuid
 
 
+# Vegas market blend (next_game). Lines exist for these stats; the rest keep the
+# model value. The weight leans heavily on the market because the line is
+# matchup-priced and the raw model under-projects. NB: the model's threes column
+# is `proj_fg3m` (mapped to proj_3pm on write).
+VEGAS_BLEND = 0.85
+_PROP_STAT_COL = {"pts": "proj_pts", "reb": "proj_reb", "ast": "proj_ast", "3pm": "proj_fg3m"}
+
+
+def _apply_vegas_blend(result: pd.DataFrame, vegas: dict) -> int:
+    """In place: blend the market line into pts/reb/ast/3pm where one is posted
+    for the player's next game. Returns the number of cells blended."""
+    blended = 0
+    for stat, col in _PROP_STAT_COL.items():
+        new_vals = []
+        for _, r in result.iterrows():
+            line = vegas.get(r["player_id"], {}).get(stat)
+            cur = r[col]
+            if line is None:
+                new_vals.append(cur)
+            elif pd.isna(cur):
+                new_vals.append(line)
+                blended += 1
+            else:
+                new_vals.append(VEGAS_BLEND * line + (1 - VEGAS_BLEND) * float(cur))
+                blended += 1
+        result[col] = new_vals
+    return blended
+
+
 # ================================================================
-# Game-by-game (next_game) horizon — Bayesian, daily
+# Game-by-game (next_game) horizon — Bayesian + market blend, daily
 # ================================================================
 
 def run_next_game(sport: str, season: int):
@@ -100,9 +129,18 @@ def run_next_game(sport: str, season: int):
         for s in summaries[1:]:
             result = result.merge(s, on="player_id", how="outer")
         result["proj_min"] = result["player_id"].map(projected_min)
-        result = ros_model.compute_fantasy_score(result)   # provides sd_fantasy_pg
-
         result["player_id"] = result["player_id"].map(to_uuid)
+
+        # Vegas blend — market lines for pts/reb/ast/3pm are matchup-priced and
+        # accurate; the raw model under-projects, so lean heavily on the line for
+        # those stats. Unlined stats (stl/blk/tov/min) keep the model value.
+        vegas = fdb.load_vegas_props(conn, sport)
+        n_blended = _apply_vegas_blend(result, vegas)
+        print(f"[next_game] blended market lines into {n_blended} stat cells "
+              f"({len(vegas)} players with posted props)")
+
+        result = ros_model.compute_fantasy_score(result)   # fpts from the blended line
+
         n = fdb.write_projections(conn, result, sport, season, "next_game")
         print(f"[next_game] wrote {n} projections.")
     finally:

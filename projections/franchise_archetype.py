@@ -28,10 +28,14 @@ from sklearn.preprocessing import StandardScaler
 from franchise_db import get_conn
 
 N_CLUSTERS = 6
-# Source uses 10; WNBA seasons are short and we need stars classified in May/June
-# when regulars still have <10 games, so floor lower. Clusters are noisier early
-# but still beat one undifferentiated league pool.
-MIN_GAMES = 5
+# Cluster each season independently with a 10-game floor (the original's value).
+# Per-36 rates over a full season are stable; clustering the in-progress season
+# at 5 games mislabels role-boundary players and — because the model joins each
+# game to its own season's archetype — a regular keeps their stable prior-season
+# role until they have a full current-season sample. So a noisy early year can't
+# drag the prior. We cluster the lookback window the model trains on.
+MIN_GAMES = 10
+LOOKBACK_SEASONS = 3
 
 # Per-36 features (+ fg_pct), identical to the source engine.
 FEATURES = ["pts_p36", "reb_p36", "ast_p36", "stl_p36", "blk_p36", "tov_p36", "fg3m_p36", "fg_pct"]
@@ -147,28 +151,39 @@ def write_archetypes(conn, player_ids, labels, cluster_map, sport, season, km, s
     return len(rows)
 
 
+def cluster_season(conn, sport: str, year: int, inspect: bool) -> int:
+    """Cluster + write archetypes for one season. Auto-labeling by centroid
+    signature keeps role labels consistent across years."""
+    df = load_season_rates(conn, sport, year)
+    if df.empty:
+        print(f"  {sport} {year}: no players with >= {MIN_GAMES} games — skipping")
+        return 0
+    labels, scaler, km = fit_archetypes(df, min(N_CLUSTERS, len(df)))
+    cluster_map = label_clusters(km, scaler)
+    if inspect:
+        print(f"\n=== {sport} {year} ===")
+        print_centroids(labels, km, scaler)
+        for idx, name in sorted(cluster_map.items()):
+            print(f"  cluster {idx}: {name}  ({int((labels == idx).sum())} players)")
+        return 0
+    n = write_archetypes(conn, df["player_id"].values, labels, cluster_map,
+                         sport, year, km, scaler, df)
+    print(f"  {sport} {year}: wrote {n} archetypes")
+    return n
+
+
 def run(sport: str, season: int, inspect: bool = False):
     conn = get_conn()
     try:
-        print(f"Loading {sport} {season} box-score rates...")
-        df = load_season_rates(conn, sport, season)
-        if df.empty:
-            raise RuntimeError(f"No {sport} {season} data with >= {MIN_GAMES} games.")
-        print(f"  {len(df)} players with >= {MIN_GAMES} games")
-
-        n_clusters = min(N_CLUSTERS, len(df))
-        labels, scaler, km = fit_archetypes(df, n_clusters)
-        cluster_map = label_clusters(km, scaler)
-
-        if inspect:
-            print_centroids(labels, km, scaler)
-            for idx, name in sorted(cluster_map.items()):
-                print(f"  cluster {idx}: {name}  ({int((labels == idx).sum())} players)")
-            return
-
-        n = write_archetypes(conn, df["player_id"].values, labels, cluster_map,
-                             sport, season, km, scaler, df)
-        print(f"Wrote {n} archetype assignments for {sport} {season}.")
+        # Cluster each lookback season the model trains on. Early in the current
+        # season most regulars fall below the 10-game floor, so they simply keep
+        # their stable prior-season archetype (mode across games) until they have
+        # a full current-season sample — never a noisy partial-season label.
+        total = 0
+        for year in range(season - LOOKBACK_SEASONS + 1, season + 1):
+            total += cluster_season(conn, sport, year, inspect)
+        if not inspect:
+            print(f"Wrote {total} archetype assignments across {LOOKBACK_SEASONS} seasons.")
     finally:
         conn.close()
 

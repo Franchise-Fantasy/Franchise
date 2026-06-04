@@ -3,9 +3,10 @@ import { NativeScrollEvent, NativeSyntheticEvent, ScrollView, StyleSheet, Toucha
 
 import { FptsBreakdownModal } from '@/components/player/FptsBreakdownModal';
 import { ThemedText } from '@/components/ui/ThemedText';
+import type { ProjectionRow } from '@/hooks/usePlayerProjections';
 import { PlayerGameLog as PlayerGameLogType, ScoringWeight } from '@/types/player';
 import { ms } from "@/utils/scale";
-import { calculateGameFantasyPoints } from '@/utils/scoring/fantasyPoints';
+import { calculateGameFantasyPoints, projAvgRowToFpts } from '@/utils/scoring/fantasyPoints';
 
 
 // Returns the Monday (start of week) for a given YYYY-MM-DD date string
@@ -48,6 +49,20 @@ function getStatValue(item: PlayerGameLogType, col: string) {
   }
 }
 
+// Projected per-game value for an upcoming row's column (one decimal, so it
+// reads as a projection vs the integer actuals). Null when the model doesn't
+// project that column (e.g. PF) → render a dash.
+function getProjStatValue(p: ProjectionRow, col: string): string | null {
+  const map: Record<string, number | null | undefined> = {
+    MIN: p.proj_min, PTS: p.proj_pts, REB: p.proj_reb, AST: p.proj_ast,
+    STL: p.proj_stl, BLK: p.proj_blk, TO: p.proj_tov,
+    FGM: p.proj_fgm, FGA: p.proj_fga, '3PM': p.proj_3pm, '3PA': p.proj_3pa,
+    FTM: p.proj_ftm, FTA: p.proj_fta, PF: null,
+  };
+  const v = map[col];
+  return v == null ? null : v.toFixed(1);
+}
+
 export type UpcomingGame = {
   game_date: string;
   opponent: string;
@@ -73,6 +88,9 @@ interface PlayerGameLogProps {
   isCategories?: boolean;
   bodyScrollRef?: RefObject<ScrollView | null>;
   onBodyScroll?: (e: NativeSyntheticEvent<NativeScrollEvent>) => void;
+  /** Season projection for this player — rendered (clearly marked) as the
+   *  projected per-game line on upcoming game rows. Null hides projections. */
+  projection?: ProjectionRow | null;
   colors: {
     border: string;
     secondaryText: string;
@@ -163,6 +181,7 @@ export function PlayerGameLog({
   isCategories,
   bodyScrollRef,
   onBodyScroll,
+  projection,
   colors: c,
 }: PlayerGameLogProps) {
   const [breakdownData, setBreakdownData] = useState<{ stats: Record<string, number | boolean>; label: string } | null>(null);
@@ -182,6 +201,9 @@ export function PlayerGameLog({
   const filteredUpcoming = (upcomingGames ?? [])
     .filter((g) => !(showLiveRow && liveDate && g.game_date === liveDate))
     .slice(0, 3);
+  // Only the nearest upcoming game (the next game) shows a projection.
+  const nearestUpcomingKey =
+    filteredUpcoming.length > 0 ? `upcoming-${filteredUpcoming[0].game_date}` : null;
   for (let i = filteredUpcoming.length - 1; i >= 0; i--) {
     const g = filteredUpcoming[i];
     combinedRows.push({
@@ -271,7 +293,7 @@ export function PlayerGameLog({
           const isUpcoming = row.kind === 'upcoming';
           const isLiveRow = row.kind === 'live';
           return (
-            <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, idx % 2 === 1 && styles.gameRowAlt, isLiveRow && styles.gameRowLive, isUpcoming && styles.gameCellDNP, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
+            <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, idx % 2 === 1 && styles.gameRowAlt, isLiveRow && styles.gameRowLive, isUpcoming && !(projection && row.key === nearestUpcomingKey) && styles.gameCellDNP, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
               <ThemedText style={[styles.gameCell, styles.gameCellDate, { color: c.secondaryText }]} numberOfLines={1}>
                 {row.kind === 'history' ? formatGameDate(row.item.game_date) : row.date}
               </ThemedText>
@@ -298,10 +320,18 @@ export function PlayerGameLog({
           {combinedRows.map((row, idx) => {
             if (row.kind === 'upcoming') {
               return (
-                <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, idx % 2 === 1 && styles.gameRowAlt, styles.gameCellDNP, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
-                  {statColumns.map((col) => (
-                    <ThemedText key={col} style={[styles.gameCell, styles.gameCellDNP]}>—</ThemedText>
-                  ))}
+                <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, idx % 2 === 1 && styles.gameRowAlt, !(projection && row.key === nearestUpcomingKey) && styles.gameCellDNP, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
+                  {statColumns.map((col) => {
+                    const projVal = projection && row.key === nearestUpcomingKey ? getProjStatValue(projection, col) : null;
+                    return (
+                      <ThemedText
+                        key={col}
+                        style={[styles.gameCell, projVal != null ? [styles.gameCellProj, { color: c.accent }] : styles.gameCellDNP]}
+                      >
+                        {projVal ?? '—'}
+                      </ThemedText>
+                    );
+                  })}
                 </View>
               );
             }
@@ -343,8 +373,17 @@ export function PlayerGameLog({
           {combinedRows.map((row, idx) => {
             if (row.kind === 'upcoming') {
               return (
-                <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, idx % 2 === 1 && styles.gameRowAlt, styles.gameCellDNP, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
-                  <ThemedText style={[styles.gameCell, styles.gameCellFpts, styles.gameCellDNP]}>—</ThemedText>
+                <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, idx % 2 === 1 && styles.gameRowAlt, !(projection && row.key === nearestUpcomingKey) && styles.gameCellDNP, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
+                  {(() => {
+                    const projFpts = projection && row.key === nearestUpcomingKey
+                      ? projAvgRowToFpts(projection as unknown as Record<string, unknown>, scoringWeights)
+                      : null;
+                    return (
+                      <ThemedText style={[styles.gameCell, styles.gameCellFpts, projFpts != null ? [styles.gameCellProj, { color: c.accent }] : styles.gameCellDNP]}>
+                        {projFpts != null ? projFpts.toFixed(1) : '—'}
+                      </ThemedText>
+                    );
+                  })()}
                 </View>
               );
             }
@@ -464,6 +503,10 @@ const styles = StyleSheet.create({
   },
   gameCellDNP: {
     opacity: 0.35,
+  },
+  gameCellProj: {
+    fontStyle: 'italic',
+    opacity: 0.92,
   },
   gameRowAlt: {
     backgroundColor: 'rgba(128, 128, 128, 0.09)',

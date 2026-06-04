@@ -1,9 +1,10 @@
 name: Projections — daily game-by-game
 
 # In-season game-by-game (next-game) projections. Re-clusters player archetypes,
-# then projects each player against their actual next opponent / venue / rest.
-# Fires daily after the WNBA slate settles; resolve_phase.py no-ops outside the
-# season window so this never overlaps the offseason snapshot job.
+# snapshots sportsbook player props, then projects each player against their
+# actual next matchup — blending the market line for pts/reb/ast/3pm. Fires daily
+# after the WNBA slate settles; resolve_phase.py no-ops outside the season window
+# so this never overlaps the offseason snapshot job.
 on:
   schedule:
     - cron: '0 11 * * *' # 11:00 UTC daily
@@ -18,6 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PG_DSN: ${{ secrets.PG_DSN }}
+      BDL_API_KEY: ${{ secrets.BDL_API_KEY }}
     steps:
       - uses: actions/checkout@v5
 
@@ -42,6 +44,10 @@ jobs:
       - name: Cluster player archetypes
         if: steps.phase.outputs.season != 'SKIP' && steps.phase.outputs.season != ''
         run: python projections/franchise_archetype.py --sport wnba --season ${{ steps.phase.outputs.season }}
+
+      - name: Snapshot player props (Vegas lines)
+        if: steps.phase.outputs.season != 'SKIP' && steps.phase.outputs.season != ''
+        run: python projections/franchise_props.py --sport wnba --season ${{ steps.phase.outputs.season }}
 
       - name: Generate game-by-game projections
         if: steps.phase.outputs.season != 'SKIP' && steps.phase.outputs.season != ''

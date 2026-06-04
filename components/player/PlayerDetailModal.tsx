@@ -13,13 +13,13 @@ import {
   View,
 } from "react-native";
 
+import { NextGameProjStrip } from "@/components/player/NextGameProjStrip";
 import { PlayerActionBar } from "@/components/player/PlayerActionBar";
 import { PlayerDetailHeader } from "@/components/player/PlayerDetailHeader";
 import { PlayerGameLog, PlayerGameLogHeader } from "@/components/player/PlayerGameLog";
 import { PlayerHistory } from "@/components/player/PlayerHistory";
 import { PlayerInsightsCard } from "@/components/player/PlayerInsights";
 import { PlayerNewsSection } from "@/components/player/PlayerNewsSection";
-import { PlayerProjectionCard } from "@/components/player/PlayerProjectionCard";
 import { SeasonAverages } from "@/components/player/SeasonAverages";
 import { Badge } from "@/components/ui/Badge";
 import { BottomSheet } from "@/components/ui/BottomSheet";
@@ -35,6 +35,7 @@ import { useLeagueScoringType } from "@/hooks/useLeagueScoringType";
 import { usePlayerGameLog } from "@/hooks/usePlayerGameLog";
 import { usePlayerHistoricalStats } from "@/hooks/usePlayerHistoricalStats";
 import { usePlayerNews } from "@/hooks/usePlayerNews";
+import { usePlayerProjections } from "@/hooks/usePlayerProjections";
 import { usePlayerRankings } from "@/hooks/usePlayerRankings";
 import { useWatchlist } from "@/hooks/useWatchlist";
 import { sendNotification } from "@/lib/notifications";
@@ -155,6 +156,7 @@ export function PlayerDetailModal({
   const { data: gameLog, isLoading: isLoadingGameLog } = usePlayerGameLog(
     player?.player_id ?? "",
   );
+  const { data: seasonProjections } = usePlayerProjections(sport, "season");
   const { data: historicalStats } = usePlayerHistoricalStats(
     player?.player_id ?? null,
   );
@@ -1959,6 +1961,13 @@ export function PlayerDetailModal({
           onClose={handleClose}
         />
 
+        <NextGameProjStrip
+          projection={seasonProjections?.get(player.player_id) ?? null}
+          nextGame={upcomingGames?.[0] ?? null}
+          scoringWeights={scoringWeights}
+          isCategories={isCategories}
+        />
+
         <ScrollView
           ref={scrollRef}
           contentContainerStyle={styles.scrollContent}
@@ -2016,12 +2025,7 @@ export function PlayerDetailModal({
               historicalStats={historicalStats}
               scoringWeights={scoringWeights}
               gameLog={gameLog}
-            />
-            <PlayerProjectionCard
-              player={player}
-              sport={sport}
-              scoringWeights={scoringWeights}
-              isCategories={isCategories}
+              projection={seasonProjections?.get(player.player_id) ?? null}
             />
           </View>
 
@@ -2071,6 +2075,7 @@ export function PlayerDetailModal({
             isCategories={isCategories}
             bodyScrollRef={gameLogBodyScrollRef}
             onBodyScroll={handleGameLogBodyScroll}
+            projection={seasonProjections?.get(player.player_id) ?? null}
             colors={gameLogColors}
           />
 

@@ -7,9 +7,10 @@ import { ThemedText } from "@/components/ui/ThemedText";
 import { cardShadow } from "@/constants/Colors";
 import { useColors } from "@/hooks/useColors";
 import type { HistoricalSeasonStats } from "@/hooks/usePlayerHistoricalStats";
+import type { ProjectionRow } from "@/hooks/usePlayerProjections";
 import { PlayerGameLog, PlayerSeasonStats, ScoringWeight } from "@/types/player";
 import { ms, s } from "@/utils/scale";
-import { seasonAvgRowToFpts } from "@/utils/scoring/fantasyPoints";
+import { projAvgRowToFpts, seasonAvgRowToFpts } from "@/utils/scoring/fantasyPoints";
 import { averageGames } from "@/utils/scoring/windowAverages";
 
 interface SeasonAveragesProps {
@@ -23,6 +24,9 @@ interface SeasonAveragesProps {
   historicalStats: HistoricalSeasonStats[] | undefined;
   scoringWeights: ScoringWeight[] | undefined;
   gameLog: PlayerGameLog[] | undefined;
+  /** Season-long projection for this player (projected per-game line), shown as
+   *  a "PROJ" lens alongside the actual windows. Null when none exists. */
+  projection?: ProjectionRow | null;
 }
 
 /** Source stat shape shared by season rows and windowed averages. */
@@ -68,6 +72,16 @@ function rowsFrom(r: AvgRow): [[string, string], [string, string]][] {
   ];
 }
 
+function rowsFromProj(p: ProjectionRow): [[string, string], [string, string]][] {
+  return [
+    [["PTS", f1(p.proj_pts)], ["FG%", pct(p.proj_fgm, p.proj_fga)]],
+    [["REB", f1(p.proj_reb)], ["3P%", pct(p.proj_3pm, p.proj_3pa)]],
+    [["AST", f1(p.proj_ast)], ["FT%", pct(p.proj_ftm, p.proj_fta)]],
+    [["STL", f1(p.proj_stl)], ["MIN", f1(p.proj_min)]],
+    [["BLK", f1(p.proj_blk)], ["TO", f1(p.proj_tov)]],
+  ];
+}
+
 function StatCell({
   label,
   value,
@@ -106,6 +120,7 @@ export function SeasonAverages({
   historicalStats,
   scoringWeights,
   gameLog,
+  projection,
 }: SeasonAveragesProps) {
   const c = useColors();
 
@@ -157,6 +172,21 @@ export function SeasonAverages({
         games: [],
       });
     }
+    // Projected per-game line (season-long projection) as a forward-looking
+    // lens, pinned to the front so it sits left of the recent windows.
+    if (projection) {
+      out.unshift({
+        key: "proj",
+        chip: "PROJ",
+        gpText: "",
+        fpts:
+          !isCategories && scoringWeights
+            ? projAvgRowToFpts(projection as unknown as Record<string, unknown>, scoringWeights)
+            : null,
+        rows: rowsFromProj(projection),
+        games: [],
+      });
+    }
     return out;
   }, [
     gameLog,
@@ -167,6 +197,7 @@ export function SeasonAverages({
     scoringWeights,
     currentSeasonLabel,
     currentGamesDenominator,
+    projection,
   ]);
 
   const seasonIdx = Math.max(0, lenses.findIndex((l) => l.key === "season"));
@@ -175,7 +206,7 @@ export function SeasonAverages({
 
   // Trend arrow on recent windows: window FPTS vs season FPTS.
   const trend = useMemo(() => {
-    if (!active || active.key === "season" || active.fpts == null || avgFpts == null) {
+    if (!active || active.key === "season" || active.key === "proj" || active.fpts == null || avgFpts == null) {
       return null;
     }
     const delta = active.fpts - avgFpts;
@@ -213,7 +244,11 @@ export function SeasonAverages({
                 accessibilityRole="button"
                 accessibilityState={{ selected: sel }}
                 accessibilityLabel={
-                  lens.key.startsWith("L") ? `Last ${lens.chip.slice(1)} games` : `${lens.chip} season`
+                  lens.key === "proj"
+                    ? "Projected season averages"
+                    : lens.key.startsWith("L")
+                      ? `Last ${lens.chip.slice(1)} games`
+                      : `${lens.chip} season`
                 }
               >
                 <ThemedText
@@ -230,7 +265,7 @@ export function SeasonAverages({
 
       <View style={styles.metaRow}>
         <ThemedText type="varsitySmall" style={[styles.gp, { color: c.secondaryText }]}>
-          {active.gpText} GP
+          {active.key === "proj" ? "PROJECTED · SEASON" : `${active.gpText} GP`}
         </ThemedText>
         {active.fpts != null && (
           <View style={styles.fptsCallout}>
@@ -255,7 +290,11 @@ export function SeasonAverages({
         ))}
       </View>
 
-      <PlayerSplits games={active.games} scoringWeights={scoringWeights} seasonAvg={avgFpts} />
+      {/* Splits (Home/Away, B2B, Bounce-Back) are FPTS-based — hidden in
+          categories leagues, where there are no fantasy points to compare. */}
+      {!isCategories && (
+        <PlayerSplits games={active.games} scoringWeights={scoringWeights} seasonAvg={avgFpts} />
+      )}
     </View>
   );
 }

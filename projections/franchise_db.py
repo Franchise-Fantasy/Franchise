@@ -57,12 +57,15 @@ def get_conn():
 # Loaders (shape matches what the engine model functions expect)
 # ================================================================
 
-def load_archetypes(conn, sport: str, season: int) -> dict:
-    """player_id (uuid str) -> archetype label for `season` (from
-    player_archetypes, written by franchise_archetype.py)."""
-    q = "SELECT player_id, archetype FROM player_archetypes WHERE sport = %s AND season = %s"
-    df = pd.read_sql(q, conn, params=(sport, str(season)))
-    return {str(r["player_id"]): r["archetype"] for _, r in df.iterrows()}
+def load_archetypes_by_season(conn, sport: str) -> dict:
+    """(player_id uuid str, season int) -> archetype, across all seasons. Mirrors
+    the original engine's per-game-season archetype join (project.py:
+    pa.season = g.season): each game uses its OWN season's stable role rather than
+    a single current-season label, so a noisy in-progress season can't drag a
+    player's prior. Written by franchise_archetype.py."""
+    q = "SELECT player_id, season, archetype FROM player_archetypes WHERE sport = %s"
+    df = pd.read_sql(q, conn, params=(sport,))
+    return {(str(r["player_id"]), int(r["season"])): r["archetype"] for _, r in df.iterrows()}
 
 
 def load_box_scores(conn, sport: str, current_season: int,
@@ -79,8 +82,8 @@ def load_box_scores(conn, sport: str, current_season: int,
     two team tricodes. We derive is_home from the matchup prefix and opp_team by
     joining game_schedule on (game_id, sport) — never from players.pro_team
     (which is mutated to the player's CURRENT team and is wrong for past games).
-    archetype is the player's current-season role tier (see load_archetypes;
-    written by franchise_archetype.py).
+    archetype is the player's role tier for each game's own season (see
+    load_archetypes_by_season; written by franchise_archetype.py).
     """
     first = current_season - lookback_seasons + 1
     # NB: '%%' escapes the literal % for psycopg2's paramstyle.
@@ -116,12 +119,16 @@ def load_box_scores(conn, sport: str, current_season: int,
     """
     df = pd.read_sql(q, conn, params=(sport, first, current_season))
     df["game_date"] = pd.to_datetime(df["game_date"])
-    # Archetype = the player's current-season role tier (k-means, written by
-    # franchise_archetype.py), applied to ALL of a player's games so the model's
-    # per-player archetype prior reflects their role. Unclustered players (too
-    # few games) fall back to a single "unclassified" pool.
-    arch = load_archetypes(conn, sport, current_season)
-    df["archetype"] = df["player_id"].astype(str).map(arch).fillna("unclassified")
+    # Archetype per (player, game-season) — mirrors the original per-game-season
+    # join, so a player's prior reflects their stable historical role rather than
+    # a noisy in-progress-season label. Unclustered (player, season) pairs fall
+    # back to "unclassified"; the model takes each player's MODE archetype across
+    # their games, which an established player's prior seasons dominate.
+    arch = load_archetypes_by_season(conn, sport)
+    df["archetype"] = df.apply(
+        lambda r: arch.get((str(r["player_id"]), int(r["season"])), "unclassified"),
+        axis=1,
+    )
     df["is_home"] = df["is_home"].astype(float)
     return df
 
@@ -253,6 +260,24 @@ def load_upcoming_context(conn, sport: str) -> dict:
                 }
 
     return {pid: team_next[t] for pid, t in player_team.items() if t in team_next}
+
+
+def load_vegas_props(conn, sport: str) -> dict:
+    """player_id (uuid str) -> {stat: median line} for each player's NEXT game
+    with posted props (pts/reb/ast/3pm). Powers the next_game market blend —
+    written by franchise_props.py from BDL's odds endpoint."""
+    df = pd.read_sql("""
+        SELECT player_id, game_date, stat, line_value
+        FROM player_props
+        WHERE sport = %s AND game_date >= CURRENT_DATE
+        ORDER BY player_id, game_date
+    """, conn, params=(sport,))
+    out: dict = {}
+    for pid, grp in df.groupby("player_id"):
+        nearest = grp["game_date"].min()
+        lines = grp[grp["game_date"] == nearest]
+        out[str(pid)] = {r["stat"]: float(r["line_value"]) for _, r in lines.iterrows()}
+    return out
 
 
 def fetch_player_seasons(conn, sport: str, seasons: list) -> pd.DataFrame:
