@@ -23,6 +23,15 @@ Key differences from the engine's native schema, handled here:
 Output is written to the Franchise `player_projections` table (NOT the
 engine's `projections` table). Fantasy points are intentionally NOT written:
 they are league-specific and computed client-side in the app.
+
+DORMANT loaders — `load_archetypes_by_season`, `load_box_scores`,
+`compute_opp_factors`, `load_upcoming_context`, `load_vegas_props` — are no
+longer on the active path. They fed the experimental hierarchical model
+(`project.py`) and the Vegas-props blend (`franchise_props.py`). `next_game` now
+uses `franchise_edge.py` (an exact port of the engine's production `edge.py`);
+the `season` snapshot uses `fetch_player_seasons` / `fetch_active_players` /
+`team_games_per_season`. The dormant loaders are kept for the documented
+`project.py` "future swap-in" and are individually marked `# DORMANT` below.
 """
 import os
 from datetime import date
@@ -57,6 +66,7 @@ def get_conn():
 # Loaders (shape matches what the engine model functions expect)
 # ================================================================
 
+# DORMANT — fed project.py's per-game-season archetype prior (see module header).
 def load_archetypes_by_season(conn, sport: str) -> dict:
     """(player_id uuid str, season int) -> archetype, across all seasons. Mirrors
     the original engine's per-game-season archetype join (project.py:
@@ -68,6 +78,7 @@ def load_archetypes_by_season(conn, sport: str) -> dict:
     return {(str(r["player_id"]), int(r["season"])): r["archetype"] for _, r in df.iterrows()}
 
 
+# DORMANT — built project.py's hierarchical training set (see module header).
 def load_box_scores(conn, sport: str, current_season: int,
                     lookback_seasons: int = 3) -> pd.DataFrame:
     """Per-game box scores for the last N seasons, shaped for `project.py`.
@@ -138,6 +149,7 @@ def load_box_scores(conn, sport: str, current_season: int,
 _OPP_COUNT_STATS = ["pts", "reb", "ast", "stl", "blk", "tov", "fg3m"]
 
 
+# DORMANT — opponent-defense de-bias for project.py (see module header).
 def compute_opp_factors(conn, sport: str, seasons: list) -> dict:
     """{(opponent_tricode, season): {stat: factor}} where factor > 1 means that
     team allows more than league-average of `stat` (an easier matchup) and 1.0
@@ -223,6 +235,7 @@ def load_player_meta(conn, sport: str):
     return teams, names
 
 
+# DORMANT — next-opponent/venue/b2b tilt for project.py (see module header).
 def load_upcoming_context(conn, sport: str) -> dict:
     """player_id (uuid str) -> {opp_team_id (tricode), is_home, is_b2b} for each
     player's NEXT unplayed game.
@@ -274,6 +287,7 @@ def load_upcoming_context(conn, sport: str) -> dict:
     return {pid: team_next[t] for pid, t in player_team.items() if t in team_next}
 
 
+# DORMANT — Vegas-props blend, franchise_props.py path (see module header).
 def load_vegas_props(conn, sport: str) -> dict:
     """player_id (uuid str) -> {stat: median line} for each player's NEXT game
     with posted props (pts/reb/ast/3pm). Powers the next_game market blend —

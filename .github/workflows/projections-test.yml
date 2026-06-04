@@ -1,0 +1,24 @@
+name: Projections — engine tests
+
+# Pytest for the pure projection math in franchise_edge.py (the edge.py port).
+# Runs on any change to the projections engine. Lightweight — the tested
+# functions import only the stdlib, so there are no heavy deps to install.
+on:
+  push:
+    paths: ['projections/**']
+  pull_request:
+    paths: ['projections/**']
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Install pytest
+        run: pip install pytest
+      - name: Run engine tests
+        run: cd projections && python -m pytest tests/ -q

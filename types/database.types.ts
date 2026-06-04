@@ -856,6 +856,7 @@ export type Database = {
           accelerated_time_limit: number | null
           created_at: string | null
           current_pick_number: number
+          current_pick_time_limit: number | null
           current_pick_timestamp: string | null
           draft_date: string | null
           draft_type: string
@@ -873,6 +874,7 @@ export type Database = {
           accelerated_time_limit?: number | null
           created_at?: string | null
           current_pick_number?: number
+          current_pick_time_limit?: number | null
           current_pick_timestamp?: string | null
           draft_date?: string | null
           draft_type?: string
@@ -890,6 +892,7 @@ export type Database = {
           accelerated_time_limit?: number | null
           created_at?: string | null
           current_pick_number?: number
+          current_pick_time_limit?: number | null
           current_pick_timestamp?: string | null
           draft_date?: string | null
           draft_type?: string
@@ -3758,6 +3761,51 @@ export type Database = {
           },
           {
             foreignKeyName: "player_projections_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      player_props: {
+        Row: {
+          game_date: string
+          id: string
+          line_value: number
+          player_id: string
+          sport: string
+          stat: string
+          updated_at: string
+        }
+        Insert: {
+          game_date: string
+          id?: string
+          line_value: number
+          player_id: string
+          sport: string
+          stat: string
+          updated_at?: string
+        }
+        Update: {
+          game_date?: string
+          id?: string
+          line_value?: number
+          player_id?: string
+          sport?: string
+          stat?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "player_props_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "player_season_stats"
+            referencedColumns: ["player_id"]
+          },
+          {
+            foreignKeyName: "player_props_player_id_fkey"
             columns: ["player_id"]
             isOneToOne: false
             referencedRelation: "players"

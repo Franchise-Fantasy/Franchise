@@ -244,9 +244,13 @@ def compute_absence_boosts(out_ids, dists: dict, player_teams: dict,
 
 
 def apply_absence_boosts(dists: dict, boosts: dict) -> None:
-    """Apply each boost factor to ALL projected stats in place. Minutes
-    redistribution flows through every box-score stat proportionally — the
-    source scaled its 4 prop stats; we scale the full fantasy set, same intent."""
+    """Apply each boost factor to ALL projected stats AND projected minutes in
+    place. Minutes redistribution flows through every box-score stat
+    proportionally — the source scaled its 4 prop stats; we scale the full
+    fantasy set plus `_proj_min`, so the displayed minutes stay consistent with
+    the boosted line (a small, intentional improvement over the source, which
+    left _proj_min unscaled). Scaling both keeps the implied per-minute rate
+    unchanged — i.e. the boost is modeled as pure extra minutes."""
     for pid, boost in boosts.items():
         d = dists.get(pid)
         if not d:
@@ -255,4 +259,5 @@ def apply_absence_boosts(dists: dict, boosts: dict) -> None:
         for s in STATS:
             m, sd = d[s]
             d[s] = (m * f, sd * f)
+        d["_proj_min"] = round(d.get("_proj_min", 0.0) * f, 1)
         d["_absence_boost"] = boost
