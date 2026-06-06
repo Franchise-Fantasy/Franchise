@@ -78,7 +78,15 @@
         }
       ],
       "expo-image",
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-widgets",
+        {
+          "bundleIdentifier": "com.chewers.franchisev2.widgets",
+          "groupIdentifier": "group.com.chewers.franchisev2",
+          "enablePushNotifications": true
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

@@ -1,26 +1,16 @@
+import * as Crypto from 'expo-crypto';
+import type { EventSubscription } from 'expo-modules-core';
+import type { LiveActivity } from 'expo-widgets';
 import { useCallback, useEffect, useRef } from 'react';
-import { NativeModules, NativeEventEmitter, Platform, AppState, Linking } from 'react-native';
+import { AppState, Platform } from 'react-native';
 
-import { useConfirm } from '@/context/ConfirmProvider';
 import { logger } from '@/utils/logger';
 
 import { supabase } from '../lib/supabase';
-
-const { FranchiseLiveActivityModule } = NativeModules;
+import { MatchupActivity, type MatchupActivityProps, type MatchupPlayerLine } from '../widgets/MatchupActivity';
 
 const LIVE_ACTIVITIES_SUPPORTED =
   Platform.OS === 'ios' && parseInt(String(Platform.Version), 10) >= 16;
-
-interface ActivityResult {
-  activityId: string;
-  pushToken: string | null;
-}
-
-interface ActiveActivity {
-  activityId: string;
-  type: 'matchup' | 'auction_draft';
-  pushToken?: string;
-}
 
 interface MatchupActivityParams {
   myTeamName: string;
@@ -39,181 +29,165 @@ interface MatchupActivityParams {
     biggestContributor: string;
     myActivePlayers: number;
     opponentActivePlayers: number;
-    players: {
-      name: string;
-      statLine: string;
-      fantasyPoints: number;
-      gameStatus: string;
-      isOnCourt: boolean;
-    }[];
+    players: MatchupPlayerLine[];
   };
 }
 
+interface ActivityResult {
+  activityId: string;
+  pushToken: string | null;
+}
+
 /**
- * Hook for managing iOS Live Activities (Dynamic Island + Lock Screen).
- * Handles starting/ending activities and registering push tokens with Supabase.
+ * iOS Live Activities (Dynamic Island + Lock Screen) for the matchup screen.
+ * Defines the UI in JS via expo-widgets — see widgets/MatchupActivity.tsx.
+ *
+ * The `activityId` returned to callers is a JS-generated UUID, not an iOS Activity.id.
+ * Backend pushes are keyed by the APNs push_token stored in activity_tokens, not by
+ * this id. The id only exists so callers can toggle / track open activities.
  */
 export function useLiveActivity(userId?: string) {
-  const activeActivityRef = useRef<string | null>(null);
-  const confirm = useConfirm();
+  const activeInstanceRef = useRef<LiveActivity<MatchupActivityProps> | null>(null);
+  const activeActivityIdRef = useRef<string | null>(null);
+  const tokenSubscriptionRef = useRef<EventSubscription | null>(null);
 
-  // Listen for push token updates from the native module
+  // Foreground reconcile — clean up DB row if the activity was dismissed externally
   useEffect(() => {
-    if (!LIVE_ACTIVITIES_SUPPORTED || !FranchiseLiveActivityModule) return;
-
-    const emitter = new NativeEventEmitter(FranchiseLiveActivityModule);
-    const sub = emitter.addListener('LiveActivityTokenUpdate', async (event) => {
-      const { activityId, pushToken } = event;
-      if (!pushToken || !userId) return;
-
-      // Upsert the new token for this activity
-      await supabase
-        .from('activity_tokens')
-        .update({ push_token: pushToken })
-        .eq('user_id', userId)
-        .match({ stale: false })
-        .neq('push_token', pushToken);
-    });
-
-    return () => sub.remove();
-  }, [userId]);
-
-  // Reconcile on app foreground: clean up stale tokens for ended activities
-  useEffect(() => {
-    if (!LIVE_ACTIVITIES_SUPPORTED || !FranchiseLiveActivityModule || !userId) return;
+    if (!LIVE_ACTIVITIES_SUPPORTED || !userId) return;
 
     const sub = AppState.addEventListener('change', async (state) => {
       if (state !== 'active') return;
+      if (!activeActivityIdRef.current) return;
 
       try {
-        const activities: ActiveActivity[] =
-          await FranchiseLiveActivityModule.getActiveActivities();
-        const activeIds = new Set(activities.map((a) => a.activityId));
-
-        // If our tracked activity is no longer active, clean it up
-        if (activeActivityRef.current && !activeIds.has(activeActivityRef.current)) {
-          await supabase
-            .from('activity_tokens')
-            .delete()
-            .eq('user_id', userId);
-          activeActivityRef.current = null;
+        const instances = MatchupActivity.getInstances();
+        if (instances.length === 0) {
+          await supabase.from('activity_tokens').delete().eq('user_id', userId);
+          activeInstanceRef.current = null;
+          activeActivityIdRef.current = null;
+          tokenSubscriptionRef.current?.remove();
+          tokenSubscriptionRef.current = null;
         }
       } catch {
-        // Non-critical — just log
+        // non-critical
       }
     });
 
     return () => sub.remove();
   }, [userId]);
 
+  // Remove any push-token subscription on unmount
+  useEffect(() => {
+    return () => {
+      tokenSubscriptionRef.current?.remove();
+      tokenSubscriptionRef.current = null;
+    };
+  }, []);
+
   const startMatchupActivity = useCallback(
     async (params: MatchupActivityParams): Promise<ActivityResult | null> => {
-      if (!LIVE_ACTIVITIES_SUPPORTED || !FranchiseLiveActivityModule || !userId) {
-        return null;
-      }
+      if (!LIVE_ACTIVITIES_SUPPORTED || !userId) return null;
 
       try {
-        const result: ActivityResult =
-          await FranchiseLiveActivityModule.startMatchupActivity(
-            {
-              myTeamName: params.myTeamName,
-              opponentTeamName: params.opponentTeamName,
-              myTeamTricode: params.myTeamTricode,
-              opponentTeamTricode: params.opponentTeamTricode,
-              matchupId: params.matchupId,
-              leagueId: params.leagueId,
-            },
-            params.initialState,
-          );
+        const initialProps: MatchupActivityProps = {
+          myTeamName: params.myTeamName,
+          opponentTeamName: params.opponentTeamName,
+          myTeamTricode: params.myTeamTricode,
+          opponentTeamTricode: params.opponentTeamTricode,
+          myScore: params.initialState.myScore,
+          opponentScore: params.initialState.opponentScore,
+          scoreGap: params.initialState.scoreGap,
+          winProbability: params.initialState.winProbability,
+          biggestContributor: params.initialState.biggestContributor,
+          myActivePlayers: params.initialState.myActivePlayers,
+          opponentActivePlayers: params.initialState.opponentActivePlayers,
+          players: params.initialState.players,
+        };
 
-        activeActivityRef.current = result.activityId;
+        const instance = MatchupActivity.start(initialProps);
+        const activityId = Crypto.randomUUID();
+        activeInstanceRef.current = instance;
+        activeActivityIdRef.current = activityId;
 
-        // Register the push token in Supabase
-        if (result.pushToken) {
+        const pushToken = await instance.getPushToken();
+        if (pushToken) {
           await supabase.from('activity_tokens').insert({
             user_id: userId,
             team_id: params.teamId,
-            activity_type: 'matchup' as const,
-            push_token: result.pushToken,
+            activity_type: 'matchup',
+            push_token: pushToken,
             matchup_id: params.matchupId,
             schedule_id: params.scheduleId,
             league_id: params.leagueId,
           });
         }
 
-        return result;
-      } catch (err: any) {
-        if (err?.code === 'DISABLED') {
-          confirm({
-            title: 'Live Activities Disabled',
-            message:
-              'Enable Live Activities for Franchise in your device settings to use this feature.',
-            action: { label: 'Open Settings', onPress: () => Linking.openSettings() },
-          });
-        } else {
-          logger.warn('Failed to start matchup activity', err);
-        }
+        // Apple may rotate the per-activity token; persist new value to keep APNs in sync.
+        tokenSubscriptionRef.current?.remove();
+        tokenSubscriptionRef.current = instance.addPushTokenListener(async ({ pushToken: nextToken }) => {
+          if (!nextToken) return;
+          try {
+            await supabase
+              .from('activity_tokens')
+              .update({ push_token: nextToken })
+              .eq('user_id', userId)
+              .eq('matchup_id', params.matchupId)
+              .eq('stale', false)
+              .neq('push_token', nextToken);
+          } catch (err) {
+            logger.warn('Failed to persist rotated Live Activity token', err);
+          }
+        });
+
+        return { activityId, pushToken };
+      } catch (err) {
+        logger.warn('Failed to start matchup activity', err);
         return null;
       }
     },
-    [userId, confirm],
+    [userId]
   );
 
   const endActivity = useCallback(
-    async (activityId?: string) => {
-      if (!LIVE_ACTIVITIES_SUPPORTED || !FranchiseLiveActivityModule || !userId) return;
-
-      const id = activityId ?? activeActivityRef.current;
-      if (!id) return;
+    async (_activityId?: string) => {
+      if (!LIVE_ACTIVITIES_SUPPORTED || !userId) return;
+      const instance = activeInstanceRef.current;
+      if (!instance) return;
 
       try {
-        await FranchiseLiveActivityModule.endActivity(id);
-        activeActivityRef.current = null;
-
-        // Remove from Supabase
-        await supabase
-          .from('activity_tokens')
-          .delete()
-          .eq('user_id', userId);
-      } catch {
-        // Non-critical
+        await instance.end('immediate');
+        activeInstanceRef.current = null;
+        activeActivityIdRef.current = null;
+        tokenSubscriptionRef.current?.remove();
+        tokenSubscriptionRef.current = null;
+        await supabase.from('activity_tokens').delete().eq('user_id', userId);
+      } catch (err) {
+        logger.warn('Failed to end matchup activity', err);
       }
     },
-    [userId],
+    [userId]
   );
 
   const endAllActivities = useCallback(async () => {
-    if (!LIVE_ACTIVITIES_SUPPORTED || !FranchiseLiveActivityModule || !userId) return;
-
+    if (!LIVE_ACTIVITIES_SUPPORTED || !userId) return;
     try {
-      await FranchiseLiveActivityModule.endAllActivities();
-      activeActivityRef.current = null;
-
-      await supabase
-        .from('activity_tokens')
-        .delete()
-        .eq('user_id', userId);
-    } catch {
-      // Non-critical
+      const instances = MatchupActivity.getInstances();
+      await Promise.all(instances.map((inst) => inst.end('immediate')));
+      activeInstanceRef.current = null;
+      activeActivityIdRef.current = null;
+      tokenSubscriptionRef.current?.remove();
+      tokenSubscriptionRef.current = null;
+      await supabase.from('activity_tokens').delete().eq('user_id', userId);
+    } catch (err) {
+      logger.warn('Failed to end all matchup activities', err);
     }
   }, [userId]);
 
-  const getActiveActivities = useCallback(async (): Promise<ActiveActivity[]> => {
-    if (!LIVE_ACTIVITIES_SUPPORTED || !FranchiseLiveActivityModule) return [];
-
-    try {
-      return await FranchiseLiveActivityModule.getActiveActivities();
-    } catch {
-      return [];
-    }
-  }, []);
-
   return {
-    isSupported: LIVE_ACTIVITIES_SUPPORTED && !!FranchiseLiveActivityModule,
+    isSupported: LIVE_ACTIVITIES_SUPPORTED,
     startMatchupActivity,
     endActivity,
     endAllActivities,
-    getActiveActivities,
-    activeActivityId: activeActivityRef.current,
+    activeActivityId: activeActivityIdRef.current,
   };
 }

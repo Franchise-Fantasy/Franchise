@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsResponse } from "../_shared/cors.ts";
 import { errorResponse, handleError, jsonResponse } from "../_shared/http.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
@@ -441,6 +441,11 @@ async function hasActiveOrFinishedGames(): Promise<boolean> {
 
 // ── Live Activity dispatch ──────────────────────────────────────────────────
 
+// expo-widgets pushes REPLACE the entire ContentState — every dispatch must
+// send the full props the JS widget expects (see widgets/MatchupActivity.tsx).
+const TRICODE_FROM_NAME = (name: string) =>
+  name.trim().substring(0, 3).toUpperCase() || '???';
+
 async function dispatchMatchupActivities(
   weekResults: Array<{ league_id: string; schedule_id: string; teamScores: Record<string, number> }>,
 ): Promise<void> {
@@ -457,35 +462,61 @@ async function dispatchMatchupActivities(
 
   if (!tokens || tokens.length === 0) return;
 
-  // For each active token, find the matchup and build a content state with scores
+  // Resolve team display info for every team referenced by any token's matchup
+  const matchupIds = [...new Set(tokens.map(t => t.matchup_id).filter(Boolean))];
+  const { data: matchupRows } = await supabase
+    .from('league_matchups')
+    .select('id, home_team_id, away_team_id')
+    .in('id', matchupIds);
+
+  const matchupById = new Map((matchupRows ?? []).map(m => [m.id, m]));
+
+  const allTeamIds = new Set<string>();
+  for (const t of tokens) {
+    if (t.team_id) allTeamIds.add(t.team_id);
+    const m = matchupById.get(t.matchup_id);
+    if (m?.home_team_id) allTeamIds.add(m.home_team_id);
+    if (m?.away_team_id) allTeamIds.add(m.away_team_id);
+  }
+
+  const { data: teamRows } = await supabase
+    .from('league_teams')
+    .select('id, team_name, tricode')
+    .in('id', [...allTeamIds]);
+
+  const teamInfo = new Map<string, { name: string; tricode: string }>();
+  for (const t of teamRows ?? []) {
+    teamInfo.set(t.id, {
+      name: t.team_name ?? '',
+      tricode: t.tricode?.trim() || TRICODE_FROM_NAME(t.team_name ?? ''),
+    });
+  }
+
   for (const weekResult of weekResults) {
     const weekTokens = tokens.filter(t => t.schedule_id === weekResult.schedule_id);
     if (weekTokens.length === 0) continue;
 
-    // Fetch matchups for this schedule to pair teams
-    const { data: matchups } = await supabase
-      .from('league_matchups')
-      .select('id, home_team_id, away_team_id')
-      .eq('schedule_id', weekResult.schedule_id);
-
-    if (!matchups) continue;
-
-    const matchupMap = new Map(matchups.map(m => [m.id, m]));
-
-    // Build content state per token's matchup
     for (const token of weekTokens) {
-      const matchup = matchupMap.get(token.matchup_id);
+      const matchup = matchupById.get(token.matchup_id);
       if (!matchup) continue;
 
-      const isHome = token.team_id === matchup.home_team_id;
-      const myTeamId = isHome ? matchup.home_team_id : matchup.away_team_id;
-      const oppTeamId = isHome ? matchup.away_team_id : matchup.home_team_id;
+      const myTeamId = token.team_id;
+      const oppTeamId = matchup.home_team_id === myTeamId
+        ? matchup.away_team_id
+        : matchup.home_team_id;
       if (!myTeamId || !oppTeamId) continue;
 
       const myScore = weekResult.teamScores[myTeamId] ?? 0;
       const oppScore = weekResult.teamScores[oppTeamId] ?? 0;
 
+      const myMeta = teamInfo.get(myTeamId) ?? { name: '', tricode: '???' };
+      const oppMeta = teamInfo.get(oppTeamId) ?? { name: '', tricode: '???' };
+
       const contentState = {
+        myTeamName: myMeta.name,
+        opponentTeamName: oppMeta.name,
+        myTeamTricode: myMeta.tricode,
+        opponentTeamTricode: oppMeta.tricode,
         myScore,
         opponentScore: oppScore,
         scoreGap: Math.round((myScore - oppScore) * 10) / 10,

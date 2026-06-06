@@ -128,6 +128,63 @@ function parseMinutes(min: string | null): number {
 }
 
 // ── Live Activity dispatch: push player stat lines to active activities ──
+//
+// expo-widgets pushes REPLACE the entire ContentState, so every dispatch must
+// send the full props the JS widget expects (see widgets/MatchupActivity.tsx).
+// We compute team scores from rostered-player fpts because no other live source
+// exists at this poll rate.
+
+const TRICODE_FROM_NAME = (name: string) =>
+  name.trim().substring(0, 3).toUpperCase() || '???';
+
+interface PlayerLine {
+  name: string;
+  statLine: string;
+  fantasyPoints: number;
+  gameStatus: string;
+  isOnCourt: boolean;
+}
+
+function buildPlayerLines(
+  roster: any[],
+  liveByPlayer: Map<string, any>,
+  weights: any[],
+): PlayerLine[] {
+  const lines: PlayerLine[] = [];
+  for (const rp of roster) {
+    const live = liveByPlayer.get(rp.player_id);
+    if (!live || live.game_status < 2) continue;
+
+    const player = (rp as any).players;
+    const fullName = (player?.name ?? '').trim();
+    const parts = fullName.split(/\s+/);
+    const name = parts.length >= 2
+      ? `${parts[0].charAt(0)}. ${parts.slice(1).join(' ')}`
+      : fullName;
+
+    let fpts = 0;
+    for (const w of weights) {
+      if (!w.is_enabled) continue;
+      const gameKey = STAT_TO_GAME[w.stat_name];
+      if (!gameKey) continue;
+      const val = live[gameKey] ?? 0;
+      fpts += val * w.point_value;
+    }
+
+    lines.push({
+      name,
+      statLine: `${live.pts}p ${live.reb}r ${live.ast}a`,
+      fantasyPoints: Math.round(fpts * 10) / 10,
+      gameStatus: live.game_status === 3
+        ? 'Final'
+        : live.game_clock
+          ? `${ordinal(live.period)} ${formatClock(live.game_clock)}`
+          : `${ordinal(live.period)}`,
+      isOnCourt: live.oncourt ?? false,
+    });
+  }
+  return lines;
+}
 
 async function dispatchPlayerTickerUpdates(
   liveRows: any[],
@@ -143,24 +200,49 @@ async function dispatchPlayerTickerUpdates(
 
   if (!tokens || tokens.length === 0) return;
 
-  // Build a lookup: player_id → live stat row
-  const liveByPlayer = new Map<string, any>(
-    liveRows.map(r => [r.player_id, r]),
+  // Pair each token's team with its opponent via the matchup
+  const matchupIds = [...new Set(tokens.map(t => t.matchup_id).filter(Boolean))];
+  const { data: matchups } = await supabase
+    .from('league_matchups')
+    .select('id, home_team_id, away_team_id')
+    .in('id', matchupIds);
+
+  const matchupById = new Map(
+    (matchups ?? []).map(m => [m.id, m]),
   );
 
-  // Get unique team IDs from active tokens
-  const teamIds = [...new Set(tokens.map(t => t.team_id))];
+  // Build the union of all team_ids the activities reference (my + opponents)
+  const allTeamIds = new Set<string>();
+  for (const t of tokens) {
+    if (t.team_id) allTeamIds.add(t.team_id);
+    const m = matchupById.get(t.matchup_id);
+    if (m?.home_team_id) allTeamIds.add(m.home_team_id);
+    if (m?.away_team_id) allTeamIds.add(m.away_team_id);
+  }
 
-  // Fetch rostered players for those teams
+  // Fetch team display info — name + tricode for every involved team
+  const { data: teamRows } = await supabase
+    .from('league_teams')
+    .select('id, team_name, tricode')
+    .in('id', [...allTeamIds]);
+
+  const teamInfo = new Map<string, { name: string; tricode: string }>();
+  for (const t of teamRows ?? []) {
+    teamInfo.set(t.id, {
+      name: t.team_name ?? '',
+      tricode: t.tricode?.trim() || TRICODE_FROM_NAME(t.team_name ?? ''),
+    });
+  }
+
+  // Fetch rosters for ALL involved teams (so we can score both sides)
   const { data: rosterPlayers } = await supabase
     .from('league_players')
     .select('player_id, team_id, roster_slot, players!inner(name)')
-    .in('team_id', teamIds)
+    .in('team_id', [...allTeamIds])
     .not('roster_slot', 'in', '("BE","IR","TAXI")');
 
   if (!rosterPlayers || rosterPlayers.length === 0) return;
 
-  // Group roster by team
   const rosterByTeam = new Map<string, any[]>();
   for (const rp of rosterPlayers) {
     const list = rosterByTeam.get(rp.team_id) ?? [];
@@ -168,7 +250,7 @@ async function dispatchPlayerTickerUpdates(
     rosterByTeam.set(rp.team_id, list);
   }
 
-  // Also need scoring weights per league to compute FPTS
+  // Scoring weights per league to compute fpts
   const leagueIds = [...new Set(tokens.map(t => t.league_id))];
   const { data: scoringRows } = await supabase
     .from('scoring_weights')
@@ -182,64 +264,62 @@ async function dispatchPlayerTickerUpdates(
     scoringByLeague.set(sw.league_id, list);
   }
 
-  // Build all the contentState payloads first, then push in parallel
+  const liveByPlayer = new Map<string, any>(
+    liveRows.map(r => [r.player_id, r]),
+  );
+
+  const teamScoreCache = new Map<string, { score: number; activePlayers: number; lines: PlayerLine[] }>();
+  const computeTeam = (teamId: string, leagueId: string) => {
+    const cached = teamScoreCache.get(teamId);
+    if (cached) return cached;
+    const lines = buildPlayerLines(
+      rosterByTeam.get(teamId) ?? [],
+      liveByPlayer,
+      scoringByLeague.get(leagueId) ?? [],
+    );
+    const score = Math.round(lines.reduce((s, l) => s + l.fantasyPoints, 0) * 10) / 10;
+    const activePlayers = lines.filter(l => l.gameStatus !== 'Final').length;
+    const v = { score, activePlayers, lines };
+    teamScoreCache.set(teamId, v);
+    return v;
+  };
+
   const pushTasks: Array<Promise<unknown>> = [];
 
   for (const token of tokens) {
-    const roster = rosterByTeam.get(token.team_id) ?? [];
-    const weights = scoringByLeague.get(token.league_id) ?? [];
+    const matchup = matchupById.get(token.matchup_id);
+    if (!matchup) continue;
 
-    const playerLines: any[] = [];
-    for (const rp of roster) {
-      const live = liveByPlayer.get(rp.player_id);
-      if (!live || live.game_status < 2) continue;
+    const myTeamId = token.team_id;
+    const oppTeamId = matchup.home_team_id === myTeamId
+      ? matchup.away_team_id
+      : matchup.home_team_id;
+    if (!oppTeamId) continue;
 
-      const player = (rp as any).players;
-      const fullName = (player?.name ?? '').trim();
-      const parts = fullName.split(/\s+/);
-      const name = parts.length >= 2
-        ? `${parts[0].charAt(0)}. ${parts.slice(1).join(' ')}`
-        : fullName;
+    const my = computeTeam(myTeamId, token.league_id);
+    const opp = computeTeam(oppTeamId, token.league_id);
 
-      let fpts = 0;
-      for (const w of weights) {
-        if (!w.is_enabled) continue;
-        const gameKey = STAT_TO_GAME[w.stat_name];
-        if (!gameKey) continue;
-        const val = live[gameKey] ?? 0;
-        fpts += val * w.point_value;
-      }
+    const myMeta = teamInfo.get(myTeamId) ?? { name: '', tricode: '???' };
+    const oppMeta = teamInfo.get(oppTeamId) ?? { name: '', tricode: '???' };
 
-      playerLines.push({
-        name,
-        statLine: `${live.pts}p ${live.reb}r ${live.ast}a`,
-        fantasyPoints: Math.round(fpts * 10) / 10,
-        gameStatus: live.game_status === 3
-          ? 'Final'
-          : live.game_clock
-            ? `${ordinal(live.period)} ${formatClock(live.game_clock)}`
-            : `${ordinal(live.period)}`,
-        isOnCourt: live.oncourt ?? false,
-      });
-    }
-
-    playerLines.sort((a, b) => b.fantasyPoints - a.fantasyPoints);
-    const top5 = playerLines.slice(0, 5);
-
+    // Top 5 of MY team's lines for the player ticker
+    const top5 = [...my.lines].sort((a, b) => b.fantasyPoints - a.fantasyPoints).slice(0, 5);
     const biggest = top5[0];
-    const biggestContributor = biggest
-      ? `${biggest.name} ${biggest.statLine}`
-      : '';
+    const biggestContributor = biggest ? `${biggest.name} ${biggest.statLine}` : '';
 
-    if (top5.length === 0) continue;
+    const scoreGap = Math.round((my.score - opp.score) * 10) / 10;
 
     const contentState = {
-      myScore: 0,
-      opponentScore: 0,
-      scoreGap: 0,
+      myTeamName: myMeta.name,
+      opponentTeamName: oppMeta.name,
+      myTeamTricode: myMeta.tricode,
+      opponentTeamTricode: oppMeta.tricode,
+      myScore: my.score,
+      opponentScore: opp.score,
+      scoreGap,
       biggestContributor,
-      myActivePlayers: playerLines.filter(p => p.gameStatus !== 'Final').length,
-      opponentActivePlayers: 0,
+      myActivePlayers: my.activePlayers,
+      opponentActivePlayers: opp.activePlayers,
       players: top5,
     };
 
