@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1058416396005",
+    "project_id": "franchise-8d4fd",
+    "storage_bucket": "franchise-8d4fd.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1058416396005:android:fda6ab67f5207419d4f60c",
+        "android_client_info": {
+          "package_name": "com.chewers.franchisev2"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCOybpRmqDnaQ4ua5uoab3LUpNetAXyH7A"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

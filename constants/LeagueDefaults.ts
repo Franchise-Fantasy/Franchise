@@ -543,6 +543,14 @@ export function formatSeason(startYear: number, sport: Sport): string {
   return `${startYear}-${String((startYear + 1) % 100).padStart(2, '0')}`;
 }
 
+// Compact, apostrophe-prefixed season label for tight chips/badges.
+// WNBA '2025' → "'25"; NBA '2024-25' → "'24-'25".
+export function formatSeasonShort(season: string, sport: Sport): string {
+  if (sport === 'wnba') return `'${season.slice(-2)}`;
+  const [start, end] = season.split('-');
+  return `'${start.slice(-2)}-'${end}`;
+}
+
 // Inverse of formatSeason — extracts the starting calendar year. Works for
 // both formats since WNBA has no dash (split('-')[0] returns the whole string).
 export function parseSeasonStartYear(season: string): number {

@@ -94,8 +94,12 @@ Deno.serve(async (req)=>{
     const { data: userTeam, error: teamError } = await supabaseAdmin.from('teams').select('id').eq('league_id', league_id).eq('user_id', user.id).single();
     if (teamError || !userTeam) throw new HttpError('User does not have a team in this league.', 403);
 
-    const { data: draft, error: draftError } = await supabaseAdmin.from('drafts').select('current_pick_number, rounds, picks_per_round, time_limit, accelerate_after_round, accelerated_time_limit, type').eq('id', draft_id).single();
+    const { data: draft, error: draftError } = await supabaseAdmin.from('drafts').select('current_pick_number, rounds, picks_per_round, time_limit, accelerate_after_round, accelerated_time_limit, type, status').eq('id', draft_id).single();
     if (draftError || !draft) throw new HttpError('Draft not found.', 404);
+
+    if (draft.status === 'paused') {
+      throw new HttpError('The draft is paused.', 409);
+    }
 
     if (draft.current_pick_number > draft.rounds * draft.picks_per_round) {
       return jsonResponse({ message: 'Draft is already complete.' });

@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 
+import { getCurrentSeason, type Sport } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
-import { type Sport } from '@/constants/LeagueDefaults';
 import { supabase } from '@/lib/supabase';
 import type { Database } from '@/types/database.types';
 
@@ -27,11 +27,17 @@ export function usePlayerProjections(
     queryKey: queryKeys.playerProjections(sport, horizon),
     queryFn: async () => {
       const map = new Map<string, ProjectionRow>();
+      // Pin the season: the `season` horizon carries both the current season
+      // and a forward-looking next-year row per player (the view's DISTINCT ON
+      // ties on date, not season), so without this filter ~20% of players get
+      // their next-year projection. `next_game` is single-season, so this is a
+      // no-op there.
       const { data, error } = await supabase
         .from('current_player_projections')
         .select('*')
         .eq('sport', sport)
-        .eq('horizon', horizon);
+        .eq('horizon', horizon)
+        .eq('season', getCurrentSeason(sport));
       if (error) throw error;
       for (const row of data ?? []) {
         if (row.player_id) map.set(row.player_id, row);

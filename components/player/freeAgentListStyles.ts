@@ -233,10 +233,9 @@ export const freeAgentListStyles = StyleSheet.create({
     fontWeight: "700",
     marginTop: s(2),
   },
-  projValue: {
+  // Next-game projection shown inline beside the matchup chip in the pos row.
+  projInline: {
     fontSize: ms(9.5),
-    textAlign: "right" as const,
-    marginTop: 1,
   },
   catLine: {
     fontSize: ms(10),

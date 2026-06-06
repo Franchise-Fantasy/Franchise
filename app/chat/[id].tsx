@@ -760,6 +760,7 @@ export default function ConversationScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
       <PageHeader
         title={convMeta?.name ?? 'Chat'}
+        clipContent
         rightAction={
           convMeta?.type === 'dm' ? (
             readReceipts.some((r) => r.online) ? (

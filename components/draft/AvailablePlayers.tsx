@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -16,23 +16,30 @@ import { PlayerFilterBar } from "@/components/player/PlayerFilterBar";
 import { PlayerHeadshotImage } from "@/components/player/PlayerHeadshotImage";
 import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { ThemedText } from "@/components/ui/ThemedText";
-import { Colors } from "@/constants/Colors";
 import { getPreviousSeason } from "@/constants/LeagueDefaults";
 import { queryKeys } from "@/constants/queryKeys";
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
-import { useColorScheme } from "@/hooks/useColorScheme";
+import { useColors } from "@/hooks/useColors";
 import { useDraftPlayer } from "@/hooks/useDraftPlayer";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
 import { useLeagueScoringType } from "@/hooks/useLeagueScoringType";
 import { TimeRange, usePlayerFilter } from "@/hooks/usePlayerFilter";
+import { usePlayerProjections } from "@/hooks/usePlayerProjections";
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
+import { preferProjection } from "@/utils/draft/draftRanking";
 import { formatPosition } from "@/utils/formatting";
+import { buildAdjustedPlayers } from "@/utils/freeAgent/freeAgentStats";
 import { getInjuryBadge } from "@/utils/nba/injuryBadge";
 import { getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
 import { checkPositionLimits, type PositionLimits } from "@/utils/roster/positionLimits";
 import { ms, s } from "@/utils/scale";
 import { calculateAvgFantasyPoints } from "@/utils/scoring/fantasyPoints";
+
+// Coalesces a possibly-null average to a 1-decimal string. A player with no
+// games this season has NULL stat columns, and the category slash line calls
+// .toFixed on each — guard here so a statless player doesn't crash the row.
+const fixed1 = (v: number | null | undefined) => (v ?? 0).toFixed(1);
 
 interface AvailablePlayersProps {
   draftId: string;
@@ -53,8 +60,7 @@ export function AvailablePlayers({
   addToQueue,
   queuedPlayerIds,
 }: AvailablePlayersProps) {
-  const scheme = useColorScheme() ?? "light";
-  const c = Colors[scheme];
+  const c = useColors();
   const isMyTurn = currentPick?.current_team_id === teamId;
   const sport = useActiveLeagueSport(leagueId);
   const [selectedPlayer, setSelectedPlayer] =
@@ -106,19 +112,19 @@ export function AvailablePlayers({
 
   const [timeRange, setTimeRange] = useState<TimeRange>("season");
 
-  // WNBA's current-season stats are empty during the offseason / pre-tipoff,
-  // so default the draft view to last season's averages once we know the
-  // league's sport. (useActiveLeagueSport returns 'nba' as a loading
-  // fallback, so we can't make this the useState init — wait for resolve.)
-  // Rookie drafts skip this since rookies have no prior season.
-  const sportDefaultAppliedRef = useRef(false);
-  useEffect(() => {
-    if (sportDefaultAppliedRef.current) return;
-    if (sport === "wnba" && !isRookieDraft) {
-      setTimeRange("lastSeason");
-      sportDefaultAppliedRef.current = true;
-    }
-  }, [sport, isRookieDraft]);
+  // Default draft board view: a player's current-season averages are a tiny
+  // (or empty, pre-tipoff) sample early on, so the "season" view shows their
+  // season PROJECTION until they've played enough games
+  // (DRAFT_PROJECTION_GAME_THRESHOLD), then flips to current averages — the
+  // blend lives in adjustedPlayers below. WNBA pre-tipoff this means the whole
+  // board reads off projections (replacing the old last-season-averages
+  // default). Rookie drafts opt out — that pool is ranked by prospect data, not
+  // pro projections.
+  const { data: seasonProjections } = usePlayerProjections(
+    sport,
+    "season",
+    !!leagueId && !isRookieDraft,
+  );
 
   const { data: players, isLoading } = useQuery<PlayerSeasonStats[]>({
     queryKey: [...queryKeys.availablePlayers(leagueId), sport],
@@ -162,7 +168,8 @@ export function AvailablePlayers({
     staleTime: 1000 * 60 * 5,
   });
 
-  // Fetch last 30 days of game logs for time-range stats
+  // Fetch recent game logs for the L5/L10/L15 windows. 45 days comfortably
+  // contains 15 played games; DESC order + limit keeps the most-recent rows.
   const playerIds = useMemo(
     () => players?.map((p) => p.player_id) ?? [],
     [players],
@@ -171,7 +178,7 @@ export function AvailablePlayers({
     queryKey: [...queryKeys.draftRecentGameLogs(leagueId), sport],
     queryFn: async () => {
       const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - 30);
+      cutoff.setDate(cutoff.getDate() - 45);
       const cutoffStr = cutoff.toISOString().split("T")[0];
 
       const CHUNK = 200;
@@ -220,139 +227,67 @@ export function AvailablePlayers({
   // Build time-range-adjusted player stats when a non-season range is selected
   const adjustedPlayers = useMemo(() => {
     if (!players) return undefined;
-    if (timeRange === "season") return players;
 
-    // Last season: merge historical averages onto player identity
-    if (timeRange === "lastSeason") {
-      if (!historicalStats) return players;
-      const histMap = new Map(historicalStats.map((h: any) => [h.player_id, h]));
-      return players
-        .filter((p) => histMap.has(p.player_id))
-        .map((p) => {
-          const h = histMap.get(p.player_id)!;
-          return {
-            ...p,
-            games_played: h.games_played ?? 0,
-            avg_pts: h.avg_pts ?? 0,
-            avg_reb: h.avg_reb ?? 0,
-            avg_ast: h.avg_ast ?? 0,
-            avg_stl: h.avg_stl ?? 0,
-            avg_blk: h.avg_blk ?? 0,
-            avg_tov: h.avg_tov ?? 0,
-            avg_fgm: h.avg_fgm ?? 0,
-            avg_fga: h.avg_fga ?? 0,
-            avg_3pm: h.avg_3pm ?? 0,
-            avg_3pa: h.avg_3pa ?? 0,
-            avg_ftm: h.avg_ftm ?? 0,
-            avg_fta: h.avg_fta ?? 0,
-            avg_pf: h.avg_pf ?? 0,
-            avg_min: h.avg_min ?? 0,
-            total_pts: h.total_pts ?? 0,
-            total_reb: h.total_reb ?? 0,
-            total_ast: h.total_ast ?? 0,
-            total_stl: h.total_stl ?? 0,
-            total_blk: h.total_blk ?? 0,
-            total_tov: h.total_tov ?? 0,
-            total_dd: h.total_dd ?? 0,
-            total_td: h.total_td ?? 0,
-          } as PlayerSeasonStats;
-        });
-    }
-
-    if (!recentGameLogs) return players;
-
-    const days = timeRange === "7d" ? 7 : timeRange === "14d" ? 14 : 30;
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - days);
-    const cutoffStr = cutoff.toISOString().split("T")[0];
-
-    const grouped = new Map<string, typeof recentGameLogs>();
-    for (const g of recentGameLogs) {
-      const gDate = (g.game_date ?? "").slice(0, 10);
-      if (gDate < cutoffStr) continue;
-      const arr = grouped.get(g.player_id);
-      if (arr) arr.push(g);
-      else grouped.set(g.player_id, [g]);
-    }
-
-    const round = (v: number) => Math.round(v * 10) / 10;
-
-    return players
-      .filter((p) => grouped.has(p.player_id))
-      .map((p) => {
-        const games = grouped.get(p.player_id)!;
-        const gp = games.length;
-        const t = {
-          pts: 0,
-          reb: 0,
-          ast: 0,
-          stl: 0,
-          blk: 0,
-          tov: 0,
-          fgm: 0,
-          fga: 0,
-          threepm: 0,
-          threepa: 0,
-          ftm: 0,
-          fta: 0,
-          pf: 0,
-          min: 0,
-          dd: 0,
-          td: 0,
+    // Default "season" view: replace a thin-sample player's current averages
+    // with their season projection until they cross the games threshold. We
+    // reconstruct total_* (= proj per-game × projected games) and set
+    // games_played so calculateAvgFantasyPoints / the FPTS sort yield the
+    // projected value — mirrors the lastSeason blend below. Players without a
+    // projection, or past the threshold, keep their real current line.
+    if (timeRange === "season") {
+      if (!seasonProjections || seasonProjections.size === 0) return players;
+      const num = (v: unknown) => Number(v) || 0;
+      return players.map((p) => {
+        if (!preferProjection(p.games_played)) return p;
+        const pr = seasonProjections.get(p.player_id);
+        if (!pr) return p;
+        const g = num(pr.projected_games) || 1;
+        const avg = {
+          pts: num(pr.proj_pts), reb: num(pr.proj_reb), ast: num(pr.proj_ast),
+          stl: num(pr.proj_stl), blk: num(pr.proj_blk), tov: num(pr.proj_tov),
+          fgm: num(pr.proj_fgm), fga: num(pr.proj_fga),
+          ftm: num(pr.proj_ftm), fta: num(pr.proj_fta),
+          tpm: num(pr.proj_3pm), tpa: num(pr.proj_3pa),
+          min: num(pr.proj_min),
         };
-        for (const g of games) {
-          t.pts += g.pts ?? 0;
-          t.reb += g.reb ?? 0;
-          t.ast += g.ast ?? 0;
-          t.stl += g.stl ?? 0;
-          t.blk += g.blk ?? 0;
-          t.tov += g.tov ?? 0;
-          t.fgm += g.fgm ?? 0;
-          t.fga += g.fga ?? 0;
-          t.threepm += g["3pm"] ?? 0;
-          t.threepa += g["3pa"] ?? 0;
-          t.ftm += g.ftm ?? 0;
-          t.fta += g.fta ?? 0;
-          t.pf += g.pf ?? 0;
-          t.min += g.min ?? 0;
-          t.dd += g.double_double ? 1 : 0;
-          t.td += g.triple_double ? 1 : 0;
-        }
         return {
           ...p,
-          games_played: gp,
-          total_pts: t.pts,
-          avg_pts: round(t.pts / gp),
-          total_reb: t.reb,
-          avg_reb: round(t.reb / gp),
-          total_ast: t.ast,
-          avg_ast: round(t.ast / gp),
-          total_stl: t.stl,
-          avg_stl: round(t.stl / gp),
-          total_blk: t.blk,
-          avg_blk: round(t.blk / gp),
-          total_tov: t.tov,
-          avg_tov: round(t.tov / gp),
-          total_fgm: t.fgm,
-          avg_fgm: round(t.fgm / gp),
-          total_fga: t.fga,
-          avg_fga: round(t.fga / gp),
-          total_3pm: t.threepm,
-          avg_3pm: round(t.threepm / gp),
-          total_3pa: t.threepa,
-          avg_3pa: round(t.threepa / gp),
-          total_ftm: t.ftm,
-          avg_ftm: round(t.ftm / gp),
-          total_fta: t.fta,
-          avg_fta: round(t.fta / gp),
-          total_pf: t.pf,
-          avg_pf: round(t.pf / gp),
-          total_dd: t.dd,
-          total_td: t.td,
-          avg_min: round(t.min / gp),
+          games_played: g,
+          avg_min: avg.min,
+          avg_pts: avg.pts, total_pts: avg.pts * g,
+          avg_reb: avg.reb, total_reb: avg.reb * g,
+          avg_ast: avg.ast, total_ast: avg.ast * g,
+          avg_stl: avg.stl, total_stl: avg.stl * g,
+          avg_blk: avg.blk, total_blk: avg.blk * g,
+          avg_tov: avg.tov, total_tov: avg.tov * g,
+          avg_fgm: avg.fgm, total_fgm: avg.fgm * g,
+          avg_fga: avg.fga, total_fga: avg.fga * g,
+          avg_ftm: avg.ftm, total_ftm: avg.ftm * g,
+          avg_fta: avg.fta, total_fta: avg.fta * g,
+          avg_3pm: avg.tpm, total_3pm: avg.tpm * g,
+          avg_3pa: avg.tpa, total_3pa: avg.tpa * g,
         } as PlayerSeasonStats;
       });
-  }, [players, recentGameLogs, historicalStats, timeRange]);
+    }
+
+    // lastSeason + L5/L10/L15 reuse the free-agent browser's aggregation so the
+    // draft board and the wire read identical windows. The "season" view is
+    // handled above — it layers the draft-only projection blend on top.
+    return buildAdjustedPlayers(players, recentGameLogs, historicalStats, timeRange);
+  }, [players, recentGameLogs, historicalStats, seasonProjections, timeRange]);
+
+  // Players whose row is showing a season projection (vs real stats) in the
+  // default view — drives the "PROJ" tag. Mirrors the blend condition above.
+  const projectedIds = useMemo(() => {
+    const set = new Set<string>();
+    if (timeRange !== "season" || !players || !seasonProjections) return set;
+    for (const p of players) {
+      if (preferProjection(p.games_played) && seasonProjections.has(p.player_id)) {
+        set.add(p.player_id);
+      }
+    }
+    return set;
+  }, [players, seasonProjections, timeRange]);
 
   // Pass an empty rosteredPlayerIds so the "free agents only" filter (default ON)
   // doesn't short-circuit to []. The query already excludes drafted players.
@@ -398,6 +333,7 @@ export function AvailablePlayers({
       const fpts = scoringWeights && !isCategories
         ? calculateAvgFantasyPoints(item, scoringWeights)
         : undefined;
+      const isProjected = projectedIds.has(item.player_id);
       const logoUrl = getTeamLogoUrl(item.pro_team, sport);
       const badge = getInjuryBadge(item.status);
       const limitViolation = hasLimits
@@ -416,7 +352,15 @@ export function AvailablePlayers({
           }}
           activeOpacity={0.7}
           accessibilityRole="button"
-          accessibilityLabel={`${item.name}, ${formatPosition(item.position)}, ${item.pro_team}`}
+          accessibilityLabel={
+            `${item.name}, ${formatPosition(item.position)}, ${item.pro_team}` +
+            (isProjected ? ", projected" : "") +
+            (isCategories
+              ? `, ${fixed1(item.avg_pts)} points, ${fixed1(item.avg_reb)} rebounds, ${fixed1(item.avg_ast)} assists, ${fixed1(item.avg_stl)} steals, ${fixed1(item.avg_blk)} blocks`
+              : fpts !== undefined
+                ? `, ${fpts} fantasy points`
+                : "")
+          }
           accessibilityHint="View player details"
         >
           <View style={styles.portraitWrap}>
@@ -464,13 +408,46 @@ export function AvailablePlayers({
           </View>
 
           <View style={styles.rightSide}>
-            <View style={styles.stats}>
-              <ThemedText style={[styles.statLine, { color: c.secondaryText }]}>
-                {item.avg_pts}/{item.avg_reb}/{item.avg_ast}
-              </ThemedText>
-              {fpts !== undefined && (
-                <ThemedText style={[styles.fpts, { color: c.accent }]}>
-                  {fpts} FPTS
+            <View
+              style={[
+                styles.stats,
+                isCategories ? styles.statsCategories : styles.statsPoints,
+              ]}
+            >
+              {isCategories ? (
+                <>
+                  <ThemedText
+                    type="mono"
+                    style={[styles.statLine, { color: c.secondaryText }]}
+                  >
+                    {fixed1(item.avg_pts)}/{fixed1(item.avg_reb)}/{fixed1(item.avg_ast)}/{fixed1(item.avg_stl)}/{fixed1(item.avg_blk)}
+                  </ThemedText>
+                  <ThemedText style={[styles.catLine, { color: c.secondaryText }]}>
+                    {(item.avg_fga ?? 0) > 0
+                      ? (((item.avg_fgm ?? 0) / (item.avg_fga as number)) * 100).toFixed(1)
+                      : "0.0"}
+                    % FG ·{" "}
+                    {(item.avg_fta ?? 0) > 0
+                      ? (((item.avg_ftm ?? 0) / (item.avg_fta as number)) * 100).toFixed(1)
+                      : "0.0"}
+                    % FT · {fixed1(item.avg_tov)} TO
+                  </ThemedText>
+                </>
+              ) : (
+                <>
+                  <ThemedText style={[styles.statLine, { color: c.secondaryText }]}>
+                    {item.avg_pts}/{item.avg_reb}/{item.avg_ast}
+                  </ThemedText>
+                  {fpts !== undefined && (
+                    <ThemedText style={[styles.fpts, { color: c.accent }]}>
+                      {fpts} FPTS
+                    </ThemedText>
+                  )}
+                </>
+              )}
+              {isProjected && (
+                <ThemedText style={[styles.projTag, { color: c.accent }]}>
+                  PROJ
                 </ThemedText>
               )}
             </View>
@@ -526,7 +503,7 @@ export function AvailablePlayers({
         </TouchableOpacity>
       );
     },
-    [c, scoringWeights, isCategories, isMyTurn, isDrafting, addToQueue, queuedPlayerIds, sport, players, hasLimits, positionLimits, myRoster],
+    [c, scoringWeights, isCategories, isMyTurn, isDrafting, addToQueue, queuedPlayerIds, sport, players, hasLimits, positionLimits, myRoster, projectedIds],
   );
 
   if (isLoading) {
@@ -545,6 +522,24 @@ export function AvailablePlayers({
         timeRange={timeRange}
         onTimeRangeChange={setTimeRange}
       />
+      {/* Column-key header over the stat column — mirrors FreeAgentList so the
+          draft board reads the same. Category leagues key the 5-stat line. */}
+      <View style={[styles.colKey, { borderBottomColor: c.border }]}>
+        <View
+          style={[
+            styles.colKeyStats,
+            isCategories ? styles.statsCategories : styles.statsPoints,
+          ]}
+        >
+          <ThemedText
+            type="varsitySmall"
+            style={[styles.colKeyText, { color: c.secondaryText }]}
+          >
+            {isCategories ? "PTS · REB · AST · STL · BLK" : "PTS · REB · AST"}
+          </ThemedText>
+        </View>
+        <View style={styles.colKeyAddSpacer} />
+      </View>
       <FlatList<PlayerSeasonStats>
         data={filteredPlayers}
         renderItem={renderPlayer}
@@ -574,6 +569,29 @@ const styles = StyleSheet.create({
   },
   listContent: {
     padding: s(8),
+  },
+  colKey: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    paddingHorizontal: s(20),
+    paddingTop: s(8),
+    paddingBottom: s(6),
+    gap: s(6),
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  colKeyStats: {
+    alignItems: "flex-end",
+  },
+  colKeyText: {
+    fontSize: ms(9),
+    letterSpacing: 1.2,
+    textAlign: "right" as const,
+  },
+  // Spacer matching the row's Draft button (minWidth s(62)) + gap + queue
+  // button (s(22)) so the header sits over the stat column, not the buttons.
+  colKeyAddSpacer: {
+    width: s(90),
   },
   loading: {
     flex: 1,
@@ -658,15 +676,36 @@ const styles = StyleSheet.create({
   stats: {
     alignItems: "flex-end",
   },
+  // Fixed-width stat columns keep the slash-line right edge aligned under the
+  // colKey header. Category leagues need extra room for the 5-stat line.
+  statsPoints: {
+    width: s(100),
+  },
+  statsCategories: {
+    width: s(150),
+  },
   statLine: {
-    fontSize: ms(12),
+    fontSize: ms(11),
+    textAlign: "right" as const,
+  },
+  catLine: {
+    fontSize: ms(10),
+    marginTop: 1,
   },
   fpts: {
     fontSize: ms(11),
     fontWeight: "600",
     marginTop: 1,
   },
+  projTag: {
+    fontSize: ms(8),
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    marginTop: 1,
+  },
   draftButton: {
+    minWidth: s(62),
+    alignItems: "center",
     paddingHorizontal: s(12),
     paddingVertical: s(6),
     borderRadius: 4,

@@ -19,6 +19,9 @@ import { ms, s } from "@/utils/scale";
 
 interface FaabBidModalProps {
   player: PlayerSeasonStats | null;
+  /** When true, the modal is changing an existing pending bid rather than
+   *  placing a new one — swaps the eyebrow/submit copy accordingly. */
+  isEditing?: boolean;
   bidAmount: string;
   faabRemaining: number | null | undefined;
   onBidAmountChange: (v: string) => void;
@@ -28,6 +31,7 @@ interface FaabBidModalProps {
 
 export function FaabBidModal({
   player,
+  isEditing = false,
   bidAmount,
   faabRemaining,
   onBidAmountChange,
@@ -68,7 +72,7 @@ export function FaabBidModal({
                 type="varsitySmall"
                 style={[styles.eyebrow, { color: c.gold }]}
               >
-                PLACE A BID
+                {isEditing ? "EDIT BID" : "PLACE A BID"}
               </ThemedText>
               <ThemedText
                 type="display"
@@ -211,7 +215,7 @@ export function FaabBidModal({
                 (!player || parsedBid <= 0) && styles.btnDisabled,
               ]}
               accessibilityRole="button"
-              accessibilityLabel="Submit bid"
+              accessibilityLabel={isEditing ? "Update bid" : "Submit bid"}
               disabled={!player || parsedBid <= 0}
               onPress={() => {
                 if (!player) return;
@@ -220,7 +224,7 @@ export function FaabBidModal({
               }}
             >
               <Text style={[styles.btnPrimaryText, { color: c.accentText }]}>
-                SUBMIT BID
+                {isEditing ? "UPDATE BID" : "SUBMIT BID"}
               </Text>
             </TouchableOpacity>
           </View>

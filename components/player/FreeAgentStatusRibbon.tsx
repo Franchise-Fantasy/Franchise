@@ -49,6 +49,10 @@ interface FreeAgentStatusRibbonProps {
   onAcquisitionsInfoPress: () => void;
   onWaiverOrderPress: () => void;
   onRequestCancelClaim: (claim: PendingClaim) => void;
+  /** Edit the bid amount on a pending FAAB bid (reopens the bid modal). */
+  onEditClaimBid: (claim: PendingClaim) => void;
+  /** Edit/set the drop player on a pending claim. Only surfaced when the
+   *  roster is full, since a drop is otherwise unnecessary. */
   onEditClaimDrop: (claim: PendingClaim) => void;
   /** Right-aligned content rendered on the same row as the ribbon pills.
    *  Used to host the column-key labels above the free-agent list so the
@@ -78,6 +82,7 @@ export function FreeAgentStatusRibbon({
   onAcquisitionsInfoPress,
   onWaiverOrderPress,
   onRequestCancelClaim,
+  onEditClaimBid,
   onEditClaimDrop,
   rightSlot,
 }: FreeAgentStatusRibbonProps) {
@@ -190,15 +195,32 @@ export function FreeAgentStatusRibbon({
                     {hasNoDrop && rosterIsFull ? ' ⚠ Roster full — claim will fail' : ''}
                   </ThemedText>
                 </View>
-                <TouchableOpacity
-                  onPress={() => onEditClaimDrop(claim)}
-                  hitSlop={8}
-                  style={{ marginRight: 8 }}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Edit drop player for ${claim.player?.name ?? 'player'} claim`}
-                >
-                  <Ionicons name="pencil" size={18} color={c.accent} />
-                </TouchableOpacity>
+                {waiverType === 'faab' && (
+                  <TouchableOpacity
+                    onPress={() => onEditClaimBid(claim)}
+                    hitSlop={8}
+                    style={{ marginRight: 8 }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Edit bid for ${claim.player?.name ?? 'player'} claim`}
+                  >
+                    <Ionicons name="pencil" size={18} color={c.accent} />
+                  </TouchableOpacity>
+                )}
+                {rosterIsFull && (
+                  <TouchableOpacity
+                    onPress={() => onEditClaimDrop(claim)}
+                    hitSlop={8}
+                    style={{ marginRight: 8 }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${hasNoDrop ? 'Set' : 'Change'} drop player for ${claim.player?.name ?? 'player'} claim`}
+                  >
+                    <Ionicons
+                      name="person-remove-outline"
+                      size={18}
+                      color={hasNoDrop ? c.danger : c.accent}
+                    />
+                  </TouchableOpacity>
+                )}
                 <TouchableOpacity
                   onPress={() => onRequestCancelClaim(claim)}
                   hitSlop={8}

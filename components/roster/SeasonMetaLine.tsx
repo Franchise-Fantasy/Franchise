@@ -17,10 +17,14 @@ type Palette = typeof Colors.light;
 export function SeasonMetaLine({
   position,
   seasonAvg,
+  valueLabel = "FPTS/G",
   c,
 }: {
   position: string;
   seasonAvg: SeasonAverages | null;
+  /** Label after the fpts number. "FPTS/G" for a season average, "PROJ" when
+   *  the caller passes a next-game projection into `seasonAvg` instead. */
+  valueLabel?: string;
   c: Palette;
 }) {
   return (
@@ -45,7 +49,7 @@ export function SeasonMetaLine({
               type="varsitySmall"
               style={[rosterStyles.slotPosLabel, { color: c.secondaryText }]}
             >
-              {" FPTS/G"}
+              {` ${valueLabel}`}
             </ThemedText>
           </ThemedText>
         </>

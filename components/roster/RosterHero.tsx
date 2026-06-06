@@ -50,12 +50,23 @@ interface RosterHeroProps {
     | { week_number: number; is_playoff?: boolean }
     | null
     | undefined;
+  /** Short opening-night label (e.g. "Jun 6"), set ONLY when the schedule
+   *  exists but the selected day is before the first week starts. Drives the
+   *  "upcoming" state — the season's set, it just hasn't tipped off — which
+   *  keeps day-nav live (so you can step forward to opening night) instead of
+   *  collapsing to the dead-offseason layout. */
+  seasonOpensLabel?: string;
   dayLabel: string;
   myTeam?: HeroTeam | null;
   opponent?: HeroTeam | null;
   isBye?: boolean;
   myScore?: number | null;
   oppScore?: number | null;
+  /** Category leagues are decided by category wins, not the fpts in
+   *  `myScore`/`oppScore`. When set, the scoreline shows the win tally
+   *  (from the user's perspective) instead. */
+  isCategories?: boolean;
+  categoryRecord?: { myWins: number; oppWins: number; ties: number } | null;
   weekIsLive?: boolean;
   /** Drives the lineup-health bar. Omitted (or starterCount 0) hides it. */
   lineupDay?: LineupDay;
@@ -150,6 +161,22 @@ function buildInSeasonContext(
   return items;
 }
 
+/** Pre-tip-off strip — leads with opening night so the user knows why the
+ *  matchup + lineup bar are collapsed, then the usual roster-fill meta. */
+function buildUpcomingContext(
+  rs: RosterHeroProps["rosterStats"],
+  opensLabel: string,
+): ContextItem[] {
+  const items: ContextItem[] = [{ label: `OPENS ${opensLabel.toUpperCase()}`, urgent: true }];
+  if (rs && rs.rosterSize > 0) {
+    items.push({
+      label: `${rs.rosterCount}/${rs.rosterSize} ROSTER`,
+      urgent: rs.rosterCount < rs.rosterSize,
+    });
+  }
+  return items;
+}
+
 function buildOffseasonContext(
   rs: NonNullable<RosterHeroProps["rosterStats"]>,
 ): ContextItem[] {
@@ -181,9 +208,11 @@ function scoreColor(
 function formatScoreLine(
   my: number | null | undefined,
   opp: number | null | undefined,
+  /** Category leagues count whole category wins; points show one decimal. */
+  asInteger = false,
 ): string {
   const fmt = (v: number | null | undefined) =>
-    v != null ? v.toFixed(1) : "—";
+    v != null ? (asInteger ? String(v) : v.toFixed(1)) : "—";
   return `${fmt(my)} — ${fmt(opp)}`;
 }
 
@@ -211,12 +240,15 @@ export function RosterHero({
   isPastDate,
   isToday,
   currentWeek,
+  seasonOpensLabel,
   dayLabel,
   myTeam,
   opponent,
   isBye,
   myScore,
   oppScore,
+  isCategories,
+  categoryRecord,
   weekIsLive,
   lineupDay,
   rosterStats,
@@ -228,30 +260,43 @@ export function RosterHero({
   headerRight,
 }: RosterHeroProps) {
   const c = useColors();
-  const isOffseason = !currentWeek;
+  const hasWeek = !!currentWeek;
+  // Schedule exists but the selected day is before tip-off. Distinct from the
+  // dead off-season: nav stays live so the user can reach opening night.
+  const isUpcoming = !hasWeek && !!seasonOpensLabel;
+  const isOffseason = !hasWeek && !isUpcoming;
   const isFutureDate = selectedDate > today;
   const hasMatchup = !!opponent && opponent.tricode != null;
+
+  // Category leagues are decided by category wins, not the fpts week total.
+  // These drive both the scoreline value and the gold "leading" highlight.
+  const myFocal = isCategories ? categoryRecord?.myWins ?? null : myScore;
+  const oppFocal = isCategories ? categoryRecord?.oppWins ?? null : oppScore;
 
   const playoffPrefix = currentWeek?.is_playoff ? "PLAYOFFS · " : "";
   const weekChipText = currentWeek
     ? `${playoffPrefix}WK ${currentWeek.week_number}`
-    : "OFFSEASON";
+    : isUpcoming
+      ? "UPCOMING"
+      : "OFFSEASON";
 
-  const contextItems = isOffseason
-    ? rosterStats
-      ? buildOffseasonContext(rosterStats)
-      : [{ label: "OFFSEASON" }]
-    : buildInSeasonContext(rosterStats);
+  const contextItems = isUpcoming
+    ? buildUpcomingContext(rosterStats, seasonOpensLabel!)
+    : isOffseason
+      ? rosterStats
+        ? buildOffseasonContext(rosterStats)
+        : [{ label: "OFFSEASON" }]
+      : buildInSeasonContext(rosterStats);
 
   const tricode = myTeam?.tricode ?? "—";
   const record = formatRecord(myTeam);
   const teamName = myTeam?.name ?? "";
   const showLineupBar =
-    !isOffseason && !!lineupDay && lineupDay.starterCount > 0;
+    hasWeek && !!lineupDay && lineupDay.starterCount > 0;
 
-  // The week chip opens the weekly summary when in-season; offseason it's
-  // a static label. Mirrors HomeHero's conditional-wrapper pattern.
-  const weekChipTappable = !!onWeekPress && !isOffseason;
+  // The week chip opens the weekly summary when in-season; off-season and
+  // pre-tip-off it's a static label. Mirrors HomeHero's conditional-wrapper.
+  const weekChipTappable = !!onWeekPress && hasWeek;
   const WeekWrapper = weekChipTappable ? TouchableOpacity : View;
   const weekWrapperProps = weekChipTappable
     ? {
@@ -395,7 +440,7 @@ export function RosterHero({
           ) : null}
         </View>
 
-        {!isOffseason && (
+        {hasWeek && (
           <View style={styles.matchupBlock}>
             {hasMatchup ? (
               <>
@@ -410,11 +455,20 @@ export function RosterHero({
                   type="mono"
                   style={[
                     styles.matchupScore,
-                    { color: scoreColor(myScore, oppScore, weekIsLive) },
+                    { color: scoreColor(myFocal, oppFocal, weekIsLive) },
                   ]}
                   numberOfLines={1}
+                  accessibilityLabel={
+                    isCategories
+                      ? `Categories ${myFocal ?? 0} to ${oppFocal ?? 0}${
+                          categoryRecord?.ties ? `, ${categoryRecord.ties} tied` : ""
+                        }`
+                      : `Score ${myScore?.toFixed(1) ?? "—"} to ${
+                          oppScore?.toFixed(1) ?? "—"
+                        }`
+                  }
                 >
-                  {formatScoreLine(myScore, oppScore)}
+                  {formatScoreLine(myFocal, oppFocal, isCategories)}
                 </ThemedText>
               </>
             ) : (

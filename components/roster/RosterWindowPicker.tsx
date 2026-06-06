@@ -7,34 +7,53 @@ import { useColors } from "@/hooks/useColors";
 import { ms, s } from "@/utils/scale";
 import { GameWindow } from "@/utils/scoring/fantasyPoints";
 
-const WINDOW_LABELS: Record<GameWindow, string> = {
+/** The roster pages layer two non-window choices on top of the historical stat
+ *  windows: "Proj" (next-game projection) and "Prev" (last season's averages).
+ *  Neither is a `GameWindow` (they slice nothing from the current game log), so
+ *  they live only here where the picker and roster rows consume them — analytics
+ *  keeps the plain `GameWindow`. */
+export type RosterStatMode = GameWindow | "proj" | "prev";
+
+const WINDOW_LABELS: Record<RosterStatMode, string> = {
   L5: "L5",
   L10: "L10",
   L15: "L15",
   season: "Season",
+  proj: "Proj",
+  prev: "Prev",
 };
 
 interface Props {
-  windowSel: GameWindow;
-  onWindowChange: (w: GameWindow) => void;
+  windowSel: RosterStatMode;
+  onWindowChange: (w: RosterStatMode) => void;
   /** Sorted list of windows worth offering — drives the dropdown options.
    *  Hide the whole picker (renders nothing) when only "Season" is here. */
-  availableWindows: readonly GameWindow[];
+  availableWindows: readonly RosterStatMode[];
+  /** Label for the "Prev" option — the compact previous-season string (e.g.
+   *  "'25" / "'24-'25"). Falls back to "Prev" when omitted. */
+  prevLabel?: string;
 }
 
 /**
  * Discreet header-right pill for swapping a roster page's stat window between
- * Last 5 / Last 10 / Last 15 / Season. Mirrors the inline window picker on
- * the player-detail Insights card so the gesture and chrome read the same.
- * Renders nothing when there's effectively one option (preseason).
+ * Last 5 / Last 10 / Last 15 / Season / Proj / previous season. Mirrors the
+ * inline window picker on the player-detail Insights card so the gesture and
+ * chrome read the same. Renders nothing when there's effectively one option.
  */
-export function RosterWindowPicker({ windowSel, onWindowChange, availableWindows }: Props) {
+export function RosterWindowPicker({
+  windowSel,
+  onWindowChange,
+  availableWindows,
+  prevLabel,
+}: Props) {
   const c = useColors();
   const [open, setOpen] = useState(false);
 
   if (availableWindows.length <= 1) return null;
 
-  const label = WINDOW_LABELS[windowSel];
+  const labelFor = (w: RosterStatMode) =>
+    w === "prev" && prevLabel ? prevLabel : WINDOW_LABELS[w];
+  const label = labelFor(windowSel);
 
   return (
     <View>
@@ -77,7 +96,7 @@ export function RosterWindowPicker({ windowSel, onWindowChange, availableWindows
                   ]}
                   accessibilityRole="button"
                   accessibilityState={{ selected: isSelected }}
-                  accessibilityLabel={WINDOW_LABELS[w]}
+                  accessibilityLabel={labelFor(w)}
                 >
                   <ThemedText
                     style={[
@@ -85,7 +104,7 @@ export function RosterWindowPicker({ windowSel, onWindowChange, availableWindows
                       { color: isSelected ? c.statusText : c.text },
                     ]}
                   >
-                    {WINDOW_LABELS[w]}
+                    {labelFor(w)}
                   </ThemedText>
                 </TouchableOpacity>
               );

@@ -5,6 +5,7 @@ import DateTimePicker, {
 import { useState } from 'react';
 import { Keyboard, Modal, Platform, Pressable, StyleSheet, TouchableOpacity, View } from 'react-native';
 
+import { BracketPreview } from '@/components/playoff/BracketPreview';
 import { AnimatedSection } from '@/components/ui/AnimatedSection';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { BrandTextInput } from '@/components/ui/BrandTextInput';
@@ -250,6 +251,7 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
                   selectedIndex={selectedIdx === -1 ? labels.length - 1 : selectedIdx}
                   onSelect={(i) => onChange('playoffTeams', options[i])}
                 />
+                <BracketPreview playoffTeams={state.playoffTeams} style={styles.bracketPreview} />
               </FieldGroup>
             );
           })()}
@@ -416,6 +418,9 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  bracketPreview: {
+    marginTop: s(10),
   },
   dateButton: {
     borderWidth: 1.5,

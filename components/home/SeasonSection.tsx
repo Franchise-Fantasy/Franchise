@@ -62,6 +62,11 @@ export function SeasonSection({ leagueId, isCommissioner }: SeasonSectionProps) 
 
       queryClient.invalidateQueries({ queryKey: queryKeys.seasonStatus(leagueId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId) });
+      // The roster/matchup pages read the freshly-created weeks via `useWeeks`
+      // (queryKeys.leagueSchedule). Without this they keep serving the cached
+      // empty schedule for up to its 10-min staleTime, so the season still
+      // reads as off-season right after the commissioner starts it.
+      queryClient.invalidateQueries({ queryKey: queryKeys.leagueSchedule(leagueId) });
       Alert.alert('Season Started', `Schedule generated: ${res.data.total_weeks} weeks.`);
     } catch (err: any) {
       Alert.alert('Error', err.message ?? 'Unexpected error.');

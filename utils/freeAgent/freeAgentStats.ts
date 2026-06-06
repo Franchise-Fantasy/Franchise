@@ -1,5 +1,8 @@
 import type { TimeRange } from "@/hooks/usePlayerFilter";
-import type { PlayerSeasonStats } from "@/types/player";
+import type { PlayerGameLog, PlayerSeasonStats } from "@/types/player";
+import { gameWindowSize, type GameWindow } from "@/utils/scoring/fantasyPoints";
+import { dedupeGameLogsByDate } from "@/utils/scoring/gameLogDedup";
+import { lastNPlayedGames } from "@/utils/scoring/windowAverages";
 
 // Pure stat transforms for the free-agent list. Extracted from FreeAgentList so
 // the time-range aggregation and "minutes up" derivation can be reasoned about
@@ -44,7 +47,10 @@ export function deriveMinutesUpPlayerIds(
 /**
  * Time-range-adjusted player stats. For "season" returns the players as-is.
  * For "lastSeason" merges historical averages onto the current roster identity.
- * For "7d"/"14d"/"30d" aggregates the player's game logs within the window.
+ * For "L5"/"L10"/"L15" aggregates the player's last N PLAYED games (DNPs
+ * skipped) — the same game-based window the roster pages and analytics use, so
+ * a player's "L10" reads identically across the app regardless of how many
+ * games their team happened to play in the calendar window.
  */
 export function buildAdjustedPlayers(
   allPlayers: PlayerSeasonStats[] | undefined,
@@ -96,16 +102,14 @@ export function buildAdjustedPlayers(
 
   if (!recentGameLogs) return allPlayers;
 
-  const days = timeRange === "7d" ? 7 : timeRange === "14d" ? 14 : 30;
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - days);
-  const cutoffStr = cutoff.toISOString().split("T")[0];
+  const windowSize = gameWindowSize(timeRange as GameWindow);
+  if (windowSize == null) return allPlayers; // only L5/L10/L15 reach here
 
-  // Group game logs by player within the time window
+  // Group game logs by player (the query returns them DESC by game_date, the
+  // order lastNPlayedGames expects). Dedupe same-date ghost rows the same way
+  // the roster hooks do, then slice each player's last N PLAYED games.
   const grouped = new Map<string, any[]>();
   for (const g of recentGameLogs) {
-    const gDate = (g.game_date ?? "").slice(0, 10);
-    if (gDate < cutoffStr) continue;
     const arr = grouped.get(g.player_id);
     if (arr) arr.push(g);
     else grouped.set(g.player_id, [g]);
@@ -114,9 +118,14 @@ export function buildAdjustedPlayers(
   const round = (v: number) => Math.round(v * 10) / 10;
 
   return allPlayers
-    .filter((p) => grouped.has(p.player_id))
     .map((p) => {
-      const games = grouped.get(p.player_id)!;
+      const all = grouped.get(p.player_id);
+      if (!all) return null;
+      const games = lastNPlayedGames(
+        dedupeGameLogsByDate(all as PlayerGameLog[]),
+        windowSize,
+      );
+      if (games.length === 0) return null;
       const gp = games.length;
       const t = {
         pts: 0,
@@ -187,5 +196,6 @@ export function buildAdjustedPlayers(
         total_td: t.td,
         avg_min: round(t.min / gp),
       } as PlayerSeasonStats;
-    });
+    })
+    .filter((p): p is PlayerSeasonStats => p !== null);
 }

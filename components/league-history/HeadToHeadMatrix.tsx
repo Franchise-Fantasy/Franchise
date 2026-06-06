@@ -172,7 +172,7 @@ export function HeadToHeadMatrix({ leagueId }: HeadToHeadMatrixProps) {
                               ? c.dangerMuted
                               : 'transparent',
                         },
-                        isSelected && { borderColor: c.primary, borderWidth: 2 },
+                        isSelected && { borderColor: c.tint, borderWidth: 2 },
                       ]}
                       onPress={() =>
                         setSelectedPair(record ? { a: rowTeam.id, b: colTeam.id } : null)

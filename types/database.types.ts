@@ -862,6 +862,8 @@ export type Database = {
           draft_type: string
           id: string
           league_id: string
+          paused_at: string | null
+          paused_remaining_ms: number | null
           picks_per_round: number | null
           rounds: number | null
           season: string | null
@@ -880,6 +882,8 @@ export type Database = {
           draft_type?: string
           id?: string
           league_id: string
+          paused_at?: string | null
+          paused_remaining_ms?: number | null
           picks_per_round?: number | null
           rounds?: number | null
           season?: string | null
@@ -898,6 +902,8 @@ export type Database = {
           draft_type?: string
           id?: string
           league_id?: string
+          paused_at?: string | null
+          paused_remaining_ms?: number | null
           picks_per_round?: number | null
           rounds?: number | null
           season?: string | null

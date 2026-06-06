@@ -4,10 +4,14 @@ import { getCurrentSeason, parseSeasonStartYear } from '@/constants/LeagueDefaul
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
 import { getEligiblePositions } from '@/utils/roster/rosterSlots';
-import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
+import { calculateAvgFantasyPoints, type GameWindow } from '@/utils/scoring/fantasyPoints';
 
 export type SortKey = 'FPTS' | 'PPG' | 'RPG' | 'APG' | 'SPG' | 'BPG' | 'MPG' | 'FG%' | 'FT%' | 'TO';
-export type TimeRange = 'season' | '7d' | '14d' | '30d' | 'lastSeason';
+// Game-based windows (L5/L10/L15), not day-based — the same `GameWindow` the
+// roster pages, Insights card, and analytics use, plus a `lastSeason` view.
+// Day windows biased comparisons because schedule density varies (a team with
+// 12 games in 14 days vs. one with 8 isn't apples-to-apples). See GameWindow.
+export type TimeRange = GameWindow | 'lastSeason';
 
 /** Injury-status visibility filter */
 export type InjuryFilter = 'all' | 'healthy' | 'injured';

@@ -15,14 +15,18 @@ interface PageHeaderProps {
   titleNode?: React.ReactNode;
   rightAction?: React.ReactNode;
   onBack?: () => void;
+  /** Clip header content to the bar so anything that animates past the bottom
+   *  hairline is hidden behind it (e.g. the presence avatars' slide-down exit).
+   *  Off by default — only enable on headers whose right action animates out. */
+  clipContent?: boolean;
 }
 
-export function PageHeader({ title, titleNode, rightAction, onBack }: PageHeaderProps) {
+export function PageHeader({ title, titleNode, rightAction, onBack, clipContent }: PageHeaderProps) {
   const router = useRouter();
   const c = useColors();
 
   return (
-    <View style={[styles.header, { borderBottomColor: c.border }]}>
+    <View style={[styles.header, clipContent && styles.headerClip, { borderBottomColor: c.border }]}>
       {/* Title is absolutely centered so it stays put even when the right
           action is wider than the back button (which would shift it under
           the previous flex-1 layout). */}
@@ -67,6 +71,9 @@ const styles = StyleSheet.create({
     height: s(50),
     justifyContent: 'space-between',
     position: 'relative',
+  },
+  headerClip: {
+    overflow: 'hidden',
   },
   side: {
     paddingHorizontal: s(8),

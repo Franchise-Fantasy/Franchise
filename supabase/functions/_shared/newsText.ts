@@ -166,6 +166,10 @@ const FANTASY_RELEVANT_PATTERNS: RegExp[] = [
 // (a "mock trade" has "trade") but is never actual news. Checked first.
 const FANTASY_EXCLUDE_PATTERNS: RegExp[] = [
   /\bmock\b/i,            // mock trade / mock draft
+  /\?\s*$/,              // headline phrased as a question ("Is X a buy?", "Should
+                         // you start Y?") — speculation/clickbait, not reported
+                         // news. RotoWire blurbs are statements, so this only
+                         // trims the noisier Google gap-fill, never RotoWire.
 ];
 
 /** True if the text reads like fantasy-relevant news (injury / role / transaction). */

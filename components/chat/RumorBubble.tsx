@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Brand, Fonts } from '@/constants/Colors';
 import { useColors } from '@/hooks/useColors';
+import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
 
 interface Props {
@@ -11,18 +12,23 @@ interface Props {
 
 export function RumorBubble({ rumorText }: Props) {
   const c = useColors();
+  // The rumor accent is intentionally a fixed merlot (not sport-themed), but
+  // deep merlot is ~1.1:1 on the dark card — invisible. Use the lifted wine
+  // (merlotSoft) in dark mode where it clears contrast; keep deep merlot in
+  // light mode where it reads great on the cream surface.
+  const accent = useColorScheme() === 'dark' ? Brand.merlotSoft : Brand.merlot;
 
   return (
     <View
-      style={[styles.card, { backgroundColor: c.cardAlt, borderLeftColor: Brand.merlot }]}
+      style={[styles.card, { backgroundColor: c.cardAlt, borderLeftColor: accent }]}
       accessibilityRole="summary"
       accessibilityLabel={`Trade rumor: ${rumorText}`}
     >
       <View style={styles.headerRow}>
-        <View style={[styles.eyebrowRule, { backgroundColor: Brand.merlot }]} />
+        <View style={[styles.eyebrowRule, { backgroundColor: accent }]} />
         <ThemedText
           type="varsitySmall"
-          style={[styles.header, { color: Brand.merlot }]}
+          style={[styles.header, { color: accent }]}
         >
           👀 TRADE RUMOR
         </ThemedText>

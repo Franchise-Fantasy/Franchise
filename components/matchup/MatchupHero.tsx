@@ -62,6 +62,11 @@ export interface MatchupHeroProps {
         is_playoff: boolean;
       }
     | null;
+  /** Short opening-night label (e.g. "Jun 6"), set ONLY when the schedule
+   *  exists but the selected day is before the first week starts. Swaps the
+   *  eyebrow's "OFFSEASON" for "UPCOMING" and the empty body for a tip-off
+   *  prompt so the pre-season gap reads as "season's set" rather than dead. */
+  seasonOpensLabel?: string;
   weekIsLive: boolean;
 
   leftTeam: HeroTeam | null;
@@ -143,6 +148,7 @@ export function MatchupHero({
   isToday,
   dayLabel,
   currentWeek,
+  seasonOpensLabel,
   weekIsLive,
   leftTeam,
   rightTeam,
@@ -177,7 +183,9 @@ export function MatchupHero({
   const playoffPrefix = currentWeek?.is_playoff ? "PLAYOFFS · " : "";
   const weekChip = currentWeek
     ? `${playoffPrefix}WK ${currentWeek.week_number}`
-    : "OFFSEASON";
+    : seasonOpensLabel
+      ? "UPCOMING"
+      : "OFFSEASON";
 
   // Always render the day-total sub-line for points leagues. Each column
   // handles a null team itself (renders a spacer to preserve height) so
@@ -406,7 +414,11 @@ export function MatchupHero({
           hitSlop={TAP_SLOP}
           accessibilityRole="button"
           accessibilityLabel={`${dayLabel}${
-            currentWeek ? `, Week ${currentWeek.week_number}` : ", outside season"
+            currentWeek
+              ? `, Week ${currentWeek.week_number}`
+              : seasonOpensLabel
+                ? `, season opens ${seasonOpensLabel}`
+                : ", outside season"
           }`}
           accessibilityHint={
             onSchedulePress ? "Opens week schedule picker" : undefined
@@ -517,7 +529,9 @@ export function MatchupHero({
               <ThemedText
                 style={[styles.emptyBodyText, { color: Brand.ecruMuted }]}
               >
-                No matchup for this date.
+                {seasonOpensLabel
+                  ? `Season opens ${seasonOpensLabel}. Tap › to view Week 1.`
+                  : "No matchup for this date."}
               </ThemedText>
             </View>
           )}

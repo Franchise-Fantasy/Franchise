@@ -16,8 +16,6 @@ function makePlayer(overrides: Partial<PlayerSeasonStats> = {}): PlayerSeasonSta
   };
 }
 
-const today = new Date().toISOString().split('T')[0];
-
 // ─── buildAdjustedPlayers ─────────────────────────────────────────────────────
 
 describe('buildAdjustedPlayers', () => {
@@ -49,14 +47,15 @@ describe('buildAdjustedPlayers', () => {
     expect(result[0].games_played).toBe(70);
   });
 
-  it('aggregates game logs within the window for a rolling range', () => {
+  it('averages the games in the window and drops players with none', () => {
     const players = [makePlayer({ player_id: 'p1' }), makePlayer({ player_id: 'p2' })];
+    // Newest-first, as the query returns them.
     const logs = [
-      { player_id: 'p1', game_date: today, min: 30, pts: 10, reb: 4, ast: 2 },
-      { player_id: 'p1', game_date: today, min: 30, pts: 20, reb: 6, ast: 4 },
-      // p2 has no games in the window → dropped
+      { player_id: 'p1', game_date: '2026-06-04', min: 30, pts: 20, reb: 6, ast: 4 },
+      { player_id: 'p1', game_date: '2026-06-02', min: 30, pts: 10, reb: 4, ast: 2 },
+      // p2 has no games → dropped
     ];
-    const result = buildAdjustedPlayers(players, logs, null, '7d')!;
+    const result = buildAdjustedPlayers(players, logs, null, 'L5')!;
     expect(result).toHaveLength(1);
     expect(result[0].player_id).toBe('p1');
     expect(result[0].games_played).toBe(2);
@@ -65,20 +64,37 @@ describe('buildAdjustedPlayers', () => {
     expect(result[0].avg_reb).toBe(5); // 10 / 2
   });
 
-  it('excludes games older than the window', () => {
+  it('keeps only the most recent N games for a window', () => {
+    const players = [makePlayer({ player_id: 'p1' })];
+    // Six played games, newest first. L5 should use the five newest (pts 5) and
+    // drop the sixth-oldest (pts 99).
+    const logs = [
+      { player_id: 'p1', game_date: '2026-06-06', min: 30, pts: 5 },
+      { player_id: 'p1', game_date: '2026-06-05', min: 30, pts: 5 },
+      { player_id: 'p1', game_date: '2026-06-04', min: 30, pts: 5 },
+      { player_id: 'p1', game_date: '2026-06-03', min: 30, pts: 5 },
+      { player_id: 'p1', game_date: '2026-06-02', min: 30, pts: 5 },
+      { player_id: 'p1', game_date: '2026-06-01', min: 30, pts: 99 },
+    ];
+    const result = buildAdjustedPlayers(players, logs, null, 'L5')!;
+    expect(result[0].games_played).toBe(5);
+    expect(result[0].avg_pts).toBe(5);
+  });
+
+  it('skips DNPs (min 0) when building the window', () => {
     const players = [makePlayer({ player_id: 'p1' })];
     const logs = [
-      { player_id: 'p1', game_date: today, min: 30, pts: 20 },
-      { player_id: 'p1', game_date: '2000-01-01', min: 30, pts: 999 }, // far outside 7d
+      { player_id: 'p1', game_date: '2026-06-04', min: 0, pts: 0 }, // DNP — skipped
+      { player_id: 'p1', game_date: '2026-06-02', min: 30, pts: 20 },
     ];
-    const result = buildAdjustedPlayers(players, logs, null, '7d')!;
+    const result = buildAdjustedPlayers(players, logs, null, 'L5')!;
     expect(result[0].games_played).toBe(1);
-    expect(result[0].total_pts).toBe(20);
+    expect(result[0].avg_pts).toBe(20);
   });
 
   it('falls back to the season list when game logs are missing', () => {
     const players = [makePlayer({ player_id: 'p1' })];
-    expect(buildAdjustedPlayers(players, undefined, null, '14d')).toBe(players);
+    expect(buildAdjustedPlayers(players, undefined, null, 'L10')).toBe(players);
   });
 });
 

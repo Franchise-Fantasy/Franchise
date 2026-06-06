@@ -86,17 +86,22 @@ Deno.serve(async (req: Request) => {
         }
         const isFaab = league.waiver_type === 'faab';
 
-        // FAAB resolves by highest bid first, then both fall back to waiver
-        // priority + submission order.
+        // FAAB resolves purely by bid: highest bid wins, and an exact tie goes
+        // to the earliest submitted bid (created_at) — no waiver priority.
+        // Standard leagues resolve by waiver priority, then submission order.
         const baseQuery = supabase
           .from('waiver_claims')
           .select('id, league_id, team_id, player_id, status, bid_amount, priority, created_at, drop_player_id')
           .eq('league_id', waiver.league_id).eq('player_id', waiver.player_id)
           .eq('status', 'pending');
-        const orderedQuery = isFaab ? baseQuery.order('bid_amount', { ascending: false }) : baseQuery;
-        const { data: claims } = await orderedQuery
-          .order('priority', { ascending: true })
-          .order('created_at', { ascending: true });
+        const orderedQuery = isFaab
+          ? baseQuery
+              .order('bid_amount', { ascending: false })
+              .order('created_at', { ascending: true })
+          : baseQuery
+              .order('priority', { ascending: true })
+              .order('created_at', { ascending: true });
+        const { data: claims } = await orderedQuery;
 
         // Pre-fetch player + team names for all claims in this batch
         const claimPlayerIds = (claims ?? []).flatMap(c =>
@@ -165,7 +170,7 @@ Deno.serve(async (req: Request) => {
                   await notifyTeamsBulk(supabase, 'waivers', failedClaims.map(fc => ({
                     teamIds: [fc.team_id],
                     title: `${lnLost} — ${isFaab ? 'FAAB Bid Lost' : 'Waiver Claim Lost'}`,
-                    body: isFaab ? 'Your bid was not the highest.' : 'Your waiver claim was not awarded.',
+                    body: isFaab ? 'Your bid did not win.' : 'Your waiver claim was not awarded.',
                     data: { screen: 'free-agents' },
                   })));
                 } catch (err) { log.warn('Bulk notification failed (non-fatal)', { error: String(err) }); }

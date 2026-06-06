@@ -214,9 +214,9 @@ export function PlayerFilterBar({
   const sortOptions = isCategories ? SORT_OPTIONS.filter(o => o !== 'FPTS') : SORT_OPTIONS;
   const TIME_RANGE_OPTIONS: { key: TimeRange; label: string }[] = [
     { key: 'season', label: 'Season' },
-    { key: '7d', label: '7D' },
-    { key: '14d', label: '14D' },
-    { key: '30d', label: '30D' },
+    { key: 'L5', label: 'L5' },
+    { key: 'L10', label: 'L10' },
+    { key: 'L15', label: 'L15' },
     { key: 'lastSeason', label: lastSeasonLabel(sport) },
   ];
   const [modalVisible, setModalVisible] = useState(false);

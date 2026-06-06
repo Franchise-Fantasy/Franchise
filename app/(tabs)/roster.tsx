@@ -37,6 +37,7 @@ import {
   dayToStatRecord,
   fetchTeamRosterForDate,
   type DayGameStats,
+  type SeasonAverages,
   type SlotStats,
 } from "@/components/roster/rosterData";
 import { RosterDayPicker } from "@/components/roster/RosterDayPicker";
@@ -45,7 +46,10 @@ import {
   rosterStyles as styles,
   slotPillVariant,
 } from "@/components/roster/rosterStyles";
-import { RosterWindowPicker } from "@/components/roster/RosterWindowPicker";
+import {
+  RosterWindowPicker,
+  type RosterStatMode,
+} from "@/components/roster/RosterWindowPicker";
 import { SeasonMetaLine } from "@/components/roster/SeasonMetaLine";
 import { SectionEyebrow } from "@/components/roster/SectionEyebrow";
 import {
@@ -63,7 +67,11 @@ import { type ModalAction } from "@/components/ui/InlineAction";
 import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { Brand, Colors } from "@/constants/Colors";
-import { getCurrentSeason, getPreviousSeason } from "@/constants/LeagueDefaults";
+import {
+  formatSeasonShort,
+  getCurrentSeason,
+  getPreviousSeason,
+} from "@/constants/LeagueDefaults";
 import { queryKeys } from "@/constants/queryKeys";
 import { useAppState } from "@/context/AppStateProvider";
 import { useActionPicker } from "@/context/ConfirmProvider";
@@ -75,13 +83,18 @@ import { useLeague } from "@/hooks/useLeague";
 import { useLeagueRosterConfig } from "@/hooks/useLeagueRosterConfig";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
 import { useOverCap } from "@/hooks/useOverCap";
+import {
+  usePlayerProjections,
+  type ProjectionRow,
+} from "@/hooks/usePlayerProjections";
+import { usePrevSeasonFpts } from "@/hooks/usePrevSeasonFpts";
 import { useRosterChanges } from "@/hooks/useRosterChanges";
 import { useRosterGameLogs } from "@/hooks/useRosterGameLogs";
 import { useWeekScores } from "@/hooks/useWeekScores";
 import { capture } from "@/lib/posthog";
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
-import { addDays, formatDayLabel, useToday } from "@/utils/dates";
+import { addDays, formatDayLabel, formatShortDate, useToday } from "@/utils/dates";
 import { formatPosition } from "@/utils/formatting";
 import { getSportToday } from "@/utils/leagueTime";
 import { logger } from "@/utils/logger";
@@ -110,7 +123,6 @@ import { buildCompositeScatter } from "@/utils/scoring/categoryAnalytics";
 import {
   calculateAvgFantasyPoints,
   formatScore,
-  GameWindow,
   gameWindowSize,
   projAvgRowToFpts,
   windowFantasyPoints,
@@ -164,7 +176,7 @@ export default function RosterScreen() {
   // Window for forward-facing stat display (pre-game / no-game / future rows).
   // Past dates + live/finished games render their real stats and never go
   // through buildSeasonAverages — see the gating at the renderSlotRow call.
-  const [windowSel, setWindowSel] = useState<GameWindow>('season');
+  const [windowSel, setWindowSel] = useState<RosterStatMode>('season');
   const pickAction = useActionPicker();
 
 
@@ -177,6 +189,16 @@ export default function RosterScreen() {
   const { data: scoringWeights } = useLeagueScoring(leagueId ?? "");
   const { data: league } = useLeague();
   const isCategories = league?.scoring_type === "h2h_categories";
+
+  // Next-game projections (points leagues only — categories have no projected
+  // fpts). They surface in two places: inline next to each upcoming game, and
+  // — when the window picker is switched to "Proj" — in the per-row context
+  // slot in place of the season/window average.
+  const { data: nextGameProjections } = usePlayerProjections(
+    sport,
+    "next_game",
+    !isCategories,
+  );
 
   const { data: illegalIRPlayers } = useIllegalIR(leagueId, teamId);
   const irLocked = !!illegalIRPlayers && illegalIRPlayers.length > 0;
@@ -196,6 +218,16 @@ export default function RosterScreen() {
       ) ?? null,
     [weeks, selectedDate],
   );
+
+  // Schedule exists but the selected day is before tip-off (the draft-day gap
+  // before opening night). Surfaces an "upcoming" hero that keeps day-nav live
+  // so the user can step forward and set their opening-night lineup, instead
+  // of the dead-offseason layout that hides every control.
+  const firstWeekStart = weeks?.[0]?.start_date ?? null;
+  const seasonOpensLabel =
+    !currentWeek && firstWeekStart && selectedDate < firstWeekStart
+      ? formatShortDate(firstWeekStart)
+      : undefined;
 
   // Date-dropdown picker (jump to any day in the current week)
   const [showDayPicker, setShowDayPicker] = useState(false);
@@ -283,19 +315,18 @@ export default function RosterScreen() {
       };
       if (!currentWeek?.id) {
         const me = await fetchTeam(teamId);
-        return { me, opponent: null, isBye: false };
+        return { me, opponent: null, isBye: false, categoryRecord: null };
       }
       const { data: m } = await supabase
         .from("league_matchups")
-        .select("home_team_id, away_team_id")
+        .select(
+          "home_team_id, away_team_id, home_category_wins, away_category_wins, category_ties",
+        )
         .eq("schedule_id", currentWeek.id)
         .or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
         .maybeSingle();
-      const opponentId = m
-        ? m.home_team_id === teamId
-          ? m.away_team_id
-          : m.home_team_id
-        : null;
+      const isHome = m?.home_team_id === teamId;
+      const opponentId = m ? (isHome ? m.away_team_id : m.home_team_id) : null;
       const ids = opponentId ? [teamId, opponentId] : [teamId];
       const { data: rows } = await supabase
         .from("teams")
@@ -305,7 +336,19 @@ export default function RosterScreen() {
       const opp = opponentId
         ? rows?.find((t) => t.id === opponentId) ?? null
         : null;
-      return { me, opponent: opp, isBye: !!m && !opponentId };
+      // Category leagues are decided by category wins (kept fresh on
+      // league_matchups by the same cron that updates week_scores), not the
+      // fpts total that lives in week_scores. Build it from the user's
+      // perspective; null until the cron has computed a result.
+      const categoryRecord =
+        m && m.home_category_wins != null
+          ? {
+              myWins: (isHome ? m.home_category_wins : m.away_category_wins) ?? 0,
+              oppWins: (isHome ? m.away_category_wins : m.home_category_wins) ?? 0,
+              ties: m.category_ties ?? 0,
+            }
+          : null;
+      return { me, opponent: opp, isBye: !!m && !opponentId, categoryRecord };
     },
     enabled: !!teamId,
     staleTime: 1000 * 60 * 60,
@@ -321,6 +364,23 @@ export default function RosterScreen() {
   const heroOppScore = heroMatchup?.opponent?.id
     ? weekScores?.[heroMatchup.opponent.id] ?? null
     : null;
+  const heroCategoryRecord = isCategories
+    ? heroMatchup?.categoryRecord ?? null
+    : null;
+
+  // For category leagues the hero shows category wins (from league_matchups)
+  // rather than the fpts in week_scores. Those wins are recomputed on every
+  // live-stats cron run — the same run that broadcasts the week_scores update
+  // that flips `weekScores` here — so refetch the matchup whenever scores tick
+  // to keep the live category record in step with the points-league behavior.
+  useEffect(() => {
+    if (!isCategories || !weekIsLive || !currentWeek?.id || !teamId) return;
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.rosterHeroOpponent(currentWeek.id, teamId),
+    });
+    // `weekScores` is the live trigger; the rest are stable within a live week.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekScores]);
 
   // Weekly performance breakdown — lazily fetched only while the summary
   // sheet is open. This is WEEK-level, not day-level: anchor the fetch date
@@ -394,11 +454,29 @@ export default function RosterScreen() {
   // while browsing a past day of the current week — matches the matchup page.
   const playerIds = rosterPlayers?.map((p) => p.player_id) ?? [];
 
+  // Previous-season fpts/G (points leagues) — powers the "Prev" window option:
+  // last season's average in the context slot. Cheap, cached; disabled for
+  // categories (no fpts) by passing an empty id list.
+  const { data: prevSeasonFpts } = usePrevSeasonFpts(
+    leagueId,
+    sport,
+    isCategories ? [] : playerIds,
+    scoringWeights,
+  );
+  // Compact label for the "Prev" window — the previous season itself ("'25" /
+  // "'24-'25") rather than the word "Prev".
+  const prevSeasonLabel = formatSeasonShort(getPreviousSeason(sport), sport);
+
   // Game logs for windowed stat display (Lx → last N played games per player).
   // Only fetched when a non-season window is active so we don't pay the round
   // trip on the default view. The logs apply to forward-facing rows only —
   // past dates and live/finished games render their real stats unchanged.
-  const winSize = gameWindowSize(windowSel);
+  // "Proj"/"Prev" aren't game-log windows — they slice nothing, so winSize
+  // stays null and the row context reads from projections / last season instead.
+  const isProjMode = windowSel === "proj";
+  const isPrevMode = windowSel === "prev";
+  const winSize =
+    windowSel === "proj" || windowSel === "prev" ? null : gameWindowSize(windowSel);
   const { data: rosterLogsByPlayer } = useRosterGameLogs(
     winSize != null ? playerIds : [],
   );
@@ -412,14 +490,22 @@ export default function RosterScreen() {
     }
     return max;
   }, [rosterPlayers]);
-  const availableWindows = useMemo<readonly GameWindow[]>(() => {
-    const out: GameWindow[] = [];
+  const availableWindows = useMemo<readonly RosterStatMode[]>(() => {
+    const out: RosterStatMode[] = [];
     if (maxRosterGames >= 5) out.push('L5');
     if (maxRosterGames >= 10) out.push('L10');
     if (maxRosterGames >= 15) out.push('L15');
     out.push('season');
+    // Forward-/historical-looking modes sit below the windows (points leagues):
+    // Proj under Season, Prev under Proj.
+    if (!isCategories && nextGameProjections && nextGameProjections.size > 0) {
+      out.push('proj');
+    }
+    if (!isCategories && prevSeasonFpts && prevSeasonFpts.size > 0) {
+      out.push('prev');
+    }
     return out;
-  }, [maxRosterGames]);
+  }, [maxRosterGames, isCategories, nextGameProjections, prevSeasonFpts]);
   // Snap stale selection back to 'season' so the SegmentedControl never lands
   // on a hidden option after a season rollover.
   useEffect(() => {
@@ -1117,11 +1203,15 @@ export default function RosterScreen() {
     ];
     // Surface the ranking basis so it's clear auto-sort follows the stat
     // window the user is currently viewing (L5/L10/L15 → recent form;
-    // Season → season averages).
+    // Season → season averages; Proj → next-game projections).
     const basisLabel =
-      windowSel === "season"
-        ? "SEASON AVERAGES"
-        : `LAST ${gameWindowSize(windowSel)} GAMES`;
+      windowSel === "proj"
+        ? "NEXT-GAME PROJECTIONS"
+        : windowSel === "prev"
+          ? "LAST SEASON AVERAGES"
+          : windowSel === "season"
+            ? "SEASON AVERAGES"
+            : `LAST ${gameWindowSize(windowSel)} GAMES`;
     pickAction({
       title: "Auto-Lineup",
       subtitle: `OPTIMIZE BY ${basisLabel}`,
@@ -1338,6 +1428,14 @@ export default function RosterScreen() {
             const currentFpts = calculateAvgFantasyPoints(p, scoringWeights);
             const projFpts = projFptsMap.get(p.player_id) ?? 0;
             const fallbackFpts = prevSeasonFptsMap.get(p.player_id) ?? 0;
+            // "Proj" view: rank directly by the next-game projection (the same
+            // number shown next to the game), falling back to current/prev when
+            // a player isn't projected yet.
+            const projRow = nextGameProjections?.get(p.player_id);
+            const projRankFpts =
+              projRow && scoringWeights
+                ? projAvgRowToFpts(projRow as Record<string, unknown>, scoringWeights)
+                : 0;
             // Points-league ranking: windowed form when a window is active
             // (and the log has games), else current season once it's a
             // meaningful sample, else the projection, else last season, else
@@ -1350,11 +1448,15 @@ export default function RosterScreen() {
               roster_slot: prevSlots.get(p.player_id) ?? "BE",
               avgFpts: isCategories
                 ? catRankMap.get(p.player_id) ?? 0
-                : windowedFpts != null
-                  ? windowedFpts
-                  : hasMeaningfulSample
-                    ? currentFpts
-                    : projFpts || fallbackFpts || currentFpts,
+                : isProjMode
+                  ? projRankFpts || currentFpts || fallbackFpts
+                  : isPrevMode
+                    ? (prevSeasonFpts?.get(p.player_id) ?? 0) || currentFpts || projRankFpts
+                    : windowedFpts != null
+                      ? windowedFpts
+                      : hasMeaningfulSample
+                        ? currentFpts
+                        : projFpts || fallbackFpts || currentFpts,
               locked: isDateToday ? isPlayerLocked(p) : false,
               hasGame: noRosterGamesToday
                 ? true
@@ -1432,6 +1534,36 @@ export default function RosterScreen() {
       dayGameStats,
     });
 
+  // Pre-formatted next-game projected fpts for a player, e.g. "18.3" — or null
+  // when there's no usable projection (no row, 0, categories, no weights).
+  // Drives both the inline next-to-game readout and the "Proj" context mode.
+  const projFptsFor = (playerId: string): string | null => {
+    if (isCategories || !scoringWeights || !nextGameProjections) return null;
+    const pr = nextGameProjections.get(playerId);
+    if (!pr) return null;
+    const fpts = projAvgRowToFpts(pr as Record<string, unknown>, scoringWeights);
+    return fpts > 0 ? fpts.toFixed(1) : null;
+  };
+
+  // A next-game projection shaped like a SeasonAverages so SeasonMetaLine can
+  // render it in the context slot (labeled PROJ) when the window picker is on
+  // "Proj". Null when there's no usable projection — caller falls back to avg.
+  const projToContext = (pr: ProjectionRow | undefined): SeasonAverages | null => {
+    if (!pr || !scoringWeights) return null;
+    const fpts = projAvgRowToFpts(pr as Record<string, unknown>, scoringWeights);
+    if (fpts <= 0) return null;
+    const stats = `${(pr.proj_pts ?? 0).toFixed(1)}P/${(pr.proj_reb ?? 0).toFixed(1)}R/${(pr.proj_ast ?? 0).toFixed(1)}A`;
+    return { stats, fpts: fpts.toFixed(1) };
+  };
+
+  // Last season's fpts/G as a SeasonAverages for the "Prev" context mode (the
+  // fpts is all the prev-season hook carries; `stats` stays empty and is never
+  // shown since SeasonMetaLine renders the fpts). Null when no prior-season row.
+  const prevToContext = (playerId: string): SeasonAverages | null => {
+    const fpts = prevSeasonFpts?.get(playerId);
+    return fpts && fpts > 0 ? { stats: "", fpts: fpts.toFixed(1) } : null;
+  };
+
   // ─── Render ───────────────────────────────────────────────────────────────
 
   // Horizontal swipe to flip days. Threshold + velocity check so a casual
@@ -1493,6 +1625,8 @@ export default function RosterScreen() {
           isBye={heroMatchup?.isBye ?? false}
           myScore={heroMyScore}
           oppScore={heroOppScore}
+          isCategories={isCategories}
+          categoryRecord={heroCategoryRecord}
           weekIsLive={weekIsLive}
           rosterStats={heroRosterStats}
           onPrevDay={() =>
@@ -1562,6 +1696,27 @@ export default function RosterScreen() {
               : undefined,
           )
         : null;
+    // "Proj"/"Prev" windows swap the context number for the next-game projection
+    // (PROJ) or last season's average (PREV). Each falls back to the season
+    // average when that player has no projection / prior-season row.
+    const forwardOk =
+      slot.player && !isLive && !statLine && !isPastDate;
+    const projContext =
+      isProjMode && forwardOk
+        ? projToContext(nextGameProjections?.get(slot.player!.player_id))
+        : null;
+    const prevContext =
+      isPrevMode && forwardOk ? prevToContext(slot.player!.player_id) : null;
+    const contextAvg = projContext ?? prevContext ?? seasonAvg;
+    const contextLabel = projContext
+      ? "PROJ"
+      : prevContext
+        ? prevSeasonLabel
+        : "FPTS/G";
+    // Inline projection next to the upcoming game (right column) — independent
+    // of the window picker, so it shows whenever a player actually has a game.
+    const upcomingProj =
+      isPreGame && slot.player ? projFptsFor(slot.player.player_id) : null;
     const isIrOrTaxi =
       slot.slotPosition === "IR" || slot.slotPosition === ROSTER_SLOT.TAXI;
     // Empty slots have no player to lock, but in daily-lock mode after the
@@ -1724,7 +1879,8 @@ export default function RosterScreen() {
               ) : (
                 <SeasonMetaLine
                   position={slot.player.position}
-                  seasonAvg={seasonAvg}
+                  seasonAvg={contextAvg}
+                  valueLabel={contextLabel}
                   c={c}
                 />
               )}
@@ -1743,7 +1899,12 @@ export default function RosterScreen() {
             {/* Right column — opponent pill + tipoff time on pre-game rows;
                 animated FPTS readout on live/final. */}
             {isPreGame ? (
-              <UpcomingGame matchup={matchup!} gameTimeUtc={gameTimeUtc} c={c} />
+              <UpcomingGame
+                matchup={matchup!}
+                gameTimeUtc={gameTimeUtc}
+                projFpts={upcomingProj}
+                c={c}
+              />
             ) : null}
             {!isCategories && !isPreGame &&
               (() => {
@@ -1868,12 +2029,15 @@ export default function RosterScreen() {
         isPastDate={isPastDate}
         isToday={isToday}
         currentWeek={currentWeek}
+        seasonOpensLabel={seasonOpensLabel}
         dayLabel={formatDayLabel(selectedDate)}
         myTeam={heroMatchup?.me ?? null}
         opponent={heroMatchup?.opponent ?? null}
         isBye={heroMatchup?.isBye ?? false}
         myScore={heroMyScore}
         oppScore={heroOppScore}
+        isCategories={isCategories}
+        categoryRecord={heroCategoryRecord}
         weekIsLive={weekIsLive}
         lineupDay={heroLineupDay}
         rosterStats={heroRosterStats}
@@ -1953,6 +2117,7 @@ export default function RosterScreen() {
                   windowSel={windowSel}
                   onWindowChange={setWindowSel}
                   availableWindows={availableWindows}
+                  prevLabel={prevSeasonLabel}
                 />
                 {!isCategories && starterTotal !== null && (
                   <View

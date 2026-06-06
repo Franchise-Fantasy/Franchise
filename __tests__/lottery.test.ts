@@ -18,17 +18,20 @@ describe('getPlayoffTeamOptions', () => {
     expect(getPlayoffTeamOptions(2, 10)).toEqual([3, 4]);
   });
 
-  it('3 playoff weeks → [4, 5, 6, 8]', () => {
-    expect(getPlayoffTeamOptions(3, 10)).toEqual([4, 5, 6, 8]);
+  it('3 playoff weeks → [5, 6, 8]', () => {
+    // 4 is excluded — 4 teams only needs 2 rounds (2 weeks), so offering it
+    // at 3 weeks would leave a trailing empty playoff week.
+    expect(getPlayoffTeamOptions(3, 10)).toEqual([5, 6, 8]);
   });
 
-  it('4 playoff weeks → [8, 10, 12, 16]', () => {
-    expect(getPlayoffTeamOptions(4, 20)).toEqual([8, 10, 12, 16]);
+  it('4 playoff weeks → [10, 12, 16]', () => {
+    // 8 excluded — 8 teams only needs 3 rounds (3 weeks).
+    expect(getPlayoffTeamOptions(4, 20)).toEqual([10, 12, 16]);
   });
 
   it('caps options at total team count', () => {
-    // 3 weeks, 5 teams → [4, 5] (6 and 8 exceed 5)
-    expect(getPlayoffTeamOptions(3, 5)).toEqual([4, 5]);
+    // 3 weeks, 5 teams → [5] (6 and 8 exceed 5)
+    expect(getPlayoffTeamOptions(3, 5)).toEqual([5]);
   });
 
   it('returns [2] when all options exceed team count', () => {

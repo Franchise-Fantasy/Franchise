@@ -1,12 +1,19 @@
 /**
  * Curated playoff team options that produce valid single-elimination brackets.
  * Numbers below 2^weeks mean top seeds get first-round byes.
+ *
+ * The playoff engine plays exactly one round per playoff week and runs
+ * `calcRounds(playoffTeams) = log2(nextPow2(teams))` rounds, so each bucket's
+ * SMALLEST team count must need exactly that many rounds — otherwise a chosen
+ * week count exceeds the rounds played and the schedule gets a trailing empty
+ * playoff week the engine never fills. That's why 4 isn't offered at 3 weeks
+ * (4 teams = 2 rounds) and 8 isn't offered at 4 weeks (8 teams = 3 rounds).
  */
 const PLAYOFF_OPTIONS: Record<number, number[]> = {
   1: [2],
   2: [3, 4],
-  3: [4, 5, 6, 8],
-  4: [8, 10, 12, 16],
+  3: [5, 6, 8],
+  4: [10, 12, 16],
 };
 
 export function getPlayoffTeamOptions(playoffWeeks: number, totalTeams: number): number[] {

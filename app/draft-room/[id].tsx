@@ -359,7 +359,7 @@ export default function DraftRoomScreen() {
           avatars. AUTO sits on the left so the right cluster stays focused
           on communication chrome (chat + who's here) and the presence
           avatars aren't crowded by a wide neutral pill. */}
-      <ThemedView style={[styles.header, { borderBottomColor: colors.border }]}>
+      <ThemedView style={[styles.header, styles.headerClip, { borderBottomColor: colors.border }]}>
         <View style={styles.headerLeft}>
           <TouchableOpacity
             style={styles.headerButton}
@@ -461,6 +461,28 @@ export default function DraftRoomScreen() {
               </ThemedText>
               <ThemedText style={[styles.completeNoticeSubtitle, { color: colors.secondaryText }]} numberOfLines={1}>
                 {isRookieDraft ? 'Rookies are in.' : 'Free agency is now open.'}
+              </ThemedText>
+            </View>
+          </View>
+        )}
+
+        {/* Paused banner — shown to everyone in the room (not just the
+            commissioner) so nobody thinks the clock is broken. */}
+        {draftState?.status === 'paused' && (
+          <View style={[styles.completeNotice, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
+            <View style={[styles.completeRule, { backgroundColor: colors.gold }]} />
+            <View style={styles.completeNoticeText}>
+              <ThemedText
+                type="varsitySmall"
+                style={[styles.completeEyebrow, { color: colors.gold }]}
+                accessibilityRole="header"
+              >
+                Draft Paused
+              </ThemedText>
+              <ThemedText style={[styles.completeNoticeSubtitle, { color: colors.secondaryText }]} numberOfLines={1}>
+                {teamData?.isCommissioner
+                  ? 'Resume from Commissioner Controls.'
+                  : 'The commissioner paused the draft.'}
               </ThemedText>
             </View>
           </View>
@@ -655,6 +677,10 @@ export default function DraftRoomScreen() {
           onClose={() => setShowCommishControls(false)}
           draftId={draftId}
           timeLimit={draftState.time_limit}
+          rounds={draftState.rounds}
+          accelerateAfterRound={draftState.accelerate_after_round ?? null}
+          acceleratedTimeLimit={draftState.accelerated_time_limit ?? null}
+          status={draftState.status}
         />
       )}
     </SafeAreaView>
@@ -673,6 +699,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     height: s(50),
     justifyContent: 'space-between',
+  },
+  // Applied only to the live draft header (mirrors PageHeader's clipContent):
+  // clips the presence avatars' slide-down exit behind the bottom hairline.
+  // Kept off the error-fallback header so a future overflowing child there
+  // (e.g. a notification badge) isn't silently cropped.
+  headerClip: {
+    overflow: 'hidden',
   },
   // Title is absolutely centered (matches the PageHeader pattern) so the
   // right cluster's width can grow without shifting the title off-center.

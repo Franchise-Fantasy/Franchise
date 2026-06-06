@@ -14,13 +14,21 @@ const BRAND: Record<string, string> = {
   heritageGold: "#9E8A60",
   heritageGoldDark: "#9E8A60",
   merlot: "#671A1E",
-  // Lighter merlot for dark-mode UI accents (tab icon, tint, link, active
-  // state) where the deep merlot loses contrast against the warm dark
-  // background. Mirrors the turfGreen → turfGreenSoft pattern.
-  merlotSoft: "#8E2C36",
+  // Lifted wine/rose — the dark-mode-legible relative of deep merlot, which
+  // reads ~1.1:1 on the warm dark surfaces (invisible). #CF6B72 clears WCAG
+  // AA (~4.3–5.0:1) for text/icons in dark mode. Now used ONLY by
+  // RumorBubble's dark rumor accent — the WNBA theme chrome (tabs, tint,
+  // links, active state) uses Heritage Gold in dark mode instead, because
+  // the rose read as "too pink" against the gold-heavy dark UI.
+  merlotSoft: "#CF6B72",
   turfGreen: "#1C552E",
   turfGreenDim: "#15421F",
-  turfGreenSoft: "#2F6D42",
+  // Dark-mode success/positive — lifted so it reads as TEXT on the warm dark
+  // surfaces. The old #2F6D42 was ~2.8:1 (failed AA); #4E9E6A clears ~4.0–5.3:1.
+  turfGreenBright: "#4E9E6A",
+  // Dark-mode danger/negative — lifted coral. The old #C44F35 was ~3.2:1 as
+  // normal-size text (failed AA); #E07A60 clears ~4.4–5.9:1.
+  coral: "#E07A60",
   sapphire: "#164D78",
   umber: "#A53C2A",
   ink: "#141010",
@@ -113,9 +121,9 @@ export const Colors = {
     activeBorder: BRAND.heritageGoldDark,
     activeText: BRAND.heritageGoldDark,
     buttonDisabled: "#554545",
-    success: BRAND.turfGreenSoft,
+    success: BRAND.turfGreenBright,
     successMuted: "rgba(47, 109, 66, 0.18)",
-    danger: "#C44F35",
+    danger: BRAND.coral,
     dangerMuted: "rgba(196, 79, 53, 0.18)",
     warning: BRAND.heritageGoldDark,
     warningMuted: "rgba(158, 138, 96, 0.20)",
@@ -165,10 +173,13 @@ type AccentOverrides = {
 };
 
 export const SPORT_THEMES: Record<string, AccentOverrides> = {
-  // WNBA — keeps the gold accent family (no override) and only swaps the
-  // green-baseline tokens to merlot: hero surface/shadow, active state,
-  // link, tint, selected tab icon, primary. `success` intentionally stays
-  // turfGreen so it doesn't collide with `danger`, which is also merlot.
+  // WNBA — keeps the gold accent family and swaps the green-baseline tokens
+  // to merlot. In LIGHT mode that covers the full accent set (hero, active
+  // state, link, tint, selected tab icon, primary). In DARK mode deep merlot
+  // is invisible and the lifted rose read "too pink", so only the hero
+  // surface + primary button fill stay merlot — the rest inherit the
+  // Heritage Gold baseline. `success` intentionally stays turfGreen so it
+  // doesn't collide with `danger`, which is also merlot.
   wnba: {
     light: {
       tabIconSelected:  BRAND.merlot,
@@ -187,13 +198,15 @@ export const SPORT_THEMES: Record<string, AccentOverrides> = {
       },
       primary:          BRAND.merlot,
     },
+    // Dark mode: deep merlot is invisible (~1.1:1) and the lifted rose
+    // (#CF6B72) read as "too pink" against the gold-heavy dark UI, so the
+    // chrome accents (tint, selected tab icon, link, active pill
+    // border/text) inherit the Heritage Gold dark baseline. Only the active
+    // wash is pinned to gold (base dark washes green) and the hero surface +
+    // primary button fill stay merlot, where merlot has the surface area to
+    // read.
     dark: {
-      tint:             BRAND.merlotSoft,
-      tabIconSelected:  BRAND.merlotSoft,
-      link:             BRAND.merlotSoft,
-      activeBorder:     BRAND.merlotSoft,
-      activeText:       BRAND.merlotSoft,
-      activeCard:       'rgba(142, 44, 54, 0.20)',
+      activeCard:       'rgba(158, 138, 96, 0.20)',
       heroSurface:      BRAND.merlot,
       heroShadow: {
         shadowColor:   BRAND.merlot,

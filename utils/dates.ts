@@ -54,3 +54,32 @@ export function formatDayLabel(dateStr: string): string {
     day: 'numeric',
   });
 }
+
+/** Format "YYYY-MM-DD" as a compact "Feb 27" label (no weekday). */
+export function formatShortDate(dateStr: string): string {
+  return parseLocalDate(dateStr).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+/**
+ * Format an instant as "Sun, Jun 8, 8:00 PM EST" — local time WITH an explicit
+ * timezone label. Use for any string built on one device and read on another
+ * (e.g. a push notification body sent to all league members): a bare wall-clock
+ * time is ambiguous across zones, so the label disambiguates it.
+ *
+ * Renders in the formatting device's local zone. On engines without full ICU
+ * the `timeZoneName` may come through as a GMT offset (e.g. "GMT-5") instead of
+ * an abbreviation — still unambiguous.
+ */
+export function formatDateTimeWithZone(d: Date): string {
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  }).format(d);
+}

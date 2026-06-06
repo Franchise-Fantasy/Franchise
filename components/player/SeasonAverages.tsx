@@ -175,9 +175,13 @@ export function SeasonAverages({
     // Projected per-game line (season-long projection) as a forward-looking
     // lens, pinned to the front so it sits left of the recent windows.
     if (projection) {
+      // Chip carries the season it projects (e.g. "'26 PROJ") so it can't be
+      // mistaken for the next-game projection shown in the header strip. Both
+      // "2026" and "2025-26" reduce to the season's defining year ("26").
+      const yy = projection.season ? String(projection.season).slice(-2) : null;
       out.unshift({
         key: "proj",
-        chip: "PROJ",
+        chip: yy ? `'${yy} PROJ` : "PROJ",
         gpText: "",
         fpts:
           !isCategories && scoringWeights

@@ -29,7 +29,8 @@
         "backgroundColor": "#E9E2CB"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.chewers.franchisev2"
+      "package": "com.chewers.franchisev2",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "bundler": "metro",

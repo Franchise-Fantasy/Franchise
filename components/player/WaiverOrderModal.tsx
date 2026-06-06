@@ -32,6 +32,15 @@ export function WaiverOrderModal({
 }: Props) {
   const c = useColors();
 
+  // FAAB has no waiver priority — bids decide, ties go to the earliest bid.
+  // Order teams by remaining budget (most first) and drop the rank column.
+  const isFaab = waiverType === 'faab';
+  const rows = isFaab
+    ? [...waiverOrder].sort(
+        (a, b) => (b.faab_remaining ?? 0) - (a.faab_remaining ?? 0),
+      )
+    : waiverOrder;
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
@@ -52,22 +61,24 @@ export function WaiverOrderModal({
                 type="varsitySmall"
                 style={[styles.eyebrow, { color: c.gold }]}
               >
-                {waiverType === 'faab' ? 'FAAB BUDGETS' : 'WAIVER ORDER'}
+                {isFaab ? 'FAAB BUDGETS' : 'WAIVER ORDER'}
               </ThemedText>
             </View>
             <View style={styles.headerSpacer} />
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false}>
-            {waiverOrder.length === 0 ? (
+            {rows.length === 0 ? (
               <View style={styles.empty}>
                 <ThemedText style={{ color: c.secondaryText, fontSize: ms(13) }}>
-                  Waiver order isn&apos;t set up yet.
+                  {isFaab
+                    ? "FAAB budgets aren't set up yet."
+                    : "Waiver order isn't set up yet."}
                 </ThemedText>
               </View>
             ) : (
-              waiverOrder.map((wp, idx) => {
-                const isLast = idx === waiverOrder.length - 1;
+              rows.map((wp, idx) => {
+                const isLast = idx === rows.length - 1;
                 const isMe = wp.team_id === teamId;
                 return (
                   <View
@@ -79,14 +90,16 @@ export function WaiverOrderModal({
                       isMe && { backgroundColor: c.cardAlt },
                     ]}
                   >
-                    <ThemedText
-                      style={[
-                        styles.priority,
-                        { color: isMe ? c.gold : c.secondaryText },
-                      ]}
-                    >
-                      {wp.priority}
-                    </ThemedText>
+                    {!isFaab && (
+                      <ThemedText
+                        style={[
+                          styles.priority,
+                          { color: isMe ? c.gold : c.secondaryText },
+                        ]}
+                      >
+                        {wp.priority}
+                      </ThemedText>
+                    )}
                     <ThemedText
                       style={[
                         styles.teamName,
@@ -97,7 +110,7 @@ export function WaiverOrderModal({
                       {wp.team?.name ?? 'Unknown'}
                       {isMe ? ' (You)' : ''}
                     </ThemedText>
-                    {waiverType === 'faab' && (
+                    {isFaab && (
                       <ThemedText style={[styles.faab, { color: c.secondaryText }]}>
                         ${wp.faab_remaining ?? 0}
                       </ThemedText>

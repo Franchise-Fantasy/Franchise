@@ -247,6 +247,8 @@ export function CatAnalytics({
         <TiersSection data={ageTiers} colors={c} isDark={isDark} />
       )}
 
+      {!isDynasty && <ComingSoonTeaser />}
+
       <DependencyRiskCard
         allPlayers={allPlayers as any}
         weights={weights}
@@ -254,8 +256,6 @@ export function CatAnalytics({
         teamId={teamId}
         leagueId={leagueId}
       />
-
-      {!isDynasty && <ComingSoonTeaser />}
 
       <InfoModal
         visible={infoVisible}

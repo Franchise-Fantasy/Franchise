@@ -22,8 +22,8 @@ interface FreeAgentRowProps {
   index: number;
   isLast: boolean;
   fpts: number | undefined;
-  /** Projected next-game FPTS. Present only when projections are
-   *  enabled and exist for this player; shown beneath the season fpts. */
+  /** Projected next-game FPTS. Present only when projections are enabled and
+   *  the player has a game on the selected day; shown beside the matchup chip. */
   projFpts?: number | null;
   isCategories: boolean;
   isAdding: boolean;
@@ -81,7 +81,11 @@ export function FreeAgentRow({
   const a11yLabel =
     `${player.name}, ${formatPosition(player.position)}, ${player.pro_team}` +
     (ownerTeamName ? `, rostered by ${ownerTeamName}` : '') +
+    (gameToday ? `, plays ${gameToday}` : '') +
     (fpts !== undefined ? `, ${fpts} fantasy points` : '') +
+    (projFpts != null && projFpts > 0
+      ? `, ${projFpts.toFixed(1)} projected next game`
+      : '') +
     (isCategories
       ? `, ${player.avg_pts} points, ${player.avg_reb} rebounds, ${player.avg_ast} assists, ${player.avg_stl} steals, ${player.avg_blk} blocks`
       : '');
@@ -194,6 +198,14 @@ export function FreeAgentRow({
               textColor={scheme === 'dark' ? c.text : c.link}
             />
           )}
+          {projFpts != null && projFpts > 0 && (
+            <ThemedText
+              type="mono"
+              style={[styles.projInline, { color: c.secondaryText }]}
+            >
+              {projFpts.toFixed(1)} proj
+            </ThemedText>
+          )}
         </View>
       </View>
 
@@ -237,14 +249,6 @@ export function FreeAgentRow({
                   style={[styles.fptsValue, { color: c.gold }]}
                 >
                   {fpts.toFixed(1)}
-                </ThemedText>
-              )}
-              {projFpts != null && projFpts > 0 && (
-                <ThemedText
-                  type="mono"
-                  style={[styles.projValue, { color: c.secondaryText }]}
-                >
-                  {projFpts.toFixed(1)} proj
                 </ThemedText>
               )}
             </>

@@ -7,6 +7,7 @@ import { notifyTeams, notifyLeague } from '../_shared/push.ts';
 import { effectiveTimeLimit } from '../_shared/draftClock.ts';
 import { parseBody, z } from '../_shared/validate.ts';
 import { isEligibleForSlot } from '../../../utils/roster/rosterSlotsShared.ts';
+import { effectiveDraftPts } from '../../../utils/draft/draftRanking.ts';
 
 const Body = z.object({
   draft_id: z.string().uuid(),
@@ -104,7 +105,7 @@ Deno.serve(async (req) => {
     const [draftResult, pickResult] = await Promise.all([
       supabaseAdmin
         .from('drafts')
-        .select('current_pick_number, rounds, picks_per_round, time_limit, accelerate_after_round, accelerated_time_limit, league_id, type')
+        .select('current_pick_number, rounds, picks_per_round, time_limit, accelerate_after_round, accelerated_time_limit, league_id, type, status')
         .eq('id', draft_id)
         .single(),
       supabaseAdmin
@@ -123,6 +124,14 @@ Deno.serve(async (req) => {
     const { data: currentPick, error: pickError } = pickResult;
     if (pickError || !currentPick || currentPick.player_id) {
       return jsonResponse({ message: 'Pick already made' });
+    }
+
+    // Paused by the commissioner — this in-flight QStash timer dies harmlessly:
+    // make NO pick and schedule NOTHING. resume-draft re-arms the clock from the
+    // snapshotted remaining time. This guard MUST precede every mutation and the
+    // autopick re-check below so a pause is a true no-op.
+    if (draft.status === 'paused') {
+      return jsonResponse({ message: 'Draft is paused' });
     }
 
     // Phase 2: parallel fetch of everything needed to choose the player and
@@ -210,35 +219,92 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Fall back to best available by avg_pts (fetch multiple to handle position limits).
-    // `pro_team IS NOT NULL` works year-round; `games_played > 0` would yield
-    // an empty pool during the offseason (a problem for any rookie/pre-season
-    // auto-draft) — except for rookie drafts which override the filter below.
+    // Fall back to best available by effective draft value. `pro_team IS NOT
+    // NULL` works year-round; `games_played > 0` would yield an empty pool
+    // during the offseason — except for rookie drafts which override below.
     if (!topPlayer) {
-      let query = supabaseAdmin
+      // Ranking by current-season avg_pts alone breaks pre-tipoff: every
+      // current avg_pts is NULL, and `ORDER BY avg_pts DESC` puts NULLs FIRST,
+      // so the old `.limit(20)` returned 20 statless fringe players. Instead we
+      // pull the whole pool and rank in JS by effectiveDraftPts (current avg
+      // once a player has enough games this season, else season projection,
+      // else last-season production) — mirroring the human board in
+      // components/draft/AvailablePlayers via the shared draftRanking helper.
+      let candidateQuery = supabaseAdmin
         .from('player_season_stats')
-        .select('player_id, position')
+        .select('player_id, position, avg_pts, games_played')
         .eq('sport', sport)
-        .order('avg_pts', { ascending: false })
-        .limit(20);
+        // NULLS LAST so statless rows never sort above real production.
+        .order('avg_pts', { ascending: false, nullsFirst: false });
 
       if (isRookieDraft) {
-        query = query.eq('rookie', true);
+        candidateQuery = candidateQuery.eq('rookie', true);
       } else {
-        query = query.not('pro_team', 'is', null);
+        candidateQuery = candidateQuery.not('pro_team', 'is', null);
       }
 
       if (draftedIds.length > 0) {
-        query = query.filter('player_id', 'not.in', `(${draftedIds.join(',')})`);
+        candidateQuery = candidateQuery.filter('player_id', 'not.in', `(${draftedIds.join(',')})`);
       }
 
-      const { data: candidates, error: playerError } = await query;
+      // Current season (live, from season_config) pins the season-horizon
+      // projections — that view also carries next-year rows — and derives the
+      // previous season label for the last-season fallback (WNBA "2026" →
+      // "2025"; NBA "2025-26" → "2024-25", matching constants/LeagueDefaults).
+      const { data: seasonRow } = await supabaseAdmin
+        .from('season_config')
+        .select('season')
+        .eq('sport', sport)
+        .eq('is_current', true)
+        .maybeSingle();
+      const currentSeason = seasonRow?.season ?? (sport === 'wnba' ? '2026' : '2025-26');
+      const prevStartYear = parseInt(currentSeason.split('-')[0], 10) - 1;
+      const previousSeason = sport === 'wnba'
+        ? String(prevStartYear)
+        : `${prevStartYear}-${String((prevStartYear + 1) % 100).padStart(2, '0')}`;
+
+      const [candidatesRes, projRes, histRes] = await Promise.all([
+        candidateQuery,
+        supabaseAdmin
+          .from('current_player_projections')
+          .select('player_id, proj_pts')
+          .eq('sport', sport)
+          .eq('horizon', 'season')
+          .eq('season', currentSeason),
+        supabaseAdmin
+          .from('player_historical_stats')
+          .select('player_id, avg_pts')
+          .eq('sport', sport)
+          .eq('season', previousSeason),
+      ]);
+
+      const { data: candidates, error: playerError } = candidatesRes;
       if (playerError || !candidates || candidates.length === 0) {
         return jsonResponse({ message: 'No players available' });
       }
 
-      // Find first candidate that passes position limits
-      for (const candidate of candidates) {
+      const projByPlayer = new Map<string, number>(
+        (projRes.data ?? []).map((r: { player_id: string; proj_pts: number | null }) =>
+          [String(r.player_id), Number(r.proj_pts) || 0]),
+      );
+      const histByPlayer = new Map<string, number>(
+        (histRes.data ?? []).map((r: { player_id: string; avg_pts: number | null }) =>
+          [String(r.player_id), Number(r.avg_pts) || 0]),
+      );
+
+      const draftValue = (c: { player_id: string; avg_pts: number | null; games_played: number | null }) =>
+        effectiveDraftPts({
+          gamesPlayed: c.games_played,
+          currentAvgPts: c.avg_pts,
+          seasonProjPts: projByPlayer.get(String(c.player_id)),
+          lastSeasonAvgPts: histByPlayer.get(String(c.player_id)),
+        });
+
+      // Highest effective value first.
+      const ranked = [...candidates].sort((a, b) => draftValue(b) - draftValue(a));
+
+      // Pick the best-ranked player that passes position limits.
+      for (const candidate of ranked) {
         if (useLimits) {
           const violation = checkPositionLimits(posLimits!, teamRoster, candidate.position);
           if (violation) continue;
@@ -247,7 +313,7 @@ Deno.serve(async (req) => {
         break;
       }
       // Fallback: if all candidates violate limits, draft the best anyway to prevent deadlock
-      if (!topPlayer) topPlayer = candidates[0];
+      if (!topPlayer) topPlayer = ranked[0];
     }
 
     const timestamp = new Date().toISOString();

@@ -175,7 +175,9 @@ focusManager.setEventListener((handleFocus) => {
 });
 
 const NOTIF_ROUTES: Record<string, string> = {
-  home: "/(tabs)/matchup",
+  home: "/(tabs)", // the index tab (home hero) — NOT matchup; lifecycle pushes
+  // (draft scheduled, advance-season, create-rookie-draft, finalize-keepers)
+  // all use screen:'home' to land on the hero. Matchup-intent uses `matchup`.
   roster: "/(tabs)/roster",
   matchup: "/(tabs)/matchup",
   "free-agents": "/(tabs)/free-agents",

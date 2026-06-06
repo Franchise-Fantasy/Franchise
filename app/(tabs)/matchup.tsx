@@ -59,6 +59,7 @@ import { PlayerSeasonStats } from "@/types/player";
 import {
   addDays,
   formatDayLabel,
+  formatShortDate,
   useToday,
 } from "@/utils/dates";
 import {
@@ -201,6 +202,14 @@ export default function MatchupScreen() {
     weeks?.find(
       (w) => w.start_date <= selectedDate && selectedDate <= w.end_date,
     ) ?? null;
+
+  // Schedule exists but the selected day is before tip-off (the draft-day gap
+  // before opening night) — flips the hero from "OFFSEASON" to "UPCOMING".
+  const firstWeekStart = weeks?.[0]?.start_date ?? null;
+  const seasonOpensLabel =
+    !currentWeek && firstWeekStart && selectedDate < firstWeekStart
+      ? formatShortDate(firstWeekStart)
+      : undefined;
 
   // Fetch all matchups for the pill bar
   const { data: allMatchups } = useQuery({
@@ -866,6 +875,7 @@ export default function MatchupScreen() {
         canGoBack={selectedDate > minDate}
         dayLabel={formatDayLabel(selectedDate)}
         currentWeek={currentWeek}
+        seasonOpensLabel={seasonOpensLabel}
         weekIsLive={weekIsLive}
         leftTeam={heroLeftTeam}
         rightTeam={heroRightTeam}
@@ -905,9 +915,11 @@ export default function MatchupScreen() {
           nextMatchupId ? () => setSelectedMatchupId(nextMatchupId) : undefined
         }
         onGoToToday={() => {
-          // Gate like the prev/next-day controls: don't jump to today when
-          // it falls outside the season's week range (off-season / pre-tipoff).
-          if (today >= minDate && today <= maxDate) setSelectedDate(today);
+          // Today is a valid return target whenever it's not past the season's
+          // end — that covers in-season days and the pre-tip-off gap (today
+          // before the first week), which now renders the upcoming hero. Only a
+          // genuinely finished season (today > last week) stays off-limits.
+          if (today <= maxDate) setSelectedDate(today);
         }}
         onSchedulePress={() => setScheduleVisible(true)}
         onSummaryPress={

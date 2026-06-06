@@ -16,6 +16,13 @@
   ],
   "exclude": [
     "supabase/functions/**",
-    "landing/**"
+    "landing/**",
+    // ts-jest (not app tsc) typechecks tests that import an edge module whose
+    // internal imports use Deno's required `.ts` extension: jest.config.js
+    // ignores TS5097 per-file, but `tsc --noEmit` can't. newsText.test.ts is
+    // fine (newsText.ts is a leaf with no imports); rotowire-html.ts imports
+    // newsText.ts with a `.ts` extension, so the test that pulls it in is
+    // excluded here. Add future non-leaf edge-module tests the same way.
+    "__tests__/rotowireHtml.test.ts"
   ]
 }

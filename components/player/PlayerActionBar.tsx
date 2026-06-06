@@ -73,8 +73,8 @@ export function PlayerActionBar({
       <View style={styles.row}>
         <ActionButton
           label="Draft"
-          fill={c.primary}
-          textColor={c.onPrimary}
+          fill={c.link}
+          textColor={c.statusText}
           onPress={onDraft}
           disabled={!canDraft}
           flex

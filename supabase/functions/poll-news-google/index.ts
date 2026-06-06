@@ -297,6 +297,14 @@ Deno.serve(async (req: Request) => {
       const ageMs = item.pubDate ? Date.now() - new Date(item.pubDate).getTime() : Infinity;
       if (ageMs <= NOTIFY_MAX_AGE_MS) {
         for (const pid of matchedPlayerIds) {
+          // Suppress the push if RotoWire (or a prior poll-news-google run)
+          // already covered this player inside the GAP_HOURS window. The article
+          // still inserts into the feed above — we just don't double-ping a user
+          // who was already notified about this player from the preferred source.
+          // Reaches here via co-mention: the batch only contains players WITHOUT
+          // recent coverage, but an article fetched for player A can also mention
+          // player B who does have recent coverage.
+          if (playersWithRecentCoverage.has(pid)) continue;
           newArticlePlayerIds.add(pid);
           const pName = playerById.get(pid)?.name;
           if (pName) newArticleTitles.set(pName, item.title);

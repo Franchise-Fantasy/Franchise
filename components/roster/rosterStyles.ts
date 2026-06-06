@@ -192,6 +192,16 @@ export const rosterStyles = StyleSheet.create({
     letterSpacing: 0.5,
     marginRight: s(6),
   },
+  // Projected fantasy points tucked under the tipoff time on an upcoming-game
+  // row — the next-game projection, shown only for players who actually play.
+  slotGameProj: {
+    fontFamily: Fonts.mono,
+    fontSize: ms(10),
+    lineHeight: ms(12),
+    fontWeight: "700",
+    letterSpacing: 0.3,
+    marginRight: s(6),
+  },
   // Mono stat line for past-day actuals — matches the Free Agents row pattern.
   slotStatLine: {
     fontFamily: Fonts.mono,

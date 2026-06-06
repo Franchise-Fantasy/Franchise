@@ -33,7 +33,6 @@ import Animated, {
 
 import { AnalyticsEmptyState } from "@/components/analytics/AnalyticsEmptyState";
 import { DependencyRiskCard } from "@/components/analytics/DependencyRiskCard";
-import { RosterStrengthCard } from "@/components/analytics/RosterStrengthCard";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import { Badge, type BadgeVariant } from "@/components/ui/Badge";
 import { InfoModal } from "@/components/ui/InfoModal";
@@ -55,8 +54,7 @@ import {
   buildScatterData,
   calculateRosterAgeProfile,
 } from "@/utils/roster/rosterAge";
-import { getEligiblePositions, isActiveRosterSlot } from "@/utils/roster/rosterSlots";
-import { buildLeagueStrengthComparison } from "@/utils/roster/rosterStrength";
+import { getEligiblePositions } from "@/utils/roster/rosterSlots";
 import { ms, s } from "@/utils/scale";
 import {
   ANALYTICS_MIN_CURRENT_SEASON_GAMES,
@@ -79,7 +77,7 @@ function bucketBadgeVariant(bucket: 'rising' | 'prime' | 'vet'): BadgeVariant {
 
 interface PointsAgeAnalyticsProps {
   players: PlayerSeasonStats[];
-  allPlayers: (PlayerSeasonStats & { team_id: string; roster_slot?: string | null })[];
+  allPlayers: (PlayerSeasonStats & { team_id: string })[];
   weights: ScoringWeight[] | undefined;
   scoringType: string | undefined;
   prevSeasonFptsMap?: Map<string, number>;
@@ -146,22 +144,6 @@ export function PointsAgeAnalytics({
       ANALYTICS_MIN_CURRENT_SEASON_GAMES,
     );
   }, [allPlayers, weights, teamId, prevSeasonFptsMap]);
-
-  // Roster-strength overview (season window — no game logs needed). Mirrors
-  // the overview card on the redraft analytics view so both points views lead
-  // with a roster-strength summary.
-  const strengthComparison = useMemo(() => {
-    if (!allPlayers?.length || !weights?.length || !teamId) return null;
-    return buildLeagueStrengthComparison(allPlayers as any, weights, teamId, {
-      prevSeasonFptsMap,
-      minGames: ANALYTICS_MIN_CURRENT_SEASON_GAMES,
-    });
-  }, [allPlayers, weights, teamId, prevSeasonFptsMap]);
-
-  const hasInactive = useMemo(
-    () => allPlayers.some((p) => !isActiveRosterSlot(p.roster_slot)),
-    [allPlayers],
-  );
 
   // Career trajectory for the selected player, plotted on the chart's own
   // age/FPTS axes: each past season becomes a point at (age that year, FPTS
@@ -385,16 +367,6 @@ export function PointsAgeAnalytics({
       contentContainerStyle={styles.scrollContent}
       showsVerticalScrollIndicator={false}
     >
-      {/* ── Roster-strength overview ── season rank + vs-league FPTS/G,
-          matching the redraft analytics view's overview card. */}
-      {strengthComparison && (
-        <RosterStrengthCard
-          comparison={strengthComparison}
-          windowLabel="Season"
-          hasInactive={hasInactive}
-        />
-      )}
-
       {/* ── Narrative Card ── matches AnalyticsPreviewCard chrome
           (heritage-gold surface + turf notch + column-divider-column),
           adapted to three stat columns. */}
@@ -409,11 +381,11 @@ export function PointsAgeAnalytics({
           },
         ]}
       >
-        <View style={[styles.topNotch, { backgroundColor: c.primary }]} />
+        <View style={[styles.topNotch, { backgroundColor: c.tint }]} />
 
         <ThemedText
           type="varsitySmall"
-          style={[styles.eyebrow, { color: c.primary }]}
+          style={[styles.eyebrow, { color: c.secondaryText }]}
         >
           CHAMPIONSHIP WINDOW
         </ThemedText>

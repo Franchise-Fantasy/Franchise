@@ -92,6 +92,11 @@ interface PlayerDetailModalProps {
   canDraft?: boolean;
   /** Press handler for the Draft button. Parent owns the draftPlayer mutation. */
   onDraftPlayer?: (player: PlayerSeasonStats) => void;
+  /** Suppresses the roster-action footer (Drop / IR / Taxi / Activate / trade
+   *  block). Set when the modal is opened from the draft "My Team" tab, where
+   *  lineup editing isn't valid mid-draft — mirrors the team-roster mirror page
+   *  intentionally omitting quick actions. */
+  hideRosterActions?: boolean;
 }
 
 export function PlayerDetailModal({
@@ -109,6 +114,7 @@ export function PlayerDetailModal({
   draftMode,
   canDraft,
   onDraftPlayer,
+  hideRosterActions,
   gameTimeMap: parentGameTimeMap,
 }: PlayerDetailModalProps) {
   const router = useRouter();
@@ -1831,6 +1837,7 @@ export function PlayerDetailModal({
     isTaxiEligible(player.draft_year, rosterInfo.season, rosterInfo.taxiMaxExperience);
   const canTrade = !!teamId && !isFreeAgent && playerRosterSlot !== "IR";
   const showFooter =
+    !hideRosterActions &&
     !!teamId &&
     ownershipInfo !== undefined &&
     (isOnMyTeam || !!draftMode || isFreeAgent);

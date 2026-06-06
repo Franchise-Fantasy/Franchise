@@ -17,18 +17,22 @@ import {
 } from 'react-native-safe-area-context';
 
 import { ChatInput } from '@/components/chat/ChatInput';
+import { GifPicker } from '@/components/chat/GifPicker';
 import { MessageActionMenu } from '@/components/chat/MessageActionMenu';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors, Fonts } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
+import { DialogHost } from '@/context/ConfirmProvider';
 import {
   useChatSubscription,
   useMarkRead,
   useMessages,
   useReactions,
   useReadReceipts,
+  useSendGif,
+  useSendImage,
   useSendMessage,
   useToggleReaction,
 } from '@/hooks/chat';
@@ -240,6 +244,22 @@ export function DraftChatModal({
 
   const toggleReaction = useToggleReaction(conversationId ?? '');
 
+  const { pickAndSend: pickImage, isUploading } = useSendImage(
+    conversationId ?? '',
+    teamId,
+    teamName,
+    leagueId,
+  );
+  const { sendGif } = useSendGif(conversationId ?? '', teamId, teamName, leagueId);
+  const [showGifPicker, setShowGifPicker] = useState(false);
+  const handleGifSelect = useCallback(
+    (gifUrl: string) => {
+      sendGif(gifUrl);
+      setShowGifPicker(false);
+    },
+    [sendGif],
+  );
+
   const newestMessage = messages.length > 0 ? messages[0] : null;
   const newestMessageId = newestMessage?.id ?? null;
   const newestMessageCreatedAt = newestMessage?.created_at ?? null;
@@ -423,6 +443,9 @@ export function DraftChatModal({
               sending={sendMessage.isPending}
               isCommissioner={isCommissioner}
               isLeagueChat
+              onPickImage={pickImage}
+              onOpenGifPicker={() => setShowGifPicker(true)}
+              isUploading={isUploading}
             />
           )}
         </Animated.View>
@@ -436,6 +459,17 @@ export function DraftChatModal({
             existingReactions={reactionsMap?.[reactionTargetId]}
           />
         )}
+
+        <GifPicker
+          visible={showGifPicker}
+          onSelect={handleGifSelect}
+          onClose={() => setShowGifPicker(false)}
+        />
+
+        {/* Host the attach action-picker inside this fullScreen modal's tree —
+            without a DialogHost here it renders at the app root, beneath the
+            modal, so the picker is invisible/unreachable. */}
+        <DialogHost />
         </SafeAreaView>
       </SafeAreaProvider>
     </Modal>

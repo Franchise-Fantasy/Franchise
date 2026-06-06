@@ -128,6 +128,14 @@ describe('isFantasyRelevant', () => {
     expect(isFantasyRelevant('Liberty waive forward after camp')).toBe(true);
     expect(isFantasyRelevant('Player traded to the Storm')).toBe(true);
   });
+
+  it('drops question-headline clickbait even with a relevant keyword', () => {
+    expect(isFantasyRelevant('Should you start this injured guard tonight?')).toBe(false);
+    expect(isFantasyRelevant('Is the rookie about to lose his starting role?')).toBe(false);
+    expect(isFantasyRelevant('Will the veteran be traded by the deadline?')).toBe(false);
+    // trailing whitespace after the "?" still counts as a question
+    expect(isFantasyRelevant('Buy-low candidate after the injury scare?  ')).toBe(false);
+  });
 });
 
 describe('matchPlayersInText', () => {

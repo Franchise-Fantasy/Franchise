@@ -8,7 +8,7 @@ jest.mock('react-native', () => ({
   },
 }));
 
-import { addDays, parseLocalDate, toDateStr } from '@/utils/dates';
+import { addDays, formatDateTimeWithZone, formatShortDate, parseLocalDate, toDateStr } from '@/utils/dates';
 
 describe('toDateStr', () => {
   it('formats local date as YYYY-MM-DD', () => {
@@ -65,5 +65,39 @@ describe('addDays', () => {
     // 2024 is a leap year
     expect(addDays('2024-02-28', 1)).toBe('2024-02-29');
     expect(addDays('2024-02-29', 1)).toBe('2024-03-01');
+  });
+});
+
+describe('formatShortDate', () => {
+  it('formats YYYY-MM-DD as a compact "Mon D" label without weekday', () => {
+    expect(formatShortDate('2026-06-06')).toBe('Jun 6');
+    expect(formatShortDate('2026-01-01')).toBe('Jan 1');
+    expect(formatShortDate('2026-12-31')).toBe('Dec 31');
+  });
+});
+
+describe('formatDateTimeWithZone', () => {
+  const d = new Date('2026-06-08T20:00:00Z');
+
+  // The same label WITHOUT the zone token, computed locally so the assertions
+  // hold regardless of the host machine's timezone (CI may be UTC, a dev box PT).
+  const noZone = new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(d);
+
+  it('renders a wall-clock time', () => {
+    expect(formatDateTimeWithZone(d)).toMatch(/\d{1,2}:\d{2}/);
+  });
+
+  it('appends an explicit timezone label so the string is unambiguous across zones', () => {
+    const withZone = formatDateTimeWithZone(d);
+    // The zoned label is the plain label plus a trailing zone token (e.g.
+    // " EDT" or " GMT-4"), so it starts with the plain label and is longer.
+    expect(withZone.startsWith(noZone)).toBe(true);
+    expect(withZone.length).toBeGreaterThan(noZone.length);
   });
 });

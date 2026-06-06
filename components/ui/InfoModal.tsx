@@ -155,7 +155,12 @@ const styles = StyleSheet.create({
     padding: s(2),
   },
   body: {
+    // flexGrow 0 keeps the card wrapping its content when short; flexShrink 1
+    // lets the ScrollView contract within the card's maxHeight when the body
+    // is tall, which is what makes it scrollable (RN defaults flexShrink to 0,
+    // so without this a tall body overflows and gets clipped instead of scrolling).
     flexGrow: 0,
+    flexShrink: 1,
   },
   text: {
     fontSize: ms(13),

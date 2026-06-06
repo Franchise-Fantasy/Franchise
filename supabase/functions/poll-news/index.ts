@@ -13,6 +13,7 @@ import {
 } from '../_shared/news-extract.ts';
 import { fetchWithRetry } from '../_shared/retry.ts';
 import { parseBody, z } from '../_shared/validate.ts';
+import { parseRotowireNewsHtml } from './rotowire-html.ts';
 
 const Body = z.object({
   sport: z.enum(['nba', 'wnba']).optional(),
@@ -39,6 +40,18 @@ const RSS_FEEDS_BY_SPORT: Record<Sport, { url: string; source: string; expectedC
   wnba: [
     { url: 'https://www.rotowire.com/rss/news.php?sport=WNBA', source: 'rotowire', expectedChannelTag: 'WNBA' },
   ],
+};
+
+// The RSS feed only holds the latest 5 items, so a post-game burst overflows it
+// and we lose the tail (including real injury news — the window drops by recency,
+// not importance). RotoWire's HTML news page lists ~25 items: deep enough that
+// the burst never overflows between our once-a-minute polls. HTML items are
+// inserted with requireMatch=true so the shared NBA player index scopes out the
+// G-League / euro / minors blurbs that also live on the basketball news page.
+// NBA only for now — WNBA stays RSS-only until its news-page URL/markup is
+// confirmed (lower volume there, so the 5-item cap rarely bites).
+const HTML_NEWS_BY_SPORT: Partial<Record<Sport, { url: string; source: string }>> = {
+  nba: { url: 'https://www.rotowire.com/basketball/news.php', source: 'rotowire' },
 };
 
 // ── RSS Parsing ────────────────────────────────
@@ -110,11 +123,13 @@ Deno.serve(async (req: Request) => {
   const RSS_FEEDS = RSS_FEEDS_BY_SPORT[sport];
 
   try {
-    // 1. Fetch RSS feed multiple times over ~45s to work around the 5-item cap.
-    //    RotoWire's feed only holds ~5 items at a time, so a single fetch per
-    //    minute misses articles during busy periods. We poll 4 times (0s, 15s,
-    //    30s, 45s) and deduplicate by guid.
-    const POLL_ROUNDS = 4;
+    // 1. Fetch the RSS feed twice (0s, 15s). The RSS feed only holds ~5 items,
+    //    but it's the only source with a PRECISE publish time, so we poll it a
+    //    couple of times to catch the freshest items (and any that rapidly
+    //    succeed each other) with real timestamps. The HTML list fetched in
+    //    step 1b provides the depth that used to require 4 rounds, so we no
+    //    longer poll the RSS aggressively just to beat its 5-item cap.
+    const POLL_ROUNDS = 2;
     const POLL_INTERVAL_MS = 15_000;
     const seenGuids = new Set<string>();
     const allItems: RssItem[] = [];
@@ -146,12 +161,42 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    if (allItems.length === 0) {
+    // 1b. Fetch RotoWire's HTML news list (~25 items) to recover anything the
+    //     5-item RSS window overflowed during a post-game burst. Items already
+    //     seen via RSS are skipped (RSS keeps its precise time); HTML-only items
+    //     are tracked separately so they can be inserted with requireMatch=true.
+    //     Best-effort: a failure here must not abort the RSS path.
+    const htmlSource = HTML_NEWS_BY_SPORT[sport];
+    const htmlOverflowItems: RssItem[] = [];
+    if (htmlSource) {
+      try {
+        const res = await fetchWithRetry(
+          htmlSource.url,
+          {
+            headers: { 'User-Agent': 'Franchise-Fantasy-App/1.0' },
+            // The HTML page is ~350KB; cap a slow fetch so it can't eat the edge
+            // wall-clock budget (retries still apply on transient failures).
+            signal: AbortSignal.timeout(8000),
+          },
+          { attempts: 3, baseMs: 300, maxMs: 2500 },
+        );
+        const html = await res.text();
+        for (const item of parseRotowireNewsHtml(html, htmlSource.source)) {
+          if (seenGuids.has(item.guid)) continue;
+          seenGuids.add(item.guid);
+          htmlOverflowItems.push(item);
+        }
+      } catch (err) {
+        console.warn('RotoWire HTML news fetch failed:', err instanceof Error ? err.message : String(err));
+      }
+    }
+
+    if (allItems.length === 0 && htmlOverflowItems.length === 0) {
       await recordHeartbeat(supabase, `poll-news:${sport}`, 'ok');
       return jsonResponse({ message: 'No items fetched', inserted: 0 });
     }
 
-    console.log(`Fetched ${allItems.length} unique RSS items across ${POLL_ROUNDS} rounds`);
+    console.log(`Fetched ${allItems.length} RSS + ${htmlOverflowItems.length} HTML-overflow unique items`);
 
     // 2. Load all players for name matching, scoped to this sport so an NBA
     //    article can't accidentally match a WNBA name (or vice versa).
@@ -167,20 +212,31 @@ Deno.serve(async (req: Request) => {
       playerById.set(p.id, { name: p.name, external_id_nba: p.external_id_nba, status: p.status });
     }
 
-    // 3. Insert each article via the shared helper. requireMatch=false:
-    //    RotoWire is curated, so a 0-match headline is still real news worth
-    //    storing. (Player status is never updated from RSS — poll-injuries is
+    // 3. Insert each article via the shared helper.
+    //    - RSS items use requireMatch=false: the curated feed is trusted, so a
+    //      0-match headline (e.g. a coach or a player not in our DB) is still
+    //      real news worth storing.
+    //    - HTML-overflow items use requireMatch=true: the basketball news page
+    //      also carries G-League / euro / minors blurbs, so we keep only those
+    //      whose subject matches a known NBA player — that match IS the NBA
+    //      scope filter.
+    //    (Player status is never updated from RotoWire — poll-injuries is
     //    authoritative; headline parsing like "Herro: Available Wednesday" is
     //    too imprecise to flip a status safely.)
+    const toInsert: { item: RssItem; requireMatch: boolean }[] = [
+      ...allItems.map((item) => ({ item, requireMatch: false })),
+      ...htmlOverflowItems.map((item) => ({ item, requireMatch: true })),
+    ];
+
     let inserted = 0;
     let mentionsInserted = 0;
     const newArticlePlayerIds = new Set<string>();
     // Map player name → most recent article title (for single-player notification body)
     const newArticleTitles = new Map<string, string>();
 
-    for (const item of allItems) {
+    for (const { item, requireMatch } of toInsert) {
       const { inserted: didInsert, matchedPlayerIds } = await insertNewsArticle(
-        supabase, item, sport, nameToIds, playerById, false,
+        supabase, item, sport, nameToIds, playerById, requireMatch,
       );
       if (!didInsert) continue;
 
@@ -202,7 +258,9 @@ Deno.serve(async (req: Request) => {
     );
 
     const summary = {
-      fetched: allItems.length,
+      fetched: allItems.length + htmlOverflowItems.length,
+      rssFetched: allItems.length,
+      htmlOverflow: htmlOverflowItems.length,
       inserted,
       mentionsInserted,
       notificationsSent,

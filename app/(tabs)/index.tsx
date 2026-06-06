@@ -1,11 +1,12 @@
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Modal,
   Platform,
+  RefreshControl,
   ScrollView,
   Share,
   StyleSheet,
@@ -44,8 +45,10 @@ import { usePaymentLink } from '@/hooks/usePaymentLink';
 import { usePlayoffBracket } from '@/hooks/usePlayoffBracket';
 import { markSplashReady } from '@/lib/splashReady';
 import { supabase } from '@/lib/supabase';
+import { formatDateTimeWithZone } from '@/utils/dates';
 import { calcRounds } from '@/utils/league/playoff';
 import { minSeasonStartForDraft } from '@/utils/league/seasonStart';
+import { logger } from '@/utils/logger';
 import { isIrEligibleStatus } from '@/utils/roster/illegalIR';
 import { ms, s } from '@/utils/scale';
 
@@ -195,6 +198,7 @@ export default function HomeScreen() {
   const router = useRouter();
   const { data: unreadCount } = useTotalUnread();
   const [switcherVisible, setSwitcherVisible] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const pickAction = useActionPicker();
   const confirm = useConfirm();
   const payWithConfirm = usePaymentLink();
@@ -741,10 +745,43 @@ export default function HomeScreen() {
       }
     }
 
+    // Notify the rest of the league that a time is set — the home hero has no
+    // live link to the drafts table, so without this members sit on a stale
+    // hero until they reopen/refresh. The time is shown in the commissioner's
+    // zone WITH a label so it reads unambiguously across timezones. Best-effort:
+    // a push failure must never block scheduling (send-notification excludes the
+    // caller and respects each member's notification prefs).
+    try {
+      await supabase.functions.invoke('send-notification', {
+        body: {
+          league_id: league.id,
+          category: 'draft',
+          title: 'Draft Scheduled',
+          body: `The ${activeDraft.type} draft is set for ${formatDateTimeWithZone(rounded)}.`,
+          data: { screen: 'home', draft_date: startTime },
+        },
+      });
+    } catch (e) {
+      logger.error('draft-scheduled push failed (non-fatal)', e);
+    }
+
     queryClient.invalidateQueries({ queryKey: queryKeys.activeDraft(league.id) });
     setShowDatePicker(false);
     setSelectedDate(null);
   };
+
+  // Pull-to-refresh: re-fetch every query the home screen is currently
+  // showing (league, active draft, bracket, offseason lookups, …) so the hero
+  // re-derives from fresh data. The manual escape hatch for the lack of a
+  // realtime link on the draft/league rows.
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await queryClient.refetchQueries({ type: 'active' });
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [queryClient]);
 
   // ── Invite actions ─────────────────────────────────────────────────
 
@@ -876,7 +913,17 @@ export default function HomeScreen() {
         </TouchableOpacity>
       </ThemedView>
 
-      <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        style={styles.content}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            tintColor={c.accent}
+          />
+        }
+      >
         {isLoading ? (
           <View style={{ marginTop: 20 }}>
             <LogoSpinner />

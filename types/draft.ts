@@ -10,10 +10,14 @@ interface Player {
 interface DraftState {
   id: string;
   league_id: string;
-  status: 'unscheduled' | 'pending' | 'in_progress' | 'complete';
+  status: 'unscheduled' | 'pending' | 'in_progress' | 'paused' | 'complete';
   type: 'initial' | 'rookie';
   current_pick_number: number;
   current_pick_timestamp: string;
+  /** Set while paused: when the commissioner paused, and how many ms were left
+   *  on the on-the-clock pick so resume can continue from there. */
+  paused_at?: string | null;
+  paused_remaining_ms?: number | null;
   /** Snapshot of time_limit captured when the current pick started, so a
    *  mid-draft pick-time change only affects future picks. Falls back to
    *  time_limit when absent (pre-migration / pre-deploy). */

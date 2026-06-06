@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 
+import { BracketPreview } from '@/components/playoff/BracketPreview';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { NumberStepper } from '@/components/ui/NumberStepper';
@@ -321,6 +322,7 @@ export function EditSeasonSettingsModal({
           selectedIndex={playoffTeamOptions.indexOf(playoffTeams)}
           onSelect={(i) => setPlayoffTeams(playoffTeamOptions[i])}
         />
+        <BracketPreview playoffTeams={playoffTeams} style={{ marginTop: s(10) }} />
       </View>
 
       {/* Seeding Format */}

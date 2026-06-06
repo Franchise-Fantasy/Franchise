@@ -32,8 +32,10 @@ import { ThemedText } from '../ui/ThemedText';
  * Analytics preview — one solid card matching the rest of the home
  * surfaces (no nested pill sub-cards). Two columns separated by a thin
  * rule: a primary stat on the left, a framing counterpart on the right.
- * A Turf Green notch up top echoes the hero's gold notch without
- * repeating the hero's color — keeps the screen from feeling monotone.
+ * A heritage-gold notch up top echoes the hero's gold notch. It stays
+ * in the gold family on purpose — out of the sport-accent (red/green)
+ * range — so it never collides with the danger/success stat colors
+ * below (e.g. WNBA's dark-mode tint and danger are both reds).
  */
 export function AnalyticsPreviewCard({
   leagueId,
@@ -185,8 +187,8 @@ export function AnalyticsPreviewCard({
           {
             // Heritage gold surface — the older olive-leaning gold, at
             // low opacity. Warmer than Vintage Gold and doesn't fight
-            // with the ecru page around it. Turf Green notch + ink text
-            // keep the read legible.
+            // with the ecru page around it. Heritage-gold notch (solid,
+            // same hue family) + ecru text keep the read legible.
             backgroundColor: c.heritageGoldMuted,
             borderColor: c.border,
             ...cardShadow,
@@ -196,7 +198,7 @@ export function AnalyticsPreviewCard({
         ]}
         {...wrapperProps}
       >
-        <View style={[styles.topRule, { backgroundColor: c.primary }]} />
+        <View style={[styles.topRule, { backgroundColor: c.heritageGold }]} />
 
         {/* Fixed-height content well. All states (loading/empty/data)
             render into the same reserved box so the card doesn't flicker
@@ -210,8 +212,8 @@ export function AnalyticsPreviewCard({
                 label="Strongest"
                 bigValue={bestCategory.cat}
                 subValue={`${bestCategory.zScore >= 0 ? '+' : ''}${bestCategory.zScore.toFixed(1)}`}
-                bigColor={c.primary}
-                subColor={c.primary}
+                bigColor={c.success}
+                subColor={c.secondaryText}
                 labelColor={c.secondaryText}
               />
               <View style={[styles.divider, { backgroundColor: c.border }]} />
@@ -220,7 +222,7 @@ export function AnalyticsPreviewCard({
                 bigValue={worstCategory.cat}
                 subValue={`${worstCategory.zScore >= 0 ? '+' : ''}${worstCategory.zScore.toFixed(1)}`}
                 bigColor={c.danger}
-                subColor={c.danger}
+                subColor={c.secondaryText}
                 labelColor={c.secondaryText}
               />
             </View>

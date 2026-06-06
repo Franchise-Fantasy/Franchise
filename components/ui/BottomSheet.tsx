@@ -24,10 +24,11 @@
  * inputs. Defaults off because most sheets don't need it.
  */
 import { Ionicons } from '@expo/vector-icons';
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -92,6 +93,25 @@ export function BottomSheet({
   const c = useColors();
   const insets = useSafeAreaInsets();
 
+  // On iOS the `keyboardAvoiding` KeyboardAvoidingView uses `behavior="padding"`,
+  // which lifts the whole bottom-anchored sheet up by the keyboard height. Without
+  // also subtracting that height from the cap below, a near-full-height sheet's top
+  // chrome (and the first input) gets shoved off the top of the screen — you can't
+  // see what you're typing. Track the keyboard height so the cap stays in sync.
+  // Android resizes the window natively (behavior is undefined there), so it's a no-op.
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  useEffect(() => {
+    if (Platform.OS !== 'ios' || !keyboardAvoiding) return;
+    const show = Keyboard.addListener('keyboardWillShow', (e) =>
+      setKeyboardHeight(e.endCoordinates.height),
+    );
+    const hide = Keyboard.addListener('keyboardWillHide', () => setKeyboardHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, [keyboardAvoiding]);
+
   // Cap the sheet so its top chrome (handle/gold rule/title) always clears
   // the status bar / notch — a tall sheet must never slide under the top
   // inset and get visually cut off. Numeric (not '%') so it resolves
@@ -99,7 +119,7 @@ export function BottomSheet({
   const windowHeight = Dimensions.get('window').height;
   const maxSheetHeight = Math.min(
     windowHeight * 0.85,
-    windowHeight - insets.top - s(8),
+    windowHeight - insets.top - keyboardHeight - s(8),
   );
 
   const slideAnim = useRef(new Animated.Value(Dimensions.get('window').height)).current;

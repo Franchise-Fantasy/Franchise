@@ -79,7 +79,7 @@ export function TrophyCase({ leagueId }: TrophyCaseProps) {
                     </ThemedText>
                     <ThemedText
                       type="varsity"
-                      style={[styles.champLabel, { color: c.primary }]}
+                      style={[styles.champLabel, { color: c.tint }]}
                     >
                       Champions
                     </ThemedText>

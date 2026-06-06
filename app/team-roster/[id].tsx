@@ -18,12 +18,18 @@ import { MatchupChip } from '@/components/player/MatchupChip';
 import { PlayerDetailModal } from '@/components/player/PlayerDetailModal';
 import { PlayerHeadshotImage } from '@/components/player/PlayerHeadshotImage';
 import { AnimatedFpts } from '@/components/roster/AnimatedFpts';
-import { buildSeasonAverages } from '@/components/roster/rosterData';
+import {
+  buildSeasonAverages,
+  type SeasonAverages,
+} from '@/components/roster/rosterData';
 import {
   rosterStyles as styles,
   slotPillVariant,
 } from '@/components/roster/rosterStyles';
-import { RosterWindowPicker } from '@/components/roster/RosterWindowPicker';
+import {
+  RosterWindowPicker,
+  type RosterStatMode,
+} from '@/components/roster/RosterWindowPicker';
 import { SeasonMetaLine } from '@/components/roster/SeasonMetaLine';
 import { SectionEyebrow } from '@/components/roster/SectionEyebrow';
 import { RosterPlayer, SlotEntry } from '@/components/roster/SlotPickerModal';
@@ -35,6 +41,7 @@ import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Brand, Fonts } from '@/constants/Colors';
+import { formatSeasonShort, getPreviousSeason } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
@@ -42,6 +49,11 @@ import { useColors } from '@/hooks/useColors';
 import { useLeague } from '@/hooks/useLeague';
 import { useLeagueRosterConfig } from '@/hooks/useLeagueRosterConfig';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
+import {
+  usePlayerProjections,
+  type ProjectionRow,
+} from '@/hooks/usePlayerProjections';
+import { usePrevSeasonFpts } from '@/hooks/usePrevSeasonFpts';
 import { useRosterGameLogs } from '@/hooks/useRosterGameLogs';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats, PlayerGameLog } from '@/types/player';
@@ -66,8 +78,8 @@ import { ms, s } from '@/utils/scale';
 import {
   calculateGameFantasyPoints,
   formatScore,
-  GameWindow,
   gameWindowSize,
+  projAvgRowToFpts,
 } from '@/utils/scoring/fantasyPoints';
 
 // Heritage deck watermark — same patch that bleeds into the corner of the
@@ -121,13 +133,21 @@ export default function TeamRosterScreen() {
   // Forward-facing stat window — only affects pre-game / no-game rows, just
   // like in (tabs)/roster.tsx. Past dates aren't selectable on this page,
   // and live/finished games render their real stats unchanged.
-  const [windowSel, setWindowSel] = useState<GameWindow>('season');
+  const [windowSel, setWindowSel] = useState<RosterStatMode>('season');
 
   const isOwnTeam = viewTeamId === myTeamId;
   const today = getSportToday(sport);
 
   const { data: league } = useLeague();
   const isCategories = league?.scoring_type === 'h2h_categories';
+
+  // Next-game projections — shown inline next to each upcoming game, and in the
+  // per-row context slot when the window picker is on "Proj" (points only).
+  const { data: nextGameProjections } = usePlayerProjections(
+    sport,
+    'next_game',
+    !isCategories,
+  );
 
   // Trade deadline gate for the right-side Trade button
   const { data: leagueDeadline } = useQuery({
@@ -266,9 +286,21 @@ export default function TeamRosterScreen() {
     [...rawLiveMap].filter(([, stats]) => stats.game_date === today),
   );
 
+  // Previous-season fpts/G (points leagues) — powers the "Prev" window option.
+  const { data: prevSeasonFpts } = usePrevSeasonFpts(
+    leagueId,
+    sport,
+    isCategories ? [] : playerIdList,
+    scoringWeights,
+  );
+  const prevSeasonLabel = formatSeasonShort(getPreviousSeason(sport), sport);
+
   // Window state for forward-facing stat display. Same gating + adaptive
   // options as the user's roster page so the two views read identically.
-  const winSize = gameWindowSize(windowSel);
+  const isProjMode = windowSel === 'proj';
+  const isPrevMode = windowSel === 'prev';
+  const winSize =
+    windowSel === 'proj' || windowSel === 'prev' ? null : gameWindowSize(windowSel);
   const { data: rosterLogsByPlayer } = useRosterGameLogs(
     winSize != null ? playerIdList : [],
   );
@@ -280,14 +312,21 @@ export default function TeamRosterScreen() {
     }
     return max;
   }, [rosterPlayers]);
-  const availableWindows = useMemo<readonly GameWindow[]>(() => {
-    const out: GameWindow[] = [];
+  const availableWindows = useMemo<readonly RosterStatMode[]>(() => {
+    const out: RosterStatMode[] = [];
     if (maxRosterGames >= 5) out.push('L5');
     if (maxRosterGames >= 10) out.push('L10');
     if (maxRosterGames >= 15) out.push('L15');
     out.push('season');
+    // Proj under Season, Prev under Proj (points leagues only).
+    if (!isCategories && nextGameProjections && nextGameProjections.size > 0) {
+      out.push('proj');
+    }
+    if (!isCategories && prevSeasonFpts && prevSeasonFpts.size > 0) {
+      out.push('prev');
+    }
     return out;
-  }, [maxRosterGames]);
+  }, [maxRosterGames, isCategories, nextGameProjections, prevSeasonFpts]);
   // Snap stale selection back to 'season' so the picker never lands on a
   // hidden option after a season rollover.
   useEffect(() => {
@@ -484,6 +523,33 @@ export default function TeamRosterScreen() {
       }, 0)
     : null;
 
+  // Pre-formatted next-game projected fpts for a player, e.g. "18.3" — or null
+  // when there's no usable projection. Drives the inline next-to-game readout.
+  const projFptsFor = (playerId: string): string | null => {
+    if (isCategories || !scoringWeights || !nextGameProjections) return null;
+    const pr = nextGameProjections.get(playerId);
+    if (!pr) return null;
+    const fpts = projAvgRowToFpts(pr as Record<string, unknown>, scoringWeights);
+    return fpts > 0 ? fpts.toFixed(1) : null;
+  };
+
+  // A next-game projection shaped like a SeasonAverages so SeasonMetaLine can
+  // render it (labeled PROJ) when the window picker is on "Proj".
+  const projToContext = (pr: ProjectionRow | undefined): SeasonAverages | null => {
+    if (!pr || !scoringWeights) return null;
+    const fpts = projAvgRowToFpts(pr as Record<string, unknown>, scoringWeights);
+    if (fpts <= 0) return null;
+    const stats = `${(pr.proj_pts ?? 0).toFixed(1)}P/${(pr.proj_reb ?? 0).toFixed(1)}R/${(pr.proj_ast ?? 0).toFixed(1)}A`;
+    return { stats, fpts: fpts.toFixed(1) };
+  };
+
+  // Last season's fpts/G for the "Prev" context mode (`stats` stays empty — only
+  // the fpts is shown). Null when no prior row.
+  const prevToContext = (playerId: string): SeasonAverages | null => {
+    const fpts = prevSeasonFpts?.get(playerId);
+    return fpts && fpts > 0 ? { stats: '', fpts: fpts.toFixed(1) } : null;
+  };
+
   const renderSlotRow = (slot: SlotEntry, idx: number, list: SlotEntry[]) => {
     const { fpts, statLine, isLive, matchup, gameTimeUtc } = resolveSlotStats(slot.player);
     const isPreGame = !!matchup && !isLive && !statLine;
@@ -512,6 +578,24 @@ export default function TeamRosterScreen() {
               : undefined,
           )
         : null;
+    // "Proj"/"Prev" windows swap the context number for the next-game projection
+    // or last season's average (else the season avg).
+    const forwardOk = slot.player && !isLive && !statLine;
+    const projContext =
+      isProjMode && forwardOk
+        ? projToContext(nextGameProjections?.get(slot.player!.player_id))
+        : null;
+    const prevContext =
+      isPrevMode && forwardOk ? prevToContext(slot.player!.player_id) : null;
+    const contextAvg = projContext ?? prevContext ?? seasonAvg;
+    const contextLabel = projContext
+      ? 'PROJ'
+      : prevContext
+        ? prevSeasonLabel
+        : 'FPTS/G';
+    // Inline projection next to the upcoming game — only for players with a game.
+    const upcomingProj =
+      isPreGame && slot.player ? projFptsFor(slot.player.player_id) : null;
 
     return (
       <View
@@ -636,7 +720,8 @@ export default function TeamRosterScreen() {
               ) : (
                 <SeasonMetaLine
                   position={slot.player.position}
-                  seasonAvg={seasonAvg}
+                  seasonAvg={contextAvg}
+                  valueLabel={contextLabel}
                   c={c}
                 />
               )}
@@ -655,7 +740,12 @@ export default function TeamRosterScreen() {
             {/* Right column — opponent pill + tipoff time on pre-game rows;
                 FPTS readout on live/final. */}
             {isPreGame ? (
-              <UpcomingGame matchup={matchup!} gameTimeUtc={gameTimeUtc} c={c} />
+              <UpcomingGame
+                matchup={matchup!}
+                gameTimeUtc={gameTimeUtc}
+                projFpts={upcomingProj}
+                c={c}
+              />
             ) : null}
             {!isCategories && !isPreGame && (
               <AnimatedFpts
@@ -805,6 +895,7 @@ export default function TeamRosterScreen() {
                 windowSel={windowSel}
                 onWindowChange={setWindowSel}
                 availableWindows={availableWindows}
+                prevLabel={prevSeasonLabel}
               />
             }
             right={

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { StyleSheet, TouchableOpacity, View } from "react-native";
 import Animated, {
   Easing,
@@ -39,7 +39,19 @@ type AvatarEntry = {
 const AVATAR_SIZE = 32;
 const OVERLAP = -16;
 const MAX_VISIBLE = 4;
-const EXIT_MS = 350;
+const HEADER_HEIGHT = s(50); // matches PageHeader + the draft-room header bar
+// Entrance slide-in distance. Kept within the header's right inset (~20px) so
+// the header's overflow:hidden clip doesn't truncate the glide — a larger
+// offset would start the avatar off the right edge and make it "wipe" in.
+const ENTRANCE_OFFSET = 16;
+// Exit: slide straight down while fading out, slow enough to read as a
+// deliberate departure. The ring is vertically centered in the bar, so to tuck
+// fully BEHIND the bottom hairline (the header clips its content) it must drop
+// half the bar height + half its own height (incl. the 1.5px ring border) + a
+// small buffer. Derived from the scaled bar height so clearance holds on wide
+// screens. The slot is reclaimed (avatar unmounts) only after this finishes.
+const EXIT_MS = 450;
+const EXIT_DROP_Y = HEADER_HEIGHT / 2 + AVATAR_SIZE / 2 + 1.5 + 4;
 const SHIFT_MS = 250;
 
 /**
@@ -102,44 +114,43 @@ export function PresenceAvatars({
     orderRef.current.push(myTeamId);
   }
 
-  // Track teams that just left — keep them in the list briefly so
-  // the fade-out plays BEFORE the remaining avatars shift.
-  const [exitingIds, setExitingIds] = useState<Set<string>>(new Set());
+  // A departing avatar MUST stay mounted through its whole exit animation. If we
+  // dropped it from the render the instant presence reports it gone, React would
+  // unmount it, then a follow-up state update would remount a fresh copy that
+  // replays the slide-IN entrance — the "pop to the right, then drift back"
+  // glitch. So `orderRef` keeps the id until a timer removes it, and `exiting` is
+  // derived live from presence (below) with no one-frame gap that can unmount it.
   const exitTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const [, forceRender] = useReducer((n: number) => n + 1, 0);
 
-  // Detect departures: teams in orderRef that are no longer live and not self
+  // Detect departures (and re-arrivals) and drive the removal timers.
   const prevLiveRef = useRef<Set<string>>(new Set());
   useEffect(() => {
+    // Came back before the timer fired (presence flicker) — cancel the removal.
+    for (const id of currentLiveIds) {
+      const pending = exitTimers.current.get(id);
+      if (pending) {
+        clearTimeout(pending);
+        exitTimers.current.delete(id);
+      }
+    }
+
     const departed: string[] = [];
     for (const id of prevLiveRef.current) {
-      if (!currentLiveIds.has(id) && id !== myTeamId) {
-        departed.push(id);
-      }
+      if (!currentLiveIds.has(id) && id !== myTeamId) departed.push(id);
     }
     prevLiveRef.current = new Set(currentLiveIds);
 
-    if (departed.length === 0) return;
-
-    setExitingIds((prev) => {
-      const next = new Set(prev);
-      for (const id of departed) next.add(id);
-      return next;
-    });
-
-    // After the exit animation finishes, actually remove them
+    // Reclaim each departed slot only after its exit animation has finished.
     for (const id of departed) {
       if (exitTimers.current.has(id)) clearTimeout(exitTimers.current.get(id)!);
       exitTimers.current.set(
         id,
         setTimeout(() => {
           orderRef.current = orderRef.current.filter((oid) => oid !== id);
-          setExitingIds((prev) => {
-            const next = new Set(prev);
-            next.delete(id);
-            return next;
-          });
           exitTimers.current.delete(id);
-        }, EXIT_MS + 50), // small buffer past animation
+          forceRender(); // mutating the ref alone won't re-render
+        }, EXIT_MS + 50), // small buffer past the animation
       );
     }
   }, [currentLiveIds, myTeamId]);
@@ -150,10 +161,9 @@ export function PresenceAvatars({
     return () => { for (const t of timers.values()) clearTimeout(t); };
   }, []);
 
-  // Remove anyone who left AND finished exiting
-  const displayOrder = orderRef.current.filter(
-    (id) => id === myTeamId || currentLiveIds.has(id) || exitingIds.has(id),
-  );
+  // Everything still tracked, in join order. Departed avatars linger here until
+  // their timer fires, so they animate out in place and never remount.
+  const displayOrder = orderRef.current;
 
   const onlineMap = new Map(onlineTeams.map((t) => [t.team_id, t]));
   const avatars: AvatarEntry[] = displayOrder.slice(0, MAX_VISIBLE).map((id) => {
@@ -170,8 +180,8 @@ export function PresenceAvatars({
       team_id: id,
       team_name: t?.team_name ?? "",
       tricode: t?.tricode ?? "",
-      logo_key: t ? (teamLogoMap?.[id] ?? null) : (teamLogoMap?.[id] ?? null),
-      exiting: exitingIds.has(id),
+      logo_key: teamLogoMap?.[id] ?? null,
+      exiting: !currentLiveIds.has(id),
     };
   });
 
@@ -235,7 +245,7 @@ function AvatarSlot({
   successColor: string;
 }) {
   const mountIndex = useRef(index);
-  const translateX = useSharedValue(60);
+  const translateX = useSharedValue(ENTRANCE_OFFSET);
   const opacity = useSharedValue(1);
   const translateY = useSharedValue(0);
 
@@ -248,11 +258,19 @@ function AvatarSlot({
     );
   }, [translateX]);
 
-  // When marked as exiting, play fade + drop in place
+  // When marked as exiting: slide straight down while fading out, over the full
+  // EXIT_MS so it never blips. The avatar isn't removed until this completes. If
+  // presence flickers and the team returns first, snap back to resting position.
   useEffect(() => {
     if (exiting) {
+      translateY.value = withTiming(EXIT_DROP_Y, {
+        duration: EXIT_MS,
+        easing: Easing.in(Easing.quad),
+      });
       opacity.value = withTiming(0, { duration: EXIT_MS });
-      translateY.value = withTiming(12, { duration: EXIT_MS });
+    } else {
+      translateY.value = withTiming(0, { duration: 200 });
+      opacity.value = withTiming(1, { duration: 200 });
     }
   }, [exiting, opacity, translateY]);
 
@@ -264,7 +282,12 @@ function AvatarSlot({
   return (
     <Animated.View
       layout={LinearTransition.duration(SHIFT_MS)}
-      style={{ marginLeft: index === 0 ? 0 : OVERLAP }}
+      // Uniform overlap on EVERY slot (the container's paddingLeft cancels the
+      // first one's negative margin). Keeping marginLeft constant means removing
+      // the leftmost avatar is a pure reflow — no marginLeft change to fight the
+      // layout transition — so the remaining avatars slide over smoothly instead
+      // of the new first avatar jumping.
+      style={{ marginLeft: OVERLAP }}
     >
       <Animated.View style={[styles.avatarWrapper, animatedStyle]}>
         <View style={[styles.onlineRing, { borderColor: successColor }]}>
@@ -286,6 +309,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     overflow: "visible",
     marginRight: s(4),
+    // Cancels the first avatar's uniform negative marginLeft so the cluster
+    // sits in the same place while every slot keeps an identical margin.
+    paddingLeft: -OVERLAP,
   },
   avatarWrapper: {
     borderRadius: AVATAR_SIZE / 2,

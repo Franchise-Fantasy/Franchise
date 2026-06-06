@@ -3,19 +3,30 @@ import { AppState } from 'react-native';
 
 
 
-export const useDraftTimer = (pickStartedAt?: string, timeLimit?: number) => {
+export const useDraftTimer = (
+  pickStartedAt?: string,
+  timeLimit?: number,
+  /** When non-null the draft is paused: freeze the display at this many ms and
+   *  stop ticking. resume-draft restores a live clock from the same value. */
+  pausedRemainingMs?: number | null,
+) => {
   const [timeRemaining, setTimeRemaining] = useState(0);
-
-  const calculateRemaining = () => {
-    if (!pickStartedAt || !timeLimit) return 0;
-    const now = Date.now();
-    const start = new Date(pickStartedAt.replace(' ', 'T')).getTime();
-    const end = start + timeLimit * 1000;
-    return Math.max(0, end - now);
-  };
+  const isPaused = pausedRemainingMs != null;
 
   useEffect(() => {
+    const calculateRemaining = () => {
+      if (isPaused) return Math.max(0, pausedRemainingMs);
+      if (!pickStartedAt || !timeLimit) return 0;
+      const now = Date.now();
+      const start = new Date(pickStartedAt.replace(' ', 'T')).getTime();
+      const end = start + timeLimit * 1000;
+      return Math.max(0, end - now);
+    };
+
     setTimeRemaining(calculateRemaining());
+
+    // Frozen while paused — no interval, no foreground recompute.
+    if (isPaused) return;
 
     const interval = setInterval(() => {
       setTimeRemaining(calculateRemaining());
@@ -32,7 +43,7 @@ export const useDraftTimer = (pickStartedAt?: string, timeLimit?: number) => {
       clearInterval(interval);
       subscription.remove();
     };
-  }, [pickStartedAt, timeLimit]);
+  }, [pickStartedAt, timeLimit, isPaused, pausedRemainingMs]);
 
   const formatTime = (ms: number) => {
     if (ms <= 0) return '00:00';
@@ -45,5 +56,6 @@ export const useDraftTimer = (pickStartedAt?: string, timeLimit?: number) => {
   // `expired` lets the consumer swap the bare "00:00" for a "Pick is in" label
   // during the brief window between server-side timer expiry and the realtime
   // pick-update arriving (~0.5–1.5s of QStash delivery + edge fn + broadcast).
-  return { display: formatTime(timeRemaining), expired: timeRemaining <= 0 };
+  // A paused timer is never "expired" — it's frozen, not run out.
+  return { display: formatTime(timeRemaining), expired: !isPaused && timeRemaining <= 0, paused: isPaused };
 };

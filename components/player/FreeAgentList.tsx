@@ -13,7 +13,10 @@ import {
   SkeletonRow,
 } from "@/components/player/FreeAgentListSkeletons";
 import { FreeAgentRow } from "@/components/player/FreeAgentRow";
-import { FreeAgentStatusRibbon } from "@/components/player/FreeAgentStatusRibbon";
+import {
+  FreeAgentStatusRibbon,
+  type PendingClaim,
+} from "@/components/player/FreeAgentStatusRibbon";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import { PlayerFilterBar } from "@/components/player/PlayerFilterBar";
 import { RosterNeedsStrip } from "@/components/player/RosterNeedsStrip";
@@ -91,6 +94,11 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     useState<PlayerSeasonStats | null>(null);
   const [bidAmount, setBidAmount] = useState("0");
   const [faabDropPlayerId, setFaabDropPlayerId] = useState<string | null>(null);
+  // Set when the FAAB modal is editing an existing pending bid (vs. placing a
+  // new one). Drives an UPDATE of the claim's bid_amount instead of an INSERT.
+  const [editingBidClaim, setEditingBidClaim] = useState<PendingClaim | null>(
+    null,
+  );
 
   const [timeRange, setTimeRange] = useState<TimeRange>("season");
 
@@ -550,9 +558,11 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     return states;
   }, [rosterConfig, myTeamCounts, chipPositions]);
 
-  // Fetch last 30 days of game logs for every player with a season row — powers the time-range
-  // stats and "Minutes Rising" filter. Must include rostered players so they stay visible when
-  // the user toggles off the "free agents only" pill.
+  // Fetch the recent game logs that power the L5/L10/L15 windows and the
+  // "Minutes Rising" filter. 45 days comfortably contains 15 played games for
+  // an everyday player; the DESC-ordered `limit` keeps the most-recent rows, so
+  // the last-N window is never starved. Must include rostered players so they
+  // stay visible when the user toggles off the "free agents only" pill.
   const allPlayerIds = useMemo(() => {
     if (!allPlayers) return [];
     return allPlayers.map((p) => p.player_id);
@@ -561,7 +571,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     queryKey: queryKeys.recentGameLogs(leagueId),
     queryFn: async () => {
       const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - 30);
+      cutoff.setDate(cutoff.getDate() - 45);
       const cutoffStr = cutoff.toISOString().split("T")[0];
 
       // Batch into chunks of 200 IDs to stay within URL length limits
@@ -1025,6 +1035,26 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     );
   };
 
+  // Update the bid amount on an existing pending FAAB claim. The modal already
+  // clamps the bid to (0, budget], so no extra validation is needed here.
+  const handleUpdateClaimBid = async (claimId: string, bid: number) => {
+    const { error } = await supabase
+      .from("waiver_claims")
+      .update({ bid_amount: bid })
+      .eq("id", claimId);
+    if (error) {
+      Alert.alert("Error", error.message);
+      return;
+    }
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.pendingClaims(leagueId, teamId),
+    });
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.faabRemaining(leagueId, teamId),
+    });
+    setSubmitOverlayLabel("Bid Updated.");
+  };
+
   // Trigger the claim flow (standard or FAAB) for a player, optionally with a drop
   const triggerClaimFlow = (
     player: PlayerSeasonStats,
@@ -1088,17 +1118,21 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       scoringWeights && !isCategories
         ? calculateAvgFantasyPoints(item, scoringWeights)
         : undefined;
-    const projRow = projectionsActive ? projections?.get(item.player_id) : null;
-    const projFpts =
-      projRow && scoringWeights
-        ? projAvgRowToFpts(projRow as Record<string, unknown>, scoringWeights)
-        : null;
     const needsClaim = isOnWaivers(item.player_id, waiverType, waiverPlayerMap);
     const waiverLabel = needsClaim
       ? getWaiverBadgeLabel(item.player_id, waiverType, waiverPlayerMap)
       : null;
     const schedEntry = todaySchedule?.get(item.pro_team) ?? null;
     const gameToday = schedEntry?.matchup ?? null;
+    // The next-game projection only makes sense when the player actually plays
+    // on the selected day — gate on the schedule entry so it sits beside the
+    // matchup chip instead of floating on no-game rows.
+    const projRow =
+      projectionsActive && gameToday ? projections?.get(item.player_id) : null;
+    const projFpts =
+      projRow && scoringWeights
+        ? projAvgRowToFpts(projRow as Record<string, unknown>, scoringWeights)
+        : null;
     const owner = ownershipMap?.get(item.player_id) ?? null;
     // Only offer a trade when another team owns the player — never for the
     // user's own roster or unrostered free agents.
@@ -1255,6 +1289,11 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
               },
             })
           }
+          onEditClaimBid={(claim) => {
+            setEditingBidClaim(claim);
+            setBidAmount(String(claim.bid_amount ?? 0));
+            setFaabModalPlayer(seasonStatsMap.get(claim.player_id) ?? null);
+          }}
           onEditClaimDrop={(claim) => {
             setEditingClaimId(claim.id);
             setOpenAsDropPicker(true);
@@ -1335,18 +1374,26 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
       <FaabBidModal
         player={faabModalPlayer}
+        isEditing={editingBidClaim != null}
         bidAmount={bidAmount}
         faabRemaining={faabRemaining}
         onBidAmountChange={setBidAmount}
         onCancel={() => {
           setFaabModalPlayer(null);
           setFaabDropPlayerId(null);
+          setEditingBidClaim(null);
         }}
         onSubmit={(player, bid) => {
-          const dropId = faabDropPlayerId ?? undefined;
+          const editing = editingBidClaim;
           setFaabModalPlayer(null);
-          setFaabDropPlayerId(null);
-          handleSubmitFaabBid(player, bid, dropId);
+          if (editing) {
+            setEditingBidClaim(null);
+            handleUpdateClaimBid(editing.id, bid);
+          } else {
+            const dropId = faabDropPlayerId ?? undefined;
+            setFaabDropPlayerId(null);
+            handleSubmitFaabBid(player, bid, dropId);
+          }
         }}
       />
 

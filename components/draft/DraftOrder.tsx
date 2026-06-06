@@ -36,6 +36,22 @@ export interface PresenceTeam {
   logoKey: string | null;
 }
 
+// Effective seconds-on-the-clock for a pick, honoring the optional "speed up
+// after round N" setting. Mirrors supabase/functions/_shared/draftClock.ts —
+// the edge copy lives behind a Deno import path the client can't pull in.
+// IMPORTANT: reads `time_limit`, NOT `current_pick_time_limit`. The
+// commissioner pick-clock toast below diffs prev/next of this value; resume
+// rewrites `current_pick_time_limit` to the restored snapshot, so reading that
+// here instead would make every resume falsely toast "pick clock changed".
+function effectivePickClock(d: DraftState, pickNumber: number): number {
+  if (d.accelerate_after_round == null || d.accelerated_time_limit == null) {
+    return d.time_limit;
+  }
+  const ppr = d.picks_per_round && d.picks_per_round > 0 ? d.picks_per_round : 1;
+  const round = Math.ceil(pickNumber / ppr);
+  return round > d.accelerate_after_round ? d.accelerated_time_limit : d.time_limit;
+}
+
 interface DraftOrderProps {
   draftId: string;
   teamId: string;
@@ -166,8 +182,14 @@ export function DraftOrder({
     };
   }, [draftState?.status, draftState?.draft_date, draftId, queryClient]);
 
-  // NEW: Use the timer hook with the fetched draft state
-  const { display: countdown, expired: countdownExpired } = useDraftTimer(currentPickTimestamp || draftState?.current_pick_timestamp, draftState?.current_pick_time_limit ?? draftState?.time_limit);
+  const isPaused = draftState?.status === "paused";
+  // Use the timer hook with the fetched draft state. While paused, freeze it at
+  // the snapshotted remaining ms instead of ticking against a stale timestamp.
+  const { display: countdown, expired: countdownExpired } = useDraftTimer(
+    currentPickTimestamp || draftState?.current_pick_timestamp,
+    draftState?.current_pick_time_limit ?? draftState?.time_limit,
+    isPaused ? (draftState?.paused_remaining_ms ?? 0) : null,
+  );
 
   // Gold flash overlay — tighter than the prior fade so the celebration
   // reads as a stadium light rather than a toast notification.
@@ -292,18 +314,23 @@ export function DraftOrder({
           const prev = queryClient.getQueryData<DraftState>(queryKeys.draftState(draftId));
           const next = payload.new as DraftState;
           // Surface a mid-draft pick-clock change so other GMs aren't blindsided
-          // by the timer suddenly shifting. The commissioner made the change, so
-          // they don't need the toast; and we only fire while the draft is live
-          // (the initial seed and the start transition aren't "changes").
+          // by the timer shifting. Fire only when the clock that's LIVE this
+          // round actually changed (covers both the base and accelerated clocks,
+          // and toggling acceleration), and only on a config-only edit — a pick
+          // advance changes current_pick_number, and the natural threshold
+          // crossing must not read as a commissioner change. Skip the commish
+          // who made it.
           if (
             prev &&
             next.status === "in_progress" &&
-            typeof prev.time_limit === "number" &&
-            typeof next.time_limit === "number" &&
-            next.time_limit !== prev.time_limit &&
+            next.current_pick_number === prev.current_pick_number &&
             !isCommissioner
           ) {
-            showToast("info", `Commissioner set the pick clock to ${next.time_limit}s.`);
+            const prevClock = effectivePickClock(prev, prev.current_pick_number);
+            const nextClock = effectivePickClock(next, next.current_pick_number);
+            if (nextClock !== prevClock) {
+              showToast("info", `Commissioner set the pick clock to ${nextClock}s.`);
+            }
           }
           queryClient.setQueryData(queryKeys.draftState(draftId), next);
         },
@@ -631,6 +658,14 @@ export function DraftOrder({
                     >
                       Starts {timeUntilDraft}
                     </ThemedText>
+                  ) : isPaused ? (
+                    <ThemedText
+                      type="varsity"
+                      style={[styles.pausedText, { color: colors.gold }]}
+                      accessibilityLabel="Draft paused"
+                    >
+                      Paused
+                    </ThemedText>
                   ) : draftState?.status !== "in_progress" ? (
                     // Pending but past draft_date — server-side cron is on its
                     // way to flip status. Render nothing rather than a stale
@@ -740,6 +775,10 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
   },
   pickIsInText: {
+    fontSize: ms(11),
+    letterSpacing: 1.2,
+  },
+  pausedText: {
     fontSize: ms(11),
     letterSpacing: 1.2,
   },
