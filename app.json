@@ -7,7 +7,6 @@
     "icon": "./assets/images/icon.png",
     "scheme": "franchisev2",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.chewers.franchisev2",
@@ -28,7 +27,6 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#E9E2CB"
       },
-      "edgeToEdgeEnabled": true,
       "package": "com.chewers.franchisev2",
       "googleServicesFile": "./google-services.json"
     },
@@ -78,7 +76,9 @@
         {
           "uploadSourceMaps": false
         }
-      ]
+      ],
+      "expo-image",
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true
