@@ -1,9 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { errorResponse, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { parseBody, z } from '../_shared/validate.ts';
-import { sportSlateDate, week1Length } from '../../../utils/leagueTime.ts';
+import { sportSlateDate } from '../../../utils/leagueTime.ts';
+import { planScheduleWeeks, type MergeWindow } from '../../../utils/league/scheduleWindows.ts';
 
 const Body = z.object({
   league_id: z.string().uuid(),
@@ -81,7 +82,7 @@ Deno.serve(async (req: Request) => {
     // stays required for everything else.
     const { data: league, error: leagueErr } = await supabase
       .from("leagues")
-      .select("regular_season_weeks, playoff_weeks, season, season_start_date, schedule_generated, created_by, offseason_step, imported_from, sport")
+      .select("regular_season_weeks, playoff_weeks, season, season_start_date, schedule_generated, created_by, offseason_step, imported_from, sport, combine_cup_week")
       .eq("id", league_id)
       .single();
 
@@ -205,43 +206,44 @@ Deno.serve(async (req: Request) => {
     const cycleRounds = buildRoundRobin(teamList);
     const cycleLength = cycleRounds.length;
 
-    const [sy, sm, sd] = seasonStartDate.split("-").map(Number);
+    // Fetch the sport+season merge calendar that drives "double weeks"
+    // (All-Star break, the WNBA FIBA gap, and the opt-in NBA Cup week). Optional
+    // windows only apply when this league turned the toggle on.
+    const { data: seasonCfg, error: seasonCfgErr } = await supabase
+      .from("season_config")
+      .select("merge_windows")
+      .eq("sport", league.sport ?? "nba")
+      .eq("season", league.season)
+      .maybeSingle();
+    // Fail loud on a real read error — generation runs once, so silently
+    // degrading to a schedule with no double weeks would be permanent. A
+    // genuinely missing config row (null) correctly yields no merge windows.
+    if (seasonCfgErr) throw seasonCfgErr;
+    const allWindows = (seasonCfg?.merge_windows ?? []) as unknown as MergeWindow[];
+    const mergeWindows = allWindows.filter(
+      (w) => !w.optional || league.combine_cup_week,
+    );
 
-    // Week 1 absorbs any Thu/Fri/Sat/Sun leading days (8-11 day long week
-    // ending the second Sunday); Mon/Tue/Wed starts give a 5-7 day Week 1.
-    // Week 2+ are always full Mon–Sun. See week1Length in utils/leagueTime.
-    const w1Start = new Date(Date.UTC(sy, sm - 1, sd));
-    const w1Dow = w1Start.getUTCDay();
-    const w1Len = week1Length(w1Dow);
-    const w1EndDay = sd + w1Len - 1; // day-of-month for Week 1 Sunday
-    const week2StartDay = w1EndDay + 1;  // Monday after Week 1
+    // Walk the calendar, collapsing any week that overlaps a merge window into a
+    // single longer matchup. Matchup count is preserved (PRESERVE semantics) —
+    // a double week just spans more calendar days — so the round-robin below is
+    // untouched. Week 1's variable length is handled inside the planner.
+    const plannedWeeks = planScheduleWeeks({
+      seasonStart: seasonStartDate,
+      regularSeasonWeeks: league.regular_season_weeks,
+      playoffWeeks: league.playoff_weeks,
+      mergeWindows,
+    });
 
-    const totalWeeks = league.regular_season_weeks + league.playoff_weeks;
-    const scheduleRows = [];
-
-    for (let w = 0; w < totalWeeks; w++) {
-      let wsDate: Date;
-      let weDate: Date;
-
-      if (w === 0) {
-        // Week 1: season_start_date through first Sunday
-        wsDate = w1Start;
-        weDate = new Date(Date.UTC(sy, sm - 1, w1EndDay));
-      } else {
-        // Week 2+: full Mon–Sun
-        wsDate = new Date(Date.UTC(sy, sm - 1, week2StartDay + (w - 1) * 7));
-        weDate = new Date(Date.UTC(sy, sm - 1, week2StartDay + (w - 1) * 7 + 6));
-      }
-
-      scheduleRows.push({
-        league_id,
-        week_number: w + 1,
-        start_date: wsDate.toISOString().split("T")[0],
-        end_date: weDate.toISOString().split("T")[0],
-        is_playoff: w >= league.regular_season_weeks,
-        season: league.season,
-      });
-    }
+    const scheduleRows = plannedWeeks.map((pw) => ({
+      league_id,
+      week_number: pw.weekNumber,
+      start_date: pw.startDate,
+      end_date: pw.endDate,
+      is_playoff: pw.isPlayoff,
+      is_double_week: pw.isDoubleWeek,
+      season: league.season,
+    }));
 
     const { data: insertedWeeks, error: weeksErr } = await supabase
       .from("league_schedule")
@@ -283,7 +285,7 @@ Deno.serve(async (req: Request) => {
 
     await supabase.from("leagues").update({ schedule_generated: true, offseason_step: null }).eq("id", league_id);
 
-    return jsonResponse({ success: true, total_weeks: totalWeeks, regular_season_matchups: matchupRows.length });
+    return jsonResponse({ success: true, total_weeks: plannedWeeks.length, regular_season_matchups: matchupRows.length });
   } catch (err) {
     return handleError(err, 'generate-schedule');
   }

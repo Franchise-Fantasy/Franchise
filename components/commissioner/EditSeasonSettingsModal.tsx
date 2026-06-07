@@ -12,13 +12,14 @@ import {
   View,
 } from 'react-native';
 
+import { computeMaxWeeks } from '@/components/create-league/StepSeason';
 import { BracketPreview } from '@/components/playoff/BracketPreview';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { getSeasonEnd, parseSeasonStartYear, PLAYOFF_SEEDING_OPTIONS, PlayoffSeedingOption, seedingDisplay, SEEDING_TO_DB, SPORT_OPENING_MONTH, startDateBelongsToSeason, TIEBREAKER_DISPLAY, TIEBREAKER_OPTIONS, TIEBREAKER_TO_DB, TiebreakerOption } from '@/constants/LeagueDefaults';
+import { getCurrentSeason, getMaxPlayoffWeeks, getSeasonEnd, parseSeasonStartYear, PLAYOFF_SEEDING_OPTIONS, PlayoffSeedingOption, seedingDisplay, SEEDING_TO_DB, SPORT_OPENING_MONTH, startDateBelongsToSeason, TIEBREAKER_DISPLAY, TIEBREAKER_OPTIONS, TIEBREAKER_TO_DB, TiebreakerOption } from '@/constants/LeagueDefaults';
 import { useColors } from '@/hooks/useColors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
@@ -64,6 +65,7 @@ export function EditSeasonSettingsModal({
   const [playoffTeams, setPlayoffTeams] = useState(4);
   const [seedingFormat, setSeedingFormat] = useState<PlayoffSeedingOption>('Standard');
   const [tiebreakerPrimary, setTiebreakerPrimary] = useState<TiebreakerOption>('Head-to-Head');
+  const [combineCupWeek, setCombineCupWeek] = useState(false);
   // ISO `yyyy-mm-dd`, or null when no date is set for the upcoming season yet.
   const [startDate, setStartDate] = useState<string | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -80,6 +82,7 @@ export function EditSeasonSettingsModal({
         league.playoff_teams ?? Math.min(2 ** (league.playoff_weeks ?? 3), teamCount)
       );
       setSeedingFormat(seedingDisplay(league.playoff_seeding_format, league.reseed_each_round ?? false));
+      setCombineCupWeek(league.combine_cup_week ?? false);
       const primaryKey = (league.tiebreaker_order ?? ['head_to_head', 'points_for'])[0];
       setTiebreakerPrimary((TIEBREAKER_DISPLAY[primaryKey] ?? 'Head-to-Head') as TiebreakerOption);
       // A stored date that predates `league.season` (offseason carry-over)
@@ -149,6 +152,7 @@ export function EditSeasonSettingsModal({
       playoff_seeding_format: (SEEDING_TO_DB[seedingFormat] ?? SEEDING_TO_DB.Standard).format,
       reseed_each_round: (SEEDING_TO_DB[seedingFormat] ?? SEEDING_TO_DB.Standard).reseed,
       tiebreaker_order: TIEBREAKER_TO_DB[tiebreakerPrimary],
+      combine_cup_week: sport === 'nba' ? combineCupWeek : false,
     };
     // Only persist the start date when one has actually been picked — never
     // overwrite the stored value with null if the commissioner left it unset.
@@ -209,6 +213,17 @@ export function EditSeasonSettingsModal({
         const year = league?.season ? parseSeasonStartYear(league.season) : undefined;
         return month && year ? `Set date · ~${month} ${year}` : 'Set date';
       })();
+
+  // Cap weeks to what fits before the season's terminal break (WNBA FIBA) and
+  // pro-season end — mirrors the create-league wizard so playoffs can't be
+  // scheduled into/through the break (or past the real season).
+  const maxTotalWeeks = computeMaxWeeks(
+    league?.season ?? getCurrentSeason(sport),
+    sport,
+    startDate ? new Date(startDate + 'T00:00:00') : undefined,
+  );
+  const maxRegWeeks = Math.max(1, maxTotalWeeks - playoffWeeks);
+  const maxPlayoffWeeksCap = Math.min(getMaxPlayoffWeeks(sport), Math.max(1, maxTotalWeeks - regWeeks));
 
   return (
     <BottomSheet
@@ -300,7 +315,7 @@ export function EditSeasonSettingsModal({
         value={regWeeks}
         onValueChange={setRegWeeks}
         min={1}
-        max={30}
+        max={maxRegWeeks}
       />
 
       {/* Playoff Weeks */}
@@ -309,8 +324,27 @@ export function EditSeasonSettingsModal({
         value={playoffWeeks}
         onValueChange={handlePlayoffWeeksChange}
         min={1}
-        max={6}
+        max={maxPlayoffWeeksCap}
       />
+
+      {/* NBA Cup Week — NBA only. All-Star / FIBA double weeks are unilateral. */}
+      {sport === 'nba' && (
+        <>
+          <View style={[styles.editRow, { borderBottomColor: c.border }]}>
+            <ThemedText style={styles.rowLabel}>NBA Cup Week</ThemedText>
+          </View>
+          <View style={{ marginBottom: s(12) }}>
+            <SegmentedControl
+              options={['Separate weeks', 'Double week']}
+              selectedIndex={combineCupWeek ? 1 : 0}
+              onSelect={(i) => setCombineCupWeek(i === 1)}
+            />
+            <ThemedText style={[styles.helperText, { color: c.secondaryText, marginTop: s(6) }]}>
+              Combine the NBA Cup knockout week with the next into one matchup. Applies when the schedule is generated; the All-Star break is always a double week.
+            </ThemedText>
+          </View>
+        </>
+      )}
 
       {/* Playoff Teams */}
       <View style={[styles.editRow, { borderBottomColor: c.border }]}>

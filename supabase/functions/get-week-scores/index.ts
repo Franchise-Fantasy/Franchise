@@ -4,6 +4,13 @@ import { corsResponse } from "../_shared/cors.ts";
 import { errorResponse, handleError, jsonResponse } from "../_shared/http.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { pushActivityUpdate } from "../_shared/apns.ts";
+import { type CategoryResult } from "../_shared/finalizeWeek/scoring.ts";
+import {
+  buildCategoriesContentState,
+  buildPointsContentState,
+  categoryResultsToLines,
+  type LiveActivityContentState,
+} from "../_shared/liveActivityContent.ts";
 import { resolveSlot as sharedResolveSlot, isActiveSlot } from "../_shared/resolveSlot.ts";
 import { parseBody, z } from "../_shared/validate.ts";
 import { getSportToday, addSlateDays } from "../../../utils/leagueTime.ts";
@@ -59,7 +66,8 @@ function compareCategoryStats(
   homeStats: Record<string, number>,
   awayStats: Record<string, number>,
   categories: ScoringWeight[],
-): { homeWins: number; awayWins: number; ties: number } {
+): { results: CategoryResult[]; homeWins: number; awayWins: number; ties: number } {
+  const results: CategoryResult[] = [];
   let homeWins = 0;
   let awayWins = 0;
   let ties = 0;
@@ -84,16 +92,22 @@ function compareCategoryStats(
       awayVal = awayStats[gameKey] ?? 0;
     }
 
+    let winner: 'home' | 'away' | 'tie';
     if (homeVal === awayVal) {
+      winner = 'tie';
       ties++;
     } else if (cat.inverse) {
-      if (homeVal < awayVal) homeWins++; else awayWins++;
+      winner = homeVal < awayVal ? 'home' : 'away';
+      if (winner === 'home') homeWins++; else awayWins++;
     } else {
-      if (homeVal > awayVal) homeWins++; else awayWins++;
+      winner = homeVal > awayVal ? 'home' : 'away';
+      if (winner === 'home') homeWins++; else awayWins++;
     }
+
+    results.push({ stat: cat.stat_name, home: homeVal, away: awayVal, winner });
   }
 
-  return { homeWins, awayWins, ties };
+  return { results, homeWins, awayWins, ties };
 }
 
 function calcFpts(
@@ -141,11 +155,13 @@ const addDays = (dateStr: string, days: number) => addSlateDays(dateStr, days);
 interface WeekScoreResult {
   teamScores: Record<string, number>;
   isCategories: boolean;
+  inverseByStat: Record<string, boolean>;
   categoryUpdates: Array<{
     matchupId: string;
     homeWins: number;
     awayWins: number;
     ties: number;
+    results: CategoryResult[];
   }>;
 }
 
@@ -179,7 +195,7 @@ async function computeWeekScores(
   }
   const teamIdList = [...teamIds];
 
-  if (teamIdList.length === 0) return { teamScores: {}, isCategories, categoryUpdates: [] };
+  if (teamIdList.length === 0) return { teamScores: {}, isCategories, inverseByStat: {}, categoryUpdates: [] };
 
   const leaguePlayers = bundle.rosters ?? [];
   const dailyEntries = bundle.lineups ?? [];
@@ -347,11 +363,15 @@ async function computeWeekScores(
         homeWins: result.homeWins,
         awayWins: result.awayWins,
         ties: result.ties,
+        results: result.results,
       });
     }
   }
 
-  return { teamScores, isCategories, categoryUpdates };
+  const inverseByStat: Record<string, boolean> = {};
+  for (const w of weights) inverseByStat[w.stat_name] = !!w.inverse;
+
+  return { teamScores, isCategories, inverseByStat, categoryUpdates };
 }
 
 // ── Upsert scores into week_scores table ────────────────────────────────────
@@ -446,8 +466,17 @@ async function hasActiveOrFinishedGames(): Promise<boolean> {
 const TRICODE_FROM_NAME = (name: string) =>
   name.trim().substring(0, 3).toUpperCase() || '???';
 
+interface DispatchWeekResult {
+  league_id: string;
+  schedule_id: string;
+  teamScores: Record<string, number>;
+  isCategories: boolean;
+  inverseByStat: Record<string, boolean>;
+  categoryUpdates: WeekScoreResult['categoryUpdates'];
+}
+
 async function dispatchMatchupActivities(
-  weekResults: Array<{ league_id: string; schedule_id: string; teamScores: Record<string, number> }>,
+  weekResults: DispatchWeekResult[],
 ): Promise<void> {
   // Check if any Live Activities are registered before doing work
   const scheduleIds = weekResults.map(w => w.schedule_id);
@@ -496,6 +525,10 @@ async function dispatchMatchupActivities(
     const weekTokens = tokens.filter(t => t.schedule_id === weekResult.schedule_id);
     if (weekTokens.length === 0) continue;
 
+    const updatesByMatchupId = new Map(
+      weekResult.categoryUpdates.map((u) => [u.matchupId, u]),
+    );
+
     for (const token of weekTokens) {
       const matchup = matchupById.get(token.matchup_id);
       if (!matchup) continue;
@@ -506,25 +539,52 @@ async function dispatchMatchupActivities(
         : matchup.home_team_id;
       if (!myTeamId || !oppTeamId) continue;
 
-      const myScore = weekResult.teamScores[myTeamId] ?? 0;
-      const oppScore = weekResult.teamScores[oppTeamId] ?? 0;
-
       const myMeta = teamInfo.get(myTeamId) ?? { name: '', tricode: '???' };
       const oppMeta = teamInfo.get(oppTeamId) ?? { name: '', tricode: '???' };
 
-      const contentState = {
-        myTeamName: myMeta.name,
-        opponentTeamName: oppMeta.name,
-        myTeamTricode: myMeta.tricode,
-        opponentTeamTricode: oppMeta.tricode,
-        myScore,
-        opponentScore: oppScore,
-        scoreGap: Math.round((myScore - oppScore) * 10) / 10,
-        biggestContributor: '',
-        myActivePlayers: 0,
-        opponentActivePlayers: 0,
-        players: [],
-      };
+      let contentState: LiveActivityContentState;
+      if (weekResult.isCategories) {
+        const update = updatesByMatchupId.get(token.matchup_id);
+        const perspective: 'home' | 'away' =
+          matchup.home_team_id === myTeamId ? 'home' : 'away';
+        const lines = update
+          ? categoryResultsToLines(update.results, perspective, weekResult.inverseByStat)
+          : [];
+        const myWins = update
+          ? perspective === 'home' ? update.homeWins : update.awayWins
+          : 0;
+        const oppWins = update
+          ? perspective === 'home' ? update.awayWins : update.homeWins
+          : 0;
+        const ties = update?.ties ?? 0;
+        contentState = buildCategoriesContentState({
+          myTeamName: myMeta.name,
+          opponentTeamName: oppMeta.name,
+          myTeamTricode: myMeta.tricode,
+          opponentTeamTricode: oppMeta.tricode,
+          myWins,
+          oppWins,
+          ties,
+          categories: lines,
+          myActivePlayers: 0,
+          opponentActivePlayers: 0,
+        });
+      } else {
+        const myScore = weekResult.teamScores[myTeamId] ?? 0;
+        const oppScore = weekResult.teamScores[oppTeamId] ?? 0;
+        contentState = buildPointsContentState({
+          myTeamName: myMeta.name,
+          opponentTeamName: oppMeta.name,
+          myTeamTricode: myMeta.tricode,
+          opponentTeamTricode: oppMeta.tricode,
+          myScore: Math.round(myScore * 10) / 10,
+          opponentScore: Math.round(oppScore * 10) / 10,
+          biggestContributor: '',
+          myActivePlayers: 0,
+          opponentActivePlayers: 0,
+          players: [],
+        });
+      }
 
       await pushActivityUpdate(supabase, 'matchup', {
         schedule_id: weekResult.schedule_id,
@@ -640,13 +700,19 @@ Deno.serve(async (req: Request) => {
 
     // ── Dispatch Live Activity updates (non-blocking) ──
     // Fire-and-forget: don't let activity push failures slow down the cron
-    dispatchMatchupActivities(results.map(r => ({
-      league_id: r.league_id,
-      schedule_id: r.schedule_id,
-      teamScores: (settled.find(
+    dispatchMatchupActivities(results.map(r => {
+      const settledValue = (settled.find(
         s => s.status === 'fulfilled' && s.value.league_id === r.league_id && s.value.schedule_id === r.schedule_id,
-      ) as PromiseFulfilledResult<any>)?.value?.teamScores ?? {},
-    }))).catch(err => console.warn('Live activity dispatch error (non-fatal):', err));
+      ) as PromiseFulfilledResult<any>)?.value;
+      return {
+        league_id: r.league_id,
+        schedule_id: r.schedule_id,
+        teamScores: settledValue?.teamScores ?? {},
+        isCategories: settledValue?.isCategories ?? false,
+        inverseByStat: settledValue?.inverseByStat ?? {},
+        categoryUpdates: settledValue?.categoryUpdates ?? [],
+      };
+    })).catch(err => console.warn('Live activity dispatch error (non-fatal):', err));
 
     return jsonResponse({ ok: true, processed: results.length, results });
   } catch (err: unknown) {

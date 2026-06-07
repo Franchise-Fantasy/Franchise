@@ -27,6 +27,7 @@ import { StepIndicator } from "@/components/ui/StepIndicator";
 import { ThemedView } from "@/components/ui/ThemedView";
 import { Colors } from "@/constants/Colors";
 import {
+  canBypassCreationWindow,
   CURRENT_NBA_SEASON,
   defaultTradeDeadlineWeek,
   defaultVotesToVeto,
@@ -51,6 +52,7 @@ import {
   TIEBREAKER_TO_DB,
   type Sport,
 } from "@/constants/LeagueDefaults";
+import { useSession } from "@/context/AuthProvider";
 import { useConfirm } from "@/context/ConfirmProvider";
 import { SportThemeProvider } from "@/hooks/useColors";
 import { useColorScheme } from "@/hooks/useColorScheme";
@@ -118,6 +120,7 @@ const initialState: LeagueWizardState = {
   seasonStartDate: null,
   regularSeasonWeeks: DEFAULT_REG_SEASON_WEEKS,
   playoffWeeks: DEFAULT_PLAYOFF_WEEKS,
+  combineCupWeek: false,
   playoffTeams: defaultPlayoffTeams(DEFAULT_PLAYOFF_WEEKS, DEFAULT_TEAMS),
   playoffSeedingFormat: "Standard",
   pickConditionsEnabled: false,
@@ -343,6 +346,9 @@ export default function CreateLeague() {
   const c = Colors[scheme];
   const confirm = useConfirm();
 
+  const session = useSession();
+  const bypassOpenDate = canBypassCreationWindow(session?.user?.id);
+
   const [state, dispatch] = useReducer(reducer, initialState);
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -363,7 +369,7 @@ export default function CreateLeague() {
     hasInitializedSportRef.current = true;
 
     const today = new Date();
-    const statusForSelected = getCreationStatus(state.sport, today);
+    const statusForSelected = getCreationStatus(state.sport, today, { bypassOpenDate });
     if (statusForSelected.available) {
       // Selected sport is fine — just prefill the start date if missing.
       if (!state.seasonStartDate && statusForSelected.defaultStartDate) {
@@ -379,7 +385,7 @@ export default function CreateLeague() {
     for (const label of SPORT_OPTIONS) {
       const candidate: Sport = SPORT_TO_DB[label];
       if (candidate === state.sport) continue;
-      const status = getCreationStatus(candidate, today);
+      const status = getCreationStatus(candidate, today, { bypassOpenDate });
       if (status.available) {
         dispatch({ type: 'SET_FIELD', field: 'sport', value: candidate });
         return;
@@ -387,7 +393,7 @@ export default function CreateLeague() {
     }
     // No sport available — leave state alone; StepBasics will show the
     // gated tiles and the user can wait for a window to open.
-  }, [state.name, state.sport, state.season, state.seasonStartDate]);
+  }, [state.name, state.sport, state.season, state.seasonStartDate, bypassOpenDate]);
   // Track the ScrollView's viewport height and the rendered content
   // height independently so we can compute "is there more to scroll?"
   // immediately when the step mounts — before the user touches the
@@ -560,6 +566,7 @@ export default function CreateLeague() {
         season: state.season,
         regular_season_weeks: regularSeasonWeeks,
         playoff_weeks: playoffWeeks,
+        combine_cup_week: state.sport === 'nba' ? (state.combineCupWeek ?? false) : false,
         season_start_date: seasonStartDate,
         trade_review_period_hours: state.tradeVetoType === 'None' ? 0 : state.tradeReviewPeriodHours,
         trade_veto_type: state.tradeVetoType === 'Commissioner'

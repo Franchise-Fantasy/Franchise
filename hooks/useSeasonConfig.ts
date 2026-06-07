@@ -1,9 +1,9 @@
-import { useEffect } from 'react';
-
 import { useQuery } from '@tanstack/react-query';
+import { useEffect } from 'react';
 
 import { setSeasonConfigCache, type SeasonConfigRow, type Sport } from '@/constants/LeagueDefaults';
 import { supabase } from '@/lib/supabase';
+import type { MergeWindow } from '@/utils/league/scheduleWindows';
 
 /**
  * Hydrates the in-memory season-config cache (constants/LeagueDefaults) from the
@@ -18,7 +18,7 @@ export function useSeasonConfig(): void {
     queryFn: async (): Promise<SeasonConfigRow[]> => {
       const { data: rows, error } = await supabase
         .from('season_config')
-        .select('sport, season, start_date, end_date, creation_opens_at, is_current');
+        .select('sport, season, start_date, end_date, creation_opens_at, is_current, merge_windows');
       if (error) throw error;
       return (rows ?? []).map((r) => ({
         sport: r.sport as Sport,
@@ -27,6 +27,7 @@ export function useSeasonConfig(): void {
         end_date: r.end_date,
         creation_opens_at: r.creation_opens_at,
         is_current: r.is_current,
+        merge_windows: (r.merge_windows ?? []) as unknown as MergeWindow[],
       }));
     },
     staleTime: 1000 * 60 * 60, // 1h — season metadata changes at most a few times a year

@@ -7,12 +7,13 @@ import { AppState, Platform } from 'react-native';
 import { logger } from '@/utils/logger';
 
 import { supabase } from '../lib/supabase';
-import { MatchupActivity, type MatchupActivityProps, type MatchupPlayerLine } from '../widgets/MatchupActivity';
+import { MatchupActivity, type MatchupActivityProps, type MatchupCategoryLine, type MatchupPlayerLine } from '../widgets/MatchupActivity';
 
 const LIVE_ACTIVITIES_SUPPORTED =
   Platform.OS === 'ios' && parseInt(String(Platform.Version), 10) >= 16;
 
 interface MatchupActivityParams {
+  mode: 'points' | 'categories';
   myTeamName: string;
   opponentTeamName: string;
   myTeamTricode: string;
@@ -21,6 +22,9 @@ interface MatchupActivityParams {
   leagueId: string;
   scheduleId: string;
   teamId: string;
+  myLogoPath?: string;
+  opponentLogoPath?: string;
+  appGroupPath?: string;
   initialState: {
     myScore: number;
     opponentScore: number;
@@ -30,6 +34,8 @@ interface MatchupActivityParams {
     myActivePlayers: number;
     opponentActivePlayers: number;
     players: MatchupPlayerLine[];
+    categories?: MatchupCategoryLine[];
+    catTies?: number;
   };
 }
 
@@ -90,6 +96,7 @@ export function useLiveActivity(userId?: string) {
 
       try {
         const initialProps: MatchupActivityProps = {
+          mode: params.mode,
           myTeamName: params.myTeamName,
           opponentTeamName: params.opponentTeamName,
           myTeamTricode: params.myTeamTricode,
@@ -102,6 +109,11 @@ export function useLiveActivity(userId?: string) {
           myActivePlayers: params.initialState.myActivePlayers,
           opponentActivePlayers: params.initialState.opponentActivePlayers,
           players: params.initialState.players,
+          categories: params.initialState.categories,
+          catTies: params.initialState.catTies,
+          myLogoPath: params.myLogoPath,
+          opponentLogoPath: params.opponentLogoPath,
+          appGroupPath: params.appGroupPath,
         };
 
         const instance = MatchupActivity.start(initialProps);

@@ -1366,6 +1366,7 @@ export type Database = {
           created_at: string | null
           end_date: string
           id: string
+          is_double_week: boolean
           is_playoff: boolean
           league_id: string
           season: string
@@ -1376,6 +1377,7 @@ export type Database = {
           created_at?: string | null
           end_date: string
           id?: string
+          is_double_week?: boolean
           is_playoff?: boolean
           league_id: string
           season: string
@@ -1386,6 +1388,7 @@ export type Database = {
           created_at?: string | null
           end_date?: string
           id?: string
+          is_double_week?: boolean
           is_playoff?: boolean
           league_id?: string
           season?: string
@@ -1677,6 +1680,7 @@ export type Database = {
           buy_in_amount: number | null
           cashapp_tag: string | null
           champion_team_id: string | null
+          combine_cup_week: boolean
           commissioner: string | null
           created_at: string | null
           created_by: string
@@ -1736,6 +1740,7 @@ export type Database = {
           buy_in_amount?: number | null
           cashapp_tag?: string | null
           champion_team_id?: string | null
+          combine_cup_week?: boolean
           commissioner?: string | null
           created_at?: string | null
           created_by: string
@@ -1795,6 +1800,7 @@ export type Database = {
           buy_in_amount?: number | null
           cashapp_tag?: string | null
           champion_team_id?: string | null
+          combine_cup_week?: boolean
           commissioner?: string | null
           created_at?: string | null
           created_by?: string
@@ -4873,6 +4879,7 @@ export type Database = {
           creation_opens_at: string | null
           end_date: string
           is_current: boolean
+          merge_windows: Json
           season: string
           sport: string
           start_date: string
@@ -4882,6 +4889,7 @@ export type Database = {
           creation_opens_at?: string | null
           end_date: string
           is_current?: boolean
+          merge_windows?: Json
           season: string
           sport: string
           start_date: string
@@ -4891,6 +4899,7 @@ export type Database = {
           creation_opens_at?: string | null
           end_date?: string
           is_current?: boolean
+          merge_windows?: Json
           season?: string
           sport?: string
           start_date?: string

@@ -42,6 +42,25 @@ function pastWeek(): { start: string; end: string; days: string[] } {
   return { start: ymd(start), end: ymd(end), days };
 }
 
+// A 14-day "double week" (All-Star / FIBA style): games on the first and last
+// day with a dead middle. finalize-week is week-length-agnostic — it sums every
+// game log in [start_date, end_date] — so both halves must roll into one score.
+function pastDoubleWeek(): { start: string; end: string; days: string[] } {
+  const today = new Date();
+  const start = new Date(today);
+  start.setUTCDate(start.getUTCDate() - 28);
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 13);
+  const ymd = (d: Date) => d.toISOString().slice(0, 10);
+  const days: string[] = [];
+  for (let i = 0; i < 14; i++) {
+    const day = new Date(start);
+    day.setUTCDate(start.getUTCDate() + i);
+    days.push(ymd(day));
+  }
+  return { start: ymd(start), end: ymd(end), days };
+}
+
 describe('finalize-week end-to-end', () => {
   let league: BootstrapResult;
   let teamA: BootstrapResult['teams'][number];
@@ -269,6 +288,65 @@ describe('finalize-week end-to-end', () => {
         },
       );
       expect(res.status).toBe(401);
+    },
+    TIMEOUT,
+  );
+
+  // MUST stay last: it reassigns the shared `week`/`seeded` to a 14-day span so
+  // afterEach cleans the full range. No later test relies on `week` being 7 days.
+  it(
+    'sums both halves of a 14-day double week into one matchup',
+    async () => {
+      week = pastDoubleWeek();
+      seeded = await seedScoringFixture({
+        leagueId: league.leagueId,
+        weekNumber: 99,
+        weekStart: week.start,
+        weekEnd: week.end,
+        season: '2026-27',
+        teamPairs: [[teamA.id, teamB.id]],
+      });
+
+      // Team A plays both halves: 20 pts on day 0 (pre-break) + 30 on day 13
+      // (post-break) = 50. Team B plays only the first half: 10. Dead middle has
+      // no games — exactly the All-Star / FIBA shape. A wins on the combined total.
+      await setDailyLineups({
+        leagueId: league.leagueId,
+        entries: [
+          { team_id: teamA.id, player_id: playerA1, date: week.days[0], slot: 'PG' },
+          { team_id: teamA.id, player_id: playerA1, date: week.days[13], slot: 'PG' },
+          { team_id: teamB.id, player_id: playerB1, date: week.days[0], slot: 'PG' },
+        ],
+      });
+      await seedPlayerGames([
+        { player_id: playerA1, game_date: week.days[0], pts: 20 },
+        { player_id: playerA1, game_date: week.days[13], pts: 30 },
+        { player_id: playerB1, game_date: week.days[0], pts: 10 },
+      ]);
+
+      const result = await cronInvoke('finalize-week');
+      expect(result.status).toBe(200);
+
+      const admin = adminClient();
+      const { data: matchup } = await admin
+        .from('league_matchups')
+        .select('is_finalized, winner_team_id, home_score, away_score')
+        .eq('id', seeded.matchupIds[0])
+        .single();
+      // Both of A's game days summed across the 14-day span → 50, not 20.
+      expect(matchup?.is_finalized).toBe(true);
+      expect(Number(matchup?.home_score)).toBeCloseTo(50, 1);
+      expect(Number(matchup?.away_score)).toBeCloseTo(10, 1);
+      expect(matchup?.winner_team_id).toBe(teamA.id);
+
+      // One matchup → exactly one W/L over the whole double week.
+      const { data: teamsAfter } = await admin
+        .from('teams')
+        .select('id, wins, losses')
+        .in('id', [teamA.id, teamB.id]);
+      const map = Object.fromEntries((teamsAfter ?? []).map((t) => [t.id, t]));
+      expect(map[teamA.id].wins).toBe(baselineA.wins + 1);
+      expect(map[teamB.id].losses).toBe(baselineB.losses + 1);
     },
     TIMEOUT,
   );

@@ -28,7 +28,17 @@ export type MatchupPlayerLine = {
   isOnCourt: boolean;
 };
 
+export type MatchupCategoryLine = {
+  stat: string;
+  myValue: number;
+  oppValue: number;
+  winner: 'me' | 'opp' | 'tie';
+  inverse: boolean;
+};
+
 export type MatchupActivityProps = {
+  mode: 'points' | 'categories';
+
   myTeamName: string;
   opponentTeamName: string;
   myTeamTricode: string;
@@ -41,7 +51,19 @@ export type MatchupActivityProps = {
   biggestContributor: string;
   myActivePlayers: number;
   opponentActivePlayers: number;
+
+  // Populated when mode === 'points'
   players: MatchupPlayerLine[];
+
+  // Populated when mode === 'categories'
+  categories?: MatchupCategoryLine[];
+  catTies?: number;
+
+  // Optional relative paths into the App Group container (logos/<teamId>.png).
+  // Widget prepends the container path at render. Falls back to tricode pill when absent.
+  myLogoPath?: string;
+  opponentLogoPath?: string;
+  appGroupPath?: string;
 };
 
 const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEnvironment) => {
@@ -56,26 +78,46 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
   const PANEL = '#1C1C1E';
   const PANEL_DIM = '#2C2C2E';
 
+  const isCats = props.mode === 'categories';
+
   const gap = props.scoreGap;
-  const myLeading = gap >= 0;
-  const gapColor = myLeading ? GREEN : RED;
-  const gapText = `${myLeading ? '+' : ''}${gap.toFixed(1)}`;
-  const myScoreText = props.myScore.toFixed(1);
-  const oppScoreText = props.opponentScore.toFixed(1);
-  const myScoreColor = myLeading ? GREEN : WHITE;
-  const oppScoreColor = !myLeading ? GREEN : WHITE;
+  const myLeading = gap > 0;
+  const tiedOverall = gap === 0;
+  const gapColor = tiedOverall ? WHITE : myLeading ? GREEN : RED;
+  const myScoreText = isCats ? String(Math.round(props.myScore)) : props.myScore.toFixed(1);
+  const oppScoreText = isCats ? String(Math.round(props.opponentScore)) : props.opponentScore.toFixed(1);
+  const myScoreColor = tiedOverall ? WHITE : myLeading ? GREEN : WHITE;
+  const oppScoreColor = tiedOverall ? WHITE : !myLeading ? GREEN : WHITE;
+
+  // gapText differs per mode: cats show a record like "5-3-1"; points show "+12.4"
+  const ties = props.catTies ?? 0;
+  const catRecord = ties > 0
+    ? `${Math.round(props.myScore)}-${Math.round(props.opponentScore)}-${ties}`
+    : `${Math.round(props.myScore)}-${Math.round(props.opponentScore)}`;
+  const gapText = isCats
+    ? catRecord
+    : `${myLeading ? '+' : ''}${gap.toFixed(1)}`;
+  const minimalGapText = isCats
+    ? String(Math.abs(Math.round(gap)))
+    : Math.abs(gap).toFixed(0);
 
   const contributorVisible = props.biggestContributor.length > 0;
-  const probVisible = typeof props.winProbability === 'number';
+  const probVisible = !isCats && typeof props.winProbability === 'number';
   const winPct = probVisible ? Math.round((props.winProbability ?? 0) * 100) : 50;
-  const playersVisible = props.players.length > 0;
+  const playersVisible = !isCats && props.players.length > 0;
   const top5 = props.players.slice(0, 5);
+  const catsVisible = isCats && (props.categories?.length ?? 0) > 0;
+  const cats = props.categories ?? [];
+  const topCats = cats.slice(0, 6);
+  const topCatsExpanded = cats.slice(0, 4);
   const totalLive = props.myActivePlayers + props.opponentActivePlayers;
+
+  const headerLabel = isCats ? 'CATEGORIES' : 'MATCHUP';
 
   return {
     banner: (
       <VStack spacing={10} modifiers={[padding({ all: 14 })]}>
-        {/* Header: LIVE pill + basketball icon + "MATCHUP" */}
+        {/* Header */}
         <HStack spacing={8}>
           <HStack spacing={4} modifiers={[padding({ horizontal: 8, vertical: 3 }), background(RED, undefined as any), cornerRadius(8)]}>
             <Circle modifiers={[foregroundStyle(WHITE), frame({ width: 6, height: 6 })]} />
@@ -83,7 +125,7 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
           </HStack>
           <Image systemName="basketball.fill" size={12} color={ACCENT} />
           <Text modifiers={[font({ size: 10, weight: 'semibold' }), foregroundStyle(WHITE), opacity(0.55)]}>
-            MATCHUP
+            {headerLabel}
           </Text>
           <Spacer />
           {totalLive > 0 ? (
@@ -135,7 +177,7 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
           </VStack>
         </HStack>
 
-        {/* Biggest contributor */}
+        {/* Top contributor / top category */}
         {contributorVisible ? (
           <HStack spacing={6}>
             <Image systemName="flame.fill" size={12} color={YELLOW} />
@@ -145,7 +187,7 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
           </HStack>
         ) : null}
 
-        {/* Player ticker (top 5) */}
+        {/* Ticker (players in points mode, categories in CAT mode) */}
         {playersVisible ? (
           <VStack spacing={4} modifiers={[padding({ all: 8 }), background(PANEL, undefined as any), cornerRadius(10)]}>
             {top5.map((player) => (
@@ -170,6 +212,37 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
                 </Text>
               </HStack>
             ))}
+          </VStack>
+        ) : null}
+
+        {catsVisible ? (
+          <VStack spacing={4} modifiers={[padding({ all: 8 }), background(PANEL, undefined as any), cornerRadius(10)]}>
+            {topCats.map((cat) => {
+              const isPct = cat.stat.endsWith('%');
+              const myVal = isPct ? cat.myValue.toFixed(3).replace(/^0/, '') : String(Math.round(cat.myValue));
+              const oppVal = isPct ? cat.oppValue.toFixed(3).replace(/^0/, '') : String(Math.round(cat.oppValue));
+              const winColor = cat.winner === 'me' ? GREEN : cat.winner === 'opp' ? RED : GREY;
+              const winSymbol = cat.winner === 'me' ? 'arrowtriangle.up.fill' : cat.winner === 'opp' ? 'arrowtriangle.down.fill' : 'equal';
+              return (
+                <HStack key={cat.stat} spacing={6}>
+                  <Image systemName={winSymbol} size={8} color={winColor} />
+                  <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), frame({ width: 36, alignment: 'leading' })]}>
+                    {cat.stat}
+                  </Text>
+                  {cat.inverse ? (
+                    <Text modifiers={[font({ size: 8 }), foregroundStyle(GREY)]}>↓</Text>
+                  ) : null}
+                  <Spacer />
+                  <Text modifiers={[font({ size: 11, weight: cat.winner === 'me' ? 'bold' : 'regular' }), foregroundStyle(cat.winner === 'me' ? GREEN : WHITE), frame({ width: 50, alignment: 'trailing' })]}>
+                    {myVal}
+                  </Text>
+                  <Text modifiers={[font({ size: 11 }), foregroundStyle(GREY), opacity(0.5)]}>vs</Text>
+                  <Text modifiers={[font({ size: 11, weight: cat.winner === 'opp' ? 'bold' : 'regular' }), foregroundStyle(cat.winner === 'opp' ? GREEN : WHITE), frame({ width: 50, alignment: 'leading' })]}>
+                    {oppVal}
+                  </Text>
+                </HStack>
+              );
+            })}
           </VStack>
         ) : null}
       </VStack>
@@ -199,9 +272,9 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
           {props.opponentTeamTricode}
         </Text>
         <Image
-          systemName={!myLeading ? 'arrowtriangle.up.fill' : 'circle.fill'}
+          systemName={!myLeading && !tiedOverall ? 'arrowtriangle.up.fill' : 'circle.fill'}
           size={9}
-          color={!myLeading ? GREEN : ACCENT}
+          color={!myLeading && !tiedOverall ? GREEN : ACCENT}
         />
       </HStack>
     ),
@@ -209,12 +282,12 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
     minimal: (
       <HStack spacing={2}>
         <Image
-          systemName={myLeading ? 'arrowtriangle.up.fill' : 'arrowtriangle.down.fill'}
+          systemName={tiedOverall ? 'equal' : myLeading ? 'arrowtriangle.up.fill' : 'arrowtriangle.down.fill'}
           size={9}
           color={gapColor}
         />
         <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(gapColor)]}>
-          {Math.abs(gap).toFixed(0)}
+          {minimalGapText}
         </Text>
       </HStack>
     ),
@@ -295,6 +368,32 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
             </Text>
           </HStack>
         ))}
+      </VStack>
+    ) : catsVisible ? (
+      <VStack spacing={3} modifiers={[padding({ horizontal: 4, top: 4 })]}>
+        {topCatsExpanded.map((cat) => {
+          const isPct = cat.stat.endsWith('%');
+          const myVal = isPct ? cat.myValue.toFixed(3).replace(/^0/, '') : String(Math.round(cat.myValue));
+          const oppVal = isPct ? cat.oppValue.toFixed(3).replace(/^0/, '') : String(Math.round(cat.oppValue));
+          const winColor = cat.winner === 'me' ? GREEN : cat.winner === 'opp' ? RED : GREY;
+          const winSymbol = cat.winner === 'me' ? 'arrowtriangle.up.fill' : cat.winner === 'opp' ? 'arrowtriangle.down.fill' : 'equal';
+          return (
+            <HStack key={cat.stat} spacing={6}>
+              <Image systemName={winSymbol} size={8} color={winColor} />
+              <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), frame({ width: 36, alignment: 'leading' })]}>
+                {cat.stat}
+              </Text>
+              <Spacer />
+              <Text modifiers={[font({ size: 11, weight: cat.winner === 'me' ? 'bold' : 'regular' }), foregroundStyle(cat.winner === 'me' ? GREEN : WHITE), frame({ width: 48, alignment: 'trailing' })]}>
+                {myVal}
+              </Text>
+              <Text modifiers={[font({ size: 9 }), foregroundStyle(GREY), opacity(0.5)]}>vs</Text>
+              <Text modifiers={[font({ size: 11, weight: cat.winner === 'opp' ? 'bold' : 'regular' }), foregroundStyle(cat.winner === 'opp' ? GREEN : WHITE), frame({ width: 48, alignment: 'leading' })]}>
+                {oppVal}
+              </Text>
+            </HStack>
+          );
+        })}
       </VStack>
     ) : (
       <HStack spacing={6} modifiers={[padding({ top: 4 })]}>

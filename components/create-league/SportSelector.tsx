@@ -4,11 +4,13 @@ import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors, SPORT_THEMES } from '@/constants/Colors';
 import {
+  canBypassCreationWindow,
   getCreationStatus,
   SPORT_OPTIONS,
   SPORT_TO_DB,
   type Sport,
 } from '@/constants/LeagueDefaults';
+import { useSession } from '@/context/AuthProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
 
@@ -21,7 +23,8 @@ interface SportSelectorProps {
  * Two-up sport tile layout that replaces the SegmentedControl for sport
  * selection. Each tile shows the sport name, the season currently
  * creatable for it, and a status line. Gated sports render greyed-out
- * and non-tappable — same treatment for everyone, no dev bypass.
+ * and non-tappable — except for allowlisted accounts (see
+ * canBypassCreationWindow), who can create before a season's opening date.
  *
  * Visual rhythm: same chip/pill family as the rest of the wizard (matched
  * radius + 1.5px border + sport-theme tint for active state).
@@ -29,16 +32,18 @@ interface SportSelectorProps {
 export function SportSelector({ selected, onSelect }: SportSelectorProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const session = useSession();
+  const bypassOpenDate = canBypassCreationWindow(session?.user?.id);
 
-  // Compute creation status once per render — pure date math, cheap.
+  // Compute creation status per render — pure date math, cheap.
   const tiles = useMemo(() => {
     const today = new Date();
     return SPORT_OPTIONS.map((label) => {
       const sport = SPORT_TO_DB[label];
-      const status = getCreationStatus(sport, today);
+      const status = getCreationStatus(sport, today, { bypassOpenDate });
       return { sport, label, status };
     });
-  }, []);
+  }, [bypassOpenDate]);
 
   return (
     <View style={styles.row}>

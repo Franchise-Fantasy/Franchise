@@ -1,4 +1,4 @@
-import { getCreationStatus, WNBA_SEASON_START } from '@/constants/LeagueDefaults';
+import { canBypassCreationWindow, getCreationStatus, WNBA_SEASON_START } from '@/constants/LeagueDefaults';
 
 describe('getCreationStatus', () => {
   it('returns the hardcoded opening night when it is still in the future', () => {
@@ -38,5 +38,25 @@ describe('getCreationStatus', () => {
     expect(status.available).toBe(false);
     expect(status.season).toBe('2026-27');
     expect(status.opensAt).toBeDefined();
+  });
+
+  it('opens the next NBA season early when bypassOpenDate is set (allowlisted account)', () => {
+    // June 2026 — before the July 1 NBA next-season open date. Normally gated,
+    // but an allowlisted account bypasses it and gets the 2026-27 season.
+    const today = new Date(2026, 5, 7); // Jun 7, 2026
+    expect(getCreationStatus('nba', today).available).toBe(false); // gated by default
+    const status = getCreationStatus('nba', today, { bypassOpenDate: true });
+    expect(status.available).toBe(true);
+    expect(status.season).toBe('2026-27');
+    expect(status.defaultStartDate).toBeTruthy(); // opening night is still future
+  });
+});
+
+describe('canBypassCreationWindow', () => {
+  it('allows the owner account and rejects everyone else', () => {
+    expect(canBypassCreationWindow('a3adaf6b-20b5-4059-b860-d49f146c78fd')).toBe(true);
+    expect(canBypassCreationWindow('be58f785-5248-4aa6-97d6-083ae10c2f91')).toBe(false);
+    expect(canBypassCreationWindow(null)).toBe(false);
+    expect(canBypassCreationWindow(undefined)).toBe(false);
   });
 });

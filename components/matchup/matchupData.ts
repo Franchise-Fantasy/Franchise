@@ -28,6 +28,8 @@ export interface Week {
   start_date: string;
   end_date: string;
   is_playoff: boolean;
+  /** Two break-straddling weeks merged into one matchup (All-Star, FIBA, Cup). */
+  is_double_week: boolean;
 }
 
 export interface Matchup {
@@ -169,7 +171,7 @@ export function computeLiveCategoryResults(
 async function fetchWeeks(leagueId: string): Promise<Week[]> {
   const { data, error } = await supabase
     .from("league_schedule")
-    .select("id, week_number, start_date, end_date, is_playoff")
+    .select("id, week_number, start_date, end_date, is_playoff, is_double_week")
     .eq("league_id", leagueId)
     .order("week_number", { ascending: true });
   if (error) throw error;

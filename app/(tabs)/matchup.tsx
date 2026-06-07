@@ -67,6 +67,11 @@ import {
   liveToGameLog,
   useLivePlayerStats,
 } from "@/utils/nba/nbaLive";
+import {
+  categoryResultsToLines,
+  formatTopCategory,
+  rankCategories,
+} from "@/utils/liveActivity/contentState";
 import { fetchNbaScheduleForDate } from "@/utils/nba/nbaSchedule";
 import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
 import { calculateGameFantasyPoints } from "@/utils/scoring/fantasyPoints";
@@ -146,28 +151,46 @@ export default function MatchupScreen() {
       return;
     }
 
-    const leftScore = weekScores?.[displayData.leftTeam.teamId] ?? displayData.leftTeam.weekTotal;
-    const rightScore = displayData.rightTeam
-      ? (weekScores?.[displayData.rightTeam.teamId] ?? displayData.rightTeam.weekTotal)
-      : 0;
-
     const fallbackTricode = (name: string) => name.substring(0, 3).toUpperCase();
+    const myTricode =
+      displayData.leftTeam.tricode?.trim() ||
+      fallbackTricode(displayData.leftTeam.teamName);
+    const opponentTricode = displayData.rightTeam
+      ? displayData.rightTeam.tricode?.trim() ||
+        fallbackTricode(displayData.rightTeam.teamName)
+      : "BYE";
 
-    const result = await startMatchupActivity({
-      myTeamName: displayData.leftTeam.teamName,
-      opponentTeamName: displayData.rightTeam?.teamName ?? "BYE",
-      myTeamTricode:
-        displayData.leftTeam.tricode?.trim() ||
-        fallbackTricode(displayData.leftTeam.teamName),
-      opponentTeamTricode: displayData.rightTeam
-        ? displayData.rightTeam.tricode?.trim() ||
-          fallbackTricode(displayData.rightTeam.teamName)
-        : "BYE",
-      matchupId: userMatchupId!,
-      leagueId,
-      scheduleId: currentWeek.id,
-      teamId,
-      initialState: {
+    const isCats = league?.scoring_type === "h2h_categories";
+
+    let initialState;
+    if (isCats && heroCategoryResult) {
+      const inverseByStat: Record<string, boolean> = {};
+      for (const s of scoring ?? []) inverseByStat[s.stat_name] = !!s.inverse;
+      const lines = categoryResultsToLines(
+        heroCategoryResult.results,
+        "home",
+        inverseByStat,
+      );
+      const ranked = rankCategories(lines);
+      const myWins = heroCategoryResult.homeWins;
+      const oppWins = heroCategoryResult.awayWins;
+      initialState = {
+        myScore: myWins,
+        opponentScore: oppWins,
+        scoreGap: myWins - oppWins,
+        biggestContributor: formatTopCategory(ranked),
+        myActivePlayers: 0,
+        opponentActivePlayers: 0,
+        players: [],
+        categories: ranked,
+        catTies: heroCategoryResult.ties,
+      };
+    } else {
+      const leftScore = weekScores?.[displayData.leftTeam.teamId] ?? displayData.leftTeam.weekTotal;
+      const rightScore = displayData.rightTeam
+        ? (weekScores?.[displayData.rightTeam.teamId] ?? displayData.rightTeam.weekTotal)
+        : 0;
+      initialState = {
         myScore: leftScore,
         opponentScore: rightScore,
         scoreGap: leftScore - rightScore,
@@ -175,7 +198,20 @@ export default function MatchupScreen() {
         myActivePlayers: 0,
         opponentActivePlayers: 0,
         players: [],
-      },
+      };
+    }
+
+    const result = await startMatchupActivity({
+      mode: isCats ? "categories" : "points",
+      myTeamName: displayData.leftTeam.teamName,
+      opponentTeamName: displayData.rightTeam?.teamName ?? "BYE",
+      myTeamTricode: myTricode,
+      opponentTeamTricode: opponentTricode,
+      matchupId: userMatchupId!,
+      leagueId,
+      scheduleId: currentWeek.id,
+      teamId,
+      initialState,
     });
 
     if (result) setLiveActivityId(result.activityId);

@@ -1,3 +1,5 @@
+import type { MergeWindow } from '@/utils/league/scheduleWindows';
+
 export interface RosterSlot {
   position: string;
   label: string;
@@ -267,7 +269,7 @@ export const NBA_SEASON_END: Record<string, string> = {
 
 export const WNBA_SEASON_END: Record<string, string> = {
   '2025': '2025-09-19',
-  '2026': '2026-09-13',
+  '2026': '2026-09-24',
   '2027': '2027-09-12',
 };
 
@@ -281,7 +283,7 @@ export const NBA_SEASON_START: Record<string, string> = {
 
 export const WNBA_SEASON_START: Record<string, string> = {
   '2025': '2025-05-16',
-  '2026': '2026-05-15',
+  '2026': '2026-05-08',
   '2027': '2027-05-15',
 };
 
@@ -300,6 +302,8 @@ export interface SeasonConfigRow {
   end_date: string;
   creation_opens_at: string | null;
   is_current: boolean;
+  /** Calendar windows that collapse into "double weeks" — see getMergeWindows. */
+  merge_windows: MergeWindow[];
 }
 
 let seasonConfigCache: SeasonConfigRow[] | null = null;
@@ -337,6 +341,37 @@ export function getSeasonStart(sport: Sport, season: string): string | undefined
   const cached = cachedSeasonRow(sport, season);
   if (cached) return cached.start_date;
   return sport === 'wnba' ? WNBA_SEASON_START[season] : NBA_SEASON_START[season];
+}
+
+// Hardcoded merge-window fallbacks — mirror the season_config.merge_windows seed
+// so the create-league wizard preview reflects double weeks even before the
+// cache hydrates (or offline). The authoritative copy lives in season_config
+// (edit-via-SQL, no deploy); keep this in sync when adding a season's windows.
+// See utils/league/scheduleWindows for the merge semantics.
+export const NBA_MERGE_WINDOWS: Record<string, MergeWindow[]> = {
+  '2025-26': [
+    { start: '2026-02-09', end: '2026-02-22', label: 'All-Star Break', optional: false },
+    { start: '2025-12-08', end: '2025-12-21', label: 'NBA Cup Knockouts', optional: true },
+  ],
+};
+
+export const WNBA_MERGE_WINDOWS: Record<string, MergeWindow[]> = {
+  '2026': [
+    { start: '2026-07-20', end: '2026-08-02', label: 'All-Star Break', optional: false },
+    // `terminal`: the fantasy season ends BEFORE the FIBA break (Aug 31) rather
+    // than scheduling through it, so playoffs/championship can't straddle the
+    // 17-day gap. The post-break Sep 17–24 games go unused (like NBA fantasy
+    // ending before the real playoffs).
+    { start: '2026-08-31', end: '2026-09-24', label: 'FIBA World Cup Break', optional: false, terminal: true },
+  ],
+};
+
+/** Merge windows for a sport+season (cache-first, hardcoded fallback). The
+ *  edge function reads season_config directly; this mirrors it for the wizard. */
+export function getMergeWindows(sport: Sport, season: string): MergeWindow[] {
+  const cached = cachedSeasonRow(sport, season);
+  if (cached) return cached.merge_windows ?? [];
+  return (sport === 'wnba' ? WNBA_MERGE_WINDOWS : NBA_MERGE_WINDOWS)[season] ?? [];
 }
 
 // Hardcoded month/day per sport when next-season league creation becomes
@@ -387,10 +422,29 @@ export interface SeasonCreationStatus {
 }
 
 
+// User IDs allowed to create a league BEFORE a season's normal opening date
+// (owner / dev). The opening gate exists so dynasty rookie drafts land after the
+// new rookie class syncs; these accounts knowingly bypass it for early setup or
+// testing. This is a UX gate only (no server enforcement), so an allowlist here
+// is sufficient. IDs are not secret — they already appear in repo seed scripts.
+const EARLY_CREATION_USER_IDS = new Set<string>([
+  'a3adaf6b-20b5-4059-b860-d49f146c78fd', // jjspoels@gmail.com (owner)
+]);
+
+/** Whether `userId` may create a league before a season's opening date. */
+export function canBypassCreationWindow(userId: string | null | undefined): boolean {
+  return !!userId && EARLY_CREATION_USER_IDS.has(userId);
+}
+
 /** Returns whether a league can currently be created for `sport`. If the
  *  current season has < SEASON_MIN_WEEKS_REMAINING weeks left, falls forward
- *  to the next season once today ≥ that sport's hardcoded open date. */
-export function getCreationStatus(sport: Sport, today: Date = new Date()): SeasonCreationStatus {
+ *  to the next season once today ≥ that sport's hardcoded open date.
+ *  `opts.bypassOpenDate` (allowlisted accounts) opens the next season early. */
+export function getCreationStatus(
+  sport: Sport,
+  today: Date = new Date(),
+  opts: { bypassOpenDate?: boolean } = {},
+): SeasonCreationStatus {
   const currentSeason = getCurrentSeason(sport);
   const currentEnd = getSeasonEnd(sport, currentSeason);
   const todayMidnight = new Date(today);
@@ -440,7 +494,7 @@ export function getCreationStatus(sport: Sport, today: Date = new Date()): Seaso
   }
 
   if (openDate) {
-    if (todayMidnight >= openDate) {
+    if (todayMidnight >= openDate || opts.bypassOpenDate) {
       const defaultStart = getSeasonStart(sport, nextSeason) ?? null;
       const isPast = defaultStart
         ? new Date(`${defaultStart}T00:00:00`).getTime() < todayMidnight.getTime()
@@ -616,6 +670,9 @@ export interface LeagueWizardState {
   faabBudget: number;
   regularSeasonWeeks: number;
   playoffWeeks: number;
+  /** Combine the optional NBA Cup knockout week into a double week (NBA only).
+   *  All-Star / FIBA double weeks are unilateral and not gated by this. */
+  combineCupWeek?: boolean;
   playoffTeams: number;
   playoffSeedingFormat: PlayoffSeedingOption;
   pickConditionsEnabled: boolean;

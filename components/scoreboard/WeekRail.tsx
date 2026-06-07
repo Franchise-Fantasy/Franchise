@@ -14,6 +14,8 @@ export interface RailWeek {
   start_date: string;
   end_date: string;
   is_playoff: boolean;
+  /** Two break-straddling weeks merged into one matchup (All-Star, FIBA, Cup). */
+  is_double_week?: boolean;
 }
 
 export type WeekStatus = 'past' | 'live' | 'future';
@@ -126,6 +128,9 @@ export function WeekRail({
             {formatRange(selectedWeek.start_date, selectedWeek.end_date)}
           </ThemedText>
         </View>
+        {selectedWeek.is_double_week && (
+          <Badge label="DOUBLE WEEK" variant="gold" size="small" />
+        )}
         {statusBadge}
       </View>
 
@@ -176,7 +181,7 @@ export function WeekRail({
                 w.is_playoff
                   ? `Playoffs round ${ordinal ?? ''}`
                   : `Week ${w.week_number}`
-              }, ${formatRange(w.start_date, w.end_date)}`}
+              }, ${formatRange(w.start_date, w.end_date)}${w.is_double_week ? ', double week' : ''}`}
               accessibilityState={{ selected: isSelected }}
               style={[
                 styles.chip,
