@@ -16,8 +16,8 @@
  *
  * @platform ios 16.1+
  */
-import { Divider, HStack, Spacer, Text, VStack } from '@expo/ui/swift-ui';
-import { font, foregroundStyle, frame, lineLimit, opacity, padding } from '@expo/ui/swift-ui/modifiers';
+import { Circle, Gauge, HStack, Image, Spacer, Text, VStack } from '@expo/ui/swift-ui';
+import { background, cornerRadius, font, foregroundStyle, frame, gaugeStyle, lineLimit, opacity, padding } from '@expo/ui/swift-ui/modifiers';
 import { createLiveActivity, type LiveActivityEnvironment } from 'expo-widgets';
 
 export type MatchupPlayerLine = {
@@ -52,173 +52,258 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
   const RED = '#EF4444';
   const YELLOW = '#FACC15';
   const GREY = '#8E8E93';
+  const ACCENT = '#F59E0B';
+  const PANEL = '#1C1C1E';
+  const PANEL_DIM = '#2C2C2E';
 
   const gap = props.scoreGap;
-  const gapColor = gap >= 0 ? GREEN : RED;
-  const gapText = `${gap >= 0 ? '+' : ''}${gap.toFixed(1)}`;
+  const myLeading = gap >= 0;
+  const gapColor = myLeading ? GREEN : RED;
+  const gapText = `${myLeading ? '+' : ''}${gap.toFixed(1)}`;
   const myScoreText = props.myScore.toFixed(1);
   const oppScoreText = props.opponentScore.toFixed(1);
+  const myScoreColor = myLeading ? GREEN : WHITE;
+  const oppScoreColor = !myLeading ? GREEN : WHITE;
 
   const contributorVisible = props.biggestContributor.length > 0;
   const probVisible = typeof props.winProbability === 'number';
-  const winPct = probVisible ? Math.round((props.winProbability ?? 0) * 100) : 0;
+  const winPct = probVisible ? Math.round((props.winProbability ?? 0) * 100) : 50;
   const playersVisible = props.players.length > 0;
   const top5 = props.players.slice(0, 5);
-
-  const teamColumn = (tricode: string, scoreText: string) => (
-    <VStack spacing={2}>
-      <Text modifiers={[font({ size: 12, weight: 'semibold' }), foregroundStyle(WHITE), opacity(0.7)]}>
-        {tricode}
-      </Text>
-      <Text modifiers={[font({ size: 22, weight: 'bold' }), foregroundStyle(WHITE)]}>
-        {scoreText}
-      </Text>
-    </VStack>
-  );
-
-  const playerRow = (player: MatchupPlayerLine) => (
-    <HStack spacing={6}>
-      <Text modifiers={[font({ size: 9 }), foregroundStyle(player.isOnCourt ? GREEN : GREY)]}>●</Text>
-      <Text modifiers={[font({ size: 11, weight: 'medium' }), foregroundStyle(WHITE), lineLimit(1)]}>
-        {player.name}
-      </Text>
-      <Spacer />
-      <Text modifiers={[font({ size: 11 }), foregroundStyle(WHITE), opacity(0.7)]}>
-        {player.statLine}
-      </Text>
-      <Text
-        modifiers={[
-          font({ size: 11, weight: 'bold' }),
-          foregroundStyle(WHITE),
-          frame({ width: 36, alignment: 'trailing' }),
-        ]}
-      >
-        {player.fantasyPoints.toFixed(1)}
-      </Text>
-      <Text
-        modifiers={[
-          font({ size: 9 }),
-          foregroundStyle(WHITE),
-          opacity(0.5),
-          frame({ width: 42, alignment: 'trailing' }),
-        ]}
-      >
-        {player.gameStatus}
-      </Text>
-    </HStack>
-  );
-
-  const playersList = playersVisible ? (
-    <VStack spacing={3}>{top5.map(playerRow)}</VStack>
-  ) : (
-    <Text modifiers={[font({ size: 11 }), foregroundStyle(WHITE), opacity(0.4)]}>
-      No active players
-    </Text>
-  );
+  const totalLive = props.myActivePlayers + props.opponentActivePlayers;
 
   return {
     banner: (
-      <VStack spacing={8} modifiers={[padding({ all: 16 })]}>
-        <HStack>
-          <VStack alignment="leading">
-            <Text modifiers={[font({ size: 12 }), foregroundStyle(WHITE), opacity(0.7)]}>
+      <VStack spacing={10} modifiers={[padding({ all: 14 })]}>
+        {/* Header: LIVE pill + basketball icon + "MATCHUP" */}
+        <HStack spacing={8}>
+          <HStack spacing={4} modifiers={[padding({ horizontal: 8, vertical: 3 }), background(RED, undefined as any), cornerRadius(8)]}>
+            <Circle modifiers={[foregroundStyle(WHITE), frame({ width: 6, height: 6 })]} />
+            <Text modifiers={[font({ size: 10, weight: 'bold' }), foregroundStyle(WHITE)]}>LIVE</Text>
+          </HStack>
+          <Image systemName="basketball.fill" size={12} color={ACCENT} />
+          <Text modifiers={[font({ size: 10, weight: 'semibold' }), foregroundStyle(WHITE), opacity(0.55)]}>
+            MATCHUP
+          </Text>
+          <Spacer />
+          {totalLive > 0 ? (
+            <HStack spacing={4}>
+              <Image systemName="dot.radiowaves.left.and.right" size={11} color={ACCENT} />
+              <Text modifiers={[font({ size: 10, weight: 'medium' }), foregroundStyle(WHITE), opacity(0.6)]}>
+                {`${totalLive} live`}
+              </Text>
+            </HStack>
+          ) : null}
+        </HStack>
+
+        {/* Scoreboard */}
+        <HStack spacing={12}>
+          <VStack alignment="leading" spacing={2}>
+            <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), padding({ horizontal: 8, vertical: 2 }), background(PANEL_DIM, undefined as any), cornerRadius(6)]}>
               {props.myTeamTricode}
             </Text>
-            <Text modifiers={[font({ size: 22, weight: 'bold' }), foregroundStyle(WHITE)]}>
+            <Text modifiers={[font({ size: 26, weight: 'bold' }), foregroundStyle(myScoreColor)]}>
               {myScoreText}
             </Text>
           </VStack>
 
           <Spacer />
 
-          <VStack>
-            <Text modifiers={[font({ size: 12, weight: 'bold' }), foregroundStyle(gapColor)]}>
+          <VStack spacing={3}>
+            <Text modifiers={[font({ size: 13, weight: 'bold' }), foregroundStyle(gapColor)]}>
               {gapText}
             </Text>
             {probVisible ? (
-              <Text modifiers={[font({ size: 11 }), foregroundStyle(WHITE), opacity(0.6)]}>
-                {`${winPct}%`}
-              </Text>
+              <Gauge
+                value={winPct / 100}
+                min={0}
+                max={1}
+                modifiers={[gaugeStyle('linearCapacity'), frame({ width: 70 }), foregroundStyle(gapColor)]}
+              />
             ) : null}
           </VStack>
 
           <Spacer />
 
-          <VStack alignment="trailing">
-            <Text modifiers={[font({ size: 12 }), foregroundStyle(WHITE), opacity(0.7)]}>
+          <VStack alignment="trailing" spacing={2}>
+            <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), padding({ horizontal: 8, vertical: 2 }), background(PANEL_DIM, undefined as any), cornerRadius(6)]}>
               {props.opponentTeamTricode}
             </Text>
-            <Text modifiers={[font({ size: 22, weight: 'bold' }), foregroundStyle(WHITE)]}>
+            <Text modifiers={[font({ size: 26, weight: 'bold' }), foregroundStyle(oppScoreColor)]}>
               {oppScoreText}
             </Text>
           </VStack>
         </HStack>
 
+        {/* Biggest contributor */}
         {contributorVisible ? (
-          <Text modifiers={[font({ size: 12 }), foregroundStyle(YELLOW)]}>
-            {props.biggestContributor}
-          </Text>
+          <HStack spacing={6}>
+            <Image systemName="flame.fill" size={12} color={YELLOW} />
+            <Text modifiers={[font({ size: 12, weight: 'medium' }), foregroundStyle(YELLOW), lineLimit(1)]}>
+              {props.biggestContributor}
+            </Text>
+          </HStack>
         ) : null}
 
-        {playersVisible ? <Divider /> : null}
-        {playersVisible ? playersList : null}
-
-        <Text modifiers={[font({ size: 11 }), foregroundStyle(WHITE), opacity(0.4)]}>
-          {`${props.myActivePlayers + props.opponentActivePlayers} games live`}
-        </Text>
+        {/* Player ticker (top 5) */}
+        {playersVisible ? (
+          <VStack spacing={4} modifiers={[padding({ all: 8 }), background(PANEL, undefined as any), cornerRadius(10)]}>
+            {top5.map((player) => (
+              <HStack key={player.name} spacing={6}>
+                <Image
+                  systemName={player.isOnCourt ? 'circle.fill' : 'circle'}
+                  size={8}
+                  color={player.isOnCourt ? GREEN : GREY}
+                />
+                <Text modifiers={[font({ size: 11, weight: 'medium' }), foregroundStyle(WHITE), lineLimit(1)]}>
+                  {player.name}
+                </Text>
+                <Spacer />
+                <Text modifiers={[font({ size: 10 }), foregroundStyle(WHITE), opacity(0.55)]}>
+                  {player.statLine}
+                </Text>
+                <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), frame({ width: 38, alignment: 'trailing' })]}>
+                  {player.fantasyPoints.toFixed(1)}
+                </Text>
+                <Text modifiers={[font({ size: 9 }), foregroundStyle(WHITE), opacity(0.4), frame({ width: 42, alignment: 'trailing' })]}>
+                  {player.gameStatus}
+                </Text>
+              </HStack>
+            ))}
+          </VStack>
+        ) : null}
       </VStack>
     ),
 
     compactLeading: (
       <HStack spacing={4}>
+        <Image
+          systemName={myLeading ? 'arrowtriangle.up.fill' : 'circle.fill'}
+          size={9}
+          color={myLeading ? GREEN : ACCENT}
+        />
         <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), opacity(0.7)]}>
           {props.myTeamTricode}
         </Text>
-        <Text modifiers={[font({ size: 12, weight: 'bold' }), foregroundStyle(WHITE)]}>
+        <Text modifiers={[font({ size: 13, weight: 'bold' }), foregroundStyle(myScoreColor)]}>
           {myScoreText}
         </Text>
       </HStack>
     ),
     compactTrailing: (
       <HStack spacing={4}>
-        <Text modifiers={[font({ size: 12, weight: 'bold' }), foregroundStyle(WHITE)]}>
+        <Text modifiers={[font({ size: 13, weight: 'bold' }), foregroundStyle(oppScoreColor)]}>
           {oppScoreText}
         </Text>
         <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), opacity(0.7)]}>
           {props.opponentTeamTricode}
         </Text>
+        <Image
+          systemName={!myLeading ? 'arrowtriangle.up.fill' : 'circle.fill'}
+          size={9}
+          color={!myLeading ? GREEN : ACCENT}
+        />
       </HStack>
     ),
 
     minimal: (
-      <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(gapColor)]}>
-        {gap.toFixed(0)}
-      </Text>
+      <HStack spacing={2}>
+        <Image
+          systemName={myLeading ? 'arrowtriangle.up.fill' : 'arrowtriangle.down.fill'}
+          size={9}
+          color={gapColor}
+        />
+        <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(gapColor)]}>
+          {Math.abs(gap).toFixed(0)}
+        </Text>
+      </HStack>
     ),
 
-    expandedLeading: teamColumn(props.myTeamTricode, myScoreText),
-    expandedTrailing: teamColumn(props.opponentTeamTricode, oppScoreText),
+    expandedLeading: (
+      <VStack alignment="leading" spacing={3} modifiers={[padding({ leading: 4 })]}>
+        <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), padding({ horizontal: 8, vertical: 2 }), background(PANEL_DIM, undefined as any), cornerRadius(6)]}>
+          {props.myTeamTricode}
+        </Text>
+        <Text modifiers={[font({ size: 22, weight: 'bold' }), foregroundStyle(myScoreColor)]}>
+          {myScoreText}
+        </Text>
+        <HStack spacing={3}>
+          <Image systemName="person.2.fill" size={9} color={GREY} />
+          <Text modifiers={[font({ size: 9 }), foregroundStyle(WHITE), opacity(0.5)]}>
+            {`${props.myActivePlayers} live`}
+          </Text>
+        </HStack>
+      </VStack>
+    ),
+    expandedTrailing: (
+      <VStack alignment="trailing" spacing={3} modifiers={[padding({ trailing: 4 })]}>
+        <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), padding({ horizontal: 8, vertical: 2 }), background(PANEL_DIM, undefined as any), cornerRadius(6)]}>
+          {props.opponentTeamTricode}
+        </Text>
+        <Text modifiers={[font({ size: 22, weight: 'bold' }), foregroundStyle(oppScoreColor)]}>
+          {oppScoreText}
+        </Text>
+        <HStack spacing={3}>
+          <Image systemName="person.2.fill" size={9} color={GREY} />
+          <Text modifiers={[font({ size: 9 }), foregroundStyle(WHITE), opacity(0.5)]}>
+            {`${props.opponentActivePlayers} live`}
+          </Text>
+        </HStack>
+      </VStack>
+    ),
     expandedCenter: (
       <VStack spacing={4}>
-        <Text modifiers={[font({ size: 12, weight: 'bold' }), foregroundStyle(gapColor)]}>
+        <Text modifiers={[font({ size: 14, weight: 'bold' }), foregroundStyle(gapColor)]}>
           {gapText}
         </Text>
         {probVisible ? (
-          <Text modifiers={[font({ size: 11 }), foregroundStyle(WHITE), opacity(0.6)]}>
-            {`${winPct}% win`}
-          </Text>
+          <Gauge
+            value={winPct / 100}
+            min={0}
+            max={1}
+            modifiers={[gaugeStyle('linearCapacity'), frame({ width: 80 }), foregroundStyle(gapColor)]}
+          />
         ) : null}
         {contributorVisible ? (
-          <Text modifiers={[font({ size: 11 }), foregroundStyle(YELLOW), lineLimit(1)]}>
-            {props.biggestContributor}
-          </Text>
+          <HStack spacing={4}>
+            <Image systemName="flame.fill" size={10} color={YELLOW} />
+            <Text modifiers={[font({ size: 10, weight: 'medium' }), foregroundStyle(YELLOW), lineLimit(1)]}>
+              {props.biggestContributor}
+            </Text>
+          </HStack>
         ) : null}
-        <Text modifiers={[font({ size: 11 }), foregroundStyle(WHITE), opacity(0.5)]}>
-          {`${props.myActivePlayers} vs ${props.opponentActivePlayers} playing`}
-        </Text>
       </VStack>
     ),
-    expandedBottom: playersList,
+    expandedBottom: playersVisible ? (
+      <VStack spacing={3} modifiers={[padding({ horizontal: 4, top: 4 })]}>
+        {top5.map((player) => (
+          <HStack key={player.name} spacing={6}>
+            <Image
+              systemName={player.isOnCourt ? 'circle.fill' : 'circle'}
+              size={8}
+              color={player.isOnCourt ? GREEN : GREY}
+            />
+            <Text modifiers={[font({ size: 11, weight: 'medium' }), foregroundStyle(WHITE), lineLimit(1)]}>
+              {player.name}
+            </Text>
+            <Spacer />
+            <Text modifiers={[font({ size: 10 }), foregroundStyle(WHITE), opacity(0.6)]}>
+              {player.statLine}
+            </Text>
+            <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), frame({ width: 38, alignment: 'trailing' })]}>
+              {player.fantasyPoints.toFixed(1)}
+            </Text>
+          </HStack>
+        ))}
+      </VStack>
+    ) : (
+      <HStack spacing={6} modifiers={[padding({ top: 4 })]}>
+        <Image systemName="hourglass" size={11} color={GREY} />
+        <Text modifiers={[font({ size: 11 }), foregroundStyle(WHITE), opacity(0.45)]}>
+          Waiting for tip-off
+        </Text>
+      </HStack>
+    ),
   };
 };
 

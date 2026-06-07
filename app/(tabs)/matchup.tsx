@@ -151,12 +151,17 @@ export default function MatchupScreen() {
       ? (weekScores?.[displayData.rightTeam.teamId] ?? displayData.rightTeam.weekTotal)
       : 0;
 
+    const fallbackTricode = (name: string) => name.substring(0, 3).toUpperCase();
+
     const result = await startMatchupActivity({
       myTeamName: displayData.leftTeam.teamName,
       opponentTeamName: displayData.rightTeam?.teamName ?? "BYE",
-      myTeamTricode: displayData.leftTeam.teamName.substring(0, 3).toUpperCase(),
+      myTeamTricode:
+        displayData.leftTeam.tricode?.trim() ||
+        fallbackTricode(displayData.leftTeam.teamName),
       opponentTeamTricode: displayData.rightTeam
-        ? displayData.rightTeam.teamName.substring(0, 3).toUpperCase()
+        ? displayData.rightTeam.tricode?.trim() ||
+          fallbackTricode(displayData.rightTeam.teamName)
         : "BYE",
       matchupId: userMatchupId!,
       leagueId,
@@ -1070,7 +1075,7 @@ export default function MatchupScreen() {
         <WeekSummarySheet
           visible={weeklySummaryVisible}
           onClose={() => setWeeklySummaryVisible(false)}
-          weekLabel={`Week ${currentWeek.week_number} · ${formatWeekRange(currentWeek.start_date, currentWeek.end_date)}`}
+          weekLabel={`Week ${currentWeek.week_number} · ${formatWeekRange(currentWeek.start_date, currentWeek.end_date)}${currentWeek.is_double_week ? ' · Double Week' : ''}`}
           teams={[
             {
               teamName: heroDataLeft.teamName,
