@@ -237,6 +237,9 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   const isOffseason = rosterInfo?.offseasonStep != null;
   const weeklyLimit = rosterInfo?.weeklyAcquisitionLimit ?? null;
   const playerLockType = rosterInfo?.playerLockType ?? "daily";
+  // The ribbon only carries pills when the league has a weekly add limit
+  // and/or a waiver system; otherwise it's empty, so we skip it entirely.
+  const hasRibbonContent = weeklyLimit != null || waiverType !== "none";
 
   const gameTimeMap = useTodayGameTimes(!isOffseason);
 
@@ -1170,9 +1173,9 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     ? Math.max(0, rosterInfo.maxSize - rosterInfo.activeCount)
     : 0;
 
-  // Stat-key labels above the slash-line column. Shared between the
-  // ribbon's right-slot (in-season) and a standalone colKey row
-  // (offseason, when the ribbon is replaced by the closed-wire banner).
+  // Stat-key labels above the slash-line column, rendered on their own
+  // colKey row below the ribbon (or the offseason banner). Right-aligned
+  // so they sit over the row slash-line values, not the round add button.
   const colKeyContent = (
     <>
       <View
@@ -1184,6 +1187,11 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         <ThemedText
           type="varsitySmall"
           style={[styles.colKeyText, { color: c.secondaryText }]}
+          accessibilityLabel={
+            isCategories
+              ? 'Stat columns: points, rebounds, assists, steals, blocks'
+              : 'Stat columns: points, rebounds, assists'
+          }
         >
           {isCategories ? 'PTS · REB · AST · STL · BLK' : 'PTS · REB · AST'}
         </ThemedText>
@@ -1262,7 +1270,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         </View>
       )}
 
-      {!isOffseason && (
+      {!isOffseason && hasRibbonContent && (
         <FreeAgentStatusRibbon
           weeklyLimit={weeklyLimit}
           weeklyAddsUsed={weeklyAddsUsed ?? 0}
@@ -1299,15 +1307,12 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
             setOpenAsDropPicker(true);
             setSelectedPlayer(seasonStatsMap.get(claim.player_id) ?? null);
           }}
-          rightSlot={colKeyContent}
         />
       )}
 
-      {isOffseason && (
-        <View style={[styles.colKey, { borderBottomColor: c.border }]}>
-          {colKeyContent}
-        </View>
-      )}
+      <View style={[styles.colKey, { borderBottomColor: c.border }]}>
+        {colKeyContent}
+      </View>
 
       <FlatList<PlayerSeasonStats>
         data={filteredPlayers}

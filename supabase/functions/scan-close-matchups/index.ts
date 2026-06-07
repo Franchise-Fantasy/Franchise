@@ -24,14 +24,10 @@ import { corsResponse } from "../_shared/cors.ts";
 import { handleError, jsonResponse } from "../_shared/http.ts";
 import { recordHeartbeat } from "../_shared/heartbeat.ts";
 import { notifyTeams } from "../_shared/push.ts";
+import { categoriesClose, pointsClose } from "../../../utils/liveActivity/closeMatchup.ts";
 import { getSportToday } from "../../../utils/leagueTime.ts";
 
 import type { Database } from "../../../types/database.types.ts";
-
-const POINTS_FLAT_THRESHOLD = 30;
-const POINTS_PERCENT_THRESHOLD = 0.15;
-const CATEGORY_GAP_MAX = 1;
-const CATEGORY_MIN_DECIDED = 3;
 
 const supabase = createClient<Database>(
   Deno.env.get("SUPABASE_URL")!,
@@ -50,19 +46,6 @@ interface CloseCandidate {
   isCategories: boolean;
 }
 
-function pointsClose(home: number, away: number): boolean {
-  const gap = Math.abs(home - away);
-  if (gap <= POINTS_FLAT_THRESHOLD) return true;
-  const leader = Math.max(home, away, 1);
-  return gap / leader <= POINTS_PERCENT_THRESHOLD;
-}
-
-function categoriesClose(homeWins: number, awayWins: number, ties: number): boolean {
-  const decided = homeWins + awayWins + ties;
-  if (decided < CATEGORY_MIN_DECIDED) return false;
-  return Math.abs(homeWins - awayWins) <= CATEGORY_GAP_MAX;
-}
-
 function formatBody(c: CloseCandidate): string {
   if (c.isCategories) {
     const record = c.ties > 0
@@ -78,9 +61,15 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return corsResponse();
 
   try {
-    // Cron auth — same Bearer CRON_SECRET pattern the other crons use
+    // Cron auth — Bearer CRON_SECRET. Reject if the secret itself is unset so
+    // an attacker can't bypass with the literal string "Bearer undefined".
+    // jsonResponse(401) (rather than throwing HttpError) matches the
+    // project-wide cron convention; heartbeat is written so the watchdog
+    // sees the rejection instead of false-negative success.
+    const cronSecret = Deno.env.get("CRON_SECRET");
     const authHeader = req.headers.get("Authorization");
-    if (authHeader !== `Bearer ${Deno.env.get("CRON_SECRET")}`) {
+    if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+      await recordHeartbeat(supabase, "scan-close-matchups", "error", "unauthorized").catch(() => {});
       return jsonResponse({ ok: false, error: "unauthorized" }, 401);
     }
 
@@ -192,21 +181,37 @@ Deno.serve(async (req: Request) => {
     const allStarterIds = new Set<string>();
     for (const set of startersByTeam.values()) for (const pid of set) allStarterIds.add(pid);
 
-    // Game schedule for today; status != 'Final'
-    const { data: liveStats } = await supabase
-      .from("live_player_stats")
-      .select("player_id, game_status")
-      .eq("game_date", today)
-      .in("player_id", [...allStarterIds]);
-    const activePlayerIds = new Set<string>();
-    for (const ls of liveStats ?? []) {
-      if (ls.game_status !== 3) activePlayerIds.add(ls.player_id);
+    // Map each starter to their NBA pro_team abbreviation so we can correlate
+    // with game_schedule. (`live_player_stats` would miss pre-tip starters
+    // because poll-live-stats only upserts rows once games go status>=2.)
+    const { data: playerRows } = await supabase
+      .from("players")
+      .select("id, pro_team")
+      .in("id", [...allStarterIds]);
+    const proTeamByPlayer = new Map<string, string>();
+    for (const p of playerRows ?? []) {
+      if (p.pro_team) proTeamByPlayer.set(p.id, p.pro_team);
+    }
+
+    // NBA teams with a non-final game on today's slate
+    const { data: todayGames } = await supabase
+      .from("game_schedule")
+      .select("home_team, away_team, status")
+      .eq("game_date", today);
+    const activeProTeams = new Set<string>();
+    for (const g of todayGames ?? []) {
+      if (g.status === "Final") continue;
+      if (g.home_team) activeProTeams.add(g.home_team);
+      if (g.away_team) activeProTeams.add(g.away_team);
     }
 
     const hasTonightStarter = (teamId: string): boolean => {
       const starters = startersByTeam.get(teamId);
       if (!starters || starters.size === 0) return false;
-      for (const pid of starters) if (activePlayerIds.has(pid)) return true;
+      for (const pid of starters) {
+        const pro = proTeamByPlayer.get(pid);
+        if (pro && activeProTeams.has(pro)) return true;
+      }
       return false;
     };
 

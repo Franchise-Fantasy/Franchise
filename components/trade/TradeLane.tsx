@@ -31,8 +31,12 @@ interface TradeLaneProps {
   isMultiTeam: boolean;
   isCategories: boolean;
   pickConditionsEnabled: boolean;
-  /** Whether this league trades draft picks at all (false for redraft) — gates the Pick/Swap chips. */
-  draftPickTradingEnabled: boolean;
+  /**
+   * Whether this league can trade draft picks at all (dynasty; false for redraft) — gates the Pick/Swap chips.
+   * NOT the `draft_pick_trading_enabled` setting: that flag only governs startup-draft picks and is applied
+   * when fetching tradable picks (useTeamTradablePicks). Future/rookie picks are always tradeable in dynasty.
+   */
+  picksTradeable: boolean;
 
   /** Lane-level controls — chip taps lift up to the parent which opens a fullscreen picker. */
   onAddChipPress: (type: PickerType) => void;
@@ -68,7 +72,7 @@ export function TradeLane({
   isMultiTeam,
   isCategories,
   pickConditionsEnabled,
-  draftPickTradingEnabled,
+  picksTradeable,
   onAddChipPress,
   onRemovePlayer,
   onRemovePick,
@@ -93,7 +97,7 @@ export function TradeLane({
               distinguish asset types. Dynasty leagues split Player / Pick and,
               when pick conditions are on, Swap. */}
           <View style={styles.chipRow}>
-            {draftPickTradingEnabled ? (
+            {picksTradeable ? (
               <>
                 <BrandButton
                   label="Player"

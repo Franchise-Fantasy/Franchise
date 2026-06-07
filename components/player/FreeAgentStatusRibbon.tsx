@@ -54,10 +54,6 @@ interface FreeAgentStatusRibbonProps {
   /** Edit/set the drop player on a pending claim. Only surfaced when the
    *  roster is full, since a drop is otherwise unnecessary. */
   onEditClaimDrop: (claim: PendingClaim) => void;
-  /** Right-aligned content rendered on the same row as the ribbon pills.
-   *  Used to host the column-key labels above the free-agent list so the
-   *  pills + stat key share a single row instead of two. */
-  rightSlot?: React.ReactNode;
 }
 
 /**
@@ -84,68 +80,61 @@ export function FreeAgentStatusRibbon({
   onRequestCancelClaim,
   onEditClaimBid,
   onEditClaimDrop,
-  rightSlot,
 }: FreeAgentStatusRibbonProps) {
   const c = useColors();
 
   const claimCount = pendingClaims.length;
-  const hasAnyRibbonContent = weeklyLimit != null || waiverType !== 'none';
 
   return (
     <View>
-      <View style={[listStyles.ribbonRow, { borderBottomColor: c.border }]}>
-        {hasAnyRibbonContent ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={{ flex: 1 }}
-            contentContainerStyle={listStyles.ribbonContent}
-          >
-            {weeklyLimit != null && (
-              <RibbonPill
-                icon={weeklyLimitReached ? 'lock-closed' : 'swap-horizontal'}
-                label={`Acq ${weeklyAddsUsed}/${weeklyLimit}`}
-                active={false}
-                tone={weeklyLimitReached ? 'danger' : 'default'}
-                onPress={onAcquisitionsInfoPress}
-                accessibilityLabel={`Weekly acquisitions: ${weeklyAddsUsed} of ${weeklyLimit} used${weeklyLimitReached ? ', limit reached' : ''}`}
-                c={c}
-              />
-            )}
+      <View style={listStyles.ribbonRow}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ flex: 1 }}
+          contentContainerStyle={listStyles.ribbonContent}
+        >
+          {weeklyLimit != null && (
+            <RibbonPill
+              icon={weeklyLimitReached ? 'lock-closed' : 'swap-horizontal'}
+              label={`Acq ${weeklyAddsUsed}/${weeklyLimit}`}
+              active={false}
+              tone={weeklyLimitReached ? 'danger' : 'default'}
+              onPress={onAcquisitionsInfoPress}
+              accessibilityLabel={`Weekly acquisitions: ${weeklyAddsUsed} of ${weeklyLimit} used${weeklyLimitReached ? ', limit reached' : ''}`}
+              c={c}
+            />
+          )}
 
-            {waiverType !== 'none' && claimCount > 0 && (
-              <RibbonPill
-                icon="time-outline"
-                label={`Claims · ${claimCount}`}
-                active={expandedSection === 'claims'}
-                tone="default"
-                onPress={onToggleClaims}
-                accessibilityLabel={`Pending claims, ${claimCount}`}
-                accessibilityState={{ expanded: expandedSection === 'claims' }}
-                c={c}
-              />
-            )}
+          {waiverType !== 'none' && claimCount > 0 && (
+            <RibbonPill
+              icon="time-outline"
+              label={`Claims · ${claimCount}`}
+              active={expandedSection === 'claims'}
+              tone="default"
+              onPress={onToggleClaims}
+              accessibilityLabel={`Pending claims, ${claimCount}`}
+              accessibilityState={{ expanded: expandedSection === 'claims' }}
+              c={c}
+            />
+          )}
 
-            {waiverType !== 'none' && (
-              <RibbonPill
-                icon={waiverType === 'faab' ? 'cash-outline' : 'list-outline'}
-                label={waiverType === 'faab' ? `FAAB · $${faabRemaining ?? 0}` : 'Waiver Order'}
-                active={false}
-                tone="default"
-                onPress={onWaiverOrderPress}
-                accessibilityLabel={
-                  waiverType === 'faab'
-                    ? `FAAB budget, ${faabRemaining ?? 0} dollars`
-                    : 'Waiver priority order'
-                }
-                c={c}
-              />
-            )}
-          </ScrollView>
-        ) : (
-          <View style={{ flex: 1 }} />
-        )}
-        {rightSlot}
+          {waiverType !== 'none' && (
+            <RibbonPill
+              icon={waiverType === 'faab' ? 'cash-outline' : 'list-outline'}
+              label={waiverType === 'faab' ? `FAAB · $${faabRemaining ?? 0}` : 'Waiver Order'}
+              active={false}
+              tone="default"
+              onPress={onWaiverOrderPress}
+              accessibilityLabel={
+                waiverType === 'faab'
+                  ? `FAAB budget, ${faabRemaining ?? 0} dollars`
+                  : 'Waiver priority order'
+              }
+              c={c}
+            />
+          )}
+        </ScrollView>
       </View>
 
       {expandedSection === 'claims' && claimCount > 0 && (

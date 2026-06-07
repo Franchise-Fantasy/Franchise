@@ -21,6 +21,7 @@ import { pushActivityUpdate } from "../_shared/apns.ts";
 import { corsResponse } from "../_shared/cors.ts";
 import { recordHeartbeat } from "../_shared/heartbeat.ts";
 import { handleError, jsonResponse } from "../_shared/http.ts";
+import { buildPointsContentState } from "../_shared/liveActivityContent.ts";
 import { getSportToday } from "../../../utils/leagueTime.ts";
 
 import type { Database } from "../../../types/database.types.ts";
@@ -36,8 +37,15 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return corsResponse();
 
   try {
+    // Cron auth — Bearer CRON_SECRET. Reject if the secret itself is unset so
+    // an attacker can't bypass with the literal string "Bearer undefined".
+    // jsonResponse(401) (rather than throwing HttpError) matches the
+    // project-wide cron convention; heartbeat is written so the watchdog
+    // sees the rejection instead of false-negative success.
+    const cronSecret = Deno.env.get("CRON_SECRET");
     const authHeader = req.headers.get("Authorization");
-    if (authHeader !== `Bearer ${Deno.env.get("CRON_SECRET")}`) {
+    if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+      await recordHeartbeat(supabase, "end-stale-live-activities", "error", "unauthorized").catch(() => {});
       return jsonResponse({ ok: false, error: "unauthorized" }, 401);
     }
 
@@ -107,17 +115,30 @@ Deno.serve(async (req: Request) => {
       groups.set(key, g);
     }
 
+    // The widget receives this contentState for ~5 seconds before iOS removes
+    // the activity. Build a complete (zeroed) PointsContentState so the
+    // widget never has to render undefined fields. We don't bother fetching
+    // the last-known score — it would only be visible for a moment.
+    const endState = buildPointsContentState({
+      myTeamName: "",
+      opponentTeamName: "",
+      myTeamTricode: "",
+      opponentTeamTricode: "",
+      myScore: 0,
+      opponentScore: 0,
+      biggestContributor: "",
+      myActivePlayers: 0,
+      opponentActivePlayers: 0,
+      players: [],
+    });
+
     let pushed = 0;
     for (const g of groups.values()) {
       await pushActivityUpdate(
         supabase,
         "matchup",
         { schedule_id: g.schedule_id, league_id: g.league_id },
-        // Minimal contentState — the widget will accept whatever; iOS dismisses
-        // the activity 5s after this push lands so the user never really sees
-        // it. We pass empty fields rather than re-fetching the last known
-        // state.
-        { mode: "points", scoreGap: 0 } as Record<string, unknown>,
+        endState as unknown as Record<string, unknown>,
         { end: true, dismissalDate: Math.floor(Date.now() / 1000) + 5 },
       ).catch((err) => console.warn("pushActivityUpdate(end) failed:", err));
       pushed += g.ids.length;

@@ -20,21 +20,13 @@ import { Circle, Gauge, HStack, Image, Spacer, Text, VStack } from '@expo/ui/swi
 import { background, clipShape, cornerRadius, font, foregroundStyle, frame, gaugeStyle, lineLimit, opacity, padding } from '@expo/ui/swift-ui/modifiers';
 import { createLiveActivity, type LiveActivityEnvironment } from 'expo-widgets';
 
-export type MatchupPlayerLine = {
-  name: string;
-  statLine: string;
-  fantasyPoints: number;
-  gameStatus: string;
-  isOnCourt: boolean;
-};
+import type { LiveCategoryLine, LivePlayerLine } from '@/utils/liveActivity/contentState';
 
-export type MatchupCategoryLine = {
-  stat: string;
-  myValue: number;
-  oppValue: number;
-  winner: 'me' | 'opp' | 'tie';
-  inverse: boolean;
-};
+// Re-exported under the widget-flavored names that the rest of the client uses.
+// Single source of truth lives in utils/liveActivity/contentState.ts — keep this
+// file thin so the widget render branch and the edge dispatch can't drift.
+export type MatchupPlayerLine = LivePlayerLine;
+export type MatchupCategoryLine = LiveCategoryLine;
 
 export type MatchupActivityProps = {
   mode: 'points' | 'categories';

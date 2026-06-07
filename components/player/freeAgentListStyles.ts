@@ -79,15 +79,10 @@ export const freeAgentListStyles = StyleSheet.create({
   ribbonRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingLeft: s(8),
-    // Right padding matches the row's effective horizontal padding
-    // (listContent s(8) + row s(12)) so the stat-key column sits over
-    // the slash-line values, not the round add button.
-    paddingRight: s(20),
-    paddingTop: s(4),
-    paddingBottom: s(4),
-    gap: s(8),
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    // The stat-key legend now lives on its own colKey row below, so the
+    // ribbon is just the scrollable pills with symmetric edge padding.
+    paddingHorizontal: s(8),
+    paddingVertical: s(4),
   },
   statInfoBtn: {
     paddingHorizontal: s(10),

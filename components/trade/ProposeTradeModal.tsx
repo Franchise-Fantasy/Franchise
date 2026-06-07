@@ -131,6 +131,10 @@ export function ProposeTradeModal({
   const isCategories = leagueSettings?.scoring_type === 'h2h_categories';
   const isDynastyLeague = (leagueSettings?.league_type ?? 'dynasty') === 'dynasty';
   const pickConditionsEnabled = isDynastyLeague && (leagueSettings?.pick_conditions_enabled ?? false);
+  // Picks are tradeable at all in any dynasty league (gates the Pick/Swap chips). The
+  // `draft_pick_trading_enabled` setting only governs STARTUP-draft picks — it's applied when
+  // fetching tradable picks (useTeamTradablePicks), so future/rookie picks stay tradeable when off.
+  const picksTradeable = isDynastyLeague;
   const draftPickTradingEnabled = isDynastyLeague && (leagueSettings?.draft_pick_trading_enabled ?? false);
   const teamCount = leagueSettings?.teams ?? 10;
   const maxFutureSeasons = leagueSettings?.max_future_seasons ?? 3;
@@ -603,7 +607,7 @@ export function ProposeTradeModal({
             teamNameMap={teamNameMap}
             isCategories={!!isCategories}
             pickConditionsEnabled={pickConditionsEnabled}
-            draftPickTradingEnabled={draftPickTradingEnabled}
+            picksTradeable={picksTradeable}
             fairness={fairness}
             rosterWarnings={rosterWarnings}
             hasAssets={hasAssets}
