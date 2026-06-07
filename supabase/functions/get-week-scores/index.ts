@@ -700,6 +700,9 @@ Deno.serve(async (req: Request) => {
           schedule_id: week.id,
           teams: Object.keys(result.teamScores).length,
           teamScores: result.teamScores,
+          isCategories: result.isCategories,
+          inverseByStat: result.inverseByStat,
+          categoryUpdates: result.categoryUpdates,
         };
       }),
     );

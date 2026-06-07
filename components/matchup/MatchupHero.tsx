@@ -91,6 +91,7 @@ export interface MatchupHeroProps {
 
   liveActivitySupported?: boolean;
   liveActivityActive?: boolean;
+  liveActivityHighlighted?: boolean;
   onGoLive?: () => void;
 
   onPrevDay: () => void;
@@ -161,6 +162,7 @@ export function MatchupHero({
   rightAdds,
   liveActivitySupported,
   liveActivityActive,
+  liveActivityHighlighted,
   onGoLive,
   onPrevDay,
   onNextDay,
@@ -470,6 +472,7 @@ export function MatchupHero({
               style={[
                 styles.acqChip,
                 liveActivityActive && styles.goLiveActive,
+                liveActivityHighlighted && styles.goLiveHighlighted,
               ]}
               hitSlop={TAP_SLOP}
               accessibilityRole="button"
@@ -1147,5 +1150,16 @@ const styles = StyleSheet.create({
   },
   goLiveDotActive: {
     backgroundColor: "#fff",
+  },
+  // Notification-driven highlight: amber ring + glow when a Sunday close-matchup
+  // alert lands and the user taps through. Auto-clears after ~6s.
+  goLiveHighlighted: {
+    borderColor: "#F59E0B",
+    borderWidth: 2,
+    shadowColor: "#F59E0B",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.7,
+    shadowRadius: 8,
+    elevation: 6,
   },
 });

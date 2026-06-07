@@ -44,6 +44,7 @@ const CATEGORIES: {
   { key: 'trade_rumors', icon: 'ear-outline', label: 'Trade Rumors', parentKey: 'trades' },
   { key: 'matchups', icon: 'stats-chart-outline', label: 'Matchup Results' },
   { key: 'matchup_daily', icon: 'trending-up-outline', label: 'Daily Score Updates', parentKey: 'matchups' },
+  { key: 'matchup_closeup', icon: 'flash-outline', label: 'Close Matchup Alerts', parentKey: 'matchups' },
   { key: 'waivers', icon: 'hourglass-outline', label: 'Waiver Results' },
   { key: 'injuries', icon: 'medkit-outline', label: 'Injury Updates' },
   { key: 'player_news', icon: 'newspaper-outline', label: 'Player News' },
@@ -98,7 +99,10 @@ export function LeagueNotificationModal({ visible, onClose, userId, leagueId, le
     return (value: boolean) => {
       const patch: Partial<PushPreferences> = { [key]: value };
       // Turn off sub-toggles when parent is disabled
-      if (key === 'matchups' && !value) patch.matchup_daily = false;
+      if (key === 'matchups' && !value) {
+        patch.matchup_daily = false;
+        patch.matchup_closeup = false;
+      }
       if (key === 'trades' && !value) { patch.trade_block = false; patch.trade_rumors = false; }
       setOverrides(prev => ({ ...prev, ...patch }));
       updateLeagueNotifPrefs(userId, leagueId, patch);

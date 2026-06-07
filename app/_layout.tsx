@@ -558,6 +558,18 @@ function NotificationAndLinkHandler() {
               pathname: "/trades",
               params: { proposalId: data.proposal_id },
             } as any);
+        } else if (screen === "matchup" && (data.matchupId || data.prompt_live_activity)) {
+          // Direct-to-matchup deep link: pass matchupId so the matchup screen
+          // snaps to the right week + selection, and prompt_live_activity so
+          // it highlights the Go Live CTA (used by Sunday close-matchup pushes).
+          const params: Record<string, string> = {};
+          if (data.matchupId) params.matchupId = data.matchupId;
+          if (data.prompt_live_activity) params.promptLiveActivity = data.prompt_live_activity;
+          go = () =>
+            router.navigate({
+              pathname: "/(tabs)/matchup",
+              params,
+            } as any);
         } else if (NOTIF_ROUTES[screen]) {
           go = () => router.navigate(NOTIF_ROUTES[screen] as any);
         }

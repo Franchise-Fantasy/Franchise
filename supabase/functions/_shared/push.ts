@@ -3,9 +3,10 @@ import { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
 type NotifCategory =
-  | 'draft' | 'trades' | 'trade_rumors' | 'trade_block' | 'matchups' | 'matchup_daily' | 'waivers'
-  | 'injuries' | 'playoffs' | 'commissioner' | 'league_activity'
-  | 'roster_reminders' | 'lottery' | 'chat' | 'roster_moves' | 'player_news';
+  | 'draft' | 'trades' | 'trade_rumors' | 'trade_block' | 'matchups' | 'matchup_daily'
+  | 'matchup_closeup' | 'waivers' | 'injuries' | 'playoffs' | 'commissioner'
+  | 'league_activity' | 'roster_reminders' | 'lottery' | 'chat' | 'roster_moves'
+  | 'player_news';
 
 // Server-side mirror of DEFAULT_PREFERENCES from lib/notifications.ts.
 // Used as fallback when a stored push_tokens row is missing newer keys.
@@ -16,6 +17,7 @@ const DEFAULT_PREFS: Record<string, boolean> = {
   trade_block: true,
   matchups: true,
   matchup_daily: false,
+  matchup_closeup: true,
   waivers: true,
   injuries: true,
   playoffs: true,
@@ -30,6 +32,7 @@ const DEFAULT_PREFS: Record<string, boolean> = {
 
 const CHANNEL_MAP: Record<string, string> = {
   matchup_daily: 'matchups',
+  matchup_closeup: 'matchups',
   league_activity: 'league',
   roster_reminders: 'roster',
   roster_moves: 'roster_moves',

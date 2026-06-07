@@ -90,7 +90,20 @@ export default function MatchupScreen() {
   const { leagueId, teamId } = useAppState();
   const sport = useActiveLeagueSport();
   const router = useRouter();
-  const { matchupId: paramMatchupId } = useLocalSearchParams<{ matchupId?: string }>();
+  const { matchupId: paramMatchupId, promptLiveActivity: paramPromptLiveActivity } =
+    useLocalSearchParams<{ matchupId?: string; promptLiveActivity?: string }>();
+  const [highlightGoLive, setHighlightGoLive] = useState(false);
+  const consumedPromptRef = useRef(false);
+
+  useEffect(() => {
+    if (consumedPromptRef.current) return;
+    if (paramPromptLiveActivity !== "true") return;
+    consumedPromptRef.current = true;
+    setHighlightGoLive(true);
+    router.setParams({ promptLiveActivity: undefined });
+    const t = setTimeout(() => setHighlightGoLive(false), 6000);
+    return () => clearTimeout(t);
+  }, [paramPromptLiveActivity, router]);
   const scheme = useColorScheme() ?? "light";
   const c = Colors[scheme];
 
@@ -959,6 +972,7 @@ export default function MatchupScreen() {
           liveActivitySupported && isViewingOwnMatchup && weekIsLive
         }
         liveActivityActive={!!liveActivityId}
+        liveActivityHighlighted={highlightGoLive}
         onGoLive={handleGoLive}
         onPrevDay={() => {
           if (selectedDate > minDate)

@@ -6,7 +6,7 @@ import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { parseBody, z } from '../_shared/validate.ts';
 
-const NOTIFICATION_CATEGORIES = ['draft', 'trades', 'trade_rumors', 'trade_block', 'matchups', 'matchup_daily', 'waivers', 'injuries', 'playoffs', 'commissioner', 'league_activity', 'roster_reminders', 'lottery', 'chat', 'roster_moves'] as const;
+const NOTIFICATION_CATEGORIES = ['draft', 'trades', 'trade_rumors', 'trade_block', 'matchups', 'matchup_daily', 'matchup_closeup', 'waivers', 'injuries', 'playoffs', 'commissioner', 'league_activity', 'roster_reminders', 'lottery', 'chat', 'roster_moves'] as const;
 
 const Body = z.object({
   league_id: z.string().uuid(),

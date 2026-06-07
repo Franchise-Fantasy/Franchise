@@ -64,7 +64,10 @@ export default function NotificationSettingsScreen() {
       if (!userId) return;
       const patch: Partial<PushPreferences> = { [key]: value };
       // Turn off sub-toggles when parent is disabled
-      if (key === 'matchups' && !value) patch.matchup_daily = false;
+      if (key === 'matchups' && !value) {
+        patch.matchup_daily = false;
+        patch.matchup_closeup = false;
+      }
       if (key === 'trades' && !value) {
         patch.trade_block = false;
         patch.trade_rumors = false;
@@ -209,6 +212,16 @@ export default function NotificationSettingsScreen() {
               description="Daily matchup progress during the week"
               value={prefs.matchup_daily}
               onToggle={toggle('matchup_daily')}
+              disabled={!prefs.matchups}
+              c={c}
+              indented
+            />
+            <ToggleRow
+              icon="flash-outline"
+              label="Close Matchup Alerts"
+              description="Sunday nudge when your week is going down to the wire"
+              value={prefs.matchup_closeup}
+              onToggle={toggle('matchup_closeup')}
               disabled={!prefs.matchups}
               c={c}
               indented

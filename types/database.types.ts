@@ -354,6 +354,49 @@ export type Database = {
           },
         ]
       }
+      close_matchup_notifications_sent: {
+        Row: {
+          league_id: string
+          matchup_id: string
+          schedule_id: string
+          sent_at: string
+        }
+        Insert: {
+          league_id: string
+          matchup_id: string
+          schedule_id: string
+          sent_at?: string
+        }
+        Update: {
+          league_id?: string
+          matchup_id?: string
+          schedule_id?: string
+          sent_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "close_matchup_notifications_sent_league_id_fkey"
+            columns: ["league_id"]
+            isOneToOne: false
+            referencedRelation: "leagues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_matchup_notifications_sent_matchup_id_fkey"
+            columns: ["matchup_id"]
+            isOneToOne: true
+            referencedRelation: "league_matchups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_matchup_notifications_sent_schedule_id_fkey"
+            columns: ["schedule_id"]
+            isOneToOne: false
+            referencedRelation: "league_schedule"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       commissioner_announcements: {
         Row: {
           content: string

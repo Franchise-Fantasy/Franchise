@@ -18,6 +18,7 @@ export interface PushPreferences {
   trade_block: boolean;
   matchups: boolean;
   matchup_daily: boolean;
+  matchup_closeup: boolean;
   waivers: boolean;
   injuries: boolean;
   playoffs: boolean;
@@ -37,6 +38,7 @@ export const DEFAULT_PREFERENCES: PushPreferences = {
   trade_block: true,
   matchups: true,
   matchup_daily: false,
+  matchup_closeup: true,
   waivers: true,
   injuries: true,
   playoffs: true,
