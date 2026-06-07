@@ -4,6 +4,7 @@ import { pushActivityUpdate } from "../_shared/apns.ts";
 import { bdlFetch, bdlGameSlateDate, mapGameStatus, toIsoDuration, type Sport } from "../_shared/bdl.ts";
 import { recordHeartbeat } from "../_shared/heartbeat.ts";
 import { handleError, jsonResponse, errorResponse } from "../_shared/http.ts";
+import { buildPointsContentState } from "../_shared/liveActivityContent.ts";
 import { createLogger } from "../_shared/log.ts";
 import { parseBody, z } from "../_shared/validate.ts";
 
@@ -250,7 +251,11 @@ async function dispatchPlayerTickerUpdates(
     rosterByTeam.set(rp.team_id, list);
   }
 
-  // Scoring weights per league to compute fpts
+  // Scoring weights + scoring_type per league.
+  // CAT (h2h_categories) leagues are skipped here — get-week-scores owns those
+  // pushes because it already fetches rosters + lineups + completed game logs
+  // needed to compute live per-category aggregates. Hot-path poll-live-stats
+  // only handles points leagues so we don't double the per-tick query weight.
   const leagueIds = [...new Set(tokens.map(t => t.league_id))];
   const { data: scoringRows } = await supabase
     .from('scoring_weights')
@@ -263,6 +268,17 @@ async function dispatchPlayerTickerUpdates(
     list.push(sw);
     scoringByLeague.set(sw.league_id, list);
   }
+
+  const { data: leagueTypeRows } = await supabase
+    .from('leagues')
+    .select('id, scoring_type')
+    .in('id', leagueIds);
+
+  const catLeagueIds = new Set<string>(
+    (leagueTypeRows ?? [])
+      .filter((l) => l.scoring_type === 'h2h_categories')
+      .map((l) => l.id),
+  );
 
   const liveByPlayer = new Map<string, any>(
     liveRows.map(r => [r.player_id, r]),
@@ -287,6 +303,8 @@ async function dispatchPlayerTickerUpdates(
   const pushTasks: Array<Promise<unknown>> = [];
 
   for (const token of tokens) {
+    if (catLeagueIds.has(token.league_id)) continue;
+
     const matchup = matchupById.get(token.matchup_id);
     if (!matchup) continue;
 
@@ -307,21 +325,18 @@ async function dispatchPlayerTickerUpdates(
     const biggest = top5[0];
     const biggestContributor = biggest ? `${biggest.name} ${biggest.statLine}` : '';
 
-    const scoreGap = Math.round((my.score - opp.score) * 10) / 10;
-
-    const contentState = {
+    const contentState = buildPointsContentState({
       myTeamName: myMeta.name,
       opponentTeamName: oppMeta.name,
       myTeamTricode: myMeta.tricode,
       opponentTeamTricode: oppMeta.tricode,
       myScore: my.score,
       opponentScore: opp.score,
-      scoreGap,
       biggestContributor,
       myActivePlayers: my.activePlayers,
       opponentActivePlayers: opp.activePlayers,
       players: top5,
-    };
+    });
 
     pushTasks.push(
       pushActivityUpdate(supabase, 'matchup', {
