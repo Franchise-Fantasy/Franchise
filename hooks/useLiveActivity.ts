@@ -22,9 +22,9 @@ interface MatchupActivityParams {
   leagueId: string;
   scheduleId: string;
   teamId: string;
-  myLogoPath?: string;
-  opponentLogoPath?: string;
-  appGroupPath?: string;
+  opponentTeamId: string;
+  myLogoFileUri?: string;
+  opponentLogoFileUri?: string;
   initialState: {
     myScore: number;
     opponentScore: number;
@@ -111,9 +111,8 @@ export function useLiveActivity(userId?: string) {
           players: params.initialState.players,
           categories: params.initialState.categories,
           catTies: params.initialState.catTies,
-          myLogoPath: params.myLogoPath,
-          opponentLogoPath: params.opponentLogoPath,
-          appGroupPath: params.appGroupPath,
+          myLogoFileUri: params.myLogoFileUri,
+          opponentLogoFileUri: params.opponentLogoFileUri,
         };
 
         const instance = MatchupActivity.start(initialProps);
@@ -123,6 +122,15 @@ export function useLiveActivity(userId?: string) {
 
         const pushToken = await instance.getPushToken();
         if (pushToken) {
+          const metadata =
+            params.myLogoFileUri || params.opponentLogoFileUri
+              ? {
+                  myLogoFileUri: params.myLogoFileUri ?? null,
+                  opponentLogoFileUri: params.opponentLogoFileUri ?? null,
+                  myTeamId: params.teamId,
+                  opponentTeamId: params.opponentTeamId,
+                }
+              : null;
           await supabase.from('activity_tokens').insert({
             user_id: userId,
             team_id: params.teamId,
@@ -131,6 +139,7 @@ export function useLiveActivity(userId?: string) {
             matchup_id: params.matchupId,
             schedule_id: params.scheduleId,
             league_id: params.leagueId,
+            metadata,
           });
         }
 

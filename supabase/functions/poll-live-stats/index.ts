@@ -195,7 +195,7 @@ async function dispatchPlayerTickerUpdates(
   // Check for any active matchup Live Activities
   const { data: tokens } = await supabase
     .from('activity_tokens')
-    .select('id, team_id, schedule_id, league_id, matchup_id')
+    .select('id, team_id, schedule_id, league_id, matchup_id, metadata')
     .eq('activity_type', 'matchup')
     .eq('stale', false);
 
@@ -325,6 +325,11 @@ async function dispatchPlayerTickerUpdates(
     const biggest = top5[0];
     const biggestContributor = biggest ? `${biggest.name} ${biggest.statLine}` : '';
 
+    const meta = (token.metadata ?? {}) as {
+      myLogoFileUri?: string | null;
+      opponentLogoFileUri?: string | null;
+    };
+
     const contentState = buildPointsContentState({
       myTeamName: myMeta.name,
       opponentTeamName: oppMeta.name,
@@ -336,6 +341,8 @@ async function dispatchPlayerTickerUpdates(
       myActivePlayers: my.activePlayers,
       opponentActivePlayers: opp.activePlayers,
       players: top5,
+      myLogoFileUri: meta.myLogoFileUri ?? undefined,
+      opponentLogoFileUri: meta.opponentLogoFileUri ?? undefined,
     });
 
     pushTasks.push(

@@ -38,6 +38,8 @@ type ContentStateBase = {
   biggestContributor: string;
   myActivePlayers: number;
   opponentActivePlayers: number;
+  myLogoFileUri?: string;
+  opponentLogoFileUri?: string;
 };
 
 export type PointsContentState = ContentStateBase & {
@@ -130,6 +132,8 @@ export function buildPointsContentState(input: {
   opponentActivePlayers: number;
   players: LivePlayerLine[];
   winProbability?: number;
+  myLogoFileUri?: string;
+  opponentLogoFileUri?: string;
 }): PointsContentState {
   return {
     mode: 'points',
@@ -145,6 +149,8 @@ export function buildPointsContentState(input: {
     myActivePlayers: input.myActivePlayers,
     opponentActivePlayers: input.opponentActivePlayers,
     players: input.players,
+    myLogoFileUri: input.myLogoFileUri,
+    opponentLogoFileUri: input.opponentLogoFileUri,
   };
 }
 
@@ -159,6 +165,8 @@ export function buildCategoriesContentState(input: {
   categories: LiveCategoryLine[];
   myActivePlayers: number;
   opponentActivePlayers: number;
+  myLogoFileUri?: string;
+  opponentLogoFileUri?: string;
 }): CategoriesContentState {
   const ranked = rankCategories(input.categories);
   return {
@@ -176,5 +184,7 @@ export function buildCategoriesContentState(input: {
     players: [],
     categories: ranked,
     catTies: input.ties,
+    myLogoFileUri: input.myLogoFileUri,
+    opponentLogoFileUri: input.opponentLogoFileUri,
   };
 }

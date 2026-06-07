@@ -14,13 +14,17 @@ import { ms, s } from '@/utils/scale';
  * Mirrors the ResolutionEvent union written by the start-lottery edge function
  * to lottery_results.pick_resolution. Kept in sync by hand — the two runtimes
  * can't share the type. See supabase/functions/start-lottery/index.ts.
+ *
+ * `originalTeam` (protected/conveyed) and `reason` (swap_voided) are marked
+ * optional here even though new events always set them: resolutions written
+ * before this field existed lack it, so `describe()` falls back gracefully.
  */
 type ResolutionEvent =
-  | { kind: 'protected'; round: number; slot: number | null; threshold: number; fromTeam: string; toTeam: string }
-  | { kind: 'conveyed'; round: number; slot: number | null; threshold: number; toTeam: string; protectedBy: string }
+  | { kind: 'protected'; round: number; slot: number | null; threshold: number; fromTeam: string; toTeam: string; originalTeam?: string }
+  | { kind: 'conveyed'; round: number; slot: number | null; threshold: number; toTeam: string; protectedBy: string; originalTeam?: string }
   | { kind: 'swap_executed'; round: number; teamA: string; teamB: string }
   | { kind: 'swap_kept'; round: number; teamA: string; teamB: string }
-  | { kind: 'swap_voided'; round: number; teamA: string; teamB: string; missing: string };
+  | { kind: 'swap_voided'; round: number; teamA: string; teamB: string; missing: string; reason?: string };
 
 interface Props {
   leagueId: string;
@@ -50,16 +54,25 @@ function describe(e: ResolutionEvent, c: (typeof Colors)['light']): Display {
       return {
         icon: 'shield-checkmark',
         color: c.success,
-        title: `${e.toTeam} kept their protected Rd ${e.round} pick`,
+        // When the keeper isn't the original slot owner, name whose pick it is.
+        title: e.originalTeam && e.originalTeam !== e.toTeam
+          ? `${e.toTeam} kept ${e.originalTeam}'s protected Rd ${e.round} pick`
+          : `${e.toTeam} kept their protected Rd ${e.round} pick`,
         subtitle: `${landed(e.slot)}within top-${e.threshold} protection — ${e.fromTeam} does not receive it.`,
       };
-    case 'conveyed':
+    case 'conveyed': {
+      // The pick belongs to its original slot owner; the protection setter is a
+      // middleman shown as "(via …)" only when they differ. Pre-origin events
+      // fall back to crediting the protection setter as owner.
+      const owner = e.originalTeam ?? e.protectedBy;
+      const via = e.originalTeam && e.originalTeam !== e.protectedBy ? ` (via ${e.protectedBy})` : '';
       return {
         icon: 'arrow-redo',
         color: c.accent,
-        title: `${e.protectedBy}'s Rd ${e.round} pick conveyed to ${e.toTeam}`,
+        title: `${owner}'s Rd ${e.round} pick${via} conveyed to ${e.toTeam}`,
         subtitle: `${landed(e.slot)}outside top-${e.threshold} protection.`,
       };
+    }
     case 'swap_executed':
       return {
         icon: 'swap-horizontal',
@@ -79,7 +92,11 @@ function describe(e: ResolutionEvent, c: (typeof Colors)['light']): Display {
         icon: 'close-circle',
         color: c.danger,
         title: `Rd ${e.round} swap (${e.teamA} ↔ ${e.teamB}) voided`,
-        subtitle: `${e.missing} no longer holds a pick this round (protection triggered).`,
+        // Use the computed cause when present; otherwise stay neutral rather
+        // than asserting "protection triggered" (often the wrong reason).
+        subtitle: e.reason
+          ? `${e.missing} ${e.reason}.`
+          : `${e.missing} no longer holds a pick in Round ${e.round}.`,
       };
   }
 }

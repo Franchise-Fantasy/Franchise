@@ -72,6 +72,10 @@ import {
   formatTopCategory,
   rankCategories,
 } from "@/utils/liveActivity/contentState";
+import {
+  cleanupLiveActivityLogos,
+  prepareLogosForLiveActivity,
+} from "@/utils/liveActivity/prepareLogos";
 import { fetchNbaScheduleForDate } from "@/utils/nba/nbaSchedule";
 import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
 import { calculateGameFantasyPoints } from "@/utils/scoring/fantasyPoints";
@@ -148,6 +152,10 @@ export default function MatchupScreen() {
     if (liveActivityId) {
       await endActivity(liveActivityId);
       setLiveActivityId(null);
+      const opponentTeamId = displayData.rightTeam?.teamId;
+      cleanupLiveActivityLogos(
+        opponentTeamId ? [teamId, opponentTeamId] : [teamId],
+      );
       return;
     }
 
@@ -201,6 +209,14 @@ export default function MatchupScreen() {
       };
     }
 
+    const opponentTeamId = displayData.rightTeam?.teamId ?? "";
+    const { myLogoFileUri, opponentLogoFileUri } = await prepareLogosForLiveActivity({
+      myTeamId: teamId,
+      opponentTeamId,
+      myLogoUrl: displayData.leftTeam.logoKey,
+      opponentLogoUrl: displayData.rightTeam?.logoKey,
+    });
+
     const result = await startMatchupActivity({
       mode: isCats ? "categories" : "points",
       myTeamName: displayData.leftTeam.teamName,
@@ -211,6 +227,9 @@ export default function MatchupScreen() {
       leagueId,
       scheduleId: currentWeek.id,
       teamId,
+      opponentTeamId,
+      myLogoFileUri,
+      opponentLogoFileUri,
       initialState,
     });
 

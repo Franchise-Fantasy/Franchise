@@ -23,6 +23,7 @@ export type Database = {
           id: string
           league_id: string | null
           matchup_id: string | null
+          metadata: Json | null
           push_token: string
           schedule_id: string | null
           stale: boolean
@@ -37,6 +38,7 @@ export type Database = {
           id?: string
           league_id?: string | null
           matchup_id?: string | null
+          metadata?: Json | null
           push_token: string
           schedule_id?: string | null
           stale?: boolean
@@ -51,6 +53,7 @@ export type Database = {
           id?: string
           league_id?: string | null
           matchup_id?: string | null
+          metadata?: Json | null
           push_token?: string
           schedule_id?: string | null
           stale?: boolean

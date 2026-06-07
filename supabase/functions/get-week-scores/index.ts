@@ -484,7 +484,7 @@ async function dispatchMatchupActivities(
 
   const { data: tokens } = await supabase
     .from('activity_tokens')
-    .select('id, team_id, schedule_id, league_id, matchup_id')
+    .select('id, team_id, schedule_id, league_id, matchup_id, metadata')
     .eq('activity_type', 'matchup')
     .eq('stale', false)
     .in('schedule_id', scheduleIds);
@@ -542,6 +542,17 @@ async function dispatchMatchupActivities(
       const myMeta = teamInfo.get(myTeamId) ?? { name: '', tricode: '???' };
       const oppMeta = teamInfo.get(oppTeamId) ?? { name: '', tricode: '???' };
 
+      const meta = (token.metadata ?? {}) as {
+        myLogoFileUri?: string | null;
+        opponentLogoFileUri?: string | null;
+        myTeamId?: string;
+        opponentTeamId?: string;
+      };
+      // Token metadata stores logos by the role they had at activity start
+      // ("my" = the device's team). Mirror that perspective for THIS push.
+      const myLogoFileUri = meta.myLogoFileUri ?? undefined;
+      const opponentLogoFileUri = meta.opponentLogoFileUri ?? undefined;
+
       let contentState: LiveActivityContentState;
       if (weekResult.isCategories) {
         const update = updatesByMatchupId.get(token.matchup_id);
@@ -568,6 +579,8 @@ async function dispatchMatchupActivities(
           categories: lines,
           myActivePlayers: 0,
           opponentActivePlayers: 0,
+          myLogoFileUri,
+          opponentLogoFileUri,
         });
       } else {
         const myScore = weekResult.teamScores[myTeamId] ?? 0;
@@ -583,6 +596,8 @@ async function dispatchMatchupActivities(
           myActivePlayers: 0,
           opponentActivePlayers: 0,
           players: [],
+          myLogoFileUri,
+          opponentLogoFileUri,
         });
       }
 

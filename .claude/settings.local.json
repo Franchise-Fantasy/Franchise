@@ -551,7 +551,8 @@
       "mcp__plugin_asana_asana__asana_update_task",
       "mcp__plugin_asana_asana__asana_get_task",
       "mcp__plugin_asana_asana__asana_create_task",
-      "mcp__plugin_asana_asana__asana_create_task_story"
+      "mcp__plugin_asana_asana__asana_create_task_story",
+      "Bash(cp \"C:/Users/Joe/.claude/projects/c--Users-Joe-OneDrive-Desktop-franchise-v2/73c77862-940f-4e17-b14f-92473a04a444/tool-results/mcp-claude_ai_Supabase-generate_typescript_types-1780859042628.txt\" \"c:/Users/Joe/OneDrive/Desktop/franchise.v2/types/database.types.ts\" && wc -l \"c:/Users/Joe/OneDrive/Desktop/franchise.v2/types/database.types.ts\" 2>&1)"
     ],
     "additionalDirectories": [
       "c:\\Users\\jjspo\\OneDrive\\Desktop\\Franchise Wiki\\Franchise Wiki\\Pages",
@@ -559,7 +560,8 @@
       "C:\\Users\\Joe\\Desktop\\Franchise Wiki\\Franchise Wiki\\Pages",
       "C:\\Users\\Joe\\Desktop\\Franchise Wiki\\Franchise Wiki",
       "c:\\Users\\Joe\\.claude\\plans",
-      "c:\\Users\\Joe\\.claude\\projects\\c--Users-Joe-OneDrive-Desktop-franchise-v2\\memory"
+      "c:\\Users\\Joe\\.claude\\projects\\c--Users-Joe-OneDrive-Desktop-franchise-v2\\memory",
+      "C:\\Users\\Joe\\.claude\\projects\\c--Users-Joe-OneDrive-Desktop-franchise-v2\\73c77862-940f-4e17-b14f-92473a04a444\\tool-results"
     ]
   }
 }

@@ -19,11 +19,15 @@ const Body = z.object({
  * Team names are snapshotted at draw time (this is a historical record).
  */
 type ResolutionEvent =
-  | { kind: 'protected'; round: number; slot: number | null; threshold: number; fromTeam: string; toTeam: string }
-  | { kind: 'conveyed'; round: number; slot: number | null; threshold: number; toTeam: string; protectedBy: string }
+  // `originalTeam` is the team whose lottery slot the pick IS (its
+  // original_team_id). It can differ from the protection owner when a team
+  // conditionally re-trades a pick it had previously acquired — surfacing it
+  // keeps the recap aligned with the draft hub's "from <origin>" attribution.
+  | { kind: 'protected'; round: number; slot: number | null; threshold: number; fromTeam: string; toTeam: string; originalTeam: string }
+  | { kind: 'conveyed'; round: number; slot: number | null; threshold: number; toTeam: string; protectedBy: string; originalTeam: string }
   | { kind: 'swap_executed'; round: number; teamA: string; teamB: string }
   | { kind: 'swap_kept'; round: number; teamA: string; teamB: string }
-  | { kind: 'swap_voided'; round: number; teamA: string; teamB: string; missing: string };
+  | { kind: 'swap_voided'; round: number; teamA: string; teamB: string; missing: string; reason?: string };
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return corsResponse();
@@ -191,12 +195,14 @@ Deno.serve(async (req) => {
           resolutionEvents.push({
             kind: 'protected', round: p.round, slot: p.slot_number, threshold: p.protection_threshold,
             fromTeam: teamName(p.current_team_id), toTeam: teamName(p.protection_owner_id),
+            originalTeam: teamName(p.original_team_id),
           });
           p.current_team_id = p.protection_owner_id;
         } else {
           resolutionEvents.push({
             kind: 'conveyed', round: p.round, slot: p.slot_number, threshold: p.protection_threshold,
             toTeam: teamName(p.current_team_id), protectedBy: teamName(p.protection_owner_id),
+            originalTeam: teamName(p.original_team_id),
           });
         }
         p.protection_threshold = null;
@@ -232,10 +238,19 @@ Deno.serve(async (req) => {
           resolutionEvents.push({ kind: 'swap_kept', round: swap.round, teamA: benefName, teamB: counterName });
         }
       } else {
-        const missing = !benefPick && !counterPick ? 'both teams' : !benefPick ? benefName : counterName;
-        resolutionEvents.push({ kind: 'swap_voided', round: swap.round, teamA: benefName, teamB: counterName, missing });
-        swapWarnings.push(`Rd ${swap.round} swap between ${benefName} and ${counterName} voided — ${missing} no longer holds a pick in this round (protection triggered).`);
-        console.warn(`Swap voided: Rd ${swap.round} ${benefName} vs ${counterName} — ${missing} missing pick`);
+        const bothMissing = !benefPick && !counterPick;
+        const missing = bothMissing ? 'both teams' : !benefPick ? benefName : counterName;
+        const missingId = bothMissing ? null : !benefPick ? swap.beneficiary_team_id : swap.counterparty_team_id;
+        // Name the actual cause instead of assuming "protection triggered" (often
+        // false). The dominant case is the team traded its own pick away — detect
+        // it by their original-team pick now sitting with a different holder.
+        const tradedOwnPickAway = missingId != null &&
+          work.some(p => p.round === swap.round && p.original_team_id === missingId && p.current_team_id !== missingId);
+        const reason = tradedOwnPickAway ? `traded their Round ${swap.round} pick away` : undefined;
+        const reasonText = reason ?? `no longer holds a pick in Round ${swap.round}`;
+        resolutionEvents.push({ kind: 'swap_voided', round: swap.round, teamA: benefName, teamB: counterName, missing, reason });
+        swapWarnings.push(`Rd ${swap.round} swap between ${benefName} and ${counterName} voided — ${missing} ${reasonText}.`);
+        console.warn(`Swap voided: Rd ${swap.round} ${benefName} vs ${counterName} — ${missing} ${reasonText}`);
       }
       swapsResolved.push(swap.id);
     }
