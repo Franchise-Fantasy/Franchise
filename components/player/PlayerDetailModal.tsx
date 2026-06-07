@@ -33,6 +33,7 @@ import { useColors } from "@/hooks/useColors";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
 import { useLeagueScoringType } from "@/hooks/useLeagueScoringType";
 import { usePlayerGameLog } from "@/hooks/usePlayerGameLog";
+import { usePlayerGameLogWithDnp } from "@/hooks/usePlayerGameLogWithDnp";
 import { usePlayerHistoricalStats } from "@/hooks/usePlayerHistoricalStats";
 import { usePlayerNews } from "@/hooks/usePlayerNews";
 import { usePlayerProjections } from "@/hooks/usePlayerProjections";
@@ -162,6 +163,9 @@ export function PlayerDetailModal({
   const { data: gameLog, isLoading: isLoadingGameLog } = usePlayerGameLog(
     player?.player_id ?? "",
   );
+  // Merge in DNP rows for games the player's team played but he sat out (no
+  // player_games row exists for injured/inactive players). Game-log table only.
+  const gameLogWithDnp = usePlayerGameLogWithDnp(player?.pro_team, sport, gameLog);
   const { data: seasonProjections } = usePlayerProjections(sport, "season");
   const { data: nextGameProjections } = usePlayerProjections(sport, "next_game");
   const { data: historicalStats } = usePlayerHistoricalStats(
@@ -447,7 +451,7 @@ export function PlayerDetailModal({
 
   // Live stats for today's game
   const playerIdArr = player ? [player.player_id] : [];
-  const liveMap = useLivePlayerStats(playerIdArr, !!player);
+  const liveMap = useLivePlayerStats(playerIdArr, !!player, sport);
   const liveStats = player ? (liveMap.get(player.player_id) ?? null) : null;
 
   // Next 3 upcoming games
@@ -2070,7 +2074,7 @@ export function PlayerDetailModal({
 
           {/* 5 - Game log body */}
           <PlayerGameLog
-            gameLog={gameLog}
+            gameLog={gameLogWithDnp}
             isLoading={isLoadingGameLog}
             scoringWeights={scoringWeights}
             upcomingGames={upcomingGames}

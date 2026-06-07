@@ -60,7 +60,7 @@ import {
   addDays,
   formatDayLabel,
   formatShortDate,
-  useToday,
+  useSportToday,
 } from "@/utils/dates";
 import {
   categoryResultsToLines,
@@ -114,7 +114,7 @@ export default function MatchupScreen() {
   const { data: rosterConfig } = useLeagueRosterConfig(leagueId ?? "");
   useRosterChanges(leagueId);
 
-  const today = useToday();
+  const today = useSportToday(sport);
   const [selectedDate, setSelectedDate] = useState<string>(today);
   const [scheduleVisible, setScheduleVisible] = useState(false);
   const [acqInfoVisible, setAcqInfoVisible] = useState(false);
@@ -591,6 +591,7 @@ export default function MatchupScreen() {
   const rawLiveMap = useLivePlayerStats(
     allPlayerIds,
     weekIsLive || isToday || isYesterday,
+    sport,
   );
 
   // Recap ticker events. Hook subscribes to global live_scoring_events

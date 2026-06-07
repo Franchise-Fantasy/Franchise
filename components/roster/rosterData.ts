@@ -109,6 +109,10 @@ export interface SlotStats {
   isLive: boolean;
   matchup: string | null;
   gameTimeUtc: string | null;
+  /** Past date only: the player's team played but no box-score/live row exists
+   *  (injured/inactive — BDL omits non-participants, so no player_games row is
+   *  ever written). Lets the row render a "DNP" cue instead of a no-game blank. */
+  didNotPlay?: boolean;
 }
 
 export interface SlotStatsContext {
@@ -228,6 +232,26 @@ export function computeSlotStats(
         isLive: false,
         matchup: live.matchup || null,
         gameTimeUtc: null,
+      };
+    }
+    // Team played but the player has neither a live row nor a player_games row —
+    // i.e. injured/inactive. BDL omits non-participants from the box score, so
+    // no player_games row is ever written for them. Surface it as DNP using the
+    // day's schedule so a played-but-sat day reads "game happened, player out"
+    // instead of looking identical to a day the team didn't play.
+    // Guard on dayGameStats having loaded (truthy Map) so a player whose
+    // player_games row is still in-flight doesn't briefly flash "DNP".
+    const schedEntry = player.nbaTricode
+      ? (daySchedule?.get(player.nbaTricode) ?? null)
+      : null;
+    if (schedEntry && dayGameStats) {
+      return {
+        fpts: null,
+        statLine: null,
+        isLive: false,
+        matchup: schedEntry.matchup,
+        gameTimeUtc: null,
+        didNotPlay: true,
       };
     }
     return EMPTY_SLOT_STATS;

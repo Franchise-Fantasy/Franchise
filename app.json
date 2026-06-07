@@ -87,6 +87,7 @@
           "enablePushNotifications": true
         }
       ],
+      "./plugins/withProductionApsEnvironment",
       "expo-status-bar"
     ],
     "experiments": {

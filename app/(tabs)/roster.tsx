@@ -94,7 +94,7 @@ import { useWeekScores } from "@/hooks/useWeekScores";
 import { capture } from "@/lib/posthog";
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
-import { addDays, formatDayLabel, formatShortDate, useToday } from "@/utils/dates";
+import { addDays, formatDayLabel, formatShortDate, useSportToday } from "@/utils/dates";
 import { formatPosition } from "@/utils/formatting";
 import { getSportToday } from "@/utils/leagueTime";
 import { logger } from "@/utils/logger";
@@ -140,7 +140,7 @@ export default function RosterScreen() {
   const { showToast } = useToast();
   useRosterChanges(leagueId);
 
-  const today = useToday();
+  const today = useSportToday(sport);
   const [selectedDate, setSelectedDate] = useState<string>(today);
 
   // If the calendar date rolled over (e.g. app resumed from background after midnight), snap to today
@@ -441,11 +441,14 @@ export default function RosterScreen() {
     staleTime: 1000 * 60 * 60,
   });
 
-  // Schedule for today and future dates: tricode → matchup string
+  // Schedule for the selected date: tricode → matchup + final score. Fetched
+  // for EVERY date (incl. past) so computeSlotStats can tell "team played, my
+  // guy was out" (DNP) from "no game that day" on past-date history — an
+  // injured player has no player_games row, so the schedule is the only signal
+  // the game happened.
   const { data: daySchedule } = useQuery<Map<string, ScheduleEntry>>({
     queryKey: [...queryKeys.daySchedule(selectedDate), sport],
     queryFn: () => fetchNbaScheduleForDate(selectedDate, sport),
-    enabled: isToday || isFutureDate,
     staleTime: 1000 * 60 * 60,
   });
 
@@ -514,6 +517,7 @@ export default function RosterScreen() {
   const rawLiveMap = useLivePlayerStats(
     playerIds,
     weekIsLive || isToday || isYesterday,
+    sport,
   );
 
   // Filter live stats to only include games matching the selected date.
@@ -1661,7 +1665,7 @@ export default function RosterScreen() {
     : null;
 
   const renderSlotRow = (slot: SlotEntry, idx: number, list: SlotEntry[]) => {
-    const { fpts, statLine, isLive, matchup, gameTimeUtc } =
+    const { fpts, statLine, isLive, matchup, gameTimeUtc, didNotPlay } =
       resolveSlotStats(slot.player);
     // Pre-game = player has a scheduled matchup that hasn't started yet
     // (future date, or today before tipoff with no live data and no statLine).
@@ -1785,7 +1789,7 @@ export default function RosterScreen() {
             }}
             delayLongPress={400}
             accessibilityRole="button"
-            accessibilityLabel={`${slot.player!.name}, ${formatPosition(slot.player!.position)}, ${slot.player!.pro_team}${matchupDisplay ? `, ${matchupDisplay}` : ""}${seasonAvg ? `, season average ${seasonAvg.fpts ? `${seasonAvg.fpts} fantasy points per game, ` : ""}${seasonAvg.stats}` : ""}${!isCategories && fpts !== null ? `, ${formatScore(fpts)} fantasy points` : ""}${isLive ? ", live" : ""}${locked ? ", locked" : ""}`}
+            accessibilityLabel={`${slot.player!.name}, ${formatPosition(slot.player!.position)}, ${slot.player!.pro_team}${matchupDisplay ? `, ${matchupDisplay}` : ""}${didNotPlay ? ", did not play" : ""}${seasonAvg ? `, season average ${seasonAvg.fpts ? `${seasonAvg.fpts} fantasy points per game, ` : ""}${seasonAvg.stats}` : ""}${!isCategories && fpts !== null ? `, ${formatScore(fpts)} fantasy points` : ""}${isLive ? ", live" : ""}${locked ? ", locked" : ""}`}
             accessibilityHint="Tap for player details, long press to change slot"
           >
             {/* Headshot + team pill + on-court dot (all anchored to the wrap) */}
@@ -1873,6 +1877,14 @@ export default function RosterScreen() {
                       numberOfLines={1}
                     >
                       {gameInfo}
+                    </ThemedText>
+                  ) : didNotPlay ? (
+                    <ThemedText
+                      type="varsitySmall"
+                      style={[styles.matchupChipMeta, { color: c.secondaryText }]}
+                      numberOfLines={1}
+                    >
+                      DNP
                     </ThemedText>
                   ) : null}
                 </View>

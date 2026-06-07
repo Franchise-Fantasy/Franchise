@@ -69,7 +69,10 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
   const YELLOW = '#FACC15';
   const GREY = '#8E8E93';
   const ACCENT = '#F59E0B';
-  const GOLD = '#B57B30';
+  // Heritage Gold — the softer olive variant. Brand.vintageGold (#B57B30)
+  // reads as bright orange on the widget's black backgrounds; the dark-mode
+  // theme picks Heritage Gold for the same reason (see constants/Colors.ts).
+  const GOLD = '#9E8A60';
   const PANEL = '#1C1C1E';
   const PANEL_DIM = '#2C2C2E';
 
@@ -302,17 +305,16 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
       </HStack>
     ),
 
+    // Minimal slot is the tiny corner shown when another Live Activity is
+    // primary in the Dynamic Island. iOS clips this aggressively (~25-30pt
+    // wide), so we render a single icon and no text — a 3-digit fpts gap
+    // overflows to "1..." here.
     minimal: (
-      <HStack spacing={2}>
-        <Image
-          systemName={tiedOverall ? 'equal' : myLeading ? 'arrowtriangle.up.fill' : 'arrowtriangle.down.fill'}
-          size={9}
-          color={gapColor}
-        />
-        <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(gapColor)]}>
-          {minimalGapText}
-        </Text>
-      </HStack>
+      <Image
+        systemName={tiedOverall ? 'equal' : myLeading ? 'arrowtriangle.up.fill' : 'arrowtriangle.down.fill'}
+        size={11}
+        color={gapColor}
+      />
     ),
 
     expandedLeading: (

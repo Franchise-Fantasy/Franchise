@@ -281,7 +281,7 @@ export default function TeamRosterScreen() {
 
   // Live stats (today only)
   const playerIdList = rosterPlayers?.map((p) => p.player_id) ?? [];
-  const rawLiveMap = useLivePlayerStats(playerIdList, true);
+  const rawLiveMap = useLivePlayerStats(playerIdList, true, sport);
   const liveMap = new Map(
     [...rawLiveMap].filter(([, stats]) => stats.game_date === today),
   );

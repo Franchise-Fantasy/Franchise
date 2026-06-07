@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
 import { supabase } from '@/lib/supabase';
-import { addDays, toDateStr } from '@/utils/dates';
+import { addDays } from '@/utils/dates';
+import { getSportToday } from '@/utils/leagueTime';
 
 export interface LivePlayerStats {
   player_id: string;
@@ -82,10 +83,17 @@ const POLL_IDLE = 5 * 60_000;
 
 export function useLivePlayerStats(
   playerIds: string[],
-  enabled: boolean
+  enabled: boolean,
+  sport: string | null | undefined
 ): Map<string, LivePlayerStats> {
   const [liveMap, setLiveMap] = useState<Map<string, LivePlayerStats>>(new Map());
-  const dateRef = useRef<string>(toDateStr(new Date()));
+  // sportRef so the AppState listener (deps []) always reads the current sport.
+  const sportRef = useRef(sport);
+  sportRef.current = sport;
+  // Slate-anchored (5am-ET rollover) so the day window matches the slate
+  // game_date the rows are keyed to — not the local-midnight date, which would
+  // disagree for the midnight→5am window.
+  const dateRef = useRef<string>(getSportToday(sport));
   const appActiveRef = useRef<boolean>(AppState.currentState === 'active');
   const hasLiveGameRef = useRef<boolean>(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -100,7 +108,7 @@ export function useLivePlayerStats(
       const wasActive = appActiveRef.current;
       appActiveRef.current = state === 'active';
       if (state === 'active') {
-        const now = toDateStr(new Date());
+        const now = getSportToday(sportRef.current);
         if (now !== dateRef.current) {
           dateRef.current = now;
           // Clear stale live data from the previous day
@@ -137,7 +145,7 @@ export function useLivePlayerStats(
   const fetchStatsRef = useRef<((ids: string[]) => Promise<void>) | null>(null);
 
   const fetchStats = useCallback(async (ids: string[]) => {
-    const today = toDateStr(new Date());
+    const today = getSportToday(sport);
     const yesterday = addDays(today, -1);
     dateRef.current = today;
 
@@ -157,7 +165,7 @@ export function useLivePlayerStats(
         .gte('game_status', 2),
     ]);
 
-    if (toDateStr(new Date()) !== today) return;
+    if (getSportToday(sport) !== today) return;
     const rows = [
       ...((todayRes.data ?? []) as LivePlayerStats[]),
       ...((yesterdayRes.data ?? []) as LivePlayerStats[]),
@@ -168,7 +176,7 @@ export function useLivePlayerStats(
     // Adapt polling speed: 30s when any game is in progress, 5min otherwise
     const anyLive = [...map.values()].some((s) => s.game_status === 2);
     reschedule(anyLive);
-  }, [reschedule]);
+  }, [reschedule, sport]);
 
   fetchStatsRef.current = fetchStats;
 

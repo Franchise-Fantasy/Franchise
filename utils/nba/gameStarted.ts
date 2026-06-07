@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { supabase } from '@/lib/supabase';
-import { toDateStr } from '@/utils/dates';
+import { getSportToday } from '@/utils/leagueTime';
 
 export type GameTimeMap = Map<string, string>;
 
@@ -12,8 +12,10 @@ export type GameTimeMap = Map<string, string>;
  * (i.e. viewing today's date).
  */
 export function useTodayGameTimes(enabled: boolean): GameTimeMap {
-  const today = toDateStr(new Date());
+  // Slate-anchored so the lock-gating query reads the same day's schedule the
+  // game data is keyed to (5am-ET rollover), not the local-midnight date.
   const sport = useActiveLeagueSport();
+  const today = getSportToday(sport);
 
   const { data } = useQuery<GameTimeMap>({
     queryKey: ['todayGameTimes', sport, today],

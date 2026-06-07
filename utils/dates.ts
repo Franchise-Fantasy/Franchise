@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
+import { getSportToday, nextSlateRollover } from '@/utils/leagueTime';
+
 /** Format a Date as "YYYY-MM-DD" in local time. */
 export function toDateStr(d: Date): string {
   const y = d.getFullYear();
@@ -42,6 +44,53 @@ export function useToday(): string {
     });
     return () => sub.remove();
   }, []);
+
+  return today;
+}
+
+/**
+ * Slate-anchored "today" (sport TZ, 5am-ET rollover) — the date space every
+ * game-data query lives in (game_schedule/live_player_stats/player_games.game_date,
+ * daily_lineups.lineup_date). Use this, NOT {@link useToday}, anywhere the value
+ * is compared against those columns: between local midnight and 5am ET the two
+ * differ by a day, and useToday (local midnight) would point a screen at a
+ * slate-empty future day while last night's games are still on the prior slate.
+ *
+ * Refreshes on two triggers so it flips at the slate rollover, not local
+ * midnight: (1) app foreground (catches a rollover that happened while
+ * backgrounded) and (2) a timer armed for the next 5am-ET rollover (catches it
+ * while the app stays open).
+ */
+export function useSportToday(sport: string | null | undefined): string {
+  const [today, setToday] = useState<string>(() => getSportToday(sport));
+
+  useEffect(() => {
+    const sync = () =>
+      setToday((prev) => {
+        const now = getSportToday(sport);
+        return now === prev ? prev : now;
+      });
+
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') sync();
+    });
+
+    let timer: ReturnType<typeof setTimeout>;
+    const armRollover = () => {
+      // +1s cushion so the wall clock is unambiguously past the rollover.
+      const delay = nextSlateRollover(sport).getTime() - Date.now() + 1000;
+      timer = setTimeout(() => {
+        sync();
+        armRollover();
+      }, Math.max(delay, 1000));
+    };
+    armRollover();
+
+    return () => {
+      sub.remove();
+      clearTimeout(timer);
+    };
+  }, [sport]);
 
   return today;
 }

@@ -594,9 +594,17 @@ export const PlayerCell = React.memo(function PlayerCell({
   const hasDayGame = !!(player.dayStatLine || player.dayMatchup);
   // Real final score for the game, read from the persisted schedule (live stats
   // have long expired by the time a day is "past"), oriented to this team.
-  const finalScore = player.nbaTricode
-    ? (schedule?.get(player.nbaTricode)?.score ?? null)
+  const schedEntry = player.nbaTricode
+    ? (schedule?.get(player.nbaTricode) ?? null)
     : null;
+  const finalScore = schedEntry?.score ?? null;
+  // Team played but the player has no box-score row (injured/inactive — BDL
+  // omits non-participants, so no player_games row is ever written). Show the
+  // matchup + "DNP" so the day reads "game happened, player sat" rather than
+  // looking identical to a day the team didn't play.
+  const didNotPlay = !hasDayGame && !!schedEntry;
+  const pastMatchup =
+    player.dayMatchup ?? (didNotPlay ? schedEntry!.matchup : null);
   return (
     <Wrapper
       style={[
@@ -643,15 +651,22 @@ export const PlayerCell = React.memo(function PlayerCell({
             { justifyContent: align, flexDirection: rowDir },
           ]}
         >
-          {hasDayGame && player.dayMatchup ? (
+          {pastMatchup ? (
             <>
-              <MatchupChip matchup={player.dayMatchup} isLive={false} c={c} />
+              <MatchupChip matchup={pastMatchup} isLive={false} c={c} />
               {finalScore ? (
                 <Text
                   style={[pStyles.gameInfo, { color: c.secondaryText }]}
                   numberOfLines={1}
                 >
                   {finalScore}
+                </Text>
+              ) : didNotPlay ? (
+                <Text
+                  style={[pStyles.gameInfo, { color: c.secondaryText }]}
+                  numberOfLines={1}
+                >
+                  DNP
                 </Text>
               ) : null}
             </>
