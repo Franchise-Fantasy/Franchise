@@ -351,7 +351,9 @@ async function dispatchPlayerTickerUpdates(
       pushActivityUpdate(supabase, 'matchup', {
         schedule_id: token.schedule_id,
         league_id: token.league_id,
-      }, contentState).catch(() => {}),
+      }, contentState).catch((err) =>
+        console.warn('pushActivityUpdate failed (poll-live-stats):', err),
+      ),
     );
 
     // Persist the just-computed ticker into activity_tokens.metadata so the

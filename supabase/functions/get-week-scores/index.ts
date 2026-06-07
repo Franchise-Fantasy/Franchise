@@ -634,7 +634,9 @@ async function dispatchMatchupActivities(
       await pushActivityUpdate(supabase, 'matchup', {
         schedule_id: weekResult.schedule_id,
         league_id: weekResult.league_id,
-      }, contentState).catch(() => {});
+      }, contentState).catch((err) =>
+        console.warn('pushActivityUpdate failed (get-week-scores):', err),
+      );
     }
   }
 }
