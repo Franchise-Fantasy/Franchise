@@ -75,6 +75,16 @@ export async function prepareLogosForLiveActivity(input: {
     try {
       if (dest.exists) dest.delete();
       const downloaded = await File.downloadFileAsync(url, dest);
+      // downloadFileAsync resolves even on 4xx/5xx — the response body
+      // (often an HTML error page) just gets written to disk. Guard against
+      // serving a malformed "image" by requiring at least 500 bytes; real
+      // team logos are several KB at minimum.
+      const size = downloaded.size ?? 0;
+      if (size < 500) {
+        logger.warn(`Logo download for team ${teamId} too small (${size}B), discarding`);
+        try { downloaded.delete(); } catch {}
+        return undefined;
+      }
       return downloaded.uri;
     } catch (err) {
       logger.warn(`Logo download failed for team ${teamId}`, err);

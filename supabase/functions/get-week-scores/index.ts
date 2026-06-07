@@ -547,11 +547,37 @@ async function dispatchMatchupActivities(
         opponentLogoFileUri?: string | null;
         myTeamId?: string;
         opponentTeamId?: string;
+        playerTicker?: {
+          players?: Array<{
+            name: string;
+            statLine: string;
+            fantasyPoints: number;
+            gameStatus: string;
+            isOnCourt: boolean;
+          }>;
+          myActivePlayers?: number;
+          opponentActivePlayers?: number;
+          biggestContributor?: string;
+          updatedAt?: string;
+        };
       };
       // Token metadata stores logos by the role they had at activity start
       // ("my" = the device's team). Mirror that perspective for THIS push.
       const myLogoFileUri = meta.myLogoFileUri ?? undefined;
       const opponentLogoFileUri = meta.opponentLogoFileUri ?? undefined;
+
+      // poll-live-stats writes the latest live ticker into metadata after each
+      // tick. Echo it here so we don't clobber player rows with []. 10-min
+      // freshness check keeps us from echoing stale zombie data after games
+      // end.
+      const TICKER_FRESH_MS = 10 * 60 * 1000;
+      const tickerUpdatedAt = meta.playerTicker?.updatedAt
+        ? Date.parse(meta.playerTicker.updatedAt)
+        : 0;
+      const tickerFresh =
+        Number.isFinite(tickerUpdatedAt) &&
+        Date.now() - tickerUpdatedAt < TICKER_FRESH_MS;
+      const cachedTicker = tickerFresh ? meta.playerTicker : undefined;
 
       let contentState: LiveActivityContentState;
       if (weekResult.isCategories) {
@@ -592,10 +618,10 @@ async function dispatchMatchupActivities(
           opponentTeamTricode: oppMeta.tricode,
           myScore: Math.round(myScore * 10) / 10,
           opponentScore: Math.round(oppScore * 10) / 10,
-          biggestContributor: '',
-          myActivePlayers: 0,
-          opponentActivePlayers: 0,
-          players: [],
+          biggestContributor: cachedTicker?.biggestContributor ?? '',
+          myActivePlayers: cachedTicker?.myActivePlayers ?? 0,
+          opponentActivePlayers: cachedTicker?.opponentActivePlayers ?? 0,
+          players: cachedTicker?.players ?? [],
           myLogoFileUri,
           opponentLogoFileUri,
         });

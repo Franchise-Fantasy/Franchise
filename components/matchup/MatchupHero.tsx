@@ -981,6 +981,9 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(181, 123, 48, 0.18)",
   },
   acqChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: s(4),
     paddingHorizontal: s(7),
     paddingVertical: s(2),
     borderRadius: 6,

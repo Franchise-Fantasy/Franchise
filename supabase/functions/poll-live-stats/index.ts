@@ -351,6 +351,34 @@ async function dispatchPlayerTickerUpdates(
         league_id: token.league_id,
       }, contentState).catch(() => {}),
     );
+
+    // Persist the just-computed ticker into activity_tokens.metadata so the
+    // less-frequent get-week-scores dispatcher can echo it on its own pushes —
+    // contentState replaces fully on every APNs push, so without this echo
+    // the next get-week-scores tick would overwrite players[] with [] and
+    // the widget would flash "Waiting for tip-off" between live polls.
+    pushTasks.push(
+      Promise.resolve(
+        supabase
+          .from('activity_tokens')
+          .update({
+            metadata: {
+              ...(token.metadata ?? {}),
+              playerTicker: {
+                players: top5,
+                myActivePlayers: my.activePlayers,
+                opponentActivePlayers: opp.activePlayers,
+                biggestContributor,
+                updatedAt: new Date().toISOString(),
+              },
+            },
+          })
+          .eq('id', token.id),
+      ).then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
   }
 
   // Push all tokens in parallel — APNs is per-token so concurrency is fine

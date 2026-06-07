@@ -16,7 +16,7 @@
  *
  * @platform ios 16.1+
  */
-import { Circle, Gauge, HStack, Image, Spacer, Text, VStack } from '@expo/ui/swift-ui';
+import { Circle, Gauge, HStack, Image, Spacer, Text, VStack, ZStack } from '@expo/ui/swift-ui';
 import { background, clipShape, cornerRadius, font, foregroundStyle, frame, gaugeStyle, lineLimit, opacity, padding } from '@expo/ui/swift-ui/modifiers';
 import { createLiveActivity, type LiveActivityEnvironment } from 'expo-widgets';
 
@@ -69,6 +69,7 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
   const YELLOW = '#FACC15';
   const GREY = '#8E8E93';
   const ACCENT = '#F59E0B';
+  const GOLD = '#B57B30';
   const PANEL = '#1C1C1E';
   const PANEL_DIM = '#2C2C2E';
 
@@ -139,10 +140,13 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
           <VStack alignment="leading" spacing={2}>
             {myLogo ? (
               <HStack spacing={6}>
-                <Image
-                  uiImage={myLogo}
-                  modifiers={[frame({ width: 24, height: 24 }), clipShape('circle')]}
-                />
+                <ZStack>
+                  <Circle modifiers={[foregroundStyle(GOLD), frame({ width: 26, height: 26 })]} />
+                  <Image
+                    uiImage={myLogo}
+                    modifiers={[frame({ width: 24, height: 24 }), clipShape('circle')]}
+                  />
+                </ZStack>
                 <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), opacity(0.75)]}>
                   {props.myTeamTricode}
                 </Text>
@@ -181,10 +185,13 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
                 <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), opacity(0.75)]}>
                   {props.opponentTeamTricode}
                 </Text>
-                <Image
-                  uiImage={oppLogo}
-                  modifiers={[frame({ width: 24, height: 24 }), clipShape('circle')]}
-                />
+                <ZStack>
+                  <Circle modifiers={[foregroundStyle(GOLD), frame({ width: 26, height: 26 })]} />
+                  <Image
+                    uiImage={oppLogo}
+                    modifiers={[frame({ width: 24, height: 24 }), clipShape('circle')]}
+                  />
+                </ZStack>
               </HStack>
             ) : (
               <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), padding({ horizontal: 8, vertical: 2 }), background(PANEL_DIM, undefined as any), cornerRadius(6)]}>
@@ -270,11 +277,9 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
 
     compactLeading: (
       <HStack spacing={4}>
-        <Image
-          systemName={myLeading ? 'arrowtriangle.up.fill' : 'circle.fill'}
-          size={9}
-          color={myLeading ? GREEN : ACCENT}
-        />
+        {myLeading && !tiedOverall ? (
+          <Image systemName="arrowtriangle.up.fill" size={9} color={GREEN} />
+        ) : null}
         <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), opacity(0.7)]}>
           {props.myTeamTricode}
         </Text>
@@ -291,11 +296,9 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
         <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), opacity(0.7)]}>
           {props.opponentTeamTricode}
         </Text>
-        <Image
-          systemName={!myLeading && !tiedOverall ? 'arrowtriangle.up.fill' : 'circle.fill'}
-          size={9}
-          color={!myLeading && !tiedOverall ? GREEN : ACCENT}
-        />
+        {!myLeading && !tiedOverall ? (
+          <Image systemName="arrowtriangle.up.fill" size={9} color={GREEN} />
+        ) : null}
       </HStack>
     ),
 
@@ -316,10 +319,13 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
       <VStack alignment="leading" spacing={3} modifiers={[padding({ leading: 4 })]}>
         {myLogo ? (
           <HStack spacing={5}>
-            <Image
-              uiImage={myLogo}
-              modifiers={[frame({ width: 22, height: 22 }), clipShape('circle')]}
-            />
+            <ZStack>
+              <Circle modifiers={[foregroundStyle(GOLD), frame({ width: 24, height: 24 })]} />
+              <Image
+                uiImage={myLogo}
+                modifiers={[frame({ width: 22, height: 22 }), clipShape('circle')]}
+              />
+            </ZStack>
             <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), opacity(0.75)]}>
               {props.myTeamTricode}
             </Text>
@@ -347,10 +353,13 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
             <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), opacity(0.75)]}>
               {props.opponentTeamTricode}
             </Text>
-            <Image
-              uiImage={oppLogo}
-              modifiers={[frame({ width: 22, height: 22 }), clipShape('circle')]}
-            />
+            <ZStack>
+              <Circle modifiers={[foregroundStyle(GOLD), frame({ width: 24, height: 24 })]} />
+              <Image
+                uiImage={oppLogo}
+                modifiers={[frame({ width: 22, height: 22 }), clipShape('circle')]}
+              />
+            </ZStack>
           </HStack>
         ) : (
           <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), padding({ horizontal: 8, vertical: 2 }), background(PANEL_DIM, undefined as any), cornerRadius(6)]}>
