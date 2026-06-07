@@ -120,45 +120,85 @@ export function useLiveActivity(userId?: string) {
         activeInstanceRef.current = instance;
         activeActivityIdRef.current = activityId;
 
-        const pushToken = await instance.getPushToken();
-        if (pushToken) {
-          const metadata =
-            params.myLogoFileUri || params.opponentLogoFileUri
-              ? {
-                  myLogoFileUri: params.myLogoFileUri ?? null,
-                  opponentLogoFileUri: params.opponentLogoFileUri ?? null,
-                  myTeamId: params.teamId,
-                  opponentTeamId: params.opponentTeamId,
-                }
-              : null;
-          await supabase.from('activity_tokens').insert({
-            user_id: userId,
-            team_id: params.teamId,
-            activity_type: 'matchup',
-            push_token: pushToken,
-            matchup_id: params.matchupId,
-            schedule_id: params.scheduleId,
-            league_id: params.leagueId,
-            metadata,
-          });
-        }
+        const metadata =
+          params.myLogoFileUri || params.opponentLogoFileUri
+            ? {
+                myLogoFileUri: params.myLogoFileUri ?? null,
+                opponentLogoFileUri: params.opponentLogoFileUri ?? null,
+                myTeamId: params.teamId,
+                opponentTeamId: params.opponentTeamId,
+              }
+            : null;
 
-        // Apple may rotate the per-activity token; persist new value to keep APNs in sync.
-        tokenSubscriptionRef.current?.remove();
-        tokenSubscriptionRef.current = instance.addPushTokenListener(async ({ pushToken: nextToken }) => {
-          if (!nextToken) return;
-          try {
-            await supabase
-              .from('activity_tokens')
-              .update({ push_token: nextToken })
-              .eq('user_id', userId)
-              .eq('matchup_id', params.matchupId)
-              .eq('stale', false)
-              .neq('push_token', nextToken);
-          } catch (err) {
-            logger.warn('Failed to persist rotated Live Activity token', err);
-          }
+        // Wait for the per-activity push token via whichever path delivers
+        // it first: getPushToken() (may resolve null if APNs hasn't replied
+        // yet) OR the rotation listener's first fire. Without this race we
+        // were missing the insert when getPushToken() returned null, and the
+        // subsequent listener fire's UPDATE found no row to update → no
+        // server pushes ever landed.
+        const pushToken = await new Promise<string | null>((resolve) => {
+          let resolved = false;
+          const safeResolve = (token: string | null) => {
+            if (resolved) return;
+            resolved = true;
+            resolve(token);
+          };
+
+          // Set up the rotation listener up-front so it can deliver the
+          // initial token too. Persisted across the resolve so later
+          // rotations also keep the DB row in sync.
+          tokenSubscriptionRef.current?.remove();
+          tokenSubscriptionRef.current = instance.addPushTokenListener(
+            async ({ pushToken: nextToken }) => {
+              if (!nextToken) return;
+              safeResolve(nextToken);
+              // After the initial insert below has had time to run, mirror
+              // subsequent rotations into the existing row.
+              try {
+                await supabase
+                  .from('activity_tokens')
+                  .update({ push_token: nextToken })
+                  .eq('user_id', userId)
+                  .eq('matchup_id', params.matchupId)
+                  .eq('stale', false)
+                  .neq('push_token', nextToken);
+              } catch (err) {
+                logger.warn('Failed to persist rotated Live Activity token', err);
+              }
+            },
+          );
+
+          instance
+            .getPushToken()
+            .then((t) => {
+              if (t) safeResolve(t);
+            })
+            .catch(() => {});
+
+          // 5s timeout — keeps us from waiting forever if APNs is down or
+          // the activity entitlement is misconfigured.
+          setTimeout(() => safeResolve(null), 5000);
         });
+
+        if (pushToken) {
+          const { error: insertErr } = await supabase
+            .from('activity_tokens')
+            .insert({
+              user_id: userId,
+              team_id: params.teamId,
+              activity_type: 'matchup',
+              push_token: pushToken,
+              matchup_id: params.matchupId,
+              schedule_id: params.scheduleId,
+              league_id: params.leagueId,
+              metadata,
+            });
+          if (insertErr) {
+            logger.warn('Failed to insert activity_tokens row', insertErr);
+          }
+        } else {
+          logger.warn('Live Activity started but no push token received within timeout');
+        }
 
         return { activityId, pushToken };
       } catch (err) {
