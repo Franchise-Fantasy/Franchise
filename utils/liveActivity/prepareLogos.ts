@@ -64,14 +64,35 @@ async function prepareAppPatchAsset(): Promise<string | undefined> {
   if (!baseUri) return undefined;
   try {
     const dest = new File(baseUri, 'patch.png');
-    if (dest.exists && (dest.size ?? 0) > 500) return dest.uri;
+    if (dest.exists && (dest.size ?? 0) > 500) {
+      logger.info(`Patch already staged at ${dest.uri}, reusing`);
+      return dest.uri;
+    }
 
+    // expo-asset gives us a URI to the bundled asset. In production iOS
+    // localUri may be a non-file:// scheme (the bundled location) that
+    // File.copy can't read directly, so we go through fetch and write
+    // the bytes ourselves — works for any URI scheme RN fetch supports.
     const asset = Asset.fromModule(require('@/assets/images/F_patch@3x.png'));
     await asset.downloadAsync();
-    if (!asset.localUri) return undefined;
-
+    const sourceUri = asset.localUri ?? asset.uri;
+    if (!sourceUri) {
+      logger.warn('Patch asset had no usable URI');
+      return undefined;
+    }
+    const res = await fetch(sourceUri);
+    if (!res.ok) {
+      logger.warn(`Patch asset fetch HTTP ${res.status} for ${sourceUri}`);
+      return undefined;
+    }
+    const buf = new Uint8Array(await res.arrayBuffer());
+    if (buf.byteLength < 500) {
+      logger.warn(`Patch asset too small (${buf.byteLength}B)`);
+      return undefined;
+    }
     if (dest.exists) dest.delete();
-    new File(asset.localUri).copy(dest);
+    dest.write(buf);
+    logger.info(`Patch staged (${buf.byteLength}B) -> ${dest.uri}`);
     return dest.uri;
   } catch (err) {
     logger.warn('Patch asset prep failed (non-fatal)', err);
@@ -107,22 +128,17 @@ export async function prepareLogosForLiveActivity(input: {
     }
     const dest = new File(logosDir, `${teamId}.png`);
     try {
-      // Use fetch instead of File.downloadFileAsync — fetch lets us check
-      // the HTTP status and Content-Type up front, while downloadFileAsync
-      // silently writes whatever body comes back (HTML 4xx pages, etc.)
-      // and leaves us holding a "file" iOS can't decode.
+      // fetch lets us inspect the HTTP status up front. downloadFileAsync
+      // would silently write 4xx error pages to disk. We DON'T strict-check
+      // content-type because Supabase Storage sometimes serves
+      // application/octet-stream for images — size + valid HTTP 2xx is
+      // enough to weed out the broken cases we've actually seen.
       const res = await fetch(url);
       if (!res.ok) {
         logger.warn(`Logo fetch HTTP ${res.status} for team ${teamId}: ${url}`);
         return undefined;
       }
-      const contentType = res.headers.get('content-type') ?? '';
-      if (!contentType.startsWith('image/')) {
-        logger.warn(
-          `Logo content-type "${contentType}" for team ${teamId}: ${url}`,
-        );
-        return undefined;
-      }
+      const contentType = res.headers.get('content-type') ?? '(none)';
       const blob = await res.blob();
       if (blob.size < 500) {
         logger.warn(
