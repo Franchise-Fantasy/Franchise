@@ -97,19 +97,59 @@ async function sendToToken(
     });
 
     if (res.status === 200) {
+      writeDebugLog(config, deviceToken, 200, 'OK', host).catch(() => {});
       return { token: deviceToken, success: true, status: 200 };
     }
 
     const body = await res.json().catch(() => ({}));
+    const reason = body?.reason ?? `HTTP ${res.status}`;
+    writeDebugLog(config, deviceToken, res.status, reason, host).catch(() => {});
     return {
       token: deviceToken,
       success: false,
       status: res.status,
-      reason: body?.reason ?? `HTTP ${res.status}`,
+      reason,
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
+    writeDebugLog(config, deviceToken, 0, `throw:${message}`, '').catch(() => {});
     return { token: deviceToken, success: false, reason: message };
+  }
+}
+
+// Routes APNs responses into apns_debug_log so we can inspect from outside the
+// edge-function runtime. Cheap insert; failures are swallowed because logging
+// failures must never block real push flow.
+async function writeDebugLog(
+  config: APNsConfig,
+  deviceToken: string,
+  status: number,
+  reason: string,
+  host: string,
+): Promise<void> {
+  try {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const serviceKey = Deno.env.get('SB_SECRET_KEY');
+    if (!supabaseUrl || !serviceKey) return;
+    await fetch(`${supabaseUrl}/rest/v1/apns_debug_log`, {
+      method: 'POST',
+      headers: {
+        'apikey': serviceKey,
+        'authorization': `Bearer ${serviceKey}`,
+        'content-type': 'application/json',
+        'prefer': 'return=minimal',
+      },
+      body: JSON.stringify({
+        source: 'apns',
+        token_prefix: deviceToken.slice(0, 16),
+        status,
+        reason,
+        host,
+        topic: config.topic,
+      }),
+    });
+  } catch {
+    // intentional swallow
   }
 }
 

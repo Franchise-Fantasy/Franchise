@@ -22,6 +22,15 @@ export { computeOverCapState, formatOverCapError, type OverCapState };
  * "Active" = roster_slot NOT IN ('IR', 'TAXI'). roster_size on leagues
  * defines the capacity of that pool (UTIL + BE + position slots, IR/TAXI
  * are extra).
+ *
+ * Future-dated rows are excluded. A deferred/locked add (and the add half of
+ * a locked-day add+drop) inserts its league_players row immediately with a
+ * future `acquired_at` (next slate rollover), but the player isn't on the
+ * roster yet — the roster grid hides it (see components/roster/rosterData.ts).
+ * Counting it here is what falsely tripped the "11/10, roster locked" lock the
+ * moment a deferred add was queued. This guard is a *current-state* check, so
+ * it only counts rows that are already active; the forward-looking overflow
+ * projection (assert_can_add_free_agent RPC) keeps counting the future row.
  */
 export async function fetchOverCapState(
   leagueId: string,
@@ -36,7 +45,8 @@ export async function fetchOverCapState(
         .select("player_id")
         .eq("league_id", leagueId)
         .eq("team_id", teamId)
-        .not("roster_slot", "in", '("IR","TAXI")'),
+        .not("roster_slot", "in", '("IR","TAXI")')
+        .lte("acquired_at", new Date().toISOString()),
     ]);
   if (leagueErr) throw leagueErr;
   if (activeErr) throw activeErr;

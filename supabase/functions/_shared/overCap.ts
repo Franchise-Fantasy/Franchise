@@ -31,7 +31,10 @@ export async function fetchOverCapState(
         .select('player_id')
         .eq('league_id', leagueId)
         .eq('team_id', teamId)
-        .not('roster_slot', 'in', '("IR","TAXI")'),
+        .not('roster_slot', 'in', '("IR","TAXI")')
+        // Exclude not-yet-active deferred adds (future acquired_at) — see the
+        // client counterpart in utils/roster/overCap.ts for the full rationale.
+        .lte('acquired_at', new Date().toISOString()),
     ]);
   if (leagueErr) throw leagueErr;
   if (activeErr) throw activeErr;
