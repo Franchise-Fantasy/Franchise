@@ -63,11 +63,6 @@ import {
   useToday,
 } from "@/utils/dates";
 import {
-  LivePlayerStats,
-  liveToGameLog,
-  useLivePlayerStats,
-} from "@/utils/nba/nbaLive";
-import {
   categoryResultsToLines,
   formatTopCategory,
   rankCategories,
@@ -76,6 +71,11 @@ import {
   cleanupLiveActivityLogos,
   prepareLogosForLiveActivity,
 } from "@/utils/liveActivity/prepareLogos";
+import {
+  LivePlayerStats,
+  liveToGameLog,
+  useLivePlayerStats,
+} from "@/utils/nba/nbaLive";
 import { fetchNbaScheduleForDate } from "@/utils/nba/nbaSchedule";
 import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
 import { calculateGameFantasyPoints } from "@/utils/scoring/fantasyPoints";
