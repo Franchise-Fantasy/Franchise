@@ -25,6 +25,7 @@ interface MatchupActivityParams {
   opponentTeamId: string;
   myLogoFileUri?: string;
   opponentLogoFileUri?: string;
+  patchFileUri?: string;
   initialState: {
     myScore: number;
     opponentScore: number;
@@ -113,6 +114,7 @@ export function useLiveActivity(userId?: string) {
           catTies: params.initialState.catTies,
           myLogoFileUri: params.myLogoFileUri,
           opponentLogoFileUri: params.opponentLogoFileUri,
+          patchFileUri: params.patchFileUri,
         };
 
         const instance = MatchupActivity.start(initialProps);
@@ -121,10 +123,11 @@ export function useLiveActivity(userId?: string) {
         activeActivityIdRef.current = activityId;
 
         const metadata =
-          params.myLogoFileUri || params.opponentLogoFileUri
+          params.myLogoFileUri || params.opponentLogoFileUri || params.patchFileUri
             ? {
                 myLogoFileUri: params.myLogoFileUri ?? null,
                 opponentLogoFileUri: params.opponentLogoFileUri ?? null,
+                patchFileUri: params.patchFileUri ?? null,
                 myTeamId: params.teamId,
                 opponentTeamId: params.opponentTeamId,
               }

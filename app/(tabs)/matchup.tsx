@@ -223,12 +223,13 @@ export default function MatchupScreen() {
     }
 
     const opponentTeamId = displayData.rightTeam?.teamId ?? "";
-    const { myLogoFileUri, opponentLogoFileUri } = await prepareLogosForLiveActivity({
-      myTeamId: teamId,
-      opponentTeamId,
-      myLogoUrl: displayData.leftTeam.logoKey,
-      opponentLogoUrl: displayData.rightTeam?.logoKey,
-    });
+    const { myLogoFileUri, opponentLogoFileUri, patchFileUri } =
+      await prepareLogosForLiveActivity({
+        myTeamId: teamId,
+        opponentTeamId,
+        myLogoUrl: displayData.leftTeam.logoKey,
+        opponentLogoUrl: displayData.rightTeam?.logoKey,
+      });
 
     const result = await startMatchupActivity({
       mode: isCats ? "categories" : "points",
@@ -243,6 +244,7 @@ export default function MatchupScreen() {
       opponentTeamId,
       myLogoFileUri,
       opponentLogoFileUri,
+      patchFileUri,
       initialState,
     });
 

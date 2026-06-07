@@ -16,6 +16,7 @@
  * blank space.
  */
 
+import { Asset } from 'expo-asset';
 import { Directory, File, Paths } from 'expo-file-system';
 import { Platform } from 'react-native';
 
@@ -46,7 +47,37 @@ function getWidgetsDirectoryUri(): string | null {
 export type PreparedLogos = {
   myLogoFileUri?: string;
   opponentLogoFileUri?: string;
+  patchFileUri?: string;
 };
+
+/**
+ * Stages the Franchise patch (app brand mark) into the App Group container
+ * so the Live Activity can render it via `Image uiImage={...}`. The asset is
+ * bundled with the app — expo-asset gives us a local cache URI, which we
+ * copy to a stable shared path the widget extension can read from.
+ *
+ * Idempotent: once the file exists in the container we don't recopy. The
+ * patch is static, so a stale cached copy is fine.
+ */
+async function prepareAppPatchAsset(): Promise<string | undefined> {
+  const baseUri = getWidgetsDirectoryUri();
+  if (!baseUri) return undefined;
+  try {
+    const dest = new File(baseUri, 'patch.png');
+    if (dest.exists && (dest.size ?? 0) > 500) return dest.uri;
+
+    const asset = Asset.fromModule(require('@/assets/images/F_patch@3x.png'));
+    await asset.downloadAsync();
+    if (!asset.localUri) return undefined;
+
+    if (dest.exists) dest.delete();
+    new File(asset.localUri).copy(dest);
+    return dest.uri;
+  } catch (err) {
+    logger.warn('Patch asset prep failed (non-fatal)', err);
+    return undefined;
+  }
+}
 
 export async function prepareLogosForLiveActivity(input: {
   myTeamId: string;
@@ -70,34 +101,56 @@ export async function prepareLogosForLiveActivity(input: {
     teamId: string,
     url: string | null | undefined,
   ): Promise<string | undefined> => {
-    if (!url || !(url.startsWith('http://') || url.startsWith('https://'))) return undefined;
+    if (!url || !(url.startsWith('http://') || url.startsWith('https://'))) {
+      logger.info(`No remote logoKey for team ${teamId}, falling back to tricode pill`);
+      return undefined;
+    }
     const dest = new File(logosDir, `${teamId}.png`);
     try {
-      if (dest.exists) dest.delete();
-      const downloaded = await File.downloadFileAsync(url, dest);
-      // downloadFileAsync resolves even on 4xx/5xx — the response body
-      // (often an HTML error page) just gets written to disk. Guard against
-      // serving a malformed "image" by requiring at least 500 bytes; real
-      // team logos are several KB at minimum.
-      const size = downloaded.size ?? 0;
-      if (size < 500) {
-        logger.warn(`Logo download for team ${teamId} too small (${size}B), discarding`);
-        try { downloaded.delete(); } catch {}
+      // Use fetch instead of File.downloadFileAsync — fetch lets us check
+      // the HTTP status and Content-Type up front, while downloadFileAsync
+      // silently writes whatever body comes back (HTML 4xx pages, etc.)
+      // and leaves us holding a "file" iOS can't decode.
+      const res = await fetch(url);
+      if (!res.ok) {
+        logger.warn(`Logo fetch HTTP ${res.status} for team ${teamId}: ${url}`);
         return undefined;
       }
-      return downloaded.uri;
+      const contentType = res.headers.get('content-type') ?? '';
+      if (!contentType.startsWith('image/')) {
+        logger.warn(
+          `Logo content-type "${contentType}" for team ${teamId}: ${url}`,
+        );
+        return undefined;
+      }
+      const blob = await res.blob();
+      if (blob.size < 500) {
+        logger.warn(
+          `Logo too small (${blob.size}B) for team ${teamId}: ${url}`,
+        );
+        return undefined;
+      }
+
+      if (dest.exists) dest.delete();
+      const buf = new Uint8Array(await blob.arrayBuffer());
+      dest.write(buf);
+      logger.info(
+        `Logo OK for team ${teamId} (${contentType}, ${blob.size}B) -> ${dest.uri}`,
+      );
+      return dest.uri;
     } catch (err) {
-      logger.warn(`Logo download failed for team ${teamId}`, err);
+      logger.warn(`Logo download failed for team ${teamId}: ${url}`, err);
       return undefined;
     }
   };
 
-  const [myLogoFileUri, opponentLogoFileUri] = await Promise.all([
+  const [myLogoFileUri, opponentLogoFileUri, patchFileUri] = await Promise.all([
     downloadOne(input.myTeamId, input.myLogoUrl),
     downloadOne(input.opponentTeamId, input.opponentLogoUrl),
+    prepareAppPatchAsset(),
   ]);
 
-  return { myLogoFileUri, opponentLogoFileUri };
+  return { myLogoFileUri, opponentLogoFileUri, patchFileUri };
 }
 
 /**

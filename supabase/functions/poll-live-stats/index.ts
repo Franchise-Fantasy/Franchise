@@ -328,6 +328,7 @@ async function dispatchPlayerTickerUpdates(
     const meta = (token.metadata ?? {}) as {
       myLogoFileUri?: string | null;
       opponentLogoFileUri?: string | null;
+      patchFileUri?: string | null;
     };
 
     const contentState = buildPointsContentState({
@@ -343,6 +344,7 @@ async function dispatchPlayerTickerUpdates(
       players: top5,
       myLogoFileUri: meta.myLogoFileUri ?? undefined,
       opponentLogoFileUri: meta.opponentLogoFileUri ?? undefined,
+      patchFileUri: meta.patchFileUri ?? undefined,
     });
 
     pushTasks.push(

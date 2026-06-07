@@ -545,6 +545,7 @@ async function dispatchMatchupActivities(
       const meta = (token.metadata ?? {}) as {
         myLogoFileUri?: string | null;
         opponentLogoFileUri?: string | null;
+        patchFileUri?: string | null;
         myTeamId?: string;
         opponentTeamId?: string;
         playerTicker?: {
@@ -565,6 +566,7 @@ async function dispatchMatchupActivities(
       // ("my" = the device's team). Mirror that perspective for THIS push.
       const myLogoFileUri = meta.myLogoFileUri ?? undefined;
       const opponentLogoFileUri = meta.opponentLogoFileUri ?? undefined;
+      const patchFileUri = meta.patchFileUri ?? undefined;
 
       // poll-live-stats writes the latest live ticker into metadata after each
       // tick. Echo it here so we don't clobber player rows with []. 10-min
@@ -607,6 +609,7 @@ async function dispatchMatchupActivities(
           opponentActivePlayers: 0,
           myLogoFileUri,
           opponentLogoFileUri,
+          patchFileUri,
         });
       } else {
         const myScore = weekResult.teamScores[myTeamId] ?? 0;
@@ -624,6 +627,7 @@ async function dispatchMatchupActivities(
           players: cachedTicker?.players ?? [],
           myLogoFileUri,
           opponentLogoFileUri,
+          patchFileUri,
         });
       }
 

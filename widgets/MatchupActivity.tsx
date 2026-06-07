@@ -58,6 +58,10 @@ export type MatchupActivityProps = {
   // pill when absent (logoKey null, download failed, etc.).
   myLogoFileUri?: string;
   opponentLogoFileUri?: string;
+  // File URI for the Franchise patch (app brand mark). Staged once into
+  // ${widgetsDirectory}patch.png from the bundled asset on activity start.
+  // Renders in the banner header in place of the generic basketball icon.
+  patchFileUri?: string;
 };
 
 const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEnvironment) => {
@@ -113,6 +117,7 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
   const headerLabel = isCats ? 'CATEGORIES' : 'MATCHUP';
   const myLogo = props.myLogoFileUri;
   const oppLogo = props.opponentLogoFileUri;
+  const patch = props.patchFileUri;
 
   return {
     banner: (
@@ -123,7 +128,14 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
             <Circle modifiers={[foregroundStyle(WHITE), frame({ width: 6, height: 6 })]} />
             <Text modifiers={[font({ size: 10, weight: 'bold' }), foregroundStyle(WHITE)]}>LIVE</Text>
           </HStack>
-          <Image systemName="basketball.fill" size={12} color={ACCENT} />
+          {patch ? (
+            <Image
+              uiImage={patch}
+              modifiers={[frame({ width: 14, height: 14 })]}
+            />
+          ) : (
+            <Image systemName="basketball.fill" size={12} color={ACCENT} />
+          )}
           <Text modifiers={[font({ size: 10, weight: 'semibold' }), foregroundStyle(WHITE), opacity(0.55)]}>
             {headerLabel}
           </Text>
