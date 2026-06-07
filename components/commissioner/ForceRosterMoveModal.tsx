@@ -277,5 +277,5 @@ const styles = StyleSheet.create({
   slotBadge: { paddingHorizontal: s(8), paddingVertical: s(3), borderRadius: 6 },
   slotHeader: { fontSize: ms(13), marginBottom: s(12) },
   empty: { textAlign: 'center', marginTop: s(24), fontSize: ms(14) },
-  processingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center' },
+  processingOverlay: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center' },
 });

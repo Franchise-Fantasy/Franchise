@@ -107,7 +107,7 @@ export function InlineAction({ config, onClose }: Props) {
 
 const styles = StyleSheet.create({
   scrim: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(20, 16, 16, 0.55)',
     justifyContent: 'center',
     alignItems: 'center',

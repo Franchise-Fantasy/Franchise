@@ -36,7 +36,7 @@ export function BusyOverlay({ visible, title, subtitle }: Props) {
 
 const styles = StyleSheet.create({
   scrim: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(20, 16, 16, 0.55)', // Brand.ink @ 55%, matches InlineConfirm
     justifyContent: 'center',
     alignItems: 'center',

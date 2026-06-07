@@ -10,11 +10,6 @@ import {
 } from "@expo-google-fonts/oswald";
 import NetInfo from "@react-native-community/netinfo";
 import {
-  DarkTheme,
-  DefaultTheme,
-  ThemeProvider,
-} from "@react-navigation/native";
-import {
   focusManager,
   MutationCache,
   onlineManager,
@@ -25,7 +20,14 @@ import Constants from "expo-constants";
 import { useFonts } from "expo-font";
 import * as Linking from "expo-linking";
 import * as Notifications from "expo-notifications";
-import { Stack , usePathname, useRouter } from "expo-router";
+import {
+  DarkTheme,
+  DefaultTheme,
+  Stack,
+  ThemeProvider,
+  usePathname,
+  useRouter,
+} from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as Updates from "expo-updates";

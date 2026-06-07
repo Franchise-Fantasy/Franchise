@@ -86,7 +86,8 @@
           "groupIdentifier": "group.com.chewers.franchisev2",
           "enablePushNotifications": true
         }
-      ]
+      ],
+      "expo-status-bar"
     ],
     "experiments": {
       "typedRoutes": true

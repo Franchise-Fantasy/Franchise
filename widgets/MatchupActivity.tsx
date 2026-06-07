@@ -50,10 +50,10 @@ const gapColor = (gap: number) => (gap >= 0 ? GREEN : RED);
 
 const teamColumn = (tricode: string, score: number) => (
   <VStack spacing={2}>
-    <Text modifiers={[font({ textStyle: 'caption', weight: 'semibold' }), foregroundStyle(WHITE), opacity(0.7)]}>
+    <Text modifiers={[font({ size: 12, weight: 'semibold' }), foregroundStyle(WHITE), opacity(0.7)]}>
       {tricode}
     </Text>
-    <Text modifiers={[font({ textStyle: 'title2', weight: 'bold' }), foregroundStyle(WHITE)]}>
+    <Text modifiers={[font({ size: 22, weight: 'bold' }), foregroundStyle(WHITE)]}>
       {formatScore(score)}
     </Text>
   </VStack>
@@ -62,16 +62,16 @@ const teamColumn = (tricode: string, score: number) => (
 const playerRow = (player: MatchupPlayerLine) => (
   <HStack spacing={6}>
     <Text modifiers={[font({ size: 9 }), foregroundStyle(player.isOnCourt ? GREEN : '#8E8E93')]}>●</Text>
-    <Text modifiers={[font({ textStyle: 'caption2', weight: 'medium' }), foregroundStyle(WHITE), lineLimit(1)]}>
+    <Text modifiers={[font({ size: 11, weight: 'medium' }), foregroundStyle(WHITE), lineLimit(1)]}>
       {player.name}
     </Text>
     <Spacer />
-    <Text modifiers={[font({ textStyle: 'caption2' }), foregroundStyle(WHITE), opacity(0.7)]}>
+    <Text modifiers={[font({ size: 11 }), foregroundStyle(WHITE), opacity(0.7)]}>
       {player.statLine}
     </Text>
     <Text
       modifiers={[
-        font({ textStyle: 'caption2', weight: 'bold' }),
+        font({ size: 11, weight: 'bold' }),
         foregroundStyle(WHITE),
         frame({ width: 36, alignment: 'trailing' }),
       ]}
@@ -93,7 +93,7 @@ const playerRow = (player: MatchupPlayerLine) => (
 
 const playersList = (players: MatchupPlayerLine[]) =>
   players.length === 0 ? (
-    <Text modifiers={[font({ textStyle: 'caption2' }), foregroundStyle(WHITE), opacity(0.4)]}>
+    <Text modifiers={[font({ size: 11 }), foregroundStyle(WHITE), opacity(0.4)]}>
       No active players
     </Text>
   ) : (
@@ -114,10 +114,10 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
       <VStack spacing={8} modifiers={[padding({ all: 16 })]}>
         <HStack>
           <VStack alignment="leading">
-            <Text modifiers={[font({ textStyle: 'caption' }), foregroundStyle(WHITE), opacity(0.7)]}>
+            <Text modifiers={[font({ size: 12 }), foregroundStyle(WHITE), opacity(0.7)]}>
               {props.myTeamTricode}
             </Text>
-            <Text modifiers={[font({ textStyle: 'title2', weight: 'bold' }), foregroundStyle(WHITE)]}>
+            <Text modifiers={[font({ size: 22, weight: 'bold' }), foregroundStyle(WHITE)]}>
               {formatScore(props.myScore)}
             </Text>
           </VStack>
@@ -125,11 +125,11 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
           <Spacer />
 
           <VStack>
-            <Text modifiers={[font({ textStyle: 'caption', weight: 'bold' }), foregroundStyle(gapColor(gap))]}>
+            <Text modifiers={[font({ size: 12, weight: 'bold' }), foregroundStyle(gapColor(gap))]}>
               {formatGap(gap)}
             </Text>
             {probVisible ? (
-              <Text modifiers={[font({ textStyle: 'caption2' }), foregroundStyle(WHITE), opacity(0.6)]}>
+              <Text modifiers={[font({ size: 11 }), foregroundStyle(WHITE), opacity(0.6)]}>
                 {`${Math.round((props.winProbability ?? 0) * 100)}%`}
               </Text>
             ) : null}
@@ -138,17 +138,17 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
           <Spacer />
 
           <VStack alignment="trailing">
-            <Text modifiers={[font({ textStyle: 'caption' }), foregroundStyle(WHITE), opacity(0.7)]}>
+            <Text modifiers={[font({ size: 12 }), foregroundStyle(WHITE), opacity(0.7)]}>
               {props.opponentTeamTricode}
             </Text>
-            <Text modifiers={[font({ textStyle: 'title2', weight: 'bold' }), foregroundStyle(WHITE)]}>
+            <Text modifiers={[font({ size: 22, weight: 'bold' }), foregroundStyle(WHITE)]}>
               {formatScore(props.opponentScore)}
             </Text>
           </VStack>
         </HStack>
 
         {contributorVisible ? (
-          <Text modifiers={[font({ textStyle: 'caption' }), foregroundStyle(YELLOW)]}>
+          <Text modifiers={[font({ size: 12 }), foregroundStyle(YELLOW)]}>
             {props.biggestContributor}
           </Text>
         ) : null}
@@ -156,7 +156,7 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
         {playersVisible ? <Divider /> : null}
         {playersVisible ? playersList(props.players) : null}
 
-        <Text modifiers={[font({ textStyle: 'caption2' }), foregroundStyle(WHITE), opacity(0.4)]}>
+        <Text modifiers={[font({ size: 11 }), foregroundStyle(WHITE), opacity(0.4)]}>
           {`${props.myActivePlayers + props.opponentActivePlayers} games live`}
         </Text>
       </VStack>
@@ -165,20 +165,20 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
     // Dynamic Island — compact (default)
     compactLeading: (
       <HStack spacing={4}>
-        <Text modifiers={[font({ textStyle: 'caption2', weight: 'bold' }), foregroundStyle(WHITE), opacity(0.7)]}>
+        <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), opacity(0.7)]}>
           {props.myTeamTricode}
         </Text>
-        <Text modifiers={[font({ textStyle: 'caption', weight: 'bold' }), foregroundStyle(WHITE)]}>
+        <Text modifiers={[font({ size: 12, weight: 'bold' }), foregroundStyle(WHITE)]}>
           {formatScore(props.myScore)}
         </Text>
       </HStack>
     ),
     compactTrailing: (
       <HStack spacing={4}>
-        <Text modifiers={[font({ textStyle: 'caption', weight: 'bold' }), foregroundStyle(WHITE)]}>
+        <Text modifiers={[font({ size: 12, weight: 'bold' }), foregroundStyle(WHITE)]}>
           {formatScore(props.opponentScore)}
         </Text>
-        <Text modifiers={[font({ textStyle: 'caption2', weight: 'bold' }), foregroundStyle(WHITE), opacity(0.7)]}>
+        <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), opacity(0.7)]}>
           {props.opponentTeamTricode}
         </Text>
       </HStack>
@@ -186,7 +186,7 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
 
     // Dynamic Island — minimal (when multiple activities compete)
     minimal: (
-      <Text modifiers={[font({ textStyle: 'caption2', weight: 'bold' }), foregroundStyle(gapColor(gap))]}>
+      <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(gapColor(gap))]}>
         {gap.toFixed(0)}
       </Text>
     ),
@@ -196,20 +196,20 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
     expandedTrailing: teamColumn(props.opponentTeamTricode, props.opponentScore),
     expandedCenter: (
       <VStack spacing={4}>
-        <Text modifiers={[font({ textStyle: 'caption', weight: 'bold' }), foregroundStyle(gapColor(gap))]}>
+        <Text modifiers={[font({ size: 12, weight: 'bold' }), foregroundStyle(gapColor(gap))]}>
           {formatGap(gap)}
         </Text>
         {probVisible ? (
-          <Text modifiers={[font({ textStyle: 'caption2' }), foregroundStyle(WHITE), opacity(0.6)]}>
+          <Text modifiers={[font({ size: 11 }), foregroundStyle(WHITE), opacity(0.6)]}>
             {`${Math.round((props.winProbability ?? 0) * 100)}% win`}
           </Text>
         ) : null}
         {contributorVisible ? (
-          <Text modifiers={[font({ textStyle: 'caption2' }), foregroundStyle(YELLOW), lineLimit(1)]}>
+          <Text modifiers={[font({ size: 11 }), foregroundStyle(YELLOW), lineLimit(1)]}>
             {props.biggestContributor}
           </Text>
         ) : null}
-        <Text modifiers={[font({ textStyle: 'caption2' }), foregroundStyle(WHITE), opacity(0.5)]}>
+        <Text modifiers={[font({ size: 11 }), foregroundStyle(WHITE), opacity(0.5)]}>
           {`${props.myActivePlayers} vs ${props.opponentActivePlayers} playing`}
         </Text>
       </VStack>

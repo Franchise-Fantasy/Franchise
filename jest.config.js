@@ -21,6 +21,6 @@ module.exports = {
   // diagnostic lets pure edge logic (poll-news/rotowire-html.ts) be unit-tested
   // while every other type error in tests is still reported.
   transform: {
-    '^.+\\.tsx?$': ['ts-jest', { tsconfig: { jsx: 'react-jsx' }, diagnostics: { ignoreCodes: [5097] } }],
+    '^.+\\.tsx?$': ['ts-jest', { tsconfig: { jsx: 'react-jsx', types: ['jest', 'node'] }, diagnostics: { ignoreCodes: [5097] } }],
   },
 };

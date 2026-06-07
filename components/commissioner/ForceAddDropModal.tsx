@@ -298,5 +298,5 @@ const styles = StyleSheet.create({
   stat: { fontSize: ms(14), fontWeight: '500', marginLeft: s(8) },
   badge: { paddingHorizontal: s(5), paddingVertical: 1, borderRadius: 4 },
   empty: { textAlign: 'center', marginTop: s(24), fontSize: ms(14) },
-  processingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center' },
+  processingOverlay: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center' },
 });

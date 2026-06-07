@@ -241,7 +241,7 @@ const styles = StyleSheet.create({
     opacity: 0.18,
   },
   teaserOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: s(16),

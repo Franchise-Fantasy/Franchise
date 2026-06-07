@@ -283,7 +283,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   scrim: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(20, 16, 16, 0.55)', // Brand.ink @ 55%
   },
   keyboardWrap: {

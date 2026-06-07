@@ -416,7 +416,7 @@ function DestChip({
     >
       <Animated.View
         pointerEvents="none"
-        style={[StyleSheet.absoluteFillObject, { backgroundColor: c.text, borderRadius: 10 }, flashStyle]}
+        style={[StyleSheet.absoluteFill, { backgroundColor: c.text, borderRadius: 10 }, flashStyle]}
       />
       <ThemedText style={[styles.destChipText, { color: Brand.ink }]} numberOfLines={1}>
         → {label}
