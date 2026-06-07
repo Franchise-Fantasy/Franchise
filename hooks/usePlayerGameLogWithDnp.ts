@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 
-import { getCurrentSeason, getPreviousSeason, getSeasonEnd } from '@/constants/LeagueDefaults';
+import { getCurrentSeason, getPreviousSeason, getSeasonEnd, type Sport } from '@/constants/LeagueDefaults';
 import { supabase } from '@/lib/supabase';
 import { PlayerGameLog } from '@/types/player';
 
@@ -16,7 +16,7 @@ import { PlayerGameLog } from '@/types/player';
 // stats keep reading the raw gameLog (and already skip min===0 rows anyway).
 export function usePlayerGameLogWithDnp(
   proTeam: string | null | undefined,
-  sport: string,
+  sport: Sport,
   gameLog: PlayerGameLog[] | undefined,
 ): PlayerGameLog[] | undefined {
   const currentSeason = getCurrentSeason(sport);
