@@ -325,42 +325,14 @@ async function dispatchPlayerTickerUpdates(
     const biggest = top5[0];
     const biggestContributor = biggest ? `${biggest.name} ${biggest.statLine}` : '';
 
-    const meta = (token.metadata ?? {}) as {
-      myLogoFileUri?: string | null;
-      opponentLogoFileUri?: string | null;
-      patchFileUri?: string | null;
-    };
-
-    const contentState = buildPointsContentState({
-      myTeamName: myMeta.name,
-      opponentTeamName: oppMeta.name,
-      myTeamTricode: myMeta.tricode,
-      opponentTeamTricode: oppMeta.tricode,
-      myScore: my.score,
-      opponentScore: opp.score,
-      biggestContributor,
-      myActivePlayers: my.activePlayers,
-      opponentActivePlayers: opp.activePlayers,
-      players: top5,
-      myLogoFileUri: meta.myLogoFileUri ?? undefined,
-      opponentLogoFileUri: meta.opponentLogoFileUri ?? undefined,
-      patchFileUri: meta.patchFileUri ?? undefined,
-    });
-
-    pushTasks.push(
-      pushActivityUpdate(supabase, 'matchup', {
-        schedule_id: token.schedule_id,
-        league_id: token.league_id,
-      }, contentState).catch((err) =>
-        console.warn('pushActivityUpdate failed (poll-live-stats):', err),
-      ),
-    );
-
-    // Persist the just-computed ticker into activity_tokens.metadata so the
-    // less-frequent get-week-scores dispatcher can echo it on its own pushes —
-    // contentState replaces fully on every APNs push, so without this echo
-    // the next get-week-scores tick would overwrite players[] with [] and
-    // the widget would flash "Waiting for tip-off" between live polls.
+    // Note: poll-live-stats DOES NOT push contentState — it only updates
+    // the metadata.playerTicker cache. get-week-scores is the sole APNs
+    // pusher for matchup activities because it has the correct week
+    // totals in week_scores. If we pushed here we'd send today's-live-only
+    // fpts (typically near 0 since most games haven't happened yet),
+    // racing get-week-scores' real week total and making the on-device
+    // score flip between values every 30 seconds. See ContentState
+    // race-conditions notes in CLAUDE.md when revisiting.
     pushTasks.push(
       Promise.resolve(
         supabase
