@@ -223,15 +223,15 @@ async function dispatchPlayerTickerUpdates(
 
   // Fetch team display info — name + tricode for every involved team
   const { data: teamRows } = await supabase
-    .from('league_teams')
-    .select('id, team_name, tricode')
+    .from('teams')
+    .select('id, name, tricode')
     .in('id', [...allTeamIds]);
 
   const teamInfo = new Map<string, { name: string; tricode: string }>();
   for (const t of teamRows ?? []) {
     teamInfo.set(t.id, {
-      name: t.team_name ?? '',
-      tricode: t.tricode?.trim() || TRICODE_FROM_NAME(t.team_name ?? ''),
+      name: t.name ?? '',
+      tricode: t.tricode?.trim() || TRICODE_FROM_NAME(t.name ?? ''),
     });
   }
 
