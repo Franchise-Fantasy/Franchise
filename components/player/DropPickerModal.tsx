@@ -440,8 +440,8 @@ export function DropPickerModal({
                   <ThemedText
                     style={{ color: c.secondaryText, textAlign: "center" }}
                   >
-                    All your roster players have games in progress. Try again
-                    later.
+                    All your roster players have games that already started. Try
+                    again tomorrow.
                   </ThemedText>
                 </View>
               }

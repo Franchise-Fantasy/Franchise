@@ -153,6 +153,23 @@ async function writeDebugLog(
   }
 }
 
+// expo-widgets wraps the actual props in a Codable struct on the iOS side:
+//   struct ContentState: Codable, Hashable { var name: String; var props: String }
+// (see node_modules/expo-widgets/ios/Widgets/WidgetLiveActivity.swift). The
+// `name` matches the createLiveActivity name and `props` is a JSON-encoded
+// string of the actual content state object. APNs pushes that don't match
+// this shape silently fail to decode — APNs returns 200 OK, iOS receives the
+// push, but the activity stays in its loading state because the ContentState
+// can't be deserialized.
+const ACTIVITY_NAME = 'MatchupActivity';
+
+function wrapContentState(contentState: Record<string, unknown>): Record<string, string> {
+  return {
+    name: ACTIVITY_NAME,
+    props: JSON.stringify(contentState),
+  };
+}
+
 /** Build the APNs payload for a Live Activity content-state update. */
 function buildUpdatePayload(
   contentState: Record<string, unknown>,
@@ -162,7 +179,7 @@ function buildUpdatePayload(
     aps: {
       timestamp: timestamp ?? Math.floor(Date.now() / 1000),
       event: 'update',
-      'content-state': contentState,
+      'content-state': wrapContentState(contentState),
     },
   };
 }
@@ -176,7 +193,7 @@ function buildEndPayload(
     aps: {
       timestamp: Math.floor(Date.now() / 1000),
       event: 'end',
-      'content-state': contentState,
+      'content-state': wrapContentState(contentState),
       'dismissal-date': dismissalDate ?? Math.floor(Date.now() / 1000) + 300, // dismiss after 5 min
     },
   };

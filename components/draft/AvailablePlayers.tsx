@@ -422,7 +422,10 @@ export function AvailablePlayers({
                   >
                     {fixed1(item.avg_pts)}/{fixed1(item.avg_reb)}/{fixed1(item.avg_ast)}/{fixed1(item.avg_stl)}/{fixed1(item.avg_blk)}
                   </ThemedText>
-                  <ThemedText style={[styles.catLine, { color: c.secondaryText }]}>
+                  <ThemedText
+                    numberOfLines={1}
+                    style={[styles.catLine, { color: c.secondaryText }]}
+                  >
                     {(item.avg_fga ?? 0) > 0
                       ? (((item.avg_fgm ?? 0) / (item.avg_fga as number)) * 100).toFixed(1)
                       : "0.0"}
@@ -647,6 +650,9 @@ const styles = StyleSheet.create({
   },
   info: {
     flex: 1,
+    // Floor the name column so the wide 5-stat category line can't crush it to
+    // an unreadable sliver (the bug where names looked "covered" by the stats).
+    minWidth: s(70),
     marginRight: s(8),
   },
   nameRow: {
@@ -682,10 +688,10 @@ const styles = StyleSheet.create({
     width: s(100),
   },
   statsCategories: {
-    width: s(150),
+    width: s(136),
   },
   statLine: {
-    fontSize: ms(11),
+    fontSize: ms(10),
     textAlign: "right" as const,
   },
   catLine: {

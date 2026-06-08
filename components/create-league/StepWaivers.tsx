@@ -97,8 +97,8 @@ export function StepWaivers({ state, onChange }: StepWaiversProps) {
           label="Player Lock"
           helperText={
             state.playerLockType === 'Daily'
-              ? 'Once the first game of the day tips off, lineups, adds, and drops lock for the day.'
-              : 'Lineup changes, adds, and drops for a player lock the moment their game tips off.'
+              ? 'Once the first game of the day starts, lineups, adds, and drops lock for the day.'
+              : 'Lineup changes, adds, and drops for a player lock the moment their game starts.'
           }
         >
           <SegmentedControl

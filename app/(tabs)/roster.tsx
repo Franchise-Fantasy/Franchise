@@ -94,7 +94,7 @@ import { useWeekScores } from "@/hooks/useWeekScores";
 import { capture } from "@/lib/posthog";
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
-import { addDays, formatDayLabel, formatShortDate, useSportToday } from "@/utils/dates";
+import { addDays, defaultLeagueDay, formatDayLabel, formatShortDate, useSportToday } from "@/utils/dates";
 import { formatPosition } from "@/utils/formatting";
 import { getSportToday } from "@/utils/leagueTime";
 import { logger } from "@/utils/logger";
@@ -143,6 +143,11 @@ export default function RosterScreen() {
   const today = useSportToday(sport);
   const [selectedDate, setSelectedDate] = useState<string>(today);
 
+  // One-shot per league: once the schedule loads, land on the league's first
+  // day for a not-yet-started league instead of the pre-tipoff gap day. The
+  // init effect that consumes this lives below, after firstWeekStart is derived.
+  const didInitDay = useRef(false);
+
   // If the calendar date rolled over (e.g. app resumed from background after midnight), snap to today
   const prevToday = useRef(today);
   useEffect(() => {
@@ -154,10 +159,14 @@ export default function RosterScreen() {
 
   // Snap back to today when the active league switches — the day you were
   // viewing in one roster shouldn't carry over to a different league's roster.
+  // Re-arm the day init so the new league re-clamps to its own opening night
+  // once its schedule loads (firstWeekStart is stale at this point — useWeeks
+  // has no keepPreviousData, so it still holds the previous league's value).
   const prevLeague = useRef(leagueId);
   useEffect(() => {
     if (leagueId !== prevLeague.current) {
       prevLeague.current = leagueId;
+      didInitDay.current = false;
       setSelectedDate(today);
     }
   }, [leagueId, today]);
@@ -228,6 +237,18 @@ export default function RosterScreen() {
     !currentWeek && firstWeekStart && selectedDate < firstWeekStart
       ? formatShortDate(firstWeekStart)
       : undefined;
+
+  // Land on opening night for a not-yet-started league: clamp the default day
+  // to max(today, firstWeekStart) once the schedule loads, so the user opens
+  // onto their team rather than the empty pre-tipoff gap day. In-season this is
+  // a no-op (defaultLeagueDay returns today). Fires once per league; manual
+  // day navigation afterward is preserved (didInitDay latches true).
+  useEffect(() => {
+    if (didInitDay.current || !weeks) return;
+    didInitDay.current = true;
+    const target = defaultLeagueDay(today, firstWeekStart);
+    if (target !== selectedDate) setSelectedDate(target);
+  }, [weeks, today, firstWeekStart, selectedDate]);
 
   // Date-dropdown picker (jump to any day in the current week)
   const [showDayPicker, setShowDayPicker] = useState(false);
@@ -1158,7 +1179,7 @@ export default function RosterScreen() {
         if (deferred) {
           showToast(
             "info",
-            "Game in progress — change takes effect tomorrow",
+            "Game already started — this change takes effect tomorrow",
           );
         }
       } else {
@@ -1989,7 +2010,7 @@ export default function RosterScreen() {
             accessibilityLabel={
               canEdit
                 ? `Empty ${slotLabel(slot.slotPosition)} slot, tap to assign`
-                : `Empty ${slotLabel(slot.slotPosition)} slot, locked — game in progress`
+                : `Empty ${slotLabel(slot.slotPosition)} slot, locked — game already started`
             }
             accessibilityState={{ disabled: !canEdit }}
             accessibilityHint={
@@ -2021,7 +2042,7 @@ export default function RosterScreen() {
               <ThemedText
                 style={[styles.emptySlotHint, { color: c.secondaryText }]}
               >
-                {canEdit ? "Tap to assign a player" : "Game in progress"}
+                {canEdit ? "Tap to assign a player" : "Game started"}
               </ThemedText>
             </View>
           </TouchableOpacity>

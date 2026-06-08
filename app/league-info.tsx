@@ -343,6 +343,20 @@ export default function LeagueInfoScreen() {
               ? rosterConfig.map((r) => `${r.position}: ${r.slot_count}`).join('  |  ')
               : 'Loading...'}
           </ThemedText>
+          <Row
+            label="Position Limits"
+            value={(() => {
+              const pl = league.position_limits as Record<string, number> | null;
+              const entries = pl
+                ? Object.entries(pl).filter(([, v]) => v && v > 0)
+                : [];
+              return entries.length
+                ? entries.map(([p, v]) => `${p}: ${v}`).join('  |  ')
+                : 'None';
+            })()}
+            c={c}
+            last
+          />
         </SectionCard>
 
         {/* ── Scoring ── */}

@@ -58,6 +58,7 @@ import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
 import {
   addDays,
+  defaultLeagueDay,
   formatDayLabel,
   formatShortDate,
   useSportToday,
@@ -251,12 +252,20 @@ export default function MatchupScreen() {
     if (result) setLiveActivityId(result.activityId);
   };
 
-  // Reset to today when switching leagues so stale data doesn't linger
+  // One-shot per league: clamp the default day to opening night once the
+  // schedule loads (see the init effect after the deep-link handler below).
+  const didInitDay = useRef(false);
+
+  // Reset to today when switching leagues so stale data doesn't linger. Re-arm
+  // the day init so the new league re-clamps to its own opening night once its
+  // schedule loads (firstWeekStart is stale here — useWeeks has no
+  // keepPreviousData).
   const prevLeague = useRef(leagueId);
   useEffect(() => {
     if (leagueId !== prevLeague.current) {
       setSelectedDate(today);
       setSelectedMatchupId(null);
+      didInitDay.current = false;
       prevLeague.current = leagueId;
     }
   }, [leagueId]);
@@ -395,8 +404,23 @@ export default function MatchupScreen() {
     setSelectedDate(targetDate);
     setSelectedMatchupId(paramMatchupId);
     consumedParamRef.current = paramMatchupId;
+    // A deep-link is an explicit destination — claim the one-shot day init so
+    // the default-day clamp below never overrides where we just navigated.
+    didInitDay.current = true;
     router.setParams({ matchupId: undefined });
   }, [paramMatchupId, paramMatchupWeek, today, router]);
+
+  // Land on opening night for a not-yet-started league (clamp default day to
+  // max(today, firstWeekStart)) once the schedule loads — see roster.tsx for
+  // the rationale. Bails while a deep-link into a specific matchup is still in
+  // flight so it never stomps that navigation; fires once per league.
+  useEffect(() => {
+    if (didInitDay.current || !weeks) return;
+    if (paramMatchupId && consumedParamRef.current !== paramMatchupId) return;
+    didInitDay.current = true;
+    const target = defaultLeagueDay(today, firstWeekStart);
+    if (target !== selectedDate) setSelectedDate(target);
+  }, [weeks, today, firstWeekStart, selectedDate, paramMatchupId]);
 
   const isViewingOwnMatchup = selectedMatchupId === userMatchupId;
 

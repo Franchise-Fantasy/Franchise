@@ -95,6 +95,21 @@ export function useSportToday(sport: string | null | undefined): string {
   return today;
 }
 
+/**
+ * The day a league's roster/matchup calendar should open on.
+ *
+ * For a not-yet-started league (season opens in the future) this is opening
+ * night, so the user lands on their team instead of the empty pre-tipoff gap
+ * day and having to step forward. In-season it's just today. YYYY-MM-DD string
+ * compare is safe (lexicographic order == chronological order).
+ */
+export function defaultLeagueDay(
+  today: string,
+  firstWeekStart: string | null | undefined,
+): string {
+  return firstWeekStart && firstWeekStart > today ? firstWeekStart : today;
+}
+
 /** Format "YYYY-MM-DD" as "Mon, Feb 27" style label. */
 export function formatDayLabel(dateStr: string): string {
   return parseLocalDate(dateStr).toLocaleDateString('en-US', {

@@ -58,6 +58,7 @@ import { isOnline } from "@/utils/network";
 import { addFreeAgent } from "@/utils/roster/addFreeAgent";
 import { guardIllegalIR } from "@/utils/roster/illegalIR";
 import { guardOverCap } from "@/utils/roster/overCap";
+import { checkPositionLimits } from "@/utils/roster/positionLimits";
 import { isEligibleForSlot } from "@/utils/roster/rosterSlots";
 import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
 import { isTaxiEligible } from "@/utils/roster/taxiEligibility";
@@ -838,6 +839,50 @@ export function PlayerDetailModal({
         }
       }
 
+      // Position-limit pre-flight for add+drop. Runs before ANY mutation (the
+      // queued-drop insert below, or the immediate delete further down) so a
+      // rejected add never strands the dropped player. The player being dropped
+      // is excluded from the count — dropping a PG frees that slot for the add.
+      // The server RPC enforces the same rule as a backstop; this is the
+      // friendly pre-round-trip message. (Plain instant adds are gated in
+      // FreeAgentList / addFreeAgent.)
+      if (playerToDrop && player && player.position) {
+        const { data: limitData } = await supabase
+          .from("leagues")
+          .select("position_limits")
+          .eq("id", leagueId)
+          .single();
+        const posLimits = limitData?.position_limits as
+          | Record<string, number>
+          | null;
+        if (posLimits && Object.keys(posLimits).length > 0) {
+          const { data: rosterForLimits } = await supabase
+            .from("league_players")
+            .select("player_id, position, roster_slot")
+            .eq("league_id", leagueId)
+            .eq("team_id", teamId);
+          const violation = checkPositionLimits(
+            posLimits,
+            (rosterForLimits ?? [])
+              .filter((r) => r.player_id !== dropping.player_id)
+              .map((r) => ({
+                position: r.position,
+                roster_slot: r.roster_slot ?? undefined,
+              })),
+            player.position,
+          );
+          if (violation) {
+            invalidateRosterQueries();
+            Alert.alert(
+              "Position Limit Reached",
+              `Your roster already has the maximum of ${violation.max} players eligible at ${violation.position}.`,
+            );
+            setIsProcessing(false);
+            return;
+          }
+        }
+      }
+
       // For add-and-drop on a locked day, queue the drop for tomorrow so the
       // dropped player stays visible in today's lineup (any slot - starter,
       // bench, IR, taxi). process-pending-transactions executes the drop
@@ -1257,7 +1302,7 @@ export function PlayerDetailModal({
         invalidateRosterQueries();
         Alert.alert(
           "Move Queued",
-          `${player.name}'s game is in progress. The move to IR takes effect tomorrow.`,
+          `${player.name}'s game has started. The move to IR takes effect tomorrow.`,
         );
         onClose();
         return;
@@ -1872,7 +1917,7 @@ export function PlayerDetailModal({
     if (playerGameStarted) {
       confirm({
         title: "Drop Player",
-        message: `${player.name}'s game has already started. Drop will be queued for tomorrow.`,
+        message: `${player.name}'s game has started. Drop will be queued for tomorrow.`,
         action: { label: "Drop", destructive: true, onPress: () => handleQueueDrop() },
       });
     } else {

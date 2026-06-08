@@ -9,6 +9,7 @@ import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
+import { computePlayoffStatuses } from '@/utils/league/playoffStatuses';
 import {
   fetchStandingsMatchups,
   fetchStandingsTeams,
@@ -19,75 +20,6 @@ import { ms, s } from '@/utils/scale';
 
 import { TeamLogo } from '../team/TeamLogo';
 import { ThemedText } from '../ui/ThemedText';
-
-interface Matchup {
-  home_team_id: string;
-  away_team_id: string | null;
-  winner_team_id: string | null;
-  home_score: number;
-  away_score: number;
-  home_category_wins?: number | null;
-  away_category_wins?: number | null;
-  week_number: number;
-}
-
-export type PlayoffStatus = 'clinched' | 'eliminated' | null;
-
-/**
- * Compute playoff clinch/elimination status for each team.
- *
- * Runs two simulations per team:
- * - Worst case: team loses all remaining, every other team wins all remaining.
- *   If team still finishes top N under current tiebreakers, they've clinched.
- * - Best case: team wins all remaining, every other team loses all remaining.
- *   If team still misses top N, they're eliminated.
- *
- * Sound but not tight — opponents can't all win/lose when they play each other,
- * so some late clinches may not light up until the math is unambiguous.
- */
-export function computePlayoffStatuses(
-  standings: (TeamStanding & { rank: number })[],
-  remainingGames: Map<string, number>,
-  playoffTeams: number,
-  matchups: Matchup[],
-  tiebreakerOrder: string[],
-): Map<string, PlayoffStatus> {
-  const statuses = new Map<string, PlayoffStatus>();
-  const totalTeams = standings.length;
-  if (playoffTeams <= 0 || playoffTeams >= totalTeams) return statuses;
-
-  for (const team of standings) {
-    const worstCase = standings.map(t => {
-      const remaining = remainingGames.get(t.id) ?? 0;
-      return t.id === team.id
-        ? { ...t, losses: t.losses + remaining }
-        : { ...t, wins: t.wins + remaining };
-    });
-    const worstRank = resolveStandings(worstCase, matchups, tiebreakerOrder)
-      .find(t => t.id === team.id)?.rank ?? Infinity;
-    if (worstRank <= playoffTeams) {
-      statuses.set(team.id, 'clinched');
-      continue;
-    }
-
-    const bestCase = standings.map(t => {
-      const remaining = remainingGames.get(t.id) ?? 0;
-      return t.id === team.id
-        ? { ...t, wins: t.wins + remaining }
-        : { ...t, losses: t.losses + remaining };
-    });
-    const bestRank = resolveStandings(bestCase, matchups, tiebreakerOrder)
-      .find(t => t.id === team.id)?.rank ?? Infinity;
-    if (bestRank > playoffTeams) {
-      statuses.set(team.id, 'eliminated');
-      continue;
-    }
-
-    statuses.set(team.id, null);
-  }
-
-  return statuses;
-}
 
 const DEFAULT_TIEBREAKER = ['head_to_head', 'points_for'];
 

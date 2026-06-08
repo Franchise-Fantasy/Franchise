@@ -11,7 +11,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { computePlayoffStatuses } from '@/components/home/StandingsSection';
 import { TeamLogo } from '@/components/team/TeamLogo';
 import { Badge } from '@/components/ui/Badge';
 import { BrandSegmented } from '@/components/ui/BrandSegmented';
@@ -28,6 +27,7 @@ import { useColors } from '@/hooks/useColors';
 import { useLeague } from '@/hooks/useLeague';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { supabase } from '@/lib/supabase';
+import { computePlayoffStatuses } from '@/utils/league/playoffStatuses';
 import {
   fetchStandingsMatchups,
   fetchStandingsTeams,

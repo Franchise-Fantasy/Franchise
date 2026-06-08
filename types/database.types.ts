@@ -5990,7 +5990,7 @@ export type Database = {
         Returns: Json
       }
       assert_can_add_free_agent: {
-        Args: { p_league_id: string; p_team_id: string }
+        Args: { p_league_id: string; p_player_id?: string; p_team_id: string }
         Returns: undefined
       }
       batch_update_matchup_scores: {
@@ -6421,6 +6421,10 @@ export type Database = {
           p_team_id: string
         }
         Returns: undefined
+      }
+      position_limit_match_keys: {
+        Args: { p_position: string }
+        Returns: string[]
       }
       post_trade_update: {
         Args: {

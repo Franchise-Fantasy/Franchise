@@ -156,8 +156,8 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
       </View>
       <ThemedText style={{ fontSize: ms(13), color: c.secondaryText, marginBottom: s(12) }}>
         {playerLock === 'Daily'
-          ? 'Once the first NBA game starts each day, adds process the next day'
-          : 'Players whose games have started cannot be added or dropped'}
+          ? 'Once the first game of the day starts, lineups, adds, and drops lock for the day.'
+          : 'Lineup changes, adds, and drops for a player lock the moment their game starts.'}
       </ThemedText>
     </BottomSheet>
   );

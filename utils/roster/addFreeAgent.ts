@@ -45,10 +45,13 @@ export async function addFreeAgent(params: {
   await assertNoOverCap(leagueId, teamId);
 
   // Block the add if pending trades would push the team over its roster
-  // size after this player is added (counting already-queued drops).
+  // size after this player is added (counting already-queued drops), or if it
+  // would exceed a per-position limit. Passing the player id lets the guard read
+  // the real position and enforce position_limits server-side on every add path.
   const { error: guardError } = await supabase.rpc("assert_can_add_free_agent", {
     p_league_id: leagueId,
     p_team_id: teamId,
+    p_player_id: player.player_id,
   });
   if (guardError) {
     if (guardError.message?.includes("pending_trades_would_overflow_roster")) {
@@ -59,6 +62,14 @@ export async function addFreeAgent(params: {
     if (guardError.message?.includes("roster_full")) {
       throw new Error(
         "Your roster is already full. Drop a player first before adding.",
+      );
+    }
+    if (guardError.message?.includes("position_limit_full")) {
+      const m = guardError.message.match(/position=(\w+).*max=(\d+)/);
+      throw new Error(
+        m
+          ? `Your roster already has the maximum of ${m[2]} players eligible at ${m[1]}.`
+          : "This add would exceed your league's position limit.",
       );
     }
     throw guardError;
