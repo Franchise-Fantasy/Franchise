@@ -7,6 +7,7 @@ import { handleError, jsonResponse, errorResponse } from "../_shared/http.ts";
 import { buildPointsContentState } from "../_shared/liveActivityContent.ts";
 import { createLogger } from "../_shared/log.ts";
 import { parseBody, z } from "../_shared/validate.ts";
+import { getSportToday } from "../../../utils/leagueTime.ts";
 
 const Body = z.object({
   sport: z.enum(['nba', 'wnba']).optional(),
@@ -235,14 +236,41 @@ async function dispatchPlayerTickerUpdates(
     });
   }
 
-  // Fetch rosters for ALL involved teams (so we can score both sides)
-  const { data: rosterPlayers } = await supabase
-    .from('league_players')
+  // Fetch the per-day active lineup. The matchup screen lets users move
+  // players between BE and the starter slots per day, and league_players
+  // only stores the CURRENT (default) slot — a player started just for today
+  // would still be on the bench per league_players, but rostered into G/F/UTIL
+  // in daily_lineups for the lineup_date. We need today's actual lineup to
+  // count who's actually playing.
+  const today = getSportToday(null);
+  const { data: dailyLineupRows } = await supabase
+    .from('daily_lineups')
     .select('player_id, team_id, roster_slot, players!inner(name)')
+    .eq('lineup_date', today)
     .in('team_id', [...allTeamIds])
-    .not('roster_slot', 'in', '("BE","IR","TAXI")');
+    .not('roster_slot', 'in', '("BE","IR","TAXI","DROPPED")');
 
-  if (!rosterPlayers || rosterPlayers.length === 0) return;
+  // Teams without a daily_lineup for today fall back to their league_players
+  // default slots — covers leagues that don't use the daily lineup feature.
+  const teamsWithDailyLineup = new Set<string>(
+    (dailyLineupRows ?? []).map((r) => r.team_id),
+  );
+  const teamsNeedingFallback = [...allTeamIds].filter(
+    (tid) => !teamsWithDailyLineup.has(tid),
+  );
+
+  let fallbackRows: typeof dailyLineupRows = [];
+  if (teamsNeedingFallback.length > 0) {
+    const { data } = await supabase
+      .from('league_players')
+      .select('player_id, team_id, roster_slot, players!inner(name)')
+      .in('team_id', teamsNeedingFallback)
+      .not('roster_slot', 'in', '("BE","IR","TAXI","DROPPED")');
+    fallbackRows = data ?? [];
+  }
+
+  const rosterPlayers = [...(dailyLineupRows ?? []), ...(fallbackRows ?? [])];
+  if (rosterPlayers.length === 0) return;
 
   const rosterByTeam = new Map<string, any[]>();
   for (const rp of rosterPlayers) {
