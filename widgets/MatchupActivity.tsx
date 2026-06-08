@@ -1,24 +1,29 @@
 /**
  * MatchupActivity Live Activity (Dynamic Island + Lock Screen).
  *
- * MINIMAL SAFE VERSION — earlier rich version was failing to render in the
- * JSContext on production builds (stuck loading spinner). Going back to
- * primitives only (HStack/VStack/Text/Spacer) until we confirm what was
- * throwing. Logos, patch, gold ring, Gauge, ZStack, Circle, Image — all
- * removed for now. Will re-add one feature at a time once this baseline
- * renders correctly.
+ * Rich version restored after confirming the server-side ContentState wrap
+ * bug was the cause of the earlier stuck-spinner symptom. expo-widgets' iOS
+ * struct is `{ name: String; props: String }` and the props field must hold
+ * a JSON-encoded string of the actual content state; sending the props
+ * object directly made Codable silently fail. apns.ts now wraps correctly.
  *
- * The `'widget'` directive triggers babel-preset-expo's widgets-plugin,
- * which extracts the function source as a string. iOS evaluates that string
- * in a JSContext that only has `@expo/ui/swift-ui` components + modifiers on
- * `globalThis` — anything referenced outside the function body does NOT
- * exist at render time. Every value used by the layout must therefore live
- * INSIDE the function (or inside its inlined JSX).
+ * Widget render constraints (still):
+ * - babel-preset-expo's widgets-plugin stringifies the layout function,
+ *   so anything referenced outside the function body (module-level
+ *   constants, helper functions) DOES NOT exist when iOS evaluates the
+ *   string in its JSContext. Everything must live INSIDE the layout body.
+ * - The JSContext only has `@expo/ui/swift-ui` components + modifiers on
+ *   globalThis. No React Native primitives, no third-party libs.
+ *
+ * Props must stay aligned with the contentState the backend pushes (see
+ * supabase/functions/_shared/apns.ts and the dispatch sites). Field renames
+ * here need matching renames there or users see blank/garbled activities
+ * until the next binary build.
  *
  * @platform ios 16.1+
  */
-import { HStack, Spacer, Text, VStack } from '@expo/ui/swift-ui';
-import { font, foregroundStyle, opacity, padding } from '@expo/ui/swift-ui/modifiers';
+import { Circle, Gauge, HStack, Image, Spacer, Text, VStack, ZStack } from '@expo/ui/swift-ui';
+import { background, clipShape, cornerRadius, font, foregroundStyle, frame, gaugeStyle, lineLimit, opacity, padding } from '@expo/ui/swift-ui/modifiers';
 import { createLiveActivity, type LiveActivityEnvironment } from 'expo-widgets';
 
 import type { LiveCategoryLine, LivePlayerLine } from '@/utils/liveActivity/contentState';
@@ -44,13 +49,18 @@ export type MatchupActivityProps = {
   myActivePlayers: number;
   opponentActivePlayers: number;
 
-  // Kept on the type so server payloads don't fail typechecks, but the
-  // minimal layout below doesn't reference any of these.
+  // Populated when mode === 'points'
   players: MatchupPlayerLine[];
+
+  // Populated when mode === 'categories'
   categories?: MatchupCategoryLine[];
   catTies?: number;
+
+  // Optional fully-resolved file:// URIs into the App Group container.
+  // Falls back to tricode pill when absent.
   myLogoFileUri?: string;
   opponentLogoFileUri?: string;
+  // Franchise patch in the banner header. Falls back to basketball icon.
   patchFileUri?: string;
 };
 
@@ -60,7 +70,14 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
   const WHITE = '#FFFFFF';
   const GREEN = '#22C55E';
   const RED = '#EF4444';
+  const YELLOW = '#FACC15';
   const GREY = '#8E8E93';
+  const ACCENT = '#F59E0B';
+  // Heritage Gold — the softer olive variant. Brand.vintageGold (#B57B30)
+  // reads as bright orange on the widget's black backgrounds.
+  const GOLD = '#9E8A60';
+  const PANEL = '#1C1C1E';
+  const PANEL_DIM = '#2C2C2E';
 
   const isCats = props.mode === 'categories';
 
@@ -72,101 +89,366 @@ const MatchupActivityLayout = (props: MatchupActivityProps, _env: LiveActivityEn
   const oppScoreText = isCats ? String(Math.round(props.opponentScore)) : props.opponentScore.toFixed(1);
   const myScoreColor = tiedOverall ? WHITE : myLeading ? GREEN : WHITE;
   const oppScoreColor = tiedOverall ? WHITE : !myLeading ? GREEN : WHITE;
+
+  const ties = props.catTies ?? 0;
+  const catRecord = ties > 0
+    ? `${Math.round(props.myScore)}-${Math.round(props.opponentScore)}-${ties}`
+    : `${Math.round(props.myScore)}-${Math.round(props.opponentScore)}`;
   const gapText = isCats
-    ? `${Math.round(props.myScore)} - ${Math.round(props.opponentScore)}`
+    ? catRecord
     : `${myLeading ? '+' : ''}${gap.toFixed(1)}`;
+
+  const contributorVisible = props.biggestContributor.length > 0;
+  const probVisible = !isCats && typeof props.winProbability === 'number';
+  const winPct = probVisible ? Math.round((props.winProbability ?? 0) * 100) : 50;
+  const playersVisible = !isCats && props.players.length > 0;
+  const top5 = props.players.slice(0, 5);
+  const catsVisible = isCats && (props.categories?.length ?? 0) > 0;
+  const cats = props.categories ?? [];
+  const topCats = cats.slice(0, 6);
+  const topCatsExpanded = cats.slice(0, 4);
+  const totalLive = props.myActivePlayers + props.opponentActivePlayers;
+
+  const headerLabel = isCats ? 'CATEGORIES' : 'MATCHUP';
+  const myLogo = props.myLogoFileUri;
+  const oppLogo = props.opponentLogoFileUri;
+  const patch = props.patchFileUri;
 
   return {
     banner: (
-      <VStack spacing={6} modifiers={[padding({ all: 12 })]}>
+      <VStack spacing={10} modifiers={[padding({ all: 14 })]}>
+        {/* Header: LIVE pill + patch/basketball + label + live count */}
+        <HStack spacing={8}>
+          <HStack spacing={4} modifiers={[padding({ horizontal: 8, vertical: 3 }), background(RED, undefined as any), cornerRadius(8)]}>
+            <Circle modifiers={[foregroundStyle(WHITE), frame({ width: 6, height: 6 })]} />
+            <Text modifiers={[font({ size: 10, weight: 'bold' }), foregroundStyle(WHITE)]}>LIVE</Text>
+          </HStack>
+          {patch ? (
+            <Image uiImage={patch} modifiers={[frame({ width: 14, height: 14 })]} />
+          ) : (
+            <Image systemName="basketball.fill" size={12} color={ACCENT} />
+          )}
+          <Text modifiers={[font({ size: 10, weight: 'semibold' }), foregroundStyle(WHITE), opacity(0.55)]}>
+            {headerLabel}
+          </Text>
+          <Spacer />
+          {totalLive > 0 ? (
+            <HStack spacing={4}>
+              <Image systemName="dot.radiowaves.left.and.right" size={11} color={ACCENT} />
+              <Text modifiers={[font({ size: 10, weight: 'medium' }), foregroundStyle(WHITE), opacity(0.6)]}>
+                {`${totalLive} live`}
+              </Text>
+            </HStack>
+          ) : null}
+        </HStack>
+
+        {/* Scoreboard */}
         <HStack spacing={12}>
           <VStack alignment="leading" spacing={2}>
-            <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), opacity(0.7)]}>
-              {props.myTeamTricode}
-            </Text>
-            <Text modifiers={[font({ size: 24, weight: 'bold' }), foregroundStyle(myScoreColor)]}>
+            {myLogo ? (
+              <HStack spacing={6}>
+                <ZStack>
+                  <Circle modifiers={[foregroundStyle(GOLD), frame({ width: 26, height: 26 })]} />
+                  <Image uiImage={myLogo} modifiers={[frame({ width: 24, height: 24 }), clipShape('circle')]} />
+                </ZStack>
+                <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), opacity(0.75)]}>
+                  {props.myTeamTricode}
+                </Text>
+              </HStack>
+            ) : (
+              <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), padding({ horizontal: 8, vertical: 2 }), background(PANEL_DIM, undefined as any), cornerRadius(6)]}>
+                {props.myTeamTricode}
+              </Text>
+            )}
+            <Text modifiers={[font({ size: 26, weight: 'bold' }), foregroundStyle(myScoreColor)]}>
               {myScoreText}
             </Text>
           </VStack>
+
           <Spacer />
-          <Text modifiers={[font({ size: 13, weight: 'bold' }), foregroundStyle(gapColor)]}>
-            {gapText}
-          </Text>
-          <Spacer />
-          <VStack alignment="trailing" spacing={2}>
-            <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), opacity(0.7)]}>
-              {props.opponentTeamTricode}
+
+          <VStack spacing={3}>
+            <Text modifiers={[font({ size: 13, weight: 'bold' }), foregroundStyle(gapColor)]}>
+              {gapText}
             </Text>
-            <Text modifiers={[font({ size: 24, weight: 'bold' }), foregroundStyle(oppScoreColor)]}>
+            {probVisible ? (
+              <Gauge
+                value={winPct / 100}
+                min={0}
+                max={1}
+                modifiers={[gaugeStyle('linearCapacity'), frame({ width: 70 }), foregroundStyle(gapColor)]}
+              />
+            ) : null}
+          </VStack>
+
+          <Spacer />
+
+          <VStack alignment="trailing" spacing={2}>
+            {oppLogo ? (
+              <HStack spacing={6}>
+                <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), opacity(0.75)]}>
+                  {props.opponentTeamTricode}
+                </Text>
+                <ZStack>
+                  <Circle modifiers={[foregroundStyle(GOLD), frame({ width: 26, height: 26 })]} />
+                  <Image uiImage={oppLogo} modifiers={[frame({ width: 24, height: 24 }), clipShape('circle')]} />
+                </ZStack>
+              </HStack>
+            ) : (
+              <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), padding({ horizontal: 8, vertical: 2 }), background(PANEL_DIM, undefined as any), cornerRadius(6)]}>
+                {props.opponentTeamTricode}
+              </Text>
+            )}
+            <Text modifiers={[font({ size: 26, weight: 'bold' }), foregroundStyle(oppScoreColor)]}>
               {oppScoreText}
             </Text>
           </VStack>
         </HStack>
-        <Text modifiers={[font({ size: 10 }), foregroundStyle(WHITE), opacity(0.55)]}>
-          {`${props.myActivePlayers} vs ${props.opponentActivePlayers} live`}
-        </Text>
+
+        {/* Top contributor / top category */}
+        {contributorVisible ? (
+          <HStack spacing={6}>
+            <Image systemName="flame.fill" size={12} color={YELLOW} />
+            <Text modifiers={[font({ size: 12, weight: 'medium' }), foregroundStyle(YELLOW), lineLimit(1)]}>
+              {props.biggestContributor}
+            </Text>
+          </HStack>
+        ) : null}
+
+        {/* Player ticker (points) */}
+        {playersVisible ? (
+          <VStack spacing={4} modifiers={[padding({ all: 8 }), background(PANEL, undefined as any), cornerRadius(10)]}>
+            {top5.map((player) => (
+              <HStack key={player.name} spacing={6}>
+                <Image
+                  systemName={player.isOnCourt ? 'circle.fill' : 'circle'}
+                  size={8}
+                  color={player.isOnCourt ? GREEN : GREY}
+                />
+                <Text modifiers={[font({ size: 11, weight: 'medium' }), foregroundStyle(WHITE), lineLimit(1)]}>
+                  {player.name}
+                </Text>
+                <Spacer />
+                <Text modifiers={[font({ size: 10 }), foregroundStyle(WHITE), opacity(0.55)]}>
+                  {player.statLine}
+                </Text>
+                <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), frame({ width: 38, alignment: 'trailing' })]}>
+                  {player.fantasyPoints.toFixed(1)}
+                </Text>
+                <Text modifiers={[font({ size: 9 }), foregroundStyle(WHITE), opacity(0.4), frame({ width: 42, alignment: 'trailing' })]}>
+                  {player.gameStatus}
+                </Text>
+              </HStack>
+            ))}
+          </VStack>
+        ) : null}
+
+        {/* Category ticker (cats) */}
+        {catsVisible ? (
+          <VStack spacing={4} modifiers={[padding({ all: 8 }), background(PANEL, undefined as any), cornerRadius(10)]}>
+            {topCats.map((cat) => {
+              const isPct = cat.stat.endsWith('%');
+              const myVal = isPct ? cat.myValue.toFixed(3).replace(/^0/, '') : String(Math.round(cat.myValue));
+              const oppVal = isPct ? cat.oppValue.toFixed(3).replace(/^0/, '') : String(Math.round(cat.oppValue));
+              const winColor = cat.winner === 'me' ? GREEN : cat.winner === 'opp' ? RED : GREY;
+              const winSymbol = cat.winner === 'me' ? 'arrowtriangle.up.fill' : cat.winner === 'opp' ? 'arrowtriangle.down.fill' : 'equal';
+              return (
+                <HStack key={cat.stat} spacing={6}>
+                  <Image systemName={winSymbol} size={8} color={winColor} />
+                  <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), frame({ width: 36, alignment: 'leading' })]}>
+                    {cat.stat}
+                  </Text>
+                  {cat.inverse ? (
+                    <Text modifiers={[font({ size: 8 }), foregroundStyle(GREY)]}>↓</Text>
+                  ) : null}
+                  <Spacer />
+                  <Text modifiers={[font({ size: 11, weight: cat.winner === 'me' ? 'bold' : 'regular' }), foregroundStyle(cat.winner === 'me' ? GREEN : WHITE), frame({ width: 50, alignment: 'trailing' })]}>
+                    {myVal}
+                  </Text>
+                  <Text modifiers={[font({ size: 11 }), foregroundStyle(GREY), opacity(0.5)]}>vs</Text>
+                  <Text modifiers={[font({ size: 11, weight: cat.winner === 'opp' ? 'bold' : 'regular' }), foregroundStyle(cat.winner === 'opp' ? GREEN : WHITE), frame({ width: 50, alignment: 'leading' })]}>
+                    {oppVal}
+                  </Text>
+                </HStack>
+              );
+            })}
+          </VStack>
+        ) : null}
       </VStack>
     ),
 
     compactLeading: (
-      <Text modifiers={[font({ size: 12, weight: 'bold' }), foregroundStyle(myScoreColor)]}>
-        {`${props.myTeamTricode} ${myScoreText}`}
-      </Text>
-    ),
-    compactTrailing: (
-      <Text modifiers={[font({ size: 12, weight: 'bold' }), foregroundStyle(oppScoreColor)]}>
-        {`${oppScoreText} ${props.opponentTeamTricode}`}
-      </Text>
-    ),
-
-    minimal: (
-      <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(gapColor)]}>
-        {tiedOverall ? '=' : myLeading ? '+' : '-'}
-      </Text>
-    ),
-
-    expandedLeading: (
-      <VStack alignment="leading" spacing={2} modifiers={[padding({ leading: 4 })]}>
+      <HStack spacing={4}>
+        {myLeading && !tiedOverall ? (
+          <Image systemName="arrowtriangle.up.fill" size={9} color={GREEN} />
+        ) : null}
         <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), opacity(0.7)]}>
           {props.myTeamTricode}
         </Text>
-        <Text modifiers={[font({ size: 20, weight: 'bold' }), foregroundStyle(myScoreColor)]}>
+        <Text modifiers={[font({ size: 13, weight: 'bold' }), foregroundStyle(myScoreColor)]}>
           {myScoreText}
         </Text>
-        <Text modifiers={[font({ size: 9 }), foregroundStyle(WHITE), opacity(0.5)]}>
-          {`${props.myActivePlayers} live`}
-        </Text>
-      </VStack>
+      </HStack>
     ),
-    expandedTrailing: (
-      <VStack alignment="trailing" spacing={2} modifiers={[padding({ trailing: 4 })]}>
+    compactTrailing: (
+      <HStack spacing={4}>
+        <Text modifiers={[font({ size: 13, weight: 'bold' }), foregroundStyle(oppScoreColor)]}>
+          {oppScoreText}
+        </Text>
         <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), opacity(0.7)]}>
           {props.opponentTeamTricode}
         </Text>
-        <Text modifiers={[font({ size: 20, weight: 'bold' }), foregroundStyle(oppScoreColor)]}>
+        {!myLeading && !tiedOverall ? (
+          <Image systemName="arrowtriangle.up.fill" size={9} color={GREEN} />
+        ) : null}
+      </HStack>
+    ),
+
+    // Minimal slot is the tiny corner shown when another Live Activity is
+    // primary in the Dynamic Island. iOS clips this aggressively (~25-30pt
+    // wide), so we render a single icon and no text.
+    minimal: (
+      <Image
+        systemName={tiedOverall ? 'equal' : myLeading ? 'arrowtriangle.up.fill' : 'arrowtriangle.down.fill'}
+        size={11}
+        color={gapColor}
+      />
+    ),
+
+    expandedLeading: (
+      <VStack alignment="leading" spacing={3} modifiers={[padding({ leading: 4 })]}>
+        {myLogo ? (
+          <HStack spacing={5}>
+            <ZStack>
+              <Circle modifiers={[foregroundStyle(GOLD), frame({ width: 24, height: 24 })]} />
+              <Image uiImage={myLogo} modifiers={[frame({ width: 22, height: 22 }), clipShape('circle')]} />
+            </ZStack>
+            <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), opacity(0.75)]}>
+              {props.myTeamTricode}
+            </Text>
+          </HStack>
+        ) : (
+          <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), padding({ horizontal: 8, vertical: 2 }), background(PANEL_DIM, undefined as any), cornerRadius(6)]}>
+            {props.myTeamTricode}
+          </Text>
+        )}
+        <Text modifiers={[font({ size: 22, weight: 'bold' }), foregroundStyle(myScoreColor)]}>
+          {myScoreText}
+        </Text>
+        <HStack spacing={3}>
+          <Image systemName="person.2.fill" size={9} color={GREY} />
+          <Text modifiers={[font({ size: 9 }), foregroundStyle(WHITE), opacity(0.5)]}>
+            {`${props.myActivePlayers} live`}
+          </Text>
+        </HStack>
+      </VStack>
+    ),
+    expandedTrailing: (
+      <VStack alignment="trailing" spacing={3} modifiers={[padding({ trailing: 4 })]}>
+        {oppLogo ? (
+          <HStack spacing={5}>
+            <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), opacity(0.75)]}>
+              {props.opponentTeamTricode}
+            </Text>
+            <ZStack>
+              <Circle modifiers={[foregroundStyle(GOLD), frame({ width: 24, height: 24 })]} />
+              <Image uiImage={oppLogo} modifiers={[frame({ width: 22, height: 22 }), clipShape('circle')]} />
+            </ZStack>
+          </HStack>
+        ) : (
+          <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), padding({ horizontal: 8, vertical: 2 }), background(PANEL_DIM, undefined as any), cornerRadius(6)]}>
+            {props.opponentTeamTricode}
+          </Text>
+        )}
+        <Text modifiers={[font({ size: 22, weight: 'bold' }), foregroundStyle(oppScoreColor)]}>
           {oppScoreText}
         </Text>
-        <Text modifiers={[font({ size: 9 }), foregroundStyle(WHITE), opacity(0.5)]}>
-          {`${props.opponentActivePlayers} live`}
-        </Text>
+        <HStack spacing={3}>
+          <Image systemName="person.2.fill" size={9} color={GREY} />
+          <Text modifiers={[font({ size: 9 }), foregroundStyle(WHITE), opacity(0.5)]}>
+            {`${props.opponentActivePlayers} live`}
+          </Text>
+        </HStack>
       </VStack>
     ),
     expandedCenter: (
-      <VStack spacing={2}>
+      <VStack spacing={4}>
         <Text modifiers={[font({ size: 14, weight: 'bold' }), foregroundStyle(gapColor)]}>
           {gapText}
         </Text>
-        {props.biggestContributor.length > 0 ? (
-          <Text modifiers={[font({ size: 10 }), foregroundStyle(WHITE), opacity(0.7)]}>
-            {props.biggestContributor}
-          </Text>
+        {probVisible ? (
+          <Gauge
+            value={winPct / 100}
+            min={0}
+            max={1}
+            modifiers={[gaugeStyle('linearCapacity'), frame({ width: 80 }), foregroundStyle(gapColor)]}
+          />
+        ) : null}
+        {contributorVisible ? (
+          <HStack spacing={4}>
+            <Image systemName="flame.fill" size={10} color={YELLOW} />
+            <Text modifiers={[font({ size: 10, weight: 'medium' }), foregroundStyle(YELLOW), lineLimit(1)]}>
+              {props.biggestContributor}
+            </Text>
+          </HStack>
         ) : null}
       </VStack>
     ),
-    expandedBottom: (
-      <Text modifiers={[font({ size: 10 }), foregroundStyle(GREY)]}>
-        {tiedOverall ? 'Tied' : myLeading ? 'You lead' : 'You trail'}
-      </Text>
+    expandedBottom: playersVisible ? (
+      <VStack spacing={3} modifiers={[padding({ horizontal: 4, top: 4 })]}>
+        {top5.map((player) => (
+          <HStack key={player.name} spacing={6}>
+            <Image
+              systemName={player.isOnCourt ? 'circle.fill' : 'circle'}
+              size={8}
+              color={player.isOnCourt ? GREEN : GREY}
+            />
+            <Text modifiers={[font({ size: 11, weight: 'medium' }), foregroundStyle(WHITE), lineLimit(1)]}>
+              {player.name}
+            </Text>
+            <Spacer />
+            <Text modifiers={[font({ size: 10 }), foregroundStyle(WHITE), opacity(0.6)]}>
+              {player.statLine}
+            </Text>
+            <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), frame({ width: 38, alignment: 'trailing' })]}>
+              {player.fantasyPoints.toFixed(1)}
+            </Text>
+          </HStack>
+        ))}
+      </VStack>
+    ) : catsVisible ? (
+      <VStack spacing={3} modifiers={[padding({ horizontal: 4, top: 4 })]}>
+        {topCatsExpanded.map((cat) => {
+          const isPct = cat.stat.endsWith('%');
+          const myVal = isPct ? cat.myValue.toFixed(3).replace(/^0/, '') : String(Math.round(cat.myValue));
+          const oppVal = isPct ? cat.oppValue.toFixed(3).replace(/^0/, '') : String(Math.round(cat.oppValue));
+          const winColor = cat.winner === 'me' ? GREEN : cat.winner === 'opp' ? RED : GREY;
+          const winSymbol = cat.winner === 'me' ? 'arrowtriangle.up.fill' : cat.winner === 'opp' ? 'arrowtriangle.down.fill' : 'equal';
+          return (
+            <HStack key={cat.stat} spacing={6}>
+              <Image systemName={winSymbol} size={8} color={winColor} />
+              <Text modifiers={[font({ size: 11, weight: 'bold' }), foregroundStyle(WHITE), frame({ width: 36, alignment: 'leading' })]}>
+                {cat.stat}
+              </Text>
+              <Spacer />
+              <Text modifiers={[font({ size: 11, weight: cat.winner === 'me' ? 'bold' : 'regular' }), foregroundStyle(cat.winner === 'me' ? GREEN : WHITE), frame({ width: 48, alignment: 'trailing' })]}>
+                {myVal}
+              </Text>
+              <Text modifiers={[font({ size: 9 }), foregroundStyle(GREY), opacity(0.5)]}>vs</Text>
+              <Text modifiers={[font({ size: 11, weight: cat.winner === 'opp' ? 'bold' : 'regular' }), foregroundStyle(cat.winner === 'opp' ? GREEN : WHITE), frame({ width: 48, alignment: 'leading' })]}>
+                {oppVal}
+              </Text>
+            </HStack>
+          );
+        })}
+      </VStack>
+    ) : (
+      <HStack spacing={6} modifiers={[padding({ top: 4 })]}>
+        <Image systemName="hourglass" size={11} color={GREY} />
+        <Text modifiers={[font({ size: 11 }), foregroundStyle(WHITE), opacity(0.45)]}>
+          Waiting for tip-off
+        </Text>
+      </HStack>
     ),
   };
 };
