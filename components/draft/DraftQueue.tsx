@@ -9,6 +9,7 @@ import DraggableFlatList, {
 } from 'react-native-draggable-flatlist';
 
 import { PlayerHeadshotImage } from '@/components/player/PlayerHeadshotImage';
+import { PlayerName } from '@/components/player/PlayerName';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { queryKeys } from '@/constants/queryKeys';
@@ -66,7 +67,10 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
   });
 
   const { data: myRoster } = useQuery<{ position: string; roster_slot?: string }[]>({
-    queryKey: queryKeys.teamRoster(teamId),
+    // Thin position-limit shape — shares the dedicated "positions" key with
+    // AvailablePlayers so it never overwrites the full-roster cache TeamRoster
+    // reads. Still under the "teamRoster" prefix for broad invalidations.
+    queryKey: queryKeys.teamRoster(teamId, "positions"),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('league_players')
@@ -163,9 +167,12 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
           {/* Player info */}
           <View style={styles.info}>
             <View style={styles.nameRow}>
-              <ThemedText type="defaultSemiBold" numberOfLines={1} style={{ flexShrink: 1, fontSize: ms(14) }}>
-                {item.player.name}
-              </ThemedText>
+              <PlayerName
+                name={item.player.name}
+                type="defaultSemiBold"
+                style={{ fontSize: ms(14) }}
+                containerStyle={{ flexShrink: 1 }}
+              />
               {badge && (
                 <View style={[styles.badge, { backgroundColor: badge.color }]}>
                   <Text style={[styles.badgeText, { color: c.statusText }]}>{badge.label}</Text>

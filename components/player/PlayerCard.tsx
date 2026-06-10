@@ -3,6 +3,7 @@ import { ReactNode } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 import { PlayerHeadshotImage } from "@/components/player/PlayerHeadshotImage";
+import { PlayerName } from "@/components/player/PlayerName";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { Colors } from "@/constants/Colors";
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
@@ -56,13 +57,11 @@ export function PlayerCard({
       </View>
       <View style={styles.info}>
         <View style={styles.nameRow}>
-          <ThemedText
+          <PlayerName
+            name={player.name}
             type="defaultSemiBold"
-            numberOfLines={1}
-            style={{ flexShrink: 1 }}
-          >
-            {player.name}
-          </ThemedText>
+            containerStyle={{ flexShrink: 1 }}
+          />
           {(() => {
             const badge = getInjuryBadge(player.status);
             return badge ? (

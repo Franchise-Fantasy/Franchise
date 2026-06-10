@@ -31,6 +31,7 @@ import {
   Keyboard,
   KeyboardAvoidingView,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -158,6 +159,45 @@ export function BottomSheet({
     ]).start(() => onClose());
   }, [fadeAnim, slideAnim, onClose]);
 
+  // Swipe-to-dismiss. The PanResponder lives on the sheet's top region
+  // (handle + gold rule + header) — always non-scrolling, so it never
+  // competes with the body ScrollView for the gesture. Drag tracks the
+  // sheet down 1:1; release past a distance/velocity threshold closes,
+  // otherwise it springs back. handleClose is read through a ref so the
+  // responder (created once) always calls the latest closure.
+  const handleCloseRef = useRef(handleClose);
+  handleCloseRef.current = handleClose;
+  const dragResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, g) =>
+        g.dy > 4 && Math.abs(g.dy) > Math.abs(g.dx),
+      onPanResponderMove: (_, g) => {
+        if (g.dy > 0) slideAnim.setValue(g.dy);
+      },
+      onPanResponderRelease: (_, g) => {
+        if (g.dy > 80 || g.vy > 0.5) {
+          handleCloseRef.current();
+        } else {
+          Animated.spring(slideAnim, {
+            toValue: 0,
+            useNativeDriver: true,
+            bounciness: 0,
+            speed: 22,
+          }).start();
+        }
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          useNativeDriver: true,
+          bounciness: 0,
+          speed: 22,
+        }).start();
+      },
+    }),
+  ).current;
+
   const sheetStyle: StyleProp<ViewStyle> = [
     styles.sheet,
     {
@@ -184,48 +224,55 @@ export function BottomSheet({
 
   const sheet = (
     <Animated.View style={sheetStyle} accessibilityViewIsModal>
-      {/* Drag handle pill */}
-      <View style={styles.handleWrap} pointerEvents="none">
-        <View style={[styles.handle, { backgroundColor: c.border }]} />
-      </View>
-
-      {/* Top gold rule */}
-      <View style={[styles.topRule, { backgroundColor: c.gold }]} />
-
-      {/* Header */}
-      {title != null && (
-        <View style={styles.header}>
-          <View style={styles.headerText}>
-            <ThemedText
-              type="display"
-              style={[styles.title, { color: c.text }]}
-              accessibilityRole="header"
-              numberOfLines={2}
-            >
-              {title}
-            </ThemedText>
-            {subtitle ? (
-              <ThemedText
-                type="varsitySmall"
-                style={[styles.subtitle, { color: c.secondaryText }]}
-                numberOfLines={1}
-              >
-                {subtitle}
-              </ThemedText>
-            ) : null}
-          </View>
-          {headerAction}
-          <TouchableOpacity
-            onPress={handleClose}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            accessibilityRole="button"
-            accessibilityLabel="Close"
-            style={styles.closeBtn}
-          >
-            <Ionicons name="close" size={ms(22)} color={c.secondaryText} />
-          </TouchableOpacity>
+      {/* Draggable top region — swipe down anywhere on the handle/header to dismiss */}
+      <View {...dragResponder.panHandlers}>
+        {/* Drag handle pill */}
+        <View
+          style={styles.handleWrap}
+          accessibilityRole="adjustable"
+          accessibilityLabel="Swipe down to close"
+        >
+          <View style={[styles.handle, { backgroundColor: c.border }]} />
         </View>
-      )}
+
+        {/* Top gold rule */}
+        <View style={[styles.topRule, { backgroundColor: c.gold }]} />
+
+        {/* Header */}
+        {title != null && (
+          <View style={styles.header}>
+            <View style={styles.headerText}>
+              <ThemedText
+                type="display"
+                style={[styles.title, { color: c.text }]}
+                accessibilityRole="header"
+                numberOfLines={2}
+              >
+                {title}
+              </ThemedText>
+              {subtitle ? (
+                <ThemedText
+                  type="varsitySmall"
+                  style={[styles.subtitle, { color: c.secondaryText }]}
+                  numberOfLines={1}
+                >
+                  {subtitle}
+                </ThemedText>
+              ) : null}
+            </View>
+            {headerAction}
+            <TouchableOpacity
+              onPress={handleClose}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Close"
+              style={styles.closeBtn}
+            >
+              <Ionicons name="close" size={ms(22)} color={c.secondaryText} />
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
 
       {body}
 

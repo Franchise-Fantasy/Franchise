@@ -30,7 +30,6 @@ import {
 } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
-import * as Updates from "expo-updates";
 import {
   PostHogProvider,
   PostHogSurveyProvider,
@@ -54,7 +53,8 @@ import {
   useAuthInitialized,
   useSession,
 } from "@/context/AuthProvider";
-import { ConfirmProvider, useConfirm } from "@/context/ConfirmProvider";
+import { CompareSelectionProvider } from "@/context/CompareSelectionProvider";
+import { ConfirmProvider } from "@/context/ConfirmProvider";
 import { globalToastRef, ToastProvider } from "@/context/ToastProvider";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { useSeasonConfig } from "@/hooks/useSeasonConfig";
@@ -84,25 +84,6 @@ function compareVersions(a: string, b: string): number {
     if (av !== bv) return av - bv;
   }
   return 0;
-}
-
-// Sentry requires native modules — only initialize in TestFlight / production builds.
-// Bind release to the version in app.json so crashes bucket per release in Sentry's
-// dashboard. Without this every crash showed up under the same release name forever
-// and there was no way to tell new regressions from carried-over noise.
-if (!isExpoGo) {
-  try {
-    const Sentry = require("@sentry/react-native");
-    if (process.env.EXPO_PUBLIC_SENTRY_DSN) {
-      Sentry.init({
-        dsn: process.env.EXPO_PUBLIC_SENTRY_DSN,
-        release: Constants.expoConfig?.version,
-        dist: String(Constants.expoConfig?.ios?.buildNumber ?? Constants.expoConfig?.android?.versionCode ?? ''),
-      });
-    }
-  } catch {
-    // Sentry native module not available — skip silently
-  }
 }
 
 const FOREGROUND_CHANNELS = ["draft", "trades", "playoffs", "commissioner"];
@@ -193,35 +174,15 @@ const NOTIF_ROUTES: Record<string, string> = {
   news: "/news",
 };
 
-/**
- * Checks for an OTA update on launch and prompts via ConfirmModal.
- * Lives as a child of ConfirmProvider so `useConfirm` is in scope —
- * the OTA check used to be a useEffect inside RootLayout itself, which
- * couldn't reach the provider.
- */
-function OtaUpdateChecker() {
-  const confirm = useConfirm();
-  useEffect(() => {
-    if (isExpoGo) return;
-    (async () => {
-      try {
-        const update = await Updates.checkForUpdateAsync();
-        if (update.isAvailable) {
-          await Updates.fetchUpdateAsync();
-          confirm({
-            title: 'Update Available',
-            message: 'A new version is ready to install.',
-            cancelLabel: 'Later',
-            action: { label: 'Install', onPress: () => Updates.reloadAsync() },
-          });
-        }
-      } catch {
-        // No-op in case Updates API isn't available
-      }
-    })();
-  }, [confirm]);
-  return null;
-}
+// OTA updates are applied silently: expo-updates' default `checkAutomatically:
+// ON_LOAD` downloads any new update in the background on each cold launch and
+// applies it on the NEXT launch — no in-app prompt, no Updates.reloadAsync().
+// We deliberately do NOT force an in-process reload: reloadAsync() recreates
+// the JS runtime, and on the New Architecture re-installing the Expo native
+// modules into that fresh runtime crashes (expo-updates ErrorRecovery then
+// force-rolls-back, so the update never sticks). It's an open upstream bug
+// (expo/expo#21347) with no reliable workaround. Applying on next launch is
+// a clean single init, so the update lands the next time the user opens the app.
 
 /** Switch league/team context when a league_id is provided via notification or deep link.
  *  Returns true if the user has a team in the league (membership confirmed). */
@@ -753,7 +714,6 @@ export default function RootLayout() {
                 <AuthProvider>
                   <AppStateProvider>
                     <ConfirmProvider>
-                    <OtaUpdateChecker />
                     <PostHogIdentifier />
                     <ScreenTracker />
                     <SeasonConfigHydrator />
@@ -762,6 +722,7 @@ export default function RootLayout() {
                     <AnnouncementBanner />
                     <MatchupResultModal />
                     <ErrorBoundary>
+                    <CompareSelectionProvider>
                     {forcedUpdate ? (
                       <ForceUpdateScreen
                         installedVersion={forcedUpdate.installed}
@@ -930,9 +891,14 @@ export default function RootLayout() {
                         name="legal"
                         options={{ headerShown: false }}
                       />
+                      <Stack.Screen
+                        name="player-compare"
+                        options={{ headerShown: false }}
+                      />
                       <Stack.Screen name="+not-found" />
                     </Stack>
                     )}
+                    </CompareSelectionProvider>
                     </ErrorBoundary>
                     {/* Splash overlay lives at the end so it renders on
                         top of the Stack — gives us the cross-fade from

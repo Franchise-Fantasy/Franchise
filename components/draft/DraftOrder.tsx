@@ -15,6 +15,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
+import { PlayerName } from "@/components/player/PlayerName";
 import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { Fonts } from "@/constants/Colors";
 import { queryKeys } from "@/constants/queryKeys";
@@ -628,12 +629,12 @@ export function DraftOrder({
               <View style={styles.pickBottom}>
                 {isPicked ? (
                   <>
-                    <ThemedText
-                      style={[styles.playerName, { color: primaryColor }]}
-                      numberOfLines={1}
-                    >
-                      {pick.player?.name}
-                    </ThemedText>
+                    {pick.player?.name ? (
+                      <PlayerName
+                        name={pick.player.name}
+                        style={[styles.playerName, { color: primaryColor }]}
+                      />
+                    ) : null}
                     <ThemedText
                       type="varsitySmall"
                       style={[styles.playerPosition, { color: ruleColor }]}

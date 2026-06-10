@@ -20,6 +20,7 @@ import {
   getCurrentSeason,
   getMaxPlayoffWeeks,
   getMergeWindows,
+  getSchedulableSeasonEnd,
   getSeasonEnd,
   LeagueWizardState,
   PLAYOFF_SEEDING_OPTIONS,
@@ -114,6 +115,13 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
   const [y, m, d] = proEndStr.split('-').map(Number);
   const proSeasonEnd = new Date(y, m - 1, d);
 
+  // A terminal break (WNBA FIBA) walls off the season — the league can't start
+  // or be scheduled past it, so the effective end the wizard builds around is
+  // the day before the break. Without a terminal break this equals proEndStr.
+  const effectiveEndStr = getSchedulableSeasonEnd(state.sport, state.season) ?? proEndStr;
+  const [ey, em, ed] = effectiveEndStr.split('-').map(Number);
+  const effectiveSeasonEnd = new Date(ey, em - 1, ed);
+
   const maxTotalWeeks = computeMaxWeeks(state.season, state.sport, seasonStart);
 
   // Earliest selectable date is tomorrow — a league can't start the day it's
@@ -144,7 +152,7 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
         value: seasonStart,
         mode: 'date',
         minimumDate: earliestStart,
-        maximumDate: proSeasonEnd,
+        maximumDate: effectiveSeasonEnd,
         onChange: (_e, date) => {
           if (date) commitDate(date);
         },
@@ -352,7 +360,7 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
                   mode="date"
                   display="spinner"
                   minimumDate={earliestStart}
-                  maximumDate={proSeasonEnd}
+                  maximumDate={effectiveSeasonEnd}
                   onChange={handleIOSChange}
                   textColor={c.text}
                   themeVariant={scheme}
@@ -438,8 +446,12 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
         </View>
         <View style={[styles.divider, { backgroundColor: c.border }]} />
         <View style={styles.previewRow}>
-          <ThemedText style={[styles.previewLabel, { color: c.secondaryText }]}>{SPORT_DISPLAY[state.sport]} season ends</ThemedText>
-          <ThemedText style={[styles.previewValue, { color: c.secondaryText }]}>{formatDate(proSeasonEnd)}</ThemedText>
+          <ThemedText style={[styles.previewLabel, { color: c.secondaryText }]}>
+            {terminalBreak ? `Last ${SPORT_DISPLAY[state.sport]} games` : `${SPORT_DISPLAY[state.sport]} season ends`}
+          </ThemedText>
+          <ThemedText style={[styles.previewValue, { color: c.secondaryText }]}>
+            {formatDate(terminalBreak ? effectiveSeasonEnd : proSeasonEnd)}
+          </ThemedText>
         </View>
       </Section>
 

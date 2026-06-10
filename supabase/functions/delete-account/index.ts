@@ -44,7 +44,7 @@ Deno.serve(async (req) => {
     if (commissionerLeagues && commissionerLeagues.length > 0) {
       const names = commissionerLeagues.map((l: any) => l.name).join(', ');
       return errorResponse(
-        `You are the commissioner of: ${names}. Transfer commissioner role or delete the league(s) before deleting your account.`,
+        `You are the commissioner of: ${names}. Open each league's info screen to reassign the commissioner (Make Someone Commissioner) or archive the league, then try again.`,
         400
       );
     }

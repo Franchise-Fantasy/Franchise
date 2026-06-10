@@ -13,6 +13,7 @@ import {
 } from "react-native";
 
 import { PlayerHeadshotImage } from "@/components/player/PlayerHeadshotImage";
+import { PlayerName } from "@/components/player/PlayerName";
 import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { Fonts } from "@/constants/Colors";
@@ -230,13 +231,12 @@ export function DropPickerModal({
           </View>
           <View style={styles.info}>
             <View style={styles.nameRow}>
-              <ThemedText
+              <PlayerName
+                name={item.name}
                 type="defaultSemiBold"
-                numberOfLines={1}
                 style={styles.nameText}
-              >
-                {item.name}
-              </ThemedText>
+                containerStyle={{ flexShrink: 1 }}
+              />
               {badge && (
                 <View
                   style={[styles.injuryBadge, { backgroundColor: badge.color }]}

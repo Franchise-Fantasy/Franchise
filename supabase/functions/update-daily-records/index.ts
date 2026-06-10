@@ -225,7 +225,8 @@ Deno.serve(async (req: Request) => {
       .from("leagues")
       .select("id, scoring_type")
       .eq("scoring_type", "points")
-      .eq("schedule_generated", true);
+      .eq("schedule_generated", true)
+      .is("archived_at", null);
 
     if (!leagues || leagues.length === 0) {
       return jsonResponse({ ok: true, updated: 0, message: "No active points leagues" });

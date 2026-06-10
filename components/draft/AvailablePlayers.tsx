@@ -14,6 +14,7 @@ import {
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import { PlayerFilterBar } from "@/components/player/PlayerFilterBar";
 import { PlayerHeadshotImage } from "@/components/player/PlayerHeadshotImage";
+import { PlayerName } from "@/components/player/PlayerName";
 import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { getPreviousSeason } from "@/constants/LeagueDefaults";
@@ -92,7 +93,10 @@ export function AvailablePlayers({
   });
 
   const { data: myRoster } = useQuery<{ position: string; roster_slot?: string }[]>({
-    queryKey: queryKeys.teamRoster(teamId),
+    // Thin position-limit shape — kept on its own key so it can't pollute the
+    // full-roster cache the "My Team" tab (TeamRoster) reads. Still under the
+    // "teamRoster" prefix, so post-pick / roster-change invalidations refresh it.
+    queryKey: queryKeys.teamRoster(teamId, "positions"),
     queryFn: async () => {
       const { data, error } = await supabase
         .from("league_players")
@@ -336,6 +340,18 @@ export function AvailablePlayers({
       const isProjected = projectedIds.has(item.player_id);
       const logoUrl = getTeamLogoUrl(item.pro_team, sport);
       const badge = getInjuryBadge(item.status);
+      // Category box-score lines, built once so the row can render them under
+      // the name (see the isCategories branch below) rather than in a fixed
+      // right-hand column that crowds the name out.
+      const catSlash = `${fixed1(item.avg_pts)}/${fixed1(item.avg_reb)}/${fixed1(item.avg_ast)}/${fixed1(item.avg_stl)}/${fixed1(item.avg_blk)}`;
+      const fgPct =
+        (item.avg_fga ?? 0) > 0
+          ? (((item.avg_fgm ?? 0) / (item.avg_fga as number)) * 100).toFixed(1)
+          : "0.0";
+      const ftPct =
+        (item.avg_fta ?? 0) > 0
+          ? (((item.avg_ftm ?? 0) / (item.avg_fta as number)) * 100).toFixed(1)
+          : "0.0";
       const limitViolation = hasLimits
         ? checkPositionLimits(positionLimits, myRoster ?? [], item.position)
         : null;
@@ -389,71 +405,73 @@ export function AvailablePlayers({
 
           <View style={styles.info}>
             <View style={styles.nameRow}>
-              <ThemedText
+              <PlayerName
+                name={item.name}
                 type="defaultSemiBold"
-                numberOfLines={1}
-                style={{ flexShrink: 1, fontSize: ms(14) }}
-              >
-                {item.name}
-              </ThemedText>
+                style={{ fontSize: ms(14) }}
+                containerStyle={{ flexShrink: 1 }}
+              />
               {badge && (
                 <View style={[styles.badge, { backgroundColor: badge.color }]} accessibilityLabel={badge.label}>
                   <Text style={[styles.badgeText, { color: c.statusText }]}>{badge.label}</Text>
                 </View>
               )}
             </View>
-            <ThemedText style={[styles.posText, { color: c.secondaryText }]}>
-              {formatPosition(item.position)}
-            </ThemedText>
+            {isCategories ? (
+              // Category leagues: 5-cat slash + shooting line live UNDER the
+              // name across the full row width, so the name isn't squeezed by a
+              // fixed right-hand stat column. Position sits inline with the
+              // box-score slash (reusing the line the position used to own).
+              <>
+                <View style={styles.catMetaRow}>
+                  <ThemedText style={[styles.posText, { color: c.secondaryText }]}>
+                    {formatPosition(item.position)}
+                  </ThemedText>
+                  <ThemedText
+                    type="mono"
+                    style={[styles.catSlash, { color: c.text }]}
+                    numberOfLines={1}
+                  >
+                    {catSlash}
+                  </ThemedText>
+                  {isProjected && (
+                    <ThemedText style={[styles.projTag, { color: c.accent }]}>
+                      PROJ
+                    </ThemedText>
+                  )}
+                </View>
+                <ThemedText
+                  numberOfLines={1}
+                  style={[styles.catLine, { color: c.secondaryText }]}
+                >
+                  {fgPct}% FG · {ftPct}% FT · {fixed1(item.avg_tov)} TO
+                </ThemedText>
+              </>
+            ) : (
+              <ThemedText style={[styles.posText, { color: c.secondaryText }]}>
+                {formatPosition(item.position)}
+              </ThemedText>
+            )}
           </View>
 
           <View style={styles.rightSide}>
-            <View
-              style={[
-                styles.stats,
-                isCategories ? styles.statsCategories : styles.statsPoints,
-              ]}
-            >
-              {isCategories ? (
-                <>
-                  <ThemedText
-                    type="mono"
-                    style={[styles.statLine, { color: c.secondaryText }]}
-                  >
-                    {fixed1(item.avg_pts)}/{fixed1(item.avg_reb)}/{fixed1(item.avg_ast)}/{fixed1(item.avg_stl)}/{fixed1(item.avg_blk)}
-                  </ThemedText>
-                  <ThemedText
-                    numberOfLines={1}
-                    style={[styles.catLine, { color: c.secondaryText }]}
-                  >
-                    {(item.avg_fga ?? 0) > 0
-                      ? (((item.avg_fgm ?? 0) / (item.avg_fga as number)) * 100).toFixed(1)
-                      : "0.0"}
-                    % FG ·{" "}
-                    {(item.avg_fta ?? 0) > 0
-                      ? (((item.avg_ftm ?? 0) / (item.avg_fta as number)) * 100).toFixed(1)
-                      : "0.0"}
-                    % FT · {fixed1(item.avg_tov)} TO
-                  </ThemedText>
-                </>
-              ) : (
-                <>
-                  <ThemedText style={[styles.statLine, { color: c.secondaryText }]}>
-                    {item.avg_pts}/{item.avg_reb}/{item.avg_ast}
-                  </ThemedText>
-                  {fpts !== undefined && (
-                    <ThemedText style={[styles.fpts, { color: c.accent }]}>
-                      {fpts} FPTS
-                    </ThemedText>
-                  )}
-                </>
-              )}
-              {isProjected && (
-                <ThemedText style={[styles.projTag, { color: c.accent }]}>
-                  PROJ
+            {!isCategories && (
+              <View style={[styles.stats, styles.statsPoints]}>
+                <ThemedText style={[styles.statLine, { color: c.secondaryText }]}>
+                  {item.avg_pts}/{item.avg_reb}/{item.avg_ast}
                 </ThemedText>
-              )}
-            </View>
+                {fpts !== undefined && (
+                  <ThemedText style={[styles.fpts, { color: c.accent }]}>
+                    {fpts} FPTS
+                  </ThemedText>
+                )}
+                {isProjected && (
+                  <ThemedText style={[styles.projTag, { color: c.accent }]}>
+                    PROJ
+                  </ThemedText>
+                )}
+              </View>
+            )}
             <TouchableOpacity
               style={[
                 styles.draftButton,
@@ -525,24 +543,22 @@ export function AvailablePlayers({
         timeRange={timeRange}
         onTimeRangeChange={setTimeRange}
       />
-      {/* Column-key header over the stat column — mirrors FreeAgentList so the
-          draft board reads the same. Category leagues key the 5-stat line. */}
-      <View style={[styles.colKey, { borderBottomColor: c.border }]}>
-        <View
-          style={[
-            styles.colKeyStats,
-            isCategories ? styles.statsCategories : styles.statsPoints,
-          ]}
-        >
-          <ThemedText
-            type="varsitySmall"
-            style={[styles.colKeyText, { color: c.secondaryText }]}
-          >
-            {isCategories ? "PTS · REB · AST · STL · BLK" : "PTS · REB · AST"}
-          </ThemedText>
+      {/* Column-key header over the right-hand stat column — mirrors
+          FreeAgentList. Only FPTS leagues use a right stat column; category
+          rows render their stats inline under each name, so no header applies. */}
+      {!isCategories && (
+        <View style={[styles.colKey, { borderBottomColor: c.border }]}>
+          <View style={[styles.colKeyStats, styles.statsPoints]}>
+            <ThemedText
+              type="varsitySmall"
+              style={[styles.colKeyText, { color: c.secondaryText }]}
+            >
+              PTS · REB · AST
+            </ThemedText>
+          </View>
+          <View style={styles.colKeyAddSpacer} />
         </View>
-        <View style={styles.colKeyAddSpacer} />
-      </View>
+      )}
       <FlatList<PlayerSeasonStats>
         data={filteredPlayers}
         renderItem={renderPlayer}
@@ -674,6 +690,18 @@ const styles = StyleSheet.create({
     fontSize: ms(11),
     marginTop: 1,
   },
+  // Category rows: position + box-score slash share one line under the name,
+  // and the name above gets the row's full width (no fixed right stat column).
+  catMetaRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: s(6),
+    marginTop: 1,
+  },
+  catSlash: {
+    fontSize: ms(11),
+    flexShrink: 1,
+  },
   rightSide: {
     flexDirection: "row",
     alignItems: "center",
@@ -686,9 +714,6 @@ const styles = StyleSheet.create({
   // colKey header. Category leagues need extra room for the 5-stat line.
   statsPoints: {
     width: s(100),
-  },
-  statsCategories: {
-    width: s(136),
   },
   statLine: {
     fontSize: ms(10),

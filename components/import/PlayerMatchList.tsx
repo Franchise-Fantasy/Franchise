@@ -8,6 +8,7 @@ import {
   View,
 } from 'react-native';
 
+import { PlayerName } from '@/components/player/PlayerName';
 import { Badge } from '@/components/ui/Badge';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { BrandTextInput } from '@/components/ui/BrandTextInput';
@@ -165,9 +166,11 @@ function UnmatchedRow({
     <View style={[styles.unmatchedCard, { backgroundColor: c.input, borderColor: c.border }]}>
       <View style={styles.unmatchedHeader}>
         <Ionicons name="alert-circle-outline" size={ms(16)} color={c.warning} accessible={false} />
-        <ThemedText style={[styles.playerName, { color: c.text }]} numberOfLines={1}>
-          {player.name}
-        </ThemedText>
+        <PlayerName
+          name={player.name}
+          style={[styles.playerName, { color: c.text }]}
+          containerStyle={{ flexShrink: 1 }}
+        />
         {player.team && <Badge label={player.team} variant="neutral" size="small" />}
       </View>
 

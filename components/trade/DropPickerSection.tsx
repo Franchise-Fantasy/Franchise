@@ -3,6 +3,7 @@ import { Image } from 'expo-image';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { PlayerHeadshotImage } from '@/components/player/PlayerHeadshotImage';
+import { PlayerName } from '@/components/player/PlayerName';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
@@ -85,9 +86,7 @@ export function DropPickerSection({ roster, selectedPlayerIds, maxSelections, on
                 />
               </View>
               <View style={styles.info}>
-                <ThemedText type="defaultSemiBold" style={styles.name} numberOfLines={1}>
-                  {p.name}
-                </ThemedText>
+                <PlayerName name={p.name} type="defaultSemiBold" style={styles.name} />
                 <ThemedText style={[styles.sub, { color: c.secondaryText }]}>
                   {p.position} · {p.roster_slot ?? 'BE'}
                 </ThemedText>

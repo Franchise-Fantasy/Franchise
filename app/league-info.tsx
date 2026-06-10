@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
   Alert,
@@ -42,13 +43,14 @@ import { queryKeys } from '@/constants/queryKeys';
 import { TIER_LABELS } from '@/constants/Subscriptions';
 import { useAppState } from '@/context/AppStateProvider';
 import { useSession } from '@/context/AuthProvider';
-import { useTextPrompt } from '@/context/ConfirmProvider';
+import { useActionPicker, useConfirm, useTextPrompt } from '@/context/ConfirmProvider';
 import { useAnnouncements } from '@/hooks/useAnnouncements';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeague } from '@/hooks/useLeague';
 import { useLeagueRosterConfig } from '@/hooks/useLeagueRosterConfig';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { useOffseasonActions } from '@/hooks/useOffseasonActions';
+import { useUnconfirmedPaymentCount } from '@/hooks/usePaymentLedger';
 import { usePaymentLink } from '@/hooks/usePaymentLink';
 import { usePlayoffBracket } from '@/hooks/usePlayoffBracket';
 import { useSubscription } from '@/hooks/useSubscription';
@@ -96,7 +98,10 @@ export default function LeagueInfoScreen() {
   const c = Colors[scheme];
   const queryClient = useQueryClient();
   const promptInput = useTextPrompt();
-  const { leagueId, teamId } = useAppState();
+  const confirm = useConfirm();
+  const pickAction = useActionPicker();
+  const router = useRouter();
+  const { leagueId, teamId, setLeagueId, setTeamId, switchLeague } = useAppState();
 
   const { data: league, isLoading: leagueLoading } = useLeague();
   const { data: rosterConfig } = useLeagueRosterConfig(leagueId ?? '');
@@ -122,6 +127,15 @@ export default function LeagueInfoScreen() {
   const lifecycle = getLifecycle(draft?.status ?? undefined, league?.schedule_generated ?? false, league?.offseason_step ?? null);
   const { data: announcements } = useAnnouncements(leagueId ?? null);
   const { data: bracket } = usePlayoffBracket(league?.season ?? '');
+
+  // Self-reported buy-ins awaiting confirmation — drives the count pip on the
+  // Payment Ledger row so the commissioner sees what needs action without
+  // opening the sheet. Mirrors the home QuickNav pip; gated on isCommissioner.
+  const { data: unconfirmedPaymentCount = 0 } = useUnconfirmedPaymentCount(
+    leagueId,
+    league?.season ?? null,
+    isCommissioner,
+  );
 
   const playoffsComplete = (() => {
     if (!bracket || bracket.length === 0) return false;
@@ -189,6 +203,179 @@ export default function LeagueInfoScreen() {
         return month ? `TBD · ~${month} ${year}` : 'TBD';
       })();
 
+  // ── Membership / lifecycle actions ──────────────────────────────
+  const myUserId = session?.user?.id;
+  const ownedOtherMembers = (league.league_teams ?? []).filter(
+    (t: any) => t.user_id && t.user_id !== myUserId,
+  );
+
+  // After leaving or archiving, route to another league the user still belongs
+  // to (the inner-join drops the archived/just-left league via RLS), else go
+  // home with no active league.
+  const exitToAnotherLeagueOrHome = async () => {
+    if (leagueId) {
+      queryClient.removeQueries({ predicate: (q) => q.queryKey.includes(leagueId) });
+    }
+    if (myUserId) {
+      queryClient.invalidateQueries({ queryKey: queryKeys.userLeagues(myUserId) });
+      const { data: nextTeam } = await supabase
+        .from('teams')
+        .select('id, league_id, leagues!teams_league_id_fkey!inner(id)')
+        .eq('user_id', myUserId)
+        .limit(1)
+        .maybeSingle();
+      if (nextTeam?.league_id) {
+        switchLeague(nextTeam.league_id, nextTeam.id);
+        router.replace('/(tabs)');
+        return;
+      }
+    }
+    setLeagueId(null);
+    setTeamId(null);
+    router.replace('/(tabs)');
+  };
+
+  const doReassign = (newUserId: string, name: string) => {
+    confirm({
+      title: `Make ${name} commissioner?`,
+      message: `You'll hand full league control to ${name} and stay on as a regular member. You can then leave the league if you want.`,
+      action: {
+        label: 'Make Commissioner',
+        destructive: true,
+        onPress: async () => {
+          const { data, error } = await supabase.rpc('reassign_commissioner', {
+            p_league_id: leagueId!,
+            p_new_user_id: newUserId,
+          });
+          if (error) { Alert.alert('Error', error.message); return; }
+          if ((data as { error?: string } | null)?.error) {
+            Alert.alert('Error', "Couldn't reassign the commissioner. Please try again.");
+            return;
+          }
+          queryClient.invalidateQueries({ queryKey: ['league'] });
+          if (myUserId) queryClient.invalidateQueries({ queryKey: queryKeys.userLeagues(myUserId) });
+          Alert.alert('Done', `${name} is now the commissioner.`);
+        },
+      },
+    });
+  };
+
+  const openReassignPicker = () => {
+    if (ownedOtherMembers.length === 0) {
+      Alert.alert('No other members', "There's no one else to hand the commissioner role to. Archive the league instead.");
+      return;
+    }
+    pickAction({
+      title: 'Make Someone Commissioner',
+      subtitle: 'They will get full control of the league.',
+      actions: ownedOtherMembers.map((t: any) => ({
+        id: t.id,
+        label: t.name,
+        icon: 'person' as keyof typeof Ionicons.glyphMap,
+        onPress: () => doReassign(t.user_id, t.name),
+      })),
+    });
+  };
+
+  const doRemoveMember = (teamId: string, name: string) => {
+    confirm({
+      title: `Remove ${name}?`,
+      message: `${name} will lose access to "${league.name}". Their team and roster are kept for you to reassign to a new owner. This can't be undone from the app.`,
+      action: {
+        label: 'Remove',
+        destructive: true,
+        onPress: async () => {
+          const { data, error } = await supabase.rpc('remove_member', { p_league_id: leagueId!, p_team_id: teamId });
+          if (error) { Alert.alert('Error', error.message); return; }
+          const res = data as { ok?: boolean; error?: string } | null;
+          if (res?.error === 'draft_in_progress') {
+            Alert.alert('Draft in progress', "You can't remove a member while the draft is live.");
+            return;
+          }
+          if (res?.error) { Alert.alert('Error', "Couldn't remove that member. Please try again."); return; }
+          queryClient.invalidateQueries({ queryKey: ['league'] });
+          Alert.alert('Removed', `${name} has been removed. Their team is now unclaimed — use Transfer Team Ownership to assign it to a new owner.`);
+        },
+      },
+    });
+  };
+
+  const openRemovePicker = () => {
+    if (ownedOtherMembers.length === 0) {
+      Alert.alert('No members to remove', 'There are no other claimed teams in this league.');
+      return;
+    }
+    pickAction({
+      title: 'Remove a Member',
+      subtitle: 'They lose access; their team stays for you to reassign.',
+      actions: ownedOtherMembers.map((t: any) => ({
+        id: t.id,
+        label: t.name,
+        icon: 'person-remove' as keyof typeof Ionicons.glyphMap,
+        destructive: true,
+        onPress: () => doRemoveMember(t.id, t.name),
+      })),
+    });
+  };
+
+  const handleArchive = () => {
+    confirm({
+      title: 'Archive League?',
+      message: `"${league.name}" will be hidden for all ${teamCount} member${teamCount === 1 ? '' : 's'}. Standings, rosters, and history are preserved and support can restore it — but no one will be able to open it. Type archive to confirm.`,
+      requireTypedConfirmation: 'archive',
+      action: {
+        label: 'Archive League',
+        destructive: true,
+        onPress: async () => {
+          const { data, error } = await supabase.rpc('archive_league', { p_league_id: leagueId! });
+          if (error) { Alert.alert('Error', error.message); return; }
+          if ((data as { error?: string } | null)?.error) {
+            Alert.alert('Error', "Couldn't archive the league. Please try again.");
+            return;
+          }
+          await exitToAnotherLeagueOrHome();
+        },
+      },
+    });
+  };
+
+  const doLeave = async () => {
+    const { data, error } = await supabase.rpc('leave_league', { p_league_id: leagueId! });
+    if (error) { Alert.alert('Error', error.message); return; }
+    const res = data as { ok?: boolean; error?: string } | null;
+    if (res?.error === 'draft_in_progress') {
+      Alert.alert('Draft in progress', "You can't leave while the draft is live. Try again once it's finished.");
+      return;
+    }
+    if (res?.error === 'commissioner_must_reassign') { openReassignPicker(); return; }
+    if (res?.error) { Alert.alert('Error', "Couldn't leave the league. Please try again."); return; }
+    await exitToAnotherLeagueOrHome();
+  };
+
+  const handleLeave = () => {
+    if (isCommissioner) {
+      if (ownedOtherMembers.length === 0) {
+        confirm({
+          title: "You're the only member",
+          message: `There's no one to hand the commissioner role to. Archive "${league.name}" instead — its history is preserved and support can restore it.`,
+          action: { label: 'Archive League', destructive: true, onPress: handleArchive },
+        });
+      } else {
+        confirm({
+          title: 'Reassign commissioner first',
+          message: 'As commissioner you must hand off your role before leaving. Pick a new commissioner, then you can leave.',
+          action: { label: 'Choose Commissioner', onPress: openReassignPicker },
+        });
+      }
+      return;
+    }
+    confirm({
+      title: 'Leave League?',
+      message: `You'll lose access to "${league.name}". Your team is released for the commissioner to reassign — your roster stays intact for the next owner. This can't be undone from the app.`,
+      action: { label: 'Leave', destructive: true, onPress: doLeave },
+    });
+  };
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
       <PageHeader title="League Info" />
@@ -211,6 +398,7 @@ export default function LeagueInfoScreen() {
               <CommAction
                 icon="cash"
                 label="Payment Ledger"
+                badgeCount={unconfirmedPaymentCount}
                 c={c}
                 onPress={() => setShowPaymentLedger(true)}
               />
@@ -598,6 +786,49 @@ export default function LeagueInfoScreen() {
           </Section>
         )}
 
+        {/* ── Danger Zone ── */}
+        <Section title="Danger Zone" cardStyle={styles.sectionCardInner}>
+          {isCommissioner && ownedOtherMembers.length > 0 && (
+            <CommAction
+              icon="ribbon-outline"
+              label="Make Someone Commissioner"
+              subLabel="Hand off your commissioner role"
+              c={c}
+              onPress={openReassignPicker}
+            />
+          )}
+          {isCommissioner && ownedOtherMembers.length > 0 && (
+            <CommAction
+              icon="person-remove-outline"
+              label="Remove a Member"
+              subLabel="Kick a member; their team stays claimable"
+              c={c}
+              destructive
+              onPress={openRemovePicker}
+            />
+          )}
+          <CommAction
+            icon="exit-outline"
+            label="Leave League"
+            subLabel={isCommissioner ? 'Reassign your role first' : 'Release your team to the commissioner'}
+            c={c}
+            destructive
+            onPress={handleLeave}
+            last={!isCommissioner}
+          />
+          {isCommissioner && (
+            <CommAction
+              icon="trash-outline"
+              label="Archive League"
+              subLabel="Hide for everyone · support can restore"
+              c={c}
+              destructive
+              onPress={handleArchive}
+              last
+            />
+          )}
+        </Section>
+
       </ScrollView>
 
       {/* ── League Notification Preferences Modal ── */}
@@ -777,25 +1008,30 @@ function CommAction({
   icon,
   label,
   subLabel,
+  badgeCount,
   c,
   onPress,
   disabled,
   loading,
   last,
   accent,
+  destructive,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   subLabel?: string;
+  badgeCount?: number;
   c: any;
   onPress: () => void;
   disabled?: boolean;
   loading?: boolean;
   last?: boolean;
   accent?: boolean;
+  destructive?: boolean;
 }) {
-  const iconColor = accent ? c.heritageGold : c.text;
-  const labelColor = accent ? c.heritageGold : c.text;
+  const iconColor = destructive ? c.danger : accent ? c.heritageGold : c.text;
+  const labelColor = destructive ? c.danger : accent ? c.heritageGold : c.text;
+  const showBadge = !!badgeCount && badgeCount > 0;
   return (
     <TouchableOpacity
       style={[
@@ -806,7 +1042,7 @@ function CommAction({
       onPress={onPress}
       disabled={disabled}
       accessibilityRole="button"
-      accessibilityLabel={label}
+      accessibilityLabel={showBadge ? `${label}, ${badgeCount} to confirm` : label}
       accessibilityState={{ disabled: !!disabled }}
     >
       <Ionicons name={icon} size={16} color={iconColor} accessible={false} />
@@ -818,6 +1054,13 @@ function CommAction({
           </ThemedText>
         )}
       </View>
+      {showBadge && (
+        <View style={[styles.commActionBadge, { backgroundColor: c.danger }]} accessibilityElementsHidden>
+          <ThemedText style={[styles.commActionBadgeText, { color: c.statusText }]}>
+            {badgeCount}
+          </ThemedText>
+        </View>
+      )}
       {loading ? (
         <LogoSpinner size={16} delay={0} />
       ) : (
@@ -958,6 +1201,22 @@ const styles = StyleSheet.create({
   commActionText: {
     flex: 1,
     fontSize: ms(14),
+  },
+  // Count pip riding the row, just left of the chevron — same red-pip
+  // language as the home QuickNav pip so the two read as one signal.
+  commActionBadge: {
+    minWidth: s(18),
+    height: s(18),
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: s(5),
+  },
+  commActionBadgeText: {
+    fontSize: ms(11),
+    fontWeight: '700',
+    textAlign: 'center',
+    includeFontPadding: false,
   },
   commGroupLabel: {
     fontSize: ms(10),

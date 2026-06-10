@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { PlayerHeadshotImage } from '@/components/player/PlayerHeadshotImage';
+import { PlayerName } from '@/components/player/PlayerName';
 import { Badge } from '@/components/ui/Badge';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { ThemedText } from '@/components/ui/ThemedText';
@@ -226,9 +227,7 @@ function BlockRow({
 
   const info = (
     <View style={styles.info}>
-      <ThemedText type="defaultSemiBold" style={styles.playerName} numberOfLines={1}>
-        {p.name}
-      </ThemedText>
+      <PlayerName name={p.name} type="defaultSemiBold" style={styles.playerName} />
       <ThemedText style={[styles.playerMeta, { color: c.secondaryText }]} numberOfLines={1}>
         {formatPosition(p.position)}
       </ThemedText>

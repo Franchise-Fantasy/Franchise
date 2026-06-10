@@ -4,26 +4,13 @@
 //
 // Behaviour:
 //   - In __DEV__: prints to console.* with a [tag] prefix.
-//   - In production: debug + info are dropped; warn → Sentry breadcrumb;
-//     error → Sentry.captureException.
+//   - In production: debug + info are dropped; warn + error are no-ops.
 //
-// Sentry is loaded lazily so this module is safe to import from anywhere,
-// even before the SDK is initialized in app/_layout.tsx.
+// There is no production sink today (Sentry was removed). If prod error
+// reporting is wanted again, route warn/error here to PostHog or another
+// service rather than re-adding a native crash-reporting SDK.
 
 type LogContext = Record<string, unknown>;
-
-let sentryCache: unknown = null;
-function getSentry(): { addBreadcrumb: Function; captureException: Function } | null {
-  if (sentryCache !== null) {
-    return sentryCache as { addBreadcrumb: Function; captureException: Function } | null;
-  }
-  try {
-    sentryCache = require('@sentry/react-native');
-  } catch {
-    sentryCache = false;
-  }
-  return sentryCache ? (sentryCache as { addBreadcrumb: Function; captureException: Function }) : null;
-}
 
 function errorContext(error: unknown, extra?: LogContext): LogContext {
   if (error instanceof Error) {
@@ -62,31 +49,14 @@ export function createLogger(fn: string): Logger {
       console.info(tag, message, ctx ?? '');
     },
     warn(message, context) {
+      if (!__DEV__) return;
       const ctx = normalizeContext(context);
-      if (__DEV__) console.warn(tag, message, ctx ?? '');
-      const Sentry = getSentry();
-      if (Sentry) {
-        try {
-          Sentry.addBreadcrumb({ level: 'warning', category: fn, message, data: ctx });
-        } catch {
-          // Sentry not initialized yet — drop the breadcrumb silently.
-        }
-      }
+      console.warn(tag, message, ctx ?? '');
     },
     error(message, error, context) {
+      if (!__DEV__) return;
       const ctx = errorContext(error, context);
-      if (__DEV__) console.error(tag, message, error, ctx);
-      const Sentry = getSentry();
-      if (Sentry) {
-        try {
-          Sentry.captureException(error ?? new Error(message), {
-            tags: { fn },
-            extra: { msg: message, ...ctx },
-          });
-        } catch {
-          // Sentry not initialized — drop silently.
-        }
-      }
+      console.error(tag, message, error, ctx);
     },
   };
 }

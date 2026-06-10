@@ -78,6 +78,15 @@ Deno.serve(async (req) => {
 
     if (draftError || !draft) throw new HttpError('Draft not found', 404);
 
+    // An archived (soft-deleted) league must never auto-start a draft. The
+    // per-minute cron is blind to archive state, so guard here at the single
+    // chokepoint both the cron and user fast-path pass through.
+    const { data: draftLeague } = await supabaseAdmin
+      .from('leagues').select('archived_at').eq('id', draft.league_id).single();
+    if (draftLeague?.archived_at) {
+      return jsonResponse({ message: 'League is archived; draft will not start' });
+    }
+
     if (draft.status === 'in_progress') {
       return jsonResponse({ message: 'Draft already in progress' });
     }

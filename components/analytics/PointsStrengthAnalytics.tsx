@@ -5,6 +5,7 @@ import { Platform, ScrollView, StyleSheet, TouchableOpacity, View } from "react-
 
 import { ComingSoonTeaser } from "@/components/analytics/ComingSoonTeaser";
 import { DependencyRiskCard } from "@/components/analytics/DependencyRiskCard";
+import { PlayerName } from "@/components/player/PlayerName";
 import { TeamLogo } from "@/components/team/TeamLogo";
 import { Badge } from "@/components/ui/Badge";
 import { InfoModal } from "@/components/ui/InfoModal";
@@ -522,13 +523,12 @@ function ScoringRow({
     >
       <View style={styles.scoreRowLeft}>
         <View style={styles.nameRow}>
-          <ThemedText
+          <PlayerName
+            name={entry.name}
             type="defaultSemiBold"
             style={[styles.playerName, { color: c.text }]}
-            numberOfLines={1}
-          >
-            {entry.name}
-          </ThemedText>
+            containerStyle={{ flexShrink: 1 }}
+          />
           {isIr && <Badge label="IR" variant="danger" size="small" />}
           {isTaxi && <Badge label="TAXI" variant="neutral" size="small" />}
           {entry.fromLastSeason && (

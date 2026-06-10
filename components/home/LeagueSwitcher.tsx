@@ -66,14 +66,18 @@ export function LeagueSwitcher({ visible, onClose }: LeagueSwitcherProps) {
 
       if (error) throw error;
 
-      const leagues: UserLeague[] = (teamsData ?? []).map((team: any) => ({
-        teamId: team.id,
-        leagueId: team.league_id,
-        leagueName: team.leagues?.name ?? "Unknown League",
-        teamName: team.name,
-        leagueType: team.leagues?.league_type ?? "redraft",
-        sport: (team.leagues?.sport as Sport) ?? "nba",
-      }));
+      const leagues: UserLeague[] = (teamsData ?? [])
+        // Archived (soft-deleted) leagues are RLS-hidden, so their embed comes
+        // back null — drop those teams instead of showing a ghost league row.
+        .filter((team: any) => team.leagues != null)
+        .map((team: any) => ({
+          teamId: team.id,
+          leagueId: team.league_id,
+          leagueName: team.leagues?.name ?? "Unknown League",
+          teamName: team.name,
+          leagueType: team.leagues?.league_type ?? "redraft",
+          sport: (team.leagues?.sport as Sport) ?? "nba",
+        }));
 
       return { leagues, favoriteLeagueId: profileData?.favorite_league_id ?? null };
     },

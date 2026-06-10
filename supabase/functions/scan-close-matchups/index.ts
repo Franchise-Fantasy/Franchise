@@ -24,6 +24,7 @@ import { corsResponse } from "../_shared/cors.ts";
 import { handleError, jsonResponse } from "../_shared/http.ts";
 import { recordHeartbeat } from "../_shared/heartbeat.ts";
 import { notifyTeams } from "../_shared/push.ts";
+import { getArchivedLeagueIds } from "../_shared/archivedLeagues.ts";
 import { categoriesClose, pointsClose } from "../../../utils/liveActivity/closeMatchup.ts";
 import { getSportToday } from "../../../utils/leagueTime.ts";
 
@@ -89,6 +90,10 @@ Deno.serve(async (req: Request) => {
 
     const leagueIds = [...new Set(liveWeeks.map((w) => w.league_id))];
 
+    // Archived leagues bypass RLS (service role) — don't push close-matchup
+    // alerts to members of a deleted league.
+    const archivedLeagueIds = await getArchivedLeagueIds(supabase);
+
     // Per-league scoring type
     const { data: leagueRows } = await supabase
       .from("leagues")
@@ -118,6 +123,7 @@ Deno.serve(async (req: Request) => {
       if (!m.away_team_id) continue; // bye week
       const leagueId = leagueByScheduleId.get(m.schedule_id);
       if (!leagueId) continue;
+      if (archivedLeagueIds.has(leagueId)) continue;
       const isCats = scoringTypeByLeague.get(leagueId) === "h2h_categories";
       if (isCats) {
         const hw = m.home_category_wins ?? 0;

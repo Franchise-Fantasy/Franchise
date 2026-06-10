@@ -1,9 +1,13 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "jsr:@supabase/supabase-js@2";
+// esm.sh (not jsr:) so the SupabaseClient type matches _shared/push.ts,
+// snapshotBeforeDrop.ts, and archivedLeagues.ts — the jsr and esm.sh builds
+// produce nominally-different SupabaseClient types that don't interop.
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { errorResponse, jsonResponse } from '../_shared/http.ts';
 import { createLogger } from '../_shared/log.ts';
 import { notifyLeague } from '../_shared/push.ts';
 import { snapshotBeforeDrop } from '../_shared/snapshotBeforeDrop.ts';
+import { getArchivedLeagueIds } from '../_shared/archivedLeagues.ts';
 import { nextSlateRollover } from '../../../utils/leagueTime.ts';
 
 const supabase = createClient(
@@ -34,7 +38,12 @@ Deno.serve(async (req: Request) => {
   let processed = 0;
   const errors: string[] = [];
 
+  // Archived leagues bypass RLS for the service role — never execute their
+  // pending add/drops or push to members of a deleted league.
+  const archivedLeagueIds = await getArchivedLeagueIds(supabase);
+
   for (const txn of pending ?? []) {
+    if (archivedLeagueIds.has(txn.league_id)) continue;
     try {
       let notifBody = '';
 

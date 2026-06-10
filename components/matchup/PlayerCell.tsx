@@ -1,22 +1,21 @@
 import { Image } from "expo-image";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef } from "react";
 import {
   Animated,
   StyleSheet,
   Text,
-  TextStyle,
   TouchableOpacity,
   View,
 } from "react-native";
 
 import { MatchupChip } from "@/components/player/MatchupChip";
 import { PlayerHeadshotImage } from "@/components/player/PlayerHeadshotImage";
+import { PlayerName } from "@/components/player/PlayerName";
 import { rosterStyles } from "@/components/roster/rosterStyles";
 import { Colors, Fonts } from "@/constants/Colors";
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { ScoringWeight } from "@/types/player";
-import { abbreviateFirstName } from "@/utils/formatting";
 import { getInjuryBadge } from "@/utils/nba/injuryBadge";
 import {
   formatClock,
@@ -101,45 +100,6 @@ function compactLiveInfo(live: LivePlayerStats): string {
 }
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
-
-// Player-name renderer that swaps to "F. LastName" only when the full name
-// would clip to a second line. A hidden Text in the same flex slot reports
-// its natural line count via onTextLayout — > 1 line means abbreviate.
-function PlayerName({
-  name,
-  style,
-  textAlign,
-}: {
-  name: string;
-  style: TextStyle | TextStyle[];
-  textAlign: "left" | "right";
-}) {
-  const [overflows, setOverflows] = useState(false);
-  const display = overflows ? abbreviateFirstName(name) : name;
-  return (
-    <View style={{ flexShrink: 1 }}>
-      {!overflows && (
-        <Text
-          style={[
-            style,
-            { position: "absolute", opacity: 0, textAlign },
-          ]}
-          onTextLayout={(e) => {
-            if (e.nativeEvent.lines.length > 1) setOverflows(true);
-          }}
-          pointerEvents="none"
-          accessibilityElementsHidden
-          importantForAccessibility="no"
-        >
-          {name}
-        </Text>
-      )}
-      <Text style={[style, { textAlign }]} numberOfLines={1}>
-        {display}
-      </Text>
-    </View>
-  );
-}
 
 // Static green dot shown when player is actively on the floor. Shared with the
 // roster + team-roster rows so the on-court cue reads identically everywhere.
@@ -428,8 +388,7 @@ export const PlayerCell = React.memo(function PlayerCell({
             )}
             <PlayerName
               name={player.name}
-              style={[pStyles.name, { color: c.text }]}
-              textAlign={textAlign}
+              style={[pStyles.name, { color: c.text, textAlign }]}
             />
             {side === "left" && injuryBadge && (
               <View
@@ -513,8 +472,7 @@ export const PlayerCell = React.memo(function PlayerCell({
             {side === "right" && liveStats.oncourt && isLive && <OnCourtDot />}
             <PlayerName
               name={player.name}
-              style={[pStyles.name, { color: c.text }]}
-              textAlign={textAlign}
+              style={[pStyles.name, { color: c.text, textAlign }]}
             />
             {side === "left" && liveStats.oncourt && isLive && <OnCourtDot />}
             {side === "left" && injuryBadge && (
@@ -629,8 +587,7 @@ export const PlayerCell = React.memo(function PlayerCell({
           )}
           <PlayerName
             name={player.name}
-            style={[pStyles.name, { color: c.text }]}
-            textAlign={textAlign}
+            style={[pStyles.name, { color: c.text, textAlign }]}
           />
           {side === "left" && injuryBadge && (
             <View

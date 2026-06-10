@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
 import { FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
-import { PlayerHeadshotImage } from '@/components/player/PlayerHeadshotImage';
+import { PlayerName } from '@/components/player/PlayerName';
+import { PlayerPortrait } from '@/components/player/PlayerPortrait';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
@@ -11,7 +11,6 @@ import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { TradeRosterPlayer, useTeamRosterForTrade } from '@/hooks/useTeamRosterForTrade';
 import { formatPosition } from '@/utils/formatting';
 import { getInjuryBadge } from '@/utils/nba/injuryBadge';
-import { getTeamLogoUrl } from '@/utils/nba/playerHeadshot';
 import { ms, s } from '@/utils/scale';
 import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
 
@@ -69,7 +68,6 @@ export function TradePlayerPickerBody({
     const isOnIR = item.roster_slot === 'IR';
     const isDisabled = isLocked || isOnIR || isPendingDrop;
     const fpts = scoringWeights && !isCategories ? calculateAvgFantasyPoints(item, scoringWeights) : null;
-    const logoUrl = getTeamLogoUrl(item.pro_team, sport);
     const badge = getInjuryBadge(item.status);
 
     return (
@@ -87,37 +85,23 @@ export function TradePlayerPickerBody({
         ]}
         onPress={() => onToggle(item, fpts ?? 0)}
       >
-        <View style={styles.portraitWrap}>
-          <View style={[styles.headshotCircle, { borderColor: c.heritageGold, backgroundColor: c.cardAlt }]}>
-            <PlayerHeadshotImage
-              externalIdNba={item.external_id_nba}
-              sport={sport}
-              style={styles.headshotImg}
-            />
-          </View>
-          <View style={styles.teamPill}>
-            {logoUrl && (
-              <Image
-                source={{ uri: logoUrl }}
-                style={styles.teamPillLogo}
-                contentFit="contain"
-                cachePolicy="memory-disk"
-                recyclingKey={logoUrl}
-              />
-            )}
-            <Text style={[styles.teamPillText, { color: c.statusText }]}>{item.pro_team}</Text>
-          </View>
-        </View>
+        <PlayerPortrait
+          externalIdNba={item.external_id_nba}
+          proTeam={item.pro_team}
+          sport={sport}
+          size={s(50)}
+          imageHeight={s(42)}
+          containerStyle={styles.portrait}
+        />
 
         <View style={styles.info}>
           <View style={styles.nameRow}>
-            <ThemedText
+            <PlayerName
+              name={item.name}
               type="defaultSemiBold"
-              style={[styles.playerName, { flexShrink: 1 }]}
-              numberOfLines={1}
-            >
-              {item.name}
-            </ThemedText>
+              style={styles.playerName}
+              containerStyle={{ flexShrink: 1 }}
+            />
             {badge && (
               <View style={[styles.injuryBadge, { backgroundColor: badge.color }]}>
                 <Text style={styles.injuryBadgeText}>{badge.label}</Text>
@@ -213,43 +197,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: s(12),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  portraitWrap: {
-    width: s(50),
-    height: s(50),
-    marginRight: s(8),
-  },
-  headshotCircle: {
-    width: s(50),
-    height: s(50),
-    borderRadius: 25,
-    borderWidth: 1.5,
-    overflow: 'hidden' as const,
-  },
-  headshotImg: {
-    position: 'absolute' as const,
-    bottom: s(-2),
-    left: 0,
-    right: 0,
-    height: s(42),
-  },
-  teamPill: {
-    position: 'absolute',
-    bottom: 0,
-    alignSelf: 'center',
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.75)',
-    borderRadius: 8,
-    paddingHorizontal: s(3),
-    paddingVertical: s(1),
-    gap: s(2),
-  },
-  teamPillLogo: { width: s(9), height: s(9) },
-  teamPillText: {
-    fontSize: ms(7),
-    fontWeight: '700',
-    letterSpacing: 0.3,
-  },
+  portrait: { marginRight: s(8) },
   info: { flex: 1 },
   nameRow: {
     flexDirection: 'row',

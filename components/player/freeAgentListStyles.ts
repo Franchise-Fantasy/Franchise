@@ -53,6 +53,11 @@ export const freeAgentListStyles = StyleSheet.create({
     paddingHorizontal: s(8),
     paddingBottom: s(100),
   },
+  // Extra bottom clearance so the floating compare bar (which sits above the
+  // tab bar) doesn't cover the last rows.
+  listContentCompare: {
+    paddingBottom: s(170),
+  },
   colKey: {
     flexDirection: "row",
     alignItems: "center",
@@ -104,40 +109,14 @@ export const freeAgentListStyles = StyleSheet.create({
     marginRight: s(10),
     alignItems: "center",
   },
+  // Skeleton placeholder reuses this circle; the real row's portrait chrome
+  // now lives in the shared PlayerPortrait component.
   headshotCircle: {
     width: s(54),
     height: s(54),
     borderRadius: 29,
     borderWidth: 1.5,
     overflow: "hidden" as const,
-  },
-  headshotImg: {
-    position: "absolute" as const,
-    bottom: s(-2),
-    left: 0,
-    right: 0,
-    height: s(48),
-  },
-  teamPill: {
-    position: "absolute",
-    bottom: 0,
-    alignSelf: "center",
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.75)",
-    borderRadius: 8,
-    paddingHorizontal: s(4),
-    paddingVertical: s(1),
-    gap: s(2),
-  },
-  teamPillLogo: {
-    width: s(10),
-    height: s(10),
-  },
-  teamPillText: {
-    fontSize: ms(8),
-    fontWeight: "700",
-    letterSpacing: 0.3,
   },
   info: {
     flex: 1,
@@ -150,15 +129,6 @@ export const freeAgentListStyles = StyleSheet.create({
   },
   nameWrap: {
     flexShrink: 1,
-  },
-  // Off-screen measurement copy of the name; lays out at the wrap's full
-  // width so onTextLayout reports the natural line count given available
-  // space. Invisible to users and screen readers.
-  nameMeasure: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    opacity: 0,
   },
   badge: {
     paddingHorizontal: s(4),

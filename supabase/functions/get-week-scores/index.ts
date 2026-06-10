@@ -10,6 +10,9 @@ import {
   buildPointsContentState,
   categoryResultsToLines,
   type LiveActivityContentState,
+  type LiveMarginTrend,
+  type LiveMoment,
+  type LiveNextTipoff,
 } from "../_shared/liveActivityContent.ts";
 import { resolveSlot as sharedResolveSlot, isActiveSlot } from "../_shared/resolveSlot.ts";
 import { parseBody, z } from "../_shared/validate.ts";
@@ -466,6 +469,178 @@ async function hasActiveOrFinishedGames(): Promise<boolean> {
 const TRICODE_FROM_NAME = (name: string) =>
   name.trim().substring(0, 3).toUpperCase() || '???';
 
+// ── Moments: pick the hero row from recent scoring events ───────────────────
+//
+// The widget renders ONE hero row above the player ticker. In priority order:
+//   1. A live_scoring_event in the last 90s for any rostered player (either side)
+//   2. A margin-trajectory line (gap closing/widening over the last ~10 min)
+//   3. A "next tipoff" line when no live action and a relevant game is coming
+//
+// Cats mode is intentionally excluded for v1 — the closest-cat hero comes from
+// a different signal (category swing) that we can add later.
+
+const MOMENT_KIND_PRIORITY: Record<string, number> = {
+  TD: 100,
+  DD: 90,
+  MADE_3PT: 70,
+  BLK: 50,
+  STL: 50,
+  AST: 30,
+};
+
+function formatMomentText(playerName: string, kind: string, value: number): string {
+  const parts = playerName.trim().split(/\s+/);
+  const initial = parts[0]?.charAt(0) ?? '';
+  const last = parts.length > 1 ? parts.slice(1).join(' ') : (parts[0] ?? '');
+  const prefix = parts.length > 1 ? `${initial}. ${last.toUpperCase()}` : last.toUpperCase();
+  switch (kind) {
+    case 'TD':       return `${prefix} — TRIPLE-DOUBLE`;
+    case 'DD':       return `${prefix} — DOUBLE-DOUBLE`;
+    case 'MADE_3PT': return value > 1 ? `${prefix} — ${value} 3PTRS` : `${prefix} — 3-POINTER`;
+    case 'STL':      return value > 1 ? `${prefix} — ${value} STEALS` : `${prefix} — STEAL`;
+    case 'BLK':      return value > 1 ? `${prefix} — ${value} BLOCKS` : `${prefix} — BLOCK`;
+    case 'AST':      return value > 1 ? `${prefix} — ${value} ASSISTS` : `${prefix} — DIME`;
+    default:         return '';
+  }
+}
+
+function momentIconFor(kind: string): LiveMoment['icon'] {
+  if (kind === 'TD' || kind === 'DD') return 'check';
+  if (kind === 'MADE_3PT') return 'flame';
+  return 'bolt';
+}
+
+function momentKindFor(kind: string): LiveMoment['kind'] {
+  if (kind === 'TD' || kind === 'DD') return 'threshold';
+  if (kind === 'MADE_3PT') return 'event';
+  return 'swing';
+}
+
+interface RawEvent {
+  player_id: string;
+  player_name: string;
+  kind: string;
+  value: number;
+  occurred_at: string;
+}
+
+function pickMoment(
+  events: RawEvent[],
+  myPlayerIds: Set<string>,
+  oppPlayerIds: Set<string>,
+  nowMs: number,
+): LiveMoment | undefined {
+  let best: { ev: RawEvent; score: number; side: 'me' | 'opp' } | null = null;
+  for (const ev of events) {
+    const priority = MOMENT_KIND_PRIORITY[ev.kind];
+    if (priority === undefined) continue;
+    const side: 'me' | 'opp' = myPlayerIds.has(ev.player_id)
+      ? 'me'
+      : oppPlayerIds.has(ev.player_id)
+        ? 'opp'
+        : (null as never);
+    if (side === null) continue;
+    const ageSec = Math.max(0, Math.round((nowMs - Date.parse(ev.occurred_at)) / 1000));
+    // Decay priority by age — a fresh DIME (30 priority, 5s old) shouldn't beat
+    // a 3PTR (70 priority, 80s old). Loss of 1 priority per 10s.
+    const score = priority - Math.floor(ageSec / 10);
+    if (!best || score > best.score) {
+      best = { ev, score, side };
+    }
+  }
+  if (!best) return undefined;
+  const ageSec = Math.max(0, Math.round((nowMs - Date.parse(best.ev.occurred_at)) / 1000));
+  return {
+    kind: momentKindFor(best.ev.kind),
+    icon: momentIconFor(best.ev.kind),
+    text: formatMomentText(best.ev.player_name, best.ev.kind, best.ev.value),
+    side: best.side,
+    ageSec,
+  };
+}
+
+// ── Margin trajectory: track scoreGap snapshots in metadata.marginHistory ───
+
+interface MarginSnapshot { at: string; gap: number; }
+
+function computeMarginTrend(
+  currentGap: number,
+  history: MarginSnapshot[],
+  nowMs: number,
+): LiveMarginTrend | undefined {
+  if (!Array.isArray(history) || history.length === 0) return undefined;
+  const tenMinAgoMs = nowMs - 10 * 60 * 1000;
+  const eligible = history
+    .filter((e) => Date.parse(e.at) >= tenMinAgoMs)
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  if (eligible.length === 0) return undefined;
+  const earliest = eligible[0];
+  const earlierMinAgo = Math.round((nowMs - Date.parse(earliest.at)) / 60000);
+  // Need at least 3 min of history AND ≥2 fpts of movement to be a "trend".
+  if (earlierMinAgo < 3) return undefined;
+  if (Math.abs(currentGap - earliest.gap) < 2) return undefined;
+  return { current: currentGap, earlier: earliest.gap, earlierMinAgo };
+}
+
+function appendMarginHistory(
+  prev: MarginSnapshot[],
+  currentGap: number,
+  nowIso: string,
+  nowMs: number,
+): MarginSnapshot[] {
+  const fifteenMinAgoMs = nowMs - 15 * 60 * 1000;
+  const trimmed = (Array.isArray(prev) ? prev : []).filter(
+    (e) => Date.parse(e.at) >= fifteenMinAgoMs,
+  );
+  trimmed.push({ at: nowIso, gap: currentGap });
+  return trimmed.slice(-16);
+}
+
+// ── Next tipoff fallback ────────────────────────────────────────────────────
+
+interface UpcomingGame {
+  home_team: string | null;
+  away_team: string | null;
+  game_time_utc: string | null;
+}
+
+function pickNextTipoff(
+  games: UpcomingGame[],
+  myProTeamCounts: Map<string, number>,
+  oppProTeamCounts: Map<string, number>,
+  nowMs: number,
+): LiveNextTipoff | undefined {
+  const tomorrowCap = nowMs + 30 * 60 * 60 * 1000; // 30h horizon
+  const candidates = games
+    .filter((g) => g.game_time_utc && g.home_team && g.away_team)
+    .filter((g) => {
+      const t = Date.parse(g.game_time_utc!);
+      return Number.isFinite(t) && t > nowMs && t < tomorrowCap;
+    })
+    .filter((g) => {
+      const teams = [g.home_team!, g.away_team!];
+      return teams.some((t) => myProTeamCounts.has(t) || oppProTeamCounts.has(t));
+    })
+    .sort((a, b) => Date.parse(a.game_time_utc!) - Date.parse(b.game_time_utc!));
+  if (candidates.length === 0) return undefined;
+  const first = candidates[0];
+  const t = new Date(Date.parse(first.game_time_utc!));
+  const timeText = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(t).replace(' AM', 'a').replace(' PM', 'p').replace(/^0/, '') + ' ET';
+  const matchup = `${first.away_team} @ ${first.home_team}`;
+  const myStarters =
+    (myProTeamCounts.get(first.home_team!) ?? 0) +
+    (myProTeamCounts.get(first.away_team!) ?? 0);
+  const oppStarters =
+    (oppProTeamCounts.get(first.home_team!) ?? 0) +
+    (oppProTeamCounts.get(first.away_team!) ?? 0);
+  return { timeText, matchup, myStarters, oppStarters };
+}
+
 interface DispatchWeekResult {
   league_id: string;
   schedule_id: string;
@@ -521,6 +696,75 @@ async function dispatchMatchupActivities(
     });
   }
 
+  // ── Roster fetch: needed for moments (event filtering) + nextTipoff
+  // (pro_team mapping). Same pattern as poll-live-stats — today's daily_lineups
+  // first, fall back to league_players default slot for teams that don't use
+  // daily lineups.
+  const today = getSportToday(null);
+  const allTeamIdsArr = [...allTeamIds];
+  const { data: dailyLineupRows } = await supabase
+    .from('daily_lineups')
+    .select('player_id, team_id')
+    .eq('lineup_date', today)
+    .in('team_id', allTeamIdsArr)
+    .not('roster_slot', 'in', '("BE","IR","TAXI","DROPPED")');
+  const teamsWithDaily = new Set<string>(
+    (dailyLineupRows ?? []).map((r) => r.team_id),
+  );
+  const teamsNeedingFallback = allTeamIdsArr.filter((id) => !teamsWithDaily.has(id));
+  let fallbackRows: Array<{ player_id: string; team_id: string }> = [];
+  if (teamsNeedingFallback.length > 0) {
+    const { data } = await supabase
+      .from('league_players')
+      .select('player_id, team_id')
+      .in('team_id', teamsNeedingFallback)
+      .not('roster_slot', 'in', '("BE","IR","TAXI","DROPPED")');
+    fallbackRows = data ?? [];
+  }
+  const rosterByTeam = new Map<string, Set<string>>();
+  for (const row of [...(dailyLineupRows ?? []), ...fallbackRows]) {
+    const set = rosterByTeam.get(row.team_id) ?? new Set<string>();
+    set.add(row.player_id);
+    rosterByTeam.set(row.team_id, set);
+  }
+  const allRosterPlayerIds = new Set<string>();
+  for (const set of rosterByTeam.values()) for (const pid of set) allRosterPlayerIds.add(pid);
+
+  // ── Recent moments: events ≤90s old for any rostered player. One query
+  // for the whole batch — filter per-token in memory.
+  const nowMs = Date.now();
+  const ninetySecAgoIso = new Date(nowMs - 90_000).toISOString();
+  const allRosterPlayerIdsArr = [...allRosterPlayerIds];
+  let recentEvents: RawEvent[] = [];
+  if (allRosterPlayerIdsArr.length > 0) {
+    const { data } = await supabase
+      .from('live_scoring_events')
+      .select('player_id, player_name, kind, value, occurred_at')
+      .gte('occurred_at', ninetySecAgoIso)
+      .in('player_id', allRosterPlayerIdsArr)
+      .order('occurred_at', { ascending: false })
+      .limit(200);
+    recentEvents = data ?? [];
+  }
+
+  // ── Next-tipoff data: today + tomorrow's game_schedule rows for any pro
+  // team a rostered player plays for. pro_team mapping is per-player.
+  const playerToProTeam = new Map<string, string>();
+  if (allRosterPlayerIdsArr.length > 0) {
+    const { data } = await supabase
+      .from('players')
+      .select('id, pro_team')
+      .in('id', allRosterPlayerIdsArr);
+    for (const p of data ?? []) {
+      if (p.pro_team) playerToProTeam.set(p.id, p.pro_team);
+    }
+  }
+  const tomorrow = addSlateDays(today, 1);
+  const { data: upcomingGames } = await supabase
+    .from('game_schedule')
+    .select('home_team, away_team, game_time_utc')
+    .in('game_date', [today, tomorrow]);
+
   for (const weekResult of weekResults) {
     const weekTokens = tokens.filter(t => t.schedule_id === weekResult.schedule_id);
     if (weekTokens.length === 0) continue;
@@ -561,6 +805,7 @@ async function dispatchMatchupActivities(
           biggestContributor?: string;
           updatedAt?: string;
         };
+        marginHistory?: MarginSnapshot[];
       };
       // Token metadata stores logos by the role they had at activity start
       // ("my" = the device's team). Mirror that perspective for THIS push.
@@ -614,13 +859,65 @@ async function dispatchMatchupActivities(
       } else {
         const myScore = weekResult.teamScores[myTeamId] ?? 0;
         const oppScore = weekResult.teamScores[oppTeamId] ?? 0;
+        const roundedMy = Math.round(myScore * 10) / 10;
+        const roundedOpp = Math.round(oppScore * 10) / 10;
+        const gap = Math.round((roundedMy - roundedOpp) * 10) / 10;
+
+        // Hero row picker — moment > marginTrend > nextTipoff
+        const myRoster = rosterByTeam.get(myTeamId) ?? new Set<string>();
+        const oppRoster = rosterByTeam.get(oppTeamId) ?? new Set<string>();
+        const moment = pickMoment(recentEvents, myRoster, oppRoster, nowMs);
+
+        let marginTrend: LiveMarginTrend | undefined = undefined;
+        let nextTipoff: LiveNextTipoff | undefined = undefined;
+        if (!moment) {
+          marginTrend = computeMarginTrend(gap, meta.marginHistory ?? [], nowMs);
+        }
+        const activeNow =
+          (cachedTicker?.myActivePlayers ?? 0) + (cachedTicker?.opponentActivePlayers ?? 0);
+        if (!moment && !marginTrend && activeNow === 0) {
+          const myProCounts = new Map<string, number>();
+          const oppProCounts = new Map<string, number>();
+          for (const pid of myRoster) {
+            const pro = playerToProTeam.get(pid);
+            if (pro) myProCounts.set(pro, (myProCounts.get(pro) ?? 0) + 1);
+          }
+          for (const pid of oppRoster) {
+            const pro = playerToProTeam.get(pid);
+            if (pro) oppProCounts.set(pro, (oppProCounts.get(pro) ?? 0) + 1);
+          }
+          nextTipoff = pickNextTipoff(upcomingGames ?? [], myProCounts, oppProCounts, nowMs);
+        }
+
+        // Persist a fresh gap snapshot so future ticks have history to compare.
+        // Spread the existing metadata first to preserve playerTicker (written
+        // by poll-live-stats on its own cadence). Race window is small; if
+        // poll writes between our read and our write, we lose ≤1 tick of
+        // playerTicker freshness — self-heals on the next poll.
+        const newHistory = appendMarginHistory(
+          meta.marginHistory ?? [],
+          gap,
+          new Date(nowMs).toISOString(),
+          nowMs,
+        );
+        await supabase
+          .from('activity_tokens')
+          .update({
+            metadata: {
+              ...(token.metadata ?? {}),
+              marginHistory: newHistory,
+            },
+          })
+          .eq('id', token.id)
+          .then(() => undefined, () => undefined);
+
         contentState = buildPointsContentState({
           myTeamName: myMeta.name,
           opponentTeamName: oppMeta.name,
           myTeamTricode: myMeta.tricode,
           opponentTeamTricode: oppMeta.tricode,
-          myScore: Math.round(myScore * 10) / 10,
-          opponentScore: Math.round(oppScore * 10) / 10,
+          myScore: roundedMy,
+          opponentScore: roundedOpp,
           biggestContributor: cachedTicker?.biggestContributor ?? '',
           myActivePlayers: cachedTicker?.myActivePlayers ?? 0,
           opponentActivePlayers: cachedTicker?.opponentActivePlayers ?? 0,
@@ -628,6 +925,9 @@ async function dispatchMatchupActivities(
           myLogoFileUri,
           opponentLogoFileUri,
           patchFileUri,
+          moment,
+          marginTrend,
+          nextTipoff,
         });
       }
 

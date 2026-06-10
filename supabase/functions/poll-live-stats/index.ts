@@ -8,6 +8,7 @@ import { buildPointsContentState } from "../_shared/liveActivityContent.ts";
 import { createLogger } from "../_shared/log.ts";
 import { parseBody, z } from "../_shared/validate.ts";
 import { getSportToday } from "../../../utils/leagueTime.ts";
+import { getArchivedLeagueIds } from "../_shared/archivedLeagues.ts";
 
 const Body = z.object({
   sport: z.enum(['nba', 'wnba']).optional(),
@@ -285,6 +286,10 @@ async function dispatchPlayerTickerUpdates(
   // needed to compute live per-category aggregates. Hot-path poll-live-stats
   // only handles points leagues so we don't double the per-tick query weight.
   const leagueIds = [...new Set(tokens.map(t => t.league_id))];
+  // Archived leagues bypass RLS (service role); skip their live-activity tokens
+  // so a deleted league's widget stops receiving score pushes. Only query when
+  // there are live tokens this tick — most 30s ticks (outside game windows) have none.
+  const archivedLeagueIds = leagueIds.length > 0 ? await getArchivedLeagueIds(supabase) : new Set<string>();
   const { data: scoringRows } = await supabase
     .from('scoring_weights')
     .select('league_id, stat_name, point_value, is_enabled')
@@ -332,6 +337,7 @@ async function dispatchPlayerTickerUpdates(
 
   for (const token of tokens) {
     if (catLeagueIds.has(token.league_id)) continue;
+    if (archivedLeagueIds.has(token.league_id)) continue;
 
     const matchup = matchupById.get(token.matchup_id);
     if (!matchup) continue;
@@ -348,9 +354,11 @@ async function dispatchPlayerTickerUpdates(
     const myMeta = teamInfo.get(myTeamId) ?? { name: '', tricode: '???' };
     const oppMeta = teamInfo.get(oppTeamId) ?? { name: '', tricode: '???' };
 
-    // Top 5 of MY team's lines for the player ticker
-    const top5 = [...my.lines].sort((a, b) => b.fantasyPoints - a.fantasyPoints).slice(0, 5);
-    const biggest = top5[0];
+    // Top 4 of MY team's lines for the player ticker. Banner renders only 2
+    // (under a hero moment row) and expanded renders 3, so 4 is comfortable
+    // headroom without bloating the APNs payload. See widgets/MatchupActivity.tsx.
+    const top4 = [...my.lines].sort((a, b) => b.fantasyPoints - a.fantasyPoints).slice(0, 4);
+    const biggest = top4[0];
     const biggestContributor = biggest ? `${biggest.name} ${biggest.statLine}` : '';
 
     // Note: poll-live-stats DOES NOT push contentState — it only updates
@@ -369,7 +377,7 @@ async function dispatchPlayerTickerUpdates(
             metadata: {
               ...(token.metadata ?? {}),
               playerTicker: {
-                players: top5,
+                players: top4,
                 myActivePlayers: my.activePlayers,
                 opponentActivePlayers: opp.activePlayers,
                 biggestContributor,

@@ -132,6 +132,9 @@ interface PlayerFilterBarProps {
   onInjuryFilterChange?: (filter: InjuryFilter) => void;
   /** Categories leagues have no fantasy points — hides the FPTS sort option */
   isCategories?: boolean;
+  /** Compare-mode toggle — when provided, renders a compare button in the search row. */
+  compareMode?: boolean;
+  onToggleCompareMode?: () => void;
 }
 
 /** Default sort key per scoring type — categories leagues can't sort by FPTS. */
@@ -206,6 +209,8 @@ export function PlayerFilterBar({
   injuryFilter,
   onInjuryFilterChange,
   isCategories,
+  compareMode,
+  onToggleCompareMode,
 }: PlayerFilterBarProps) {
   const c = useColors();
   const scheme = useColorScheme() ?? 'light';
@@ -345,6 +350,22 @@ export function PlayerFilterBar({
             hitSlop={4}
           >
             <Ionicons name="people" size={18} color={!showFreeAgentsOnly ? c.gold : c.secondaryText} />
+          </TouchableOpacity>
+        )}
+        {onToggleCompareMode && (
+          <TouchableOpacity
+            onPress={onToggleCompareMode}
+            style={[
+              styles.filterBtn,
+              { backgroundColor: c.input, borderColor: c.border },
+              compareMode && { backgroundColor: c.gold + '20', borderColor: c.gold },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={compareMode ? 'Exit compare mode' : 'Compare players'}
+            accessibilityState={{ selected: !!compareMode }}
+            hitSlop={4}
+          >
+            <Ionicons name="git-compare" size={18} color={compareMode ? c.gold : c.secondaryText} />
           </TouchableOpacity>
         )}
       </View>

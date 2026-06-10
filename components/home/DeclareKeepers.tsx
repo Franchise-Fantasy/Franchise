@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, StyleSheet, TouchableOpacity, View } from 'react-native';
 
+import { PlayerName } from '@/components/player/PlayerName';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors, cardShadow } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
@@ -134,7 +135,7 @@ export function DeclareKeepers({ leagueId, teamId, season, keeperCount, isCommis
             onPress={() => toggleKeeper.mutate(player.playerId)}
           >
             <View style={styles.playerInfo}>
-              <ThemedText style={styles.playerName}>{player.name}</ThemedText>
+              <PlayerName name={player.name} style={styles.playerName} />
               <ThemedText style={[styles.playerPos, { color: c.secondaryText }]}>{player.position}</ThemedText>
             </View>
             <Ionicons

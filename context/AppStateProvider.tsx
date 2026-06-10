@@ -83,7 +83,7 @@ export const AppStateProvider = ({ children }: { children: React.ReactNode }) =>
         if (profile?.favorite_league_id) {
           const { data: favTeam } = await supabase
             .from('teams')
-            .select('id, league_id')
+            .select('id, league_id, leagues!teams_league_id_fkey!inner(id)')
             .eq('user_id', userId)
             .eq('league_id', profile.favorite_league_id)
             .maybeSingle();
@@ -95,9 +95,12 @@ export const AppStateProvider = ({ children }: { children: React.ReactNode }) =>
           }
         }
 
+        // `leagues!inner` drops teams whose league is archived (RLS hides the
+        // league row), so a member of a soft-deleted league doesn't resolve to a
+        // dead league on launch — they fall back to no-league like a new user.
         const { data } = await supabase
           .from('teams')
-          .select('id, league_id')
+          .select('id, league_id, leagues!teams_league_id_fkey!inner(id)')
           .eq('user_id', userId)
           .limit(1)
           .maybeSingle();

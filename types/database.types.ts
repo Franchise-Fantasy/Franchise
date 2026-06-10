@@ -98,6 +98,39 @@ export type Database = {
           },
         ]
       }
+      apns_debug_log: {
+        Row: {
+          host: string | null
+          id: number
+          reason: string | null
+          source: string
+          status: number | null
+          token_prefix: string | null
+          topic: string | null
+          ts: string
+        }
+        Insert: {
+          host?: string | null
+          id?: number
+          reason?: string | null
+          source: string
+          status?: number | null
+          token_prefix?: string | null
+          topic?: string | null
+          ts?: string
+        }
+        Update: {
+          host?: string | null
+          id?: number
+          reason?: string | null
+          source?: string
+          status?: number | null
+          token_prefix?: string | null
+          topic?: string | null
+          ts?: string
+        }
+        Relationships: []
+      }
       app_config: {
         Row: {
           key: string
@@ -1722,6 +1755,8 @@ export type Database = {
       }
       leagues: {
         Row: {
+          archived_at: string | null
+          archived_by: string | null
           auto_rumors_enabled: boolean
           buy_in_amount: number | null
           cashapp_tag: string | null
@@ -1782,6 +1817,8 @@ export type Database = {
           weekly_acquisition_limit: number | null
         }
         Insert: {
+          archived_at?: string | null
+          archived_by?: string | null
           auto_rumors_enabled?: boolean
           buy_in_amount?: number | null
           cashapp_tag?: string | null
@@ -1842,6 +1879,8 @@ export type Database = {
           weekly_acquisition_limit?: number | null
         }
         Update: {
+          archived_at?: string | null
+          archived_by?: string | null
           auto_rumors_enabled?: boolean
           buy_in_amount?: number | null
           cashapp_tag?: string | null
@@ -5989,6 +6028,7 @@ export type Database = {
         }
         Returns: Json
       }
+      archive_league: { Args: { p_league_id: string }; Returns: Json }
       assert_can_add_free_agent: {
         Args: { p_league_id: string; p_player_id?: string; p_team_id: string }
         Returns: undefined
@@ -6018,6 +6058,7 @@ export type Database = {
       claim_imported_team: { Args: { team_id_input: string }; Returns: string }
       cleanup_rate_limits: { Args: never; Returns: undefined }
       cron_watchdog: { Args: never; Returns: number }
+      decrement_team_count: { Args: { lid: string }; Returns: number }
       execute_draft_pick: {
         Args: {
           p_draft_id: string
@@ -6357,6 +6398,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      leave_league: { Args: { p_league_id: string }; Returns: Json }
       my_team_id: { Args: { p_league_id: string }; Returns: string }
       nfl_archive_awards: { Args: { p_season: number }; Returns: Json }
       nfl_archive_bracket: { Args: { p_season: number }; Returns: Json }
@@ -6497,11 +6539,19 @@ export type Database = {
         Args: { p_keep?: number; p_window_hours?: number }
         Returns: number
       }
+      reassign_commissioner: {
+        Args: { p_league_id: string; p_new_user_id: string }
+        Returns: Json
+      }
       record_cron_heartbeat: {
         Args: { p_error?: string; p_job: string; p_status: string }
         Returns: undefined
       }
       refresh_player_season_stats: { Args: never; Returns: undefined }
+      remove_member: {
+        Args: { p_league_id: string; p_team_id: string }
+        Returns: Json
+      }
       set_autopick: {
         Args: { p_draft_id: string; p_enabled: boolean; p_team_id: string }
         Returns: undefined
@@ -6520,6 +6570,10 @@ export type Database = {
         Returns: Json
       }
       try_cast_uuid: { Args: { val: string }; Returns: string }
+      vacate_team_internal: {
+        Args: { p_league_id: string; p_team_id: string; p_user_id: string }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never

@@ -22,6 +22,7 @@ import type { Database } from '../../../types/database.types.ts';
 import { errorResponse, handleError, jsonResponse } from '../_shared/http.ts';
 import { createLogger } from '../_shared/log.ts';
 import { notifyTeams, notifyLeague } from '../_shared/push.ts';
+import { getArchivedLeagueIds } from '../_shared/archivedLeagues.ts';
 
 import {
   loadTeamDataBatch,
@@ -167,8 +168,17 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ ok: true, finalized: 0, message: 'No completed weeks found' });
     }
 
-    const scheduleIds = pendingWeeks.map((w) => w.id);
-    const scheduleMap = new Map(pendingWeeks.map((w) => [w.id, w]));
+    // Skip archived (soft-deleted) leagues. Service role bypasses RLS, so filter
+    // their weeks out BEFORE the atomic claim below — otherwise their matchups
+    // get marked is_finalized and are then never scored or flushed.
+    const archivedLeagueIds = await getArchivedLeagueIds(supabase);
+    const activeWeeks = pendingWeeks.filter((w) => !archivedLeagueIds.has(w.league_id));
+    if (activeWeeks.length === 0) {
+      return jsonResponse({ ok: true, finalized: 0, message: 'No completed weeks found' });
+    }
+
+    const scheduleIds = activeWeeks.map((w) => w.id);
+    const scheduleMap = new Map(activeWeeks.map((w) => [w.id, w]));
 
     // Atomically claim unfinalized matchups via UPDATE ... RETURNING. If two
     // invocations race, only one wins each row.

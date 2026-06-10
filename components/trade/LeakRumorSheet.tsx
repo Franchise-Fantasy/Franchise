@@ -9,6 +9,7 @@ import { Colors } from '@/constants/Colors';
 import { useToast } from '@/context/ToastProvider';
 import { RUMOR_TEMPLATES, useLeakRumor } from '@/hooks/chat/useLeakRumor';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { abbreviateFirstName } from '@/utils/formatting';
 import { ms, s } from '@/utils/scale';
 
 
@@ -86,7 +87,7 @@ export function LeakRumorSheet({ proposalId, leagueId, teamId, players, onDone }
                   fontWeight: '500',
                   color: isActive ? c.statusText : c.text,
                 }}>
-                  {p.name} ({p.position})
+                  {abbreviateFirstName(p.name)} ({p.position})
                 </ThemedText>
               </TouchableOpacity>
             );

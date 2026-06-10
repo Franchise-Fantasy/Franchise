@@ -647,7 +647,14 @@ export default function HomeScreen() {
         router.push('/playoff-bracket');
         break;
       case 'draft_pending':
-        router.push('/draft-hub' as never);
+        // Once the draft is live, the whole hero drops straight into the room.
+        // The draft hub is a dynasty/future-picks surface that doesn't exist in
+        // redraft leagues, so it's the wrong target mid-draft.
+        if (activeDraft?.status === 'in_progress') {
+          onEnterDraft();
+        } else {
+          router.push('/draft-hub' as never);
+        }
         break;
       case 'invite_needed':
         router.push('/league-info' as never);

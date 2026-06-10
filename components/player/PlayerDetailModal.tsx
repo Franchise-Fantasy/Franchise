@@ -55,10 +55,10 @@ import {
   useLivePlayerStats,
 } from "@/utils/nba/nbaLive";
 import { isOnline } from "@/utils/network";
+import { checkAddDropPreflight } from "@/utils/roster/addDropPreflight";
 import { addFreeAgent } from "@/utils/roster/addFreeAgent";
 import { guardIllegalIR } from "@/utils/roster/illegalIR";
 import { guardOverCap } from "@/utils/roster/overCap";
-import { checkPositionLimits } from "@/utils/roster/positionLimits";
 import { isEligibleForSlot } from "@/utils/roster/rosterSlots";
 import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
 import { isTaxiEligible } from "@/utils/roster/taxiEligibility";
@@ -792,94 +792,22 @@ export function PlayerDetailModal({
 
     setIsProcessing(true);
     try {
-      // For add-and-drop, check weekly acquisition limit before proceeding.
-      // Must run before the queued-drop branch so locked-day add/drops are
-      // also gated by the limit.
+      // For add-and-drop, validate weekly + position limits before ANY mutation
+      // so a rejected add never strands the dropped player. Runs before the
+      // queued-drop branch so locked-day add/drops are gated too. The server
+      // RPC enforces the same rules as a backstop.
       if (playerToDrop && player) {
-        const { data: limitData } = await supabase
-          .from("leagues")
-          .select("weekly_acquisition_limit")
-          .eq("id", leagueId)
-          .single();
-        const wkLimit = limitData?.weekly_acquisition_limit as number | null;
-        if (wkLimit != null) {
-          const now = new Date();
-          const day = now.getUTCDay();
-          const mondayOffset = day === 0 ? -6 : 1 - day;
-          const monday = new Date(
-            Date.UTC(
-              now.getUTCFullYear(),
-              now.getUTCMonth(),
-              now.getUTCDate() + mondayOffset,
-            ),
-          );
-          const weekStart = monday.toISOString().split("T")[0];
-
-          const { count: addsThisWeek } = await supabase
-            .from("league_transactions")
-            .select("id, league_transaction_items!inner(team_to_id)", {
-              count: "exact",
-              head: true,
-            })
-            .eq("league_id", leagueId)
-            .eq("team_id", teamId)
-            .eq("type", "waiver")
-            .not("league_transaction_items.team_to_id", "is", null)
-            .gte("created_at", weekStart + "T00:00:00");
-
-          if ((addsThisWeek ?? 0) >= wkLimit) {
-            invalidateRosterQueries();
-            Alert.alert(
-              "Add Limit Reached",
-              `You've used all ${wkLimit} adds for this week.`,
-            );
-            setIsProcessing(false);
-            return;
-          }
-        }
-      }
-
-      // Position-limit pre-flight for add+drop. Runs before ANY mutation (the
-      // queued-drop insert below, or the immediate delete further down) so a
-      // rejected add never strands the dropped player. The player being dropped
-      // is excluded from the count — dropping a PG frees that slot for the add.
-      // The server RPC enforces the same rule as a backstop; this is the
-      // friendly pre-round-trip message. (Plain instant adds are gated in
-      // FreeAgentList / addFreeAgent.)
-      if (playerToDrop && player && player.position) {
-        const { data: limitData } = await supabase
-          .from("leagues")
-          .select("position_limits")
-          .eq("id", leagueId)
-          .single();
-        const posLimits = limitData?.position_limits as
-          | Record<string, number>
-          | null;
-        if (posLimits && Object.keys(posLimits).length > 0) {
-          const { data: rosterForLimits } = await supabase
-            .from("league_players")
-            .select("player_id, position, roster_slot")
-            .eq("league_id", leagueId)
-            .eq("team_id", teamId);
-          const violation = checkPositionLimits(
-            posLimits,
-            (rosterForLimits ?? [])
-              .filter((r) => r.player_id !== dropping.player_id)
-              .map((r) => ({
-                position: r.position,
-                roster_slot: r.roster_slot ?? undefined,
-              })),
-            player.position,
-          );
-          if (violation) {
-            invalidateRosterQueries();
-            Alert.alert(
-              "Position Limit Reached",
-              `Your roster already has the maximum of ${violation.max} players eligible at ${violation.position}.`,
-            );
-            setIsProcessing(false);
-            return;
-          }
+        const pre = await checkAddDropPreflight({
+          leagueId,
+          teamId,
+          incomingPosition: player.position,
+          dropPlayerId: dropping.player_id,
+        });
+        if (!pre.ok) {
+          invalidateRosterQueries();
+          Alert.alert(pre.title, pre.message);
+          setIsProcessing(false);
+          return;
         }
       }
 

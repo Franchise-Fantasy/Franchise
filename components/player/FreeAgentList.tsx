@@ -6,7 +6,14 @@ import {
   View,
 } from "react-native";
 
+import { CompareBar } from "@/components/player/CompareBar";
 import { FaabBidModal } from "@/components/player/FaabBidModal";
+import {
+  FreeAgentColumnKey,
+  FreeAgentEmptyState,
+  FreeAgentListHeader,
+  FreeAgentOffseasonBanner,
+} from "@/components/player/freeAgentListChrome";
 import {
   SKELETON_COUNT,
   SkeletonRibbon,
@@ -18,16 +25,14 @@ import {
   type PendingClaim,
 } from "@/components/player/FreeAgentStatusRibbon";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
-import { PlayerFilterBar } from "@/components/player/PlayerFilterBar";
-import { RosterNeedsStrip } from "@/components/player/RosterNeedsStrip";
 import { WaiverOrderModal } from "@/components/player/WaiverOrderModal";
 import { ProposeTradeModal } from "@/components/trade/ProposeTradeModal";
 import { InfoModal } from "@/components/ui/InfoModal";
 import { type ModalAction } from "@/components/ui/InlineAction";
 import { SubmitOverlay } from "@/components/ui/SubmitOverlay";
-import { ThemedText } from "@/components/ui/ThemedText";
 import { getPreviousSeason } from "@/constants/LeagueDefaults";
 import { queryKeys } from "@/constants/queryKeys";
+import { useCompareSelection } from "@/context/CompareSelectionProvider";
 import { useActionPicker, useConfirm } from "@/context/ConfirmProvider";
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColors } from "@/hooks/useColors";
@@ -75,6 +80,12 @@ interface FreeAgentListProps {
 export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   const c = useColors();
   const queryClient = useQueryClient();
+  const {
+    isCompareMode,
+    selectedIds: compareSelectedIds,
+    toggle: toggleCompare,
+    setCompareMode,
+  } = useCompareSelection();
   const [selectedPlayer, setSelectedPlayer] =
     useState<PlayerSeasonStats | null>(null);
   const [openAsDropPicker, setOpenAsDropPicker] = useState(false);
@@ -661,6 +672,17 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     return Array.from(set).sort();
   }, [allPlayers]);
 
+  // Merged props for the shared list header (filter state + page extras +
+  // compare toggle). Built once so the loading and loaded states stay in sync.
+  const headerFilterBarProps = {
+    ...filterBarProps,
+    availableProTeams,
+    timeRange,
+    onTimeRangeChange: setTimeRange,
+    compareMode: isCompareMode,
+    onToggleCompareMode: () => setCompareMode(!isCompareMode),
+  };
+
   const selectPlayer = (player: PlayerSeasonStats) => {
     setSelectedPlayer(seasonStatsMap.get(player.player_id) ?? player);
   };
@@ -1141,6 +1163,25 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     // user's own roster or unrostered free agents.
     const canTradeFor = owner != null && owner.teamId !== teamId;
 
+    // In compare mode a tap toggles selection; otherwise it opens the detail
+    // modal. The snapshot carries the full (non-time-range-adjusted) season row
+    // so the compare screen has real stats even for deep / non-top-600 players.
+    const handleRowPress = () => {
+      if (isCompareMode) {
+        toggleCompare({
+          player_id: item.player_id,
+          name: item.name,
+          position: item.position,
+          pro_team: item.pro_team,
+          external_id_nba: item.external_id_nba,
+          seasonStats: seasonStatsMap.get(item.player_id) ?? item,
+          ownerTag: owner?.teamName ?? null,
+        });
+      } else {
+        selectPlayer(item);
+      }
+    };
+
     return (
       <FreeAgentRow
         player={item}
@@ -1157,7 +1198,9 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         ownerTeamName={owner?.teamName ?? null}
         sport={sport}
         isDisabled={draftInProgress || isOffseason || weeklyLimitReached}
-        onPress={() => selectPlayer(item)}
+        compareMode={isCompareMode}
+        compareSelected={compareSelectedIds.has(item.player_id)}
+        onPress={handleRowPress}
         onAddOrClaimPress={() => handleButtonPress(item)}
         onTradePress={
           canTradeFor
@@ -1173,51 +1216,15 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     ? Math.max(0, rosterInfo.maxSize - rosterInfo.activeCount)
     : 0;
 
-  // Stat-key labels above the slash-line column, rendered on their own
-  // colKey row below the ribbon (or the offseason banner). Right-aligned
-  // so they sit over the row slash-line values, not the round add button.
-  const colKeyContent = (
-    <>
-      <View
-        style={[
-          styles.colKeyStats,
-          isCategories ? styles.statsCategories : styles.statsPoints,
-        ]}
-      >
-        <ThemedText
-          type="varsitySmall"
-          style={[styles.colKeyText, { color: c.secondaryText }]}
-          accessibilityLabel={
-            isCategories
-              ? 'Stat columns: points, rebounds, assists, steals, blocks'
-              : 'Stat columns: points, rebounds, assists'
-          }
-        >
-          {isCategories ? 'PTS · REB · AST · STL · BLK' : 'PTS · REB · AST'}
-        </ThemedText>
-      </View>
-      <View style={styles.colKeyAddSpacer} />
-    </>
-  );
-
   if (isLoading) {
     return (
       <View style={styles.container}>
-        {chipPositions.length > 0 && (
-          <RosterNeedsStrip
-            positions={chipPositions}
-            counts={myTeamCounts}
-            states={positionStates}
-            openSlots={openSlots}
-            selectedPosition={filterBarProps.selectedPosition}
-            onPositionChange={filterBarProps.onPositionChange}
-          />
-        )}
-        <PlayerFilterBar
-          {...filterBarProps}
-          availableProTeams={availableProTeams}
-          timeRange={timeRange}
-          onTimeRangeChange={setTimeRange}
+        <FreeAgentListHeader
+          chipPositions={chipPositions}
+          rosterCounts={myTeamCounts}
+          rosterStates={positionStates}
+          openSlots={openSlots}
+          filterBarProps={headerFilterBarProps}
         />
         <SkeletonRibbon color={c.border} />
         <View style={styles.listContent}>
@@ -1231,44 +1238,15 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
   return (
     <View style={styles.container}>
-      {chipPositions.length > 0 && (
-        <RosterNeedsStrip
-          positions={chipPositions}
-          counts={myTeamCounts}
-          states={positionStates}
-          openSlots={openSlots}
-          selectedPosition={filterBarProps.selectedPosition}
-          onPositionChange={filterBarProps.onPositionChange}
-        />
-      )}
-      <PlayerFilterBar
-        {...filterBarProps}
-        availableProTeams={availableProTeams}
-        timeRange={timeRange}
-        onTimeRangeChange={setTimeRange}
+      <FreeAgentListHeader
+        chipPositions={chipPositions}
+        rosterCounts={myTeamCounts}
+        rosterStates={positionStates}
+        openSlots={openSlots}
+        filterBarProps={headerFilterBarProps}
       />
 
-      {isOffseason && (
-        <View
-          style={[
-            styles.offseasonBanner,
-            { backgroundColor: c.cardAlt, borderColor: c.gold + '40' },
-          ]}
-        >
-          <View style={styles.offseasonEyebrowRow}>
-            <View style={[styles.offseasonRule, { backgroundColor: c.gold }]} />
-            <ThemedText
-              type="varsitySmall"
-              style={[styles.offseasonEyebrow, { color: c.gold }]}
-            >
-              OFFSEASON
-            </ThemedText>
-          </View>
-          <ThemedText style={[styles.offseasonBody, { color: c.secondaryText }]}>
-            The wire is closed. Reopens at season start.
-          </ThemedText>
-        </View>
-      )}
+      {isOffseason && <FreeAgentOffseasonBanner />}
 
       {!isOffseason && hasRibbonContent && (
         <FreeAgentStatusRibbon
@@ -1311,32 +1289,25 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       )}
 
       <View style={[styles.colKey, { borderBottomColor: c.border }]}>
-        {colKeyContent}
+        <FreeAgentColumnKey isCategories={isCategories} />
       </View>
 
       <FlatList<PlayerSeasonStats>
         data={filteredPlayers}
         renderItem={renderPlayer}
         keyExtractor={(item) => item.player_id}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[
+          styles.listContent,
+          // Clear the floating compare bar so the last rows aren't hidden.
+          isCompareMode && styles.listContentCompare,
+        ]}
         initialNumToRender={15}
         maxToRenderPerBatch={15}
         windowSize={5}
-        ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <View style={[styles.emptyRule, { backgroundColor: c.gold }]} />
-            <ThemedText
-              type="varsitySmall"
-              style={[styles.emptyEyebrow, { color: c.gold }]}
-            >
-              NO PLAYERS MATCH.
-            </ThemedText>
-            <ThemedText style={[styles.emptyBody, { color: c.secondaryText }]}>
-              Adjust the filters above to widen the search.
-            </ThemedText>
-          </View>
-        }
+        ListEmptyComponent={<FreeAgentEmptyState />}
       />
+
+      <CompareBar />
 
       <PlayerDetailModal
         player={selectedPlayer}

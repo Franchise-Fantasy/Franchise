@@ -72,9 +72,13 @@ Deno.serve(async (req: Request) => {
     if (expiredWaivers && expiredWaivers.length > 0) {
       // Batch-fetch all leagues for expired waivers
       const leagueIds = [...new Set(expiredWaivers.map(w => w.league_id))];
+      // Archived leagues bypass RLS here (service role); a deleted league must
+      // not have its waivers processed. Filtered out → `if (!league) continue`
+      // below clears the expired row to free agency without notifying.
       const { data: leaguesData } = await supabase
         .from('leagues').select('id, name, waiver_type, waiver_period_days')
-        .in('id', leagueIds);
+        .in('id', leagueIds)
+        .is('archived_at', null);
       const leagueMap = new Map((leaguesData ?? []).map(l => [l.id, l]));
 
       for (const waiver of expiredWaivers) {

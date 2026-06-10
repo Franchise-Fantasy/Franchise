@@ -27,6 +27,7 @@ import { FptsBreakdownModal } from "@/components/player/FptsBreakdownModal";
 import { MatchupChip } from "@/components/player/MatchupChip";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import { PlayerHeadshotImage } from "@/components/player/PlayerHeadshotImage";
+import { PlayerName } from "@/components/player/PlayerName";
 import { AnimatedFpts } from "@/components/roster/AnimatedFpts";
 import { IrLockBanner } from "@/components/roster/IrLockBanner";
 import { MyPicksSection } from "@/components/roster/MyPicksSection";
@@ -1860,13 +1861,12 @@ export default function RosterScreen() {
                   page. */}
               <View style={styles.slotLine1}>
                 {isOnCourt && <OnCourtDot />}
-                <ThemedText
+                <PlayerName
+                  name={slot.player.name}
                   type="defaultSemiBold"
-                  style={[styles.slotPlayerName, { flexShrink: 1 }]}
-                  numberOfLines={1}
-                >
-                  {slot.player.name}
-                </ThemedText>
+                  style={styles.slotPlayerName}
+                  containerStyle={{ flexShrink: 1 }}
+                />
                 {(() => {
                   const badge = getInjuryBadge(slot.player.status);
                   return badge ? (

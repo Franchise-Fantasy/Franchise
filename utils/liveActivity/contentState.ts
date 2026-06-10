@@ -27,6 +27,53 @@ export type LiveCategoryLine = {
   inverse: boolean;
 };
 
+/**
+ * "A moment" — the hero row above the player ticker. Surfaced by
+ * get-week-scores when a recent live_scoring_event qualifies (3-pt make,
+ * threshold cross, big fpts swing). Falls back to marginTrend / nextTipoff
+ * when no recent event exists. See widgets/MatchupActivity.tsx for render.
+ */
+export type LiveMoment = {
+  /** Routing/style hint — widget picks icon + color. */
+  kind: 'event' | 'threshold' | 'swing';
+  /** SF Symbol shortcut: 'flame' = make, 'bolt' = swing, 'check' = threshold. */
+  icon: 'flame' | 'bolt' | 'check';
+  /** Renderable headline — e.g. "A. WILSON — 3-POINTER" or "K. PLUM +6.4 last min". */
+  text: string;
+  /** 'me' = my roster (green tint), 'opp' = opponent (red tint). */
+  side: 'me' | 'opp';
+  /** Age in seconds — widget formats as "just now" / "Ns ago" / "Nm ago". */
+  ageSec: number;
+};
+
+/**
+ * Margin trajectory — the fallback hero row when nothing fresh happened but
+ * games are live. Shows whether the gap is closing or widening over the last
+ * ~10 minutes from the perspective of my team.
+ */
+export type LiveMarginTrend = {
+  /** Current scoreGap (signed; positive = my lead). */
+  current: number;
+  /** Stored scoreGap from earlierMinAgo minutes back. */
+  earlier: number;
+  /** How many minutes ago `earlier` was captured. */
+  earlierMinAgo: number;
+};
+
+/**
+ * "Up next" — the State-3 fallback when no live games. Surfaces the first
+ * tipoff that involves at least one rostered starter on either side.
+ */
+export type LiveNextTipoff = {
+  /** "7:00 ET" — caller-formatted. */
+  timeText: string;
+  /** "NYL vs CHI" — caller-formatted. */
+  matchup: string;
+  /** Starter counts so the user knows whether to care. */
+  myStarters: number;
+  oppStarters: number;
+};
+
 type ContentStateBase = {
   myTeamName: string;
   opponentTeamName: string;
@@ -41,6 +88,14 @@ type ContentStateBase = {
   myLogoFileUri?: string;
   opponentLogoFileUri?: string;
   patchFileUri?: string;
+  /**
+   * Hero row in priority order: moment > marginTrend > nextTipoff. Widget
+   * renders whichever is non-null. All three optional — when all absent the
+   * widget falls back to just biggestContributor.
+   */
+  moment?: LiveMoment;
+  marginTrend?: LiveMarginTrend;
+  nextTipoff?: LiveNextTipoff;
 };
 
 export type PointsContentState = ContentStateBase & {
@@ -136,6 +191,9 @@ export function buildPointsContentState(input: {
   myLogoFileUri?: string;
   opponentLogoFileUri?: string;
   patchFileUri?: string;
+  moment?: LiveMoment;
+  marginTrend?: LiveMarginTrend;
+  nextTipoff?: LiveNextTipoff;
 }): PointsContentState {
   return {
     mode: 'points',
@@ -154,6 +212,9 @@ export function buildPointsContentState(input: {
     myLogoFileUri: input.myLogoFileUri,
     opponentLogoFileUri: input.opponentLogoFileUri,
     patchFileUri: input.patchFileUri,
+    moment: input.moment,
+    marginTrend: input.marginTrend,
+    nextTipoff: input.nextTipoff,
   };
 }
 

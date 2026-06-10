@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useMemo } from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
+import { PlayerName } from '@/components/player/PlayerName';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Fonts } from '@/constants/Colors';
 import { type Sport } from '@/constants/LeagueDefaults';
@@ -112,9 +113,11 @@ export function PerformanceVsExpected({ players, weights, sport }: PerformanceVs
             const barWidth = maxAbsDelta > 0 ? Math.abs(r.delta) / maxAbsDelta : 0;
             return (
               <View key={r.playerId} style={styles.row}>
-                <ThemedText style={[styles.name, { color: c.text }]} numberOfLines={1}>
-                  {r.name}
-                </ThemedText>
+                <PlayerName
+                  name={r.name}
+                  style={[styles.name, { color: c.text }]}
+                  containerStyle={{ flex: 1 }}
+                />
                 <View style={styles.barWrap}>
                   <View
                     style={[

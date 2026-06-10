@@ -5,6 +5,7 @@ import { useState } from "react";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 import { PlayerHeadshotImage } from "@/components/player/PlayerHeadshotImage";
+import { PlayerName } from "@/components/player/PlayerName";
 import {
   rosterStyles as styles,
   slotPillVariant,
@@ -66,7 +67,13 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
   const { data: rosterPlayers, isLoading: isLoadingPlayers } = useQuery<
     RosterPlayer[]
   >({
-    queryKey: queryKeys.teamRoster(teamId),
+    // Distinct from the thin {position, roster_slot} position-limit query that
+    // AvailablePlayers / DraftQueue cache under the bare teamRoster(teamId) key.
+    // Sharing that key let their lighter shape populate the cache first (they're
+    // mounted before this tab), so this view rendered blank names/stats/photos
+    // until a roster-change invalidation forced a refetch of the full shape.
+    // Still under the "teamRoster" prefix, so every broad invalidation hits it.
+    queryKey: queryKeys.teamRoster(teamId, "draft"),
     queryFn: async () => {
       const { data: leaguePlayers, error: lpError } = await supabase
         .from("league_players")
@@ -340,13 +347,12 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
 
             <View style={styles.slotPlayerInfo}>
               <View style={styles.slotLine1}>
-                <ThemedText
+                <PlayerName
+                  name={player.name}
                   type="defaultSemiBold"
-                  style={[styles.slotPlayerName, { flexShrink: 1 }]}
-                  numberOfLines={1}
-                >
-                  {player.name}
-                </ThemedText>
+                  style={styles.slotPlayerName}
+                  containerStyle={{ flexShrink: 1 }}
+                />
                 {(() => {
                   const badge = getInjuryBadge(player.status);
                   return badge ? (

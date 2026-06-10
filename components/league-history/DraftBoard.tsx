@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 
+import { PlayerName } from '@/components/player/PlayerName';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Fonts } from '@/constants/Colors';
@@ -164,12 +165,20 @@ export function DraftBoard({ leagueId }: DraftBoardProps) {
                 </View>
 
                 <View style={styles.playerInfo}>
-                  <ThemedText
-                    style={[styles.playerName, { color: c.text }]}
-                    numberOfLines={1}
-                  >
-                    {pick.player_name ?? '—'}
-                  </ThemedText>
+                  {pick.player_name ? (
+                    <PlayerName
+                      name={pick.player_name}
+                      style={[styles.playerName, { color: c.text, textAlign: 'right' }]}
+                      containerStyle={styles.playerNameWrap}
+                    />
+                  ) : (
+                    <ThemedText
+                      style={[styles.playerName, { color: c.text }]}
+                      numberOfLines={1}
+                    >
+                      —
+                    </ThemedText>
+                  )}
                   {pick.player_position && (
                     <ThemedText
                       type="varsitySmall"
@@ -272,6 +281,7 @@ const styles = StyleSheet.create({
   },
   playerInfo: { alignItems: 'flex-end', maxWidth: s(140) },
   playerName: { fontSize: ms(13) },
+  playerNameWrap: { alignSelf: 'stretch' },
   playerPos: {
     fontSize: ms(9),
     letterSpacing: 1.2,

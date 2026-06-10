@@ -19,7 +19,6 @@
         "buildType": "apk"
       },
       "env": {
-        "SENTRY_DISABLE_AUTO_UPLOAD": "true",
         "SHARP_IGNORE_GLOBAL_LIBVIPS": "1"
       }
     },
@@ -27,7 +26,6 @@
       "autoIncrement": true,
       "channel": "production",
       "env": {
-        "SENTRY_DISABLE_AUTO_UPLOAD": "true",
         "SHARP_IGNORE_GLOBAL_LIBVIPS": "1"
       }
     }

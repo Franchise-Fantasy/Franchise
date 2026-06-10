@@ -7,6 +7,7 @@ import { Fonts, cardShadow } from '@/constants/Colors';
 import { useColors } from '@/hooks/useColors';
 import { type Transaction, type TransactionItem } from '@/hooks/useTransactions';
 import { formatPickLabelShort } from '@/types/trade';
+import { abbreviateFirstName } from '@/utils/formatting';
 import { ms, s } from '@/utils/scale';
 
 type TeamRef = { name: string; logo_key: string | null };
@@ -109,7 +110,7 @@ function buildTradeSummary(
     const toSuffix =
       isMultiTeam && item.team_to?.name ? ` → ${item.team_to.name}` : '';
     if (item.player?.name) {
-      sendsByTeam[from].push(item.player.name + toSuffix);
+      sendsByTeam[from].push(abbreviateFirstName(item.player.name) + toSuffix);
     } else if (item.draft_pick) {
       sendsByTeam[from].push(
         formatPickLabelShort(item.draft_pick.season, item.draft_pick.round) +

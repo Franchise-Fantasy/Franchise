@@ -1,4 +1,4 @@
-import type { MergeWindow } from '@/utils/league/scheduleWindows';
+import { schedulableEnd, type MergeWindow } from '@/utils/league/scheduleWindows';
 
 export interface RosterSlot {
   position: string;
@@ -341,6 +341,17 @@ export function getSeasonStart(sport: Sport, season: string): string | undefined
   const cached = cachedSeasonRow(sport, season);
   if (cached) return cached.start_date;
   return sport === 'wnba' ? WNBA_SEASON_START[season] : NBA_SEASON_START[season];
+}
+
+/** Last date a fantasy season for this sport+season may be scheduled to. A
+ *  terminal merge window (the WNBA FIBA break) walls off the season end — the
+ *  regular season AND playoffs must finish before it — so the effective end is
+ *  the day before the break, not the pro season's listed end. Returns the pro
+ *  end unchanged when there's no terminal break. Drives the create/edit
+ *  start-date picker max and the season-end preview. */
+export function getSchedulableSeasonEnd(sport: Sport, season: string): string | undefined {
+  const end = getSeasonEnd(sport, season);
+  return end ? schedulableEnd(end, getMergeWindows(sport, season)) : undefined;
 }
 
 // Hardcoded merge-window fallbacks — mirror the season_config.merge_windows seed

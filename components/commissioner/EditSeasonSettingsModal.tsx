@@ -19,7 +19,7 @@ import { BrandButton } from '@/components/ui/BrandButton';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { getCurrentSeason, getMaxPlayoffWeeks, getSeasonEnd, parseSeasonStartYear, PLAYOFF_SEEDING_OPTIONS, PlayoffSeedingOption, seedingDisplay, SEEDING_TO_DB, SPORT_OPENING_MONTH, startDateBelongsToSeason, TIEBREAKER_DISPLAY, TIEBREAKER_OPTIONS, TIEBREAKER_TO_DB, TiebreakerOption } from '@/constants/LeagueDefaults';
+import { getCurrentSeason, getMaxPlayoffWeeks, getSchedulableSeasonEnd, parseSeasonStartYear, PLAYOFF_SEEDING_OPTIONS, PlayoffSeedingOption, seedingDisplay, SEEDING_TO_DB, SPORT_OPENING_MONTH, startDateBelongsToSeason, TIEBREAKER_DISPLAY, TIEBREAKER_OPTIONS, TIEBREAKER_TO_DB, TiebreakerOption } from '@/constants/LeagueDefaults';
 import { useColors } from '@/hooks/useColors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
@@ -171,12 +171,13 @@ export function EditSeasonSettingsModal({
     onClose();
   }
 
-  // Date-picker bounds: can't start in the past, can't run past the pro
-  // season's regular-season end. The picker opens on the chosen date, or a
-  // sensible default near today when nothing is set yet.
+  // Date-picker bounds: can't start in the past, can't run past the season's
+  // schedulable end — the day before a terminal break (WNBA FIBA) when there is
+  // one, else the pro season's regular-season end. The picker opens on the
+  // chosen date, or a sensible default near today when nothing is set yet.
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const seasonEndStr = league?.season ? getSeasonEnd(sport, league.season) : undefined;
+  const seasonEndStr = league?.season ? getSchedulableSeasonEnd(sport, league.season) : undefined;
   const maxDate = seasonEndStr
     ? new Date(seasonEndStr + 'T00:00:00')
     : undefined;

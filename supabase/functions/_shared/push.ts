@@ -210,6 +210,33 @@ export async function notifyLeague(
   await cleanDeadTokens(supabase, dead);
 }
 
+// Single notification to a set of users addressed by user_id (not team).
+// Use when the recipient's team may be vacated (user_id NULL) so team-based
+// token resolution would miss them — e.g. membership-change notices.
+export async function notifyUsers(
+  supabase: SupabaseClient,
+  userIds: string[],
+  leagueId: string,
+  category: NotifCategory,
+  title: string,
+  body: string,
+  data?: Record<string, unknown>,
+  excludeUserIds?: string[],
+  opts?: NotifyOptions,
+): Promise<void> {
+  const tokens = await getTokensForUsers(supabase, userIds, category, excludeUserIds, leagueId);
+  if (tokens.length === 0) return;
+  const channelId = CHANNEL_MAP[category] ?? category;
+  const dead = await sendPush(tokens.map(to => ({
+    to, title, body,
+    data: { ...data, league_id: leagueId, channelId },
+    channelId,
+    ...(opts?.subtitle ? { subtitle: opts.subtitle } : {}),
+    ...(opts?.priority ? { priority: opts.priority } : {}),
+  })));
+  await cleanDeadTokens(supabase, dead);
+}
+
 export interface BulkTeamsNotification {
   teamIds: string[];
   title: string;

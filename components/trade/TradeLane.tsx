@@ -10,6 +10,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { PlayerHeadshotImage } from '@/components/player/PlayerHeadshotImage';
+import { PlayerName } from '@/components/player/PlayerName';
 import { TradeLaneShell } from '@/components/trade/TradeLaneShell';
 import { Badge } from '@/components/ui/Badge';
 import { BrandButton } from '@/components/ui/BrandButton';
@@ -227,13 +228,12 @@ function PlayerAssetRow({
         />
       </View>
       <View style={styles.info}>
-        <ThemedText
+        <PlayerName
+          name={player.name}
           type="defaultSemiBold"
           style={[styles.name, { color: c.text }]}
-          numberOfLines={1}
-        >
-          {player.name}
-        </ThemedText>
+          containerStyle={{ flexShrink: 1 }}
+        />
         <ThemedText
           type="varsitySmall"
           style={[styles.eyebrow, { color: c.secondaryText }]}

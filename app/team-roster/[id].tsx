@@ -17,6 +17,7 @@ import { OnCourtDot } from '@/components/matchup/PlayerCell';
 import { MatchupChip } from '@/components/player/MatchupChip';
 import { PlayerDetailModal } from '@/components/player/PlayerDetailModal';
 import { PlayerHeadshotImage } from '@/components/player/PlayerHeadshotImage';
+import { PlayerName } from '@/components/player/PlayerName';
 import { AnimatedFpts } from '@/components/roster/AnimatedFpts';
 import {
   buildSeasonAverages,
@@ -681,13 +682,12 @@ export default function TeamRosterScreen() {
               {/* On-court dot leads the name line (mirrors roster + matchup). */}
               <View style={styles.slotLine1}>
                 {isOnCourt && <OnCourtDot />}
-                <ThemedText
+                <PlayerName
+                  name={slot.player.name}
                   type="defaultSemiBold"
-                  style={[styles.slotPlayerName, { flexShrink: 1 }]}
-                  numberOfLines={1}
-                >
-                  {slot.player.name}
-                </ThemedText>
+                  style={styles.slotPlayerName}
+                  containerStyle={{ flexShrink: 1 }}
+                />
                 {(() => {
                   const badge = getInjuryBadge(slot.player.status);
                   return badge ? (

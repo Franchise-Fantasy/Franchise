@@ -138,6 +138,11 @@ export function TradeFloor({
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        // Notes input sits at the bottom of the scroll; inside a fullScreen
+        // Modal iOS won't resize for the keyboard, so it'd be hidden behind
+        // it. This insets the scroll content by the keyboard height and lifts
+        // the focused input into view (iOS-only; Android resizes the window).
+        automaticallyAdjustKeyboardInsets
       >
         {/* Counteroffer / edit badges */}
         {(isCounteroffer || isEdit) && (

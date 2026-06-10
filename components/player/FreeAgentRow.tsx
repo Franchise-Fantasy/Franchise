@@ -1,19 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
-import { useState } from 'react';
-import { Text, TouchableOpacity, View } from 'react-native';
+import { TouchableOpacity, View } from 'react-native';
 
-import { PlayerHeadshotImage } from '@/components/player/PlayerHeadshotImage';
+import { PlayerName } from '@/components/player/PlayerName';
+import { PlayerPortrait } from '@/components/player/PlayerPortrait';
 import { Badge } from '@/components/ui/Badge';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { type Sport } from '@/constants/LeagueDefaults';
 import { useColors } from '@/hooks/useColors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { type PlayerSeasonStats } from '@/types/player';
-import { abbreviateFirstName, formatPosition } from '@/utils/formatting';
+import { formatPosition } from '@/utils/formatting';
 import { getInjuryBadge } from '@/utils/nba/injuryBadge';
-import { getTeamLogoUrl } from '@/utils/nba/playerHeadshot';
-import { ms } from '@/utils/scale';
+import { ms, s } from '@/utils/scale';
 
 import { freeAgentListStyles as styles } from './freeAgentListStyles';
 
@@ -39,6 +37,10 @@ interface FreeAgentRowProps {
   /** Present only when the player is rostered by another team — taps open a
    *  trade proposal pre-seeded with this player on that team's side. */
   onTradePress?: () => void;
+  /** When true, the row is in compare-pick mode: tapping selects rather than
+   *  opening detail, and the add/trade CTA is replaced by a selection toggle. */
+  compareMode?: boolean;
+  compareSelected?: boolean;
 }
 
 /**
@@ -65,18 +67,13 @@ export function FreeAgentRow({
   onPress,
   onAddOrClaimPress,
   onTradePress,
+  compareMode,
+  compareSelected,
 }: FreeAgentRowProps) {
   const c = useColors();
   const scheme = useColorScheme() ?? 'light';
 
-  const logoUrl = getTeamLogoUrl(player.pro_team, sport);
   const injury = getInjuryBadge(player.status);
-
-  // Swap to "F. LastName" only when the full name would have been clipped.
-  // A hidden Text laid out in the same flex slot reports its natural line
-  // count via onTextLayout — > 1 line means the full name doesn't fit.
-  const [nameOverflows, setNameOverflows] = useState(false);
-  const displayName = nameOverflows ? abbreviateFirstName(player.name) : player.name;
 
   const a11yLabel =
     `${player.name}, ${formatPosition(player.position)}, ${player.pro_team}` +
@@ -97,66 +94,33 @@ export function FreeAgentRow({
         { borderBottomColor: c.border },
         index % 2 === 1 && { backgroundColor: c.cardAlt },
         isLast && { borderBottomWidth: 0 },
+        compareSelected && { backgroundColor: c.activeCard },
       ]}
       onPress={onPress}
       activeOpacity={0.7}
       accessibilityRole="button"
       accessibilityLabel={a11yLabel}
+      accessibilityState={compareMode ? { selected: !!compareSelected } : undefined}
     >
-      <View style={styles.portraitWrap}>
-        <View
-          style={[
-            styles.headshotCircle,
-            { borderColor: c.heritageGold, backgroundColor: c.cardAlt },
-          ]}
-        >
-          <PlayerHeadshotImage
-            externalIdNba={player.external_id_nba}
-            sport={sport}
-            style={styles.headshotImg}
-          />
-        </View>
-        <View style={styles.teamPill}>
-          {logoUrl && (
-            <Image
-              source={{ uri: logoUrl }}
-              style={styles.teamPillLogo}
-              contentFit="contain"
-              cachePolicy="memory-disk"
-              recyclingKey={logoUrl}
-            />
-          )}
-          <Text style={[styles.teamPillText, { color: c.statusText }]}>
-            {player.pro_team}
-          </Text>
-        </View>
-      </View>
+      <PlayerPortrait
+        externalIdNba={player.external_id_nba}
+        proTeam={player.pro_team}
+        sport={sport}
+        size={s(54)}
+        imageHeight={s(48)}
+        teamLogoSize={s(10)}
+        teamTextFontSize={ms(8)}
+        containerStyle={styles.portraitWrap}
+      />
 
       <View style={styles.info}>
         <View style={styles.nameRow}>
-          <View style={styles.nameWrap}>
-            {!nameOverflows && (
-              <ThemedText
-                type="defaultSemiBold"
-                style={[styles.nameMeasure, { fontSize: ms(14) }]}
-                onTextLayout={(e) => {
-                  if (e.nativeEvent.lines.length > 1) setNameOverflows(true);
-                }}
-                pointerEvents="none"
-                accessibilityElementsHidden
-                importantForAccessibility="no"
-              >
-                {player.name}
-              </ThemedText>
-            )}
-            <ThemedText
-              type="defaultSemiBold"
-              numberOfLines={1}
-              style={{ fontSize: ms(14) }}
-            >
-              {displayName}
-            </ThemedText>
-          </View>
+          <PlayerName
+            name={player.name}
+            type="defaultSemiBold"
+            style={{ fontSize: ms(14) }}
+            containerStyle={styles.nameWrap}
+          />
           {injury && (
             <Badge
               label={injury.label}
@@ -254,7 +218,14 @@ export function FreeAgentRow({
             </>
           )}
         </View>
-        {!isRostered ? (
+        {compareMode ? (
+          <Ionicons
+            name={compareSelected ? 'checkmark-circle' : 'ellipse-outline'}
+            size={ms(24)}
+            color={compareSelected ? c.gold : c.secondaryText}
+            accessible={false}
+          />
+        ) : !isRostered ? (
           <TouchableOpacity
             style={[
               needsClaim

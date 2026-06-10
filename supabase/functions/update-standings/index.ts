@@ -28,7 +28,8 @@ Deno.serve(async (req: Request) => {
       .from("leagues")
       .select("id, scoring_type")
       .eq("schedule_generated", true)
-      .is("offseason_step", null);
+      .is("offseason_step", null)
+      .is("archived_at", null);
 
     if (!activeLeagues || activeLeagues.length === 0) {
       return jsonResponse({ ok: true, updated: 0, message: "No active leagues" });

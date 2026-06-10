@@ -71,12 +71,6 @@
           "iosUrlScheme": "com.googleusercontent.apps.352302197811-pt3tu6ohuktd738g1gtk81jsrqmk7p14"
         }
       ],
-      [
-        "@sentry/react-native/expo",
-        {
-          "uploadSourceMaps": false
-        }
-      ],
       "expo-image",
       "expo-sharing",
       [

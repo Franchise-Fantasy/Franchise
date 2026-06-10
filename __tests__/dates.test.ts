@@ -8,7 +8,7 @@ jest.mock('react-native', () => ({
   },
 }));
 
-import { addDays, formatDateTimeWithZone, formatShortDate, parseLocalDate, toDateStr } from '@/utils/dates';
+import { addDays, defaultLeagueDay, formatDateTimeWithZone, formatShortDate, parseLocalDate, toDateStr } from '@/utils/dates';
 
 describe('toDateStr', () => {
   it('formats local date as YYYY-MM-DD', () => {
@@ -65,6 +65,27 @@ describe('addDays', () => {
     // 2024 is a leap year
     expect(addDays('2024-02-28', 1)).toBe('2024-02-29');
     expect(addDays('2024-02-29', 1)).toBe('2024-03-01');
+  });
+});
+
+describe('defaultLeagueDay', () => {
+  it('returns opening night when the season starts in the future', () => {
+    // A not-yet-started league should open on its first day, not today.
+    expect(defaultLeagueDay('2026-06-07', '2026-06-08')).toBe('2026-06-08');
+    expect(defaultLeagueDay('2026-06-07', '2026-10-20')).toBe('2026-10-20');
+  });
+
+  it('returns today when the season is already under way', () => {
+    expect(defaultLeagueDay('2026-06-10', '2026-06-08')).toBe('2026-06-10');
+  });
+
+  it('returns today when today equals opening night', () => {
+    expect(defaultLeagueDay('2026-06-08', '2026-06-08')).toBe('2026-06-08');
+  });
+
+  it('falls back to today when there is no schedule yet', () => {
+    expect(defaultLeagueDay('2026-06-07', null)).toBe('2026-06-07');
+    expect(defaultLeagueDay('2026-06-07', undefined)).toBe('2026-06-07');
   });
 });
 

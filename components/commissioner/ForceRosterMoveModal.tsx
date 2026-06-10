@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 
+import { PlayerName } from '@/components/player/PlayerName';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
@@ -207,7 +208,7 @@ export function ForceRosterMoveModal({ visible, leagueId, teams, onClose }: Prop
                   >
                     <View style={{ flex: 1 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(6) }}>
-                        <ThemedText style={{ fontWeight: '600' }}>{item.name}</ThemedText>
+                        <PlayerName name={item.name} style={{ fontWeight: '600' }} containerStyle={{ flexShrink: 1 }} />
                         {badge && (
                           <View style={[styles.badge, { backgroundColor: badge.color + '22' }]}>
                             <Text style={{ color: badge.color, fontSize: ms(10), fontWeight: '700' }}>{badge.label}</Text>

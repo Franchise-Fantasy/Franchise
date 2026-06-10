@@ -10,6 +10,7 @@ import {
 } from "react-native";
 
 import { PlayerHeadshotImage } from "@/components/player/PlayerHeadshotImage";
+import { PlayerName } from "@/components/player/PlayerName";
 import { buildSeasonAverages } from "@/components/roster/rosterData";
 import { SeasonMetaLine } from "@/components/roster/SeasonMetaLine";
 import { SectionEyebrow } from "@/components/roster/SectionEyebrow";
@@ -344,9 +345,12 @@ export function SlotPickerModal({
                   </View>
                   <View style={styles.rowInfo}>
                     <View style={styles.nameLine}>
-                      <ThemedText type="defaultSemiBold" numberOfLines={1} style={styles.nameText}>
-                        {item.name}
-                      </ThemedText>
+                      <PlayerName
+                        name={item.name}
+                        type="defaultSemiBold"
+                        style={styles.nameText}
+                        containerStyle={{ flexShrink: 1 }}
+                      />
                       {itemBadge && (
                         <View style={[styles.injuryBadge, { backgroundColor: itemBadge.color }]}>
                           <Text style={[styles.injuryText, { color: cc.statusText }]}>{itemBadge.label}</Text>
@@ -465,13 +469,12 @@ export function SlotPickerModal({
                     </View>
                     <View style={styles.rowInfo}>
                       <View style={styles.nameLine}>
-                        <ThemedText
+                        <PlayerName
+                          name={player.name}
                           type="defaultSemiBold"
-                          numberOfLines={1}
                           style={[styles.nameText, { fontSize: ms(15) }]}
-                        >
-                          {player.name}
-                        </ThemedText>
+                          containerStyle={{ flexShrink: 1 }}
+                        />
                         {(() => {
                           const badge = getInjuryBadge(player.status);
                           return badge ? (
