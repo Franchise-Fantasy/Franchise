@@ -185,6 +185,48 @@ export function useExtractHistory() {
   });
 }
 
+export interface ExtractedTradedPick {
+  year: number | null;
+  round: number | null;
+  original_team: string;
+  new_owner: string;
+}
+
+export interface TradedPicksExtractionResult {
+  picks: ExtractedTradedPick[];
+}
+
+export function useExtractTradedPicks() {
+  return useMutation<TradedPicksExtractionResult, Error, { images: ImageData[]; team_names?: string[]; draft_year?: number }>({
+    mutationFn: async ({ images, team_names, draft_year }) => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not logged in');
+
+      if (estimatePayloadBytes(images) > MAX_PAYLOAD_BYTES) {
+        throw new Error('Screenshots are too large. Try fewer images or lower quality.');
+      }
+
+      const res = await supabase.functions.invoke('import-screenshot-league', {
+        body: { action: 'extract_traded_picks', images, team_names, draft_year },
+      });
+
+      if (res.error) {
+        let msg = 'Pick extraction failed';
+        try {
+          const body = typeof res.error.message === 'string' ? JSON.parse(res.error.message) : null;
+          if (body?.error) msg = body.error;
+        } catch {
+          if (res.error.message) msg = res.error.message;
+        }
+        if (msg === 'Pick extraction failed' && res.data?.error) msg = res.data.error;
+        logger.warn('extract_traded_picks error', { error: res.error, data: res.data });
+        throw new Error(msg);
+      }
+      return res.data as TradedPicksExtractionResult;
+    },
+  });
+}
+
 export function useScreenshotImport() {
   return useMutation<ScreenshotImportResult, Error, any>({
     mutationFn: async (payload: any) => {

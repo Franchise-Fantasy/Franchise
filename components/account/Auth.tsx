@@ -81,6 +81,13 @@ try {
 const MODE_OPTIONS = ['Sign In', 'Create Account'] as const;
 type ModeLabel = (typeof MODE_OPTIONS)[number];
 
+/**
+ * DRIFT WARNING: components/account/Auth.web.tsx is the web build of this
+ * screen and duplicates the email/password/OTP logic (sign-in, the sign-up
+ * enumeration guard, OTP verify/resend, password reset). Any change to that
+ * logic here must be mirrored there in the same commit — until it's extracted
+ * to a shared useEmailAuth hook.
+ */
 export default function Auth() {
   const c = useColors();
   const scheme = useColorScheme() ?? 'light';

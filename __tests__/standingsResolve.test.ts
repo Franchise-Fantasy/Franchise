@@ -103,6 +103,22 @@ describe('resolveStandings — tiebreakers within an equal-win-pct group', () =>
     expect(resolveStandings(teams, [], ORDER).map((t) => t.id)).toEqual(['A', 'B']);
   });
 
+  it('resolves teams equal on every tiebreaker to a stable order (no rank flicker)', () => {
+    // Same record, no H2H games, identical points_for → all tiebreakers return 0.
+    // Without a deterministic fallback the sort order is engine-defined and ranks
+    // can flip between refetches. Feed the same teams in two different input
+    // orders; the resolved order must be identical both times.
+    const base = [
+      team({ id: 'zeta', wins: 5, losses: 5, points_for: 100 }),
+      team({ id: 'alpha', wins: 5, losses: 5, points_for: 100 }),
+      team({ id: 'mike', wins: 5, losses: 5, points_for: 100 }),
+    ];
+    const forward = resolveStandings(base, [], ORDER).map((t) => t.id);
+    const reversed = resolveStandings([...base].reverse(), [], ORDER).map((t) => t.id);
+    expect(forward).toEqual(reversed);
+    expect(forward).toEqual(['alpha', 'mike', 'zeta']); // id-ascending fallback
+  });
+
   it('ignores byes and unfinished matchups in H2H (null away/winner)', () => {
     const teams = [
       team({ id: 'A', wins: 5, losses: 5, points_for: 100 }),

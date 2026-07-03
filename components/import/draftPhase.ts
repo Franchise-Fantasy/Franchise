@@ -28,9 +28,12 @@ export interface TradedPickDraft {
   toKey: string;
 }
 
-/** Left-to-right (chronological) order for the segmented selector. */
+/** Left-to-right (chronological) order for the segmented selector. The first
+ *  phase is `pre_lottery` — labelled "Pre-Lottery" since the in-app lottery is
+ *  the thing that hasn't run yet (reverse-standings order, when used, is
+ *  derived from imported history rather than set here). */
 export const DRAFT_PHASE_OPTIONS: { value: DraftPhase; label: string }[] = [
-  { value: 'pre_lottery', label: 'Pre-Draft' },
+  { value: 'pre_lottery', label: 'Pre-Lottery' },
   { value: 'lottery_done', label: 'Order Set' },
   { value: 'in_season', label: 'Drafted' },
 ];
@@ -67,9 +70,39 @@ export function computeImportSeasons(
   return out;
 }
 
+/**
+ * Human label for a rookie-draft season. NBA seasons are stored as a two-year
+ * span ("2026-27"), but the rookie draft happens in — and is referred to by —
+ * the span's starting calendar year ("2026"). WNBA seasons are already a single
+ * year. The stored pick `season` stays canonical; this is display-only.
+ */
+export function draftYearLabel(season: string): string {
+  return String(parseSeasonStartYear(season));
+}
+
 /** A phase-(b) order must list every team exactly once. */
 export function validateLotteryOrder(order: string[], teamCount: number): boolean {
   return order.length === teamCount && new Set(order).size === teamCount;
+}
+
+/** True if `order` is a permutation of exactly `teamKeys`. */
+export function isFullOrder(order: string[] | undefined, teamKeys: string[]): boolean {
+  if (!order || order.length !== teamKeys.length) return false;
+  const keys = new Set(teamKeys);
+  return new Set(order).size === teamKeys.length && order.every(k => keys.has(k));
+}
+
+/**
+ * The effective draft order to show/import for a round: the first candidate
+ * that covers every team exactly once, else the natural team order. Lets a
+ * round-2 selector fall back explicit-order → reverse-standings default →
+ * round-1 order without each caller re-checking validity.
+ */
+export function resolveDraftOrder(candidates: (string[] | undefined)[], teamKeys: string[]): string[] {
+  for (const candidate of candidates) {
+    if (isFullOrder(candidate, teamKeys)) return candidate!;
+  }
+  return teamKeys;
 }
 
 /** Whether the editor's in-progress pick is fully specified and self-consistent. */

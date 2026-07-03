@@ -17,7 +17,7 @@ const POSITION_SPECTRUM = ['PG', 'SG', 'SF', 'PF', 'C'];
 // Must match CURRENT_*_SEASON in constants/LeagueDefaults.ts.
 // NBA uses dash format ("2025-26"), WNBA uses single-year format ("2026").
 const CURRENT_SEASON: Record<Sport, string> = {
-  nba: '2025-26',
+  nba: '2026-27',
   wnba: '2026',
 };
 

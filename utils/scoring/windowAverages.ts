@@ -16,6 +16,11 @@ export interface WindowAverages {
   avg_3pa: number;
   avg_ftm: number;
   avg_fta: number;
+  avg_pf: number;
+  /** Double-double rate over the window (0-1 per game). */
+  avg_dd: number;
+  /** Triple-double rate over the window (0-1 per game). */
+  avg_td: number;
 }
 
 /**
@@ -69,6 +74,7 @@ export function buildWindowedStatRow(
     avg_3pa: avg.avg_3pa,
     avg_ftm: avg.avg_ftm,
     avg_fta: avg.avg_fta,
+    avg_pf: avg.avg_pf,
     total_pts: tot(avg.avg_pts),
     total_reb: tot(avg.avg_reb),
     total_ast: tot(avg.avg_ast),
@@ -81,6 +87,11 @@ export function buildWindowedStatRow(
     total_3pa: tot(avg.avg_3pa),
     total_ftm: tot(avg.avg_ftm),
     total_fta: tot(avg.avg_fta),
+    total_pf: tot(avg.avg_pf),
+    // Windowed DD/TD counts — without these the row inherits SEASON totals,
+    // which the category rank would divide by WINDOW games_played (inflated).
+    total_dd: tot(avg.avg_dd),
+    total_td: tot(avg.avg_td),
   };
 }
 
@@ -113,5 +124,8 @@ export function averageGames(games: PlayerGameLog[]): WindowAverages | null {
     avg_3pa: mean((g) => g["3pa"]),
     avg_ftm: mean((g) => g.ftm),
     avg_fta: mean((g) => g.fta),
+    avg_pf: mean((g) => g.pf),
+    avg_dd: mean((g) => (g.double_double ? 1 : 0)),
+    avg_td: mean((g) => (g.triple_double ? 1 : 0)),
   };
 }

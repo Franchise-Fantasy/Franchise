@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Animated, StyleSheet, TouchableOpacity, View } from 'react-native';
 import DraggableFlatList, {
   RenderItemParams,
-  ScaleDecorator,
 } from 'react-native-draggable-flatlist';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
@@ -130,8 +129,7 @@ export function ManualDraftOrderModal({
     ({ item, drag, isActive, getIndex }: RenderItemParams<Team>) => {
       const index = getIndex() ?? 0;
       return (
-        <ScaleDecorator>
-          <View
+        <View
             accessibilityLabel={`${item.name}, pick ${index + 1}`}
             style={[
               styles.teamCard,
@@ -140,6 +138,9 @@ export function ManualDraftOrderModal({
                 borderColor: isActive ? c.activeBorder : c.border,
                 height: CARD_HEIGHT,
               },
+              // Contained lift while dragging — a shadow + elevation instead of
+              // scaling the card past the sheet's clipped edges.
+              isActive && styles.activeLift,
             ]}
           >
             <TeamLogo
@@ -175,8 +176,7 @@ export function ManualDraftOrderModal({
             >
               <Ionicons name="reorder-three" size={26} color={c.secondaryText} />
             </TouchableOpacity>
-          </View>
-        </ScaleDecorator>
+        </View>
       );
     },
     [c],
@@ -297,8 +297,6 @@ const styles = StyleSheet.create({
   listContainer: {
     flex: 1,
   },
-  // Tiny horizontal inset so ScaleDecorator's grow-during-drag has room
-  // before the BottomSheet's overflow:hidden clips the card edges.
   listContent: {
     paddingRight: s(4),
     paddingBottom: s(8),
@@ -312,6 +310,13 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     gap: s(12),
+  },
+  activeLift: {
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
   },
   teamInfo: {
     flex: 1,

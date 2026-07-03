@@ -543,10 +543,21 @@ export function AvailablePlayers({
         timeRange={timeRange}
         onTimeRangeChange={setTimeRange}
       />
-      {/* Column-key header over the right-hand stat column — mirrors
-          FreeAgentList. Only FPTS leagues use a right stat column; category
-          rows render their stats inline under each name, so no header applies. */}
-      {!isCategories && (
+      {/* Column-key header. FPTS leagues key the right-hand stat column (mirrors
+          FreeAgentList); category rows render their 5-stat slash inline under
+          each name, so their legend left-aligns over the name/stat column to
+          give the otherwise context-free numbers a heading. */}
+      {isCategories ? (
+        <View style={[styles.colKey, styles.colKeyCat, { borderBottomColor: c.border }]}>
+          <ThemedText
+            type="varsitySmall"
+            style={[styles.colKeyText, styles.colKeyCatText, { color: c.secondaryText }]}
+            accessibilityLabel="Stat line format: points, rebounds, assists, steals, blocks"
+          >
+            PTS / REB / AST / STL / BLK
+          </ThemedText>
+        </View>
+      ) : (
         <View style={[styles.colKey, { borderBottomColor: c.border }]}>
           <View style={[styles.colKeyStats, styles.statsPoints]}>
             <ThemedText
@@ -606,6 +617,16 @@ const styles = StyleSheet.create({
     fontSize: ms(9),
     letterSpacing: 1.2,
     textAlign: "right" as const,
+  },
+  // Category legend left-aligns under the info column (slashes render inline
+  // beneath each name). paddingLeft ≈ row padding s(12) + portrait s(58) +
+  // its marginRight s(10) so the legend starts at the name/stat column.
+  colKeyCat: {
+    justifyContent: "flex-start",
+    paddingLeft: s(80),
+  },
+  colKeyCatText: {
+    textAlign: "left" as const,
   },
   // Spacer matching the row's Draft button (minWidth s(62)) + gap + queue
   // button (s(22)) so the header sits over the stat column, not the buttons.

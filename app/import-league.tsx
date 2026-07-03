@@ -20,15 +20,12 @@ import { StepDraft } from '@/components/create-league/StepDraft';
 import { StepReview } from '@/components/create-league/StepReview';
 import { StepRoster } from '@/components/create-league/StepRoster';
 import { StepScoring } from '@/components/create-league/StepScoring';
-import {
-  StepSeason,
-  computeMaxWeeks,
-  computeSeasonStart,
-} from '@/components/create-league/StepSeason';
+import { StepSeason } from '@/components/create-league/StepSeason';
 import { StepTrade } from '@/components/create-league/StepTrade';
 import { StepWaivers } from '@/components/create-league/StepWaivers';
 import {
   computeImportSeasons,
+  resolveDraftOrder,
   validateLotteryOrder,
   type DraftPhase,
   type TradedPickDraft,
@@ -58,14 +55,17 @@ import {
 } from '@/constants/LeagueDefaults';
 import { useConfirm } from '@/context/ConfirmProvider';
 import { useToast } from '@/context/ToastProvider';
+import { SportThemeProvider } from '@/hooks/useColors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import {
   useSleeperImport,
   useSleeperPreview,
+  type SleeperHistoricalSeason,
   type SleeperPreviewResult,
 } from '@/hooks/useImportSleeper';
 import { capture } from '@/lib/posthog';
-import { calcLotteryPoolSize, getPlayoffTeamOptions } from '@/utils/league/lottery';
+import { clampLotteryState, defaultPlayoffSetup, maxPlayoffWeeksForTeams } from '@/utils/league/lottery';
+import { applyCupWeekToggle, computeMaxWeeks, defaultSeasonStart } from '@/utils/league/seasonWeeks';
 import { ms, s } from '@/utils/scale';
 import { mapSleeperPositions, mapSleeperScoring } from '@/utils/sleeperMapping';
 
@@ -109,6 +109,8 @@ interface ImportState {
   wizardState: LeagueWizardState;
   draftPhase: DraftPhase;
   lotteryOrder: string[];
+  /** Explicit round-2 order (empty = use the reverse-standings/round-1 default). */
+  lotteryOrderR2: string[];
   manualTradedPicks: TradedPickDraft[];
 }
 
@@ -128,6 +130,7 @@ type Action =
   | { type: 'RESET_CATEGORIES' }
   | { type: 'SET_DRAFT_PHASE'; value: DraftPhase }
   | { type: 'SET_LOTTERY_ORDER'; value: string[] }
+  | { type: 'SET_LOTTERY_ORDER_R2'; value: string[] }
   | { type: 'SET_TRADED_PICKS'; value: TradedPickDraft[] };
 
 const SLEEPER_STORAGE_KEY = '@sleeper_import_wizard';
@@ -140,6 +143,7 @@ interface PersistedSleeperState {
   wizardState: LeagueWizardState;
   draftPhase: DraftPhase;
   lotteryOrder: string[];
+  lotteryOrderR2: string[];
   manualTradedPicks: TradedPickDraft[];
   step: number;
   source: ImportSource;
@@ -154,6 +158,7 @@ function serializeSleeperState(s: ImportState, step: number, src: ImportSource):
     wizardState: s.wizardState,
     draftPhase: s.draftPhase,
     lotteryOrder: s.lotteryOrder,
+    lotteryOrderR2: s.lotteryOrderR2,
     manualTradedPicks: s.manualTradedPicks,
     step,
     source: src,
@@ -166,11 +171,34 @@ function deserializeSleeperState(p: PersistedSleeperState): ImportState {
     previewData: p.previewData ?? null,
     resolvedMappings: new Map(p.resolvedMappings ?? []),
     skippedPlayers: new Set(p.skippedPlayers ?? []),
-    wizardState: p.wizardState,
+    // Drafts persisted before the playoff clamps existed can carry a bracket
+    // the team count can't fill (e.g. 6 playoff teams in a 2-team league) —
+    // heal them on restore, same rules as the reducer and screenshot import.
+    wizardState: clampLotteryState({
+      ...p.wizardState,
+      playoffWeeks: Math.min(
+        p.wizardState.playoffWeeks,
+        maxPlayoffWeeksForTeams(p.wizardState.teams),
+      ),
+    }),
     draftPhase: p.draftPhase ?? 'in_season',
     lotteryOrder: p.lotteryOrder ?? [],
+    lotteryOrderR2: p.lotteryOrderR2 ?? [],
     manualTradedPicks: p.manualTradedPicks ?? [],
   };
+}
+
+// Reverse-standings order (roster_id keys) from the most recent imported
+// season — the round-2 default for lottery leagues (a lottery only sets
+// round 1). Mirrors the edge's `reverseStandingsOrderFromHistory` sort
+// (wins asc, then fpts asc) so the previewed order matches the imported one.
+function reverseStandingsKeysFromHistory(seasons: SleeperHistoricalSeason[]): string[] {
+  if (!seasons?.length) return [];
+  const latest = [...seasons].sort((a, b) => (a.season < b.season ? 1 : -1))[0];
+  if (!latest?.teams?.length) return [];
+  return [...latest.teams]
+    .sort((a, b) => a.wins - b.wins || a.fpts - b.fpts)
+    .map(t => String(t.roster_id));
 }
 
 // Seed the traded-picks editor from Sleeper's auto-detected traded picks so it
@@ -187,26 +215,12 @@ function seedTradedPicks(data: SleeperPreviewResult): TradedPickDraft[] {
 
 const maxWeeks = computeMaxWeeks(CURRENT_NBA_SEASON);
 
-// TODO(shared-state): duplicated from app/create-league.tsx. Extract to
-// utils/lottery.ts (or similar) once both flows settle.
-function clampLotteryState(s: LeagueWizardState): LeagueWizardState {
-  const options = getPlayoffTeamOptions(s.playoffWeeks, s.teams);
-  let pt = s.playoffTeams;
-  if (!options.includes(pt)) {
-    pt =
-      options.length > 0
-        ? options.reduce((best, o) => (Math.abs(o - pt) < Math.abs(best - pt) ? o : best), options[0])
-        : 0;
-  }
-  const pool = calcLotteryPoolSize(s.teams, pt);
-  const draws = pool > 0 ? Math.min(s.lotteryDraws, pool) : 0;
-  const odds = s.lotteryOdds && s.lotteryOdds.length !== pool ? null : s.lotteryOdds;
-  return { ...s, playoffTeams: pt, lotteryDraws: draws, lotteryOdds: odds };
-}
-
 function buildWizardState(data: SleeperPreviewResult): LeagueWizardState {
   const rosterSlots = mapSleeperPositions(data.league.roster_positions);
   const scoring = mapSleeperScoring(data.league.scoring_settings);
+  // Teams-first playoff defaults: a 2-team import gets a 1-week final, not
+  // the 3-week/6-team template.
+  const playoffDefaults = defaultPlayoffSetup(data.teams.length, maxWeeks);
 
   return {
     sport: 'nba',
@@ -235,13 +249,15 @@ function buildWizardState(data: SleeperPreviewResult): LeagueWizardState {
     faabBudget: 100,
     season: data.league.season ?? CURRENT_NBA_SEASON,
     seasonStartDate: null,
-    regularSeasonWeeks: Math.max(1, maxWeeks - 3),
-    playoffWeeks: 3,
-    playoffTeams: Math.min(data.teams.length, 6),
+    regularSeasonWeeks: Math.max(1, maxWeeks - playoffDefaults.playoffWeeks),
+    playoffWeeks: playoffDefaults.playoffWeeks,
+    playoffTeams: playoffDefaults.playoffTeams,
     playoffSeedingFormat: 'Standard',
+    combineCupWeek: false,
     pickConditionsEnabled: false,
     draftPickTradingEnabled: true,
     tradeDeadlineWeek: 0,
+    tradeDeadlineDate: null,
     buyIn: 0,
     venmoUsername: '',
     cashappTag: '',
@@ -265,6 +281,7 @@ const initialState: ImportState = {
   skippedPlayers: new Set(),
   draftPhase: 'in_season',
   lotteryOrder: [],
+  lotteryOrderR2: [],
   manualTradedPicks: [],
   wizardState: {
     sport: 'nba',
@@ -293,13 +310,15 @@ const initialState: ImportState = {
     faabBudget: 100,
     season: getCurrentSeason('nba'),
     seasonStartDate: null,
-    regularSeasonWeeks: maxWeeks - 3,
+    regularSeasonWeeks: Math.max(1, maxWeeks - 3),
     playoffWeeks: 3,
     playoffTeams: 6,
     playoffSeedingFormat: 'Standard',
+    combineCupWeek: false,
     pickConditionsEnabled: false,
     draftPickTradingEnabled: false,
     tradeDeadlineWeek: 0,
+    tradeDeadlineDate: null,
     buyIn: 0,
     venmoUsername: '',
     cashappTag: '',
@@ -333,6 +352,7 @@ function reducer(state: ImportState, action: Action): ImportState {
         skippedPlayers: new Set(),
         draftPhase: 'in_season',
         lotteryOrder: [],
+        lotteryOrderR2: [],
         manualTradedPicks: seedTradedPicks(action.data),
       };
     case 'RESOLVE_PLAYER': {
@@ -348,9 +368,16 @@ function reducer(state: ImportState, action: Action): ImportState {
     case 'SET_WIZARD_FIELD': {
       const next: LeagueWizardState = { ...state.wizardState, [action.field]: action.value };
       // Re-clamp lottery settings when dependent fields change — mirrors
-      // create-league's reducer so lottery-draws / odds stay valid.
+      // create-league's reducer so lottery-draws / odds stay valid. Playoff
+      // weeks are capped at what the team count can bracket (2 teams = a
+      // 1-week final) so the schedule never gets empty trailing weeks.
       if (action.field === 'teams' || action.field === 'playoffWeeks' || action.field === 'playoffTeams') {
-        return updateWizard(clampLotteryState(next));
+        const playoffWeeks = Math.min(next.playoffWeeks, maxPlayoffWeeksForTeams(next.teams));
+        return updateWizard(clampLotteryState({ ...next, playoffWeeks }));
+      }
+      // Cup double week consumes/frees one calendar week — re-fit week counts.
+      if (action.field === 'combineCupWeek') {
+        return updateWizard(applyCupWeekToggle(next, state.wizardState));
       }
       if (action.field === 'seasonStartDate') {
         const start = action.value
@@ -358,8 +385,8 @@ function reducer(state: ImportState, action: Action): ImportState {
               const [sy, sm, sd] = (action.value as string).split('-').map(Number);
               return new Date(sy, sm - 1, sd);
             })()
-          : computeSeasonStart();
-        const newMax = computeMaxWeeks(next.season, next.sport, start);
+          : defaultSeasonStart(next.sport, next.season);
+        const newMax = computeMaxWeeks(next.season, next.sport, start, next.combineCupWeek ?? false);
         const playoffWeeks = Math.min(next.playoffWeeks, Math.max(1, newMax - 1));
         const regularSeasonWeeks = Math.min(next.regularSeasonWeeks, Math.max(1, newMax - playoffWeeks));
         return updateWizard(clampLotteryState({ ...next, regularSeasonWeeks, playoffWeeks }));
@@ -375,6 +402,7 @@ function reducer(state: ImportState, action: Action): ImportState {
           },
           draftPhase: 'in_season',
           lotteryOrder: [],
+          lotteryOrderR2: [],
           manualTradedPicks: [],
         };
       }
@@ -387,8 +415,12 @@ function reducer(state: ImportState, action: Action): ImportState {
       if (action.field === 'sport') {
         const newSport = action.value as 'nba' | 'wnba';
         const newSeason = getCurrentSeason(newSport);
-        const newMax = computeMaxWeeks(newSeason, newSport);
-        const playoffWeeks = Math.min(next.playoffWeeks, Math.max(1, newMax - 1));
+        const newMax = computeMaxWeeks(newSeason, newSport, undefined, next.combineCupWeek ?? false);
+        const playoffWeeks = Math.min(
+          next.playoffWeeks,
+          maxPlayoffWeeksForTeams(next.teams),
+          Math.max(1, newMax - 1),
+        );
         const regularSeasonWeeks = Math.min(next.regularSeasonWeeks, Math.max(1, newMax - playoffWeeks));
         return updateWizard(clampLotteryState({ ...next, season: newSeason, seasonStartDate: null, regularSeasonWeeks, playoffWeeks }));
       }
@@ -431,10 +463,15 @@ function reducer(state: ImportState, action: Action): ImportState {
       const lotteryOrder = needsOrder
         ? (state.previewData?.teams ?? []).map(t => String(t.roster_id))
         : state.lotteryOrder;
-      return { ...state, draftPhase: action.value, lotteryOrder };
+      // Clear any explicit round-2 override on a phase switch — the selector
+      // re-derives the reverse-standings/round-1 default.
+      const lotteryOrderR2 = needsOrder ? [] : state.lotteryOrderR2;
+      return { ...state, draftPhase: action.value, lotteryOrder, lotteryOrderR2 };
     }
     case 'SET_LOTTERY_ORDER':
       return { ...state, lotteryOrder: action.value };
+    case 'SET_LOTTERY_ORDER_R2':
+      return { ...state, lotteryOrderR2: action.value };
     case 'SET_TRADED_PICKS':
       return { ...state, manualTradedPicks: action.value };
     default:
@@ -553,17 +590,25 @@ export default function ImportLeague() {
 
     const playerMappings: { sleeper_id: string; player_id: string; position: string }[] = [];
 
+    // A resolvedMappings entry can be EITHER a resolution of an unmatched player
+    // OR a manual correction of an auto-match (e.g. Jalen Green mis-matched to
+    // Josh Green). When it overrides a matched player, it REPLACES that match —
+    // so build matched rows first, applying any override, then add the rest.
     for (const m of state.previewData.player_matches) {
-      if (m.matched_player_id) {
-        playerMappings.push({
-          sleeper_id: m.sleeper_id,
-          player_id: m.matched_player_id,
-          position: m.sleeper_team ?? '',
-        });
-      }
+      if (!m.matched_player_id) continue;
+      const override = state.resolvedMappings.get(m.sleeper_id);
+      playerMappings.push({
+        sleeper_id: m.sleeper_id,
+        player_id: override?.player_id ?? m.matched_player_id,
+        position: override?.position ?? m.sleeper_team ?? '',
+      });
     }
 
+    const matchedIds = new Set(
+      state.previewData.player_matches.filter(m => m.matched_player_id).map(m => m.sleeper_id),
+    );
     for (const [sleeperId, resolved] of state.resolvedMappings) {
+      if (matchedIds.has(sleeperId)) continue; // already applied as an override above
       playerMappings.push({
         sleeper_id: sleeperId,
         player_id: resolved.player_id,
@@ -603,6 +648,20 @@ export default function ImportLeague() {
       is_dynasty: ws.leagueType === 'Dynasty',
       draft_phase: state.draftPhase,
       lottery_order: state.lotteryOrder.map(Number),
+      // Round-2 order (only meaningful for lottery_done): the effective order
+      // shown in the selector — explicit override, else reverse-standings, else
+      // round 1. Sent so the import matches exactly what the user saw.
+      lottery_order_round2:
+        state.draftPhase === 'lottery_done' && ws.rookieDraftRounds >= 2
+          ? resolveDraftOrder(
+              [
+                state.lotteryOrderR2,
+                reverseStandingsKeysFromHistory(state.previewData.historical_seasons),
+                state.lotteryOrder,
+              ],
+              state.previewData.teams.map(t => String(t.roster_id)),
+            ).map(Number)
+          : undefined,
       historical_seasons: state.previewData.historical_seasons,
       roster_positions: state.previewData.league.roster_positions,
       settings: {
@@ -610,6 +669,7 @@ export default function ImportLeague() {
         regular_season_weeks: ws.regularSeasonWeeks,
         playoff_weeks: ws.playoffWeeks,
         playoff_teams: ws.playoffTeams,
+        combine_cup_week: ws.sport === 'nba' ? (ws.combineCupWeek ?? false) : false,
         max_future_seasons: ws.maxDraftYears,
         rookie_draft_rounds: ws.rookieDraftRounds,
         rookie_draft_order: ws.rookieDraftOrder === 'Reverse Record' ? 'reverse_record' : 'lottery',
@@ -801,6 +861,11 @@ export default function ImportLeague() {
   // ─── Sleeper wizard ────────────────────────────────────────────────
 
   return (
+    // Override the active-league sport so the wizard's chrome (Next/Import
+    // buttons via BrandButton, StepIndicator dots, StepScoring chips) follows
+    // the *picked* sport rather than whatever league the user came from —
+    // mirrors create-league. NBA → turfGreen, WNBA → merlot.
+    <SportThemeProvider sport={state.wizardState.sport}>
     <ThemedView style={styles.container}>
       <View style={styles.headerRow}>
         <BrandButton
@@ -907,6 +972,7 @@ export default function ImportLeague() {
                     unmatched={state.previewData.unmatched_players.filter(
                       p => !state.resolvedMappings.has(p.sleeper_id) && !state.skippedPlayers.has(p.sleeper_id),
                     )}
+                    overrides={state.resolvedMappings}
                     onResolve={handleResolve}
                     onSkip={handleSkip}
                   />
@@ -915,7 +981,11 @@ export default function ImportLeague() {
             })()}
 
             {step === STEP_BASICS && (
-              <StepBasics state={state.wizardState} onChange={handleWizardChange} />
+              <StepBasics
+                state={state.wizardState}
+                onChange={handleWizardChange}
+                ignoreCreationWindow
+              />
             )}
 
             {step === STEP_ROSTER && (
@@ -960,7 +1030,7 @@ export default function ImportLeague() {
 
             {step === STEP_DRAFT && (
               <>
-                <StepDraft state={state.wizardState} onChange={handleWizardChange} />
+                <StepDraft state={state.wizardState} onChange={handleWizardChange} hideStartupDraft />
                 {state.previewData && (
                   <DraftPhaseSelector
                     isDynasty={state.wizardState.leagueType === 'Dynasty'}
@@ -968,8 +1038,12 @@ export default function ImportLeague() {
                     phase={state.draftPhase}
                     onPhaseChange={v => dispatch({ type: 'SET_DRAFT_PHASE', value: v })}
                     teams={state.previewData.teams.map(t => ({ key: String(t.roster_id), name: t.team_name }))}
+                    rounds={state.wizardState.rookieDraftRounds}
                     lotteryOrder={state.lotteryOrder}
                     onLotteryOrderChange={v => dispatch({ type: 'SET_LOTTERY_ORDER', value: v })}
+                    round2Order={state.lotteryOrderR2}
+                    onRound2OrderChange={v => dispatch({ type: 'SET_LOTTERY_ORDER_R2', value: v })}
+                    defaultRound2Order={reverseStandingsKeysFromHistory(state.previewData.historical_seasons)}
                   />
                 )}
               </>
@@ -982,12 +1056,31 @@ export default function ImportLeague() {
                 onBack={() => setStep(s => s - 1)}
                 loading={importMutation.isPending}
                 submitLabel="Import League"
+                hideStartupDraft
+                onEdit={section =>
+                  setStep(
+                    {
+                      basics: STEP_BASICS,
+                      roster: STEP_ROSTER,
+                      scoring: STEP_SCORING,
+                      waivers: STEP_WAIVERS,
+                      season: STEP_SEASON,
+                      trade: STEP_TRADE,
+                      draft: STEP_DRAFT,
+                    }[section],
+                  )
+                }
                 headerContent={
                   <>
                     <Section title="Import Summary">
                       <SummaryRow
                         label="Players"
-                        value={`${state.previewData.player_matches.length + state.resolvedMappings.size} matched`}
+                        value={`${
+                          state.previewData.player_matches.length +
+                          Array.from(state.resolvedMappings.keys()).filter(
+                            id => !state.previewData!.player_matches.some(m => m.sleeper_id === id && m.matched_player_id),
+                          ).length
+                        } matched`}
                       />
                       <SummaryRow
                         label="Skipped"
@@ -1084,6 +1177,7 @@ export default function ImportLeague() {
         </View>
       )}
     </ThemedView>
+    </SportThemeProvider>
   );
 }
 

@@ -25,31 +25,18 @@ import {
   LeagueWizardState,
   PLAYOFF_SEEDING_OPTIONS,
   SPORT_DISPLAY,
-  type Sport,
   TIEBREAKER_OPTIONS,
 } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { calcLotteryPoolSize, getPlayoffTeamOptions } from '@/utils/league/lottery';
-import { planScheduleWeeks, schedulableEnd } from '@/utils/league/scheduleWindows';
+import { calcLotteryPoolSize, getPlayoffTeamOptions, maxPlayoffWeeksForTeams } from '@/utils/league/lottery';
+import { planScheduleWeeks } from '@/utils/league/scheduleWindows';
+import { computeMaxWeeks, defaultSeasonStart } from '@/utils/league/seasonWeeks';
 import { week1Length } from '@/utils/leagueTime';
 import { ms, s } from '@/utils/scale';
 
 interface StepSeasonProps {
   state: LeagueWizardState;
   onChange: (field: keyof LeagueWizardState, value: any) => void;
-}
-
-// Default fantasy-season start: tomorrow, regardless of weekday. A league can
-// never start on the day it's created — scoring needs at least a full day's
-// lead so the opening slate isn't already underway. Week 1 then absorbs
-// whatever leading days fall before the next Sunday — see `week1Length` in
-// utils/leagueTime: Mon/Tue/Wed produce a 5-7 day Week 1, Thu/Fri/Sat/Sun
-// produce an 8-11 day Week 1 ending the second Sunday.
-export function computeSeasonStart(): Date {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  start.setDate(start.getDate() + 1);
-  return start;
 }
 
 function formatDate(date: Date): string {
@@ -62,49 +49,16 @@ function ymdToDate(ymd: string): Date {
   return new Date(y, m - 1, d);
 }
 
-/** Max weeks between season start and pro season end (sport-aware).
- *  Week 1 absorbs any Thu/Fri/Sat/Sun leading days (8-11 day long week);
- *  Mon/Tue/Wed starts give a 5-7 day Week 1. Week 2+ are full Mon–Sun.
- *  `sport` defaults to 'nba' for back-compat with module-level callers
- *  that initialize NBA wizards. */
-export function computeMaxWeeks(season: string, sport: Sport = 'nba', customStart?: Date): number {
-  const start = customStart ?? computeSeasonStart();
-  const endStr = getSeasonEnd(sport, season) ?? getSeasonEnd(sport, getCurrentSeason(sport))!;
-  const startStr = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
-
-  // Mandatory merge windows (All-Star, FIBA) extend the calendar, so fewer
-  // matchup-weeks fit before the pro-season end. Optional windows (NBA Cup) are
-  // excluded — the cap reflects the default (toggle off); turning it on shifts
-  // the calendar by at most ~1 week, which postseason games still cover.
-  const windows = getMergeWindows(sport, season).filter((w) => !w.optional);
-
-  // A terminal break (WNBA FIBA) walls off the end of the season: the fantasy
-  // season finishes before it, so cap there instead of the real season end.
-  const cap = schedulableEnd(endStr, windows);
-
-  // Walk a generous horizon and count weeks finishing on/before the cap.
-  // planScheduleWeeks handles Week-1's variable length and break-aware merging.
-  const planned = planScheduleWeeks({
-    seasonStart: startStr,
-    regularSeasonWeeks: 60,
-    playoffWeeks: 0,
-    mergeWindows: windows,
-  });
-  return Math.max(1, planned.filter((w) => w.endDate <= cap).length);
-}
-
 export function StepSeason({ state, onChange }: StepSeasonProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const [showDatePicker, setShowDatePicker] = useState(false);
 
-  // Parse custom start date or fall back to auto
+  // Parse custom start date or fall back to auto (tomorrow, floored to the
+  // pro season's opening night when that's still ahead).
   const seasonStart = state.seasonStartDate
-    ? (() => {
-        const [sy, sm, sd] = state.seasonStartDate.split('-').map(Number);
-        return new Date(sy, sm - 1, sd);
-      })()
-    : computeSeasonStart();
+    ? ymdToDate(state.seasonStartDate)
+    : defaultSeasonStart(state.sport, state.season);
   const startDow = seasonStart.getDay(); // 0=Sun
   const week1Days = week1Length(startDow);
   const week1IsAtypical = week1Days !== 7; // anything other than Mon-Sun
@@ -122,13 +76,13 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
   const [ey, em, ed] = effectiveEndStr.split('-').map(Number);
   const effectiveSeasonEnd = new Date(ey, em - 1, ed);
 
-  const maxTotalWeeks = computeMaxWeeks(state.season, state.sport, seasonStart);
+  const cupWeekOn = state.sport === 'nba' && (state.combineCupWeek ?? false);
+  const maxTotalWeeks = computeMaxWeeks(state.season, state.sport, seasonStart, cupWeekOn);
 
-  // Earliest selectable date is tomorrow — a league can't start the day it's
-  // created (matches computeSeasonStart's default).
-  const earliestStart = new Date();
-  earliestStart.setHours(0, 0, 0, 0);
-  earliestStart.setDate(earliestStart.getDate() + 1);
+  // Earliest selectable date: tomorrow — a league can't start the day it's
+  // created — floored to the pro season's opening night when that's still
+  // ahead (an NBA league created in July can't start before October tipoff).
+  const earliestStart = defaultSeasonStart(state.sport, state.season);
 
   const commitDate = (date: Date) => {
     date.setHours(0, 0, 0, 0);
@@ -163,12 +117,13 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
   };
 
   const maxRegularSeasonWeeks = Math.max(1, maxTotalWeeks - state.playoffWeeks);
-  // Playoff weeks are capped by both the remaining season AND the sport's
-  // structural max (NBA 4 = 16-team bracket, WNBA 3 = 8-team bracket).
-  // Without the sport cap WNBA leagues could pick 5-7 playoff weeks that
-  // can't form a valid bracket against the supported PLAYOFF_OPTIONS.
+  // Playoff weeks are capped by the remaining season, the sport's structural
+  // max (NBA 4 = 16-team bracket, WNBA 3 = 8-team bracket), AND what the
+  // league's team count can actually bracket — 2 teams can only ever play a
+  // 1-week final, so offering 3 weeks would schedule two empty playoff weeks.
   const maxPlayoffWeeks = Math.min(
     getMaxPlayoffWeeks(state.sport),
+    maxPlayoffWeeksForTeams(state.teams),
     Math.max(1, maxTotalWeeks - state.regularSeasonWeeks),
   );
 
@@ -178,7 +133,7 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
   // handled inside the planner.
   const seasonStartIso = `${seasonStart.getFullYear()}-${String(seasonStart.getMonth() + 1).padStart(2, '0')}-${String(seasonStart.getDate()).padStart(2, '0')}`;
   const previewMergeWindows = getMergeWindows(state.sport, state.season).filter(
-    (w) => !w.optional || (state.sport === 'nba' && (state.combineCupWeek ?? false)),
+    (w) => !w.optional || cupWeekOn,
   );
   const plannedWeeks = planScheduleWeeks({
     seasonStart: seasonStartIso,

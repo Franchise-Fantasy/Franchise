@@ -274,7 +274,7 @@ export async function notifyTeamsBulk(
   const allUserIds = [...new Set((teams as any[]).map(t => t.user_id))];
   const allLeagueIds = [...new Set((teams as any[]).map(t => t.league_id))];
 
-  const [{ data: tokenRows }, { data: leaguePrefs }] = await Promise.all([
+  const [{ data: tokenRows }, { data: leaguePrefs }, { data: archivedRows }] = await Promise.all([
     supabase
       .from('push_tokens')
       .select('user_id, token, preferences, mute_all')
@@ -284,8 +284,17 @@ export async function notifyTeamsBulk(
       .select('user_id, league_id, overrides')
       .in('user_id', allUserIds)
       .in('league_id', allLeagueIds),
+    // Archived (soft-deleted) leagues are hidden from clients by RLS, but crons
+    // run as service-role and bypass it — never push for a league nobody can open.
+    supabase
+      .from('leagues')
+      .select('id')
+      .in('id', allLeagueIds)
+      .not('archived_at', 'is', null),
   ]);
   if (!tokenRows || tokenRows.length === 0) return;
+
+  const archivedLeagues = new Set((archivedRows ?? []).map((l: { id: string }) => l.id));
 
   const overridesMap = new Map<string, Record<string, boolean>>();
   for (const row of (leaguePrefs ?? []) as any[]) {
@@ -307,6 +316,7 @@ export async function notifyTeamsBulk(
     for (const teamId of notif.teamIds) {
       const team = teamMap.get(teamId);
       if (!team || excluded.has(team.user_id)) continue;
+      if (archivedLeagues.has(team.league_id)) continue;
       const tokens = tokenByUser.get(team.user_id) ?? [];
       for (const tk of tokens) {
         if (tk.mute_all) continue;
@@ -355,7 +365,7 @@ export async function notifyUsersBulk(
   const allUserIds = [...new Set(notifications.map(n => n.userId))];
   const allLeagueIds = [...new Set(notifications.map(n => n.leagueId))];
 
-  const [{ data: tokenRows }, { data: leaguePrefs }] = await Promise.all([
+  const [{ data: tokenRows }, { data: leaguePrefs }, { data: archivedRows }] = await Promise.all([
     supabase
       .from('push_tokens')
       .select('user_id, token, preferences, mute_all')
@@ -365,8 +375,17 @@ export async function notifyUsersBulk(
       .select('user_id, league_id, overrides')
       .in('user_id', allUserIds)
       .in('league_id', allLeagueIds),
+    // Archived (soft-deleted) leagues are hidden from clients by RLS, but crons
+    // run as service-role and bypass it — never push for a league nobody can open.
+    supabase
+      .from('leagues')
+      .select('id')
+      .in('id', allLeagueIds)
+      .not('archived_at', 'is', null),
   ]);
   if (!tokenRows || tokenRows.length === 0) return;
+
+  const archivedLeagues = new Set((archivedRows ?? []).map((l: { id: string }) => l.id));
 
   const overridesMap = new Map<string, Record<string, boolean>>();
   for (const row of (leaguePrefs ?? []) as any[]) {
@@ -384,6 +403,7 @@ export async function notifyUsersBulk(
   const messages: PushMessage[] = [];
 
   for (const notif of notifications) {
+    if (archivedLeagues.has(notif.leagueId)) continue;
     const tokens = tokenByUser.get(notif.userId) ?? [];
     for (const tk of tokens) {
       if (tk.mute_all) continue;

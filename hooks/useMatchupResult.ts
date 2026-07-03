@@ -32,7 +32,11 @@ export function useMatchupResult(scoringType: string | null | undefined) {
   const { leagueId, teamId } = useAppState();
 
   return useQuery({
-    queryKey: queryKeys.matchupResult(leagueId!, teamId!),
+    // scoringType decides the category-vs-points shape of the result, so it must
+    // be part of the key. Otherwise a cold-start render (league not yet loaded,
+    // scoringType undefined) caches a points-shaped result that never refreshes
+    // once the real scoring type resolves — re-showing 0.0-0.0 for cat leagues.
+    queryKey: [...queryKeys.matchupResult(leagueId!, teamId!), scoringType],
     queryFn: async (): Promise<MatchupResult | null> => {
       if (!leagueId || !teamId) return null;
 
@@ -71,7 +75,7 @@ export function useMatchupResult(scoringType: string | null | undefined) {
       const userTeam = teams?.find((t) => t.id === teamId);
       const opponentTeam = teams?.find((t) => t.id === opponentId);
 
-      const isCategory = scoringType === 'category';
+      const isCategory = scoringType === 'h2h_categories';
 
       // Detect 3rd place game so the result modal doesn't mislabel it as championship
       let isThirdPlace = false;
@@ -105,7 +109,7 @@ export function useMatchupResult(scoringType: string | null | undefined) {
       }
       return base;
     },
-    enabled: !!leagueId && !!teamId,
+    enabled: !!leagueId && !!teamId && scoringType != null,
     staleTime: 1000 * 60 * 5,
   });
 }

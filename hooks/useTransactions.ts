@@ -27,6 +27,8 @@ export interface Transaction {
   created_at: string;
   team_id: string | null;
   group_id: string | null;
+  /** Winning FAAB bid in whole dollars; null for standard/free-agent moves. */
+  bid_amount: number | null;
   initiator: { name: string; logo_key: string | null } | null;
   league_transaction_items: TransactionItem[];
 }
@@ -81,7 +83,7 @@ export function useTransactions(typeFilter?: string) {
       let query = supabase
         .from('league_transactions')
         .select(`
-          id, league_id, type, notes, created_at, team_id, group_id,
+          id, league_id, type, notes, created_at, team_id, group_id, bid_amount,
           initiator:teams!league_transactions_team_id_fkey ( name, logo_key ),
           league_transaction_items (
             id, player_id, draft_pick_id, team_from_id, team_to_id,

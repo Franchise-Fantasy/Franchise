@@ -1,20 +1,28 @@
 /**
- * Sunday evening scanner — finds matchups that are close enough to be worth a
- * "your week is going down to the wire" push. Fired once a week by pg_cron
- * (Sunday 23:00 UTC = 6pm ET / 3pm PT — primetime NBA window, before late games
- * tip). Dedup table guarantees one notification per matchup per season.
+ * Down-to-the-wire scanner — finds matchups that are close enough, on the LAST
+ * day of their week, to be worth a "your week is going down to the wire" push,
+ * and times the push to each matchup's actual deciding games. Polled every 30
+ * min by pg_cron across the game window (see the cron migration); the dedup
+ * table guarantees one notification per matchup per season.
  *
- * Closeness rule (opinionated, see CLAUDE.md / the design conversation):
- *   - h2h_points: |home - away| <= 30 fpts OR within 15% of the leader
- *     ("one starter's night could swing it")
- *   - h2h_categories: |homeWins - awayWins| <= 1 AND (homeWins+awayWins+ties) >= 3
- *     ("tied or 1 cat apart, with enough decided to not be noise")
- * Plus: matchup must not be finalized AND at least one starter on either roster
- * has a non-final game scheduled in America/New_York for "today" (Sunday).
+ * Why poll instead of a single fixed Sunday-evening fire: different leagues —
+ * and different matchups within a league — have their last games end at
+ * different times. One clock-hour send arrives after some matchups are already
+ * decided and hours before others. Instead we fire per matchup the moment it's
+ * "down to the wire": close, and the only starter games it has left today are
+ * live or about to tip (no later game still looming that could swing it).
  *
- * Recipients: both teams in qualifying matchups (parity — both sides have skin
- * in the game). Each receives a deep-link notification that opens the matchup
- * screen and highlights the Go Live CTA.
+ * Gates, in order:
+ *   - today == the matchup week's end_date (the games that "decide it")
+ *   - matchup not finalized
+ *   - close:
+ *       h2h_points: |home - away| <= 30 fpts OR within 15% of the leader
+ *       h2h_categories: |homeWins - awayWins| <= 1 AND (decided) >= 3
+ *   - down to the wire: >= 1 non-final starter game today, and EVERY non-final
+ *     starter game is live now or tips within DECIDING_HORIZON_MS
+ *
+ * Recipients: both teams in qualifying matchups (parity). Each receives a
+ * deep-link notification that opens the matchup screen and lights the Go Live CTA.
  */
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -35,6 +43,12 @@ const supabase = createClient<Database>(
   Deno.env.get("SB_SECRET_KEY")!,
 );
 
+// How close (ms before tipoff) a still-scheduled game must be to count as part
+// of the "deciding" cluster. A matchup fires only when every game it has left
+// today is either live or within this horizon — so no later game is still
+// looming that could swing the result.
+const DECIDING_HORIZON_MS = 90 * 60 * 1000;
+
 interface CloseCandidate {
   matchup_id: string;
   schedule_id: string;
@@ -47,15 +61,35 @@ interface CloseCandidate {
   isCategories: boolean;
 }
 
+interface GameInfo {
+  gameId: string;
+  isFinal: boolean;
+  isLive: boolean;
+  tipMs: number | null;      // null = TBD/untimed game
+}
+
 function formatBody(c: CloseCandidate): string {
   if (c.isCategories) {
     const record = c.ties > 0
       ? `${c.home_label}-${c.away_label}-${c.ties}`
       : `${c.home_label}-${c.away_label}`;
-    return `Your matchup is ${record} heading into tonight — every category counts.`;
+    return `Your matchup is ${record} with the final games left — every category counts.`;
   }
   const gap = Math.abs(c.home_label - c.away_label);
-  return `Your matchup is within ${gap.toFixed(1)} pts — Sunday slate decides it.`;
+  return `Your matchup is within ${gap.toFixed(1)} pts — the final games decide it.`;
+}
+
+/**
+ * Postgres timestamptz comes back as "2026-09-25 02:00:00+00" (space separator,
+ * bare "+00" offset). Normalize to strict ISO so Date.parse is reliable across
+ * runtimes; returns null for TBD/untimed games (game_time_utc is null) or any
+ * unparseable value.
+ */
+function parseTipMs(raw: string | null | undefined): number | null {
+  if (!raw) return null;
+  const iso = raw.trim().replace(" ", "T").replace(/([+-]\d{2})$/, "$1:00");
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? null : ms;
 }
 
 Deno.serve(async (req: Request) => {
@@ -76,19 +110,20 @@ Deno.serve(async (req: Request) => {
 
     const today = getSportToday(null);
 
-    // Live weeks across all leagues for today
-    const { data: liveWeeks, error: weekErr } = await supabase
+    // Only the LAST day of a matchup week can be "down to the wire" — those are
+    // the games that decide it. Every other day (and every off-window poll)
+    // early-exits here after a single cheap query.
+    const { data: endingWeeks, error: weekErr } = await supabase
       .from("league_schedule")
-      .select("id, league_id, start_date, end_date")
-      .lte("start_date", today)
-      .gte("end_date", today);
+      .select("id, league_id")
+      .eq("end_date", today);
     if (weekErr) throw weekErr;
-    if (!liveWeeks || liveWeeks.length === 0) {
-      await recordHeartbeat(supabase, "scan-close-matchups", "ok", "no live weeks").catch(() => {});
-      return jsonResponse({ ok: true, skipped: true, reason: "no live weeks" });
+    if (!endingWeeks || endingWeeks.length === 0) {
+      await recordHeartbeat(supabase, "scan-close-matchups", "ok", "no weeks ending today").catch(() => {});
+      return jsonResponse({ ok: true, skipped: true, reason: "no weeks ending today" });
     }
 
-    const leagueIds = [...new Set(liveWeeks.map((w) => w.league_id))];
+    const leagueIds = [...new Set(endingWeeks.map((w) => w.league_id))];
 
     // Archived leagues bypass RLS (service role) — don't push close-matchup
     // alerts to members of a deleted league.
@@ -104,8 +139,8 @@ Deno.serve(async (req: Request) => {
       scoringTypeByLeague.set(l.id, l.scoring_type ?? "h2h_points");
     }
 
-    // All matchups for these live weeks; pull scores + cat wins inline
-    const scheduleIds = liveWeeks.map((w) => w.id);
+    // All matchups for these ending weeks; pull scores + cat wins inline
+    const scheduleIds = endingWeeks.map((w) => w.id);
     const { data: matchups, error: matchupErr } = await supabase
       .from("league_matchups")
       .select("id, schedule_id, home_team_id, away_team_id, home_score, away_score, home_category_wins, away_category_wins, category_ties, is_finalized")
@@ -115,7 +150,7 @@ Deno.serve(async (req: Request) => {
 
     // Map schedule_id → league_id
     const leagueByScheduleId = new Map<string, string>();
-    for (const w of liveWeeks) leagueByScheduleId.set(w.id, w.league_id);
+    for (const w of endingWeeks) leagueByScheduleId.set(w.id, w.league_id);
 
     // Filter to "close" matchups per scoring type
     const candidates: CloseCandidate[] = [];
@@ -164,9 +199,9 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ ok: true, qualified: 0, sent: 0 });
     }
 
-    // Tonight's-game check: skip matchups where NEITHER roster has a starter
-    // with a non-final game today. Avoids nudging on a slow Sunday where
-    // there's nothing the user can do about the close score.
+    // Down-to-the-wire inputs: each candidate matchup's starters today, mapped
+    // to their pro team's game (final? live? tipoff time?). downToTheWire below
+    // fires only when a matchup's last remaining games are imminent.
     const teamIds = new Set<string>();
     for (const c of candidates) {
       teamIds.add(c.home_team_id);
@@ -187,9 +222,9 @@ Deno.serve(async (req: Request) => {
     const allStarterIds = new Set<string>();
     for (const set of startersByTeam.values()) for (const pid of set) allStarterIds.add(pid);
 
-    // Map each starter to their NBA pro_team abbreviation so we can correlate
-    // with game_schedule. (`live_player_stats` would miss pre-tip starters
-    // because poll-live-stats only upserts rows once games go status>=2.)
+    // Map each starter to their pro_team abbreviation so we can correlate with
+    // game_schedule. (`live_player_stats` would miss pre-tip starters because
+    // poll-live-stats only upserts rows once games tip.)
     const { data: playerRows } = await supabase
       .from("players")
       .select("id, pro_team")
@@ -199,26 +234,46 @@ Deno.serve(async (req: Request) => {
       if (p.pro_team) proTeamByPlayer.set(p.id, p.pro_team);
     }
 
-    // NBA teams with a non-final game on today's slate
+    // Today's slate keyed by pro_team. status is lowercase "final"/"live"/
+    // "scheduled" (set by sync-game-schedule + poll-live-stats).
     const { data: todayGames } = await supabase
       .from("game_schedule")
-      .select("home_team, away_team, status")
+      .select("game_id, home_team, away_team, status, game_time_utc")
       .eq("game_date", today);
-    const activeProTeams = new Set<string>();
+    const gameByProTeam = new Map<string, GameInfo>();
     for (const g of todayGames ?? []) {
-      if (g.status === "Final") continue;
-      if (g.home_team) activeProTeams.add(g.home_team);
-      if (g.away_team) activeProTeams.add(g.away_team);
+      const info: GameInfo = {
+        gameId: g.game_id,
+        isFinal: g.status === "final",
+        isLive: g.status === "live",
+        tipMs: parseTipMs(g.game_time_utc),
+      };
+      if (g.home_team) gameByProTeam.set(g.home_team, info);
+      if (g.away_team) gameByProTeam.set(g.away_team, info);
     }
 
-    const hasTonightStarter = (teamId: string): boolean => {
-      const starters = startersByTeam.get(teamId);
-      if (!starters || starters.size === 0) return false;
-      for (const pid of starters) {
-        const pro = proTeamByPlayer.get(pid);
-        if (pro && activeProTeams.has(pro)) return true;
+    const now = Date.now();
+
+    // A matchup is "down to the wire" when the only starter games it has left
+    // today are live now or about to tip — i.e. no later game is still hours
+    // away to swing it. False if nothing's left to play (already decided) or a
+    // later game still looms (fire on a subsequent poll, closer to the end).
+    const downToTheWire = (c: CloseCandidate): boolean => {
+      const games = new Map<string, GameInfo>();
+      for (const teamId of [c.home_team_id, c.away_team_id]) {
+        const starters = startersByTeam.get(teamId);
+        if (!starters) continue;
+        for (const pid of starters) {
+          const pro = proTeamByPlayer.get(pid);
+          const g = pro ? gameByProTeam.get(pro) : undefined;
+          if (g) games.set(g.gameId, g);
+        }
       }
-      return false;
+      const remaining = [...games.values()].filter((g) => !g.isFinal);
+      if (remaining.length === 0) return false;
+      return remaining.every(
+        (g) => g.isLive || (g.tipMs != null && g.tipMs <= now + DECIDING_HORIZON_MS),
+      );
     };
 
     // Filter out already-notified matchups via the dedup table
@@ -231,14 +286,14 @@ Deno.serve(async (req: Request) => {
 
     let sent = 0;
     let suppressedByDedup = 0;
-    let suppressedByNoGames = 0;
+    let suppressedNotImminent = 0;
     for (const c of candidates) {
       if (sentSet.has(c.matchup_id)) {
         suppressedByDedup++;
         continue;
       }
-      if (!hasTonightStarter(c.home_team_id) && !hasTonightStarter(c.away_team_id)) {
-        suppressedByNoGames++;
+      if (!downToTheWire(c)) {
+        suppressedNotImminent++;
         continue;
       }
 
@@ -276,7 +331,7 @@ Deno.serve(async (req: Request) => {
     await recordHeartbeat(supabase, "scan-close-matchups", "ok").catch(() => {});
     console.log(
       `scan-close-matchups qualified=${candidates.length} sent=${sent} ` +
-        `suppressed_dedup=${suppressedByDedup} suppressed_no_games=${suppressedByNoGames}`,
+        `suppressed_dedup=${suppressedByDedup} suppressed_not_imminent=${suppressedNotImminent}`,
     );
 
     return jsonResponse({
@@ -284,7 +339,7 @@ Deno.serve(async (req: Request) => {
       qualified: candidates.length,
       sent,
       suppressed_by_dedup: suppressedByDedup,
-      suppressed_by_no_games: suppressedByNoGames,
+      suppressed_not_imminent: suppressedNotImminent,
     });
   } catch (err: unknown) {
     await recordHeartbeat(supabase, "scan-close-matchups", "error", String((err as Error)?.message ?? err)).catch(() => {});

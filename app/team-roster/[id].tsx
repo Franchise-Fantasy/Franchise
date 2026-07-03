@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { OnCourtDot } from '@/components/matchup/PlayerCell';
+import { CompareBar } from '@/components/player/CompareBar';
 import { MatchupChip } from '@/components/player/MatchupChip';
 import { PlayerDetailModal } from '@/components/player/PlayerDetailModal';
 import { PlayerHeadshotImage } from '@/components/player/PlayerHeadshotImage';
@@ -45,6 +46,7 @@ import { Brand, Fonts } from '@/constants/Colors';
 import { formatSeasonShort, getPreviousSeason } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
+import { useCompareSelection } from '@/context/CompareSelectionProvider';
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useColors } from '@/hooks/useColors';
 import { useLeague } from '@/hooks/useLeague';
@@ -73,7 +75,7 @@ import {
 } from '@/utils/nba/nbaSchedule';
 import { getTeamLogoUrl } from '@/utils/nba/playerHeadshot';
 import { fetchTeamSlots } from '@/utils/roster/fetchTeamSlots';
-import { slotLabel } from '@/utils/roster/rosterSlots';
+import { baseSlotName, slotLabel } from '@/utils/roster/rosterSlots';
 import { ROSTER_SLOT } from '@/utils/roster/rosterSlotsShared';
 import { ms, s } from '@/utils/scale';
 import {
@@ -129,6 +131,12 @@ export default function TeamRosterScreen() {
   const sport = useActiveLeagueSport(leagueId);
 
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerSeasonStats | null>(null);
+  const {
+    isCompareMode,
+    selectedIds: compareSelectedIds,
+    toggle: toggleCompare,
+    setCompareMode,
+  } = useCompareSelection();
   const [showTradeModal, setShowTradeModal] = useState(false);
   const [showSwitcher, setShowSwitcher] = useState(false);
   // Forward-facing stat window — only affects pre-game / no-game rows, just
@@ -352,51 +360,33 @@ export default function TeamRosterScreen() {
         cfg.position !== 'BE' && cfg.position !== 'IR' && cfg.position !== ROSTER_SLOT.TAXI,
     );
 
-    const validSlotNames = new Set<string>();
-    for (const config of activeConfigs) {
-      if (config.position === 'UTIL') {
-        for (let i = 1; i <= config.slot_count; i++) validSlotNames.add(`UTIL${i}`);
-      } else {
-        validSlotNames.add(config.position);
-      }
-    }
-
+    // Mirror of roster.tsx: each active position fills its seats left-to-right
+    // from the players whose slot resolves to that base position (baseSlotName
+    // collapses UTIL1/UTIL2 → UTIL). Matching by base position + positional fill
+    // can never double-book a seat, so a stray duplicate slot string can't bump
+    // a real starter onto the bench.
     const placedPlayerIds = new Set<string>();
     for (const config of activeConfigs) {
-      if (config.position === 'UTIL') {
-        for (let i = 0; i < config.slot_count; i++) {
-          const numberedSlot = `UTIL${i + 1}`;
-          const player =
-            rosterPlayers.find(
-              (p) => p.roster_slot === numberedSlot && !placedPlayerIds.has(p.player_id),
-            ) ?? null;
-          if (player) placedPlayerIds.add(player.player_id);
-          slots.push({ slotPosition: numberedSlot, slotIndex: i, player });
-        }
-      } else {
-        const playersInSlot = rosterPlayers.filter(
-          (p) => p.roster_slot === config.position && !placedPlayerIds.has(p.player_id),
-        );
-        for (let i = 0; i < config.slot_count; i++) {
-          const player = playersInSlot[i] ?? null;
-          if (player) placedPlayerIds.add(player.player_id);
-          slots.push({
-            slotPosition: config.position,
-            slotIndex: i,
-            player,
-          });
-        }
+      const isUtil = config.position === 'UTIL';
+      const inPosition = rosterPlayers.filter(
+        (p) =>
+          baseSlotName(p.roster_slot ?? '') === config.position &&
+          !placedPlayerIds.has(p.player_id),
+      );
+      for (let i = 0; i < config.slot_count; i++) {
+        const player = inPosition[i] ?? null;
+        if (player) placedPlayerIds.add(player.player_id);
+        slots.push({
+          slotPosition: isUtil ? `UTIL${i + 1}` : config.position,
+          slotIndex: i,
+          player,
+        });
       }
     }
 
     for (const player of rosterPlayers) {
       if (player.roster_slot === 'IR' || player.roster_slot === ROSTER_SLOT.TAXI) continue;
-      if (
-        !player.roster_slot ||
-        player.roster_slot === 'BE' ||
-        !validSlotNames.has(player.roster_slot) ||
-        !placedPlayerIds.has(player.player_id)
-      ) {
+      if (!placedPlayerIds.has(player.player_id)) {
         benchPlayers.push(player);
       }
     }
@@ -598,6 +588,9 @@ export default function TeamRosterScreen() {
     const upcomingProj =
       isPreGame && slot.player ? projFptsFor(slot.player.player_id) : null;
 
+    const compareSelected =
+      isCompareMode && !!slot.player && compareSelectedIds.has(slot.player.player_id);
+
     return (
       <View
         key={`${slot.slotPosition}-${slot.slotIndex}`}
@@ -608,6 +601,7 @@ export default function TeamRosterScreen() {
             borderBottomColor: c.border,
             borderBottomWidth: StyleSheet.hairlineWidth,
           },
+          compareSelected && { backgroundColor: c.activeCard },
         ]}
       >
         {/* Slot pill — always read-only here (another team's roster), so it
@@ -634,8 +628,23 @@ export default function TeamRosterScreen() {
         {slot.player ? (
           <TouchableOpacity
             style={styles.slotPlayer}
-            onPress={() => setSelectedPlayer(slot.player)}
+            onPress={() => {
+              if (isCompareMode) {
+                const p = slot.player!;
+                toggleCompare({
+                  player_id: p.player_id,
+                  name: p.name,
+                  position: p.position,
+                  pro_team: p.pro_team,
+                  external_id_nba: p.external_id_nba,
+                  seasonStats: p,
+                });
+              } else {
+                setSelectedPlayer(slot.player);
+              }
+            }}
             accessibilityRole="button"
+            accessibilityState={isCompareMode ? { selected: compareSelected } : undefined}
             accessibilityLabel={`${slot.player!.name}, ${formatPosition(slot.player!.position)}, ${slot.player!.pro_team}${matchupDisplay ? `, ${matchupDisplay}` : ''}${seasonAvg ? `, season average ${seasonAvg.fpts ? `${seasonAvg.fpts} fantasy points per game, ` : ''}${seasonAvg.stats}` : ''}${!isCategories && fpts !== null ? `, ${formatScore(fpts)} fantasy points` : ''}${isLive ? ', live' : ''}`}
             accessibilityHint="Opens player details"
           >
@@ -676,6 +685,16 @@ export default function TeamRosterScreen() {
                   </View>
                 );
               })()}
+              {compareSelected && (
+                <View
+                  style={[
+                    styles.compareCheck,
+                    { backgroundColor: c.gold, borderColor: c.background },
+                  ]}
+                >
+                  <Ionicons name="checkmark" size={11} color={c.statusText} accessible={false} />
+                </View>
+              )}
             </View>
 
             <View style={styles.slotPlayerInfo}>
@@ -785,9 +804,27 @@ export default function TeamRosterScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: c.background }]}
+      edges={['top', 'left', 'right']}
+    >
       <PageHeader
         title={teamName ?? 'Team Roster'}
+        rightAction={
+          <TouchableOpacity
+            onPress={() => setCompareMode(!isCompareMode)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={isCompareMode ? 'Exit compare mode' : 'Compare players'}
+            accessibilityState={{ selected: isCompareMode }}
+          >
+            <Ionicons
+              name="git-compare"
+              size={16}
+              color={isCompareMode ? c.gold : c.secondaryText}
+            />
+          </TouchableOpacity>
+        }
         titleNode={
           canSwitch ? (
             <TouchableOpacity
@@ -817,7 +854,12 @@ export default function TeamRosterScreen() {
         }
       />
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.scrollContent,
+          isCompareMode && { paddingBottom: 120 },
+        ]}
+      >
         {/* Team identity — hero band: logo + name + record on the turf
             surface, matching the matchup / roster heroes. */}
         {viewedTeam && (
@@ -969,6 +1011,8 @@ export default function TeamRosterScreen() {
           </View>
         )}
       </ScrollView>
+
+      <CompareBar />
 
       <PlayerDetailModal
         player={selectedPlayer}

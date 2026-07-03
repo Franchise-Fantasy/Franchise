@@ -4,11 +4,11 @@ import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { ScreenshotCapture } from '@/components/import/ScreenshotCapture';
 import { TeamRosterReview } from '@/components/import/TeamRosterReview';
 import { BrandButton } from '@/components/ui/BrandButton';
-import { BrandTextInput } from '@/components/ui/BrandTextInput';
 import { FormSection } from '@/components/ui/FormSection';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { Brand, Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { s } from '@/utils/scale';
+import { ms, s } from '@/utils/scale';
 
 import type { Action, TeamRosterData } from './state';
 
@@ -43,6 +43,26 @@ export function StepRosters({
     (p) => !currentTeam.resolvedMappings.has(p.index) && !currentTeam.skippedPlayers.has(p.index),
   ).length;
 
+  // Players the user manually matched via search/"Add Player". They leave
+  // the Unmatched list once resolved, so surface them in the team summary
+  // alongside the auto-matched players instead of letting them disappear.
+  // Corrections of an auto-match (keyed by a matched player's index) are
+  // excluded here — they render in-place on the matched row, not as a
+  // separate resolved row.
+  const matchedIndices = new Set(currentTeam.matched.map((m) => m.index));
+  const resolvedPlayers = Array.from(currentTeam.resolvedMappings.entries())
+    .filter(([index]) => !matchedIndices.has(index))
+    .map(([index, r]) => {
+      const original = currentTeam.unmatched.find((u) => u.index === index);
+      return {
+        index,
+        extracted_name: original?.extracted_name ?? r.name,
+        matched_name: r.name,
+        position: r.position,
+        roster_slot: original?.roster_slot ?? null,
+      };
+    });
+
   return (
     <View style={styles.container}>
       <FormSection title={`Team ${currentTeamIndex + 1} of ${teams.length}`}>
@@ -73,15 +93,26 @@ export function StepRosters({
           ))}
         </View>
 
-        <BrandTextInput
-          label="Team Name"
-          value={currentTeam.team_name}
-          onChangeText={(v) =>
-            dispatch({ type: 'SET_TEAM_NAME', teamIndex: currentTeamIndex, name: v })
-          }
-          placeholder="Team name"
-          accessibilityLabel="Team name"
-        />
+        {/* Read-only: team names are set up front on the Teams step so the
+            traded-pick / lottery / history references that key on them stay
+            stable. Go back to the Teams step to rename. */}
+        <View style={styles.teamNameRow}>
+          <ThemedText
+            type="varsitySmall"
+            style={[styles.teamNameLabel, { color: c.secondaryText }]}
+            accessibilityRole="header"
+          >
+            Team Name
+          </ThemedText>
+          <ThemedText
+            type="defaultSemiBold"
+            style={[styles.teamNameValue, { color: c.text }]}
+            numberOfLines={1}
+            accessibilityLabel={`Team name: ${currentTeam.team_name}. Rename on the Teams step.`}
+          >
+            {currentTeam.team_name}
+          </ThemedText>
+        </View>
 
         <ScreenshotCapture
           images={currentTeam.images}
@@ -112,8 +143,10 @@ export function StepRosters({
           unmatched={currentTeam.unmatched.filter(
             (p) => !currentTeam.resolvedMappings.has(p.index) && !currentTeam.skippedPlayers.has(p.index),
           )}
-          resolvedCount={currentTeam.resolvedMappings.size}
+          resolved={resolvedPlayers}
+          resolvedCount={resolvedPlayers.length}
           skippedCount={currentTeam.skippedPlayers.size}
+          overrides={currentTeam.resolvedMappings}
           onResolve={onResolvePlayer}
           onSkip={onSkipPlayer}
         />
@@ -190,6 +223,16 @@ const styles = StyleSheet.create({
     height: s(8),
     borderRadius: s(4),
     borderWidth: 1,
+  },
+  teamNameRow: {
+    gap: s(3),
+  },
+  teamNameLabel: {
+    fontSize: ms(10),
+    letterSpacing: 0.9,
+  },
+  teamNameValue: {
+    fontSize: ms(16),
   },
   recaptureWrap: {
     alignItems: 'center',

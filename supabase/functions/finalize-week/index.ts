@@ -193,6 +193,24 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ ok: true, finalized: 0, message: 'All matchups already finalized' });
     }
 
+    // Bench any over-capacity active lineup rows for the weeks being finalized
+    // before scoring, so a duplicate seat (two players stamped into one slot —
+    // the data-integrity bug) can't inflate the finalized score. Idempotent and
+    // normally a no-op; warn-and-continue so a hiccup never blocks finalize.
+    // (dedup_active_lineup_slots — 20260629000001.)
+    const finalizingWeeks = [...new Set(unfinalizedMatchups.map((m) => m.schedule_id))]
+      .map((id) => scheduleMap.get(id))
+      .filter((w): w is NonNullable<typeof w> => w != null);
+    if (finalizingWeeks.length > 0) {
+      const minStart = finalizingWeeks.reduce((m, w) => (w.start_date < m ? w.start_date : m), finalizingWeeks[0].start_date);
+      const maxEnd = finalizingWeeks.reduce((m, w) => (w.end_date > m ? w.end_date : m), finalizingWeeks[0].end_date);
+      const { error: dedupErr } = await supabase.rpc('dedup_active_lineup_slots', {
+        p_start_date: minStart,
+        p_end_date: maxEnd,
+      });
+      if (dedupErr) log.warn('dedup_active_lineup_slots failed; scoring may include a duplicate seat', { error: dedupErr.message });
+    }
+
     // ── Bulk-load per-league scoring config in parallel (1 round-trip per league). ──
     const leagueIds = [...new Set(unfinalizedMatchups.map((m) => m.league_id))];
     const scoringByLeague = new Map<string, ScoringWeight[]>();

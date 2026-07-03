@@ -36,6 +36,7 @@ const RATE_LIMITS: Record<string, RateLimitConfig> = {
   // Import: tight (heavy operation)
   'import-sleeper-league':    { maxRequests: 3,  windowSeconds: 300 },
   'import-screenshot-league': { maxRequests: 30, windowSeconds: 600 },
+  'import-league-history':    { maxRequests: 10, windowSeconds: 300 },
   'import-extract':           { maxRequests: 10, windowSeconds: 300 }, // Claude Vision calls
 
   // Bidding wars / autopick: moderate

@@ -27,6 +27,11 @@ interface SeasonAveragesProps {
   /** Season-long projection for this player (projected per-game line), shown as
    *  a "PROJ" lens alongside the actual windows. Null when none exists. */
   projection?: ProjectionRow | null;
+  /** Whether the current season has tipped off. Before it has, the current
+   *  season has no games yet, so the "current season" lens shows the projected
+   *  line in place of an empty box-score (and the separate PROJ chip is dropped
+   *  to avoid duplication). */
+  seasonStarted: boolean;
 }
 
 /** Source stat shape shared by season rows and windowed averages. */
@@ -47,6 +52,9 @@ type Lens = {
   rows: [[string, string], [string, string]][];
   /** Games backing this lens (for the splits strip); empty for past seasons. */
   games: PlayerGameLog[];
+  /** True when this lens shows a projected (not actual) line — drives the
+   *  "PROJECTED · SEASON" meta label and suppresses the recent-window trend. */
+  projected?: boolean;
 };
 
 const RECENT_WINDOWS = [5, 10, 15, 25] as const;
@@ -121,12 +129,21 @@ export function SeasonAverages({
   scoringWeights,
   gameLog,
   projection,
+  seasonStarted,
 }: SeasonAveragesProps) {
   const c = useColors();
 
   const lenses: Lens[] = useMemo(() => {
     const log = gameLog ?? [];
     const out: Lens[] = [];
+
+    // Pre-season: the current season has no games yet, so fold the season-long
+    // projection into the "current season" slot rather than show an empty box.
+    const projFpts =
+      projection && !isCategories && scoringWeights
+        ? projAvgRowToFpts(projection as unknown as Record<string, unknown>, scoringWeights)
+        : null;
+    const seasonProjected = !seasonStarted && !!projection;
 
     // Recent windows — only when the log actually has that many games, so we
     // don't show "L25" that's identical to a shorter window.
@@ -148,14 +165,17 @@ export function SeasonAverages({
       });
     }
 
-    // Current season
+    // Current season — shows the projected line until the season tips off.
     out.push({
       key: "season",
       chip: currentSeasonLabel,
-      gpText: `${player.games_played}${currentGamesDenominator ? `/${currentGamesDenominator}` : ""}`,
-      fpts: isCategories ? null : avgFpts,
-      rows: rowsFrom(player),
-      games: log,
+      gpText: seasonProjected
+        ? ""
+        : `${player.games_played}${currentGamesDenominator ? `/${currentGamesDenominator}` : ""}`,
+      fpts: seasonProjected ? projFpts : isCategories ? null : avgFpts,
+      rows: seasonProjected ? rowsFromProj(projection!) : rowsFrom(player),
+      games: seasonProjected ? [] : log,
+      projected: seasonProjected,
     });
 
     // Previous seasons
@@ -173,8 +193,9 @@ export function SeasonAverages({
       });
     }
     // Projected per-game line (season-long projection) as a forward-looking
-    // lens, pinned to the front so it sits left of the recent windows.
-    if (projection) {
+    // lens, pinned to the front so it sits left of the recent windows. Skipped
+    // pre-season — there it's already the current-season slot's content.
+    if (projection && !seasonProjected) {
       // Chip carries the season it projects (e.g. "'26 PROJ") so it can't be
       // mistaken for the next-game projection shown in the header strip. Both
       // "2026" and "2025-26" reduce to the season's defining year ("26").
@@ -183,12 +204,10 @@ export function SeasonAverages({
         key: "proj",
         chip: yy ? `'${yy} PROJ` : "PROJ",
         gpText: "",
-        fpts:
-          !isCategories && scoringWeights
-            ? projAvgRowToFpts(projection as unknown as Record<string, unknown>, scoringWeights)
-            : null,
+        fpts: projFpts,
         rows: rowsFromProj(projection),
         games: [],
+        projected: true,
       });
     }
     return out;
@@ -202,6 +221,7 @@ export function SeasonAverages({
     currentSeasonLabel,
     currentGamesDenominator,
     projection,
+    seasonStarted,
   ]);
 
   const seasonIdx = Math.max(0, lenses.findIndex((l) => l.key === "season"));
@@ -210,7 +230,7 @@ export function SeasonAverages({
 
   // Trend arrow on recent windows: window FPTS vs season FPTS.
   const trend = useMemo(() => {
-    if (!active || active.key === "season" || active.key === "proj" || active.fpts == null || avgFpts == null) {
+    if (!active || active.key === "season" || active.projected || active.fpts == null || avgFpts == null) {
       return null;
     }
     const delta = active.fpts - avgFpts;
@@ -248,8 +268,8 @@ export function SeasonAverages({
                 accessibilityRole="button"
                 accessibilityState={{ selected: sel }}
                 accessibilityLabel={
-                  lens.key === "proj"
-                    ? "Projected season averages"
+                  lens.projected
+                    ? `Projected ${lens.chip} season averages`
                     : lens.key.startsWith("L")
                       ? `Last ${lens.chip.slice(1)} games`
                       : `${lens.chip} season`
@@ -269,7 +289,7 @@ export function SeasonAverages({
 
       <View style={styles.metaRow}>
         <ThemedText type="varsitySmall" style={[styles.gp, { color: c.secondaryText }]}>
-          {active.key === "proj" ? "PROJECTED · SEASON" : `${active.gpText} GP`}
+          {active.projected ? "PROJECTED · SEASON" : `${active.gpText} GP`}
         </ThemedText>
         {active.fpts != null && (
           <View style={styles.fptsCallout}>

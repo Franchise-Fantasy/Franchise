@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { type PillMatchup } from "@/components/matchup/MatchupPillBar";
-import { RosterPlayer, round1 } from "@/components/matchup/PlayerCell";
+import { RosterPlayer, round1, buildStatLine } from "@/components/matchup/PlayerCell";
 import { queryKeys } from "@/constants/queryKeys";
 import { RosterConfigSlot } from "@/hooks/useLeagueRosterConfig";
 import { supabase } from "@/lib/supabase";
@@ -9,10 +9,13 @@ import { ScoringWeight } from "@/types/player";
 import { parseLocalDate } from "@/utils/dates";
 import { liveToGameLog, type LivePlayerStats } from "@/utils/nba/nbaLive";
 import { fetchTeamData, sumStarterDayPoints } from "@/utils/roster/fetchTeamData";
-import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
+import { isActiveSlot } from "@/utils/roster/resolveSlot";
+import { baseSlotName, ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
 import {
+  aggregateTeamStats,
   computeCategoryResults,
   type CategoryMatchupResult,
+  type CategoryResult,
   type TeamStatTotals,
 } from "@/utils/scoring/categoryScoring";
 
@@ -40,6 +43,208 @@ export interface Matchup {
   away_score: number;
   playoff_round: number | null;
   is_finalized: boolean;
+  home_category_wins: number | null;
+  away_category_wins: number | null;
+  category_ties: number | null;
+  // Frozen-at-finalize snapshots. Present once finalized; read instead of
+  // recomputing from the (mutable) daily_lineups so the detail page can't
+  // disagree with the scoreboard/standings.
+  home_player_scores: FrozenPlayerScore[] | null;
+  away_player_scores: FrozenPlayerScore[] | null;
+  category_results: CategoryResult[] | null;
+}
+
+/** One player's frozen per-game breakdown, as finalize-week persists it. */
+export interface FrozenPlayerScore {
+  player_id: string;
+  name: string;
+  position: string | null;
+  pro_team: string | null;
+  external_id_nba: string | null;
+  roster_slot: string;
+  week_points: number;
+  games: {
+    date: string;
+    slot: string;
+    fpts: number;
+    stats: Record<string, number | boolean>;
+    matchup: string | null;
+  }[];
+}
+
+/** Category win/loss/tie record from the left team's perspective. */
+export interface CategoryRecord {
+  leftWins: number;
+  rightWins: number;
+  ties: number;
+}
+
+/** Frozen score for a finalized matchup, oriented to the display's left/right. */
+export interface FinalizedScore {
+  left: number;
+  right: number;
+}
+
+// The stored, finalize-week-authored category record for a matchup, mapped to
+// the display's left/right orientation. Only present once the matchup is
+// finalized — until then the board/hero recompute it live from box scores.
+// Returning it lets the matchup page show the FROZEN result for past weeks
+// instead of re-deriving it (which drifts when live games are in progress or
+// the underlying data changes), keeping the page in sync with standings.
+function buildFinalizedCategoryRecord(
+  matchup: Pick<
+    Matchup,
+    "is_finalized" | "home_category_wins" | "away_category_wins" | "category_ties"
+  >,
+  leftIsHome: boolean,
+): CategoryRecord | null {
+  if (!matchup.is_finalized || matchup.home_category_wins == null) return null;
+  const home = matchup.home_category_wins;
+  const away = matchup.away_category_wins ?? 0;
+  const ties = matchup.category_ties ?? 0;
+  return leftIsHome
+    ? { leftWins: home, rightWins: away, ties }
+    : { leftWins: away, rightWins: home, ties };
+}
+
+// Re-orient finalize-week's stored per-category breakdown (home/away) to the
+// display's left/right and tally W/L/T. Returns the same shape the live
+// recompute produces so CategoryScoreboard renders identically. `home` in the
+// result means the LEFT team.
+function orientFrozenCategoryResults(
+  stored: CategoryResult[],
+  leftIsHome: boolean,
+): CategoryMatchupResult {
+  const results: CategoryResult[] = stored.map((r) =>
+    leftIsHome
+      ? r
+      : {
+          stat: r.stat,
+          home: r.away,
+          away: r.home,
+          winner:
+            r.winner === "home" ? "away" : r.winner === "away" ? "home" : "tie",
+        },
+  );
+  let homeWins = 0;
+  let awayWins = 0;
+  let ties = 0;
+  for (const r of results) {
+    if (r.winner === "home") homeWins++;
+    else if (r.winner === "away") awayWins++;
+    else ties++;
+  }
+  return { results, homeWins, awayWins, ties };
+}
+
+// Build a team's matchup display data from finalize-week's frozen per-player
+// snapshot instead of re-deriving it from the (mutable) daily_lineups. Used
+// for FINALIZED matchups so the detail page mirrors the locked
+// league_matchups result that the scoreboard/standings read — a post-finalize
+// lineup edit can no longer drift the displayed score. `selectedDate` drives
+// the per-day cells (a player's slot/points for the viewed day come from that
+// day's frozen game).
+function buildTeamDataFromFrozen(
+  teamId: string,
+  info: TeamInfo,
+  playerScores: FrozenPlayerScore[],
+  selectedDate: string,
+  scoring: ScoringWeight[],
+): TeamMatchupData {
+  const activeGamesAll: Record<string, number | boolean>[] = [];
+
+  const rosterPlayers: RosterPlayer[] = playerScores.map((ps) => {
+    const games = ps.games ?? [];
+    const dayGame = games.find((g) => g.date === selectedDate) ?? null;
+    // The viewed day's slot wins; otherwise fall back to the standing slot.
+    const displaySlot = dayGame?.slot ?? ps.roster_slot ?? "BE";
+
+    // Aggregate this player's active (started) games for the week summary, and
+    // collect them into the team-wide active pool for category teamStats.
+    const weekStats: Record<string, number> = {};
+    let weekGames = 0;
+    for (const g of games) {
+      if (!isActiveSlot(g.slot)) continue;
+      activeGamesAll.push(g.stats);
+      weekGames++;
+      for (const [key, val] of Object.entries(g.stats)) {
+        if (val == null) continue;
+        const num = typeof val === "boolean" ? (val ? 1 : 0) : Number(val);
+        weekStats[key] = (weekStats[key] ?? 0) + num;
+      }
+    }
+
+    const t = ps.pro_team ?? "";
+    const nbaTricode = t && t !== "Active" && t !== "Inactive" ? t : null;
+
+    return {
+      player_id: ps.player_id,
+      name: ps.name ?? "—",
+      position: ps.position ?? "—",
+      pro_team: t,
+      external_id_nba: ps.external_id_nba ? Number(ps.external_id_nba) : null,
+      status: "active",
+      nbaTricode,
+      roster_slot: displaySlot,
+      weekPoints: round1(ps.week_points ?? 0),
+      weekGames,
+      seasonAvgFpts: null,
+      dayPoints: round1(dayGame?.fpts ?? 0),
+      dayMatchup: dayGame?.matchup ?? null,
+      dayStatLine: dayGame ? buildStatLine(dayGame.stats as Record<string, number>, scoring) : null,
+      dayGameStats: dayGame?.stats ?? null,
+      projectedFpts: null,
+      weekGameStats: weekStats,
+    };
+  });
+
+  const droppedPlayers = rosterPlayers.filter(
+    (p) => p.roster_slot === ROSTER_SLOT.DROPPED,
+  );
+  const visiblePlayers = rosterPlayers.filter(
+    (p) => p.roster_slot !== ROSTER_SLOT.DROPPED,
+  );
+
+  return {
+    teamId,
+    teamName: info.name,
+    logoKey: info.logoKey,
+    tricode: info.tricode,
+    wins: info.wins,
+    losses: info.losses,
+    ties: info.ties,
+    players: visiblePlayers,
+    droppedPlayers,
+    weekTotal: round1(rosterPlayers.reduce((s, p) => s + p.weekPoints, 0)),
+    dayTotal: round1(sumStarterDayPoints(visiblePlayers)),
+    teamStats: aggregateTeamStats(activeGamesAll),
+  };
+}
+
+// Map a live fetchTeamData result + team info into TeamMatchupData. Used for
+// in-progress (not-yet-finalized) weeks, where scores must reflect the current
+// roster/lineup.
+function buildLiveTeam(
+  teamId: string,
+  info: TeamInfo,
+  result: Awaited<ReturnType<typeof fetchTeamData>>,
+): TeamMatchupData {
+  return {
+    teamId,
+    teamName: info.name,
+    logoKey: info.logoKey,
+    tricode: info.tricode,
+    wins: info.wins,
+    losses: info.losses,
+    ties: info.ties,
+    players: result.players,
+    droppedPlayers: result.droppedPlayers,
+    weekTotal:
+      result.weekTotalAll ??
+      round1(result.players.reduce((s, p) => s + p.weekPoints, 0)),
+    dayTotal: round1(sumStarterDayPoints(result.players)),
+    teamStats: result.teamStats,
+  };
 }
 
 export interface TeamMatchupData {
@@ -88,29 +293,30 @@ export function buildMatchupSlots(
       c.position !== ROSTER_SLOT.TAXI,
   );
   const slots: MatchupSlotEntry[] = [];
-  // Track placed players so duplicate-slot collisions fall to bench
+  // Track placed players so the rest fall to bench
   const placedPlayerIds = new Set<string>();
 
+  // Each active position fills its seats left-to-right from the players whose
+  // slot resolves to that base position (baseSlotName collapses UTIL1/UTIL2 →
+  // UTIL). Matching by base position + positional fill — rather than an exact
+  // seat string like `=== "UTIL2"` — can never double-book a seat, so a stray
+  // duplicate slot string can't bump a real starter onto the bench. Mirrors the
+  // roster page's placement so the two always agree.
   for (const cfg of activeConfigs) {
-    if (cfg.position === "UTIL") {
-      for (let i = 0; i < cfg.slot_count; i++) {
-        const numberedSlot = `UTIL${i + 1}`;
-        const player =
-          players.find((p) => p.roster_slot === numberedSlot && !placedPlayerIds.has(p.player_id)) ?? null;
-        if (player) placedPlayerIds.add(player.player_id);
-        slots.push({ slotPosition: numberedSlot, slotIndex: i, player });
-      }
-    } else {
-      const inSlot = players.filter((p) => p.roster_slot === cfg.position && !placedPlayerIds.has(p.player_id));
-      for (let i = 0; i < cfg.slot_count; i++) {
-        const player = inSlot[i] ?? null;
-        if (player) placedPlayerIds.add(player.player_id);
-        slots.push({
-          slotPosition: cfg.position,
-          slotIndex: i,
-          player,
-        });
-      }
+    const isUtil = cfg.position === "UTIL";
+    const inPosition = players
+      .filter((p) => baseSlotName(p.roster_slot ?? "") === cfg.position && !placedPlayerIds.has(p.player_id))
+      // Prefer players who actually played that day. In a finalized recap a
+      // non-playing player can carry a stale week-level slot (there's no
+      // per-day frozen entry for a day they didn't play), and that must not
+      // occupy a seat ahead of someone who really played it. Stable sort keeps
+      // array order within each group, so the live path (where everyone has the
+      // day's accurate slot) is unaffected.
+      .sort((a, b) => (b.dayGameStats ? 1 : 0) - (a.dayGameStats ? 1 : 0));
+    for (let i = 0; i < cfg.slot_count; i++) {
+      const player = inPosition[i] ?? null;
+      if (player) placedPlayerIds.add(player.player_id);
+      slots.push({ slotPosition: isUtil ? `UTIL${i + 1}` : cfg.position, slotIndex: i, player });
     }
   }
   return slots;
@@ -162,7 +368,12 @@ export function computeLiveCategoryResults(
   return computeCategoryResults(
     mergeTeamStatsWithLive(leftTeam, liveMap),
     mergeTeamStatsWithLive(rightTeam, liveMap),
-    scoring.map((s) => ({ stat_name: s.stat_name, inverse: s.inverse ?? false })),
+    // Only enabled categories count — mirrors finalize-week, which skips
+    // disabled ones. Without this filter a disabled category drifts the live
+    // tally away from the frozen record.
+    scoring
+      .filter((s) => (s as { is_enabled?: boolean }).is_enabled !== false)
+      .map((s) => ({ stat_name: s.stat_name, inverse: s.inverse ?? false })),
   );
 }
 
@@ -185,13 +396,13 @@ async function fetchMatchupForWeek(
   const { data, error } = await supabase
     .from("league_matchups")
     .select(
-      "id, home_team_id, away_team_id, home_score, away_score, playoff_round, is_finalized",
+      "id, home_team_id, away_team_id, home_score, away_score, playoff_round, is_finalized, home_category_wins, away_category_wins, category_ties, home_player_scores, away_player_scores, category_results",
     )
     .eq("schedule_id", scheduleId)
     .or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
     .maybeSingle();
   if (error) throw error;
-  return data as Matchup | null;
+  return data as unknown as Matchup | null;
 }
 
 interface TeamInfo {
@@ -290,6 +501,10 @@ export async function fetchWeekMatchupData(
   myTeam: TeamMatchupData;
   opponentTeam: TeamMatchupData | null;
   week: Week;
+  isFinalized: boolean;
+  categoryRecord: CategoryRecord | null;
+  finalizedScore: FinalizedScore | null;
+  categoryResults: CategoryMatchupResult | null;
 } | null> {
   const matchup = await fetchMatchupForWeek(week.id, teamId);
   if (!matchup) return null;
@@ -297,55 +512,56 @@ export async function fetchWeekMatchupData(
   const isHome = matchup.home_team_id === teamId;
   const opponentId = isHome ? matchup.away_team_id : matchup.home_team_id;
 
-  // Always resolve slots and stats live from daily_lineups + player_games so the
-  // matchup page mirrors the roster page exactly. Wins/losses are still locked
-  // by league_matchups.home_score/away_score on finalized weeks.
-  const [myResult, myInfo, oppResult, oppInfo] = await Promise.all([
-    fetchTeamData(teamId, leagueId, week, selectedDate, scoring, sport),
+  // FINALIZED weeks render from the frozen per-player snapshot (the same source
+  // standings + scoreboard read) so a post-finalize lineup edit can't drift the
+  // displayed score. In-progress weeks resolve live from daily_lineups +
+  // player_games so the page mirrors the roster page and ticks up with games.
+  const myFrozen = isHome ? matchup.home_player_scores : matchup.away_player_scores;
+  const oppFrozen = isHome ? matchup.away_player_scores : matchup.home_player_scores;
+  const useFrozenMy = matchup.is_finalized && !!myFrozen;
+  const useFrozenOpp = matchup.is_finalized && !!oppFrozen;
+
+  const [myInfo, oppInfo, myResult, oppResult] = await Promise.all([
     fetchTeamInfo(teamId),
-    opponentId
-      ? fetchTeamData(opponentId, leagueId, week, selectedDate, scoring, sport)
-      : Promise.resolve(null),
     opponentId ? fetchTeamInfo(opponentId) : Promise.resolve(null),
+    useFrozenMy
+      ? Promise.resolve(null)
+      : fetchTeamData(teamId, leagueId, week, selectedDate, scoring, sport),
+    !opponentId || useFrozenOpp
+      ? Promise.resolve(null)
+      : fetchTeamData(opponentId, leagueId, week, selectedDate, scoring, sport),
   ]);
 
+  const myTeam = useFrozenMy
+    ? buildTeamDataFromFrozen(teamId, myInfo, myFrozen!, selectedDate, scoring)
+    : buildLiveTeam(teamId, myInfo, myResult!);
+
   let opponentTeam: TeamMatchupData | null = null;
-  if (opponentId && oppResult && oppInfo) {
-    opponentTeam = {
-      teamId: opponentId,
-      teamName: oppInfo.name,
-      logoKey: oppInfo.logoKey,
-      tricode: oppInfo.tricode,
-      wins: oppInfo.wins,
-      losses: oppInfo.losses,
-      ties: oppInfo.ties,
-      players: oppResult.players,
-      droppedPlayers: oppResult.droppedPlayers,
-      weekTotal: oppResult.weekTotalAll ?? round1(
-        oppResult.players.reduce((s, p) => s + p.weekPoints, 0),
-      ),
-      dayTotal: round1(sumStarterDayPoints(oppResult.players)),
-      teamStats: oppResult.teamStats,
-    };
+  if (opponentId && oppInfo) {
+    opponentTeam = useFrozenOpp
+      ? buildTeamDataFromFrozen(opponentId, oppInfo, oppFrozen!, selectedDate, scoring)
+      : oppResult
+        ? buildLiveTeam(opponentId, oppInfo, oppResult)
+        : null;
   }
 
   return {
-    myTeam: {
-      teamId,
-      teamName: myInfo.name,
-      logoKey: myInfo.logoKey,
-      tricode: myInfo.tricode,
-      wins: myInfo.wins,
-      losses: myInfo.losses,
-      ties: myInfo.ties,
-      players: myResult.players,
-      droppedPlayers: myResult.droppedPlayers,
-      weekTotal: myResult.weekTotalAll ?? round1(myResult.players.reduce((s, p) => s + p.weekPoints, 0)),
-      dayTotal: round1(sumStarterDayPoints(myResult.players)),
-      teamStats: myResult.teamStats,
-    },
+    myTeam,
     opponentTeam,
     week,
+    isFinalized: matchup.is_finalized,
+    // Left team is myTeam, which is home iff the user is the home side.
+    categoryRecord: buildFinalizedCategoryRecord(matchup, isHome),
+    finalizedScore: matchup.is_finalized
+      ? {
+          left: isHome ? matchup.home_score : matchup.away_score,
+          right: isHome ? matchup.away_score : matchup.home_score,
+        }
+      : null,
+    categoryResults:
+      matchup.is_finalized && matchup.category_results
+        ? orientFrozenCategoryResults(matchup.category_results, isHome)
+        : null,
   };
 }
 
@@ -356,72 +572,80 @@ export async function fetchMatchupDataById(
   selectedDate: string,
   scoring: ScoringWeight[],
   sport: string | null | undefined,
-): Promise<{ homeTeam: TeamMatchupData; awayTeam: TeamMatchupData | null }> {
-  const { data: matchup, error } = await supabase
+): Promise<{
+  homeTeam: TeamMatchupData;
+  awayTeam: TeamMatchupData | null;
+  isFinalized: boolean;
+  categoryRecord: CategoryRecord | null;
+  finalizedScore: FinalizedScore | null;
+  categoryResults: CategoryMatchupResult | null;
+}> {
+  const { data, error } = await supabase
     .from("league_matchups")
-    .select("id, home_team_id, away_team_id, is_finalized")
+    .select(
+      "id, home_team_id, away_team_id, home_score, away_score, is_finalized, home_category_wins, away_category_wins, category_ties, home_player_scores, away_player_scores, category_results",
+    )
     .eq("id", matchupId)
     .single();
   if (error) throw error;
+  const matchup = data as unknown as Matchup;
 
-  const [homeInfo, awayInfo] = await Promise.all([
+  // Left team is always the home team here — see fetchWeekMatchupData for the
+  // frozen-vs-live rationale.
+  const useFrozenHome = matchup.is_finalized && !!matchup.home_player_scores;
+  const useFrozenAway = matchup.is_finalized && !!matchup.away_player_scores;
+
+  const [homeInfo, awayInfo, homeResult, awayResult] = await Promise.all([
     fetchTeamInfo(matchup.home_team_id),
     matchup.away_team_id
       ? fetchTeamInfo(matchup.away_team_id)
       : Promise.resolve(null),
+    useFrozenHome
+      ? Promise.resolve(null)
+      : fetchTeamData(matchup.home_team_id, leagueId, week, selectedDate, scoring, sport),
+    !matchup.away_team_id || useFrozenAway
+      ? Promise.resolve(null)
+      : fetchTeamData(matchup.away_team_id, leagueId, week, selectedDate, scoring, sport),
   ]);
 
-  // Always resolve slots and stats live — see fetchWeekMatchupData for rationale.
-  const [homeResult, awayResult] = await Promise.all([
-    fetchTeamData(matchup.home_team_id, leagueId, week, selectedDate, scoring, sport),
-    matchup.away_team_id
-      ? fetchTeamData(
-          matchup.away_team_id,
-          leagueId,
-          week,
-          selectedDate,
-          scoring,
-          sport,
-        )
-      : Promise.resolve(null),
-  ]);
-
-  const homeTeam: TeamMatchupData = {
-    teamId: matchup.home_team_id,
-    teamName: homeInfo.name,
-    logoKey: homeInfo.logoKey,
-    tricode: homeInfo.tricode,
-    wins: homeInfo.wins,
-    losses: homeInfo.losses,
-    ties: homeInfo.ties,
-    players: homeResult.players,
-    droppedPlayers: homeResult.droppedPlayers,
-    weekTotal: homeResult.weekTotalAll ?? round1(homeResult.players.reduce((s, p) => s + p.weekPoints, 0)),
-    dayTotal: round1(sumStarterDayPoints(homeResult.players)),
-    teamStats: homeResult.teamStats,
-  };
+  const homeTeam = useFrozenHome
+    ? buildTeamDataFromFrozen(
+        matchup.home_team_id,
+        homeInfo,
+        matchup.home_player_scores!,
+        selectedDate,
+        scoring,
+      )
+    : buildLiveTeam(matchup.home_team_id, homeInfo, homeResult!);
 
   let awayTeam: TeamMatchupData | null = null;
-  if (matchup.away_team_id && awayInfo && awayResult) {
-    awayTeam = {
-      teamId: matchup.away_team_id,
-      teamName: awayInfo.name,
-      logoKey: awayInfo.logoKey,
-      tricode: awayInfo.tricode,
-      wins: awayInfo.wins,
-      losses: awayInfo.losses,
-      ties: awayInfo.ties,
-      players: awayResult.players,
-      droppedPlayers: awayResult.droppedPlayers,
-      weekTotal: awayResult.weekTotalAll ?? round1(
-        awayResult.players.reduce((s, p) => s + p.weekPoints, 0),
-      ),
-      dayTotal: round1(sumStarterDayPoints(awayResult.players)),
-      teamStats: awayResult.teamStats,
-    };
+  if (matchup.away_team_id && awayInfo) {
+    awayTeam = useFrozenAway
+      ? buildTeamDataFromFrozen(
+          matchup.away_team_id,
+          awayInfo,
+          matchup.away_player_scores!,
+          selectedDate,
+          scoring,
+        )
+      : awayResult
+        ? buildLiveTeam(matchup.away_team_id, awayInfo, awayResult)
+        : null;
   }
 
-  return { homeTeam, awayTeam };
+  return {
+    homeTeam,
+    awayTeam,
+    isFinalized: matchup.is_finalized,
+    categoryRecord: buildFinalizedCategoryRecord(matchup, true),
+    finalizedScore: matchup.is_finalized
+      ? { left: matchup.home_score, right: matchup.away_score }
+      : null,
+    categoryResults:
+      matchup.is_finalized && matchup.category_results
+        ? orientFrozenCategoryResults(matchup.category_results, true)
+        : null,
+  };
 }
 
 // ─── Hooks ────────────────────────────────────────────────────────────────────

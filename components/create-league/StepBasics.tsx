@@ -16,9 +16,12 @@ import { s } from "@/utils/scale";
 interface StepBasicsProps {
   state: LeagueWizardState;
   onChange: (field: keyof LeagueWizardState, value: any) => void;
+  /** Passed to SportSelector — true in the import flows so the
+   *  season-creation window doesn't gate an existing league. */
+  ignoreCreationWindow?: boolean;
 }
 
-export function StepBasics({ state, onChange }: StepBasicsProps) {
+export function StepBasics({ state, onChange, ignoreCreationWindow }: StepBasicsProps) {
   return (
     <View style={styles.container}>
       {/* Required fields first */}
@@ -36,6 +39,7 @@ export function StepBasics({ state, onChange }: StepBasicsProps) {
           <SportSelector
             selected={state.sport}
             onSelect={(sport) => onChange("sport", sport)}
+            ignoreCreationWindow={ignoreCreationWindow}
           />
         </FieldGroup>
 

@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   StyleSheet,
@@ -9,12 +9,16 @@ import {
 import { AnimatedSection } from '@/components/ui/AnimatedSection';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { BrandButton } from '@/components/ui/BrandButton';
+import { DateField } from '@/components/ui/DateField';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ToggleRow } from '@/components/ui/ToggleRow';
+import { defaultTradeDeadlineWeek } from '@/constants/LeagueDefaults';
 import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
+import { formatIsoDate, parseLocalDate } from '@/utils/dates';
+import { regularSeasonWeekEndDates, weekNumberForDate } from '@/utils/league/seasonWeeks';
 import { ms, s } from '@/utils/scale';
 
 const VETO_OPTIONS = ['Commissioner', 'League Vote', 'None'] as const;
@@ -54,7 +58,10 @@ export function EditTradeSettingsModal({
   const [votesToVeto, setVotesToVeto] = useState(4);
   const [pickConditions, setPickConditions] = useState(false);
   const [autoRumors, setAutoRumors] = useState(false);
-  const [tradeDeadlineWeek, setTradeDeadlineWeek] = useState(0);
+  // ISO `yyyy-mm-dd`, or null for no deadline — this is the actual persisted
+  // value; the "Deadline Week" stepper below is a quick-set shortcut that
+  // derives it, not a separate source of truth.
+  const [tradeDeadlineDate, setTradeDeadlineDate] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -65,22 +72,34 @@ export function EditTradeSettingsModal({
     setVotesToVeto(league.trade_votes_to_veto ?? 4);
     setPickConditions(league.pick_conditions_enabled ?? false);
     setAutoRumors(league.auto_rumors_enabled ?? false);
-    setTradeDeadlineWeek(calcDeadlineWeek());
+    setTradeDeadlineDate(league.trade_deadline ?? null);
   }, [visible]);
 
-  function calcDeadlineWeek(): number {
-    if (!league.trade_deadline || !league.season_start_date) return 0;
-    const deadline = new Date(league.trade_deadline + 'T00:00:00');
-    const start = new Date(league.season_start_date + 'T00:00:00');
-    const startDay = start.getDay();
-    const daysToFirstSunday = startDay === 0 ? 0 : 7 - startDay;
-    const week1End = new Date(start);
-    week1End.setDate(start.getDate() + daysToFirstSunday);
-    const diffDays = Math.round(
-      (deadline.getTime() - week1End.getTime()) / (1000 * 60 * 60 * 24)
+  const hasStartDate = !!league?.season_start_date;
+
+  // Regular-season week end dates (merge-window aware) — powers the
+  // "Deadline Week" quick-set shortcut and bounds the date picker to the
+  // actual last day of the regular season. Empty when the league has no
+  // start date yet (nothing to measure weeks from).
+  const weeks = useMemo(() => {
+    if (!hasStartDate) return [];
+    return regularSeasonWeekEndDates(
+      league.sport ?? 'nba',
+      league.season,
+      parseLocalDate(league.season_start_date),
+      league.regular_season_weeks ?? 20,
+      league.combine_cup_week ?? false,
     );
-    return Math.max(1, Math.round(diffDays / 7) + 1);
-  }
+  }, [
+    hasStartDate,
+    league?.sport,
+    league?.season,
+    league?.season_start_date,
+    league?.regular_season_weeks,
+    league?.combine_cup_week,
+  ]);
+  const maxDeadlineWeek = weeks.length || (league?.regular_season_weeks ?? 20);
+  const deadlineWeek = tradeDeadlineDate ? weekNumberForDate(weeks, tradeDeadlineDate) : 1;
 
   async function handleSave() {
     setSaving(true);
@@ -93,24 +112,7 @@ export function EditTradeSettingsModal({
         trade_votes_to_veto: votesToVeto,
         pick_conditions_enabled: pickConditions,
         auto_rumors_enabled: autoRumors,
-        trade_deadline:
-          tradeDeadlineWeek > 0 && league.season_start_date
-            ? (() => {
-                const start = new Date(
-                  league.season_start_date + 'T00:00:00'
-                );
-                const dayOfWeek = start.getDay();
-                const daysToFirstSunday =
-                  dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
-                const week1End = new Date(start);
-                week1End.setDate(start.getDate() + daysToFirstSunday);
-                const deadlineDate = new Date(week1End);
-                deadlineDate.setDate(
-                  week1End.getDate() + (tradeDeadlineWeek - 1) * 7
-                );
-                return `${deadlineDate.getFullYear()}-${String(deadlineDate.getMonth() + 1).padStart(2, '0')}-${String(deadlineDate.getDate()).padStart(2, '0')}`;
-              })()
-            : null,
+        trade_deadline: hasStartDate ? tradeDeadlineDate : null,
       })
       .eq('id', leagueId);
     setSaving(false);
@@ -123,7 +125,6 @@ export function EditTradeSettingsModal({
   }
 
   const vetoIndex = VETO_OPTIONS.indexOf(vetoType as (typeof VETO_OPTIONS)[number]);
-  const maxDeadlineWeek = league?.regular_season_weeks ?? 20;
 
   return (
     <BottomSheet
@@ -214,30 +215,48 @@ export function EditTradeSettingsModal({
         c={c}
       />
 
-      {/* Trade Deadline — toggle gates the week stepper so "no deadline"
+      {/* Trade Deadline — toggle gates the date/week fields so "no deadline"
           is a clear binary choice instead of the confusing "0 = no limit"
-          stepper convention. */}
+          stepper convention. The date is the actual persisted value; the
+          week stepper is a quick-set shortcut that derives it. */}
       <ToggleRow
         icon="calendar-outline"
         label="Trade Deadline"
         description={
-          tradeDeadlineWeek > 0
-            ? `Trades lock after Week ${tradeDeadlineWeek}.`
-            : 'Trades allowed all season.'
+          !hasStartDate
+            ? 'Set a season start date before adding a trade deadline.'
+            : tradeDeadlineDate
+              ? `Trades lock after ${formatIsoDate(tradeDeadlineDate)}.`
+              : 'Trades allowed all season.'
         }
-        value={tradeDeadlineWeek > 0}
-        onToggle={(v) =>
-          setTradeDeadlineWeek(v ? Math.max(1, maxDeadlineWeek - 4) : 0)
-        }
+        value={!!tradeDeadlineDate}
+        disabled={!hasStartDate}
+        onToggle={(v) => {
+          if (!v) {
+            setTradeDeadlineDate(null);
+            return;
+          }
+          const week = defaultTradeDeadlineWeek(maxDeadlineWeek);
+          setTradeDeadlineDate(weeks[week - 1]?.endDate ?? null);
+        }}
         c={c}
       />
-      <AnimatedSection visible={tradeDeadlineWeek > 0}>
+      <AnimatedSection visible={!!tradeDeadlineDate}>
         <NumberStepper
           label="Deadline Week"
-          value={tradeDeadlineWeek || 1}
-          onValueChange={setTradeDeadlineWeek}
+          value={deadlineWeek}
+          onValueChange={(v) => setTradeDeadlineDate(weeks[v - 1]?.endDate ?? null)}
           min={1}
           max={maxDeadlineWeek}
+          helperText="Quick-set by week — fine-tune the exact date below."
+        />
+        <DateField
+          label="Deadline Date"
+          value={tradeDeadlineDate}
+          onChange={setTradeDeadlineDate}
+          minimumDate={hasStartDate ? parseLocalDate(league.season_start_date) : undefined}
+          maximumDate={weeks.length ? parseLocalDate(weeks[weeks.length - 1].endDate) : undefined}
+          last
         />
       </AnimatedSection>
     </BottomSheet>

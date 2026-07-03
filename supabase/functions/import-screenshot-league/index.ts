@@ -9,6 +9,7 @@ import {
 import { createLogger } from '../_shared/log.ts';
 import { normalizeName } from '../_shared/normalize.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { floorAtSeasonOpening } from '../_shared/seasonStartFloor.ts';
 import { parseBody, z } from '../_shared/validate.ts';
 
 const log = createLogger('import-screenshot-league');
@@ -32,6 +33,15 @@ const ExtractSettingsBody = z.object({
 const ExtractHistoryBody = z.object({
   action: z.literal('extract_history'),
   images: z.array(ImageSchema).min(1, 'At least one image is required').max(3, 'Maximum 3 images for history'),
+});
+
+const ExtractTradedPicksBody = z.object({
+  action: z.literal('extract_traded_picks'),
+  images: z.array(ImageSchema).min(1, 'At least one image is required').max(5, 'Maximum 5 images for picks'),
+  // Known team names + the rookie-draft year, passed so the model maps picks to
+  // real teams/seasons instead of inventing labels.
+  team_names: z.array(z.string()).optional(),
+  draft_year: z.number().int().optional(),
 });
 
 const SearchOrCreatePlayerBody = z.object({
@@ -81,6 +91,7 @@ const ExecuteBody = z.object({
   })).optional(),
   draft_phase: z.enum(['in_season', 'pre_lottery', 'lottery_done']).default('in_season'),
   lottery_order: z.array(z.string()).optional(),
+  lottery_order_round2: z.array(z.string()).optional(),
   traded_future_picks: z.array(z.object({
     season: z.string(),
     round: z.number().int().min(1),
@@ -93,6 +104,7 @@ const ExecuteBody = z.object({
     regular_season_weeks: z.number(),
     playoff_weeks: z.number(),
     playoff_teams: z.number(),
+    combine_cup_week: z.boolean().optional(),
     max_future_seasons: z.number(),
     rookie_draft_rounds: z.number(),
     rookie_draft_order: z.string(),
@@ -117,6 +129,7 @@ const Body = z.discriminatedUnion('action', [
   ExtractRosterBody,
   ExtractSettingsBody,
   ExtractHistoryBody,
+  ExtractTradedPicksBody,
   SearchOrCreatePlayerBody,
   ExecuteBody,
 ]);
@@ -149,6 +162,7 @@ async function callClaudeVision(
   images: Array<{ base64: string; media_type: string }>,
   prompt: string,
   tools?: any[],
+  effort: 'low' | 'medium' | 'high' = 'low',
 ): Promise<any> {
   const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured');
@@ -163,8 +177,13 @@ async function callClaudeVision(
   content.push({ type: 'text', text: prompt });
 
   const body: any = {
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     max_tokens: 4096,
+    // Effort defaults to 'low' — plain OCR (rosters, settings, history) needs no
+    // reasoning, and low keeps these user-facing, billed calls fast. The traded-
+    // picks read passes 'medium': mapping "originally owned by" -> "now owned by"
+    // across a pick-tracker grid is the one reasoning-heavy extraction.
+    output_config: { effort },
     messages: [{ role: 'user', content }],
   };
 
@@ -203,28 +222,90 @@ async function callClaudeVision(
 
 // --- Player matching ---
 
+type ExtractedPlayer = { player_name: string; position: string | null; roster_slot: string | null };
+
+interface MatchablePlayer {
+  id: string;
+  name: string;
+  pro_team: string | null;
+  position: string | null;
+  first: string; // first token, e.g. "collin"
+  surname: string; // remaining tokens joined without spaces, e.g. "murrayboyles"
+  full: string; // every token joined without spaces, e.g. "collinmurrayboyles"
+}
+
+// Tokenize a name for matching. normalizeName already strips accents,
+// suffixes, periods, apostrophes and hyphens, so "Murray-Boyles" collapses
+// to one token. We also split on commas so a "Lastname, F." screenshot
+// tokenizes the same way as "F. Lastname".
+function nameTokens(name: string): string[] {
+  return normalizeName(name).split(/[\s,]+/).filter(Boolean);
+}
+
+// Levenshtein distance, capped — only used for the conservative OCR-slip
+// fallback, so we bail early once the strings differ in length by >1.
+function editDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  if (Math.abs(a.length - b.length) > 1) return 99;
+  const dp = Array.from({ length: a.length + 1 }, (_, i) => i);
+  for (let j = 1; j <= b.length; j++) {
+    let prev = dp[0];
+    dp[0] = j;
+    for (let i = 1; i <= a.length; i++) {
+      const tmp = dp[i];
+      dp[i] = Math.min(dp[i] + 1, dp[i - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return dp[a.length];
+}
+
+// A screenshot position ("SF") should agree with a DB compound position
+// ("SF-PF"), so test membership rather than string equality.
+function positionAgrees(epPos: string | null, dbPos: string | null): boolean {
+  if (!epPos || !dbPos) return false;
+  return dbPos.toUpperCase().split(/[^A-Z]+/).includes(epPos.toUpperCase());
+}
+
+function toMatch(i: number, ep: ExtractedPlayer, hit: MatchablePlayer, confidence: string) {
+  return {
+    index: i,
+    extracted_name: ep.player_name,
+    position: ep.position,
+    roster_slot: ep.roster_slot,
+    matched_player_id: hit.id,
+    matched_name: hit.name,
+    matched_team: hit.pro_team,
+    matched_position: hit.position,
+    confidence,
+  };
+}
+
 async function matchPlayers(
-  extractedPlayers: Array<{ player_name: string; position: string | null; roster_slot: string | null }>,
+  extractedPlayers: ExtractedPlayer[],
   supabaseAdmin: any,
 ): Promise<{ matched: any[]; unmatched: any[] }> {
   const { data: ourPlayers } = await supabaseAdmin
     .from('players')
     .select('id, name, pro_team, position');
 
-  const byNameOnly = new Map<string, any[]>();
-  // Index by last name for abbreviated first-name matching (e.g. "S. Henderson")
-  const byLastName = new Map<string, any[]>();
-  for (const p of (ourPlayers ?? [])) {
-    const norm = normalizeName(p.name);
-    if (!byNameOnly.has(norm)) byNameOnly.set(norm, []);
-    byNameOnly.get(norm)!.push(p);
-
-    const parts = norm.split(' ');
-    if (parts.length >= 2) {
-      const last = parts[parts.length - 1];
-      if (!byLastName.has(last)) byLastName.set(last, []);
-      byLastName.get(last)!.push(p);
-    }
+  // Index by compact full name (spacing/hyphen-insensitive) for exact hits,
+  // and by compact surname for abbreviation + OCR-slip fallbacks.
+  const byFull = new Map<string, MatchablePlayer[]>();
+  const bySurname = new Map<string, MatchablePlayer[]>();
+  for (const p of (ourPlayers ?? []) as MatchablePlayer[]) {
+    const tokens = nameTokens(p.name);
+    if (tokens.length === 0) continue;
+    const mp: MatchablePlayer = {
+      ...p,
+      first: tokens[0],
+      surname: tokens.slice(1).join('') || tokens[0],
+      full: tokens.join(''),
+    };
+    if (!byFull.has(mp.full)) byFull.set(mp.full, []);
+    byFull.get(mp.full)!.push(mp);
+    if (!bySurname.has(mp.surname)) bySurname.set(mp.surname, []);
+    bySurname.get(mp.surname)!.push(mp);
   }
 
   const matched: any[] = [];
@@ -232,94 +313,59 @@ async function matchPlayers(
 
   for (let i = 0; i < extractedPlayers.length; i++) {
     const ep = extractedPlayers[i];
-    const norm = normalizeName(ep.player_name);
-
-    // Try name-only match first (screenshots won't have NBA team)
-    const nameHits = byNameOnly.get(norm);
-
-    if (nameHits?.length === 1) {
-      matched.push({
-        index: i,
-        extracted_name: ep.player_name,
-        position: ep.position,
-        roster_slot: ep.roster_slot,
-        matched_player_id: nameHits[0].id,
-        matched_name: nameHits[0].name,
-        matched_team: nameHits[0].pro_team,
-        matched_position: nameHits[0].position,
-        confidence: 'high',
-      });
+    const tokens = nameTokens(ep.player_name);
+    if (tokens.length === 0) {
+      unmatched.push({ index: i, extracted_name: ep.player_name, position: ep.position, roster_slot: ep.roster_slot, confidence: 'none' });
       continue;
     }
 
-    // If multiple matches, try to disambiguate by position
-    if (nameHits && nameHits.length > 1 && ep.position) {
-      const posMatch = nameHits.find(
-        h => h.position?.toUpperCase() === ep.position?.toUpperCase()
-      );
-      if (posMatch) {
-        matched.push({
-          index: i,
-          extracted_name: ep.player_name,
-          position: ep.position,
-          roster_slot: ep.roster_slot,
-          matched_player_id: posMatch.id,
-          matched_name: posMatch.name,
-          matched_team: posMatch.pro_team,
-          matched_position: posMatch.position,
-          confidence: 'medium',
-        });
-        continue;
-      }
+    const full = tokens.join('');
+    // Only treat the name as reversed when it literally reads "Lastname, First"
+    // (a comma). Applying the reverse interpretation to every name would let,
+    // e.g., "James Harden" reverse-match a different player surnamed "James".
+    const isReversed = ep.player_name.includes(',') && tokens.length >= 2;
+    const fullReversed = isReversed ? [...tokens].reverse().join('') : full;
+    const interps = [{ first: tokens[0], surname: tokens.slice(1).join('') || tokens[0] }];
+    if (isReversed) {
+      interps.push({ first: tokens[tokens.length - 1], surname: tokens.slice(0, -1).join('') });
     }
 
-    // Abbreviated first name fallback (e.g. "S. Henderson" → match "Scoot Henderson")
-    const parts = norm.split(' ');
-    if (parts.length >= 2 && parts[0].length === 1) {
-      const initial = parts[0];
-      const lastName = parts[parts.length - 1];
-      const lastNameHits = byLastName.get(lastName);
-      if (lastNameHits) {
-        // Filter to players whose first name starts with this initial
-        const initialMatches = lastNameHits.filter(p => {
-          const pNorm = normalizeName(p.name);
-          return pNorm.startsWith(initial);
-        });
-        if (initialMatches.length === 1) {
-          matched.push({
-            index: i,
-            extracted_name: ep.player_name,
-            position: ep.position,
-            roster_slot: ep.roster_slot,
-            matched_player_id: initialMatches[0].id,
-            matched_name: initialMatches[0].name,
-            matched_team: initialMatches[0].pro_team,
-            matched_position: initialMatches[0].position,
-            confidence: 'medium',
-          });
-          continue;
-        }
-        // Multiple initial matches — try position to narrow down
-        if (initialMatches.length > 1 && ep.position) {
-          const posMatch = initialMatches.find(
-            h => h.position?.toUpperCase() === ep.position?.toUpperCase()
-          );
-          if (posMatch) {
-            matched.push({
-              index: i,
-              extracted_name: ep.player_name,
-              position: ep.position,
-              roster_slot: ep.roster_slot,
-              matched_player_id: posMatch.id,
-              matched_name: posMatch.name,
-              matched_team: posMatch.pro_team,
-              matched_position: posMatch.position,
-              confidence: 'medium',
-            });
-            continue;
-          }
-        }
+    // 1. Exact compact full-name match (either name order).
+    const fullHits = byFull.get(full) ?? (fullReversed !== full ? byFull.get(fullReversed) : undefined);
+    if (fullHits?.length === 1) { matched.push(toMatch(i, ep, fullHits[0], 'high')); continue; }
+    if (fullHits && fullHits.length > 1) {
+      const pos = fullHits.find((h) => positionAgrees(ep.position, h.position));
+      if (pos) { matched.push(toMatch(i, ep, pos, 'medium')); continue; }
+    }
+
+    // 2. Surname pool + first-initial agreement (abbreviations, both orders).
+    let resolved = false;
+    for (const it of interps) {
+      const pool = bySurname.get(it.surname);
+      if (!pool?.length) continue;
+      const initial = it.first[0];
+      const byInitial = pool.filter((p) => p.first.startsWith(initial));
+      const candidates = byInitial.length > 0 ? byInitial : pool;
+      if (candidates.length === 1) { matched.push(toMatch(i, ep, candidates[0], 'medium')); resolved = true; break; }
+      if (candidates.length > 1 && ep.position) {
+        const pos = candidates.find((h) => positionAgrees(ep.position, h.position));
+        if (pos) { matched.push(toMatch(i, ep, pos, 'medium')); resolved = true; break; }
       }
+    }
+    if (resolved) continue;
+
+    // 3. Fuzzy surname fallback for OCR slips — conservative: a single
+    //    candidate within edit distance 1 whose first initial agrees, and
+    //    only for surnames long enough that a 1-char edit isn't ambiguous.
+    const primary = interps[0];
+    if (primary.surname.length >= 5) {
+      const initial = primary.first[0];
+      const near = new Map<string, MatchablePlayer>();
+      for (const [surname, pool] of bySurname) {
+        if (editDistance(surname, primary.surname) > 1) continue;
+        for (const p of pool) if (p.first.startsWith(initial)) near.set(p.id, p);
+      }
+      if (near.size === 1) { matched.push(toMatch(i, ep, [...near.values()][0], 'low')); continue; }
     }
 
     unmatched.push({
@@ -327,7 +373,7 @@ async function matchPlayers(
       extracted_name: ep.player_name,
       position: ep.position,
       roster_slot: ep.roster_slot,
-      confidence: nameHits ? 'low' : 'none',
+      confidence: bySurname.has(primary.surname) ? 'low' : 'none',
     });
   }
 
@@ -438,7 +484,62 @@ const HISTORY_TOOL = {
   },
 };
 
+const TRADED_PICKS_TOOL = {
+  name: 'extract_traded_picks',
+  description: 'Extract traded future rookie-draft picks from a screenshot of a spreadsheet/pick-tracker',
+  input_schema: {
+    type: 'object',
+    properties: {
+      picks: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            year: { type: ['number', 'null'], description: 'Draft year as a single number (e.g. 2026)' },
+            round: { type: ['number', 'null'], description: 'Round number (1, 2, …)' },
+            original_team: { type: 'string', description: "The team the pick originally belongs to" },
+            new_owner: { type: 'string', description: 'The team that now owns the pick' },
+          },
+          required: ['original_team', 'new_owner'],
+        },
+      },
+    },
+    required: ['picks'],
+  },
+};
+
 // --- Action handlers ---
+
+async function handleExtractTradedPicks(
+  body: z.infer<typeof ExtractTradedPicksBody>,
+) {
+  const { images, team_names, draft_year } = body;
+  for (let i = 0; i < images.length; i++) {
+    if (!images[i].base64) throw new HttpError(`Image ${i + 1} has no base64 data`);
+    if (!images[i].media_type) images[i].media_type = 'image/jpeg';
+  }
+
+  const teamHint = team_names?.length
+    ? `\n\nThe league's teams are: ${team_names.join(', ')}. Map every team you read to the closest name in this list (correct for OCR typos); do not invent team names outside it.`
+    : '';
+  const yearHint = draft_year
+    ? `\n\nIf a row shows no explicit year, assume the upcoming rookie draft (${draft_year}).`
+    : '';
+
+  const prompt = `You are extracting TRADED future draft picks from ${images.length > 1 ? 'these screenshots' : 'this screenshot'} of a fantasy league's pick-tracker spreadsheet.
+
+Each traded pick has moved from its original team to a new owner. For every pick that is owned by a team OTHER than the one it originally belonged to, return:
+- year: the draft year as a single number (e.g. 2026), or null if not shown
+- round: the round number, or null if not shown
+- original_team: the team the pick originally belongs to
+- new_owner: the team that currently owns it
+
+Only include picks that have actually changed hands. Skip picks a team still owns itself, header rows, and totals.${teamHint}${yearHint}`;
+
+  const result = await callClaudeVision(images, prompt, [TRADED_PICKS_TOOL], 'medium');
+  log.info('extract_traded_picks result', { result_preview: JSON.stringify(result)?.substring(0, 500) });
+  return jsonResponse(result);
+}
 
 async function handleExtractRoster(
   body: z.infer<typeof ExtractRosterBody>,
@@ -573,6 +674,23 @@ async function handleSearchOrCreatePlayer(
   return jsonResponse({ created: true, players: [newPlayer] });
 }
 
+// Tricodes must be unique per league (the `teams_tricode_unique_per_league`
+// index). The raw first-3-letters of a team name collide whenever two teams
+// share a prefix (e.g. "Yogis Balls" → YOG and "Yogi's Revenge" → YOG), which
+// previously failed the whole import with an unhandled unique violation.
+// Disambiguate collisions by keeping the first 2 letters and appending a
+// counter (YO2, YO3, … YO10). `tricode` is unbounded `text`, so longer codes
+// are safe.
+function makeUniqueTricode(name: string, used: Set<string>): string {
+  const clean = name.replace(/[^A-Za-z0-9]/g, '').toUpperCase() || 'TM';
+  let code = clean.slice(0, 3);
+  for (let n = 2; used.has(code); n++) {
+    code = clean.slice(0, 2) + n;
+  }
+  used.add(code);
+  return code;
+}
+
 async function handleExecute(
   body: {
     league_name: string;
@@ -600,6 +718,7 @@ async function handleExecute(
     }>;
     draft_phase?: 'in_season' | 'pre_lottery' | 'lottery_done';
     lottery_order?: string[];
+    lottery_order_round2?: string[];
     traded_future_picks?: Array<{ season: string; round: number; original_team_name: string; new_owner_team_name: string }>;
     settings: {
       season: string;
@@ -607,6 +726,7 @@ async function handleExecute(
       regular_season_weeks: number;
       playoff_weeks: number;
       playoff_teams: number;
+      combine_cup_week?: boolean;
       max_future_seasons: number;
       rookie_draft_rounds: number;
       rookie_draft_order: string;
@@ -650,6 +770,7 @@ async function handleExecute(
   const draftPhase = body.draft_phase ?? 'in_season';
   const manualTradedPicks = body.traded_future_picks ?? [];
   const lotteryOrder = body.lottery_order ?? [];
+  const lotteryOrderRound2 = body.lottery_order_round2 ?? [];
   const isDynasty = league_type === 'dynasty';
 
   log.info('execute_import called', {
@@ -665,7 +786,9 @@ async function handleExecute(
     0
   );
 
-  // Season start date
+  // Season start date: today / next Monday, floored to the pro season's
+  // opening night for a pre-tipoff import (else the league would begin with
+  // months of gameless weeks).
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const dow = today.getDay();
@@ -676,7 +799,12 @@ async function handleExecute(
     seasonStart = new Date(today);
     seasonStart.setDate(today.getDate() + (7 - daysSinceMon));
   }
-  const seasonStartDate = `${seasonStart.getFullYear()}-${String(seasonStart.getMonth() + 1).padStart(2, '0')}-${String(seasonStart.getDate()).padStart(2, '0')}`;
+  const seasonStartDate = await floorAtSeasonOpening(
+    supabaseAdmin,
+    sport,
+    settings.season,
+    `${seasonStart.getFullYear()}-${String(seasonStart.getMonth() + 1).padStart(2, '0')}-${String(seasonStart.getDate()).padStart(2, '0')}`,
+  );
 
   // 1. Create league
   const leagueInsert: any = {
@@ -690,6 +818,7 @@ async function handleExecute(
     season_start_date: seasonStartDate,
     regular_season_weeks: settings.regular_season_weeks,
     playoff_weeks: settings.playoff_weeks,
+    combine_cup_week: sport === 'nba' ? (settings.combine_cup_week ?? false) : false,
     schedule_generated: false,
     max_future_seasons: settings.max_future_seasons,
     trade_veto_type: settings.trade_veto_type,
@@ -769,6 +898,7 @@ async function handleExecute(
   const teamNameToId = new Map<string, string>();
   const timestamp = new Date().toISOString();
   const leaguePlayerRows: any[] = [];
+  const usedTricodes = new Set<string>();
 
   for (const team of teams) {
     const { data: teamData, error: teamError } = await supabaseAdmin
@@ -777,7 +907,7 @@ async function handleExecute(
         league_id: leagueId,
         user_id: null,
         name: team.team_name,
-        tricode: team.team_name.substring(0, 3).toUpperCase(),
+        tricode: makeUniqueTricode(team.team_name, usedTricodes),
         is_commissioner: false,
         sleeper_roster_id: -1,
         wins: 0,
@@ -911,6 +1041,9 @@ async function handleExecute(
 
     // Resolve the S0 draft order (identity-specific; the planner is order-agnostic).
     let order: string[] | undefined;
+    // A lottery only sets round 1; rounds 2+ revert to reverse standings. Falls
+    // back to the entered order when no standings history was imported.
+    let laterRoundOrder: string[] | undefined;
     if (draftPhase === 'lottery_done') {
       order = lotteryOrder
         .map(name => fuzzyMatchTeam(name))
@@ -918,6 +1051,15 @@ async function handleExecute(
       if (order.length !== teamIds.length || new Set(order).size !== teamIds.length) {
         throw new HttpError('lottery_order must list every team exactly once', 400);
       }
+      // Explicit round-2 order from the client (WYSIWYG) wins; otherwise a
+      // lottery's round 2 reverts to reverse standings, and a non-lottery's
+      // round 2 mirrors round 1 (laterRoundOrder = undefined).
+      const r2 = lotteryOrderRound2
+        .map(name => fuzzyMatchTeam(name))
+        .filter((id): id is string => !!id);
+      laterRoundOrder = r2.length === teamIds.length && new Set(r2).size === r2.length
+        ? r2
+        : (usesLottery ? reverseStandingsOrderFromHistory() : undefined);
     } else if (draftPhase === 'pre_lottery' && !usesLottery) {
       order = reverseStandingsOrderFromHistory();
     }
@@ -932,6 +1074,7 @@ async function handleExecute(
       draftPhase,
       usesLottery,
       order,
+      laterRoundOrder,
       resolvedTraded,
     });
     offseasonUpdate = planned;
@@ -1062,12 +1205,14 @@ Deno.serve(async (req) => {
     switch (body.action) {
       case 'extract_roster':
       case 'extract_settings':
-      case 'extract_history': {
+      case 'extract_history':
+      case 'extract_traded_picks': {
         // Extra rate limit for Claude Vision calls (expensive API)
         const extractLimited = await checkRateLimit(supabaseAdmin, userId, 'import-extract');
         if (extractLimited) return extractLimited;
         if (body.action === 'extract_roster') return await handleExtractRoster(body, supabaseAdmin);
         if (body.action === 'extract_settings') return await handleExtractSettings(body);
+        if (body.action === 'extract_traded_picks') return await handleExtractTradedPicks(body);
         return await handleExtractHistory(body);
       }
       case 'search_or_create_player':

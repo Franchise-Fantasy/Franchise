@@ -12,6 +12,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
 
 import {
+  draftYearLabel,
   isCompleteTradedPick,
   isDuplicateTradedPick,
   type ImportTeamRef,
@@ -90,7 +91,7 @@ export function TradedPicksEditor({ teams, seasons, rounds, value, onChange }: P
             >
               <View style={styles.rowText}>
                 <ThemedText style={[styles.rowTitle, { color: c.text }]} numberOfLines={1}>
-                  {p.season} · R{p.round}
+                  {draftYearLabel(p.season)} · R{p.round}
                 </ThemedText>
                 <ThemedText style={[styles.rowSub, { color: c.secondaryText }]} numberOfLines={1}>
                   {nameByKey.get(p.fromKey) ?? p.fromKey} → {nameByKey.get(p.toKey) ?? p.toKey}
@@ -100,7 +101,7 @@ export function TradedPicksEditor({ teams, seasons, rounds, value, onChange }: P
                 onPress={() => remove(index)}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 accessibilityRole="button"
-                accessibilityLabel={`Remove traded pick ${p.season} round ${p.round}`}
+                accessibilityLabel={`Remove traded pick ${draftYearLabel(p.season)} round ${p.round}`}
                 style={styles.removeBtn}
               >
                 <Ionicons name="close-circle" size={ms(20)} color={c.secondaryText} />
@@ -139,7 +140,7 @@ export function TradedPicksEditor({ teams, seasons, rounds, value, onChange }: P
       >
         <FieldGroup label="Season">
           <PillRow
-            options={seasons.map(season => ({ key: season, label: season }))}
+            options={seasons.map(season => ({ key: season, label: draftYearLabel(season) }))}
             selectedKey={draft.season}
             onSelect={season => setDraft(d => ({ ...d, season }))}
             c={c}
@@ -155,22 +156,22 @@ export function TradedPicksEditor({ teams, seasons, rounds, value, onChange }: P
           />
         </FieldGroup>
 
-        <FieldGroup label="Original Team" helperText="Whose pick is it originally?">
-          <TeamPicker
-            teams={teams}
-            selectedKey={draft.fromKey}
-            disabledKey={draft.toKey}
-            onSelect={fromKey => setDraft(d => ({ ...d, fromKey }))}
-            c={c}
-          />
-        </FieldGroup>
-
         <FieldGroup label="New Owner" helperText="Who owns it now?">
           <TeamPicker
             teams={teams}
             selectedKey={draft.toKey}
             disabledKey={draft.fromKey}
             onSelect={toKey => setDraft(d => ({ ...d, toKey }))}
+            c={c}
+          />
+        </FieldGroup>
+
+        <FieldGroup label="Original Team" helperText="Whose pick is it originally?">
+          <TeamPicker
+            teams={teams}
+            selectedKey={draft.fromKey}
+            disabledKey={draft.toKey}
+            onSelect={fromKey => setDraft(d => ({ ...d, fromKey }))}
             c={c}
           />
         </FieldGroup>

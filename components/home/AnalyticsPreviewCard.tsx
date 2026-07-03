@@ -61,7 +61,7 @@ export function AnalyticsPreviewCard({
     [allPlayers],
   );
   const sport: Sport = (league?.sport as Sport | undefined) ?? 'nba';
-  const { data: prevSeasonFptsMap } = usePrevSeasonFpts(
+  const { data: prevSeasonFptsMap, isLoading: loadingPrevSeason } = usePrevSeasonFpts(
     leagueId,
     sport,
     allPlayerIds,
@@ -146,7 +146,17 @@ export function AnalyticsPreviewCard({
 
   if (!teamId) return null;
 
-  const isLoading = loadingPlayers || loadingScoring;
+  // Roster-strength and weighted-age both fall back to prev-season FPTS for
+  // players under the games threshold, and that map loads *after* players +
+  // scoring (it keys off their player ids). Rendering before it settles shows a
+  // number computed without the fallback that then visibly jumps when it lands —
+  // so the rank changes between two opens depending on whether the cache was
+  // warm. Wait for it too, but only where it's actually read: not categories
+  // (which don't use it), and only with a roster + weights to compute (so an
+  // empty or still-loading league never blocks on a query that's disabled).
+  const needsPrevSeason = !isCategories && !!allPlayers?.length && !!weights?.length;
+  const isLoading =
+    loadingPlayers || loadingScoring || (needsPrevSeason && loadingPrevSeason);
   const vsLeague = comparison
     ? profile!.weightedProductionAge - comparison.leagueAvgWeightedAge
     : null;

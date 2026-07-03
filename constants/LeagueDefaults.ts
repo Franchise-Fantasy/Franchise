@@ -265,6 +265,7 @@ export const NBA_SEASON_END: Record<string, string> = {
   '2024-25': '2025-04-13',
   '2025-26': '2026-04-12',
   '2026-27': '2027-04-11',
+  '2027-28': '2028-04-09',
 };
 
 export const WNBA_SEASON_END: Record<string, string> = {
@@ -279,6 +280,7 @@ export const NBA_SEASON_START: Record<string, string> = {
   '2024-25': '2024-10-22',
   '2025-26': '2025-10-21',
   '2026-27': '2026-10-20',
+  '2027-28': '2027-10-19',
 };
 
 export const WNBA_SEASON_START: Record<string, string> = {
@@ -287,7 +289,7 @@ export const WNBA_SEASON_START: Record<string, string> = {
   '2027': '2027-05-15',
 };
 
-export const CURRENT_NBA_SEASON = '2025-26';
+export const CURRENT_NBA_SEASON = '2026-27';
 export const CURRENT_WNBA_SEASON = '2026';
 
 // ── Season config cache ───────────────────────────────────────────────────
@@ -331,6 +333,24 @@ export function getPreviousSeason(sport: Sport): string {
   return formatSeason(startYear - 1, sport);
 }
 
+// Whether a league's most recent rookie draft has been committed. `null`
+// means the league isn't in its offseason at all.
+export function isRookieDraftComplete(offseasonStep: string | null | undefined): boolean {
+  return offseasonStep === 'rookie_draft_complete' || offseasonStep === 'ready_for_new_season';
+}
+
+// Start-year offset for "the next rookie draft class" relative to a league's
+// own `season` row. During the regular season the upcoming draft is for next
+// year's class (offset +1). `advance-season` flips `league.season` to the new
+// year at the START of the offseason, and the incoming rookie draft — the one
+// the lottery seeds — is for THAT season itself (offset 0), until this
+// league's own draft completes. Shared by useDraftHub (pick/lottery windows)
+// and useNextRookieDraftYear (Prospects tab) so the two can't drift apart.
+export function rookieDraftStartOffset(offseasonStep: string | null | undefined): 0 | 1 {
+  const inOffseason = offseasonStep != null;
+  return inOffseason && !isRookieDraftComplete(offseasonStep) ? 0 : 1;
+}
+
 export function getSeasonEnd(sport: Sport, season: string): string | undefined {
   const cached = cachedSeasonRow(sport, season);
   if (cached) return cached.end_date;
@@ -363,6 +383,14 @@ export const NBA_MERGE_WINDOWS: Record<string, MergeWindow[]> = {
   '2025-26': [
     { start: '2026-02-09', end: '2026-02-22', label: 'All-Star Break', optional: false },
     { start: '2025-12-08', end: '2025-12-21', label: 'NBA Cup Knockouts', optional: true },
+  ],
+  // 2026-27 estimates (All-Star weekend Feb 12-14, 2027; Cup knockouts
+  // mid-December 2026, mirroring the 2025-26 windows). Refine the exact
+  // Mon-Sun ranges in season_config once the NBA publishes the schedule —
+  // the table overrides these at runtime.
+  '2026-27': [
+    { start: '2027-02-08', end: '2027-02-21', label: 'All-Star Break', optional: false },
+    { start: '2026-12-07', end: '2026-12-20', label: 'NBA Cup Knockouts', optional: true },
   ],
 };
 
@@ -472,7 +500,7 @@ export function getCreationStatus(
       // Opening-night defaults are hardcoded per season — once the season is
       // mid-flight (e.g. creating a WNBA league in June, after May 15 tipoff),
       // the date is in the past. Null it out so the wizard falls back to
-      // computeSeasonStart() (today or the next Monday).
+      // defaultSeasonStart() (tomorrow, floored to opening night).
       const defaultStart = getSeasonStart(sport, currentSeason) ?? null;
       const isPast = defaultStart
         ? new Date(`${defaultStart}T00:00:00`).getTime() < todayMidnight.getTime()
@@ -688,8 +716,13 @@ export interface LeagueWizardState {
   playoffSeedingFormat: PlayoffSeedingOption;
   pickConditionsEnabled: boolean;
   draftPickTradingEnabled: boolean;
-  /** 0 = no deadline, 1+ = trades locked after this week ends */
+  /** 0 = no deadline, 1+ = quick-set "Deadline Week" shortcut (drives the
+   *  NumberStepper); the actual persisted value is `tradeDeadlineDate`. */
   tradeDeadlineWeek: number;
+  /** ISO date (YYYY-MM-DD) trades lock after, or null for no deadline. This
+   *  is what actually gets saved — `tradeDeadlineWeek` only exists so the
+   *  wizard can offer a "pick by week" shortcut that derives it. */
+  tradeDeadlineDate: string | null;
   /** 0 = free league, positive = buy-in amount in dollars */
   buyIn: number;
   venmoUsername: string;

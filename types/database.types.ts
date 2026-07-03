@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       activity_tokens: {
@@ -1657,6 +1682,7 @@ export type Database = {
       }
       league_transactions: {
         Row: {
+          bid_amount: number | null
           created_at: string | null
           group_id: string | null
           id: string
@@ -1666,6 +1692,7 @@ export type Database = {
           type: string
         }
         Insert: {
+          bid_amount?: number | null
           created_at?: string | null
           group_id?: string | null
           id?: string
@@ -1675,6 +1702,7 @@ export type Database = {
           type: string
         }
         Update: {
+          bid_amount?: number | null
           created_at?: string | null
           group_id?: string | null
           id?: string
@@ -6029,6 +6057,10 @@ export type Database = {
         Returns: Json
       }
       archive_league: { Args: { p_league_id: string }; Returns: Json }
+      archive_season_player_stats: {
+        Args: { p_season: string; p_sport: string }
+        Returns: number
+      }
       assert_can_add_free_agent: {
         Args: { p_league_id: string; p_player_id?: string; p_team_id: string }
         Returns: undefined
@@ -6059,6 +6091,10 @@ export type Database = {
       cleanup_rate_limits: { Args: never; Returns: undefined }
       cron_watchdog: { Args: never; Returns: number }
       decrement_team_count: { Args: { lid: string }; Returns: number }
+      dedup_active_lineup_slots: {
+        Args: { p_end_date: string; p_start_date: string }
+        Returns: number
+      }
       execute_draft_pick: {
         Args: {
           p_draft_id: string
@@ -6440,6 +6476,15 @@ export type Database = {
         Args: { p_franchise_id: string; p_season: number }
         Returns: Json
       }
+      notify_membership_change: {
+        Args: {
+          p_event: string
+          p_league_id: string
+          p_target_user_id: string
+          p_team_id: string
+        }
+        Returns: undefined
+      }
       pgmq_archive: {
         Args: { msg_id: number; queue_name: string }
         Returns: boolean
@@ -6702,6 +6747,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {},
   },

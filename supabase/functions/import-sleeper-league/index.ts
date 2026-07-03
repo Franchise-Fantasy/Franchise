@@ -8,6 +8,7 @@ import {
 } from '../_shared/importDraftPhase.ts';
 import { normalizeName } from '../_shared/normalize.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { floorAtSeasonOpening } from '../_shared/seasonStartFloor.ts';
 import { parseBody, z } from '../_shared/validate.ts';
 
 // Body has two shapes by `action`. We validate the top-level discriminator +
@@ -355,6 +356,7 @@ async function handleExecute(
     is_dynasty?: boolean;
     draft_phase?: 'in_season' | 'pre_lottery' | 'lottery_done';
     lottery_order?: number[];
+    lottery_order_round2?: number[];
     traded_future_picks?: Array<{ season: string; round: number; original_roster_id: number; new_owner_roster_id: number }>;
     player_mappings: Array<{ sleeper_id: string; player_id: string; position: string }>;
     roster_slots: Array<{ position: string; count: number }>;
@@ -370,6 +372,7 @@ async function handleExecute(
       regular_season_weeks: number;
       playoff_weeks: number;
       playoff_teams: number;
+      combine_cup_week?: boolean;
       max_future_seasons: number;
       rookie_draft_rounds: number;
       rookie_draft_order: string;
@@ -411,6 +414,7 @@ async function handleExecute(
   const draftPhase = body.draft_phase ?? 'in_season';
   const manualTradedPicks = body.traded_future_picks ?? [];
   const lotteryOrder = body.lottery_order ?? [];
+  const lotteryOrderRound2 = body.lottery_order_round2 ?? [];
 
   // Re-fetch live roster data from Sleeper (starters/players/reserve arrays)
   const sleeperRosters = await sleeperGet(`/league/${sleeper_league_id}/rosters`);
@@ -435,7 +439,11 @@ async function handleExecute(
     0
   );
 
-  // Compute season start date (same logic as create-league)
+  // Compute season start date: today / next Monday (imports of an underway
+  // season align to a Monday week boundary — create-league intentionally
+  // differs and starts tomorrow), floored to the pro season's opening night
+  // for a pre-tipoff import (else the league would begin with months of
+  // gameless weeks).
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const dow = today.getDay();
@@ -446,7 +454,12 @@ async function handleExecute(
     seasonStart = new Date(today);
     seasonStart.setDate(today.getDate() + (7 - daysSinceMon));
   }
-  const seasonStartDate = `${seasonStart.getFullYear()}-${String(seasonStart.getMonth() + 1).padStart(2, '0')}-${String(seasonStart.getDate()).padStart(2, '0')}`;
+  const seasonStartDate = await floorAtSeasonOpening(
+    supabaseAdmin,
+    sport,
+    settings.season,
+    `${seasonStart.getFullYear()}-${String(seasonStart.getMonth() + 1).padStart(2, '0')}-${String(seasonStart.getDate()).padStart(2, '0')}`,
+  );
 
   // 1. Create league
   const { data: leagueData, error: leagueError } = await supabaseAdmin
@@ -462,6 +475,10 @@ async function handleExecute(
       season_start_date: seasonStartDate,
       regular_season_weeks: settings.regular_season_weeks,
       playoff_weeks: settings.playoff_weeks,
+      // `=== true` (not `?? false`): the execute settings block rides the
+      // ExecuteBody passthrough without Zod, so coerce rather than trust the
+      // wire type — a non-boolean would otherwise 500 on the column insert.
+      combine_cup_week: sport === 'nba' ? settings.combine_cup_week === true : false,
       schedule_generated: false,
       max_future_seasons: settings.max_future_seasons,
       trade_veto_type: settings.trade_veto_type,
@@ -702,6 +719,9 @@ async function handleExecute(
 
     // Resolve the S0 draft order (identity-specific; the planner is order-agnostic).
     let order: string[] | undefined;
+    // A lottery only sets round 1; rounds 2+ revert to reverse standings. Falls
+    // back to the entered order when no standings history was imported.
+    let laterRoundOrder: string[] | undefined;
     if (draftPhase === 'lottery_done') {
       order = lotteryOrder
         .map(rid => rosterIdToTeamId.get(rid))
@@ -709,6 +729,15 @@ async function handleExecute(
       if (order.length !== orderedTeamIds.length || new Set(order).size !== orderedTeamIds.length) {
         throw new HttpError('lottery_order must list every team exactly once', 400);
       }
+      // Explicit round-2 order from the client (WYSIWYG) wins; otherwise a
+      // lottery's round 2 reverts to reverse standings, and a non-lottery's
+      // round 2 mirrors round 1 (laterRoundOrder = undefined).
+      const r2 = lotteryOrderRound2
+        .map(rid => rosterIdToTeamId.get(rid))
+        .filter((id): id is string => !!id);
+      laterRoundOrder = r2.length === orderedTeamIds.length && new Set(r2).size === r2.length
+        ? r2
+        : (usesLottery ? reverseStandingsOrderFromHistory() : undefined);
     } else if (draftPhase === 'pre_lottery' && !usesLottery) {
       order = reverseStandingsOrderFromHistory();
     }
@@ -723,6 +752,7 @@ async function handleExecute(
       draftPhase,
       usesLottery,
       order,
+      laterRoundOrder,
       resolvedTraded,
     });
     offseasonUpdate = planned;

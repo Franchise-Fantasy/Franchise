@@ -1,4 +1,4 @@
-import { minSeasonStartForDraft } from "@/utils/league/seasonStart";
+import { earliestSeasonStart, minSeasonStartForDraft } from "@/utils/league/seasonStart";
 
 describe("minSeasonStartForDraft", () => {
   // WNBA_SEASON_START['2026'] = '2026-05-15' (Friday, past relative to now)
@@ -55,5 +55,24 @@ describe("minSeasonStartForDraft", () => {
       draftDate: new Date("2026-06-03T20:00:00Z"),
     });
     expect(result).toBe("2026-06-04");
+  });
+});
+
+describe("earliestSeasonStart", () => {
+  it("floors at the pro season's opening night before tipoff", () => {
+    // Creating an NBA 2026-27 league in July: opening night is 2026-10-20,
+    // so the season can't start on "tomorrow" months before real games.
+    const result = earliestSeasonStart("nba", "2026-27", new Date("2026-07-02T16:00:00Z"));
+    expect(result).toBe("2026-10-20");
+  });
+
+  it("returns tomorrow once the season is underway", () => {
+    const result = earliestSeasonStart("nba", "2026-27", new Date("2027-01-15T17:00:00Z"));
+    expect(result).toBe("2027-01-16");
+  });
+
+  it("returns tomorrow when the season has no known opening date", () => {
+    const result = earliestSeasonStart("nba", null, new Date("2026-07-02T16:00:00Z"));
+    expect(result).toBe("2026-07-03");
   });
 });

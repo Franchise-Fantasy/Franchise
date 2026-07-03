@@ -18,6 +18,7 @@ import { ScoringWeight } from "@/types/player";
 import { type LivePlayerStats } from "@/utils/nba/nbaLive";
 import { slotLabel } from "@/utils/roster/rosterSlots";
 import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
+import { type CategoryMatchupResult } from "@/utils/scoring/categoryScoring";
 
 interface MatchupBoardProps {
   leftTeam: TeamMatchupData;
@@ -30,13 +31,18 @@ interface MatchupBoardProps {
   scoring: ScoringWeight[];
   schedule?: Map<string, any>;
   seedMap?: Map<string, number>;
-  onPlayerPress?: (playerId: string) => void;
+  onPlayerPress?: (player: RosterPlayer) => void;
   onFptsPress?: (
     stats: Record<string, number | boolean>,
     playerName: string,
     gameLabel: string,
   ) => void;
   scoringType?: string;
+  /** Frozen category breakdown for a FINALIZED matchup. When present it
+   *  replaces the live recompute so the overview matches the locked result. */
+  frozenCategoryComparison?: CategoryMatchupResult | null;
+  /** player_ids currently picked in compare mode (highlights the cells). */
+  compareSelectedIds?: Set<string>;
 }
 
 // Renders the matchup body: starter card + bench card + (categories) scoreboard.
@@ -56,15 +62,19 @@ export function MatchupBoard({
   onPlayerPress,
   onFptsPress,
   scoringType,
+  frozenCategoryComparison,
+  compareSelectedIds,
 }: MatchupBoardProps) {
   const isCategories = scoringType === "h2h_categories";
 
-  // For category leagues, compute the live category comparison (active
-  // starters only, with in-progress games merged in). Shared helper keeps this
-  // identical to the hero's week-wide tally.
-  const categoryComparison = isCategories
-    ? computeLiveCategoryResults(leftTeam, rightTeam, scoring, liveMap)
-    : null;
+  // For category leagues: a FINALIZED matchup uses the frozen breakdown (so the
+  // overview matches the locked record + hero); an in-progress one computes the
+  // live comparison (active starters only, in-progress games merged in). The
+  // shared live helper keeps the in-progress tally identical to the hero's.
+  const categoryComparison = !isCategories
+    ? null
+    : (frozenCategoryComparison ??
+      computeLiveCategoryResults(leftTeam, rightTeam, scoring, liveMap));
 
   // Use the longer slot list (should always be the same length)
   const slotCount = Math.max(leftSlots.length, rightSlots.length);
@@ -132,6 +142,7 @@ export function MatchupBoard({
         onPress={onPlayerPress}
         isCategories={isCategories}
         onFptsPress={onFptsPress}
+        compareSelected={!!lPlayer && !!compareSelectedIds?.has(lPlayer.player_id)}
       />
       {/* Slot pill — informational only on the matchup page (lineup edits
           live on the roster tab), so we render it dimmed to mirror the
@@ -163,6 +174,7 @@ export function MatchupBoard({
         onPress={onPlayerPress}
         isCategories={isCategories}
         onFptsPress={onFptsPress}
+        compareSelected={!!rPlayer && !!compareSelectedIds?.has(rPlayer.player_id)}
       />
     </View>
   );

@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { memo, useMemo } from 'react';
 import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
+import { PlayerName } from '@/components/player/PlayerName';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors, Fonts, cardShadow } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -77,9 +78,7 @@ function ProspectCardBase({
 
       {/* Player info — name (bold body), then position varsity caps + school/class */}
       <View style={styles.info}>
-        <Text style={[styles.name, { color: c.text }]} numberOfLines={1}>
-          {prospect.name}
-        </Text>
+        <PlayerName name={prospect.name} style={[styles.name, { color: c.text }]} />
         <View style={styles.metaRow}>
           <ThemedText
             type="varsitySmall"

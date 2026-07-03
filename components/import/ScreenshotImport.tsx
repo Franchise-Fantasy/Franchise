@@ -21,8 +21,13 @@ import {
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
 import { StepBasics } from '@/components/create-league/StepBasics';
+import { StepDraft } from '@/components/create-league/StepDraft';
+import { StepSeason } from '@/components/create-league/StepSeason';
+import { StepTrade } from '@/components/create-league/StepTrade';
+import { StepWaivers } from '@/components/create-league/StepWaivers';
 import {
   computeImportSeasons,
+  resolveDraftOrder,
   validateLotteryOrder,
 } from '@/components/import/draftPhase';
 import { DraftPhaseSelector } from '@/components/import/DraftPhaseSelector';
@@ -33,24 +38,28 @@ import {
   serializeState,
   STEP_LABELS,
   STORAGE_KEY,
+  type HistorySeasonData,
   type PersistedState,
 } from '@/components/import/screenshot/state';
-import { StepConfig } from '@/components/import/screenshot/StepConfig';
 import { StepHistory } from '@/components/import/screenshot/StepHistory';
 import { StepReview } from '@/components/import/screenshot/StepReview';
 import { StepRosters } from '@/components/import/screenshot/StepRosters';
 import { StepSettings } from '@/components/import/screenshot/StepSettings';
+import { StepTeams } from '@/components/import/screenshot/StepTeams';
 import { TradedPicksEditor } from '@/components/import/TradedPicksEditor';
+import { TradedPicksScanner } from '@/components/import/TradedPicksScanner';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { StepIndicator } from '@/components/ui/StepIndicator';
 import { ThemedView } from '@/components/ui/ThemedView';
 import { Colors } from '@/constants/Colors';
 import {
   LEAGUE_TYPE_TO_DB,
+  parseSeasonStartYear,
   SEEDING_TO_DB,
   type LeagueWizardState,
 } from '@/constants/LeagueDefaults';
 import { useToast } from '@/context/ToastProvider';
+import { SportThemeProvider } from '@/hooks/useColors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import {
   useExtractHistory,
@@ -60,6 +69,20 @@ import {
 } from '@/hooks/useImportScreenshot';
 import { ms, s } from '@/utils/scale';
 
+
+// Reverse-standings order (team names) from the most recent extracted/typed
+// season — the round-2 default for lottery leagues (a lottery only sets round
+// 1). Mirrors the edge's reverse-standings sort (wins asc, then points-for asc).
+function reverseStandingsNamesFromHistory(seasons: HistorySeasonData[]): string[] {
+  const extracted = seasons
+    .map((h) => h.extracted)
+    .filter((e): e is NonNullable<typeof e> => !!e?.teams?.length);
+  if (!extracted.length) return [];
+  const latest = [...extracted].sort((a, b) => ((a.season ?? '') < (b.season ?? '') ? 1 : -1))[0];
+  return [...latest.teams]
+    .sort((a, b) => (a.wins ?? 0) - (b.wins ?? 0) || (a.points_for ?? 0) - (b.points_for ?? 0))
+    .map((t) => t.team_name);
+}
 
 // --- Component ---
 
@@ -71,6 +94,9 @@ export function ScreenshotImport() {
 
   const [state, dispatch] = useReducer(reducer, initialState);
   const [step, setStep] = useState(0);
+  // True when the user chose "Finish Rosters Later" — carried into Review so
+  // its submit creates the league with empty shells for unfinished teams.
+  const [finishLater, setFinishLater] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const [isAtBottom, setIsAtBottom] = useState(false);
   const [hasMoreContent, setHasMoreContent] = useState(false);
@@ -324,24 +350,37 @@ export function ScreenshotImport() {
 
   // --- Import execution ---
 
-  const handleImport = useCallback(async () => {
+  const handleImport = useCallback(async (finishLater = false) => {
     const ws = state.wizardState;
 
-    // Build teams payload — skip teams with no roster data
-    const teamsPayload = state.teams
-      .filter((team) => team.extracted && (team.matched.length + team.resolvedMappings.size > 0))
-      .map((team) => {
-        const players: { player_id: string; position: string; roster_slot: string | null }[] = [];
+    // Full import sends only teams with rosters. "Finish later" sends every
+    // team — finished ones populated, the rest as empty shells — so the league
+    // is created with all N teams and the remaining rosters can be imported
+    // later. The execute endpoint accepts empty `players` arrays.
+    const sourceTeams = finishLater
+      ? state.teams
+      : state.teams.filter((team) => team.extracted && team.matched.length + team.resolvedMappings.size > 0);
 
+    const teamsPayload = sourceTeams.map((team) => {
+      const players: { player_id: string; position: string; roster_slot: string | null }[] = [];
+
+      if (team.extracted) {
+        // A resolvedMappings entry can correct an auto-match (keyed by the
+        // matched player's index) — in which case it REPLACES that match,
+        // keeping the original roster slot. Otherwise it's a resolution of a
+        // previously-unmatched player.
+        const matchedIndices = new Set(team.matched.map((m) => m.index));
         for (const m of team.matched) {
+          const override = team.resolvedMappings.get(m.index);
           players.push({
-            player_id: m.matched_player_id,
-            position: m.matched_position,
+            player_id: override?.player_id ?? m.matched_player_id,
+            position: override?.position ?? m.matched_position,
             roster_slot: m.roster_slot,
           });
         }
 
         for (const [index, resolved] of team.resolvedMappings) {
+          if (matchedIndices.has(index)) continue; // already applied as an override above
           const original = team.unmatched.find((u) => u.index === index);
           players.push({
             player_id: resolved.player_id,
@@ -349,9 +388,10 @@ export function ScreenshotImport() {
             roster_slot: original?.roster_slot ?? null,
           });
         }
+      }
 
-        return { team_name: team.team_name, players };
-      });
+      return { team_name: team.team_name, players };
+    });
 
     if (teamsPayload.length === 0) {
       Alert.alert('No teams', 'At least one team must have an extracted roster to import.');
@@ -410,6 +450,19 @@ export function ScreenshotImport() {
               ? state.lotteryOrder
               : state.teams.map((t) => t.team_name))
           : [],
+      // Round-2 order (only for lottery_done): explicit override → reverse
+      // standings → round 1 — the same fallback the selector previews.
+      lottery_order_round2:
+        state.draftPhase === 'lottery_done' && state.wizardState.rookieDraftRounds >= 2
+          ? resolveDraftOrder(
+              [
+                state.lotteryOrderR2,
+                reverseStandingsNamesFromHistory(state.historySeasons),
+                state.lotteryOrder,
+              ],
+              state.teams.map((t) => t.team_name),
+            )
+          : undefined,
       traded_future_picks: state.tradedPicks.map((p) => ({
         season: p.season,
         round: p.round,
@@ -422,6 +475,7 @@ export function ScreenshotImport() {
         regular_season_weeks: ws.regularSeasonWeeks,
         playoff_weeks: ws.playoffWeeks,
         playoff_teams: ws.playoffTeams,
+        combine_cup_week: ws.sport === 'nba' ? (ws.combineCupWeek ?? false) : false,
         max_future_seasons: ws.maxDraftYears,
         rookie_draft_rounds: ws.rookieDraftRounds,
         rookie_draft_order: ws.rookieDraftOrder === 'Reverse Record' ? 'reverse_record' : 'lottery',
@@ -465,14 +519,29 @@ export function ScreenshotImport() {
     }
   }, [state, importMutation, router, showToast]);
 
+  // Number of teams with a usable roster so far — drives the "finish later"
+  // copy and the confirm prompt.
+  const finishedTeamCount = state.teams.filter(
+    (t) => t.extracted && t.matched.length + t.resolvedMappings.size > 0,
+  ).length;
+
+  // "Finish Rosters Later" doesn't create the league directly — it advances to
+  // Review (with the finish-later intent) so settings still get a final check
+  // before creation, same as the full path. Review's submit handles the create.
+  const handleFinishLater = useCallback(() => {
+    setFinishLater(true);
+    setStep(STEP_LABELS.length - 1);
+    scrollToTop();
+  }, [scrollToTop]);
+
   // --- Per-step advance gates ---
   //  0 (Basics): league name required.
-  //  2 (Rosters): every team must be extracted AND have no
-  //     unresolved unmatched players left. Prevents the user from
-  //     advancing while half their teams still need a screenshot.
-  //  3 (History): if any seasons were requested, every season's
+  //  7 (History): if any seasons were requested, every season's
   //     screenshot must be extracted. 0 seasons skips the gate
   //     entirely (the Next button switches to "Skip").
+  //  8 (Rosters): every team must be extracted AND have no unresolved
+  //     unmatched players left, to reach Review. The "Finish Rosters
+  //     Later" button bypasses this gate by creating the league directly.
   //  All other steps: open advance.
   const allTeamsResolved = state.teams.every((t) => {
     if (!t.extracted) return false;
@@ -487,14 +556,18 @@ export function ScreenshotImport() {
 
   const canAdvance = (() => {
     if (step === 0) return !!state.wizardState.name.trim();
-    if (step === 2) return allTeamsResolved;
-    if (step === 3) return allHistoryExtracted;
+    if (step === 7) return allHistoryExtracted;
+    if (step === 8) return allTeamsResolved;
     return true;
   })();
 
-  const nextLabel = step === 3 && state.historySeasons.length === 0 ? 'Skip' : 'Next';
+  const nextLabel = step === 7 && state.historySeasons.length === 0 ? 'Skip' : 'Next';
 
   return (
+    // Override the active-league sport so the wizard's chrome (Next/Import
+    // buttons via BrandButton, StepIndicator dots) follows the *picked* sport
+    // rather than whatever league the user came from — mirrors create-league.
+    <SportThemeProvider sport={state.wizardState.sport}>
     <ThemedView style={styles.container}>
       <View style={styles.headerRow}>
         <BrandButton
@@ -525,10 +598,16 @@ export function ScreenshotImport() {
             onContentSizeChange={handleContentSizeChange}
           >
             {step === 0 && (
-              <StepBasics state={state.wizardState} onChange={handleBasicsChange} />
+              <StepBasics
+                state={state.wizardState}
+                onChange={handleBasicsChange}
+                ignoreCreationWindow
+              />
             )}
 
-            {step === 1 && (
+            {step === 1 && <StepTeams teams={state.teams} dispatch={dispatch} />}
+
+            {step === 2 && (
               <StepSettings
                 state={state}
                 dispatch={dispatch}
@@ -538,65 +617,126 @@ export function ScreenshotImport() {
               />
             )}
 
-            {step === 2 && (
-              <StepRosters
-                teams={state.teams}
-                currentTeamIndex={state.currentTeamIndex}
-                dispatch={dispatch}
-                onExtractRoster={handleExtractRoster}
-                onResolvePlayer={handleResolvePlayer}
-                onSkipPlayer={handleSkipPlayer}
-                extractRosterMutation={extractRosterMutation as any}
-                scrollToTop={scrollToTop}
-              />
-            )}
-
             {step === 3 && (
-              <StepHistory
-                historySeasons={state.historySeasons}
-                currentHistoryIndex={state.currentHistoryIndex}
-                dispatch={dispatch}
-                onExtractHistory={handleExtractHistory}
-                extractHistoryMutation={extractHistoryMutation as any}
-                scrollToTop={scrollToTop}
-              />
+              <StepWaivers state={state.wizardState} onChange={handleWizardChange} />
             )}
 
             {step === 4 && (
+              <StepSeason state={state.wizardState} onChange={handleWizardChange} />
+            )}
+
+            {step === 5 && (
+              <StepTrade state={state.wizardState} onChange={handleWizardChange} />
+            )}
+
+            {step === 6 && (
               <>
-                <StepConfig state={state.wizardState} onChange={handleWizardChange} />
+                <StepDraft state={state.wizardState} onChange={handleWizardChange} hideStartupDraft />
                 <DraftPhaseSelector
                   isDynasty={state.wizardState.leagueType === 'Dynasty'}
                   usesLottery={state.wizardState.rookieDraftOrder === 'Lottery'}
                   phase={state.draftPhase}
                   onPhaseChange={(v) => dispatch({ type: 'SET_DRAFT_PHASE', value: v })}
                   teams={state.teams.map((t) => ({ key: t.team_name, name: t.team_name }))}
+                  rounds={state.wizardState.rookieDraftRounds}
                   lotteryOrder={state.lotteryOrder}
                   onLotteryOrderChange={(v) => dispatch({ type: 'SET_LOTTERY_ORDER', value: v })}
+                  round2Order={state.lotteryOrderR2}
+                  onRound2OrderChange={(v) => dispatch({ type: 'SET_LOTTERY_ORDER_R2', value: v })}
+                  defaultRound2Order={reverseStandingsNamesFromHistory(state.historySeasons)}
                 />
                 {state.wizardState.leagueType === 'Dynasty' && (
-                  <TradedPicksEditor
-                    teams={state.teams.map((t) => ({ key: t.team_name, name: t.team_name }))}
-                    seasons={computeImportSeasons(
-                      state.wizardState.season,
-                      state.wizardState.sport,
-                      state.wizardState.maxDraftYears,
-                      state.draftPhase !== 'in_season',
-                    )}
-                    rounds={state.wizardState.rookieDraftRounds}
-                    value={state.tradedPicks}
-                    onChange={(v) => dispatch({ type: 'SET_TRADED_PICKS', value: v })}
-                  />
+                  <>
+                    <TradedPicksScanner
+                      teams={state.teams.map((t) => ({ key: t.team_name, name: t.team_name }))}
+                      seasons={computeImportSeasons(
+                        state.wizardState.season,
+                        state.wizardState.sport,
+                        state.wizardState.maxDraftYears,
+                        state.draftPhase !== 'in_season',
+                      )}
+                      rounds={state.wizardState.rookieDraftRounds}
+                      sport={state.wizardState.sport}
+                      defaultDraftYear={parseSeasonStartYear(state.wizardState.season)}
+                      value={state.tradedPicks}
+                      onChange={(v) => dispatch({ type: 'SET_TRADED_PICKS', value: v })}
+                    />
+                    <TradedPicksEditor
+                      teams={state.teams.map((t) => ({ key: t.team_name, name: t.team_name }))}
+                      seasons={computeImportSeasons(
+                        state.wizardState.season,
+                        state.wizardState.sport,
+                        state.wizardState.maxDraftYears,
+                        state.draftPhase !== 'in_season',
+                      )}
+                      rounds={state.wizardState.rookieDraftRounds}
+                      value={state.tradedPicks}
+                      onChange={(v) => dispatch({ type: 'SET_TRADED_PICKS', value: v })}
+                    />
+                  </>
                 )}
               </>
             )}
 
-            {step === 5 && (
+            {step === 7 && (
+              <StepHistory
+                historySeasons={state.historySeasons}
+                currentHistoryIndex={state.currentHistoryIndex}
+                onSetSeasonCount={(count) => dispatch({ type: 'SET_HISTORY_SEASON_COUNT', count })}
+                onSetImages={(seasonIndex, images) => dispatch({ type: 'SET_HISTORY_IMAGES', seasonIndex, images })}
+                onSetExtracted={(seasonIndex, data) => dispatch({ type: 'SET_HISTORY_EXTRACTED', seasonIndex, data })}
+                onSelectSeason={(index) => dispatch({ type: 'SET_CURRENT_HISTORY', index })}
+                onExtractHistory={handleExtractHistory}
+                extractHistoryMutation={extractHistoryMutation as any}
+                scrollToTop={scrollToTop}
+                teamNames={state.teams.map((t) => t.team_name)}
+                season={state.wizardState.season}
+                sport={state.wizardState.sport}
+              />
+            )}
+
+            {step === 8 && (
+              <>
+                <StepRosters
+                  teams={state.teams}
+                  currentTeamIndex={state.currentTeamIndex}
+                  dispatch={dispatch}
+                  onExtractRoster={handleExtractRoster}
+                  onResolvePlayer={handleResolvePlayer}
+                  onSkipPlayer={handleSkipPlayer}
+                  extractRosterMutation={extractRosterMutation as any}
+                  scrollToTop={scrollToTop}
+                />
+                <View style={styles.finishLaterWrap}>
+                  <BrandButton
+                    label="Finish Rosters Later"
+                    variant="secondary"
+                    size="default"
+                    fullWidth
+                    onPress={handleFinishLater}
+                    accessibilityLabel="Review your settings and create the league now, importing the remaining rosters later"
+                  />
+                  <Text style={[styles.finishLaterHint, { color: c.secondaryText }]}>
+                    {finishedTeamCount > 0
+                      ? `Continue with the ${finishedTeamCount} team${finishedTeamCount === 1 ? '' : 's'} you've finished — review your settings next, then import the rest anytime.`
+                      : 'Continue to review your settings, then create your league and import every roster later.'}
+                  </Text>
+                </View>
+              </>
+            )}
+
+            {step === 9 && (
               <StepReview
                 state={state}
-                onSubmit={handleImport}
+                finishLater={finishLater}
+                onSubmit={() => handleImport(finishLater)}
                 onBack={() => setStep((s) => s - 1)}
                 loading={importMutation.isPending}
+                onEdit={(section) =>
+                  setStep(
+                    { basics: 0, roster: 2, scoring: 2, waivers: 3, season: 4, trade: 5, draft: 6 }[section],
+                  )
+                }
               />
             )}
           </ScrollView>
@@ -635,6 +775,7 @@ export function ScreenshotImport() {
           <BrandButton
             label={nextLabel}
             onPress={() => {
+              setFinishLater(false);
               setStep((s) => s + 1);
               scrollToTop();
             }}
@@ -646,6 +787,7 @@ export function ScreenshotImport() {
         </View>
       )}
     </ThemedView>
+    </SportThemeProvider>
   );
 }
 
@@ -689,5 +831,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 8,
     paddingBottom: 32,
+  },
+  finishLaterWrap: {
+    marginTop: s(20),
+    gap: s(6),
+  },
+  finishLaterHint: {
+    fontSize: ms(11),
+    lineHeight: ms(15),
+    textAlign: 'center',
   },
 });

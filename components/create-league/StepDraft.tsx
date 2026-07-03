@@ -26,9 +26,14 @@ import { ms, s } from '@/utils/scale';
 interface StepDraftProps {
   state: LeagueWizardState;
   onChange: (field: keyof LeagueWizardState, value: any) => void;
+  /**
+   * Hide the "Startup Draft" section. Imported leagues already have rosters —
+   * no startup draft ever runs — so only the Rookie Draft settings apply.
+   */
+  hideStartupDraft?: boolean;
 }
 
-export function StepDraft({ state, onChange }: StepDraftProps) {
+export function StepDraft({ state, onChange, hideStartupDraft }: StepDraftProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const isDynasty = (state.leagueType ?? 'Dynasty') === 'Dynasty';
@@ -49,6 +54,7 @@ export function StepDraft({ state, onChange }: StepDraftProps) {
 
   return (
     <View style={styles.container}>
+      {!hideStartupDraft && (
       <FormSection title="Startup Draft">
         <FieldGroup label="Draft Type">
           <SegmentedControl
@@ -140,6 +146,7 @@ export function StepDraft({ state, onChange }: StepDraftProps) {
           />
         )}
       </FormSection>
+      )}
 
       {isDynasty && (
         <FormSection title="Rookie Draft">

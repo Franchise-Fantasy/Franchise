@@ -1,6 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
 
-import { formatSeason, getCurrentSeason, parseSeasonStartYear, type Sport } from '@/constants/LeagueDefaults';
+import {
+  formatSeason,
+  getCurrentSeason,
+  isRookieDraftComplete,
+  parseSeasonStartYear,
+  rookieDraftStartOffset,
+  type Sport,
+} from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 
@@ -99,9 +106,7 @@ export function useDraftHub(leagueId: string | null) {
         lotteryComplete ||
         league?.lottery_status === 'complete' ||
         offseasonStep === 'lottery_revealing';
-      const rookieDraftComplete =
-        offseasonStep === 'rookie_draft_complete' ||
-        offseasonStep === 'ready_for_new_season';
+      const rookieDraftComplete = isRookieDraftComplete(offseasonStep);
 
       const maxFuture = league?.max_future_seasons ?? 3;
       const currentStartYear = parseSeasonStartYear(league?.season ?? getCurrentSeason(sport));
@@ -120,7 +125,7 @@ export function useDraftHub(leagueId: string | null) {
       // filter and disappear, and the hub appears to jump a year ahead. The
       // two windows cover the same absolute seasons across the boundary because
       // `league.season` incremented while the start offset decremented.
-      const startOffset = inOffseason && !rookieDraftComplete ? 0 : 1;
+      const startOffset = rookieDraftStartOffset(offseasonStep);
       const validSeasons: string[] = [];
       for (let i = 0; i < maxFuture; i++) {
         validSeasons.push(formatSeason(currentStartYear + startOffset + i, sport));

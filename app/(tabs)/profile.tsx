@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQueryClient } from '@tanstack/react-query';
 import { Image as ExpoImage } from 'expo-image';
 import { useRouter } from 'expo-router';
+import * as Updates from 'expo-updates';
 import { useEffect, useState } from 'react';
 import {
   Alert,
@@ -27,6 +28,7 @@ import { TIER_LABELS, type SubscriptionTier } from '@/constants/Subscriptions';
 import { useAppState } from '@/context/AppStateProvider';
 import { useSession } from '@/context/AuthProvider';
 import { useConfirm, useTextPrompt } from '@/context/ConfirmProvider';
+import { globalToastRef } from '@/context/ToastProvider';
 import { useColors } from '@/hooks/useColors';
 import { useLeague } from '@/hooks/useLeague';
 import { useProjectionToggle } from '@/hooks/useProjectionToggle';
@@ -37,6 +39,7 @@ import {
   unregisterPushToken,
 } from '@/lib/notifications';
 import { supabase } from '@/lib/supabase';
+import { isExpoGo } from '@/utils/buildConfig';
 import { isArchiveFlagOn, isNflArchiveFlagOn, isNhlArchiveFlagOn } from '@/utils/featureFlags';
 import { logger } from '@/utils/logger';
 import { containsBlockedContent } from '@/utils/moderation';
@@ -74,6 +77,38 @@ export default function ProfileScreen() {
   const { tier, individualPeriod, leagueTier, leaguePeriod } = useSubscription();
   const userEmail = session?.user?.email ?? 'Unknown';
   const isCommissioner = session?.user?.id === league?.created_by;
+
+  // Manual OTA update check (tap the version footer). Updates also apply
+  // silently on the next cold start via expo-updates' default ON_LOAD — this
+  // is a visible way to pull one on demand and confirm delivery is working.
+  async function checkForOtaUpdate() {
+    if (isExpoGo) {
+      globalToastRef.current?.('info', 'Updates are disabled in Expo Go.');
+      return;
+    }
+    try {
+      globalToastRef.current?.('info', 'Checking for updates…');
+      const update = await Updates.checkForUpdateAsync();
+      if (!update.isAvailable) {
+        globalToastRef.current?.('success', 'You’re on the latest version.');
+        return;
+      }
+      await Updates.fetchUpdateAsync();
+      // The update is downloaded now and will apply on the next cold start
+      // regardless. We also offer an immediate restart: tapped here — mid-
+      // session, past the launch window — reloadAsync sidesteps the first-
+      // startup crash in expo/expo#21347. If the restart still misbehaves,
+      // reopening the app applies the already-downloaded update.
+      confirm({
+        title: 'Update ready',
+        message: 'A new version downloaded. Restart now to apply it, or just reopen the app later.',
+        cancelLabel: 'Later',
+        action: { label: 'Restart', onPress: () => Updates.reloadAsync() },
+      });
+    } catch {
+      globalToastRef.current?.('error', 'Could not check for updates.');
+    }
+  }
 
   function handleEditTeamName() {
     if (!teamId) return;
@@ -884,15 +919,24 @@ export default function ProfileScreen() {
           </ListRow>
         </Section>
 
-        {/* ─── Version footer ──────────────────────────────────────────────── */}
+        {/* ─── Version footer (tap to check for OTA updates) ──────────────── */}
         <View style={styles.versionWrap}>
           <View style={[styles.versionRule, { backgroundColor: c.border }]} />
-          <ThemedText
-            type="varsitySmall"
-            style={[styles.versionText, { color: c.secondaryText }]}
+          <TouchableOpacity
+            onPress={checkForOtaUpdate}
+            activeOpacity={0.6}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="Check for app updates"
+            accessibilityHint="Downloads a new version if one is available and offers to restart"
           >
-            FRANCHISE · V2.0.0
-          </ThemedText>
+            <ThemedText
+              type="varsitySmall"
+              style={[styles.versionText, { color: c.secondaryText }]}
+            >
+              FRANCHISE · V2.0.0
+            </ThemedText>
+          </TouchableOpacity>
           <View style={[styles.versionRule, { backgroundColor: c.border }]} />
         </View>
 

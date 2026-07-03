@@ -7,7 +7,8 @@ import {
 } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { BottomTabBarHeightContext } from "expo-router/js-tabs";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   ScrollView,
@@ -23,6 +24,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useWeeks } from "@/components/matchup/matchupData";
 import { OnCourtDot } from "@/components/matchup/PlayerCell";
 import { WeekSummarySheet } from "@/components/matchup/WeekSummarySheet";
+import { CompareBar } from "@/components/player/CompareBar";
 import { FptsBreakdownModal } from "@/components/player/FptsBreakdownModal";
 import { MatchupChip } from "@/components/player/MatchupChip";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
@@ -75,6 +77,10 @@ import {
 } from "@/constants/LeagueDefaults";
 import { queryKeys } from "@/constants/queryKeys";
 import { useAppState } from "@/context/AppStateProvider";
+import {
+  useCompareSelection,
+  type CompareCandidate,
+} from "@/context/CompareSelectionProvider";
 import { useActionPicker } from "@/context/ConfirmProvider";
 import { useToast } from "@/context/ToastProvider";
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
@@ -114,13 +120,17 @@ import {
 import { getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
 import { isOnline } from "@/utils/network";
 import { LineupPlayer, optimizeLineup } from "@/utils/roster/autoLineup";
+import { buildAutoLineupCatRanks } from "@/utils/roster/autoLineupCatRank";
 import { fetchTeamData } from "@/utils/roster/fetchTeamData";
 import { guardIllegalIR, isIrEligibleStatus } from "@/utils/roster/illegalIR";
 import { guardOverCap } from "@/utils/roster/overCap";
-import { isEligibleForSlot, slotLabel } from "@/utils/roster/rosterSlots";
+import {
+  baseSlotName,
+  isEligibleForSlot,
+  slotLabel,
+} from "@/utils/roster/rosterSlots";
 import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
 import { canSendToTaxi } from "@/utils/roster/taxiEligibility";
-import { buildCompositeScatter } from "@/utils/scoring/categoryAnalytics";
 import {
   calculateAvgFantasyPoints,
   formatScore,
@@ -128,9 +138,21 @@ import {
   projAvgRowToFpts,
   windowFantasyPoints,
 } from "@/utils/scoring/fantasyPoints";
-import { buildWindowedStatRow } from "@/utils/scoring/windowAverages";
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
+
+// RosterPlayer extends PlayerSeasonStats, so the row carries the full season
+// row — pass it straight through as the compare snapshot.
+function toCompareCandidate(p: RosterPlayer): CompareCandidate {
+  return {
+    player_id: p.player_id,
+    name: p.name,
+    position: p.position,
+    pro_team: p.pro_team,
+    external_id_nba: p.external_id_nba,
+    seasonStats: p,
+  };
+}
 
 export default function RosterScreen() {
   const scheme = useColorScheme() ?? "light";
@@ -181,6 +203,16 @@ export default function RosterScreen() {
     gameLabel: string;
   } | null>(null);
   const [activeSlot, setActiveSlot] = useState<SlotEntry | null>(null);
+  const {
+    isCompareMode,
+    selectedIds: compareSelectedIds,
+    toggle: toggleCompare,
+    setCompareMode,
+  } = useCompareSelection();
+  // Pad the scroll content past the (absolute, on iOS) tab bar so the last rows
+  // — and the floating compare bar — clear it. The screen's SafeAreaView omits
+  // the bottom edge so the compare bar can sit flush against the tab bar.
+  const tabBarHeight = useContext(BottomTabBarHeightContext) ?? 0;
   const [isAssigning, setIsAssigning] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
   // Window for forward-facing stat display (pre-game / no-game / future rows).
@@ -621,63 +653,36 @@ export default function RosterScreen() {
         c.position !== "BE" && c.position !== "IR" && c.position !== ROSTER_SLOT.TAXI,
     );
 
-    // Build a set of all valid numbered slot names (PG, SG, UTIL1, UTIL2, etc.)
-    const validSlotNames = new Set<string>();
-    for (const config of activeConfigs) {
-      if (config.position === "UTIL") {
-        for (let i = 1; i <= config.slot_count; i++)
-          validSlotNames.add(`UTIL${i}`);
-      } else {
-        validSlotNames.add(config.position);
-      }
-    }
-
-    // Track which players are placed in starter slots to catch duplicates
+    // Track which players are placed in starter slots so the rest fall to bench
     const placedPlayerIds = new Set<string>();
 
+    // Each active position fills its seats left-to-right from the players whose
+    // slot resolves to that base position (baseSlotName collapses UTIL1/UTIL2 →
+    // UTIL). Matching by base position + positional fill — rather than an exact
+    // seat string like `=== "UTIL2"` — can never double-book a seat, so a stray
+    // duplicate slot string can't bump a real starter onto the bench.
     for (const config of activeConfigs) {
-      if (config.position === "UTIL") {
-        // Numbered UTIL slots: each player is assigned to a specific UTIL1, UTIL2, etc.
-        for (let i = 0; i < config.slot_count; i++) {
-          const numberedSlot = `UTIL${i + 1}`;
-          const player =
-            rosterPlayers.find(
-              (p) =>
-                p.roster_slot === numberedSlot &&
-                !placedPlayerIds.has(p.player_id),
-            ) ?? null;
-          if (player) placedPlayerIds.add(player.player_id);
-          slots.push({ slotPosition: numberedSlot, slotIndex: i, player });
-        }
-      } else {
-        const playersInSlot = rosterPlayers.filter(
-          (p) =>
-            p.roster_slot === config.position &&
-            !placedPlayerIds.has(p.player_id),
-        );
-        for (let i = 0; i < config.slot_count; i++) {
-          const player = playersInSlot[i] ?? null;
-          if (player) placedPlayerIds.add(player.player_id);
-          slots.push({
-            slotPosition: config.position,
-            slotIndex: i,
-            player,
-          });
-        }
+      const isUtil = config.position === "UTIL";
+      const inPosition = rosterPlayers.filter(
+        (p) =>
+          baseSlotName(p.roster_slot ?? "") === config.position &&
+          !placedPlayerIds.has(p.player_id),
+      );
+      for (let i = 0; i < config.slot_count; i++) {
+        const player = inPosition[i] ?? null;
+        if (player) placedPlayerIds.add(player.player_id);
+        slots.push({
+          slotPosition: isUtil ? `UTIL${i + 1}` : config.position,
+          slotIndex: i,
+          player,
+        });
       }
     }
 
     for (const player of rosterPlayers) {
       if (player.roster_slot === "IR" || player.roster_slot === ROSTER_SLOT.TAXI)
         continue;
-      if (
-        !player.roster_slot ||
-        player.roster_slot === "BE" ||
-        !validSlotNames.has(player.roster_slot) ||
-        !placedPlayerIds.has(player.player_id)
-      ) {
-        benchPlayers.push(player);
-      }
+      if (!placedPlayerIds.has(player.player_id)) benchPlayers.push(player);
     }
 
     const benchSlotCount = Math.max(
@@ -933,12 +938,18 @@ export default function RosterScreen() {
     slot: string,
     dateOverride?: string,
   ) => {
+    const lineupDate = dateOverride ?? selectedDate;
+    // Never rewrite an already-played day's lineup. Past days are locked: a
+    // finalized matchup froze its score off that day's snapshot, and the
+    // matchup detail page recomputes from daily_lineups for unfinalized weeks —
+    // mutating history here is what made finalized scores drift.
+    if (lineupDate < today) return;
     const { error } = await supabase.from("daily_lineups").upsert(
       {
         league_id: leagueId!,
         team_id: teamId!,
         player_id: playerId,
-        lineup_date: dateOverride ?? selectedDate,
+        lineup_date: lineupDate,
         roster_slot: slot,
       },
       { onConflict: "team_id,player_id,lineup_date" },
@@ -987,11 +998,23 @@ export default function RosterScreen() {
       return;
     }
     // 2. If the team is locked by an illegal-IR player, only allow moves
-    //    that reduce the lockout (moving an illegal-IR player off IR).
+    //    that reduce the lockout.
     if (irLocked) {
-      const resolvesLockout =
+      const illegalIRIds = new Set(
+        (illegalIRPlayers ?? []).map((p) => p.player_id),
+      );
+      // (a) Moving the healthy illegal-IR player off IR clears the lockout.
+      const activatesIllegalIR =
         srcIsIR && !dstIsIR && !isIrEligibleStatus(sourcePlayer.status);
-      if (!resolvesLockout) {
+      // (b) Swapping an injured player INTO the illegal-IR player's slot also
+      //     clears it: the healthy player is bumped to the bench and the
+      //     injured player takes the IR spot, all in one move — no drop
+      //     required. (IR legality check #1 above already guaranteed the
+      //     source is injured whenever dstIsIR, so this can't stash a healthy
+      //     player on IR.)
+      const swapsOutIllegalIR =
+        dstIsIR && !!destPlayer && illegalIRIds.has(destPlayer.player_id);
+      if (!activatesIllegalIR && !swapsOutIllegalIR) {
         const names = (illegalIRPlayers ?? []).map((p) => p.name).join(", ");
         Alert.alert(
           "Roster locked",
@@ -1009,9 +1032,16 @@ export default function RosterScreen() {
       const reducesActive =
         !srcIsIR && !srcIsTaxi && (dstIsIR || dstIsTaxi);
       if (!reducesActive) {
+        const overNoun = `player${overCap!.overBy === 1 ? "" : "s"}`;
+        const dests = [taxiSlots.length > 0 && "TAXI", irSlots.length > 0 && "IR"]
+          .filter(Boolean)
+          .join(" or ");
+        const clearClause = dests
+          ? `Move ${overCap!.overBy} ${overNoun} to ${dests} — or drop them —`
+          : `Drop ${overCap!.overBy} ${overNoun}`;
         Alert.alert(
           "Roster locked",
-          `Your active roster is over capacity (${overCap!.activeCount}/${overCap!.rosterSize}). Move ${overCap!.overBy} player${overCap!.overBy === 1 ? "" : "s"} to TAXI or IR — or drop them — before making other moves.`,
+          `Your active roster is over capacity (${overCap!.activeCount}/${overCap!.rosterSize}). ${clearClause} before making other moves.`,
         );
         return;
       }
@@ -1399,39 +1429,20 @@ export default function RosterScreen() {
           ? windowFantasyPoints(rosterLogsByPlayer?.get(p.player_id), scoringWeights, winSize)
           : null;
 
-      // For CAT leagues, rank players by composite z-score instead of FPTS.
-      // Shift all values so the minimum is at least 1, because the optimizer
-      // treats 0 as "no game today" — negative z-scores would rank below
-      // players with no game, breaking the lineup.
-      const catRankMap = new Map<string, number>();
-      if (isCategories && rosterPlayers.length >= 3) {
-        // Per-player ranking row, in priority order:
-        //   1. windowed slice (when a window is active + the log has games)
-        //   2. last season's stats (under-sampled current season)
-        //   3. the player's own current-season row
-        const statsForComposite = rosterPlayers.map((p) => {
-          if (winSize != null) {
-            const windowed = buildWindowedStatRow(
-              p,
-              rosterLogsByPlayer?.get(p.player_id),
-              winSize,
-            );
-            if (windowed) return windowed;
-          }
-          return (p.games_played ?? 0) >= MIN_CURRENT_SEASON_GAMES
-            ? p
-            : (prevSeasonStatsMap.get(p.player_id) ?? p);
-        });
-        const composite = buildCompositeScatter(statsForComposite);
-        const minVal = composite.reduce(
-          (m, pt) => Math.min(m, pt.value),
-          Infinity,
-        );
-        const shift = minVal < 1 ? 1 - minVal : 0;
-        for (const pt of composite) {
-          catRankMap.set(pt.playerId, pt.value + shift);
-        }
-      }
+      // For CAT leagues, rank players by composite z-score over the league's
+      // ENABLED categories — see buildAutoLineupCatRanks for the fallback
+      // ladder (window slice → prev season → own row) and the ≥1 shift the
+      // optimizer's "0 means no game" convention requires.
+      const catRankMap = isCategories
+        ? buildAutoLineupCatRanks({
+            players: rosterPlayers,
+            leagueCats: scoringWeights,
+            winSize,
+            logsByPlayer: rosterLogsByPlayer,
+            prevSeasonStats: prevSeasonStatsMap,
+            minCurrentSeasonGames: MIN_CURRENT_SEASON_GAMES,
+          })
+        : new Map<string, number>();
 
       for (const date of dates) {
         const teamsPlaying = teamsPlayingByDate.get(date);
@@ -1524,10 +1535,15 @@ export default function RosterScreen() {
         return;
       }
 
-      // 4. Batch upsert all daily lineups across all days
+      // 4. Batch upsert all daily lineups across all days. Guard against ever
+      //    writing an already-played day — past lineups are locked (a finalized
+      //    matchup froze its score off that snapshot; rewriting it is what made
+      //    finalized scores drift). The date builder already starts at today,
+      //    so this is belt-and-suspenders.
+      const writableRows = allRows.filter((r) => r.lineup_date >= today);
       const { error } = await supabase
         .from("daily_lineups")
-        .upsert(allRows, { onConflict: "team_id,player_id,lineup_date" });
+        .upsert(writableRows, { onConflict: "team_id,player_id,lineup_date" });
       if (error) throw error;
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -1761,6 +1777,8 @@ export default function RosterScreen() {
     // Drives the pill's tappable-vs-receded styling so locked/past slots read
     // as inert rather than mimicking an editable chip.
     const canEdit = !isPastDate && (!locked || isIrOrTaxi);
+    const compareSelected =
+      isCompareMode && !!slot.player && compareSelectedIds.has(slot.player.player_id);
     const pill = slotPillVariant(c, {
       canEdit,
       isActive,
@@ -1777,6 +1795,7 @@ export default function RosterScreen() {
             borderBottomColor: c.border,
             borderBottomWidth: StyleSheet.hairlineWidth,
           },
+          compareSelected && { backgroundColor: c.activeCard },
         ]}
       >
         {/* Slot pill — a bordered chip when editable, receding to a flat,
@@ -1803,8 +1822,15 @@ export default function RosterScreen() {
         {slot.player ? (
           <TouchableOpacity
             style={styles.slotPlayer}
-            onPress={() => setSelectedPlayer(slot.player)}
+            onPress={() => {
+              if (isCompareMode) {
+                toggleCompare(toCompareCandidate(slot.player!));
+              } else {
+                setSelectedPlayer(slot.player);
+              }
+            }}
             onLongPress={() => {
+              if (isCompareMode) return;
               if (isPastDate || (locked && !isIrOrTaxi)) return;
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               setActiveSlot(slot);
@@ -1852,6 +1878,16 @@ export default function RosterScreen() {
                   </View>
                 );
               })()}
+              {compareSelected && (
+                <View
+                  style={[
+                    styles.compareCheck,
+                    { backgroundColor: c.gold, borderColor: c.background },
+                  ]}
+                >
+                  <Ionicons name="checkmark" size={11} color={c.statusText} accessible={false} />
+                </View>
+              )}
             </View>
 
             {/* Player info column */}
@@ -2052,7 +2088,10 @@ export default function RosterScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: c.background }]}
+      edges={["top", "left", "right"]}
+    >
       <GestureDetector gesture={dayPan}>
         <View style={{ flex: 1 }}>
       <RosterHero
@@ -2082,21 +2121,36 @@ export default function RosterScreen() {
         onDatePress={currentWeek ? () => setShowDayPicker(true) : undefined}
         onWeekPress={currentWeek ? () => setShowWeekSummary(true) : undefined}
         headerRight={
-          <TouchableOpacity
-            onPress={shareRoster}
-            disabled={isSharing}
-            style={styles.heroShareBtn}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            accessibilityRole="button"
-            accessibilityLabel="Share roster as image"
-            accessibilityState={{ disabled: isSharing }}
-          >
-            {isSharing ? (
-              <LogoSpinner size={14} delay={0} />
-            ) : (
-              <Ionicons name="share-outline" size={14} color={Brand.vintageGold} />
-            )}
-          </TouchableOpacity>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
+            <TouchableOpacity
+              onPress={() => setCompareMode(!isCompareMode)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel={isCompareMode ? "Exit compare mode" : "Compare players"}
+              accessibilityState={{ selected: isCompareMode }}
+            >
+              <Ionicons
+                name="git-compare"
+                size={16}
+                color={isCompareMode ? Brand.vintageGold : c.secondaryText}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={shareRoster}
+              disabled={isSharing}
+              style={styles.heroShareBtn}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Share roster as image"
+              accessibilityState={{ disabled: isSharing }}
+            >
+              {isSharing ? (
+                <LogoSpinner size={14} delay={0} />
+              ) : (
+                <Ionicons name="share-outline" size={14} color={Brand.vintageGold} />
+              )}
+            </TouchableOpacity>
+          </View>
         }
       />
 
@@ -2106,10 +2160,17 @@ export default function RosterScreen() {
           activeCount={overCap.activeCount}
           rosterSize={overCap.rosterSize}
           overBy={overCap.overBy}
+          hasTaxi={taxiSlots.length > 0}
+          hasIR={irSlots.length > 0}
         />
       )}
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: tabBarHeight + (isCompareMode ? 64 : 8) },
+        ]}
+      >
         {/* Share-capturable roster content */}
         <View ref={shareRef} collapsable={false} style={{ backgroundColor: c.background }}>
         {/* Starters */}
@@ -2255,6 +2316,7 @@ export default function RosterScreen() {
           isDynasty={(league?.league_type ?? "dynasty") === "dynasty"}
         />
       </ScrollView>
+      <CompareBar />
         </View>
       </GestureDetector>
 
@@ -2358,7 +2420,21 @@ export default function RosterScreen() {
             } else if (action === "bench" || action === "promote") {
               handleRosterMove(player, src, "BE", null);
             } else if (action === "ir") {
-              const irSlot = irSlots.find((s) => !s.player) ?? irSlots[0];
+              // When the team is IR-locked by a healthy player, route the move
+              // as a swap into THAT player's slot: the injured player takes the
+              // IR spot and the healthy player is bumped to the bench, clearing
+              // the lockout in one tap without forcing a drop. Otherwise prefer
+              // an empty IR slot.
+              const illegalIRIds = new Set(
+                (illegalIRPlayers ?? []).map((p) => p.player_id),
+              );
+              const lockSlot = irLocked
+                ? irSlots.find(
+                    (s) => s.player && illegalIRIds.has(s.player.player_id),
+                  )
+                : undefined;
+              const irSlot =
+                lockSlot ?? irSlots.find((s) => !s.player) ?? irSlots[0];
               if (irSlot) {
                 handleRosterMove(
                   player,

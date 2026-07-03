@@ -6,11 +6,12 @@ import {
   View,
 } from 'react-native';
 
+import { PositionLimitsEditor } from '@/components/create-league/PositionLimitsEditor';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { DEFAULT_ROSTER_SLOTS, getDefaultRosterSlots, getLimitablePositions, LimitablePosition, type Sport } from '@/constants/LeagueDefaults';
+import { DEFAULT_ROSTER_SLOTS, getDefaultRosterSlots, type PositionLimits, type Sport } from '@/constants/LeagueDefaults';
 import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
 import { ROSTER_SLOT } from '@/utils/roster/rosterSlotsShared';
@@ -36,10 +37,8 @@ export function EditRosterModal({ visible, onClose, leagueId, sport, rosterConfi
   const queryClient = useQueryClient();
 
   const [editRoster, setEditRoster] = useState<{ position: string; slot_count: number }[]>([]);
-  const [editPosLimits, setEditPosLimits] = useState<Record<string, number>>({});
+  const [editPosLimits, setEditPosLimits] = useState<PositionLimits>({});
   const [saving, setSaving] = useState(false);
-
-  const limitablePositions = getLimitablePositions(sport);
 
   useEffect(() => {
     if (visible && rosterConfig) {
@@ -112,33 +111,16 @@ export function EditRosterModal({ visible, onClose, leagueId, sport, rosterConfi
             setEditRoster(next);
           }}
           min={0}
-          max={slot.position === 'IR' ? 5 : 10}
+          max={slot.position === 'IR' ? 5 : slot.position === 'BE' ? 15 : 10}
         />
       ))}
 
       <View style={[styles.posLimitSection, { borderTopColor: c.border }]}>
         <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.posLimitTitle}>Position Limits</ThemedText>
         <ThemedText style={[styles.posLimitNote, { color: c.secondaryText }]}>
-          0 = no limit. Limits the total number of players at each position.
+          Caps the total number of players at each position across a roster.
         </ThemedText>
-        {limitablePositions.map((pos) => (
-          <NumberStepper
-            key={`pos-limit-${pos}`}
-            label={pos}
-            value={editPosLimits[pos] ?? 0}
-            onValueChange={(v) => {
-              const next = { ...editPosLimits };
-              if (v === 0) {
-                delete next[pos as LimitablePosition];
-              } else {
-                next[pos as LimitablePosition] = v;
-              }
-              setEditPosLimits(next);
-            }}
-            min={0}
-            max={15}
-          />
-        ))}
+        <PositionLimitsEditor sport={sport} limits={editPosLimits} onChange={setEditPosLimits} />
       </View>
     </BottomSheet>
   );

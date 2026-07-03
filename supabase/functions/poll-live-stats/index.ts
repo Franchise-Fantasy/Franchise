@@ -511,8 +511,9 @@ Deno.serve(async (req: Request) => {
     // Recovery path treats whatever BDL returns as "active" so post-status
     // games still flow through the upsert + player_games write.
     const activeGames = overrideGameIds ? allGames : allGames.filter((g: any) => {
-      // Playoff games flow into live_player_stats for the live UI, but are
-      // excluded from the player_games write below so season totals stay clean.
+      // Playoff and play-in games flow into live_player_stats for the live UI,
+      // but are excluded from the player_games write below (see the
+      // regular-season-end gate) so season totals stay clean.
       const s = mapGameStatus(g.status ?? "");
       return s === 2 || s === 3;
     });
@@ -550,6 +551,23 @@ Deno.serve(async (req: Request) => {
     if (activeStats.length === 0) {
       return jsonResponse({ ok: true, games: activeGames.length, players: 0 });
     }
+
+    // Regular-season-end cutoff for the player_games (season-totals) write.
+    // BDL does NOT flag play-in tournament games as `postseason`, so the
+    // `!game.postseason` guard alone lets them leak into season averages (and,
+    // after the offseason season rollover, into the next season's empty stat
+    // window). Gate the player_games write on the current season's end_date so
+    // play-in AND any postseason games are excluded from season totals.
+    // live_player_stats still captures them for the live UI. A null end_date
+    // falls back to the postseason flag only (no regression vs prior behavior).
+    const { data: seasonRow, error: seasonErr } = await supabase
+      .from("season_config")
+      .select("end_date")
+      .eq("sport", sport)
+      .eq("is_current", true)
+      .maybeSingle();
+    if (seasonErr) log.warn("season_config end_date lookup failed", { error: seasonErr.message });
+    const regularSeasonEnd: string | null = seasonRow?.end_date ?? null;
 
     // Collect BDL player IDs
     const allBdlIds = new Set<number>();
@@ -746,7 +764,11 @@ Deno.serve(async (req: Request) => {
 
       allTeamUpdates.push({ id: playerId, pro_team: ownTricode });
 
-      if (gameStatus === 3 && !game.postseason) {
+      if (
+        gameStatus === 3 &&
+        !game.postseason &&
+        (!regularSeasonEnd || actualGameDate <= regularSeasonEnd)
+      ) {
         const { double_double, triple_double } = computeDoubles({ pts, reb, ast, stl, blk });
         allGameRows.push({
           player_id: playerId,

@@ -3,7 +3,7 @@ import DateTimePicker, {
   type DateTimePickerEvent,
 } from '@react-native-community/datetimepicker';
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Platform,
@@ -12,7 +12,6 @@ import {
   View,
 } from 'react-native';
 
-import { computeMaxWeeks } from '@/components/create-league/StepSeason';
 import { BracketPreview } from '@/components/playoff/BracketPreview';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { BrandButton } from '@/components/ui/BrandButton';
@@ -23,8 +22,9 @@ import { getCurrentSeason, getMaxPlayoffWeeks, getSchedulableSeasonEnd, parseSea
 import { useColors } from '@/hooks/useColors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
-import { getPlayoffTeamOptions } from '@/utils/league/lottery';
+import { getPlayoffTeamOptions, maxPlayoffWeeksForTeams, snapPlayoffTeams } from '@/utils/league/lottery';
 import { minSeasonStartForDraft } from '@/utils/league/seasonStart';
+import { computeMaxWeeks, defaultSeasonStart } from '@/utils/league/seasonWeeks';
 import { ms, s } from '@/utils/scale';
 
 // Format an ISO `yyyy-mm-dd` (parsed as local midnight) for display.
@@ -73,14 +73,33 @@ export function EditSeasonSettingsModal({
 
   const sport = (league?.sport as 'nba' | 'wnba') ?? 'nba';
 
-  // Initialize from league when modal opens
+  // Playoff structure is sized to the league's CONFIGURED size (`league.teams`),
+  // not how many members have joined yet. A partially-filled create-league
+  // league carries one `league_teams` row per join, so the `teamCount` prop
+  // (joined rows) would clamp the bracket to 1–2 teams and write
+  // playoff_teams=0 on any save. `league.teams` is the true bracket size;
+  // fall back to the prop only if it's somehow unset.
+  const bracketSize = (league?.teams as number | undefined) ?? teamCount;
+
+  // Initialize from league when modal opens. Stored playoff values that the
+  // team count can't support (a 2-team league carrying a 6-team / 3-week
+  // playoff from an unclamped import) are healed here: weeks cap at what the
+  // teams can bracket and playoffTeams snaps to a valid option, so the modal
+  // previews — and Save persists — a bracket the engine can actually run.
   useEffect(() => {
     if (visible && league) {
       setRegWeeks(league.regular_season_weeks ?? 20);
-      setPlayoffWeeks(league.playoff_weeks ?? 3);
-      setPlayoffTeams(
-        league.playoff_teams ?? Math.min(2 ** (league.playoff_weeks ?? 3), teamCount)
-      );
+      const weeks = Math.max(1, Math.min(
+        league.playoff_weeks ?? 3,
+        getMaxPlayoffWeeks(sport),
+        maxPlayoffWeeksForTeams(bracketSize),
+      ));
+      setPlayoffWeeks(weeks);
+      setPlayoffTeams(snapPlayoffTeams(
+        league.playoff_teams ?? Math.min(2 ** weeks, bracketSize),
+        weeks,
+        bracketSize,
+      ));
       setSeedingFormat(seedingDisplay(league.playoff_seeding_format, league.reseed_each_round ?? false));
       setCombineCupWeek(league.combine_cup_week ?? false);
       const primaryKey = (league.tiebreaker_order ?? ['head_to_head', 'points_for'])[0];
@@ -94,21 +113,14 @@ export function EditSeasonSettingsModal({
       );
       setShowDatePicker(false);
     }
-  }, [visible, league, teamCount]);
+  }, [visible, league, bracketSize]);
 
-  const playoffTeamOptions = getPlayoffTeamOptions(playoffWeeks, teamCount);
+  const playoffTeamOptions = getPlayoffTeamOptions(playoffWeeks, bracketSize);
   const playoffTeamStrings = playoffTeamOptions.map(String);
 
   function handlePlayoffWeeksChange(value: number) {
     setPlayoffWeeks(value);
-    const options = getPlayoffTeamOptions(value, teamCount);
-    if (!options.includes(playoffTeams)) {
-      const closest = options.reduce(
-        (best, o) => (Math.abs(o - playoffTeams) < Math.abs(best - playoffTeams) ? o : best),
-        options[0]
-      );
-      setPlayoffTeams(closest);
-    }
+    setPlayoffTeams(snapPlayoffTeams(playoffTeams, value, bracketSize));
   }
 
   async function handleSave() {
@@ -145,10 +157,25 @@ export function EditSeasonSettingsModal({
       }
     }
 
+    // Steppers enforce their max live, but the caps move when the Cup toggle
+    // or start date change after a value was set — re-clamp at save so an
+    // out-of-range combination can't reach the DB. Regular-season weeks yield
+    // FIRST (a playoff round is only sacrificed when the season can't shrink
+    // any further), matching applyCupWeekToggle and the wizards: flipping the
+    // Cup double week on should cost a regular-season week, not a playoff round.
+    const cappedPlayoffWeeks = Math.min(
+      playoffWeeks,
+      getMaxPlayoffWeeks(sport),
+      maxPlayoffWeeksForTeams(bracketSize),
+    );
+    const safeRegWeeks = Math.max(1, Math.min(regWeeks, maxTotalWeeks - cappedPlayoffWeeks));
+    const safePlayoffWeeks = Math.min(cappedPlayoffWeeks, Math.max(1, maxTotalWeeks - safeRegWeeks));
+    const safePlayoffTeams = snapPlayoffTeams(playoffTeams, safePlayoffWeeks, bracketSize);
+
     const update: Record<string, unknown> = {
-      regular_season_weeks: regWeeks,
-      playoff_weeks: playoffWeeks,
-      playoff_teams: playoffTeams,
+      regular_season_weeks: safeRegWeeks,
+      playoff_weeks: safePlayoffWeeks,
+      playoff_teams: safePlayoffTeams,
       playoff_seeding_format: (SEEDING_TO_DB[seedingFormat] ?? SEEDING_TO_DB.Standard).format,
       reseed_each_round: (SEEDING_TO_DB[seedingFormat] ?? SEEDING_TO_DB.Standard).reseed,
       tiebreaker_order: TIEBREAKER_TO_DB[tiebreakerPrimary],
@@ -171,17 +198,25 @@ export function EditSeasonSettingsModal({
     onClose();
   }
 
-  // Date-picker bounds: can't start in the past, can't run past the season's
-  // schedulable end — the day before a terminal break (WNBA FIBA) when there is
+  // Date-picker bounds: can't start before tomorrow — floored to the pro
+  // season's opening night when that's still ahead (an NBA league can't start
+  // scoring before the mid-October tipoff) — and can't run past the season's
+  // schedulable end: the day before a terminal break (WNBA FIBA) when there is
   // one, else the pro season's regular-season end. The picker opens on the
-  // chosen date, or a sensible default near today when nothing is set yet.
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // chosen date, or the earliest legal start when nothing is set yet.
+  // Memoized on `visible` — the modal stays mounted on league-info while
+  // hidden, and defaultSeasonStart's Intl/timezone work shouldn't re-run on
+  // every parent render; keying on open also refreshes the "tomorrow" floor
+  // for long-lived mounts.
+  const minStartDate = useMemo(
+    () => defaultSeasonStart(sport, league?.season ?? getCurrentSeason(sport)),
+    [visible, sport, league?.season],
+  );
   const seasonEndStr = league?.season ? getSchedulableSeasonEnd(sport, league.season) : undefined;
   const maxDate = seasonEndStr
     ? new Date(seasonEndStr + 'T00:00:00')
     : undefined;
-  const pickerValue = startDate ? new Date(startDate + 'T00:00:00') : today;
+  const pickerValue = startDate ? new Date(startDate + 'T00:00:00') : minStartDate;
 
   const commitDate = (date: Date) => {
     date.setHours(0, 0, 0, 0);
@@ -196,7 +231,7 @@ export function EditSeasonSettingsModal({
       DateTimePickerAndroid.open({
         value: pickerValue,
         mode: 'date',
-        minimumDate: today,
+        minimumDate: minStartDate,
         maximumDate: maxDate,
         onChange: (_e: DateTimePickerEvent, date?: Date) => {
           if (date) commitDate(date);
@@ -217,14 +252,23 @@ export function EditSeasonSettingsModal({
 
   // Cap weeks to what fits before the season's terminal break (WNBA FIBA) and
   // pro-season end — mirrors the create-league wizard so playoffs can't be
-  // scheduled into/through the break (or past the real season).
+  // scheduled into/through the break (or past the real season). The Cup
+  // double-week toggle consumes one extra calendar week, so it tightens the
+  // cap by one when on.
   const maxTotalWeeks = computeMaxWeeks(
     league?.season ?? getCurrentSeason(sport),
     sport,
     startDate ? new Date(startDate + 'T00:00:00') : undefined,
+    sport === 'nba' && combineCupWeek,
   );
   const maxRegWeeks = Math.max(1, maxTotalWeeks - playoffWeeks);
-  const maxPlayoffWeeksCap = Math.min(getMaxPlayoffWeeks(sport), Math.max(1, maxTotalWeeks - regWeeks));
+  // Playoff weeks also cap at what the team count can bracket (2 teams = a
+  // 1-week final) so the schedule never gets trailing weeks the engine skips.
+  const maxPlayoffWeeksCap = Math.min(
+    getMaxPlayoffWeeks(sport),
+    maxPlayoffWeeksForTeams(bracketSize),
+    Math.max(1, maxTotalWeeks - regWeeks),
+  );
 
   return (
     <BottomSheet
@@ -280,7 +324,7 @@ export function EditSeasonSettingsModal({
             value={pickerValue}
             mode="date"
             display="spinner"
-            minimumDate={today}
+            minimumDate={minStartDate}
             maximumDate={maxDate}
             onChange={(_e: DateTimePickerEvent, date?: Date) => {
               if (date) commitDate(date);

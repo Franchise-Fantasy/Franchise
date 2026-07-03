@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { StepReview as BaseReview } from '@/components/create-league/StepReview';
+import { StepReview as BaseReview, type ReviewSection } from '@/components/create-league/StepReview';
 import { Section } from '@/components/ui/Section';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors, Fonts } from '@/constants/Colors';
@@ -15,6 +15,10 @@ interface StepReviewProps {
   onSubmit: () => void;
   onBack: () => void;
   loading: boolean;
+  /** Reached via "Finish Rosters Later" — shows a note that unfinished teams are created empty. */
+  finishLater?: boolean;
+  /** Jump back to a wizard step to edit that section. */
+  onEdit?: (section: ReviewSection) => void;
 }
 
 /**
@@ -24,7 +28,7 @@ interface StepReviewProps {
  * bits: total players extracted, teams, and history seasons. Same
  * pattern as the Sleeper-import Review.
  */
-export function StepReview({ state, onSubmit, onBack, loading }: StepReviewProps) {
+export function StepReview({ state, onSubmit, onBack, loading, finishLater, onEdit }: StepReviewProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
 
@@ -33,6 +37,10 @@ export function StepReview({ state, onSubmit, onBack, loading }: StepReviewProps
     0,
   );
   const extractedSeasons = state.historySeasons.filter((h) => h.extracted?.teams?.length);
+  // Teams that will be created without a roster when finishing later.
+  const unfinishedCount = state.teams.filter(
+    (t) => !t.extracted || t.matched.length + t.resolvedMappings.size === 0,
+  ).length;
 
   return (
     <BaseReview
@@ -41,8 +49,24 @@ export function StepReview({ state, onSubmit, onBack, loading }: StepReviewProps
       onBack={onBack}
       loading={loading}
       submitLabel="Import League"
+      hideStartupDraft
+      onEdit={onEdit}
       headerContent={
         <>
+          {finishLater && unfinishedCount > 0 && (
+            <View
+              style={[styles.finishLaterNote, { borderColor: c.warning }]}
+              accessibilityRole="alert"
+              accessibilityLabel={`${unfinishedCount} ${unfinishedCount === 1 ? 'team' : 'teams'} will be created without a roster. You can import them anytime from the league.`}
+            >
+              <Ionicons name="alert-circle" size={ms(16)} color={c.warning} accessible={false} />
+              <ThemedText style={[styles.finishLaterNoteText, { color: c.text }]}>
+                {unfinishedCount} {unfinishedCount === 1 ? 'team' : 'teams'} will be created without a
+                roster — import them anytime from the league.
+              </ThemedText>
+            </View>
+          )}
+
           <Section title="Import Summary">
             <SummaryRow label="Total Players" value={String(totalPlayers)} />
             <SummaryRow
@@ -101,6 +125,21 @@ function SummaryRow({ label, value, last }: { label: string; value: string; last
 }
 
 const styles = StyleSheet.create({
+  finishLaterNote: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: s(8),
+    paddingVertical: s(10),
+    paddingHorizontal: s(12),
+    borderRadius: s(10),
+    borderWidth: StyleSheet.hairlineWidth,
+    marginBottom: s(12),
+  },
+  finishLaterNoteText: {
+    flex: 1,
+    fontSize: ms(13),
+    lineHeight: ms(18),
+  },
   summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',

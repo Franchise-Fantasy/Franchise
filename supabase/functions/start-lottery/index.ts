@@ -176,10 +176,16 @@ Deno.serve(async (req) => {
 
     // 1. Slot/pick number from the draw, keyed on the ORIGINATING team (whose
     //    standing/lottery position produced the slot), not the current owner.
-    const posByTeam = new Map<string, number>();
-    fullDraftOrder.forEach((teamId, i) => posByTeam.set(teamId, i));
+    //    The lottery only sets ROUND 1; rounds 2+ revert to straight reverse
+    //    standings (`orderedTeams`, already ascending by wins), so a team's
+    //    lottery jump doesn't carry through every round.
+    const round1Pos = new Map<string, number>();
+    fullDraftOrder.forEach((teamId, i) => round1Pos.set(teamId, i));
+    const laterRoundPos = new Map<string, number>();
+    orderedTeams.forEach((t, i) => laterRoundPos.set(t.id, i));
     const orderLen = fullDraftOrder.length;
     for (const p of work) {
+      const posByTeam = p.round >= 2 ? laterRoundPos : round1Pos;
       const pos = p.original_team_id != null ? posByTeam.get(p.original_team_id) : undefined;
       if (pos != null) {
         p.slot_number = pos + 1;

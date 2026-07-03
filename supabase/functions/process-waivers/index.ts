@@ -335,7 +335,12 @@ async function checkAndProcessClaim(claim: any, leagueId: string, waiverPeriodDa
   }
 
   const { data: txn } = await supabase
-    .from('league_transactions').insert({ league_id: leagueId, type: 'waiver', notes, team_id: claim.team_id })
+    .from('league_transactions').insert({
+      league_id: leagueId, type: 'waiver', notes, team_id: claim.team_id,
+      // Winning FAAB bid (null for standard waivers / $0 free-agent adds) so the
+      // activity feed can show it as structured data, not just buried in notes.
+      bid_amount: claim.bid_amount > 0 ? claim.bid_amount : null,
+    })
     .select('id').single();
 
   if (txn) {

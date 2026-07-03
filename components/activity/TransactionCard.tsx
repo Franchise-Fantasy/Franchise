@@ -143,7 +143,13 @@ export function TransactionCard({ txn }: Props) {
   const typeAccent = c[getTypeAccentKey(txn.type)];
   const typeLabel = getTypeLabel(txn.type);
 
-  const a11y = `${typeLabel}${
+  // Winning FAAB bid (whole dollars) — only set on cron-resolved waiver wins.
+  const bidLabel =
+    txn.type === 'waiver' && txn.bid_amount != null
+      ? `$${txn.bid_amount}`
+      : null;
+
+  const a11y = `${typeLabel}${bidLabel ? `, winning bid ${bidLabel}` : ''}${
     txn.initiator ? ` by ${txn.initiator.name}` : ''
   }, ${formatRelativeTime(txn.created_at)}${
     isTrade
@@ -160,15 +166,18 @@ export function TransactionCard({ txn }: Props) {
       style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}
       accessibilityLabel={a11y}
     >
-      {/* Eyebrow: type label (left, accent varsity caps) + relative time (right) */}
+      {/* Eyebrow: type label + FAAB bid pill (left) + relative time (right) */}
       <View style={styles.eyebrowRow}>
-        <ThemedText
-          type="varsitySmall"
-          style={[styles.typeLabel, { color: typeAccent }]}
-          numberOfLines={1}
-        >
-          {typeLabel}
-        </ThemedText>
+        <View style={styles.eyebrowLeft}>
+          <ThemedText
+            type="varsitySmall"
+            style={[styles.typeLabel, { color: typeAccent }]}
+            numberOfLines={1}
+          >
+            {typeLabel}
+          </ThemedText>
+          {bidLabel && <Badge label={bidLabel} variant="gold" size="small" />}
+        </View>
         <ThemedText
           type="varsitySmall"
           style={[styles.timeText, { color: c.secondaryText }]}
@@ -273,10 +282,16 @@ const styles = StyleSheet.create({
     marginBottom: s(8),
     gap: s(8),
   },
+  eyebrowLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(6),
+    flexShrink: 1,
+  },
   typeLabel: {
     fontSize: ms(11),
     letterSpacing: 1.4,
-    flex: 1,
+    flexShrink: 1,
   },
   timeText: {
     fontSize: ms(10),

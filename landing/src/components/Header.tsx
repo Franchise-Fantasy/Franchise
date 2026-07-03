@@ -7,6 +7,9 @@ import { useTheme } from "./ThemeProvider";
 export default function Header() {
   const [scrolled, setScrolled] = useState(false);
   const { theme, toggle } = useTheme();
+  // Set NEXT_PUBLIC_APP_URL once the web app is deployed; the Log In button
+  // stays hidden until then.
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 40);
@@ -55,6 +58,16 @@ export default function Header() {
               </svg>
             )}
           </button>
+
+          {appUrl && (
+            <a
+              href={appUrl}
+              className="varsity rounded-md border border-b-strong px-4 py-2.5 text-[11px] text-t-primary transition-all hover:border-[var(--heading)] hover:text-[var(--heading)]"
+              aria-label="Open the Franchise web app"
+            >
+              Log In
+            </a>
+          )}
 
           <a
             href="#signup"

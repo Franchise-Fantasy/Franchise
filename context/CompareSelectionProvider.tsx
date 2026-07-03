@@ -26,7 +26,9 @@ export interface CompareCandidate {
   name: string;
   position: string;
   pro_team: string;
-  external_id_nba: string | null;
+  // Widened to accept the matchup board's numeric ids; only used for the
+  // headshot lookup, which already accepts string | number | null.
+  external_id_nba: string | number | null;
   /** Full season-stats row, when the source screen already has it. */
   seasonStats?: PlayerSeasonStats;
   /** "FA" or an owning team's name, derived at selection time (optional). */

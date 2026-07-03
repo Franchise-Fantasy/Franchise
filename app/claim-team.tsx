@@ -214,7 +214,3 @@ const styles = StyleSheet.create({
     fontSize: ms(15),
   },
 });
-
-export const options = {
-  headerShown: false,
-};

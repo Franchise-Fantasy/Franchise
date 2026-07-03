@@ -62,6 +62,10 @@ export interface DraftPickSeed {
  * reverse-standings pre-draft seeding. Without it, picks are unordered
  * (`slot_number` = team index, `pick_number` null) — the convention for
  * tradable future picks, which `start-lottery` later re-numbers by standing.
+ *
+ * `laterRoundOrder` overrides the order for rounds ≥ 2. A lottery only sets the
+ * first round; rounds 2+ revert to reverse-standings. When omitted, every round
+ * uses `order` (correct when `order` already IS reverse standings).
  */
 export function buildSeasonPicks(opts: {
   leagueId: string;
@@ -69,22 +73,27 @@ export function buildSeasonPicks(opts: {
   rounds: number;
   season: string;
   order?: string[];
+  laterRoundOrder?: string[];
 }): DraftPickSeed[] {
-  const { leagueId, teamIds, rounds, season, order } = opts;
+  const { leagueId, teamIds, rounds, season, order, laterRoundOrder } = opts;
   const teamCount = teamIds.length;
   const orderPos = new Map<string, number>();
   if (order) order.forEach((id, i) => orderPos.set(id, i));
+  const laterPos = new Map<string, number>();
+  if (laterRoundOrder) laterRoundOrder.forEach((id, i) => laterPos.set(id, i));
 
   const rows: DraftPickSeed[] = [];
   for (let round = 1; round <= rounds; round++) {
+    const roundOrder = round >= 2 && laterRoundOrder ? laterRoundOrder : order;
+    const roundPos = round >= 2 && laterRoundOrder ? laterPos : orderPos;
     teamIds.forEach((teamId, idx) => {
-      const pos = order ? (orderPos.get(teamId) ?? idx) : idx;
+      const pos = roundOrder ? (roundPos.get(teamId) ?? idx) : idx;
       rows.push({
         league_id: leagueId,
         season,
         round,
         slot_number: pos + 1,
-        pick_number: order ? (round - 1) * teamCount + (pos + 1) : null,
+        pick_number: roundOrder ? (round - 1) * teamCount + (pos + 1) : null,
         current_team_id: teamId,
         original_team_id: teamId,
       });
@@ -144,8 +153,11 @@ export interface DraftPhaseSeedPlan {
  *
  * `order` (resolved team UUIDs, index 0 = first pick) sets the S0 slot/pick
  * numbers for the ordered cases; pass `undefined` for the lottery case
- * (start-lottery numbers those later from standings). Traded-pick overrides are
- * applied across every seeded season.
+ * (start-lottery numbers those later from standings). `laterRoundOrder` sets the
+ * S0 round-2+ order for the 'lottery_done' case (a lottery only sets round 1;
+ * later rounds revert to reverse standings) — omit it when `order` already is
+ * reverse standings. Traded-pick overrides are applied across every seeded
+ * season.
  *
  * Identity resolution (roster_id vs team name), order validation, and the
  * reverse-standings derivation stay with the caller — they differ per source.
@@ -160,11 +172,12 @@ export function planDraftPhaseSeeding(opts: {
   draftPhase: DraftPhase;
   usesLottery: boolean;
   order?: string[];
+  laterRoundOrder?: string[];
   resolvedTraded: ResolvedTradedPick[];
 }): DraftPhaseSeedPlan {
   const {
     leagueId, teamIds, rounds, currentSeason, sport,
-    maxFutureSeasons, draftPhase, usesLottery, order, resolvedTraded,
+    maxFutureSeasons, draftPhase, usesLottery, order, laterRoundOrder, resolvedTraded,
   } = opts;
 
   const pickRows: DraftPickSeed[] = [];
@@ -174,7 +187,7 @@ export function planDraftPhaseSeeding(opts: {
 
   let offseasonUpdate: OffseasonUpdate | null = null;
   if (draftPhase !== 'in_season') {
-    pickRows.push(...buildSeasonPicks({ leagueId, teamIds, rounds, season: currentSeason, order }));
+    pickRows.push(...buildSeasonPicks({ leagueId, teamIds, rounds, season: currentSeason, order, laterRoundOrder }));
     offseasonUpdate = draftPhase === 'pre_lottery' && usesLottery
       ? { offseason_step: 'lottery_pending', lottery_status: 'pending' }
       : { offseason_step: 'rookie_draft_pending', lottery_status: draftPhase === 'lottery_done' ? 'complete' : 'pending' };

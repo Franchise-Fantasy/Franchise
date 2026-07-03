@@ -45,6 +45,11 @@ export default function TabLayout() {
             borderTopWidth: StyleSheet.hairlineWidth,
             borderTopColor: c.border,
           },
+          // Web uses the desktop sidebar (WebShell) for navigation, so hide the
+          // bottom bar while keeping the Tabs navigator (screens keep their state).
+          web: {
+            display: 'none',
+          },
           default: {
             borderTopWidth: StyleSheet.hairlineWidth,
             borderTopColor: c.border,

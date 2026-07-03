@@ -1,4 +1,3 @@
-import { computeMaxWeeks } from '@/components/create-league/StepSeason';
 import {
   CURRENT_NBA_SEASON,
   DEFAULT_CATEGORIES,
@@ -14,6 +13,8 @@ import type {
   ScreenshotUnmatched,
   SettingsExtractionResult,
 } from '@/hooks/useImportScreenshot';
+import { clampLotteryState, defaultPlayoffSetup, maxPlayoffWeeksForTeams } from '@/utils/league/lottery';
+import { applyCupWeekToggle, computeMaxWeeks } from '@/utils/league/seasonWeeks';
 
 import type { DraftPhase, TradedPickDraft } from '../draftPhase';
 
@@ -31,9 +32,16 @@ import type { DraftPhase, TradedPickDraft } from '../draftPhase';
  * handlers the orchestrator wires up.
  */
 
-export const STEP_LABELS = ['Basics', 'Settings', 'Rosters', 'History', 'Config', 'Review'];
+// League-level config now comes BEFORE the per-team rosters so the league can
+// be created from the Rosters step ("finish rosters later"). Team names are set
+// up front in the Teams step so traded-pick / lottery / history references
+// (all keyed on team name) stay stable across the later steps.
+export const STEP_LABELS = ['Basics', 'Teams', 'Settings', 'Waivers', 'Season', 'Trade', 'Draft', 'History', 'Rosters', 'Review'];
 
 const maxWeeks = computeMaxWeeks(CURRENT_NBA_SEASON);
+// Teams-first playoff defaults for the initial 10-team template — re-clamped
+// by the reducer whenever the team count changes.
+const playoffDefaults = defaultPlayoffSetup(10, maxWeeks);
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -63,6 +71,8 @@ export interface ScreenshotImportState {
   currentHistoryIndex: number;
   draftPhase: DraftPhase;
   lotteryOrder: string[];
+  /** Explicit round-2 order (empty = use the reverse-standings/round-1 default). */
+  lotteryOrderR2: string[];
   tradedPicks: TradedPickDraft[];
 }
 
@@ -92,6 +102,7 @@ export type Action =
   | { type: 'RESET_CATEGORIES' }
   | { type: 'SET_DRAFT_PHASE'; value: DraftPhase }
   | { type: 'SET_LOTTERY_ORDER'; value: string[] }
+  | { type: 'SET_LOTTERY_ORDER_R2'; value: string[] }
   | { type: 'SET_TRADED_PICKS'; value: TradedPickDraft[] };
 
 // ─── Helpers ──────────────────────────────────────────────────────
@@ -135,13 +146,15 @@ export const initialWizard: LeagueWizardState = {
   faabBudget: 100,
   season: getCurrentSeason('nba'),
   seasonStartDate: null,
-  regularSeasonWeeks: Math.max(1, maxWeeks - 3),
-  playoffWeeks: 3,
-  playoffTeams: 6,
+  regularSeasonWeeks: Math.max(1, maxWeeks - playoffDefaults.playoffWeeks),
+  playoffWeeks: playoffDefaults.playoffWeeks,
+  playoffTeams: playoffDefaults.playoffTeams,
   playoffSeedingFormat: 'Standard',
+  combineCupWeek: false,
   pickConditionsEnabled: false,
   draftPickTradingEnabled: true,
   tradeDeadlineWeek: 0,
+  tradeDeadlineDate: null,
   buyIn: 0,
   venmoUsername: '',
   cashappTag: '',
@@ -168,6 +181,7 @@ export const initialState: ScreenshotImportState = {
   currentHistoryIndex: 0,
   draftPhase: 'in_season',
   lotteryOrder: [],
+  lotteryOrderR2: [],
   tradedPicks: [],
 };
 
@@ -180,24 +194,41 @@ export function reducer(state: ScreenshotImportState, action: Action): Screensho
 
     case 'SET_WIZARD_FIELD': {
       const next = { ...state.wizardState, [action.field]: action.value };
+      // Keep the playoff structure valid: weeks are capped at what the team
+      // count can bracket (2 teams = a 1-week final) and playoffTeams snaps to
+      // a valid option for the chosen weeks. Mirrors create-league's reducer —
+      // without this a small league keeps the 10-team template's 6-team /
+      // 3-week playoff, which the engine can never fill.
+      if (action.field === 'playoffWeeks' || action.field === 'playoffTeams') {
+        const playoffWeeks = Math.min(next.playoffWeeks, maxPlayoffWeeksForTeams(next.teams));
+        return { ...state, wizardState: clampLotteryState({ ...next, playoffWeeks }) };
+      }
+      // Cup double week consumes/frees one calendar week — re-fit week counts.
+      if (action.field === 'combineCupWeek') {
+        return { ...state, wizardState: applyCupWeekToggle(next, state.wizardState) };
+      }
       // When sport changes, snap the season string to that sport's default and
       // recompute week boundaries from the new season's start date. Mirrors
       // the create-league reducer.
       if (action.field === 'sport') {
         const newSport = action.value as 'nba' | 'wnba';
         const newSeason = getCurrentSeason(newSport);
-        const newMax = computeMaxWeeks(newSeason, newSport);
-        const playoffWeeks = Math.min(next.playoffWeeks, Math.max(1, newMax - 1));
+        const newMax = computeMaxWeeks(newSeason, newSport, undefined, next.combineCupWeek ?? false);
+        const playoffWeeks = Math.min(
+          next.playoffWeeks,
+          maxPlayoffWeeksForTeams(next.teams),
+          Math.max(1, newMax - 1),
+        );
         const regularSeasonWeeks = Math.min(next.regularSeasonWeeks, Math.max(1, newMax - playoffWeeks));
         return {
           ...state,
-          wizardState: { ...next, season: newSeason, seasonStartDate: null, regularSeasonWeeks, playoffWeeks },
+          wizardState: clampLotteryState({ ...next, season: newSeason, seasonStartDate: null, regularSeasonWeeks, playoffWeeks }),
         };
       }
       // Phases + future picks are dynasty-only — clear them if the league
       // leaves Dynasty so a stale phase can't leak into the payload.
       if (action.field === 'leagueType' && action.value !== 'Dynasty') {
-        return { ...state, wizardState: next, draftPhase: 'in_season', lotteryOrder: [], tradedPicks: [] };
+        return { ...state, wizardState: next, draftPhase: 'in_season', lotteryOrder: [], lotteryOrderR2: [], tradedPicks: [] };
       }
       return { ...state, wizardState: next };
     }
@@ -221,9 +252,16 @@ export function reducer(state: ScreenshotImportState, action: Action): Screensho
       for (let i = 0; i < Math.min(state.teams.length, count); i++) {
         teams[i] = state.teams[i];
       }
+      // Re-clamp the playoff structure to the new team count — a 2-team
+      // league can't keep the 10-team template's 6-team / 3-week playoff.
+      const wizardState = clampLotteryState({
+        ...state.wizardState,
+        teams: count,
+        playoffWeeks: Math.min(state.wizardState.playoffWeeks, maxPlayoffWeeksForTeams(count)),
+      });
       return {
         ...state,
-        wizardState: { ...state.wizardState, teams: count },
+        wizardState,
         teams,
         currentTeamIndex: Math.min(state.currentTeamIndex, count - 1),
       };
@@ -344,11 +382,14 @@ export function reducer(state: ScreenshotImportState, action: Action): Screensho
       const needsOrder =
         action.value === 'lottery_done' && state.lotteryOrder.length !== state.teams.length;
       const lotteryOrder = needsOrder ? state.teams.map(t => t.team_name) : state.lotteryOrder;
-      return { ...state, draftPhase: action.value, lotteryOrder };
+      const lotteryOrderR2 = needsOrder ? [] : state.lotteryOrderR2;
+      return { ...state, draftPhase: action.value, lotteryOrder, lotteryOrderR2 };
     }
 
     case 'SET_LOTTERY_ORDER':
       return { ...state, lotteryOrder: action.value };
+    case 'SET_LOTTERY_ORDER_R2':
+      return { ...state, lotteryOrderR2: action.value };
 
     case 'SET_TRADED_PICKS':
       return { ...state, tradedPicks: action.value };
@@ -375,7 +416,10 @@ export function reducer(state: ScreenshotImportState, action: Action): Screensho
 //      enough to keep working without re-uploading. Users who left
 //      mid-capture (no extraction yet) will need to re-upload.
 
-export const STORAGE_KEY = '@screenshot_import_wizard';
+// v2/v3: bumped whenever the step order changes (a persisted `step` index points
+// at a different step under the new layout), so stale drafts are discarded
+// cleanly. v3 split the single "Config" step into Waivers/Season/Trade/Draft.
+export const STORAGE_KEY = '@screenshot_import_wizard_v3';
 
 interface PersistedTeam {
   team_name: string;
@@ -400,6 +444,7 @@ export interface PersistedState {
   currentHistoryIndex: number;
   draftPhase: DraftPhase;
   lotteryOrder: string[];
+  lotteryOrderR2: string[];
   tradedPicks: TradedPickDraft[];
   step: number;
 }
@@ -422,6 +467,7 @@ export function serializeState(s: ScreenshotImportState, step: number): Persiste
     currentHistoryIndex: s.currentHistoryIndex,
     draftPhase: s.draftPhase,
     lotteryOrder: s.lotteryOrder,
+    lotteryOrderR2: s.lotteryOrderR2,
     tradedPicks: s.tradedPicks,
     step,
   };
@@ -429,7 +475,16 @@ export function serializeState(s: ScreenshotImportState, step: number): Persiste
 
 export function deserializeState(p: PersistedState): ScreenshotImportState {
   return {
-    wizardState: p.wizardState,
+    // Drafts persisted before the playoff clamps existed can carry a bracket
+    // the team count can't fill (e.g. 6 playoff teams in a 2-team league) —
+    // heal them on restore, same rules as the reducer.
+    wizardState: clampLotteryState({
+      ...p.wizardState,
+      playoffWeeks: Math.min(
+        p.wizardState.playoffWeeks,
+        maxPlayoffWeeksForTeams(p.wizardState.teams),
+      ),
+    }),
     teams: p.teams.map((t) => ({
       team_name: t.team_name,
       images: [],
@@ -450,6 +505,7 @@ export function deserializeState(p: PersistedState): ScreenshotImportState {
     currentHistoryIndex: p.currentHistoryIndex ?? 0,
     draftPhase: p.draftPhase ?? 'in_season',
     lotteryOrder: p.lotteryOrder ?? [],
+    lotteryOrderR2: p.lotteryOrderR2 ?? [],
     tradedPicks: p.tradedPicks ?? [],
   };
 }

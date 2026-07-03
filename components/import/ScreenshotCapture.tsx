@@ -1,13 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import {
   Alert,
   Image,
+  Modal,
+  Pressable,
   StyleSheet,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BrandButton } from '@/components/ui/BrandButton';
 import { ThemedText } from '@/components/ui/ThemedText';
@@ -31,6 +34,11 @@ export function ScreenshotCapture({
 }: ScreenshotCaptureProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const insets = useSafeAreaInsets();
+
+  // Index of the screenshot shown in the full-screen preview, or null when closed.
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const previewImage = previewIndex !== null ? images[previewIndex] : null;
 
   const pickImage = useCallback(async (useCamera: boolean) => {
     if (images.length >= maxImages) {
@@ -105,11 +113,18 @@ export function ScreenshotCapture({
         <View style={styles.thumbnails}>
           {images.map((img, index) => (
             <View key={index} style={styles.thumbnailWrapper}>
-              <Image
-                source={{ uri: `data:${img.media_type};base64,${img.base64}` }}
-                style={[styles.thumbnail, { borderColor: c.border }]}
+              <TouchableOpacity
+                onPress={() => setPreviewIndex(index)}
+                accessibilityRole="imagebutton"
                 accessibilityLabel={`Screenshot ${index + 1}`}
-              />
+                accessibilityHint="Opens a full-screen preview"
+              >
+                <Image
+                  source={{ uri: `data:${img.media_type};base64,${img.base64}` }}
+                  style={[styles.thumbnail, { borderColor: c.border }]}
+                  accessible={false}
+                />
+              </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.removeBtn, { backgroundColor: c.danger }]}
                 onPress={() => removeImage(index)}
@@ -143,6 +158,46 @@ export function ScreenshotCapture({
           />
         </View>
       )}
+
+      <Modal
+        visible={previewImage !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewIndex(null)}
+      >
+        {/* Tap anywhere (backdrop or image) to dismiss. The image uses
+            pointerEvents="none" so taps fall through to this Pressable. */}
+        <Pressable
+          style={styles.previewBackdrop}
+          onPress={() => setPreviewIndex(null)}
+          accessibilityRole="button"
+          accessibilityLabel="Close preview"
+        >
+          {previewImage && (
+            <View style={styles.previewImage} pointerEvents="none">
+              <Image
+                source={{
+                  uri: `data:${previewImage.media_type};base64,${previewImage.base64}`,
+                }}
+                style={styles.previewImage}
+                resizeMode="contain"
+                accessibilityLabel={
+                  previewIndex !== null ? `Screenshot ${previewIndex + 1}` : undefined
+                }
+              />
+            </View>
+          )}
+          <TouchableOpacity
+            style={[styles.previewClose, { top: insets.top + s(8) }]}
+            onPress={() => setPreviewIndex(null)}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityRole="button"
+            accessibilityLabel="Close preview"
+          >
+            <Ionicons name="close" size={ms(28)} color={Brand.ecru} />
+          </TouchableOpacity>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -191,5 +246,25 @@ const styles = StyleSheet.create({
   buttonRow: {
     flexDirection: 'row',
     gap: s(10),
+  },
+  previewBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(20, 16, 16, 0.94)', // Brand.ink @ 94%
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
+  },
+  previewClose: {
+    position: 'absolute',
+    right: s(16),
+    width: s(40),
+    height: s(40),
+    borderRadius: s(20),
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
   },
 });

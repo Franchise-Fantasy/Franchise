@@ -30,8 +30,46 @@ import {
 // Canonical stat ordering for the breakdown grid.
 const STAT_ORDER = [
   "PTS", "REB", "AST", "BLK", "STL", "TO",
-  "3PM", "3PA", "FGM", "FGA", "FTM", "FTA", "PF", "DD", "TD",
+  "3PM", "3PA", "FGM", "FGA", "FG%", "FTM", "FTA", "FT%", "PF", "DD", "TD",
 ];
+
+// Percentage categories (CAT leagues) — derived per-player from made/attempted
+// week totals rather than read from a single player_games column, so they need
+// their own column shape (STAT_TO_GAME has no key for them).
+const PERCENTAGE_STATS: Record<
+  string,
+  { numerator: string; denominator: string }
+> = {
+  "FG%": { numerator: "fgm", denominator: "fga" },
+  "FT%": { numerator: "ftm", denominator: "fta" },
+};
+
+type StatColumn =
+  | { label: string; key: string }
+  | { label: string; pct: { numerator: string; denominator: string } };
+
+// A column's value for a player's week totals. Counting stats read directly
+// (missing → 0); percentage stats compute made/attempted and return null when
+// the player took no attempts (rendered as "—").
+function columnValue(
+  stats: Record<string, number> | null | undefined,
+  col: StatColumn,
+): number | null {
+  if (!stats) return null;
+  if ("pct" in col) {
+    const den = stats[col.pct.denominator] ?? 0;
+    if (den <= 0) return null;
+    return (stats[col.pct.numerator] ?? 0) / den;
+  }
+  return stats[col.key] ?? 0;
+}
+
+function formatColumnValue(col: StatColumn, val: number): string {
+  if ("pct" in col) {
+    return val === 0 ? ".000" : `.${(val * 1000).toFixed(0).padStart(3, "0")}`;
+  }
+  return formatStatValue(val);
+}
 
 const NAME_W = s(96);
 const FPTS_W = s(54);
@@ -209,11 +247,13 @@ export function WeekSummarySheet({
   const statColumns = useMemo(
     () =>
       scoring
-        .map((w) => ({
-          label: w.stat_name,
-          key: STAT_TO_GAME[w.stat_name] as string | undefined,
-        }))
-        .filter((col): col is { label: string; key: string } => col.key != null)
+        .map((w): StatColumn | null => {
+          const pct = PERCENTAGE_STATS[w.stat_name];
+          if (pct) return { label: w.stat_name, pct };
+          const key = STAT_TO_GAME[w.stat_name] as string | undefined;
+          return key ? { label: w.stat_name, key } : null;
+        })
+        .filter((col): col is StatColumn => col != null)
         .sort((a, b) => {
           const ai = STAT_ORDER.indexOf(a.label);
           const bi = STAT_ORDER.indexOf(b.label);
@@ -344,8 +384,13 @@ export function WeekSummarySheet({
                         ? `, ${pct >= 0 ? `${pct}% over` : `${-pct}% under`} expected`
                         : ""
                     }, ${statColumns
-                      .filter((col) => (p.weekGameStats?.[col.key] ?? 0) !== 0)
-                      .map((col) => `${p.weekGameStats![col.key]} ${col.label}`)
+                      .map((col) => {
+                        const val = columnValue(p.weekGameStats, col);
+                        if (val == null || (!("pct" in col) && val === 0))
+                          return null;
+                        return `${formatColumnValue(col, val)} ${col.label}`;
+                      })
+                      .filter(Boolean)
                       .join(", ")}`}
                   >
                     <View
@@ -435,7 +480,7 @@ export function WeekSummarySheet({
                 <View style={[styles.headerRow, { height: HEADER_H }]}>
                   {statColumns.map((col) => (
                     <ThemedText
-                      key={col.key}
+                      key={col.label}
                       type="varsitySmall"
                       style={[
                         styles.colHead,
@@ -453,17 +498,18 @@ export function WeekSummarySheet({
                     accessible={false}
                   >
                     {statColumns.map((col) => {
-                      const v = p.weekGameStats?.[col.key] ?? 0;
+                      const val = columnValue(p.weekGameStats, col);
+                      const show = val != null && ("pct" in col || val !== 0);
                       return (
                         <Text
-                          key={col.key}
+                          key={col.label}
                           style={[
                             styles.statVal,
                             { width: STAT_W },
-                            { color: v ? c.text : c.secondaryText },
+                            { color: show ? c.text : c.secondaryText },
                           ]}
                         >
-                          {v ? formatStatValue(v) : "—"}
+                          {show ? formatColumnValue(col, val) : "—"}
                         </Text>
                       );
                     })}

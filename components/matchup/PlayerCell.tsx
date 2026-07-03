@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import React, { useEffect, useRef } from "react";
 import {
@@ -225,6 +226,7 @@ export const PlayerCell = React.memo(function PlayerCell({
   onPress,
   isCategories,
   onFptsPress,
+  compareSelected,
 }: {
   player: RosterPlayer | null;
   c: any;
@@ -233,8 +235,10 @@ export const PlayerCell = React.memo(function PlayerCell({
   liveStats: LivePlayerStats | null;
   scoring: ScoringWeight[];
   schedule?: Map<string, ScheduleEntry>;
-  onPress?: (playerId: string) => void;
+  onPress?: (player: RosterPlayer) => void;
   isCategories?: boolean;
+  /** True when this player is picked in compare mode — shows a gold ring + check. */
+  compareSelected?: boolean;
   onFptsPress?: (
     stats: Record<string, number | boolean>,
     playerName: string,
@@ -281,7 +285,7 @@ export const PlayerCell = React.memo(function PlayerCell({
   const wrapperProps = onPress
     ? {
         activeOpacity: 0.6,
-        onPress: () => onPress(player.player_id),
+        onPress: () => onPress(player),
         accessibilityRole: "button" as const,
         accessibilityLabel: `${player.name}, ${player.position}`,
       }
@@ -295,7 +299,7 @@ export const PlayerCell = React.memo(function PlayerCell({
       <View
         style={[
           pStyles.headshotCircle,
-          { borderColor: c.heritageGold, backgroundColor: c.cardAlt },
+          { borderColor: compareSelected ? c.gold : c.heritageGold, backgroundColor: c.cardAlt },
         ]}
       >
         <PlayerHeadshotImage
@@ -304,6 +308,11 @@ export const PlayerCell = React.memo(function PlayerCell({
           style={pStyles.headshotImg}
         />
       </View>
+      {compareSelected && (
+        <View style={[rosterStyles.compareCheck, { backgroundColor: c.gold, borderColor: c.background }]}>
+          <Ionicons name="checkmark" size={11} color={c.statusText} />
+        </View>
+      )}
       {player.nbaTricode && (
         <View
           style={rosterStyles.rosterTeamPill}

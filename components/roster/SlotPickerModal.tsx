@@ -243,7 +243,7 @@ export function SlotPickerModal({
           </View>
           {occ ? (
             <>
-              <View style={[styles.rowHeadshot, { borderColor: cc.gold, backgroundColor: cc.cardAlt }]}>
+              <View style={[styles.rowHeadshot, { borderColor: cc.heritageGold, backgroundColor: cc.cardAlt }]}>
                 <PlayerHeadshotImage
                   externalIdNba={occ.external_id_nba}
                   sport={sport}
@@ -335,7 +335,7 @@ export function SlotPickerModal({
                       {slotLabel(item.roster_slot ?? "BE")}
                     </Text>
                   </View>
-                  <View style={[styles.rowHeadshot, { borderColor: cc.gold, backgroundColor: cc.cardAlt }]}>
+                  <View style={[styles.rowHeadshot, { borderColor: cc.heritageGold, backgroundColor: cc.cardAlt }]}>
                     <PlayerHeadshotImage
                       externalIdNba={item.external_id_nba}
                       sport={sport}
@@ -457,7 +457,7 @@ export function SlotPickerModal({
                     <View
                       style={[
                         styles.headshotCircle,
-                        { borderColor: c.gold, backgroundColor: c.cardAlt },
+                        { borderColor: c.heritageGold, backgroundColor: c.cardAlt },
                       ]}
                     >
                       <PlayerHeadshotImage

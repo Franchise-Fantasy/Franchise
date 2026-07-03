@@ -1,9 +1,10 @@
-import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { StyleSheet } from 'react-native';
 
+import { BrandButton } from '@/components/ui/BrandButton';
 import { FieldGroup } from '@/components/ui/FieldGroup';
 import { FormSection } from '@/components/ui/FormSection';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
+import { SortableList } from '@/components/ui/SortableList';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors, Fonts } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -12,9 +13,13 @@ import { ms, s } from '@/utils/scale';
 import {
   DRAFT_PHASE_OPTIONS,
   draftPhaseHelp,
+  resolveDraftOrder,
   type DraftPhase,
   type ImportTeamRef,
 } from './draftPhase';
+
+// Uniform row height for the inline sortable draft-order editor.
+const ROW_HEIGHT = s(46);
 
 interface Props {
   /** Hidden entirely for non-dynasty leagues (no rookie draft / future picks). */
@@ -24,17 +29,25 @@ interface Props {
   phase: DraftPhase;
   onPhaseChange: (phase: DraftPhase) => void;
   teams: ImportTeamRef[];
-  /** Ordered team keys for the phase-(b) "Order Set" draft order. */
+  /** Number of rookie-draft rounds — a round-2 order picker shows when ≥ 2. */
+  rounds: number;
+  /** Ordered team keys for the phase-(b) "Order Set" round-1 draft order. */
   lotteryOrder: string[];
   onLotteryOrderChange: (order: string[]) => void;
+  /** Explicit round-2 order (empty until the user diverges from the default). */
+  round2Order: string[];
+  onRound2OrderChange: (order: string[]) => void;
+  /** Reverse-standings order from imported history — the round-2 default for
+   *  lottery leagues (a lottery only sets round 1). Empty if no standings. */
+  defaultRound2Order?: string[];
 }
 
 /**
  * Lets a dynasty importer declare where the league sits in its offseason:
- * pre-draft (run the lottery/draft in-app), order-already-set (enter the
+ * pre-lottery (run the lottery/draft in-app), order-already-set (enter the
  * known order, draft in-app), or already-drafted (default — rookies are on
- * rosters). For the order-set case, an inline reorderable team list captures
- * the known draft order without a nested modal.
+ * rosters). For the order-set case, an inline drag-to-reorder team list
+ * captures the known draft order right in the wizard.
  */
 export function DraftPhaseSelector({
   isDynasty,
@@ -42,8 +55,12 @@ export function DraftPhaseSelector({
   phase,
   onPhaseChange,
   teams,
+  rounds,
   lotteryOrder,
   onLotteryOrderChange,
+  round2Order,
+  onRound2OrderChange,
+  defaultRound2Order,
 }: Props) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
@@ -51,23 +68,26 @@ export function DraftPhaseSelector({
   if (!isDynasty) return null;
 
   const selectedIndex = DRAFT_PHASE_OPTIONS.findIndex(o => o.value === phase);
-
-  // Display order: the captured order if it still covers every team, else the
-  // teams' natural order (a sensible starting point the user then reorders).
-  const orderValid =
-    lotteryOrder.length === teams.length &&
-    new Set(lotteryOrder).size === teams.length &&
-    lotteryOrder.every(k => teams.some(t => t.key === k));
-  const orderedKeys = orderValid ? lotteryOrder : teams.map(t => t.key);
+  const teamKeys = teams.map(t => t.key);
   const nameByKey = new Map(teams.map(t => [t.key, t.name]));
 
-  const move = (index: number, dir: -1 | 1) => {
-    const target = index + dir;
-    if (target < 0 || target >= orderedKeys.length) return;
-    const next = [...orderedKeys];
-    [next[index], next[target]] = [next[target], next[index]];
-    onLotteryOrderChange(next);
-  };
+  // Round 1: the captured order if it still covers every team, else natural
+  // team order. Round 2 falls back explicit → reverse-standings → round 1.
+  const round1Keys = resolveDraftOrder([lotteryOrder], teamKeys);
+  const round2Keys = resolveDraftOrder([round2Order, defaultRound2Order, round1Keys], teamKeys);
+  const showRound2 = phase === 'lottery_done' && rounds >= 2;
+
+  const renderRow = ({ item, index }: { item: string; index: number }) => (
+    <>
+      <ThemedText style={[styles.pickNum, { color: c.secondaryText }]}>{index + 1}</ThemedText>
+      <ThemedText style={[styles.teamName, { color: c.text }]} numberOfLines={1}>
+        {nameByKey.get(item) ?? item}
+      </ThemedText>
+    </>
+  );
+
+  const rowLabel = (item: string, index: number) =>
+    `${nameByKey.get(item) ?? item}, pick ${index + 1}`;
 
   return (
     <FormSection title="Draft Status">
@@ -81,45 +101,46 @@ export function DraftPhaseSelector({
       </FieldGroup>
 
       {phase === 'lottery_done' && (
-        <FieldGroup label="Rookie Draft Order" helperText="Pick 1 drafts first. Reorder to match your league's set order.">
-          <View style={[styles.orderList, { borderColor: c.border }]}>
-            {orderedKeys.map((key, index) => (
-              <View
-                key={key}
-                style={[
-                  styles.orderRow,
-                  index < orderedKeys.length - 1 && { borderBottomColor: c.border, borderBottomWidth: StyleSheet.hairlineWidth },
-                ]}
-              >
-                <ThemedText style={[styles.pickNum, { color: c.secondaryText }]}>{index + 1}</ThemedText>
-                <ThemedText style={[styles.teamName, { color: c.text }]} numberOfLines={1}>
-                  {nameByKey.get(key) ?? key}
-                </ThemedText>
-                <View style={styles.moveBtns}>
-                  <TouchableOpacity
-                    onPress={() => move(index, -1)}
-                    disabled={index === 0}
-                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Move ${nameByKey.get(key) ?? key} up`}
-                    style={[styles.moveBtn, index === 0 && styles.moveBtnDisabled]}
-                  >
-                    <Ionicons name="chevron-up" size={ms(18)} color={c.text} />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => move(index, 1)}
-                    disabled={index === orderedKeys.length - 1}
-                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Move ${nameByKey.get(key) ?? key} down`}
-                    style={[styles.moveBtn, index === orderedKeys.length - 1 && styles.moveBtnDisabled]}
-                  >
-                    <Ionicons name="chevron-down" size={ms(18)} color={c.text} />
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ))}
-          </View>
+        <FieldGroup
+          label={showRound2 ? 'Round 1 Order' : 'Rookie Draft Order'}
+          helperText="Pick 1 drafts first. Long-press a handle and drag to match your league's set order."
+        >
+          <SortableList
+            data={round1Keys}
+            keyExtractor={k => k}
+            onReorder={onLotteryOrderChange}
+            renderItem={renderRow}
+            itemHeight={ROW_HEIGHT}
+            accessibilityItemLabel={rowLabel}
+          />
+        </FieldGroup>
+      )}
+
+      {showRound2 && (
+        <FieldGroup
+          label="Round 2 Order"
+          helperText={
+            usesLottery
+              ? 'A lottery only sets round 1 — round 2 defaults to reverse standings. Drag to adjust.'
+              : 'Drag to set round 2, or copy round 1 for a straight repeating order.'
+          }
+        >
+          <SortableList
+            data={round2Keys}
+            keyExtractor={k => k}
+            onReorder={onRound2OrderChange}
+            renderItem={renderRow}
+            itemHeight={ROW_HEIGHT}
+            accessibilityItemLabel={rowLabel}
+          />
+          <BrandButton
+            label="Same as Round 1"
+            onPress={() => onRound2OrderChange(round1Keys)}
+            variant="ghost"
+            size="default"
+            accessibilityLabel="Set round 2 order the same as round 1"
+            style={styles.sameAsBtn}
+          />
         </FieldGroup>
       )}
     </FormSection>
@@ -127,37 +148,18 @@ export function DraftPhaseSelector({
 }
 
 const styles = StyleSheet.create({
-  orderList: {
-    borderWidth: 1,
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
-  orderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: s(8),
-    paddingHorizontal: s(12),
-    gap: s(10),
-  },
   pickNum: {
     fontFamily: Fonts.mono,
-    fontSize: ms(13),
+    fontSize: ms(14),
     fontWeight: '700',
-    width: s(22),
+    width: s(24),
   },
   teamName: {
     flex: 1,
-    fontSize: ms(14),
+    fontSize: ms(15),
     fontWeight: '500',
   },
-  moveBtns: {
-    flexDirection: 'row',
-    gap: s(4),
-  },
-  moveBtn: {
-    padding: s(4),
-  },
-  moveBtnDisabled: {
-    opacity: 0.25,
+  sameAsBtn: {
+    marginTop: s(10),
   },
 });

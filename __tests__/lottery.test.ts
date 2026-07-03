@@ -1,6 +1,10 @@
 import {
   getPlayoffTeamOptions,
+  maxPlayoffWeeksForTeams,
+  snapPlayoffTeams,
   defaultPlayoffTeams,
+  defaultPlayoffSetup,
+  clampLotteryState,
   calcLotteryPoolSize,
   generateDefaultOdds,
   normalizeOdds,
@@ -43,16 +47,98 @@ describe('getPlayoffTeamOptions', () => {
   });
 });
 
+// ─── maxPlayoffWeeksForTeams ────────────────────────────────────────────────
+
+describe('maxPlayoffWeeksForTeams', () => {
+  it('2 teams support only a 1-week final', () => {
+    expect(maxPlayoffWeeksForTeams(2)).toBe(1);
+  });
+
+  it('3-4 teams support 2 weeks', () => {
+    expect(maxPlayoffWeeksForTeams(3)).toBe(2);
+    expect(maxPlayoffWeeksForTeams(4)).toBe(2);
+  });
+
+  it('5-9 teams support 3 weeks (the smallest 4-week bracket needs 10)', () => {
+    expect(maxPlayoffWeeksForTeams(5)).toBe(3);
+    expect(maxPlayoffWeeksForTeams(9)).toBe(3);
+  });
+
+  it('10+ teams support 4 weeks', () => {
+    expect(maxPlayoffWeeksForTeams(10)).toBe(4);
+    expect(maxPlayoffWeeksForTeams(16)).toBe(4);
+  });
+});
+
+// ─── snapPlayoffTeams ───────────────────────────────────────────────────────
+
+describe('snapPlayoffTeams', () => {
+  it('keeps an already-valid value', () => {
+    expect(snapPlayoffTeams(6, 3, 10)).toBe(6);
+  });
+
+  it('snaps to the closest valid option', () => {
+    // 3 weeks, 10 teams → [5, 6, 8]; desired 7 → 6 (tie 6/8 favors smaller)
+    expect(snapPlayoffTeams(7, 3, 10)).toBe(6);
+    // 1 week, 2 teams → [2]; a stale 6 collapses to 2
+    expect(snapPlayoffTeams(6, 1, 2)).toBe(2);
+  });
+});
+
 // ─── defaultPlayoffTeams ────────────────────────────────────────────────────
 
 describe('defaultPlayoffTeams', () => {
-  it('returns the largest valid option', () => {
-    expect(defaultPlayoffTeams(3, 10)).toBe(8);
+  it('targets ~60% of the league (6-of-10 convention)', () => {
+    expect(defaultPlayoffTeams(3, 10)).toBe(6);
     expect(defaultPlayoffTeams(2, 10)).toBe(4);
   });
 
   it('caps at team count', () => {
     expect(defaultPlayoffTeams(3, 5)).toBe(5);
+  });
+});
+
+// ─── defaultPlayoffSetup ────────────────────────────────────────────────────
+
+describe('defaultPlayoffSetup', () => {
+  it('10 teams → 6 playoff teams over 3 weeks', () => {
+    expect(defaultPlayoffSetup(10, 24)).toEqual({ playoffWeeks: 3, playoffTeams: 6 });
+  });
+
+  it('2 teams → a single 1-week final, never more teams than the league has', () => {
+    expect(defaultPlayoffSetup(2, 24)).toEqual({ playoffWeeks: 1, playoffTeams: 2 });
+  });
+
+  it('4 teams → 3-of-4 bracket over 2 weeks', () => {
+    expect(defaultPlayoffSetup(4, 24)).toEqual({ playoffWeeks: 2, playoffTeams: 3 });
+  });
+
+  it('caps playoff weeks at half the remaining calendar', () => {
+    // Only 4 schedulable weeks left → 2 playoff weeks, not 3.
+    expect(defaultPlayoffSetup(10, 4).playoffWeeks).toBe(2);
+  });
+});
+
+// ─── clampLotteryState ──────────────────────────────────────────────────────
+
+describe('clampLotteryState', () => {
+  const base = { teams: 10, playoffWeeks: 3, playoffTeams: 6, lotteryDraws: 4, lotteryOdds: null };
+
+  it('leaves a valid state untouched', () => {
+    expect(clampLotteryState(base)).toEqual(base);
+  });
+
+  it('snaps an invalid playoffTeams and shrinks lotteryDraws to the pool', () => {
+    // 2 teams, 1 week → playoffTeams 2, pool 0 → draws 0
+    const clamped = clampLotteryState({ ...base, teams: 2, playoffWeeks: 1 });
+    expect(clamped.playoffTeams).toBe(2);
+    expect(clamped.lotteryDraws).toBe(0);
+  });
+
+  it('resets custom odds whose length no longer matches the pool', () => {
+    const clamped = clampLotteryState({ ...base, playoffTeams: 8, lotteryOdds: [50, 30, 20, 0] });
+    // playoffTeams 8 valid → pool 2 → 4-entry odds are stale
+    expect(clamped.lotteryOdds).toBeNull();
   });
 });
 

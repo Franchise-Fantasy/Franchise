@@ -151,11 +151,24 @@ export async function notifyRosteredPlayerNews(
     teamUserMap.set(t.id, { user_id: t.user_id, league_id: t.league_id });
   }
 
+  // Drop archived (soft-deleted) leagues up front so a roster spot in one never
+  // contributes a player name OR becomes the deep-link league for the push — a
+  // user rostering the same player in a live AND an archived league must still
+  // get the news, pointed at the live league. The push sink filters archived
+  // too, but it can only drop the whole message, not pick a live league.
+  const leagueIds = [...new Set((teamRows ?? []).map((t: any) => t.league_id))];
+  const { data: archivedRows } = await supabase
+    .from('leagues')
+    .select('id')
+    .in('id', leagueIds)
+    .not('archived_at', 'is', null);
+  const archivedLeagues = new Set((archivedRows ?? []).map((l: { id: string }) => l.id));
+
   // user_id → distinct player names + leagues to notify about
   const userNotifs = new Map<string, { playerNames: Set<string>; leagueIds: Set<string> }>();
   for (const row of rosteredRows as any[]) {
     const team = teamUserMap.get(row.team_id);
-    if (!team) continue;
+    if (!team || archivedLeagues.has(team.league_id)) continue;
     const pName = playerById.get(row.player_id)?.name;
     if (!pName) continue;
     const existing = userNotifs.get(team.user_id) ?? { playerNames: new Set<string>(), leagueIds: new Set<string>() };

@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { BottomTabBarHeightContext } from 'expo-router/js-tabs';
 import { useRouter } from 'expo-router';
+import { BottomTabBarHeightContext } from 'expo-router/js-tabs';
 import { useContext } from 'react';
 import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -17,8 +17,12 @@ import { ms, s } from '@/utils/scale';
  * as removable mini-headshots and a "Compare (N)" CTA that opens the
  * full-screen comparison. Self-contained — each entry screen just drops one
  * `<CompareBar />` inside its container; it anchors to the container's bottom.
+ *
+ * Pass `docked` when rendering inside a chrome that already provides the bottom
+ * positioning + border (e.g. a BottomSheet `footer`); it then renders inline
+ * instead of absolutely pinned.
  */
-export function CompareBar() {
+export function CompareBar({ docked = false }: { docked?: boolean } = {}) {
   const { isCompareMode, selected, remove, setCompareMode, min } = useCompareSelection();
   const c = useColors();
   const sport = useActiveLeagueSport();
@@ -41,7 +45,11 @@ export function CompareBar() {
 
   return (
     <View
-      style={[styles.bar, { bottom: bottomOffset, backgroundColor: c.card, borderTopColor: c.border }]}
+      style={
+        docked
+          ? styles.barDocked
+          : [styles.bar, { bottom: bottomOffset, backgroundColor: c.card, borderTopColor: c.border }]
+      }
       accessibilityLabel="Compare selection"
     >
       <TouchableOpacity
@@ -120,6 +128,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: s(12),
     paddingVertical: s(8),
     borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  // Inline variant for hosts that own the bottom chrome (e.g. BottomSheet footer).
+  barDocked: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(8),
   },
   exit: {
     width: s(28),

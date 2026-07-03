@@ -14,6 +14,7 @@ import {
 
 import { ThemedText } from "@/components/ui/ThemedText";
 import { Brand, Fonts } from "@/constants/Colors";
+import { useCompareSelection } from "@/context/CompareSelectionProvider";
 import { useColors } from "@/hooks/useColors";
 import { ms, s } from "@/utils/scale";
 
@@ -178,6 +179,7 @@ export function MatchupHero({
   isLoading,
 }: MatchupHeroProps) {
   const c = useColors();
+  const { isCompareMode, setCompareMode } = useCompareSelection();
   const isFutureDate = selectedDate > today;
 
   // Status word dropped — the live red dot covers LIVE, and the date
@@ -444,6 +446,20 @@ export function MatchupHero({
         </TouchableOpacity>
 
         <View style={styles.eyebrowRight}>
+          <TouchableOpacity
+            onPress={() => setCompareMode(!isCompareMode)}
+            style={styles.todayIconChip}
+            hitSlop={TAP_SLOP}
+            accessibilityRole="button"
+            accessibilityLabel={isCompareMode ? "Exit compare mode" : "Compare players"}
+            accessibilityState={{ selected: isCompareMode }}
+          >
+            <Ionicons
+              name="git-compare"
+              size={ms(14)}
+              color={isCompareMode ? Brand.vintageGold : Brand.ecruMuted}
+            />
+          </TouchableOpacity>
           {/* Return-to-today chip on the RIGHT when on a past date —
               chip is rendered at the inner edge (close to the centered
               date) and the spacer pushes the action chips to the far

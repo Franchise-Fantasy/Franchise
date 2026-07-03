@@ -5,7 +5,6 @@ import { useCallback, useRef } from 'react';
 import { Alert, Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import DraggableFlatList, {
   RenderItemParams,
-  ScaleDecorator,
 } from 'react-native-draggable-flatlist';
 
 import { PlayerHeadshotImage } from '@/components/player/PlayerHeadshotImage';
@@ -129,13 +128,14 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
     const draftDisabled = !isMyTurn || isDrafting || limitBlocked;
 
     return (
-      <ScaleDecorator>
         <View
           style={[
             styles.card,
             { borderColor: c.border, backgroundColor: c.cardAlt, height: ROW_HEIGHT },
             isSuggested && { backgroundColor: c.activeCard, borderColor: c.activeBorder },
-            isActive && { backgroundColor: c.cardAlt, opacity: 0.95 },
+            // Contained lift while dragging — shadow instead of a scale that
+            // overflows the row's clipped edges.
+            isActive && styles.activeLift,
           ]}
           accessibilityLabel={`Queue position ${index + 1}, ${item.player.name}, ${formatPosition(item.player.position)}${isSuggested ? ', suggested pick' : ''}`}
         >
@@ -229,7 +229,6 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
             <Ionicons name="reorder-three" size={22} color={c.secondaryText} />
           </TouchableOpacity>
         </View>
-      </ScaleDecorator>
     );
   }, [c, sport, scoringWeights, isCategories, isMyTurn, isDrafting, hasLimits, positionLimits, myRoster, handleDraft, removeFromQueue]);
 
@@ -343,6 +342,13 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     gap: s(6),
+  },
+  activeLift: {
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
   },
   portraitWrap: {
     width: s(48),

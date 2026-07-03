@@ -1,7 +1,10 @@
 import {
   computeImportSeasons,
+  draftYearLabel,
   isCompleteTradedPick,
   isDuplicateTradedPick,
+  isFullOrder,
+  resolveDraftOrder,
   validateLotteryOrder,
   type TradedPickDraft,
 } from '@/components/import/draftPhase';
@@ -73,6 +76,21 @@ describe('buildSeasonPicks', () => {
     // Round 2 is linear (rookie drafts are linear): pick_number continues per slot.
     expect(byTeam('C', 2).pick_number).toBe(4); // (2-1)*3 + 1
     expect(byTeam('B', 2).pick_number).toBe(6);
+  });
+
+  it('laterRoundOrder: round 1 follows the lottery order, round 2+ reverts to reverse standings', () => {
+    const order = ['C', 'A', 'B']; // round 1 (post-lottery): C drafts first
+    const laterRoundOrder = ['A', 'B', 'C']; // round 2 (reverse standings): A worst
+    const rows = buildSeasonPicks({ leagueId: 'L', teamIds, rounds: 2, season: '2027-28', order, laterRoundOrder });
+    const byTeam = (id: string, round: number) => rows.find(r => r.original_team_id === id && r.round === round)!;
+    // Round 1 follows the lottery order.
+    expect(byTeam('C', 1).slot_number).toBe(1);
+    expect(byTeam('A', 1).slot_number).toBe(2);
+    // Round 2 reverts to reverse standings — the lottery jump does NOT carry.
+    expect(byTeam('A', 2).slot_number).toBe(1);
+    expect(byTeam('A', 2).pick_number).toBe(4); // (2-1)*3 + 1
+    expect(byTeam('C', 2).slot_number).toBe(3);
+    expect(byTeam('C', 2).pick_number).toBe(6);
   });
 });
 
@@ -148,6 +166,21 @@ describe('planDraftPhaseSeeding', () => {
     expect(offseasonUpdate).toEqual({ offseason_step: 'rookie_draft_pending', lottery_status: 'complete' });
   });
 
+  it('lottery_done: S0 round 2 reverts to laterRoundOrder, not the lottery order', () => {
+    const { pickRows } = planDraftPhaseSeeding({
+      ...base,
+      draftPhase: 'lottery_done',
+      usesLottery: true,
+      order: ['B', 'C', 'A'], // round 1 post-lottery
+      laterRoundOrder: ['A', 'B', 'C'], // round 2 reverse standings
+    });
+    const s0 = (id: string, round: number) =>
+      pickRows.find(r => r.season === '2026-27' && r.round === round && r.original_team_id === id)!;
+    expect(s0('B', 1).slot_number).toBe(1); // lottery winner picks first in R1
+    expect(s0('A', 2).slot_number).toBe(1); // reverse standings in R2
+    expect(s0('C', 2).slot_number).toBe(3);
+  });
+
   it('applies traded picks across seeded seasons', () => {
     const { pickRows } = planDraftPhaseSeeding({
       ...base,
@@ -173,6 +206,40 @@ describe('computeImportSeasons', () => {
 
   it('handles WNBA single-year format', () => {
     expect(computeImportSeasons('2026', 'wnba', 1, true)).toEqual(['2026', '2027']);
+  });
+});
+
+describe('draftYearLabel', () => {
+  it('shows the starting calendar year for an NBA span', () => {
+    expect(draftYearLabel('2026-27')).toBe('2026');
+  });
+  it('passes through a single-year WNBA season', () => {
+    expect(draftYearLabel('2026')).toBe('2026');
+  });
+});
+
+describe('isFullOrder', () => {
+  const teamKeys = ['A', 'B', 'C'];
+  it('true only for a complete permutation of the team keys', () => {
+    expect(isFullOrder(['C', 'A', 'B'], teamKeys)).toBe(true);
+    expect(isFullOrder(['A', 'B'], teamKeys)).toBe(false); // short
+    expect(isFullOrder(['A', 'B', 'B'], teamKeys)).toBe(false); // dup
+    expect(isFullOrder(['A', 'B', 'X'], teamKeys)).toBe(false); // unknown key
+    expect(isFullOrder(undefined, teamKeys)).toBe(false);
+  });
+});
+
+describe('resolveDraftOrder', () => {
+  const teamKeys = ['A', 'B', 'C'];
+  it('returns the first candidate that fully covers the teams', () => {
+    expect(resolveDraftOrder([['C', 'A', 'B']], teamKeys)).toEqual(['C', 'A', 'B']);
+  });
+  it('skips invalid candidates and falls through', () => {
+    // explicit empty → reverse-standings default → round-1
+    expect(resolveDraftOrder([[], ['B', 'C', 'A'], ['A', 'B', 'C']], teamKeys)).toEqual(['B', 'C', 'A']);
+  });
+  it('falls back to natural team order when no candidate is valid', () => {
+    expect(resolveDraftOrder([[], undefined, ['A', 'B']], teamKeys)).toEqual(teamKeys);
   });
 });
 

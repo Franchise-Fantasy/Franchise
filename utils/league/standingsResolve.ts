@@ -96,7 +96,10 @@ export function resolveStandings(
         const cmp = compareTiebreaker(a, b, group, method);
         if (cmp !== 0) return cmp;
       }
-      return 0;
+      // Deterministic final fallback: teams equal on every configured tiebreaker
+      // must still resolve to a stable order, or their ranks flip between
+      // refetches (JS sort isn't guaranteed stable for 0-returning comparators).
+      return a.id.localeCompare(b.id);
     });
     result.push(...group);
   }

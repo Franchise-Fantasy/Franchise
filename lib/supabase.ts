@@ -4,20 +4,29 @@ import { Platform } from "react-native";
 
 import { Database } from "../types/database.types";
 
-// Check if we are running in a 'browser' or 'mobile' environment
-// During 'expo export', this will effectively be false for the Node process
-const isClient = typeof window !== "undefined" || Platform.OS !== "web";
+const isWeb = Platform.OS === "web";
+// The Node static-export/prerender pass runs as web with no window — guard so we
+// don't touch localStorage or try to parse a session URL there.
+const hasWindow = typeof window !== "undefined";
 
 export const supabase = createClient<Database>(
   process.env.EXPO_PUBLIC_SUPABASE_URL || "",
   process.env.EXPO_PUBLIC_SB_PUBLISHABLE_KEY || "",
   {
     auth: {
-      // Only assign AsyncStorage if we are on the client
-      storage: isClient ? AsyncStorage : undefined,
+      // Native persists the session in AsyncStorage; the browser uses
+      // localStorage (so reloads stay logged in). No storage during the
+      // windowless export pass.
+      storage: isWeb ? (hasWindow ? window.localStorage : undefined) : AsyncStorage,
       autoRefreshToken: true,
       persistSession: true,
-      detectSessionInUrl: false,
+      // Google/Apple web OAuth redirect back with the session in the URL;
+      // supabase-js must parse it. Native handles auth via deep links instead,
+      // so it stays off there (unchanged behavior).
+      detectSessionInUrl: isWeb && hasWindow,
+      // PKCE for the web redirect flow only. Native is left on its existing
+      // (implicit) flow so the deep-link recovery parser keeps working.
+      ...(isWeb ? { flowType: "pkce" as const } : {}),
     },
   },
 );

@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -15,25 +15,15 @@ import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors, Fonts } from '@/constants/Colors';
-import { CURRENT_NBA_SEASON, CURRENT_WNBA_SEASON } from '@/constants/LeagueDefaults';
 import { useSession } from '@/context/AuthProvider';
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { useNextRookieDraftYear } from '@/hooks/useNextRookieDraftYear';
 import { useProspectBoard, useReorderBoard } from '@/hooks/useProspectBoard';
 import { useProspects } from '@/hooks/useProspects';
 import { useSubscription } from '@/hooks/useSubscription';
 import { ms, s } from '@/utils/scale';
 
-
-
-// NBA seasons are dash-formatted ("2025-26"); the next draft year is the
-// trailing 2-digit fragment, prefixed with "20". WNBA is single-year ("2026")
-// and the next draft is just (year + 1). Other sports fall back to NBA's
-// shape until they're wired through.
-function getNextDraftYear(sport: string): number {
-  if (sport === 'wnba') return parseInt(CURRENT_WNBA_SEASON, 10) + 1;
-  return parseInt(CURRENT_NBA_SEASON.split('-')[1]!, 10) + 2000;
-}
 
 interface BoardEntry {
   playerId: string;
@@ -54,11 +44,28 @@ export default function ProspectBoardScreen() {
   const { canAccess, isLoading: subLoading } = useSubscription();
   const hasAccess = subLoading || canAccess('prospect_board');
 
-  const DRAFT_YEARS = useMemo(() => {
-    const next = getNextDraftYear(sport);
-    return [`${next}`, `${next + 1}`, `${next + 2}`, `${next + 3}+`];
-  }, [sport]);
+  const nextDraftYear = useNextRookieDraftYear(sport);
+  const DRAFT_YEARS = useMemo(() => [
+    `${nextDraftYear}`,
+    `${nextDraftYear + 1}`,
+    `${nextDraftYear + 2}`,
+    `${nextDraftYear + 3}+`,
+  ], [nextDraftYear]);
   const [draftYear, setDraftYear] = useState(DRAFT_YEARS[0]);
+
+  // DRAFT_YEARS[0] starts from a global fallback and corrects to the active
+  // league's actual offseason state once useNextRookieDraftYear's query
+  // resolves. Keep the selected tab following that correction until the
+  // user explicitly picks a year themselves.
+  const yearManuallySelected = useRef(false);
+  useEffect(() => {
+    if (!yearManuallySelected.current) setDraftYear(DRAFT_YEARS[0]);
+  }, [DRAFT_YEARS]);
+
+  const handleSelectDraftYear = useCallback((year: string) => {
+    yearManuallySelected.current = true;
+    setDraftYear(year);
+  }, []);
 
   const { data: boardRows, isLoading: boardLoading } = useProspectBoard(userId, hasAccess);
   const { data: allProspects } = useProspects(draftYear, hasAccess);
@@ -175,7 +182,7 @@ export default function ProspectBoardScreen() {
                 accessibilityState={{ selected: active }}
                 accessibilityLabel={`${year} draft class`}
                 style={styles.yearTab}
-                onPress={() => setDraftYear(year)}
+                onPress={() => handleSelectDraftYear(year)}
                 activeOpacity={0.7}
               >
                 <ThemedText

@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   RefreshControl,
@@ -14,10 +14,10 @@ import { ProspectCard } from '@/components/prospects/ProspectCard';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors, Fonts } from '@/constants/Colors';
-import { getCurrentSeason, parseSeasonStartYear } from '@/constants/LeagueDefaults';
 import { useSession } from '@/context/AuthProvider';
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { useNextRookieDraftYear } from '@/hooks/useNextRookieDraftYear';
 import { useAddToBoard, useProspectBoard } from '@/hooks/useProspectBoard';
 import { useProspects } from '@/hooks/useProspects';
 import { useSubscription } from '@/hooks/useSubscription';
@@ -40,9 +40,7 @@ export function ProspectsTab() {
   const hasAccess = subLoading || canAccess('prospects');
   const sport = useActiveLeagueSport();
 
-  // Next draft year is one calendar year after the current season's start year.
-  // NBA '2025-26' → 2026; WNBA '2026' → 2027.
-  const nextDraftYear = parseSeasonStartYear(getCurrentSeason(sport)) + 1;
+  const nextDraftYear = useNextRookieDraftYear(sport);
   const DRAFT_YEARS = useMemo(() => [
     `${nextDraftYear}`,
     `${nextDraftYear + 1}`,
@@ -52,6 +50,20 @@ export function ProspectsTab() {
 
   const [draftYear, setDraftYear] = useState(DRAFT_YEARS[0]);
   const [position, setPosition] = useState('All');
+
+  // DRAFT_YEARS[0] starts from a global fallback and corrects to the active
+  // league's actual offseason state once useNextRookieDraftYear's query
+  // resolves. Keep the selected tab following that correction until the
+  // user explicitly picks a year themselves.
+  const yearManuallySelected = useRef(false);
+  useEffect(() => {
+    if (!yearManuallySelected.current) setDraftYear(DRAFT_YEARS[0]);
+  }, [DRAFT_YEARS]);
+
+  const handleSelectDraftYear = useCallback((year: string) => {
+    yearManuallySelected.current = true;
+    setDraftYear(year);
+  }, []);
 
   const { data: prospects, isLoading, refetch } = useProspects(draftYear, hasAccess);
   const { data: boardRows } = useProspectBoard(userId, hasAccess);
@@ -153,7 +165,7 @@ export function ProspectsTab() {
               accessibilityState={{ selected: active }}
               accessibilityLabel={`${year} draft class`}
               style={styles.yearTab}
-              onPress={() => setDraftYear(year)}
+              onPress={() => handleSelectDraftYear(year)}
               activeOpacity={0.7}
             >
               <ThemedText

@@ -31,11 +31,27 @@ export function minSeasonStartForDraft(params: {
   // Rule 2: respect the IRL opening night when it's still ahead of us.
   if (season) {
     const opening = getSeasonStart(sport as Sport, season);
-    const today = getSportToday(sport);
+    const today = getSportToday(sport, draftDate);
     if (opening && opening > today && opening > candidate) {
       candidate = opening;
     }
   }
 
   return candidate;
+}
+
+/**
+ * The earliest valid `season_start_date` when no draft is scheduled yet:
+ * tomorrow (a league can't start scoring the day it's created), floored to
+ * the pro season's opening night when that's still ahead — an NBA league
+ * created in July can't start before the real season tips off in mid-October.
+ * Same two rules as {@link minSeasonStartForDraft} with "the draft"
+ * collapsed to "now".
+ */
+export function earliestSeasonStart(
+  sport: Sport | string | null | undefined,
+  season: string | null | undefined,
+  now: Date = new Date(),
+): string {
+  return minSeasonStartForDraft({ sport, season, draftDate: now });
 }

@@ -1,6 +1,7 @@
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { BottomTabBarHeightContext } from "expo-router/js-tabs";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -34,6 +35,7 @@ import { RecapTicker } from "@/components/matchup/RecapTicker";
 import { ScheduleTicker } from "@/components/matchup/ScheduleTicker";
 import { WeekScheduleModal } from "@/components/matchup/WeekScheduleModal";
 import { WeekSummarySheet } from "@/components/matchup/WeekSummarySheet";
+import { CompareBar } from "@/components/player/CompareBar";
 import { FptsBreakdownModal } from "@/components/player/FptsBreakdownModal";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -45,6 +47,7 @@ import { CURRENT_NBA_SEASON } from "@/constants/LeagueDefaults";
 import { queryKeys } from "@/constants/queryKeys";
 import { useAppState } from "@/context/AppStateProvider";
 import { useSession } from "@/context/AuthProvider";
+import { useCompareSelection } from "@/context/CompareSelectionProvider";
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { useLeague } from "@/hooks/useLeague";
@@ -141,15 +144,35 @@ export default function MatchupScreen() {
   } = useLiveActivity(session?.user?.id);
   const [liveActivityId, setLiveActivityId] = useState<string | null>(null);
 
-  const handlePlayerPress = async (playerId: string) => {
+  const {
+    isCompareMode,
+    selectedIds: compareSelectedIds,
+    toggle: toggleCompare,
+  } = useCompareSelection();
+  const tabBarHeight = useContext(BottomTabBarHeightContext) ?? 0;
+
+  const handlePlayerPress = async (player: RosterPlayer) => {
+    // In compare mode, a tap toggles selection. The matchup board only carries
+    // minimal player fields (no full season row), so the compare screen looks
+    // the stats up from the shared pool by player_id.
+    if (isCompareMode) {
+      toggleCompare({
+        player_id: player.player_id,
+        name: player.name,
+        position: player.position,
+        pro_team: player.pro_team,
+        external_id_nba: player.external_id_nba,
+      });
+      return;
+    }
     // Cached so repeat taps on the same player serve from React Query
     const data = await queryClient.fetchQuery({
-      queryKey: queryKeys.playerSeasonStat(playerId, sport),
+      queryKey: queryKeys.playerSeasonStat(player.player_id, sport),
       queryFn: async () => {
         const { data } = await supabase
           .from("player_season_stats")
           .select("*")
-          .eq("player_id", playerId)
+          .eq("player_id", player.player_id)
           .eq("sport", sport)
           .maybeSingle();
         return data as PlayerSeasonStats | null;
@@ -465,12 +488,23 @@ export default function MatchupScreen() {
   // Unified display data
   const displayData = isViewingOwnMatchup
     ? matchupData
-      ? { leftTeam: matchupData.myTeam, rightTeam: matchupData.opponentTeam }
+      ? {
+          leftTeam: matchupData.myTeam,
+          rightTeam: matchupData.opponentTeam,
+          isFinalized: matchupData.isFinalized,
+          categoryRecord: matchupData.categoryRecord,
+          finalizedScore: matchupData.finalizedScore,
+          categoryResults: matchupData.categoryResults,
+        }
       : null
     : otherMatchupData
       ? {
           leftTeam: otherMatchupData.homeTeam,
           rightTeam: otherMatchupData.awayTeam,
+          isFinalized: otherMatchupData.isFinalized,
+          categoryRecord: otherMatchupData.categoryRecord,
+          finalizedScore: otherMatchupData.finalizedScore,
+          categoryResults: otherMatchupData.categoryResults,
         }
       : null;
   const displayLoading =
@@ -675,14 +709,29 @@ export default function MatchupScreen() {
   // double-counts (e.g. a player whose team didn't play today shows
   // their yesterday-final fpts twice). Shared by the hero week score and
   // the weekly summary modal so the two always agree.
+  //
+  // CRITICAL: the live bonus only ever belongs to the week being viewed.
+  // Live data covers today + yesterday, and on a week boundary those days
+  // can fall in a DIFFERENT week than the one on screen — e.g. viewing a
+  // finalized week whose last day was yesterday while today's (next-week)
+  // games are in progress. Without the date-range clamp, today's live points
+  // get added on top of the frozen week total, inflating it (and the
+  // inflation flickers as you change days, because a player only counts when
+  // their selected-day slot is active). Bound to the viewed week so a live
+  // game from another week can never leak in.
+  const weekStartBound = currentWeek?.start_date;
+  const weekEndBound = currentWeek?.end_date;
   const heroLiveMap = useMemo(
     () =>
       new Map(
-        [...rawLiveMap].filter(
-          ([, stats]) => !(stats.game_date < today && stats.game_status === 3),
-        ),
+        [...rawLiveMap].filter(([, stats]) => {
+          if (weekStartBound && stats.game_date < weekStartBound) return false;
+          if (weekEndBound && stats.game_date > weekEndBound) return false;
+          if (stats.game_date < today && stats.game_status === 3) return false;
+          return true;
+        }),
       ),
-    [rawLiveMap, today],
+    [rawLiveMap, today, weekStartBound, weekEndBound],
   );
 
   // Server-authoritative week scores (single source of truth)
@@ -910,18 +959,20 @@ export default function MatchupScreen() {
         wins: displayData.leftTeam.wins,
         losses: displayData.leftTeam.losses,
         ties: displayData.leftTeam.ties,
-        // Take the higher of the two so the score never visibly dips
-        // when one source updates a beat after the other (week_scores
-        // realtime broadcast vs the matchup query refetch). Totals only
-        // ever climb — the brief lower number was the stale half-state.
-        // Include live bonus on the heroData side so the TOTAL ticks up
-        // the moment a play lands, not 30s later when week_scores
-        // catches up. heroDataLeft is today's data on a live week so
-        // this value matches across day picker switches.
-        weekScore: Math.max(
-          weekScores?.[displayData.leftTeam.teamId] ?? 0,
-          round1((heroDataLeft?.weekTotal ?? 0) + heroLeftLiveBonus),
-        ),
+        // FINALIZED weeks anchor to the frozen league_matchups score (the same
+        // value the scoreboard + standings read) so a post-finalize lineup
+        // edit can't drift the displayed total. Live weeks take the higher of
+        // week_scores and the local recompute so the score never visibly dips
+        // when one source updates a beat after the other, and so it ticks up
+        // the moment a play lands (live bonus on the heroData side). heroDataLeft
+        // is today's data on a live week so this matches across day-picker switches.
+        weekScore:
+          displayData.isFinalized && displayData.finalizedScore
+            ? displayData.finalizedScore.left
+            : Math.max(
+                weekScores?.[displayData.leftTeam.teamId] ?? 0,
+                round1((heroDataLeft?.weekTotal ?? 0) + heroLeftLiveBonus),
+              ),
         dayScore: heroLeftDayScore,
       }
     : null;
@@ -934,10 +985,13 @@ export default function MatchupScreen() {
         wins: displayData.rightTeam.wins,
         losses: displayData.rightTeam.losses,
         ties: displayData.rightTeam.ties,
-        weekScore: Math.max(
-          weekScores?.[displayData.rightTeam.teamId] ?? 0,
-          round1((heroDataRight?.weekTotal ?? 0) + heroRightLiveBonus),
-        ),
+        weekScore:
+          displayData.isFinalized && displayData.finalizedScore
+            ? displayData.finalizedScore.right
+            : Math.max(
+                weekScores?.[displayData.rightTeam.teamId] ?? 0,
+                round1((heroDataRight?.weekTotal ?? 0) + heroRightLiveBonus),
+              ),
         dayScore: heroRightDayScore,
       }
     : null;
@@ -957,16 +1011,28 @@ export default function MatchupScreen() {
           heroLiveMap,
         )
       : null;
-  const heroCategoryRecord = heroCategoryResult
-    ? {
-        leftWins: heroCategoryResult.homeWins,
-        rightWins: heroCategoryResult.awayWins,
-        ties: heroCategoryResult.ties,
-      }
-    : null;
+  // A FINALIZED matchup shows the stored, finalize-week-authored record — the
+  // same source standings and the scoreboard read — so the page can't disagree
+  // with the official result. Only fall back to the live recompute while the
+  // matchup is still in progress (or hasn't been finalized yet). This mirrors
+  // how the points hero anchors to the server-authoritative week_scores.
+  const heroCategoryRecord = !heroIsCategories
+    ? null
+    : displayData?.isFinalized && displayData.categoryRecord
+      ? displayData.categoryRecord
+      : heroCategoryResult
+        ? {
+            leftWins: heroCategoryResult.homeWins,
+            rightWins: heroCategoryResult.awayWins,
+            ties: heroCategoryResult.ties,
+          }
+        : null;
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: c.background }]}
+      edges={["top", "left", "right"]}
+    >
       <MatchupHero
         selectedDate={selectedDate}
         today={today}
@@ -1089,7 +1155,12 @@ export default function MatchupScreen() {
             3. Skeleton (while loading — prevents flash of "no matchup" copy
                on cold load; reserved height keeps the page from jumping)
             4. Empty copy (only after queries have settled with no result) */}
-      <ScrollView contentContainerStyle={styles.body}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.body,
+          { paddingBottom: tabBarHeight + (isCompareMode ? 64 : 8) },
+        ]}
+      >
         {matchupError && isViewingOwnMatchup ? (
           <ErrorState
             message="Failed to load matchup"
@@ -1126,6 +1197,10 @@ export default function MatchupScreen() {
               setFptsBreakdown({ stats, playerName: name, gameLabel: label })
             }
             scoringType={league?.scoring_type}
+            frozenCategoryComparison={
+              displayData.isFinalized ? displayData.categoryResults : null
+            }
+            compareSelectedIds={compareSelectedIds}
           />
         ) : coldLoading ? (
           <MatchupBoardSkeleton />
@@ -1145,6 +1220,8 @@ export default function MatchupScreen() {
           </View>
         )}
       </ScrollView>
+
+      <CompareBar />
 
       <PlayerDetailModal
         player={selectedPlayer}

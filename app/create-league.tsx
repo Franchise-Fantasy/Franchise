@@ -19,7 +19,7 @@ import { StepDraft } from "@/components/create-league/StepDraft";
 import { StepReview } from "@/components/create-league/StepReview";
 import { StepRoster } from "@/components/create-league/StepRoster";
 import { StepScoring } from "@/components/create-league/StepScoring";
-import { StepSeason, computeMaxWeeks, computeSeasonStart } from "@/components/create-league/StepSeason";
+import { StepSeason } from "@/components/create-league/StepSeason";
 import { StepTrade } from "@/components/create-league/StepTrade";
 import { StepWaivers } from "@/components/create-league/StepWaivers";
 import { BrandButton } from "@/components/ui/BrandButton";
@@ -59,8 +59,15 @@ import { useColorScheme } from "@/hooks/useColorScheme";
 import { generateDraftPicks, generateFutureDraftPicks } from "@/lib/draft";
 import { capture } from "@/lib/posthog";
 import { supabase } from "@/lib/supabase";
-import { calcLotteryPoolSize, defaultPlayoffTeams, getPlayoffTeamOptions } from "@/utils/league/lottery";
+import { clampLotteryState, defaultPlayoffSetup, maxPlayoffWeeksForTeams } from "@/utils/league/lottery";
 import { sanitizeHandle } from "@/utils/league/paymentLinks";
+import { earliestSeasonStart } from "@/utils/league/seasonStart";
+import {
+  applyCupWeekToggle,
+  computeMaxWeeks,
+  defaultSeasonStart,
+  tradeDeadlineDateForWeek,
+} from "@/utils/league/seasonWeeks";
 import { logger } from "@/utils/logger";
 import { containsBlockedContent } from "@/utils/moderation";
 import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
@@ -78,15 +85,17 @@ type Action =
   | { type: "SET_CATEGORY_ENABLED"; index: number; enabled: boolean }
   | { type: "RESET_CATEGORIES" };
 
-const DEFAULT_PLAYOFF_WEEKS = 3;
+const DEFAULT_TEAMS = 10;
 const maxWeeks = computeMaxWeeks(CURRENT_NBA_SEASON);
+// Teams-first defaults: 10 teams → 6 playoff teams over 3 weeks. Recomputed
+// by the reducer whenever teams / season / sport change.
+const PLAYOFF_DEFAULTS = defaultPlayoffSetup(DEFAULT_TEAMS, maxWeeks);
 // Floor at 1: when the current season is fully past its end date,
 // computeMaxWeeks returns 1, and naive subtraction here used to produce -2
 // (rendered as a broken stepper). The wizard mount logic auto-switches
 // the user to an actually-creatable season, but this is the safety belt
 // while the module-level constants are being read.
-const DEFAULT_REG_SEASON_WEEKS = Math.max(1, maxWeeks - DEFAULT_PLAYOFF_WEEKS);
-const DEFAULT_TEAMS = 10;
+const DEFAULT_REG_SEASON_WEEKS = Math.max(1, maxWeeks - PLAYOFF_DEFAULTS.playoffWeeks);
 const WIZARD_STORAGE_KEY = '@league_wizard';
 
 const initialState: LeagueWizardState = {
@@ -119,13 +128,21 @@ const initialState: LeagueWizardState = {
   season: CURRENT_NBA_SEASON,
   seasonStartDate: null,
   regularSeasonWeeks: DEFAULT_REG_SEASON_WEEKS,
-  playoffWeeks: DEFAULT_PLAYOFF_WEEKS,
+  playoffWeeks: PLAYOFF_DEFAULTS.playoffWeeks,
   combineCupWeek: false,
-  playoffTeams: defaultPlayoffTeams(DEFAULT_PLAYOFF_WEEKS, DEFAULT_TEAMS),
+  playoffTeams: PLAYOFF_DEFAULTS.playoffTeams,
   playoffSeedingFormat: "Standard",
   pickConditionsEnabled: false,
   draftPickTradingEnabled: false,
   tradeDeadlineWeek: defaultTradeDeadlineWeek(DEFAULT_REG_SEASON_WEEKS),
+  tradeDeadlineDate: deriveTradeDeadlineDate({
+    sport: 'nba',
+    season: CURRENT_NBA_SEASON,
+    seasonStartDate: null,
+    regularSeasonWeeks: DEFAULT_REG_SEASON_WEEKS,
+    tradeDeadlineWeek: defaultTradeDeadlineWeek(DEFAULT_REG_SEASON_WEEKS),
+    combineCupWeek: false,
+  }),
   buyIn: 0,
   venmoUsername: '',
   cashappTag: '',
@@ -141,30 +158,40 @@ const initialState: LeagueWizardState = {
   positionLimits: {},
 };
 
-function clampLotteryState(s: LeagueWizardState): LeagueWizardState {
-  // When teams, playoffWeeks, or playoffTeams change, ensure playoffTeams
-  // is valid and lotteryDraws doesn't exceed the lottery pool.
-  const options = getPlayoffTeamOptions(s.playoffWeeks, s.teams);
-  let pt = s.playoffTeams;
-  if (!options.includes(pt)) {
-    // Pick closest valid option
-    pt = options.length > 0
-      ? options.reduce((best, o) => (Math.abs(o - pt) < Math.abs(best - pt) ? o : best), options[0])
-      : 0;
-  }
-  const pool = calcLotteryPoolSize(s.teams, pt);
-  const draws = pool > 0 ? Math.min(s.lotteryDraws, pool) : 0;
-  // Reset custom odds when pool size changes (they'd be the wrong length)
-  const odds = s.lotteryOdds && s.lotteryOdds.length !== pool ? null : s.lotteryOdds;
-  return { ...s, playoffTeams: pt, lotteryDraws: draws, lotteryOdds: odds };
+/** Parse a 'YYYY-MM-DD' string to a local-midnight Date. */
+function ymdToDate(ymd: string): Date {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+/**
+ * Re-derive `tradeDeadlineDate` from `tradeDeadlineWeek` after any change
+ * that shifts the calendar (season, start date, sport, week counts, Cup
+ * toggle) — the week shortcut and the actual persisted date must move
+ * together so a stale date never survives a structural edit.
+ */
+function deriveTradeDeadlineDate(
+  s: Pick<LeagueWizardState, 'sport' | 'season' | 'seasonStartDate' | 'regularSeasonWeeks' | 'tradeDeadlineWeek' | 'combineCupWeek'>,
+): string | null {
+  if (s.tradeDeadlineWeek <= 0) return null;
+  const start = s.seasonStartDate ? ymdToDate(s.seasonStartDate) : defaultSeasonStart(s.sport, s.season);
+  return tradeDeadlineDateForWeek(
+    s.sport,
+    s.season,
+    start,
+    s.regularSeasonWeeks,
+    s.tradeDeadlineWeek,
+    s.combineCupWeek ?? false,
+  );
 }
 
 // The default start for a (sport, season): its hardcoded opening night when
 // that's still in the future, otherwise null so the wizard falls back to
-// computeSeasonStart() (today) for mid-season / past-opener creation. Anchoring
-// to opening night keeps week math measuring the real season window instead of
-// counting from today for a season that hasn't tipped off yet — without it a
-// future season defaults to far more weeks than the season actually has.
+// defaultSeasonStart() (tomorrow) for mid-season / past-opener creation.
+// Anchoring to opening night keeps week math measuring the real season window
+// instead of counting from today for a season that hasn't tipped off yet —
+// without it a future season defaults to far more weeks than the season
+// actually has.
 function seasonStartDefault(sport: Sport, season: string): { date: Date; iso: string | null } {
   const opening = getSeasonStart(sport, season);
   if (opening) {
@@ -173,7 +200,7 @@ function seasonStartDefault(sport: Sport, season: string): { date: Date; iso: st
     today.setHours(0, 0, 0, 0);
     if (openDate > today) return { date: openDate, iso: opening };
   }
-  return { date: computeSeasonStart(), iso: null };
+  return { date: defaultSeasonStart(sport, season), iso: null };
 }
 
 function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
@@ -194,21 +221,45 @@ function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
           next.rookieDraftRounds,
           getMaxRookieDraftRounds(next.sport, next.teams),
         );
-        return clampLotteryState({ ...next, tradeVotesToVeto, rookieDraftRounds });
+        // A shrinking league can no longer fill its playoff bracket — cap the
+        // weeks at what the team count supports (2 teams = a 1-week final),
+        // else the schedule ends with playoff weeks the engine never fills.
+        const playoffWeeks = Math.min(next.playoffWeeks, maxPlayoffWeeksForTeams(next.teams));
+        let regularSeasonWeeks = next.regularSeasonWeeks;
+        if (playoffWeeks !== next.playoffWeeks) {
+          // Give the freed playoff weeks back to the regular season when it
+          // was already filling the calendar (the default); a deliberately
+          // shorter season is left alone.
+          const start = next.seasonStartDate
+            ? ymdToDate(next.seasonStartDate)
+            : defaultSeasonStart(next.sport, next.season);
+          const maxTotal = computeMaxWeeks(next.season, next.sport, start, next.combineCupWeek ?? false);
+          if (state.regularSeasonWeeks >= maxTotal - state.playoffWeeks) {
+            regularSeasonWeeks = Math.max(1, maxTotal - playoffWeeks);
+          }
+        }
+        return clampLotteryState({ ...next, tradeVotesToVeto, rookieDraftRounds, playoffWeeks, regularSeasonWeeks });
+      }
+      // Toggling the NBA Cup double week consumes/frees one calendar week —
+      // the shared helper re-fits the week counts (see applyCupWeekToggle).
+      if (action.field === 'combineCupWeek') {
+        const toggled = applyCupWeekToggle(next, state);
+        return { ...toggled, tradeDeadlineDate: deriveTradeDeadlineDate(toggled) };
       }
       // Re-clamp week counts when start date changes
       if (action.field === 'seasonStartDate') {
         const start = action.value
-          ? (() => { const [sy, sm, sd] = (action.value as string).split('-').map(Number); return new Date(sy, sm - 1, sd); })()
-          : computeSeasonStart();
-        const newMax = computeMaxWeeks(next.season, next.sport, start);
+          ? ymdToDate(action.value as string)
+          : defaultSeasonStart(next.sport, next.season);
+        const newMax = computeMaxWeeks(next.season, next.sport, start, next.combineCupWeek ?? false);
         const playoffWeeks = Math.min(next.playoffWeeks, Math.max(1, newMax - 1));
         const regularSeasonWeeks = Math.min(next.regularSeasonWeeks, Math.max(1, newMax - playoffWeeks));
         // Trade deadline week can't exceed the new regular season length.
         const tradeDeadlineWeek = next.tradeDeadlineWeek > 0
           ? Math.min(next.tradeDeadlineWeek, regularSeasonWeeks)
           : 0;
-        return clampLotteryState({ ...next, regularSeasonWeeks, playoffWeeks, tradeDeadlineWeek });
+        const merged = clampLotteryState({ ...next, regularSeasonWeeks, playoffWeeks, tradeDeadlineWeek });
+        return { ...merged, tradeDeadlineDate: deriveTradeDeadlineDate(merged) };
       }
       // When the season changes — the mount auto-switch to a creatable season,
       // or the user picking a different year — refill the schedule to the new
@@ -221,17 +272,30 @@ function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
         const fallback = seasonStartDefault(next.sport, next.season);
         const seasonStartDate = next.seasonStartDate ?? fallback.iso;
         const start = seasonStartDate ? new Date(`${seasonStartDate}T00:00:00`) : fallback.date;
-        const newMax = computeMaxWeeks(next.season, next.sport, start);
+        const newMax = computeMaxWeeks(next.season, next.sport, start, next.combineCupWeek ?? false);
         const playoffWeeks = Math.min(next.playoffWeeks, Math.max(1, newMax - 1));
         const regularSeasonWeeks = Math.max(1, newMax - playoffWeeks);
         const tradeDeadlineWeek = next.tradeDeadlineWeek > 0
           ? defaultTradeDeadlineWeek(regularSeasonWeeks)
           : 0;
-        return clampLotteryState({ ...next, seasonStartDate, regularSeasonWeeks, playoffWeeks, tradeDeadlineWeek });
+        const merged = clampLotteryState({ ...next, seasonStartDate, regularSeasonWeeks, playoffWeeks, tradeDeadlineWeek });
+        return { ...merged, tradeDeadlineDate: deriveTradeDeadlineDate(merged) };
       }
-      // Trade deadline week is bounded by regularSeasonWeeks.
+      // Trade deadline week is bounded by regularSeasonWeeks; the persisted
+      // date is re-derived so it can't outlive the shortened season.
       if (action.field === 'regularSeasonWeeks' && next.tradeDeadlineWeek > 0) {
-        return { ...next, tradeDeadlineWeek: Math.min(next.tradeDeadlineWeek, next.regularSeasonWeeks) };
+        const tradeDeadlineWeek = Math.min(next.tradeDeadlineWeek, next.regularSeasonWeeks);
+        return {
+          ...next,
+          tradeDeadlineWeek,
+          tradeDeadlineDate: deriveTradeDeadlineDate({ ...next, tradeDeadlineWeek }),
+        };
+      }
+      // The "Deadline Week" shortcut was moved directly — re-derive the
+      // persisted date (also handles the on/off toggle, which sets this
+      // field to 0 or a default week).
+      if (action.field === 'tradeDeadlineWeek') {
+        return { ...next, tradeDeadlineDate: deriveTradeDeadlineDate(next) };
       }
       // When switching away from dynasty, disable pick-related features and
       // clear any taxi slots — taxi is dynasty-only (you stash kept prospects).
@@ -265,13 +329,15 @@ function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
         const fallback = seasonStartDefault(newSport, newSeason);
         const newStartDate = status.defaultStartDate ?? fallback.iso;
         const startDate = newStartDate ? new Date(`${newStartDate}T00:00:00`) : fallback.date;
-        const newMax = computeMaxWeeks(newSeason, newSport, startDate);
-        // Playoff weeks are bounded by both remaining season length AND the
-        // sport's structural max (NBA 4, WNBA 3). NBA→WNBA can leave a stale
-        // 4-week playoff exceeding the new sport's cap.
+        const newMax = computeMaxWeeks(newSeason, newSport, startDate, next.combineCupWeek ?? false);
+        // Playoff weeks are bounded by the remaining season length, the
+        // sport's structural max (NBA 4, WNBA 3), and the team count's
+        // bracket support. NBA→WNBA can leave a stale 4-week playoff
+        // exceeding the new sport's cap.
         const playoffWeeks = Math.min(
           next.playoffWeeks,
           getMaxPlayoffWeeks(newSport),
+          maxPlayoffWeeksForTeams(next.teams),
           Math.max(1, newMax - 1),
         );
         // A sport switch resets the calendar, so fill the new season's window:
@@ -289,7 +355,7 @@ function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
         const tradeDeadlineWeek = next.tradeDeadlineWeek > 0
           ? defaultTradeDeadlineWeek(regularSeasonWeeks)
           : 0;
-        return clampLotteryState({
+        const merged = clampLotteryState({
           ...next,
           season: newSeason,
           seasonStartDate: newStartDate,
@@ -300,6 +366,7 @@ function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
           rosterSlots: getDefaultRosterSlots(newSport),
           positionLimits: {},
         });
+        return { ...merged, tradeDeadlineDate: deriveTradeDeadlineDate(merged) };
       }
       return next;
     }
@@ -529,16 +596,20 @@ export default function CreateLeague() {
     const taxiSlotCount = state.rosterSlots.find((s) => s.position === ROSTER_SLOT.TAXI)?.count ?? 0;
 
     // Use the custom start date if set, otherwise the wizard default
-    // (tomorrow — week1Length absorbs whatever leading days fall before the
-    // first Sunday, so no weekday-snapping is needed here).
-    let seasonStart: Date;
-    if (state.seasonStartDate) {
-      const [sy, sm, sd] = state.seasonStartDate.split('-').map(Number);
-      seasonStart = new Date(sy, sm - 1, sd);
-    } else {
-      seasonStart = computeSeasonStart();
+    // (tomorrow, floored to opening night — week1Length absorbs whatever
+    // leading days fall before the first Sunday, so no weekday-snapping is
+    // needed here). The floor also re-applies to a custom date: the picker
+    // enforces it live, but a date persisted before the floor existed (resume
+    // flow) could otherwise start a league months before real games exist.
+    let seasonStart = state.seasonStartDate
+      ? ymdToDate(state.seasonStartDate)
+      : defaultSeasonStart(state.sport, state.season);
+    const earliestStart = earliestSeasonStart(state.sport, state.season);
+    let seasonStartDate = `${seasonStart.getFullYear()}-${String(seasonStart.getMonth() + 1).padStart(2, "0")}-${String(seasonStart.getDate()).padStart(2, "0")}`;
+    if (seasonStartDate < earliestStart) {
+      seasonStartDate = earliestStart;
+      seasonStart = ymdToDate(earliestStart);
     }
-    const seasonStartDate = `${seasonStart.getFullYear()}-${String(seasonStart.getMonth() + 1).padStart(2, "0")}-${String(seasonStart.getDate()).padStart(2, "0")}`;
 
     const isDynasty = state.leagueType === 'Dynasty';
 
@@ -611,20 +682,7 @@ export default function CreateLeague() {
         division_1_name: state.divisionCount === 2 ? state.division1Name.trim() || 'Division 1' : 'Division 1',
         division_2_name: state.divisionCount === 2 ? state.division2Name.trim() || 'Division 2' : 'Division 2',
         position_limits: Object.keys(state.positionLimits).length > 0 ? state.positionLimits : null,
-        trade_deadline: state.tradeDeadlineWeek > 0
-          ? (() => {
-              // Week 1 ends on the first Sunday after (or on) seasonStart.
-              // Each subsequent week adds 7 days.
-              const start = new Date(seasonStart);
-              const dayOfWeek = start.getDay(); // 0=Sun
-              const daysToFirstSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
-              const week1End = new Date(start);
-              week1End.setDate(start.getDate() + daysToFirstSunday);
-              const deadlineDate = new Date(week1End);
-              deadlineDate.setDate(week1End.getDate() + (state.tradeDeadlineWeek - 1) * 7);
-              return `${deadlineDate.getFullYear()}-${String(deadlineDate.getMonth() + 1).padStart(2, '0')}-${String(deadlineDate.getDate()).padStart(2, '0')}`;
-            })()
-          : null,
+        trade_deadline: state.tradeDeadlineDate,
       })
       .select()
       .single();
@@ -856,6 +914,11 @@ export default function CreateLeague() {
             onSubmit={handleCreateLeague}
             onBack={() => setStep((s) => s - 1)}
             loading={loading}
+            onEdit={(section) =>
+              setStep(
+                { basics: 0, roster: 1, scoring: 2, waivers: 3, season: 4, trade: 5, draft: 6 }[section],
+              )
+            }
           />
         )}
       </ScrollView>

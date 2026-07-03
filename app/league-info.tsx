@@ -55,6 +55,7 @@ import { usePaymentLink } from '@/hooks/usePaymentLink';
 import { usePlayoffBracket } from '@/hooks/usePlayoffBracket';
 import { useSubscription } from '@/hooks/useSubscription';
 import { supabase } from '@/lib/supabase';
+import { formatIsoDate } from '@/utils/dates';
 import { calcRounds } from '@/utils/league/playoff';
 import { ms, s } from '@/utils/scale';
 
@@ -409,6 +410,13 @@ export default function LeagueInfoScreen() {
                 onPress={() => setShowTransferOwnership(true)}
               />
               <CommAction
+                icon="time"
+                label="Add Season History"
+                subLabel="Enter past standings (screenshot or manual)"
+                c={c}
+                onPress={() => router.push({ pathname: '/add-league-history', params: { leagueId: leagueId! } })}
+              />
+              <CommAction
                 icon="diamond"
                 label={leagueTier ? 'Manage League Plan' : 'Upgrade League'}
                 subLabel={leagueTier ? `Currently ${TIER_LABELS[leagueTier]}` : undefined}
@@ -589,17 +597,12 @@ export default function LeagueInfoScreen() {
           {(league.league_type ?? 'dynasty') === 'dynasty' && (
             <Row label="Pick Protections & Swaps" value={league.pick_conditions_enabled ? 'Enabled' : 'Disabled'} c={c} />
           )}
-          <Row label="Trade Deadline" value={league.trade_deadline ? `After Week ${(() => {
-            if (!league.season_start_date) return '?';
-            const deadline = new Date(league.trade_deadline + 'T00:00:00');
-            const start = new Date(league.season_start_date + 'T00:00:00');
-            const startDay = start.getDay();
-            const daysToFirstSunday = startDay === 0 ? 0 : 7 - startDay;
-            const week1End = new Date(start);
-            week1End.setDate(start.getDate() + daysToFirstSunday);
-            const diffDays = Math.round((deadline.getTime() - week1End.getTime()) / (1000 * 60 * 60 * 24));
-            return Math.max(1, Math.round(diffDays / 7) + 1);
-          })()}` : 'None'} c={c} last />
+          <Row
+            label="Trade Deadline"
+            value={league.trade_deadline ? `After ${formatIsoDate(league.trade_deadline)}` : 'None'}
+            c={c}
+            last
+          />
         </SectionCard>
 
         {/* ── Waiver Settings ── */}

@@ -6,6 +6,8 @@ import { Colors, SPORT_THEMES } from '@/constants/Colors';
 import {
   canBypassCreationWindow,
   getCreationStatus,
+  getCurrentSeason,
+  type SeasonCreationStatus,
   SPORT_OPTIONS,
   SPORT_TO_DB,
   type Sport,
@@ -17,6 +19,11 @@ import { ms, s } from '@/utils/scale';
 interface SportSelectorProps {
   selected: Sport;
   onSelect: (sport: Sport) => void;
+  /** Skip the season-creation window gate. Imports bring in an existing,
+   *  already-running league, so the "create early enough in the season"
+   *  cutoff doesn't apply — every implemented sport stays selectable for
+   *  the current season. Defaults to false (normal create-league gating). */
+  ignoreCreationWindow?: boolean;
 }
 
 /**
@@ -29,7 +36,7 @@ interface SportSelectorProps {
  * Visual rhythm: same chip/pill family as the rest of the wizard (matched
  * radius + 1.5px border + sport-theme tint for active state).
  */
-export function SportSelector({ selected, onSelect }: SportSelectorProps) {
+export function SportSelector({ selected, onSelect, ignoreCreationWindow = false }: SportSelectorProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const session = useSession();
@@ -40,10 +47,14 @@ export function SportSelector({ selected, onSelect }: SportSelectorProps) {
     const today = new Date();
     return SPORT_OPTIONS.map((label) => {
       const sport = SPORT_TO_DB[label];
-      const status = getCreationStatus(sport, today, { bypassOpenDate });
+      // For imports, force the current season available — an existing league
+      // isn't bound by the create-a-new-league window (see prop doc).
+      const status: SeasonCreationStatus = ignoreCreationWindow
+        ? { sport, season: getCurrentSeason(sport), defaultStartDate: null, available: true }
+        : getCreationStatus(sport, today, { bypassOpenDate });
       return { sport, label, status };
     });
-  }, [bypassOpenDate]);
+  }, [bypassOpenDate, ignoreCreationWindow]);
 
   return (
     <View style={styles.row}>

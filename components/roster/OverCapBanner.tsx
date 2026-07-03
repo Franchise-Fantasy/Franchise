@@ -12,6 +12,10 @@ interface OverCapBannerProps {
   rosterSize: number;
   /** How many players need to be dropped / moved to clear the lock. */
   overBy: number;
+  /** League has taxi-squad slots — offer TAXI as an unlock destination. */
+  hasTaxi: boolean;
+  /** League has IR slots — offer IR as an unlock destination. */
+  hasIR: boolean;
 }
 
 /**
@@ -21,9 +25,20 @@ interface OverCapBannerProps {
  * picks than they could use via mid-draft trades and ended up over the
  * cap after the draft completed.
  */
-export function OverCapBanner({ activeCount, rosterSize, overBy }: OverCapBannerProps) {
+export function OverCapBanner({
+  activeCount,
+  rosterSize,
+  overBy,
+  hasTaxi,
+  hasIR,
+}: OverCapBannerProps) {
   const c = useColors();
   const noun = overBy === 1 ? "player" : "players";
+  // Only surface destinations the league actually has (e.g. no "TAXI" when
+  // taxi squad is off). With neither, dropping is the only way to unlock.
+  const destPhrase = [hasTaxi && "TAXI", hasIR && "IR"]
+    .filter(Boolean)
+    .join(" or ");
 
   return (
     <View
@@ -58,14 +73,14 @@ export function OverCapBanner({ activeCount, rosterSize, overBy }: OverCapBanner
           >
             {activeCount}/{rosterSize}
           </ThemedText>{" "}
-          active. Drop or move{" "}
+          active. {destPhrase ? "Drop or move" : "Drop"}{" "}
           <ThemedText
             type="defaultSemiBold"
             style={[styles.body, { color: c.gold }]}
           >
             {overBy} {noun}
-          </ThemedText>{" "}
-          to TAXI or IR to unlock.
+          </ThemedText>
+          {destPhrase ? ` to ${destPhrase} to unlock.` : " to unlock."}
         </ThemedText>
       </View>
     </View>

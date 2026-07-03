@@ -81,12 +81,18 @@ Deno.serve(async (req) => {
       .upsert({ league_id, season, results: finalOrder }, { onConflict: 'league_id,season' });
     if (resultErr) throw resultErr;
 
+    // The lottery only sets ROUND 1; rounds 2+ revert to reverse standings
+    // (a team's position in `lotteryPool`, already ascending by wins) so a
+    // lottery jump doesn't carry through every round.
+    const standingsPos = new Map<string, number>();
+    lotteryPool.forEach((t, i) => standingsPos.set(t.id, i));
     for (let pos = 0; pos < finalOrder.length; pos++) {
       const entry = finalOrder[pos];
       for (let round = 1; round <= (league.rookie_draft_rounds ?? 2); round++) {
+        const slot = round >= 2 ? (standingsPos.get(entry.team_id) ?? pos) : pos;
         await supabaseAdmin.from('draft_picks').update({
-          pick_number: (round - 1) * lotteryPoolSize + (pos + 1),
-          slot_number: pos + 1,
+          pick_number: (round - 1) * lotteryPoolSize + (slot + 1),
+          slot_number: slot + 1,
         }).eq('league_id', league_id).eq('season', season).eq('round', round)
           .eq('current_team_id', entry.team_id).is('draft_id', null);
       }

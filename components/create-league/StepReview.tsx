@@ -8,9 +8,20 @@ import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { getLimitablePositions, LeagueWizardState, SPORT_DISPLAY } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { formatIsoDate } from '@/utils/dates';
 import { ROSTER_SLOT } from '@/utils/roster/rosterSlotsShared';
 import { taxiExperienceLabel } from '@/utils/roster/taxiEligibility';
 import { ms, s } from '@/utils/scale';
+
+/** A jump target for the Review step's per-section "Edit" pencils. */
+export type ReviewSection =
+  | 'basics'
+  | 'roster'
+  | 'scoring'
+  | 'draft'
+  | 'trade'
+  | 'waivers'
+  | 'season';
 
 interface StepReviewProps {
   state: LeagueWizardState;
@@ -22,6 +33,11 @@ interface StepReviewProps {
   /** Optional content rendered above the config Section blocks —
    *  e.g. an import-specific summary card on the Sleeper import flow. */
   headerContent?: React.ReactNode;
+  /** Hide startup-draft rows (imported leagues never run a startup draft). */
+  hideStartupDraft?: boolean;
+  /** Jump back to a wizard step to edit that section. Adds a pencil to each
+   *  section header when provided. The parent maps the key → its step index. */
+  onEdit?: (section: ReviewSection) => void;
 }
 
 export function StepReview({
@@ -31,9 +47,16 @@ export function StepReview({
   loading,
   submitLabel = 'Create League',
   headerContent,
+  hideStartupDraft,
+  onEdit,
 }: StepReviewProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+
+  const editAction = (section: ReviewSection, label: string) =>
+    onEdit
+      ? { icon: 'create-outline' as const, onPress: () => onEdit(section), accessibilityLabel: `Edit ${label}` }
+      : undefined;
 
   const totalRoster = state.rosterSlots.reduce((sum, s) => sum + s.count, 0);
   const activeSlots = state.rosterSlots.filter((s) => s.count > 0);
@@ -43,7 +66,7 @@ export function StepReview({
   return (
     <View style={styles.container}>
       {headerContent}
-      <Section title="League Basics">
+      <Section title="League Basics" action={editAction('basics', 'League Basics')}>
         <Row label="Sport" value={SPORT_DISPLAY[state.sport]} c={c} />
         <Row label="League Type" value={state.leagueType ?? 'Dynasty'} c={c} />
         {state.leagueType === 'Keeper' && (
@@ -58,7 +81,7 @@ export function StepReview({
         {state.buyIn > 0 && state.paypalUsername ? <Row label="PayPal" value={state.paypalUsername} c={c} /> : null}
       </Section>
 
-      <Section title={`Roster (${totalRoster} slots)`}>
+      <Section title={`Roster (${totalRoster} slots)`} action={editAction('roster', 'Roster')}>
         <ThemedText style={[styles.summaryLine, { color: c.secondaryText }]}>
           {activeSlots.map((s) => `${s.position}: ${s.count}`).join('  |  ')}
         </ThemedText>
@@ -72,7 +95,7 @@ export function StepReview({
         )}
       </Section>
 
-      <Section title="Scoring">
+      <Section title="Scoring" action={editAction('scoring', 'Scoring')}>
         <Row label="Type" value={state.scoringType} c={c} />
         {state.scoringType === 'H2H Categories' ? (
           <ScoringSummary
@@ -84,24 +107,32 @@ export function StepReview({
         )}
       </Section>
 
-      <Section title="Draft Settings">
-        <Row label="Type" value={state.draftType} c={c} />
-        <Row label="Draft Order" value={state.initialDraftOrder} c={c} />
-        <Row label="Time Per Pick" value={`${state.timePerPick}s`} c={c} />
-        {isDynasty && (
-          <>
-            <Row label="Future Draft Years" value={String(state.maxDraftYears)} c={c} />
-            <Row label="Rookie Draft Rounds" value={String(state.rookieDraftRounds)} c={c} />
-            <Row label="Rookie Draft Order" value={state.rookieDraftOrder} c={c} />
-            {state.rookieDraftOrder === 'Lottery' && (
-              <Row label="Lottery Draws" value={String(state.lotteryDraws)} c={c} />
-            )}
-            <Row label="Pick Trading" value={state.draftPickTradingEnabled ? 'Enabled' : 'Disabled'} c={c} />
-          </>
-        )}
-      </Section>
+      {(isDynasty || !hideStartupDraft) && (
+        <Section title="Draft Settings" action={editAction('draft', 'Draft Settings')}>
+          {!hideStartupDraft && (
+            <>
+              <Row label="Type" value={state.draftType} c={c} />
+              <Row label="Draft Order" value={state.initialDraftOrder} c={c} />
+              <Row label="Time Per Pick" value={`${state.timePerPick}s`} c={c} />
+            </>
+          )}
+          {isDynasty && (
+            <>
+              <Row label="Future Draft Years" value={String(state.maxDraftYears)} c={c} />
+              <Row label="Rookie Draft Rounds" value={String(state.rookieDraftRounds)} c={c} />
+              <Row label="Rookie Draft Order" value={state.rookieDraftOrder} c={c} />
+              {state.rookieDraftOrder === 'Lottery' && (
+                <Row label="Lottery Draws" value={String(state.lotteryDraws)} c={c} />
+              )}
+              {!hideStartupDraft && (
+                <Row label="Pick Trading" value={state.draftPickTradingEnabled ? 'Enabled' : 'Disabled'} c={c} />
+              )}
+            </>
+          )}
+        </Section>
+      )}
 
-      <Section title="Trade Settings">
+      <Section title="Trade Settings" action={editAction('trade', 'Trade Settings')}>
         <Row label="Veto Type" value={state.tradeVetoType} c={c} />
         {state.tradeVetoType !== 'None' && (
           <Row label="Review Period" value={`${state.tradeReviewPeriodHours} hrs`} c={c} />
@@ -114,12 +145,12 @@ export function StepReview({
         )}
         <Row
           label="Trade Deadline"
-          value={state.tradeDeadlineWeek === 0 ? 'None' : `After Week ${state.tradeDeadlineWeek}`}
+          value={state.tradeDeadlineDate ? `After ${formatIsoDate(state.tradeDeadlineDate)}` : 'None'}
           c={c}
         />
       </Section>
 
-      <Section title="Waiver Settings">
+      <Section title="Waiver Settings" action={editAction('waivers', 'Waiver Settings')}>
         <Row label="Waiver Type" value={state.waiverType} c={c} />
         {state.waiverType !== 'None' && (
           <Row label="Waiver Period" value={`${state.waiverPeriodDays} days`} c={c} />
@@ -130,7 +161,7 @@ export function StepReview({
         <Row label="Player Lock" value={state.playerLockType} c={c} />
       </Section>
 
-      <Section title="Season">
+      <Section title="Season" action={editAction('season', 'Season')}>
         <Row label="NBA Season" value={state.season} c={c} />
         <Row label="Regular Season" value={`${state.regularSeasonWeeks} weeks`} c={c} />
         <Row label="Playoffs" value={`${state.playoffWeeks} weeks`} c={c} />

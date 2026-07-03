@@ -24,7 +24,7 @@ import { SeasonAverages } from "@/components/player/SeasonAverages";
 import { Badge } from "@/components/ui/Badge";
 import { BottomSheet } from "@/components/ui/BottomSheet";
 import { ThemedText } from "@/components/ui/ThemedText";
-import { getCurrentSeason, getSeasonEnd } from "@/constants/LeagueDefaults";
+import { getCurrentSeason, getSeasonEnd, getSeasonStart } from "@/constants/LeagueDefaults";
 import { queryKeys } from "@/constants/queryKeys";
 import { useConfirm, useTextPrompt } from "@/context/ConfirmProvider";
 import { useToast } from "@/context/ToastProvider";
@@ -417,6 +417,11 @@ export function PlayerDetailModal({
 
   // How many games has this player's team played so far this season?
   const currentSeason = getCurrentSeason(sport);
+  // Before the season tips off, the current-season box is empty — SeasonAverages
+  // shows the season projection in its place. A missing start date (cache cold)
+  // defaults to "started" so we never hide real averages on a stale config.
+  const seasonStart = getSeasonStart(sport, currentSeason);
+  const seasonStarted = !seasonStart || new Date().toISOString().slice(0, 10) >= seasonStart;
   const { data: teamGamesPlayed } = useQuery({
     queryKey: queryKeys.teamGamesPlayed(sport, currentSeason, player?.pro_team ?? ''),
     queryFn: async () => {
@@ -2011,6 +2016,7 @@ export function PlayerDetailModal({
               scoringWeights={scoringWeights}
               gameLog={gameLog}
               projection={seasonProjections?.get(player.player_id) ?? null}
+              seasonStarted={seasonStarted}
             />
           </View>
 

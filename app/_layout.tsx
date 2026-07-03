@@ -30,6 +30,7 @@ import {
 } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
+import * as Updates from "expo-updates";
 import {
   PostHogProvider,
   PostHogSurveyProvider,
@@ -46,6 +47,7 @@ import { MatchupResultModal } from "@/components/banners/MatchupResultModal";
 import { OfflineBanner } from "@/components/banners/OfflineBanner";
 import { ForceUpdateScreen } from "@/components/ForceUpdateScreen";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
+import { WebShell } from "@/components/web/WebShell";
 import { Colors } from "@/constants/Colors";
 import { AppStateProvider, useAppState } from "@/context/AppStateProvider";
 import {
@@ -54,7 +56,7 @@ import {
   useSession,
 } from "@/context/AuthProvider";
 import { CompareSelectionProvider } from "@/context/CompareSelectionProvider";
-import { ConfirmProvider } from "@/context/ConfirmProvider";
+import { ConfirmProvider, useConfirm } from "@/context/ConfirmProvider";
 import { globalToastRef, ToastProvider } from "@/context/ToastProvider";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { useSeasonConfig } from "@/hooks/useSeasonConfig";
@@ -174,15 +176,71 @@ const NOTIF_ROUTES: Record<string, string> = {
   news: "/news",
 };
 
-// OTA updates are applied silently: expo-updates' default `checkAutomatically:
-// ON_LOAD` downloads any new update in the background on each cold launch and
-// applies it on the NEXT launch — no in-app prompt, no Updates.reloadAsync().
-// We deliberately do NOT force an in-process reload: reloadAsync() recreates
-// the JS runtime, and on the New Architecture re-installing the Expo native
-// modules into that fresh runtime crashes (expo-updates ErrorRecovery then
-// force-rolls-back, so the update never sticks). It's an open upstream bug
-// (expo/expo#21347) with no reliable workaround. Applying on next launch is
-// a clean single init, so the update lands the next time the user opens the app.
+/**
+ * On launch: surface any error expo-updates logged on the PREVIOUS run, then
+ * check for / download an update and offer to install it (reloadAsync).
+ *
+ * The error surfacing is deliberate instrumentation. Update-apply failures used
+ * to roll back invisibly (expo-updates' ErrorRecovery aborts the process and
+ * the next launch quietly runs the embedded bundle), so a broken update looked
+ * like a random crash. Reading the prior run's log entries and toasting any
+ * error/fatal makes the real cause visible on-device instead of needing a
+ * TestFlight crash log every time.
+ *
+ * Root cause found for the update-apply crashes: SDK 56 turns ON bsdiff bundle
+ * patching by default (`enableBsdiffPatchSupport`), delivering the JS bundle as
+ * a binary diff against a prior download. A bad patch yields corrupt Hermes
+ * bytecode that faults the instant modules install (`installExpoModulesHostObject`)
+ * — which only ever touches OTA bundles, never the embedded one, matching the
+ * "cold launch fine, update crashes, relaunch fine" pattern. Disabled in app.json.
+ */
+function OtaUpdateChecker() {
+  const confirm = useConfirm();
+  useEffect(() => {
+    if (isExpoGo) return;
+    (async () => {
+      // Report any update error from the previous launch so rollbacks aren't silent.
+      try {
+        const logs = await Updates.readLogEntriesAsync(120_000);
+        const failure = [...logs]
+          .reverse()
+          .find(
+            (l) =>
+              l.level === Updates.UpdatesLogEntryLevel.ERROR ||
+              l.level === Updates.UpdatesLogEntryLevel.FATAL,
+          );
+        if (failure) {
+          logger.warn("expo-updates error on previous launch", {
+            code: failure.code,
+            message: failure.message,
+          });
+          globalToastRef.current?.(
+            "error",
+            `Update error [${failure.code}]: ${failure.message}`.slice(0, 180),
+          );
+        }
+      } catch {
+        // Log API unavailable — ignore.
+      }
+
+      try {
+        const update = await Updates.checkForUpdateAsync();
+        if (update.isAvailable) {
+          await Updates.fetchUpdateAsync();
+          confirm({
+            title: "Update Available",
+            message: "A new version is ready to install.",
+            cancelLabel: "Later",
+            action: { label: "Install", onPress: () => Updates.reloadAsync() },
+          });
+        }
+      } catch {
+        // No-op if the Updates API isn't available.
+      }
+    })();
+  }, [confirm]);
+  return null;
+}
 
 /** Switch league/team context when a league_id is provided via notification or deep link.
  *  Returns true if the user has a team in the league (membership confirmed). */
@@ -586,8 +644,11 @@ function NotificationAndLinkHandler() {
   useEffect(() => {
     function handleUrl({ url }: { url: string }) {
       // Password recovery: Supabase redirects with #access_token=...&type=recovery
-      // This doesn't need AppState — handle immediately
-      const fragment = url.split("#")[1];
+      // This doesn't need AppState — handle immediately. Native only: on web,
+      // supabase-js owns URL auth params (detectSessionInUrl consumes fragments
+      // and PKCE recovery links arrive as ?code=), so this manual parser must
+      // not race it.
+      const fragment = Platform.OS !== "web" ? url.split("#")[1] : undefined;
       if (fragment) {
         const params = new URLSearchParams(fragment);
         if (params.get("type") === "recovery") {
@@ -714,6 +775,7 @@ export default function RootLayout() {
                 <AuthProvider>
                   <AppStateProvider>
                     <ConfirmProvider>
+                    <OtaUpdateChecker />
                     <PostHogIdentifier />
                     <ScreenTracker />
                     <SeasonConfigHydrator />
@@ -723,6 +785,7 @@ export default function RootLayout() {
                     <MatchupResultModal />
                     <ErrorBoundary>
                     <CompareSelectionProvider>
+                    <WebShell>
                     {forcedUpdate ? (
                       <ForceUpdateScreen
                         installedVersion={forcedUpdate.installed}
@@ -872,6 +935,14 @@ export default function RootLayout() {
                         options={{ headerShown: false }}
                       />
                       <Stack.Screen
+                        name="claim-team"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="add-league-history"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
                         name="notification-settings"
                         options={{ headerShown: false }}
                       />
@@ -898,6 +969,7 @@ export default function RootLayout() {
                       <Stack.Screen name="+not-found" />
                     </Stack>
                     )}
+                    </WebShell>
                     </CompareSelectionProvider>
                     </ErrorBoundary>
                     {/* Splash overlay lives at the end so it renders on

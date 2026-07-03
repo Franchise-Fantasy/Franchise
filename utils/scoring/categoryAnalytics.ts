@@ -260,6 +260,137 @@ export function buildCompositeScatter(
   });
 }
 
+// ── Auto-Lineup Category Rank ───────────────────────────────────────────────
+
+/** One enabled category from league_scoring_settings (useLeagueScoring rows
+ *  are structurally compatible — stat_name + inverse is all the rank needs). */
+export interface LeagueCategory {
+  stat_name: string;
+  inverse?: boolean;
+}
+
+// Per-game field for every stat a category league can enable (DEFAULT_CATEGORIES).
+// avg_* (not total_*) on purpose: player_historical_stats fallback rows carry
+// the averages but not the shooting totals. DD/TD have no avg_* column and are
+// derived from totals ÷ games in perGameCatValue below.
+const CAT_STAT_TO_PER_GAME: Record<string, keyof PlayerSeasonStats> = {
+  PTS: 'avg_pts',
+  REB: 'avg_reb',
+  AST: 'avg_ast',
+  STL: 'avg_stl',
+  BLK: 'avg_blk',
+  TO: 'avg_tov',
+  '3PM': 'avg_3pm',
+  '3PA': 'avg_3pa',
+  FGM: 'avg_fgm',
+  FGA: 'avg_fga',
+  FTM: 'avg_ftm',
+  FTA: 'avg_fta',
+  PF: 'avg_pf',
+};
+
+// % cats read per-game makes/attempts — the ratio equals the totals ratio.
+const CAT_PCT_PER_GAME: Record<string, { makes: keyof PlayerSeasonStats; att: keyof PlayerSeasonStats }> = {
+  'FG%': { makes: 'avg_fgm', att: 'avg_fga' },
+  'FT%': { makes: 'avg_ftm', att: 'avg_fta' },
+};
+
+// Fallback when the league's category list is missing/empty: canonical 9-cat.
+const DEFAULT_RANK_CATS: LeagueCategory[] = CAT_ORDER.map((stat) => ({
+  stat_name: stat,
+  inverse: INVERSE_CATS.has(stat),
+}));
+
+function perGameCatValue(p: PlayerSeasonStats, stat: string): number {
+  if (stat === 'DD' || stat === 'TD') {
+    const gp = p.games_played ?? 0;
+    if (gp < 1) return 0;
+    return ((stat === 'DD' ? p.total_dd : p.total_td) ?? 0) / gp;
+  }
+  const field = CAT_STAT_TO_PER_GAME[stat];
+  return field ? ((p[field] as number) ?? 0) : 0;
+}
+
+/**
+ * Composite category value per player, for AUTO-LINEUP ranking. Differs from
+ * buildCompositeScatter (the analytics age-scatter) on purpose:
+ *
+ * - Scores the league's ENABLED categories (inverse flags included), not the
+ *   hardcoded 9-cat — an 8-cat league must not bench-penalize turnovers the
+ *   matchup never counts.
+ * - No birthdate / games_played>=5 eligibility: exclusion here means "rank 0 →
+ *   auto-bench", and the prev-season fallback rows have no birthdate at all.
+ *   Every input row gets a score; 0-GP rows (no data anywhere) sink to the
+ *   bottom on their all-zero stats.
+ * - % cats are volume-weighted impact — (player% − pool%) × attempts/game — so
+ *   a perfect night on one attempt can't outrank a good percentage on real
+ *   volume. No attempts → 0 (a non-shooter is neutral in a % cat, not bad).
+ *
+ * Mean/std are computed over rows with at least one game played. Values are
+ * raw z-sums (can be negative) — the auto-lineup call site shifts them ≥ 1 to
+ * respect the optimizer's "0 means no game today" convention.
+ */
+export function buildCategoryRankMap(
+  players: PlayerSeasonStats[],
+  leagueCats: LeagueCategory[] | undefined,
+): Map<string, number> {
+  const rank = new Map<string, number>();
+  const pool = players.filter((p) => (p.games_played ?? 0) >= 1);
+  if (pool.length === 0) return rank;
+
+  const cats = (leagueCats && leagueCats.length > 0 ? leagueCats : DEFAULT_RANK_CATS).filter(
+    (c) =>
+      CAT_STAT_TO_PER_GAME[c.stat_name] ||
+      CAT_PCT_PER_GAME[c.stat_name] ||
+      c.stat_name === 'DD' ||
+      c.stat_name === 'TD',
+  );
+  if (cats.length === 0) return rank;
+
+  // Pool-wide % baselines for the volume-weighted impact transform
+  const poolPct = new Map<string, number>();
+  for (const [stat, f] of Object.entries(CAT_PCT_PER_GAME)) {
+    let makes = 0;
+    let att = 0;
+    for (const p of pool) {
+      makes += (p[f.makes] as number) ?? 0;
+      att += (p[f.att] as number) ?? 0;
+    }
+    poolPct.set(stat, att > 0 ? makes / att : 0);
+  }
+
+  const rawFor = (p: PlayerSeasonStats, stat: string): number => {
+    const pctDef = CAT_PCT_PER_GAME[stat];
+    if (pctDef) {
+      const makes = (p[pctDef.makes] as number) ?? 0;
+      const att = (p[pctDef.att] as number) ?? 0;
+      if (att <= 0) return 0;
+      return (makes / att - (poolPct.get(stat) ?? 0)) * att;
+    }
+    return perGameCatValue(p, stat);
+  };
+
+  const composites = new Map<string, number>(players.map((p) => [p.player_id, 0]));
+  for (const cat of cats) {
+    const vals = pool.map((p) => rawFor(p, cat.stat_name));
+    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+    const std = Math.sqrt(vals.reduce((acc, v) => acc + (v - mean) ** 2, 0) / vals.length);
+    // No signal in this cat within the pool. Epsilon (not === 0) on purpose:
+    // when values are all-but-identical, float dust yields std ~1e-16 and the
+    // z-normalization would amplify pure noise to ±1σ — a coin-flip worth as
+    // much as a real category. Real per-game stats are 1-dp rounded, so any
+    // genuine spread produces std far above this threshold.
+    if (!(std > 1e-9)) continue;
+    for (const p of players) {
+      const z = (rawFor(p, cat.stat_name) - mean) / std;
+      const signed = cat.inverse ? -z : z;
+      composites.set(p.player_id, (composites.get(p.player_id) ?? 0) + signed);
+    }
+  }
+  for (const [id, v] of composites) rank.set(id, round2(v));
+  return rank;
+}
+
 // ── Age Tier Breakdown per Category ─────────────────────────────────────────
 
 export interface AgeTierBreakdown {

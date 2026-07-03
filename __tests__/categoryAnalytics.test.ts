@@ -1,6 +1,7 @@
 import { PlayerSeasonStats } from '@/types/player';
 import {
   buildAgeTierBreakdown,
+  buildCategoryRankMap,
   buildCompositeScatter,
   buildRadarData,
   CAT_ORDER,
@@ -208,5 +209,139 @@ describe('buildAgeTierBreakdown', () => {
     const pts = result.find((r) => r.cat === 'PTS')!;
     const sum = pts.risingPct + pts.primePct + pts.vetPct;
     expect(Math.round(sum)).toBe(100);
+  });
+});
+
+describe('buildCategoryRankMap (auto-lineup)', () => {
+  // Distinctly-tiered stat lines so ordering assertions are unambiguous
+  const stud = (id: string) =>
+    makePlayer({
+      player_id: id, avg_pts: 30, avg_reb: 10, avg_ast: 8, avg_stl: 1.8,
+      avg_blk: 1.2, avg_tov: 3, avg_3pm: 3, avg_fgm: 11, avg_fga: 21,
+      avg_ftm: 6, avg_fta: 7,
+    });
+  const mid = (id: string) =>
+    makePlayer({
+      player_id: id, avg_pts: 15, avg_reb: 5, avg_ast: 3, avg_stl: 1,
+      avg_blk: 0.5, avg_tov: 1.5, avg_3pm: 1.5, avg_fgm: 6, avg_fga: 13,
+      avg_ftm: 2, avg_fta: 2.5,
+    });
+  const scrub = (id: string) =>
+    makePlayer({
+      player_id: id, avg_pts: 5, avg_reb: 2, avg_ast: 1, avg_stl: 0.3,
+      avg_blk: 0.1, avg_tov: 0.8, avg_3pm: 0.5, avg_fgm: 2, avg_fga: 5,
+      avg_ftm: 0.5, avg_fta: 0.8,
+    });
+
+  it('ranks better players higher with the default 9-cat (no league cats passed)', () => {
+    const rank = buildCategoryRankMap([stud('a'), mid('b'), scrub('c')], undefined);
+    expect(rank.get('a')!).toBeGreaterThan(rank.get('b')!);
+    expect(rank.get('b')!).toBeGreaterThan(rank.get('c')!);
+  });
+
+  it('scores only the enabled categories', () => {
+    // a: more points, way more turnovers. b: fewer points, cleaner.
+    const a = makePlayer({ player_id: 'a', avg_pts: 30, avg_tov: 5 });
+    const b = makePlayer({ player_id: 'b', avg_pts: 20, avg_tov: 0.5 });
+    const ptsOnly = buildCategoryRankMap([a, b], [{ stat_name: 'PTS' }]);
+    expect(ptsOnly.get('a')!).toBeGreaterThan(ptsOnly.get('b')!);
+    const toOnly = buildCategoryRankMap([a, b], [{ stat_name: 'TO', inverse: true }]);
+    expect(toOnly.get('b')!).toBeGreaterThan(toOnly.get('a')!);
+  });
+
+  it('honors the inverse flag on custom categories (PF)', () => {
+    const foulProne = makePlayer({ player_id: 'a', avg_pf: 4.5 });
+    const clean = makePlayer({ player_id: 'b', avg_pf: 1 });
+    const rank = buildCategoryRankMap([foulProne, clean], [{ stat_name: 'PF', inverse: true }]);
+    expect(rank.get('b')!).toBeGreaterThan(rank.get('a')!);
+  });
+
+  it('supports DD/TD cats via totals ÷ games', () => {
+    const ddMachine = makePlayer({ player_id: 'a', total_dd: 8, games_played: 10 });
+    const rare = makePlayer({ player_id: 'b', total_dd: 1, games_played: 10 });
+    const rank = buildCategoryRankMap([ddMachine, rare], [{ stat_name: 'DD' }]);
+    expect(rank.get('a')!).toBeGreaterThan(rank.get('b')!);
+  });
+
+  it('ranks player_historical_stats-shaped fallback rows (no birthdate, no shooting totals)', () => {
+    // Mirrors the prev-season fallback cast in runAutoLineup: only the columns
+    // player_historical_stats actually has. The old scatter-based path zeroed
+    // these players out via its birthdate filter.
+    const hist = {
+      player_id: 'hist', games_played: 60,
+      avg_pts: 28, avg_reb: 7, avg_ast: 8, avg_stl: 1.5, avg_blk: 0.8,
+      avg_tov: 3, avg_3pm: 3, avg_3pa: 8, avg_fgm: 10, avg_fga: 20,
+      avg_ftm: 5, avg_fta: 6, avg_min: 34, avg_pf: 2, total_dd: 10, total_td: 2,
+    } as unknown as PlayerSeasonStats;
+    const rank = buildCategoryRankMap([hist, mid('b'), scrub('c')], undefined);
+    expect(rank.get('hist')!).toBeGreaterThan(rank.get('b')!);
+    expect(rank.get('b')!).toBeGreaterThan(rank.get('c')!);
+  });
+
+  it('includes small samples (no games_played >= 5 cliff)', () => {
+    const threeGames = makePlayer({ player_id: 'a', games_played: 3, avg_pts: 30 });
+    const rank = buildCategoryRankMap(
+      [threeGames, mid('b'), scrub('c')],
+      [{ stat_name: 'PTS' }],
+    );
+    expect(rank.get('a')!).toBeGreaterThan(rank.get('b')!);
+  });
+
+  it('weights percentage cats by volume, not raw percentage', () => {
+    // Anchor pool at ~75 FT%; perfect-on-a-trickle must not outrank
+    // very-good-on-real-volume.
+    const anchor = (id: string) =>
+      makePlayer({ player_id: id, avg_ftm: 3, avg_fta: 4 });
+    const lowVolPerfect = makePlayer({ player_id: 'low', avg_ftm: 0.5, avg_fta: 0.5 });
+    const highVolGood = makePlayer({ player_id: 'high', avg_ftm: 8.5, avg_fta: 10 });
+    const rank = buildCategoryRankMap(
+      [anchor('x'), anchor('y'), anchor('z'), lowVolPerfect, highVolGood],
+      [{ stat_name: 'FT%' }],
+    );
+    expect(rank.get('high')!).toBeGreaterThan(rank.get('low')!);
+  });
+
+  it('treats zero attempts as neutral in percentage cats', () => {
+    const nonShooter = makePlayer({ player_id: 'a', avg_ftm: 0, avg_fta: 0 });
+    const belowAvg = makePlayer({ player_id: 'b', avg_ftm: 2, avg_fta: 4 }); // 50% on volume
+    const goodShooter = makePlayer({ player_id: 'c', avg_ftm: 4.5, avg_fta: 5 });
+    const rank = buildCategoryRankMap(
+      [nonShooter, belowAvg, goodShooter],
+      [{ stat_name: 'FT%' }],
+    );
+    // 0 attempts hurts a % cat less than bad shooting on real volume
+    expect(rank.get('a')!).toBeGreaterThan(rank.get('b')!);
+    expect(rank.get('c')!).toBeGreaterThan(rank.get('a')!);
+  });
+
+  it('scores 0-GP rows at the bottom instead of excluding them', () => {
+    const noData = makePlayer({
+      player_id: 'zero', games_played: 0, avg_pts: 0, avg_reb: 0, avg_ast: 0,
+      avg_stl: 0, avg_blk: 0, avg_tov: 0, avg_3pm: 0, avg_fgm: 0, avg_fga: 0,
+      avg_ftm: 0, avg_fta: 0,
+    });
+    const rank = buildCategoryRankMap([stud('a'), mid('b'), noData], undefined);
+    expect(rank.has('zero')).toBe(true);
+    expect(rank.get('zero')!).toBeLessThan(rank.get('b')!);
+  });
+
+  it('returns an empty map when nobody has played (no data to rank on)', () => {
+    const players = [
+      makePlayer({ player_id: 'a', games_played: 0 }),
+      makePlayer({ player_id: 'b', games_played: 0 }),
+    ];
+    expect(buildCategoryRankMap(players, undefined).size).toBe(0);
+  });
+
+  it('ranks a two-player roster (no minimum group size)', () => {
+    const rank = buildCategoryRankMap([stud('a'), scrub('b')], undefined);
+    expect(rank.size).toBe(2);
+    expect(rank.get('a')!).toBeGreaterThan(rank.get('b')!);
+  });
+
+  it('skips unknown stat names; all-unknown falls to empty map', () => {
+    const players = [stud('a'), scrub('b')];
+    const rank = buildCategoryRankMap(players, [{ stat_name: 'XYZ' }]);
+    expect(rank.size).toBe(0);
   });
 });

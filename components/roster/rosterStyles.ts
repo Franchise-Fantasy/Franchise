@@ -86,6 +86,19 @@ export const rosterStyles = StyleSheet.create({
     height: s(48),
     alignItems: "center",
   },
+  // Gold check badge overlaid on the portrait when a row is picked in compare
+  // mode. Border color is set inline to the page background for a cut-out look.
+  compareCheck: {
+    position: "absolute",
+    top: s(-2),
+    right: s(-2),
+    width: s(18),
+    height: s(18),
+    borderRadius: s(9),
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+  },
   // Empty slot's headshot stand-in — dashed hairline circle with a "+" icon
   // so empty rows keep the same horizontal rhythm as filled rows.
   emptyHeadshot: {

@@ -127,6 +127,15 @@ export function formatShortDate(dateStr: string): string {
   });
 }
 
+/** Format "YYYY-MM-DD" as "Feb 27, 2027" (short month, with year). */
+export function formatIsoDate(dateStr: string): string {
+  return parseLocalDate(dateStr).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
 /**
  * Format an instant as "Sun, Jun 8, 8:00 PM EST" — local time WITH an explicit
  * timezone label. Use for any string built on one device and read on another

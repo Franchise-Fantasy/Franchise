@@ -4,12 +4,14 @@ import { Image } from 'expo-image';
 import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
+import { CompareBar } from '@/components/player/CompareBar';
 import { PlayerHeadshotImage } from '@/components/player/PlayerHeadshotImage';
 import { PlayerName } from '@/components/player/PlayerName';
 import { Badge } from '@/components/ui/Badge';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Fonts } from '@/constants/Colors';
+import { useCompareSelection } from '@/context/CompareSelectionProvider';
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useColors } from '@/hooks/useColors';
 import { TradeBlockPlayer, TradeBlockTeamGroup, useToggleTradeBlockInterest } from '@/hooks/useTrades';
@@ -40,6 +42,12 @@ export function TradeBlockSheet({
   onProposeTrade,
 }: TradeBlockSheetProps) {
   const c = useColors();
+  const {
+    isCompareMode,
+    selectedIds: compareSelectedIds,
+    toggle: toggleCompare,
+    setCompareMode,
+  } = useCompareSelection();
   const [hiddenPlayers, setHiddenPlayers] = useState<Set<string>>(new Set());
   const { mutate: toggleInterest } = useToggleTradeBlockInterest(leagueId);
 
@@ -96,17 +104,30 @@ export function TradeBlockSheet({
   const subtitle = hiddenCount > 0 ? `Trade Block · ${hiddenCount} Hidden` : 'Trade Block';
   const title = `${totalPlayers} ${totalPlayers === 1 ? 'Player' : 'Players'} Available`;
 
-  const headerAction = hiddenCount > 0 ? (
-    <TouchableOpacity
-      onPress={() => persistHidden(new Set())}
-      style={[styles.showAllBtn, { borderColor: c.gold }]}
-      accessibilityRole="button"
-      accessibilityLabel="Show all hidden players"
-    >
-      <Ionicons name="eye-outline" size={13} color={c.gold} accessible={false} />
-      <ThemedText style={[styles.showAllText, { color: c.gold }]}>Show all</ThemedText>
-    </TouchableOpacity>
-  ) : null;
+  const headerAction = (
+    <View style={styles.headerActions}>
+      <TouchableOpacity
+        onPress={() => setCompareMode(!isCompareMode)}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityRole="button"
+        accessibilityLabel={isCompareMode ? 'Exit compare mode' : 'Compare players'}
+        accessibilityState={{ selected: isCompareMode }}
+      >
+        <Ionicons name="git-compare" size={18} color={isCompareMode ? c.gold : c.secondaryText} />
+      </TouchableOpacity>
+      {hiddenCount > 0 && (
+        <TouchableOpacity
+          onPress={() => persistHidden(new Set())}
+          style={[styles.showAllBtn, { borderColor: c.gold }]}
+          accessibilityRole="button"
+          accessibilityLabel="Show all hidden players"
+        >
+          <Ionicons name="eye-outline" size={13} color={c.gold} accessible={false} />
+          <ThemedText style={[styles.showAllText, { color: c.gold }]}>Show all</ThemedText>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
 
   return (
     <BottomSheet
@@ -115,6 +136,7 @@ export function TradeBlockSheet({
       title={title}
       subtitle={subtitle}
       headerAction={headerAction}
+      footer={isCompareMode ? <CompareBar docked /> : undefined}
       bodyStyle={styles.body}
     >
       {filteredBlock.length === 0 ? (
@@ -155,8 +177,21 @@ export function TradeBlockSheet({
                   isOwn={isOwn}
                   isFirst={i === 0}
                   c={c}
+                  compareSelected={isCompareMode && compareSelectedIds.has(p.player_id)}
                   isInterested={p.trade_block_interest.includes(teamId)}
-                  onViewPlayer={() => onPlayerPress(p)}
+                  onViewPlayer={() => {
+                    if (isCompareMode) {
+                      toggleCompare({
+                        player_id: p.player_id,
+                        name: p.name,
+                        position: p.position,
+                        pro_team: p.pro_team,
+                        external_id_nba: p.external_id_nba,
+                      });
+                    } else {
+                      onPlayerPress(p);
+                    }
+                  }}
                   onProposeTrade={() => onProposeTrade(p)}
                   onToggleInterest={() =>
                     toggleInterest({
@@ -184,6 +219,7 @@ interface BlockRowProps {
   isFirst: boolean;
   c: ReturnType<typeof useColors>;
   isInterested: boolean;
+  compareSelected?: boolean;
   onViewPlayer: () => void;
   onProposeTrade: () => void;
   onToggleInterest: () => void;
@@ -196,6 +232,7 @@ function BlockRow({
   isFirst,
   c,
   isInterested,
+  compareSelected,
   onViewPlayer,
   onProposeTrade,
   onToggleInterest,
@@ -207,7 +244,12 @@ function BlockRow({
 
   const portrait = (
     <View style={styles.portraitWrap}>
-      <View style={[styles.headshotCircle, { borderColor: c.heritageGold, backgroundColor: c.cardAlt }]}>
+      <View
+        style={[
+          styles.headshotCircle,
+          { borderColor: compareSelected ? c.gold : c.heritageGold, backgroundColor: c.cardAlt },
+        ]}
+      >
         <PlayerHeadshotImage externalIdNba={p.external_id_nba} sport={sport} style={styles.headshotImg} />
       </View>
       {logoUrl && (
@@ -220,6 +262,11 @@ function BlockRow({
             recyclingKey={logoUrl}
           />
           <Text style={[styles.teamPillText, { color: c.statusText }]}>{p.pro_team}</Text>
+        </View>
+      )}
+      {compareSelected && (
+        <View style={[styles.compareCheck, { backgroundColor: c.gold, borderColor: c.background }]}>
+          <Ionicons name="checkmark" size={11} color={c.statusText} accessible={false} />
         </View>
       )}
     </View>
@@ -235,7 +282,13 @@ function BlockRow({
   );
 
   return (
-    <View style={[styles.rowWrap, !isFirst && { borderTopColor: c.border, borderTopWidth: StyleSheet.hairlineWidth }]}>
+    <View
+      style={[
+        styles.rowWrap,
+        !isFirst && { borderTopColor: c.border, borderTopWidth: StyleSheet.hairlineWidth },
+        compareSelected && { backgroundColor: c.activeCard },
+      ]}
+    >
       <View style={styles.rowTop}>
         <TouchableOpacity
           style={styles.rowMain}
@@ -338,6 +391,22 @@ function BlockRow({
 const styles = StyleSheet.create({
   body: {
     paddingHorizontal: s(16),
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(12),
+  },
+  compareCheck: {
+    position: 'absolute',
+    top: s(-2),
+    right: s(-2),
+    width: s(18),
+    height: s(18),
+    borderRadius: s(9),
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
   },
   showAllBtn: {
     flexDirection: 'row',
