@@ -14,7 +14,12 @@ import type {
   SettingsExtractionResult,
 } from '@/hooks/useImportScreenshot';
 import { clampLotteryState, defaultPlayoffSetup, maxPlayoffWeeksForTeams } from '@/utils/league/lottery';
-import { applyCupWeekToggle, computeMaxWeeks } from '@/utils/league/seasonWeeks';
+import {
+  applyCupWeekToggle,
+  computeMaxWeeks,
+  deriveTradeDeadlineDate,
+  deriveTradeDeadlineWeek,
+} from '@/utils/league/seasonWeeks';
 
 import type { DraftPhase, TradedPickDraft } from '../draftPhase';
 
@@ -144,6 +149,8 @@ export const initialWizard: LeagueWizardState = {
   waiverType: 'Standard',
   waiverPeriodDays: 2,
   faabBudget: 100,
+  waiverPriorityReset: 'Reverse Standings',
+  faabTiebreak: 'Earliest Bid',
   season: getCurrentSeason('nba'),
   seasonStartDate: null,
   regularSeasonWeeks: Math.max(1, maxWeeks - playoffDefaults.playoffWeeks),
@@ -204,8 +211,11 @@ export function reducer(state: ScreenshotImportState, action: Action): Screensho
         return { ...state, wizardState: clampLotteryState({ ...next, playoffWeeks }) };
       }
       // Cup double week consumes/frees one calendar week — re-fit week counts.
+      // applyCupWeekToggle clamps tradeDeadlineWeek; re-derive the date too so
+      // the persisted deadline moves with the shifted calendar.
       if (action.field === 'combineCupWeek') {
-        return { ...state, wizardState: applyCupWeekToggle(next, state.wizardState) };
+        const toggled = applyCupWeekToggle(next, state.wizardState);
+        return { ...state, wizardState: { ...toggled, tradeDeadlineDate: deriveTradeDeadlineDate(toggled) } };
       }
       // When sport changes, snap the season string to that sport's default and
       // recompute week boundaries from the new season's start date. Mirrors
@@ -220,15 +230,41 @@ export function reducer(state: ScreenshotImportState, action: Action): Screensho
           Math.max(1, newMax - 1),
         );
         const regularSeasonWeeks = Math.min(next.regularSeasonWeeks, Math.max(1, newMax - playoffWeeks));
+        const tradeDeadlineWeek = next.tradeDeadlineWeek > 0
+          ? Math.min(next.tradeDeadlineWeek, regularSeasonWeeks)
+          : 0;
+        const merged = clampLotteryState({ ...next, season: newSeason, seasonStartDate: null, regularSeasonWeeks, playoffWeeks, tradeDeadlineWeek });
         return {
           ...state,
-          wizardState: clampLotteryState({ ...next, season: newSeason, seasonStartDate: null, regularSeasonWeeks, playoffWeeks }),
+          wizardState: { ...merged, tradeDeadlineDate: deriveTradeDeadlineDate(merged) },
         };
       }
       // Phases + future picks are dynasty-only — clear them if the league
       // leaves Dynasty so a stale phase can't leak into the payload.
       if (action.field === 'leagueType' && action.value !== 'Dynasty') {
         return { ...state, wizardState: next, draftPhase: 'in_season', lotteryOrder: [], lotteryOrderR2: [], tradedPicks: [] };
+      }
+      // Trade deadline week is bounded by the (possibly shortened) regular
+      // season; re-derive the persisted date so it can't outlive it.
+      if (action.field === 'regularSeasonWeeks' && next.tradeDeadlineWeek > 0) {
+        const tradeDeadlineWeek = Math.min(next.tradeDeadlineWeek, next.regularSeasonWeeks);
+        return {
+          ...state,
+          wizardState: {
+            ...next,
+            tradeDeadlineWeek,
+            tradeDeadlineDate: deriveTradeDeadlineDate({ ...next, tradeDeadlineWeek }),
+          },
+        };
+      }
+      // Deadline WEEK moved (or the on/off toggle set it to 0/a default) —
+      // re-derive the persisted date. Deadline DATE fine-tuned — snap the week
+      // stepper to the week containing it. The two controls stay in lockstep.
+      if (action.field === 'tradeDeadlineWeek') {
+        return { ...state, wizardState: { ...next, tradeDeadlineDate: deriveTradeDeadlineDate(next) } };
+      }
+      if (action.field === 'tradeDeadlineDate') {
+        return { ...state, wizardState: { ...next, tradeDeadlineWeek: deriveTradeDeadlineWeek(next) } };
       }
       return { ...state, wizardState: next };
     }

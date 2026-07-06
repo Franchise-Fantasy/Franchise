@@ -89,6 +89,7 @@ import { useIllegalIR } from "@/hooks/useIllegalIR";
 import { useLeague } from "@/hooks/useLeague";
 import { useLeagueRosterConfig } from "@/hooks/useLeagueRosterConfig";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
+import { useOffseasonLastSeason } from "@/hooks/useOffseasonLastSeason";
 import { useOverCap } from "@/hooks/useOverCap";
 import {
   usePlayerProjections,
@@ -97,6 +98,7 @@ import {
 import { usePrevSeasonFpts } from "@/hooks/usePrevSeasonFpts";
 import { useRosterChanges } from "@/hooks/useRosterChanges";
 import { useRosterGameLogs } from "@/hooks/useRosterGameLogs";
+import { useRosterHeroOpponent } from "@/hooks/useRosterHeroOpponent";
 import { useWeekScores } from "@/hooks/useWeekScores";
 import { capture } from "@/lib/posthog";
 import { supabase } from "@/lib/supabase";
@@ -350,63 +352,15 @@ export default function RosterScreen() {
     today >= currentWeek.start_date &&
     today <= currentWeek.end_date;
 
-  const { data: heroMatchup } = useQuery({
-    queryKey: queryKeys.rosterHeroOpponent(
-      currentWeek?.id ?? "",
-      teamId ?? "",
-    ),
-    queryFn: async () => {
-      if (!teamId) return null;
-      // Always fetch team identity (tricode + record) so the hero has
-      // something to render in offseason and during weeks with no matchup.
-      const fetchTeam = async (id: string) => {
-        const { data } = await supabase
-          .from("teams")
-          .select("id, tricode, name, wins, losses, ties")
-          .eq("id", id)
-          .maybeSingle();
-        return data ?? null;
-      };
-      if (!currentWeek?.id) {
-        const me = await fetchTeam(teamId);
-        return { me, opponent: null, isBye: false, categoryRecord: null };
-      }
-      const { data: m } = await supabase
-        .from("league_matchups")
-        .select(
-          "home_team_id, away_team_id, home_category_wins, away_category_wins, category_ties",
-        )
-        .eq("schedule_id", currentWeek.id)
-        .or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
-        .maybeSingle();
-      const isHome = m?.home_team_id === teamId;
-      const opponentId = m ? (isHome ? m.away_team_id : m.home_team_id) : null;
-      const ids = opponentId ? [teamId, opponentId] : [teamId];
-      const { data: rows } = await supabase
-        .from("teams")
-        .select("id, tricode, name, wins, losses, ties")
-        .in("id", ids);
-      const me = rows?.find((t) => t.id === teamId) ?? null;
-      const opp = opponentId
-        ? rows?.find((t) => t.id === opponentId) ?? null
-        : null;
-      // Category leagues are decided by category wins (kept fresh on
-      // league_matchups by the same cron that updates week_scores), not the
-      // fpts total that lives in week_scores. Build it from the user's
-      // perspective; null until the cron has computed a result.
-      const categoryRecord =
-        m && m.home_category_wins != null
-          ? {
-              myWins: (isHome ? m.home_category_wins : m.away_category_wins) ?? 0,
-              oppWins: (isHome ? m.away_category_wins : m.home_category_wins) ?? 0,
-              ties: m.category_ties ?? 0,
-            }
-          : null;
-      return { me, opponent: opp, isBye: !!m && !opponentId, categoryRecord };
-    },
-    enabled: !!teamId,
-    staleTime: 1000 * 60 * 60,
-  });
+  const { data: heroMatchup } = useRosterHeroOpponent(
+    currentWeek?.id ?? null,
+    teamId,
+  );
+
+  // Offseason retrospective for the hero — the last completed season's record
+  // and finish, standing in for the live 0-0 that advance-season zeroes.
+  const heroIsOffseason = !currentWeek && !seasonOpensLabel;
+  const lastSeason = useOffseasonLastSeason(leagueId, teamId, heroIsOffseason);
 
   const { data: weekScores } = useWeekScores({
     leagueId,
@@ -2113,6 +2067,7 @@ export default function RosterScreen() {
         weekIsLive={weekIsLive}
         lineupDay={heroLineupDay}
         rosterStats={heroRosterStats}
+        lastSeason={lastSeason}
         onPrevDay={() =>
           canGoBack && setSelectedDate(addDays(selectedDate, -1))
         }

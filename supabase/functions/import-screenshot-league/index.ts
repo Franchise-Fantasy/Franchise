@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { HttpError, errorResponse, handleError, jsonResponse } from '../_shared/http.ts';
+import { buildBracketRows, ImportBracketSchema } from '../_shared/importBracket.ts';
 import {
   planDraftPhaseSeeding,
   type ImportSport,
@@ -50,6 +51,10 @@ const SearchOrCreatePlayerBody = z.object({
   position: z.string().optional(),
 });
 
+// Imported playoff bracket schema lives in _shared/importBracket.ts (shared with
+// import-league-history). Team names get resolved to team_ids on ingest.
+type ImportedBracket = z.infer<typeof ImportBracketSchema>;
+
 const ExecuteBody = z.object({
   action: z.literal('execute'),
   league_name: z.string().min(1, 'league_name and teams are required'),
@@ -87,7 +92,11 @@ const ExecuteBody = z.object({
       points_for: z.number().nullable(),
       points_against: z.number().nullable(),
       standing: z.number().nullable(),
+      division: z.number().int().min(1).max(2).nullable().optional(),
+      playoff_result: z.string().nullable().optional(),
+      source_name: z.string().nullable().optional(),
     })),
+    bracket: ImportBracketSchema.nullable().optional(),
   })).optional(),
   draft_phase: z.enum(['in_season', 'pre_lottery', 'lottery_done']).default('in_season'),
   lottery_order: z.array(z.string()).optional(),
@@ -118,11 +127,24 @@ const ExecuteBody = z.object({
     waiver_type: z.string(),
     waiver_period_days: z.number(),
     faab_budget: z.number(),
+    waiver_priority_reset: z.enum(['reverse_standings', 'keep', 'random']).optional().default('reverse_standings'),
+    faab_tiebreak: z.enum(['earliest_bid', 'waiver_priority']).optional().default('earliest_bid'),
     playoff_seeding_format: z.string(),
     reseed_each_round: z.boolean(),
     buy_in_amount: z.number().nullable(),
     trade_deadline: z.string().nullable(),
   }),
+});
+
+const ImportTeamRosterBody = z.object({
+  action: z.literal('import_team_roster'),
+  league_id: z.string().uuid(),
+  team_id: z.string().uuid(),
+  players: z.array(z.object({
+    player_id: z.string().uuid(),
+    position: z.string(),
+    roster_slot: z.string().nullable(),
+  })).min(1, 'At least one player is required'),
 });
 
 const Body = z.discriminatedUnion('action', [
@@ -132,6 +154,7 @@ const Body = z.discriminatedUnion('action', [
   ExtractTradedPicksBody,
   SearchOrCreatePlayerBody,
   ExecuteBody,
+  ImportTeamRosterBody,
 ]);
 
 const CORS_HEADERS = {
@@ -453,6 +476,22 @@ const SETTINGS_TOOL = {
   },
 };
 
+// One playoff matchup — two teams, their scores/seeds, and the winner. Reused
+// for every bracket round and the 3rd-place game.
+const BRACKET_MATCHUP_SCHEMA = {
+  type: 'object',
+  properties: {
+    team_a: { type: 'string', description: 'One team/owner name in this matchup, exactly as shown' },
+    team_a_seed: { type: ['number', 'null'], description: 'Seed number shown beside team_a, or null' },
+    team_a_score: { type: ['number', 'null'], description: 'Points team_a scored in this matchup, or null' },
+    team_b: { type: 'string', description: 'The other team/owner name in this matchup' },
+    team_b_seed: { type: ['number', 'null'] },
+    team_b_score: { type: ['number', 'null'] },
+    winner: { type: ['string', 'null'], description: 'Name of the winning team (must equal team_a or team_b), or null if undecided' },
+  },
+  required: ['team_a', 'team_b'],
+} as const;
+
 const HISTORY_TOOL = {
   name: 'extract_history_data',
   description: 'Extract fantasy basketball standings/history from a screenshot',
@@ -463,18 +502,51 @@ const HISTORY_TOOL = {
         type: ['string', 'null'],
         description: 'Season identifier if visible (e.g. "2024-25")',
       },
+      bracket: {
+        type: ['object', 'null'],
+        description: 'The playoff bracket, if a bracket / playoff-results screen is shown. Null when no bracket is visible.',
+        properties: {
+          rounds: {
+            type: 'array',
+            description: 'Playoff rounds ordered EARLIEST first and the championship LAST (e.g. [Quarterfinals, Semifinals, Championship]). A round with N games has N matchups. Do NOT include the 3rd-place game in this list.',
+            items: {
+              type: 'object',
+              properties: { matchups: { type: 'array', items: BRACKET_MATCHUP_SCHEMA } },
+              required: ['matchups'],
+            },
+          },
+          third_place: {
+            ...BRACKET_MATCHUP_SCHEMA,
+            type: ['object', 'null'],
+            description: 'The 3rd-place / consolation game (loser of each semifinal), if shown. Null otherwise.',
+          },
+        },
+        required: ['rounds'],
+      },
       teams: {
         type: 'array',
         items: {
           type: 'object',
           properties: {
             team_name: { type: 'string', description: 'Team or owner name' },
-            wins: { type: ['number', 'null'] },
-            losses: { type: ['number', 'null'] },
+            wins: { type: ['number', 'null'], description: 'REGULAR SEASON wins only — never a playoff series score' },
+            losses: { type: ['number', 'null'], description: 'REGULAR SEASON losses only — never a playoff series score' },
             ties: { type: ['number', 'null'] },
             points_for: { type: ['number', 'null'] },
             points_against: { type: ['number', 'null'] },
-            standing: { type: ['number', 'null'], description: 'Rank/standing position' },
+            standing: {
+              type: ['number', 'null'],
+              description: 'The team\'s rank/position exactly as shown in the table this team appears in — a within-division rank if the screenshot shows separate division tables, or an overall rank if it shows one combined table.',
+            },
+            division: {
+              type: ['string', 'null'],
+              description: 'The division name/label this team is grouped under if the screenshot splits standings into divisions (e.g. "East", "Western Conference"). Null if the screenshot shows one combined table with no divisions.',
+            },
+            playoff_result: {
+              type: ['string', 'null'],
+              enum: ['champion', 'runner_up', 'third_place', 'fourth_place', 'missed_playoffs', null],
+              description: 'Only set this when confidently identifiable from a playoff bracket/results screen: "champion" (won it all), "runner_up" (lost the final), "third_place" (won a 3rd-place/consolation game), "fourth_place" (lost the 3rd-place game — the other semifinal loser), or "missed_playoffs" (didn\'t qualify, shown below a playoff-cutoff line). Use null for anything less clear-cut (e.g. an early-round playoff exit with no consolation game) rather than guessing — never invent a value like "semifinalist".',
+            },
           },
           required: ['team_name'],
         },
@@ -613,12 +685,29 @@ async function handleExtractHistory(
 
 For each team visible, extract:
 - team_name: The team name or owner name as shown
-- wins: Number of wins if visible
-- losses: Number of losses if visible
+- wins: REGULAR SEASON win total if visible
+- losses: REGULAR SEASON loss total if visible
 - ties: Number of ties if visible
 - points_for: Total points scored if visible
 - points_against: Total points against if visible
-- standing: Their rank/position in standings if visible or inferable from order
+- standing: The rank/position exactly as shown in whichever table this team appears in
+- division: The division label this team's table is under, if the screenshot groups teams into divisions — otherwise null
+- playoff_result: One of "champion", "runner_up", "third_place", "fourth_place", "missed_playoffs", or null — see below
+
+Two things commonly trip this up — watch for both:
+
+1. TWO DIVISIONS: some standings screens split teams into two separate tables (e.g. "East Division" / "West Division"), each locally numbered 1..N. That's fine — don't try to merge them into one combined ranking. Just record each team's "division" as the label of the table it's under (e.g. "East Division"), and "standing" as the rank shown in that same table. Every team should have a division set if the screenshot shows divisions at all, and null if it doesn't.
+
+2. PLAYOFFS vs REGULAR SEASON: a screenshot may show a playoff bracket or playoff results screen instead of (or in addition to) a regular-season standings table. A playoff bracket shows single-elimination matchups advancing round by round, NOT a full win-loss standings table. If what you're looking at is a playoff bracket:
+   - Do NOT put playoff series records (e.g. "2-1" from a best-of-3) into wins/losses — those fields are for the REGULAR SEASON record only, and should be null if no regular-season table is shown.
+   - Only set "playoff_result" to one of the exact values allowed: "champion" for the bracket winner, "runner_up" for the losing finalist, "third_place" for a 3rd-place/consolation game winner, "fourth_place" for the 3rd-place game loser (the other semifinal loser), or "missed_playoffs" for a team clearly shown below a playoff cutoff line. Leave it null for anything else (e.g. an early-round elimination with no consolation game) rather than inventing a value outside that list.
+   - If multiple screenshots are given and one is the regular-season standings while another is the playoff bracket, merge them by team_name: pull wins/losses/standing/division from the standings screenshot and playoff_result from the bracket screenshot for the same team.
+
+3. PLAYOFF BRACKET STRUCTURE: if a playoff bracket / results screen is shown, ALSO fill "bracket":
+   - "rounds": the playoff rounds ordered EARLIEST first and the championship LAST. Each round holds the games played that round. A 4-team playoff is [Semifinals (2 games), Championship (1 game)]; an 8-team playoff is [Quarterfinals (4), Semifinals (2), Championship (1)].
+   - For every matchup give both teams' names EXACTLY as shown, each team's seed number if visible, the points each team scored in that game, and "winner" = the name of the team that advanced.
+   - "third_place": the consolation game between the two semifinal LOSERS if one is shown (its winner finishes 3rd, its loser 4th). Do NOT put the 3rd-place game inside "rounds".
+   - Team names in the bracket must match the standings team names for the same teams. Leave "bracket" null if no bracket/playoff screen is visible.
 
 Extract the season identifier if visible (e.g. "2024-25", "2023-24").`;
 
@@ -691,6 +780,39 @@ function makeUniqueTricode(name: string, used: Set<string>): string {
   return code;
 }
 
+// Shared by handleExecute (whole-league creation) and handleImportTeamRoster
+// (post-creation single-team import) — both build `league_players` rows from
+// the same extracted-roster shape.
+function buildLeaguePlayerRows(
+  leagueId: string,
+  teamId: string,
+  players: { player_id: string; position: string; roster_slot: string | null }[],
+  timestamp: string,
+): any[] {
+  let utilIndex = 0;
+  return players.map((player) => {
+    let slot = player.roster_slot ?? 'BE';
+
+    // Normalize roster slot
+    if (slot.toUpperCase() === 'BENCH') slot = 'BE';
+    if (slot.toUpperCase() === 'UTIL') {
+      utilIndex++;
+      slot = `UTIL${utilIndex}`;
+    }
+
+    return {
+      league_id: leagueId,
+      team_id: teamId,
+      player_id: player.player_id,
+      position: player.position,
+      roster_slot: slot.toUpperCase(),
+      acquired_via: 'draft',
+      acquired_at: timestamp,
+      on_trade_block: false,
+    };
+  });
+}
+
 async function handleExecute(
   body: {
     league_name: string;
@@ -714,7 +836,11 @@ async function handleExecute(
         points_for: number;
         points_against: number;
         standing: number;
+        division?: number | null;
+        playoff_result?: string | null;
+        source_name?: string | null;
       }>;
+      bracket?: ImportedBracket | null;
     }>;
     draft_phase?: 'in_season' | 'pre_lottery' | 'lottery_done';
     lottery_order?: string[];
@@ -740,6 +866,8 @@ async function handleExecute(
       waiver_type: string;
       waiver_period_days: number;
       faab_budget: number;
+      waiver_priority_reset: string;
+      faab_tiebreak: string;
       playoff_seeding_format: string;
       reseed_each_round: boolean;
       buy_in_amount: number | null;
@@ -835,6 +963,8 @@ async function handleExecute(
     waiver_type: settings.waiver_type,
     waiver_period_days: settings.waiver_period_days,
     faab_budget: settings.faab_budget,
+    waiver_priority_reset: settings.waiver_priority_reset,
+    faab_tiebreak: settings.faab_tiebreak,
     playoff_seeding_format: settings.playoff_seeding_format,
     reseed_each_round: settings.reseed_each_round,
     buy_in_amount: settings.buy_in_amount,
@@ -923,29 +1053,7 @@ async function handleExecute(
     teamIds.push(teamData.id);
     teamNameToId.set(team.team_name, teamData.id);
 
-    // Build roster entries for this team
-    let utilIndex = 0;
-    for (const player of team.players) {
-      let slot = player.roster_slot ?? 'BE';
-
-      // Normalize roster slot
-      if (slot.toUpperCase() === 'BENCH') slot = 'BE';
-      if (slot.toUpperCase() === 'UTIL') {
-        utilIndex++;
-        slot = `UTIL${utilIndex}`;
-      }
-
-      leaguePlayerRows.push({
-        league_id: leagueId,
-        team_id: teamData.id,
-        player_id: player.player_id,
-        position: player.position,
-        roster_slot: slot.toUpperCase(),
-        acquired_via: 'draft',
-        acquired_at: timestamp,
-        on_trade_block: false,
-      });
-    }
+    leaguePlayerRows.push(...buildLeaguePlayerRows(leagueId, teamData.id, team.players, timestamp));
   }
 
   // Update current_teams
@@ -1100,6 +1208,10 @@ async function handleExecute(
   }
 
   // 8. Insert historical seasons (fuzzy match history team names to created teams)
+  let historyProvided = 0;
+  let historyInserted = 0;
+  const historyUnmatched: string[] = [];
+  let historyError: string | null = null;
   log.info('History check', {
     has_history: !!history,
     history_length: history?.length ?? 0,
@@ -1111,8 +1223,10 @@ async function handleExecute(
 
     for (const hs of history) {
       for (const ht of hs.teams) {
+        historyProvided++;
         const teamId = fuzzyMatchTeam(ht.team_name);
         if (!teamId) {
+          historyUnmatched.push(ht.team_name);
           log.warn('History: could not match team to any created team', { team_name: ht.team_name });
           continue;
         }
@@ -1121,13 +1235,15 @@ async function handleExecute(
           team_id: teamId,
           league_id: leagueId,
           season: hs.season,
+          team_name: ht.source_name ?? ht.team_name,
           wins: ht.wins ?? 0,
           losses: ht.losses ?? 0,
           ties: ht.ties ?? 0,
           points_for: ht.points_for ?? 0,
           points_against: ht.points_against ?? 0,
           final_standing: ht.standing ?? 0,
-          playoff_result: null,
+          division: ht.division ?? null,
+          playoff_result: ht.playoff_result ?? null,
         });
       }
     }
@@ -1137,10 +1253,24 @@ async function handleExecute(
       const chunk = teamSeasonRows.slice(i, i + 100);
       const { error } = await supabaseAdmin.from('team_seasons').insert(chunk);
       if (error) {
+        historyError = error.message;
         log.warn('Failed to insert team_seasons chunk', { error: error.message, chunk_size: chunk.length });
       } else {
+        historyInserted += chunk.length;
         log.info('Inserted team_season chunk', { chunk_size: chunk.length });
       }
+    }
+
+    // 8b. Imported playoff brackets → playoff_bracket rows (names resolved the
+    //     same way as the standings). Renders in the existing Playoff History view.
+    const bracketRows = history.flatMap((hs) =>
+      hs.bracket?.rounds?.length ? buildBracketRows(leagueId, hs.season, hs.bracket, fuzzyMatchTeam) : [],
+    );
+    for (let i = 0; i < bracketRows.length; i += 100) {
+      const chunk = bracketRows.slice(i, i + 100);
+      const { error } = await supabaseAdmin.from('playoff_bracket').insert(chunk);
+      if (error) log.warn('Failed to insert playoff_bracket chunk', { error: error.message, chunk_size: chunk.length });
+      else log.info('Inserted playoff_bracket chunk', { chunk_size: chunk.length });
     }
   }
 
@@ -1156,7 +1286,70 @@ async function handleExecute(
     league_id: leagueId,
     teams_created: teams.length,
     players_imported: leaguePlayerRows.length,
+    history_provided: historyProvided,
+    history_inserted: historyInserted,
+    history_unmatched: Array.from(new Set(historyUnmatched)),
+    history_error: historyError,
     message: `Successfully imported "${league_name}" with ${teams.length} teams and ${leaguePlayerRows.length} players.`,
+  });
+}
+
+// Finishes a "Finish Rosters Later" team — the wizard's `execute` action can
+// leave a team as an empty shell (players: []); this lets the commissioner
+// come back and import that one team's roster from a screenshot afterward.
+async function handleImportTeamRoster(
+  body: z.infer<typeof ImportTeamRosterBody>,
+  supabaseAdmin: any,
+  userId: string,
+) {
+  const { league_id, team_id, players } = body;
+
+  const { data: league } = await supabaseAdmin
+    .from('leagues')
+    .select('created_by')
+    .eq('id', league_id)
+    .single();
+  if (!league || league.created_by !== userId) {
+    throw new HttpError('Only the commissioner can import a team roster.', 403);
+  }
+
+  const { data: team } = await supabaseAdmin
+    .from('teams')
+    .select('id, league_id, name')
+    .eq('id', team_id)
+    .single();
+  if (!team || team.league_id !== league_id) {
+    throw new HttpError('Team does not belong to this league.', 404);
+  }
+
+  const { count: existingCount } = await supabaseAdmin
+    .from('league_players')
+    .select('id', { count: 'exact', head: true })
+    .eq('team_id', team_id);
+  if ((existingCount ?? 0) > 0) {
+    throw new HttpError('This team already has a roster.', 409);
+  }
+
+  const { data: conflicts } = await supabaseAdmin
+    .from('league_players')
+    .select('player_id')
+    .eq('league_id', league_id)
+    .in('player_id', players.map((p) => p.player_id));
+  if (conflicts && conflicts.length > 0) {
+    throw new HttpError(
+      `${conflicts.length} of these players are already rostered on another team in this league.`,
+      409,
+    );
+  }
+
+  const rows = buildLeaguePlayerRows(league_id, team_id, players, new Date().toISOString());
+  const { error } = await supabaseAdmin.from('league_players').insert(rows);
+  if (error) throw error;
+
+  return jsonResponse({
+    team_id,
+    players_imported: rows.length,
+    message: `Imported ${rows.length} players to ${team.name}.`,
   });
 }
 
@@ -1223,6 +1416,8 @@ Deno.serve(async (req) => {
         // coerces internally. Narrowing here keeps the schema honest about
         // what the wire can deliver.
         return await handleExecute(body as Parameters<typeof handleExecute>[0], supabaseAdmin, userId);
+      case 'import_team_roster':
+        return await handleImportTeamRoster(body, supabaseAdmin, userId);
     }
   } catch (error) {
     return handleError(error, 'import-screenshot-league');

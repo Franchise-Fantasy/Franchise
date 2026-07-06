@@ -145,12 +145,17 @@ export function useDraftHub(leagueId: string | null) {
         .order('slot_number', { ascending: true });
       if (picksError) throw picksError;
 
-      // Fetch unresolved pick swaps
+      // Fetch unresolved pick swaps, OLDEST-FIRST so the simulated resolution
+      // cascades in the same order start-lottery commits them (a chain of swap
+      // rights resolves oldest → newest). Keep this ordering aligned with
+      // start-lottery's query or the preview and the lottery can disagree.
       const { data: swapRows, error: swapsError } = await supabase
         .from('pick_swaps')
         .select('id, season, round, beneficiary_team_id, counterparty_team_id')
         .eq('league_id', leagueId!)
-        .eq('resolved', false);
+        .eq('resolved', false)
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true });
       if (swapsError) throw swapsError;
 
       const { data: liveTeams, error: teamsError } = await supabase

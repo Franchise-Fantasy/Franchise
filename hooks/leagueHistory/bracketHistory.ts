@@ -21,7 +21,7 @@ export function useBracketHistory(leagueId: string | null) {
         supabase
           .from('playoff_bracket')
           .select(
-            'id, season, round, bracket_position, matchup_id, team_a_id, team_a_seed, team_b_id, team_b_seed, winner_id, is_bye, is_third_place, matchup:league_matchups!playoff_bracket_matchup_id_fkey(home_team_id, home_score, away_score)',
+            'id, season, round, bracket_position, matchup_id, team_a_id, team_a_seed, team_a_score, team_b_id, team_b_seed, team_b_score, winner_id, is_bye, is_third_place, matchup:league_matchups!playoff_bracket_matchup_id_fkey(home_team_id, home_score, away_score)',
           )
           .eq('league_id', leagueId!)
           .order('season', { ascending: false })
@@ -45,8 +45,10 @@ export function useBracketHistory(leagueId: string | null) {
       const bracketsBySeason = new Map<string, BracketSlotHistory[]>();
       for (const row of bracketRes.data ?? []) {
         const m = Array.isArray(row.matchup) ? row.matchup[0] ?? null : row.matchup;
-        let team_a_score: number | null = null;
-        let team_b_score: number | null = null;
+        // Imported brackets carry scores on the slot; live brackets read them
+        // off the joined matchup (which takes precedence when present).
+        let team_a_score: number | null = row.team_a_score ?? null;
+        let team_b_score: number | null = row.team_b_score ?? null;
         if (m) {
           const homeIsA = m.home_team_id === row.team_a_id;
           team_a_score = homeIsA ? m.home_score : m.away_score;

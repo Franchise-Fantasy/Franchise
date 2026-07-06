@@ -31,6 +31,7 @@ import {
   validateLotteryOrder,
 } from '@/components/import/draftPhase';
 import { DraftPhaseSelector } from '@/components/import/DraftPhaseSelector';
+import { buildRosterPlayers } from '@/components/import/screenshot/buildRosterPlayers';
 import {
   deserializeState,
   initialState,
@@ -55,7 +56,9 @@ import { Colors } from '@/constants/Colors';
 import {
   LEAGUE_TYPE_TO_DB,
   parseSeasonStartYear,
+  FAAB_TIEBREAK_TO_DB,
   SEEDING_TO_DB,
+  WAIVER_PRIORITY_RESET_TO_DB,
   type LeagueWizardState,
 } from '@/constants/LeagueDefaults';
 import { useToast } from '@/context/ToastProvider';
@@ -67,6 +70,8 @@ import {
   useExtractSettings,
   useScreenshotImport,
 } from '@/hooks/useImportScreenshot';
+import { assignHistoryDivisions } from '@/utils/league/historyDivisions';
+import { applyDefaultTeamMatches } from '@/utils/league/historyTeamMatch';
 import { ms, s } from '@/utils/scale';
 
 
@@ -340,12 +345,14 @@ export function ScreenshotImport() {
 
       try {
         const result = await extractHistoryMutation.mutateAsync({ images: season.images });
-        dispatch({ type: 'SET_HISTORY_EXTRACTED', seasonIndex, data: result });
+        const teamNames = state.teams.map((t) => t.team_name);
+        const reconciled = { ...result, teams: applyDefaultTeamMatches(result.teams, teamNames) };
+        dispatch({ type: 'SET_HISTORY_EXTRACTED', seasonIndex, data: reconciled });
       } catch (err: any) {
         Alert.alert('Extraction failed', err.message ?? 'Could not extract history from screenshot.');
       }
     },
-    [state.historySeasons, extractHistoryMutation],
+    [state.historySeasons, state.teams, extractHistoryMutation],
   );
 
   // --- Import execution ---
@@ -362,34 +369,9 @@ export function ScreenshotImport() {
       : state.teams.filter((team) => team.extracted && team.matched.length + team.resolvedMappings.size > 0);
 
     const teamsPayload = sourceTeams.map((team) => {
-      const players: { player_id: string; position: string; roster_slot: string | null }[] = [];
-
-      if (team.extracted) {
-        // A resolvedMappings entry can correct an auto-match (keyed by the
-        // matched player's index) — in which case it REPLACES that match,
-        // keeping the original roster slot. Otherwise it's a resolution of a
-        // previously-unmatched player.
-        const matchedIndices = new Set(team.matched.map((m) => m.index));
-        for (const m of team.matched) {
-          const override = team.resolvedMappings.get(m.index);
-          players.push({
-            player_id: override?.player_id ?? m.matched_player_id,
-            position: override?.position ?? m.matched_position,
-            roster_slot: m.roster_slot,
-          });
-        }
-
-        for (const [index, resolved] of team.resolvedMappings) {
-          if (matchedIndices.has(index)) continue; // already applied as an override above
-          const original = team.unmatched.find((u) => u.index === index);
-          players.push({
-            player_id: resolved.player_id,
-            position: resolved.position,
-            roster_slot: original?.roster_slot ?? null,
-          });
-        }
-      }
-
+      const players = team.extracted
+        ? buildRosterPlayers(team.matched, team.unmatched, team.resolvedMappings)
+        : [];
       return { team_name: team.team_name, players };
     });
 
@@ -419,18 +401,25 @@ export function ScreenshotImport() {
     let history: any[] | undefined;
     const extractedSeasons = state.historySeasons.filter((s) => s.extracted?.teams?.length);
     if (extractedSeasons.length > 0) {
-      history = extractedSeasons.map((s) => ({
-        season: s.extracted!.season ?? 'unknown',
-        teams: s.extracted!.teams.map((t, i) => ({
-          team_name: t.team_name,
-          wins: t.wins ?? 0,
-          losses: t.losses ?? 0,
-          ties: t.ties ?? 0,
-          points_for: t.points_for ?? 0,
-          points_against: t.points_against ?? 0,
-          standing: t.standing ?? i + 1,
-        })),
-      }));
+      history = extractedSeasons.map((s) => {
+        const divisions = assignHistoryDivisions(s.extracted!.teams);
+        return {
+          season: s.extracted!.season ?? 'unknown',
+          teams: s.extracted!.teams.map((t, i) => ({
+            team_name: t.team_name,
+            source_name: t.source_name ?? t.team_name,
+            wins: t.wins ?? 0,
+            losses: t.losses ?? 0,
+            ties: t.ties ?? 0,
+            points_for: t.points_for ?? 0,
+            points_against: t.points_against ?? 0,
+            standing: t.standing ?? i + 1,
+            division: divisions[i],
+            playoff_result: t.playoff_result ?? null,
+          })),
+          bracket: s.extracted!.bracket ?? null,
+        };
+      });
     }
 
     const payload = {
@@ -499,21 +488,47 @@ export function ScreenshotImport() {
               : 'none',
         waiver_period_days: ws.waiverType === 'None' ? 0 : ws.waiverPeriodDays,
         faab_budget: ws.faabBudget,
+        waiver_priority_reset: WAIVER_PRIORITY_RESET_TO_DB[ws.waiverPriorityReset],
+        faab_tiebreak: FAAB_TIEBREAK_TO_DB[ws.faabTiebreak],
         playoff_seeding_format: (SEEDING_TO_DB[ws.playoffSeedingFormat] ?? SEEDING_TO_DB.Standard).format,
         reseed_each_round: (SEEDING_TO_DB[ws.playoffSeedingFormat] ?? SEEDING_TO_DB.Standard).reseed,
         buy_in_amount: ws.buyIn || null,
-        trade_deadline: null,
+        trade_deadline: ws.tradeDeadlineDate,
       },
     };
 
     try {
       const result = await importMutation.mutateAsync(payload);
       AsyncStorage.removeItem(STORAGE_KEY).catch(() => {});
-      showToast('success', result.message);
-      router.replace({
-        pathname: '/claim-team',
-        params: { leagueId: result.league_id, isCommissioner: 'true' },
-      });
+
+      const goToClaim = () =>
+        router.replace({
+          pathname: '/claim-team',
+          params: { leagueId: result.league_id, isCommissioner: 'true' },
+        });
+
+      // Surface history reconciliation so a name-match failure can't silently
+      // swallow the standings the user took the time to enter.
+      const sentHistory = !!history?.length;
+      const inserted = result.history_inserted ?? 0;
+      const unmatched = result.history_unmatched ?? [];
+      if (sentHistory && inserted === 0) {
+        const names = unmatched.slice(0, 6).join(', ');
+        Alert.alert(
+          "League created — but past seasons weren't saved",
+          `None of the imported standings matched your team names${
+            names ? ` (unmatched: ${names}${unmatched.length > 6 ? '…' : ''})` : ''
+          }. Rename your teams to match the standings, then add history from League Info → "Add Season History."`,
+          [{ text: 'OK', onPress: goToClaim }],
+        );
+        return;
+      }
+      if (sentHistory && unmatched.length > 0) {
+        showToast('info', `Saved — but ${unmatched.length} team${unmatched.length === 1 ? '' : 's'} didn't match and were skipped.`);
+      } else {
+        showToast('success', result.message);
+      }
+      goToClaim();
     } catch (err: any) {
       Alert.alert('Import failed', err.message ?? 'Unknown error');
     }
@@ -562,6 +577,17 @@ export function ScreenshotImport() {
   })();
 
   const nextLabel = step === 7 && state.historySeasons.length === 0 ? 'Skip' : 'Next';
+
+  // Step 6 (draft) inputs shared by DraftPhaseSelector, the traded-picks
+  // scanner, and the traded-picks editor. Screenshot imports reference teams
+  // by name (no roster ids exist yet).
+  const draftTeamRefs = state.teams.map((t) => ({ key: t.team_name, name: t.team_name }));
+  const tradedPickSeasons = computeImportSeasons(
+    state.wizardState.season,
+    state.wizardState.sport,
+    state.wizardState.maxDraftYears,
+    state.draftPhase !== 'in_season',
+  );
 
   return (
     // Override the active-league sport so the wizard's chrome (Next/Import
@@ -637,7 +663,7 @@ export function ScreenshotImport() {
                   usesLottery={state.wizardState.rookieDraftOrder === 'Lottery'}
                   phase={state.draftPhase}
                   onPhaseChange={(v) => dispatch({ type: 'SET_DRAFT_PHASE', value: v })}
-                  teams={state.teams.map((t) => ({ key: t.team_name, name: t.team_name }))}
+                  teams={draftTeamRefs}
                   rounds={state.wizardState.rookieDraftRounds}
                   lotteryOrder={state.lotteryOrder}
                   onLotteryOrderChange={(v) => dispatch({ type: 'SET_LOTTERY_ORDER', value: v })}
@@ -646,34 +672,23 @@ export function ScreenshotImport() {
                   defaultRound2Order={reverseStandingsNamesFromHistory(state.historySeasons)}
                 />
                 {state.wizardState.leagueType === 'Dynasty' && (
-                  <>
+                  <TradedPicksEditor
+                    teams={draftTeamRefs}
+                    seasons={tradedPickSeasons}
+                    rounds={state.wizardState.rookieDraftRounds}
+                    value={state.tradedPicks}
+                    onChange={(v) => dispatch({ type: 'SET_TRADED_PICKS', value: v })}
+                  >
                     <TradedPicksScanner
-                      teams={state.teams.map((t) => ({ key: t.team_name, name: t.team_name }))}
-                      seasons={computeImportSeasons(
-                        state.wizardState.season,
-                        state.wizardState.sport,
-                        state.wizardState.maxDraftYears,
-                        state.draftPhase !== 'in_season',
-                      )}
+                      teams={draftTeamRefs}
+                      seasons={tradedPickSeasons}
                       rounds={state.wizardState.rookieDraftRounds}
                       sport={state.wizardState.sport}
                       defaultDraftYear={parseSeasonStartYear(state.wizardState.season)}
                       value={state.tradedPicks}
                       onChange={(v) => dispatch({ type: 'SET_TRADED_PICKS', value: v })}
                     />
-                    <TradedPicksEditor
-                      teams={state.teams.map((t) => ({ key: t.team_name, name: t.team_name }))}
-                      seasons={computeImportSeasons(
-                        state.wizardState.season,
-                        state.wizardState.sport,
-                        state.wizardState.maxDraftYears,
-                        state.draftPhase !== 'in_season',
-                      )}
-                      rounds={state.wizardState.rookieDraftRounds}
-                      value={state.tradedPicks}
-                      onChange={(v) => dispatch({ type: 'SET_TRADED_PICKS', value: v })}
-                    />
-                  </>
+                  </TradedPicksEditor>
                 )}
               </>
             )}

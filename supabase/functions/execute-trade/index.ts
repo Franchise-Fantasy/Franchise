@@ -114,7 +114,7 @@ Deno.serve(async (req) => {
 
     const { data: league } = await supabaseAdmin
       .from('leagues')
-      .select('created_by, name, trade_deadline, taxi_slots, taxi_max_experience, season, roster_size, position_limits, waiver_type, waiver_period_days, sport')
+      .select('created_by, name, trade_deadline, taxi_slots, taxi_max_experience, season, roster_size, position_limits, waiver_type, waiver_period_days, sport, teams, current_teams, rookie_draft_rounds, max_future_seasons')
       .eq('id', proposal.league_id)
       .single();
     const sport = (league as any)?.sport ?? null;
@@ -197,6 +197,112 @@ Deno.serve(async (req) => {
     const allPlayerIds = playerItems.map((i: any) => i.player_id);
     const pickItems = items.filter((i: any) => i.draft_pick_id != null);
     const allPickIds = pickItems.map((i: any) => i.draft_pick_id);
+    const swapItems = items.filter((i: any) => i.pick_swap_season != null);
+
+    // Protection guards. Checked here (not in the RPC) so the client gets a
+    // friendly 400 instead of a rolled-back generic 500.
+    const protectionItems = pickItems.filter((i: any) => i.protection_threshold != null);
+    if (protectionItems.length > 0) {
+      // A threshold must be a meaningful lottery range for this league:
+      // Top-(teams) or higher would mean the pick can never convey.
+      const teamCount = league?.current_teams ?? league?.teams ?? 0;
+      const maxThreshold = Math.max(1, teamCount - 1);
+      for (const item of protectionItems) {
+        const threshold = item.protection_threshold ?? 0;
+        if (threshold < 1 || threshold > maxThreshold) {
+          throw new HttpError(`Pick protection must be between Top-1 and Top-${maxThreshold} for this league.`);
+        }
+      }
+
+      // A pick carries at most ONE protection. Re-protecting a re-traded pick
+      // would overwrite the original threshold while the protection owner stays
+      // locked to the first protector — silently rewriting the earlier deal.
+      const { data: alreadyProtected } = await supabaseAdmin
+        .from('draft_picks')
+        .select('id, season, round, protection_threshold, protection_owner_id')
+        .eq('league_id', proposal.league_id)
+        .in('id', protectionItems.map((i: any) => i.draft_pick_id))
+        .not('protection_threshold', 'is', null);
+      if (alreadyProtected && alreadyProtected.length > 0) {
+        const p = alreadyProtected[0];
+        let ownerName: string | null = null;
+        if (p.protection_owner_id) {
+          const { data: ownerTeam } = await supabaseAdmin
+            .from('teams').select('name').eq('id', p.protection_owner_id).single();
+          ownerName = ownerTeam?.name ?? null;
+        }
+        throw new HttpError(
+          `The ${formatPickLabel(p.season, p.round)} pick is already Top-${p.protection_threshold} protected` +
+          `${ownerName ? ` for ${ownerName}` : ''}. A pick can only carry one protection — remove it from this trade or trade the pick without a new protection.`,
+        );
+      }
+    }
+
+    // Swap guards. A pick_swap is (season, round, beneficiary, counterparty).
+    // Checked here so a duplicate swap fails with a friendly 400 instead of the
+    // unique-constraint's rolled-back generic 500, and a reverse-direction
+    // ("mutual") swap is blocked outright — two swaps over the same pair/round
+    // undo each other at the lottery, silently voiding whoever paid for the
+    // second one.
+    if (swapItems.length > 0) {
+      const rookieRounds = league?.rookie_draft_rounds ?? 2;
+      const startYear = parseInt(String(league?.season ?? '').split('-')[0], 10);
+      const maxFuture = league?.max_future_seasons ?? 3;
+
+      // Normalize: item.from_team_id = counterparty, item.to_team_id = beneficiary.
+      const swaps = swapItems.map((i: any) => ({
+        season: i.pick_swap_season as string,
+        round: i.pick_swap_round as number,
+        benef: i.to_team_id as string,
+        counter: i.from_team_id as string,
+      }));
+
+      // 1. Structural validity — a swap round/season that can never resolve.
+      for (const sw of swaps) {
+        if (!Number.isInteger(sw.round) || sw.round < 1 || sw.round > rookieRounds) {
+          throw new HttpError(`Pick swap round must be between 1 and ${rookieRounds} for this league.`);
+        }
+        const swapYear = parseInt(String(sw.season).split('-')[0], 10);
+        if (!Number.isFinite(startYear) || swapYear < startYear || swapYear > startYear + maxFuture) {
+          throw new HttpError(`Pick swap season ${sw.season} is outside this league's tradable window.`);
+        }
+        if (sw.benef === sw.counter) {
+          throw new HttpError('A pick swap needs two different teams.');
+        }
+      }
+
+      const samePair = (
+        aB: string, aC: string, bB: string, bC: string,
+      ) => (aB === bB && aC === bC) || (aB === bC && aC === bB);
+
+      // 2. No duplicate/contradictory swaps WITHIN this proposal.
+      for (let a = 0; a < swaps.length; a++) {
+        for (let b = a + 1; b < swaps.length; b++) {
+          const x = swaps[a], y = swaps[b];
+          if (x.season === y.season && x.round === y.round &&
+              samePair(x.benef, x.counter, y.benef, y.counter)) {
+            throw new HttpError('This trade has two pick swaps between the same teams for the same round.');
+          }
+        }
+      }
+
+      // 3. No conflict with an existing unresolved swap (either direction).
+      const { data: existingSwaps } = await supabaseAdmin
+        .from('pick_swaps')
+        .select('season, round, beneficiary_team_id, counterparty_team_id')
+        .eq('league_id', proposal.league_id)
+        .eq('resolved', false);
+      for (const sw of swaps) {
+        const conflict = (existingSwaps ?? []).find((e: any) =>
+          e.season === sw.season && e.round === sw.round &&
+          samePair(e.beneficiary_team_id, e.counterparty_team_id, sw.benef, sw.counter));
+        if (conflict) {
+          throw new HttpError(
+            `A pick swap between these teams already exists for the ${formatPickLabel(sw.season, sw.round)} pick — resolve or reverse it before adding another.`,
+          );
+        }
+      }
+    }
 
     if (allPlayerIds.length > 0 || allPickIds.length > 0) {
       let lockedQuery = supabaseAdmin
@@ -476,7 +582,6 @@ Deno.serve(async (req) => {
 
     const timestamp = new Date().toISOString();
     const todayDate = timestamp.slice(0, 10); // YYYY-MM-DD
-    const swapItems = items.filter((i: any) => i.pick_swap_season != null);
 
     // Snapshot pre-trade rosters into daily_lineups so historical views are preserved.
     // Use allSettled so a single team's snapshot failure doesn't abort the rest, but

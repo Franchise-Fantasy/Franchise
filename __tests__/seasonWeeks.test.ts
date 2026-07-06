@@ -2,6 +2,8 @@ import {
   applyCupWeekToggle,
   computeMaxWeeks,
   defaultSeasonStart,
+  deriveTradeDeadlineDate,
+  deriveTradeDeadlineWeek,
   regularSeasonWeekEndDates,
   tradeDeadlineDateForWeek,
   weekNumberForDate,
@@ -125,6 +127,57 @@ describe('regularSeasonWeekEndDates / tradeDeadlineDateForWeek / weekNumberForDa
     const weeks = regularSeasonWeekEndDates('nba', '2025-26', openingNight, 17, false);
     expect(weekNumberForDate(weeks, '2026-02-10')).toBe(17);
     expect(tradeDeadlineDateForWeek('nba', '2025-26', openingNight, 17, 17, false)).toBe('2026-02-22');
+  });
+});
+
+describe('deriveTradeDeadlineDate / deriveTradeDeadlineWeek (week↔date lockstep)', () => {
+  // NBA 2025-26 opening night — carries the mandatory All-Star double week at
+  // week 17, so the round-trip is exercised across a merge window, not just
+  // clean 7-day steps.
+  const base = {
+    sport: 'nba' as const,
+    season: '2025-26',
+    seasonStartDate: '2025-10-21',
+    regularSeasonWeeks: 20,
+    combineCupWeek: false,
+  };
+
+  it('week → date returns that week’s end date', () => {
+    expect(deriveTradeDeadlineDate({ ...base, tradeDeadlineWeek: 17 })).toBe('2026-02-22');
+  });
+
+  it('date → week returns the containing week number', () => {
+    // A date inside the merged All-Star double week resolves to week 17.
+    expect(deriveTradeDeadlineWeek({ ...base, tradeDeadlineDate: '2026-02-10' })).toBe(17);
+  });
+
+  it('round-trips: every week maps to a date that maps back to the same week', () => {
+    for (let week = 1; week <= base.regularSeasonWeeks; week++) {
+      const date = deriveTradeDeadlineDate({ ...base, tradeDeadlineWeek: week });
+      expect(date).not.toBeNull();
+      expect(deriveTradeDeadlineWeek({ ...base, tradeDeadlineDate: date })).toBe(week);
+    }
+  });
+
+  it('a custom mid-week date snaps to its containing week, whose end date it then becomes', () => {
+    // Fine-tune to Wed Nov 5 — inside week 3 (Tue Oct 21 opener → wk1 Oct 21-26,
+    // wk2 Oct 27-Nov 2, wk3 Nov 3-9). Nudging the week stepper then collapses
+    // the date onto that week's Sunday end. This is the "never different"
+    // lockstep the two controls guarantee.
+    const week = deriveTradeDeadlineWeek({ ...base, tradeDeadlineDate: '2025-11-05' });
+    expect(week).toBe(3);
+    expect(deriveTradeDeadlineDate({ ...base, tradeDeadlineWeek: week })).toBe('2025-11-09');
+  });
+
+  it('treats week 0 / null date as "no deadline"', () => {
+    expect(deriveTradeDeadlineDate({ ...base, tradeDeadlineWeek: 0 })).toBeNull();
+    expect(deriveTradeDeadlineWeek({ ...base, tradeDeadlineDate: null })).toBe(0);
+  });
+
+  it('falls back to the default season start when none is set', () => {
+    // No seasonStartDate → defaultSeasonStart drives the week math; still a
+    // valid, non-null derivation rather than a crash.
+    expect(deriveTradeDeadlineDate({ ...base, seasonStartDate: null, tradeDeadlineWeek: 1 })).not.toBeNull();
   });
 });
 

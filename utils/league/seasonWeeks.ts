@@ -177,3 +177,62 @@ export function weekNumberForDate(weeks: WeekEndDate[], date: string): number {
   const containing = weeks.find((w) => date <= w.endDate);
   return containing ? containing.weekNumber : weeks[weeks.length - 1].weekNumber;
 }
+
+/** Parse a 'YYYY-MM-DD' string to a local-midnight Date (RN-free, no dayjs). */
+function ymdToLocalDate(ymd: string): Date {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+/** The wizard-state fields the trade-deadline derivations read. */
+interface TradeDeadlineFields {
+  sport: Sport;
+  season: string;
+  seasonStartDate: string | null;
+  regularSeasonWeeks: number;
+  combineCupWeek?: boolean;
+}
+
+/**
+ * The persisted `tradeDeadlineDate` for a given `tradeDeadlineWeek` (0 → no
+ * deadline). The date is the value that actually gets saved; the "Deadline
+ * Week" stepper is a quick-set shortcut that derives it. Both create-league
+ * and the import wizard re-run this after any change that shifts the calendar
+ * (season, start date, sport, week counts, Cup toggle) so a stale date never
+ * survives a structural edit.
+ */
+export function deriveTradeDeadlineDate(
+  s: TradeDeadlineFields & { tradeDeadlineWeek: number },
+): string | null {
+  if (s.tradeDeadlineWeek <= 0) return null;
+  const start = s.seasonStartDate ? ymdToLocalDate(s.seasonStartDate) : defaultSeasonStart(s.sport, s.season);
+  return tradeDeadlineDateForWeek(
+    s.sport,
+    s.season,
+    start,
+    s.regularSeasonWeeks,
+    s.tradeDeadlineWeek,
+    s.combineCupWeek ?? false,
+  );
+}
+
+/**
+ * Reverse of {@link deriveTradeDeadlineDate}: the regular-season week whose
+ * window contains a custom-picked `tradeDeadlineDate` (null → 0). Keeps the
+ * "Deadline Week" stepper in lockstep when the user fine-tunes the exact date
+ * — the two controls represent the same deadline and must never drift apart.
+ */
+export function deriveTradeDeadlineWeek(
+  s: TradeDeadlineFields & { tradeDeadlineDate: string | null },
+): number {
+  if (!s.tradeDeadlineDate) return 0;
+  const start = s.seasonStartDate ? ymdToLocalDate(s.seasonStartDate) : defaultSeasonStart(s.sport, s.season);
+  const weeks = regularSeasonWeekEndDates(
+    s.sport,
+    s.season,
+    start,
+    s.regularSeasonWeeks,
+    s.combineCupWeek ?? false,
+  );
+  return weekNumberForDate(weeks, s.tradeDeadlineDate);
+}

@@ -13,6 +13,7 @@ import {
 import { ThemedText } from "@/components/ui/ThemedText";
 import { Brand, Fonts } from "@/constants/Colors";
 import { useColors } from "@/hooks/useColors";
+import { eliminatedRoundNumber, isEliminatedResult, PLAYOFF_RESULT } from "@/types/playoff";
 import { ms, s } from "@/utils/scale";
 
 const PATCH_SOURCE = require("../../assets/images/patch_logo.png");
@@ -79,6 +80,18 @@ interface RosterHeroProps {
     taxiCount: number;
     onBlockCount: number;
   };
+  /** Last completed season's result — replaces the meaningless live 0-0
+   *  record in the offseason with the real record, finish, and playoff
+   *  result. Null for a franchise with no archived season yet. */
+  lastSeason?: {
+    wins: number;
+    losses: number;
+    ties: number;
+    finalStanding: number | null;
+    leagueSize: number | null;
+    playoffResult: string | null;
+    season: string;
+  } | null;
   onPrevDay: () => void;
   onNextDay: () => void;
   onGoToToday: () => void;
@@ -92,12 +105,64 @@ interface RosterHeroProps {
   headerRight?: ReactNode;
 }
 
+function formatWLT(wins: number, losses: number, ties: number): string {
+  return ties > 0 ? `${wins}-${losses}-${ties}` : `${wins}-${losses}`;
+}
+
 function formatRecord(t: HeroTeam | null | undefined): string {
   if (!t) return "";
-  const w = t.wins ?? 0;
-  const l = t.losses ?? 0;
-  const ti = t.ties ?? 0;
-  return ti > 0 ? `${w}-${l}-${ti}` : `${w}-${l}`;
+  return formatWLT(t.wins ?? 0, t.losses ?? 0, t.ties ?? 0);
+}
+
+/** 1 → "1st", 2 → "2nd", 11 → "11th". */
+function ordinal(n: number): string {
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${n}th`;
+  switch (n % 10) {
+    case 1:
+      return `${n}st`;
+    case 2:
+      return `${n}nd`;
+    case 3:
+      return `${n}rd`;
+    default:
+      return `${n}th`;
+  }
+}
+
+interface OffseasonSeal {
+  label: string;
+  tone: "champ" | "gold" | "muted";
+}
+
+/** The offseason "finish seal" — how last season ended. Champion fills gold;
+ *  a missed-playoffs finish reads muted; every other placement is a gold
+ *  outline. Returns null for an absent/unrecognized result (no seal shown). */
+function buildOffseasonSeal(
+  playoffResult: string | null | undefined,
+): OffseasonSeal | null {
+  if (!playoffResult) return null;
+  switch (playoffResult) {
+    case PLAYOFF_RESULT.CHAMPION:
+      return { label: "Champions", tone: "champ" };
+    case PLAYOFF_RESULT.RUNNER_UP:
+      return { label: "Runner-up", tone: "gold" };
+    case PLAYOFF_RESULT.THIRD_PLACE:
+      return { label: "Third place", tone: "gold" };
+    case PLAYOFF_RESULT.FOURTH_PLACE:
+      return { label: "Fourth place", tone: "gold" };
+    case PLAYOFF_RESULT.MISSED_PLAYOFFS:
+      return { label: "Missed playoffs", tone: "muted" };
+    case "playoff_participant":
+      return { label: "Made playoffs", tone: "gold" };
+  }
+  if (isEliminatedResult(playoffResult)) {
+    return {
+      label: `Out in Round ${eliminatedRoundNumber(playoffResult)}`,
+      tone: "gold",
+    };
+  }
+  return null;
 }
 
 interface StatusLine {
@@ -252,6 +317,7 @@ export function RosterHero({
   weekIsLive,
   lineupDay,
   rosterStats,
+  lastSeason,
   onPrevDay,
   onNextDay,
   onGoToToday,
@@ -293,6 +359,29 @@ export function RosterHero({
   const teamName = myTeam?.name ?? "";
   const showLineupBar =
     hasWeek && !!lineupDay && lineupDay.starterCount > 0;
+
+  // Offseason retrospective — the just-closed season's real record + finish
+  // stand in for the live 0-0, which advance-season zeroes and is meaningless.
+  const offseasonSeal =
+    isOffseason && lastSeason ? buildOffseasonSeal(lastSeason.playoffResult) : null;
+  const lastSeasonRecord = lastSeason
+    ? formatWLT(lastSeason.wins, lastSeason.losses, lastSeason.ties)
+    : "";
+  const identityLabel = isOffseason
+    ? teamName
+      ? `${teamName}${
+          lastSeason
+            ? `, last season ${lastSeasonRecord}${
+                lastSeason.finalStanding
+                  ? `, finished ${ordinal(lastSeason.finalStanding)}`
+                  : ""
+              }`
+            : ""
+        }`
+      : tricode
+    : myTeam?.name
+      ? `${myTeam.name}${record ? `, ${record}` : ""}`
+      : tricode;
 
   // The week chip opens the weekly summary when in-season; off-season and
   // pre-tip-off it's a static label. Mirrors HomeHero's conditional-wrapper.
@@ -415,15 +504,11 @@ export function RosterHero({
               type="display"
               style={styles.tricode}
               numberOfLines={1}
-              accessibilityLabel={
-                myTeam?.name
-                  ? `${myTeam.name}${record ? `, ${record}` : ""}`
-                  : tricode
-              }
+              accessibilityLabel={identityLabel}
             >
               {tricode}
             </ThemedText>
-            {record ? (
+            {record && !isOffseason ? (
               <ThemedText
                 type="mono"
                 style={styles.identityRecord}
@@ -439,6 +524,35 @@ export function RosterHero({
             </ThemedText>
           ) : null}
         </View>
+
+        {isOffseason && lastSeason && (
+          <View style={styles.lastSeasonBlock}>
+            <ThemedText
+              type="varsitySmall"
+              style={styles.lastSeasonCap}
+              numberOfLines={1}
+            >
+              {lastSeason.season} FINAL
+            </ThemedText>
+            <ThemedText
+              type="mono"
+              style={styles.lastSeasonRecord}
+              numberOfLines={1}
+            >
+              {lastSeasonRecord}
+            </ThemedText>
+            {lastSeason.finalStanding ? (
+              <ThemedText
+                type="mono"
+                style={styles.lastSeasonRank}
+                numberOfLines={1}
+              >
+                {ordinal(lastSeason.finalStanding)}
+                {lastSeason.leagueSize ? ` of ${lastSeason.leagueSize}` : ""}
+              </ThemedText>
+            ) : null}
+          </View>
+        )}
 
         {hasWeek && (
           <View style={styles.matchupBlock}>
@@ -490,6 +604,37 @@ export function RosterHero({
           </View>
         )}
       </View>
+
+      {/* ── Offseason finish seal ─ how last season ended ──────────────── */}
+      {offseasonSeal && (
+        <View style={styles.sealRow}>
+          <View
+            style={[
+              styles.seal,
+              offseasonSeal.tone === "champ" && styles.sealChamp,
+              offseasonSeal.tone === "muted" && styles.sealMuted,
+            ]}
+          >
+            {offseasonSeal.tone === "champ" && (
+              <Ionicons
+                name="trophy"
+                size={ms(11)}
+                color={Brand.ink}
+                style={styles.sealIcon}
+              />
+            )}
+            <Text
+              style={[
+                styles.sealText,
+                offseasonSeal.tone === "champ" && styles.sealTextChamp,
+                offseasonSeal.tone === "muted" && styles.sealTextMuted,
+              ]}
+            >
+              {offseasonSeal.label}
+            </Text>
+          </View>
+        </View>
+      )}
 
       {/* ── Lineup health bar ─ per-starter availability + status ────── */}
       {showLineupBar && (
@@ -825,6 +970,69 @@ const styles = StyleSheet.create({
   matchupFallback: {
     fontSize: ms(13),
     letterSpacing: 0.8,
+  },
+
+  // ── Offseason retrospective (last-season stat + finish seal) ─────────
+  lastSeasonBlock: {
+    alignItems: "flex-end",
+    flexShrink: 0,
+  },
+  lastSeasonCap: {
+    color: Brand.vintageGold,
+    fontSize: ms(8.5),
+    letterSpacing: 1.2,
+  },
+  lastSeasonRecord: {
+    color: Brand.ecru,
+    fontSize: ms(20),
+    letterSpacing: 0.2,
+    fontVariant: ["tabular-nums"],
+    marginTop: s(1),
+  },
+  lastSeasonRank: {
+    color: Brand.ecruMuted,
+    fontSize: ms(10),
+    letterSpacing: 0.4,
+    marginTop: s(1),
+  },
+  sealRow: {
+    marginBottom: s(10),
+  },
+  seal: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: s(6),
+    paddingHorizontal: s(10),
+    paddingVertical: s(4),
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(181, 123, 48, 0.55)",
+    backgroundColor: "rgba(181, 123, 48, 0.14)",
+  },
+  sealChamp: {
+    backgroundColor: Brand.vintageGold,
+    borderColor: Brand.vintageGold,
+  },
+  sealMuted: {
+    borderColor: "rgba(233, 226, 203, 0.28)",
+    backgroundColor: "rgba(233, 226, 203, 0.06)",
+  },
+  sealIcon: {
+    marginTop: -1,
+  },
+  sealText: {
+    fontFamily: Fonts.varsityBold,
+    color: Brand.vintageGold,
+    fontSize: ms(10),
+    letterSpacing: 1.0,
+    textTransform: "uppercase",
+  },
+  sealTextChamp: {
+    color: Brand.ink,
+  },
+  sealTextMuted: {
+    color: Brand.ecruMuted,
   },
 
   // ── Lineup health bar (signature) ───────────────────────────────────

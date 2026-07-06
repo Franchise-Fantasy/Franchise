@@ -76,6 +76,27 @@ export function useOffseasonActions({ leagueId, season, isDynasty }: Args) {
   };
 
   const handleCreateRookieDraft = async () => {
+    // Every team must have a roster before the rookie draft can be created.
+    // Imported leagues can be created with "finish rosters later" placeholder
+    // teams (0 league_players); seeding a rookie draft on top of empty rosters
+    // produces a broken dynasty. Fast client pre-check for a clear message —
+    // create-rookie-draft enforces the same gate authoritatively.
+    const { data } = await supabase
+      .from('teams')
+      .select('name, league_players:league_players!league_players_team_id_fkey(count)')
+      .eq('league_id', leagueId);
+    const teams = (data ?? []) as { name: string; league_players?: { count: number }[] }[];
+    const missing = teams
+      .filter((t) => (t.league_players?.[0]?.count ?? 0) === 0)
+      .map((t) => t.name);
+    if (missing.length > 0) {
+      Alert.alert(
+        'Rosters Not Imported',
+        `These teams still need their rosters imported before the rookie draft can be created:\n\n${missing.join('\n')}`,
+      );
+      return;
+    }
+
     setLoading(true);
     setLoadingLabel('Creating the rookie draft…');
     try {
@@ -144,6 +165,10 @@ export function useOffseasonActions({ leagueId, season, isDynasty }: Args) {
           .from('drafts')
           .select('draft_type, time_limit')
           .eq('league_id', leagueId)
+          // Inherit from the previous SEASON draft only — a rookie draft's
+          // clock (often a multi-hour slow clock) must not leak into the next
+          // season's startup draft just because it was created more recently.
+          .neq('type', 'rookie')
           .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle(),

@@ -33,6 +33,16 @@ import { ms, s } from '@/utils/scale';
  * dragging happens from the reorder handle only, so the parent scroll still
  * pans normally everywhere else. A screen-reader move-up/move-down action pair
  * is exposed on every row as the accessible fallback for the drag gesture.
+ *
+ * Rows are positioned with `transform: translateY` (not the `top` layout prop):
+ * under Reanimated + Fabric, animating `top` on an absolutely-positioned view
+ * whose `zIndex` also changes flickers the view back to the container origin
+ * for a frame on gesture activation — the row appeared to "jump to the top" on
+ * press. Transforms don't hit that layout path.
+ *
+ * Pass `renderSlotLabel` to draw a fixed rank gutter (1, 2, 3 …) down the left
+ * edge: the labels stay pinned to their slot while the cards slide past them,
+ * instead of a per-row number riding along inside the moving card.
  */
 
 const SPRING = { damping: 22, stiffness: 210, mass: 0.6 } as const;
@@ -78,6 +88,15 @@ interface SortableListProps<T> {
   activateAfterLongPressMs?: number;
   /** Per-row accessibility label (e.g. `"Portland, pick 3"`). */
   accessibilityItemLabel?: (item: T, index: number) => string;
+  /**
+   * Draws a fixed rank gutter down the left edge — one static label per slot,
+   * vertically centred on the row, that does NOT move when a card is dragged.
+   * Use for ordered lists where the position number belongs to the *slot*, not
+   * the card (draft order, ranked choice). Omit for an unnumbered list.
+   */
+  renderSlotLabel?: (index: number) => ReactNode;
+  /** Width of the rank gutter. Defaults to `s(28)`. Ignored without `renderSlotLabel`. */
+  slotLabelWidth?: number;
 }
 
 export function SortableList<T>({
@@ -90,9 +109,12 @@ export function SortableList<T>({
   handleSide = 'right',
   activateAfterLongPressMs = 180,
   accessibilityItemLabel,
+  renderSlotLabel,
+  slotLabelWidth = s(28),
 }: SortableListProps<T>) {
   const fullHeight = itemHeight + gap;
   const count = data.length;
+  const leftOffset = renderSlotLabel ? slotLabelWidth : 0;
 
   // id → slot index. Lives on the UI thread so the drag can shuffle it at 60fps.
   const positions = useSharedValue<Record<string, number>>(
@@ -137,6 +159,22 @@ export function SortableList<T>({
 
   return (
     <View style={{ height: Math.max(0, count * fullHeight - gap) }}>
+      {/* Fixed rank gutter — one static label per slot, pinned while cards slide. */}
+      {renderSlotLabel &&
+        data.map((_, index) => (
+          <View
+            key={`slot-${index}`}
+            pointerEvents="none"
+            accessible={false}
+            importantForAccessibility="no-hide-descendants"
+            style={[
+              styles.slotLabel,
+              { top: index * fullHeight, height: itemHeight, width: slotLabelWidth },
+            ]}
+          >
+            {renderSlotLabel(index)}
+          </View>
+        ))}
       {data.map((item, index) => {
         const id = keyExtractor(item);
         return (
@@ -149,6 +187,7 @@ export function SortableList<T>({
             count={count}
             fullHeight={fullHeight}
             itemHeight={itemHeight}
+            leftOffset={leftOffset}
             handleSide={handleSide}
             longPressMs={activateAfterLongPressMs}
             a11yLabel={accessibilityItemLabel?.(item, index)}
@@ -172,6 +211,7 @@ interface SortableRowProps {
   count: number;
   fullHeight: number;
   itemHeight: number;
+  leftOffset: number;
   handleSide: 'left' | 'right';
   longPressMs: number;
   a11yLabel?: string;
@@ -188,6 +228,7 @@ function SortableRow({
   count,
   fullHeight,
   itemHeight,
+  leftOffset,
   handleSide,
   longPressMs,
   a11yLabel,
@@ -234,6 +275,11 @@ function SortableRow({
       }
     })
     .onEnd(() => {
+      // Hand off from the finger position to the settled slot: `top` was frozen
+      // at the pre-drag slot during the drag (the reaction skips the active
+      // row), so seed it with the live drag position before springing — else it
+      // snaps back to the old slot for a frame when `activeId` clears.
+      top.value = activeTop.value;
       top.value = withSpring((positions.value[id] ?? 0) * fullHeight, SPRING);
     })
     .onFinalize(() => {
@@ -246,11 +292,7 @@ function SortableRow({
   const rowStyle = useAnimatedStyle(() => {
     const active = activeId.value === id;
     return {
-      position: 'absolute',
-      left: 0,
-      right: 0,
-      height: itemHeight,
-      top: active ? activeTop.value : top.value,
+      transform: [{ translateY: active ? activeTop.value : top.value }],
       zIndex: active ? 10 : 0,
       elevation: active ? 6 : 0,
       shadowOpacity: withTiming(active ? 0.2 : 0, { duration: 140 }),
@@ -271,7 +313,11 @@ function SortableRow({
 
   return (
     <Animated.View
-      style={[styles.rowShadow, rowStyle]}
+      style={[
+        styles.rowShadow,
+        { position: 'absolute', left: leftOffset, right: 0, top: 0, height: itemHeight },
+        rowStyle,
+      ]}
       accessible
       accessibilityLabel={a11yLabel}
       accessibilityHint="Use the move up and move down actions to reorder"
@@ -320,5 +366,12 @@ const styles = StyleSheet.create({
   handle: {
     paddingVertical: s(4),
     paddingHorizontal: s(2),
+  },
+  // Fixed rank gutter cell — pinned to its slot, centred on the row height.
+  slotLabel: {
+    position: 'absolute',
+    left: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

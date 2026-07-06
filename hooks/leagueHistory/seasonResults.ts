@@ -14,7 +14,7 @@ export function useChampions(leagueId: string | null) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('team_seasons')
-        .select('season, playoff_result, team:teams!team_seasons_team_id_fkey(id, name)')
+        .select('season, playoff_result, team_name, team:teams!team_seasons_team_id_fkey(id, name)')
         .eq('league_id', leagueId!)
         .in('playoff_result', [PLAYOFF_RESULT.CHAMPION, PLAYOFF_RESULT.RUNNER_UP])
         .order('season', { ascending: true })
@@ -27,7 +27,9 @@ export function useChampions(leagueId: string | null) {
           byS.set(row.season, { season: row.season, champion: null, runnerUp: null });
         }
         const entry = byS.get(row.season)!;
-        const team = Array.isArray(row.team) ? row.team[0] ?? null : row.team;
+        const teamRow = Array.isArray(row.team) ? row.team[0] ?? null : row.team;
+        // Prefer the name the team went by that season (rebrands) over its current one.
+        const team = teamRow ? { id: teamRow.id, name: row.team_name ?? teamRow.name } : null;
         if (row.playoff_result === PLAYOFF_RESULT.CHAMPION) entry.champion = team;
         else entry.runnerUp = team;
       }
@@ -44,7 +46,7 @@ export function useSeasonStandings(leagueId: string | null) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('team_seasons')
-        .select('id, team_id, season, wins, losses, ties, points_for, points_against, final_standing, playoff_result, team:teams!team_seasons_team_id_fkey(id, name, tricode, logo_key)')
+        .select('id, team_id, season, team_name, wins, losses, ties, points_for, points_against, final_standing, division, playoff_result, team:teams!team_seasons_team_id_fkey(id, name, tricode, logo_key)')
         .eq('league_id', leagueId!)
         .order('season', { ascending: false })
         .order('final_standing', { ascending: true })

@@ -3,6 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 import { corsResponse } from '../_shared/cors.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
+import { buildBracketRows, ImportBracketSchema } from '../_shared/importBracket.ts';
 import { normalizeName } from '../_shared/normalize.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { parseBody, z } from '../_shared/validate.ts';
@@ -23,6 +24,9 @@ const HistoryTeam = z.object({
   points_for: z.number().nullable().optional(),
   points_against: z.number().nullable().optional(),
   standing: z.number().int().nullable().optional(),
+  division: z.number().int().min(1).max(2).nullable().optional(),
+  playoff_result: z.string().nullable().optional(),
+  source_name: z.string().nullable().optional(),
 });
 
 const Body = z.object({
@@ -30,6 +34,7 @@ const Body = z.object({
   history: z.array(z.object({
     season: z.string().min(1),
     teams: z.array(HistoryTeam).min(1),
+    bracket: ImportBracketSchema.nullable().optional(),
   })).min(1),
 });
 
@@ -110,13 +115,15 @@ Deno.serve(async (req) => {
           team_id: teamId,
           league_id,
           season: hs.season,
+          team_name: ht.source_name ?? ht.team_name,
           wins: ht.wins ?? 0,
           losses: ht.losses ?? 0,
           ties: ht.ties ?? 0,
           points_for: ht.points_for ?? 0,
           points_against: ht.points_against ?? 0,
           final_standing: ht.standing ?? 0,
-          playoff_result: null,
+          division: ht.division ?? null,
+          playoff_result: ht.playoff_result ?? null,
         });
       }
     }
@@ -135,10 +142,33 @@ Deno.serve(async (req) => {
       if (error) throw error;
     }
 
+    // Playoff brackets: replace-per-season so re-adding a season corrects its
+    // bracket (there's no natural unique key to upsert on). Only touches seasons
+    // whose submission included a bracket.
+    const bracketRows = history.flatMap((hs) =>
+      hs.bracket?.rounds?.length ? buildBracketRows(league_id, hs.season, hs.bracket, matchTeam) : [],
+    );
+    if (bracketRows.length > 0) {
+      const bracketSeasons = [
+        ...new Set(history.filter((h) => h.bracket?.rounds?.length).map((h) => h.season)),
+      ];
+      const { error: delErr } = await supabaseAdmin
+        .from('playoff_bracket')
+        .delete()
+        .eq('league_id', league_id)
+        .in('season', bracketSeasons);
+      if (delErr) throw delErr;
+      for (let i = 0; i < bracketRows.length; i += 100) {
+        const { error } = await supabaseAdmin.from('playoff_bracket').insert(bracketRows.slice(i, i + 100));
+        if (error) throw error;
+      }
+    }
+
     return jsonResponse({
       inserted: rows.length,
       seasons: Array.from(seasons),
       unmatched_teams: Array.from(new Set(unmatched)),
+      brackets_imported: bracketRows.length,
     });
   } catch (error) {
     return handleError(error, 'import-league-history');

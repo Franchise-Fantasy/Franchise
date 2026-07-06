@@ -152,6 +152,36 @@ export type TradeVetoOption = (typeof TRADE_VETO_OPTIONS)[number];
 export const WAIVER_TYPE_OPTIONS = ['Standard', 'FAAB', 'None'] as const;
 export type WaiverTypeOption = (typeof WAIVER_TYPE_OPTIONS)[number];
 
+// How waiver priority order re-seeds at each season rollover (advance-season).
+// Only consulted for leagues that actually use waiver priority (Standard, and
+// FAAB when faabTiebreak === 'Waiver Priority').
+export const WAIVER_PRIORITY_RESET_OPTIONS = ['Reverse Standings', 'Keep', 'Random'] as const;
+export type WaiverPriorityResetOption = (typeof WAIVER_PRIORITY_RESET_OPTIONS)[number];
+
+export const WAIVER_PRIORITY_RESET_TO_DB: Record<WaiverPriorityResetOption, string> = {
+  'Reverse Standings': 'reverse_standings',
+  'Keep': 'keep',
+  'Random': 'random',
+};
+export const WAIVER_PRIORITY_RESET_DISPLAY: Record<string, WaiverPriorityResetOption> = {
+  reverse_standings: 'Reverse Standings',
+  keep: 'Keep',
+  random: 'Random',
+};
+
+// How an EXACT equal-bid tie is broken in a FAAB league (process-waivers).
+export const FAAB_TIEBREAK_OPTIONS = ['Earliest Bid', 'Waiver Priority'] as const;
+export type FaabTiebreakOption = (typeof FAAB_TIEBREAK_OPTIONS)[number];
+
+export const FAAB_TIEBREAK_TO_DB: Record<FaabTiebreakOption, string> = {
+  'Earliest Bid': 'earliest_bid',
+  'Waiver Priority': 'waiver_priority',
+};
+export const FAAB_TIEBREAK_DISPLAY: Record<string, FaabTiebreakOption> = {
+  earliest_bid: 'Earliest Bid',
+  waiver_priority: 'Waiver Priority',
+};
+
 export const PLAYER_LOCK_OPTIONS = ['Daily', 'Individual'] as const;
 export type PlayerLockOption = (typeof PLAYER_LOCK_OPTIONS)[number];
 
@@ -707,6 +737,10 @@ export interface LeagueWizardState {
   waiverType: WaiverTypeOption;
   waiverPeriodDays: number;
   faabBudget: number;
+  /** How waiver priority re-seeds each new season (Standard / FAAB-by-priority). */
+  waiverPriorityReset: WaiverPriorityResetOption;
+  /** How an exact equal-bid FAAB tie is resolved. */
+  faabTiebreak: FaabTiebreakOption;
   regularSeasonWeeks: number;
   playoffWeeks: number;
   /** Combine the optional NBA Cup knockout week into a double week (NBA only).

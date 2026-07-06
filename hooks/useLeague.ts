@@ -27,7 +27,8 @@ export function useLeague() {
             user_id,
             wins,
             losses,
-            ties
+            ties,
+            league_players:league_players!league_players_team_id_fkey(count)
           )
         `)
         .eq('id', leagueId)

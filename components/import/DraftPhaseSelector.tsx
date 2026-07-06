@@ -77,13 +77,15 @@ export function DraftPhaseSelector({
   const round2Keys = resolveDraftOrder([round2Order, defaultRound2Order, round1Keys], teamKeys);
   const showRound2 = phase === 'lottery_done' && rounds >= 2;
 
-  const renderRow = ({ item, index }: { item: string; index: number }) => (
-    <>
-      <ThemedText style={[styles.pickNum, { color: c.secondaryText }]}>{index + 1}</ThemedText>
-      <ThemedText style={[styles.teamName, { color: c.text }]} numberOfLines={1}>
-        {nameByKey.get(item) ?? item}
-      </ThemedText>
-    </>
+  const renderRow = ({ item }: { item: string; index: number }) => (
+    <ThemedText style={[styles.teamName, { color: c.text }]} numberOfLines={1}>
+      {nameByKey.get(item) ?? item}
+    </ThemedText>
+  );
+
+  // Fixed rank number — stays pinned to its slot while cards drag past it.
+  const renderPickNum = (index: number) => (
+    <ThemedText style={[styles.pickNum, { color: c.secondaryText }]}>{index + 1}</ThemedText>
   );
 
   const rowLabel = (item: string, index: number) =>
@@ -110,6 +112,7 @@ export function DraftPhaseSelector({
             keyExtractor={k => k}
             onReorder={onLotteryOrderChange}
             renderItem={renderRow}
+            renderSlotLabel={renderPickNum}
             itemHeight={ROW_HEIGHT}
             accessibilityItemLabel={rowLabel}
           />
@@ -130,6 +133,7 @@ export function DraftPhaseSelector({
             keyExtractor={k => k}
             onReorder={onRound2OrderChange}
             renderItem={renderRow}
+            renderSlotLabel={renderPickNum}
             itemHeight={ROW_HEIGHT}
             accessibilityItemLabel={rowLabel}
           />
@@ -152,7 +156,7 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.mono,
     fontSize: ms(14),
     fontWeight: '700',
-    width: s(24),
+    textAlign: 'center',
   },
   teamName: {
     flex: 1,

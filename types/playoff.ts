@@ -8,10 +8,54 @@ export const PLAYOFF_RESULT = {
   CHAMPION: 'champion',
   RUNNER_UP: 'runner_up',
   THIRD_PLACE: 'third_place',
+  FOURTH_PLACE: 'fourth_place',
   MISSED_PLAYOFFS: 'missed_playoffs',
 } as const;
 
 export type PlayoffResult = (typeof PLAYOFF_RESULT)[keyof typeof PLAYOFF_RESULT];
+
+/**
+ * Map a free-text / OCR playoff-result value onto one of the fixed placements,
+ * or null if it isn't a recognizable finish. Guards against the vision model
+ * inventing values outside the allowed set (e.g. "semifinalist", "lost in R2")
+ * that would otherwise render as a raw chip. Only used on the import path —
+ * never re-run on the rollover's own `eliminated_round_N` / `playoff_participant`
+ * markers.
+ */
+const PLAYOFF_RESULT_SYNONYMS: Record<string, PlayoffResult> = {
+  champion: 'champion',
+  champions: 'champion',
+  champ: 'champion',
+  winner: 'champion',
+  '1st': 'champion',
+  first: 'champion',
+  'first place': 'champion',
+  'runner up': 'runner_up',
+  runnerup: 'runner_up',
+  finalist: 'runner_up',
+  '2nd': 'runner_up',
+  second: 'runner_up',
+  'second place': 'runner_up',
+  'lost final': 'runner_up',
+  'lost finals': 'runner_up',
+  'third place': 'third_place',
+  third: 'third_place',
+  '3rd': 'third_place',
+  bronze: 'third_place',
+  'fourth place': 'fourth_place',
+  fourth: 'fourth_place',
+  '4th': 'fourth_place',
+  'missed playoffs': 'missed_playoffs',
+  missed: 'missed_playoffs',
+  dnq: 'missed_playoffs',
+  'did not qualify': 'missed_playoffs',
+};
+
+export function normalizePlayoffResult(raw: string | null | undefined): PlayoffResult | null {
+  if (!raw) return null;
+  const key = raw.toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return PLAYOFF_RESULT_SYNONYMS[key] ?? null;
+}
 
 const ELIMINATED_PREFIX = 'eliminated_round_';
 

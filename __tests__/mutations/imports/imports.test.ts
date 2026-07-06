@@ -187,3 +187,180 @@ describe('import-screenshot-league execute — draft phases', () => {
     TIMEOUT,
   );
 });
+
+// import_team_roster fills in a team that "Finish Rosters Later" left as an
+// empty shell. Self-contained (no Claude Vision), so it runs end-to-end: seed a
+// league via execute with one occupied team + one empty team, then exercise the
+// commissioner check, cross-team dedup, happy path, and double-import guard.
+describe('import-screenshot-league import_team_roster — post-creation roster fill', () => {
+  const admin = adminClient();
+  let leagueId: string;
+  let emptyTeamId: string; // 'Bravo Fill' — created as an empty shell
+  let playerIds: string[] = [];
+
+  const OCCUPIED = 0; // playerIds[0] — rostered on Alpha Fill from the start
+  const IMPORT = [1, 2]; // playerIds[1], [2] — imported into the empty team
+
+  async function rosterCount(teamId: string): Promise<number> {
+    const { count } = await admin
+      .from('league_players')
+      .select('id', { count: 'exact', head: true })
+      .eq('team_id', teamId);
+    return count ?? 0;
+  }
+
+  beforeAll(async () => {
+    const { data: players } = await admin.from('players').select('id').limit(3);
+    playerIds = (players ?? []).map((p) => p.id);
+    if (playerIds.length < 3) throw new Error('Need ≥3 players in the dev DB for the import_team_roster tests');
+
+    // bot1 creates the league, so bot1 is the commissioner (created_by).
+    const client = await signInAsBot(1);
+    const { data, error } = await client.functions.invoke('import-screenshot-league', {
+      body: {
+        action: 'execute',
+        league_name: `__TEST__ Fill ${Date.now()}`,
+        league_type: 'dynasty',
+        keeper_count: null,
+        teams: [
+          { team_name: 'Alpha Fill', players: [{ player_id: playerIds[OCCUPIED], position: 'PG', roster_slot: 'BE' }] },
+          { team_name: 'Bravo Fill', players: [] }, // empty shell — "finish rosters later"
+        ],
+        roster_slots: [{ position: 'PG', count: 1 }, { position: 'BE', count: 4 }],
+        scoring_type: 'points',
+        scoring: [{ stat_name: 'PTS', point_value: 1 }],
+        draft_phase: 'in_season',
+        settings: {
+          season: '2026-27',
+          sport: 'nba',
+          regular_season_weeks: 18,
+          playoff_weeks: 3,
+          playoff_teams: 2,
+          max_future_seasons: 2,
+          rookie_draft_rounds: 2,
+          rookie_draft_order: 'lottery',
+          lottery_draws: 1,
+          lottery_odds: null,
+          trade_veto_type: 'commissioner',
+          trade_review_period_hours: 24,
+          trade_votes_to_veto: 4,
+          draft_pick_trading_enabled: true,
+          pick_conditions_enabled: false,
+          waiver_type: 'standard',
+          waiver_period_days: 2,
+          faab_budget: 100,
+          playoff_seeding_format: 'standard',
+          reseed_each_round: false,
+          buy_in_amount: null,
+          trade_deadline: null,
+        },
+      },
+    });
+    if (error) throw new Error(`execute setup failed: ${error.message}`);
+    leagueId = (data as { league_id: string }).league_id;
+
+    const { data: teams } = await admin.from('teams').select('id, name').eq('league_id', leagueId);
+    const byName = new Map((teams ?? []).map((t) => [t.name, t.id]));
+    emptyTeamId = byName.get('Bravo Fill')!;
+    expect(await rosterCount(emptyTeamId)).toBe(0); // sanity: the shell starts empty
+  }, TIMEOUT);
+
+  afterAll(async () => {
+    if (!leagueId) return;
+    await admin.from('draft_picks').delete().eq('league_id', leagueId);
+    await admin.from('drafts').delete().eq('league_id', leagueId);
+    await admin.from('league_players').delete().eq('league_id', leagueId);
+    await admin.from('waiver_priority').delete().eq('league_id', leagueId);
+    await admin.from('team_seasons').delete().eq('league_id', leagueId);
+    await admin.from('league_roster_config').delete().eq('league_id', leagueId);
+    await admin.from('league_scoring_settings').delete().eq('league_id', leagueId);
+    await admin.from('teams').delete().eq('league_id', leagueId);
+    await admin.from('leagues').delete().eq('id', leagueId);
+  }, TIMEOUT);
+
+  it(
+    'rejects import from a non-commissioner — empty team stays empty',
+    async () => {
+      const client = await signInAsBot(3); // regular user, not created_by
+      await client.functions.invoke('import-screenshot-league', {
+        body: {
+          action: 'import_team_roster',
+          league_id: leagueId,
+          team_id: emptyTeamId,
+          players: IMPORT.map((i) => ({ player_id: playerIds[i], position: 'PG', roster_slot: 'BE' })),
+        },
+      });
+      expect(await rosterCount(emptyTeamId)).toBe(0);
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'rejects a player already rostered on another team in the league',
+    async () => {
+      const client = await signInAsBot(1);
+      const { data, error } = await client.functions.invoke('import-screenshot-league', {
+        body: {
+          action: 'import_team_roster',
+          league_id: leagueId,
+          team_id: emptyTeamId,
+          players: [{ player_id: playerIds[OCCUPIED], position: 'PG', roster_slot: 'BE' }],
+        },
+      });
+      const hasErrorSignal =
+        error !== null || (data && typeof data === 'object' && 'error' in (data as any));
+      expect(hasErrorSignal).toBe(true);
+      expect(await rosterCount(emptyTeamId)).toBe(0); // no partial write
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'commissioner imports a roster into the empty team',
+    async () => {
+      const client = await signInAsBot(1);
+      const { data, error } = await client.functions.invoke('import-screenshot-league', {
+        body: {
+          action: 'import_team_roster',
+          league_id: leagueId,
+          team_id: emptyTeamId,
+          players: IMPORT.map((i) => ({ player_id: playerIds[i], position: 'PG', roster_slot: 'BE' })),
+        },
+      });
+      expect(error).toBeNull();
+      expect((data as { players_imported: number }).players_imported).toBe(IMPORT.length);
+      expect(await rosterCount(emptyTeamId)).toBe(IMPORT.length);
+
+      for (const i of IMPORT) {
+        const { data: row } = await admin
+          .from('league_players')
+          .select('team_id')
+          .eq('league_id', leagueId)
+          .eq('player_id', playerIds[i])
+          .single();
+        expect(row?.team_id).toBe(emptyTeamId);
+      }
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'rejects a second import once the team already has a roster',
+    async () => {
+      const client = await signInAsBot(1);
+      const { data, error } = await client.functions.invoke('import-screenshot-league', {
+        body: {
+          action: 'import_team_roster',
+          league_id: leagueId,
+          team_id: emptyTeamId,
+          players: [{ player_id: playerIds[OCCUPIED], position: 'PG', roster_slot: 'BE' }],
+        },
+      });
+      const hasErrorSignal =
+        error !== null || (data && typeof data === 'object' && 'error' in (data as any));
+      expect(hasErrorSignal).toBe(true);
+      expect(await rosterCount(emptyTeamId)).toBe(IMPORT.length); // unchanged
+    },
+    TIMEOUT,
+  );
+});

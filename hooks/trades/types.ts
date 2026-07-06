@@ -13,7 +13,12 @@ export interface TradeItemRow {
   pick_season: string | null;
   pick_round: number | null;
   pick_original_team_name: string | null;
+  /** Protection THIS trade adds to the pick (null if none). */
   protection_threshold: number | null;
+  /** The pick's CURRENT protection from a prior trade — shown so the detail
+   *  view reveals a condition this trade isn't the source of. */
+  pick_protection_threshold: number | null;
+  pick_protection_owner_name: string | null;
   pick_swap_season: string | null;
   pick_swap_round: number | null;
 }

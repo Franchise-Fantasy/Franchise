@@ -7,15 +7,17 @@ import {
 } from 'react-native';
 
 import { LotteryOddsEditor } from '@/components/create-league/LotteryOddsEditor';
+import { PickClockControl } from '@/components/draft/PickClockControl';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ToggleRow } from '@/components/ui/ToggleRow';
-import { DRAFT_TYPE_OPTIONS, getMaxRookieDraftRounds, INITIAL_DRAFT_ORDER_DISPLAY, INITIAL_DRAFT_ORDER_OPTIONS, INITIAL_DRAFT_ORDER_TO_DB, ROOKIE_DRAFT_ORDER_OPTIONS, TIME_PER_PICK_MAX, TIME_PER_PICK_MIN, TIME_PER_PICK_STEP } from '@/constants/LeagueDefaults';
+import { DRAFT_TYPE_OPTIONS, getMaxRookieDraftRounds, INITIAL_DRAFT_ORDER_DISPLAY, INITIAL_DRAFT_ORDER_OPTIONS, INITIAL_DRAFT_ORDER_TO_DB, ROOKIE_DRAFT_ORDER_OPTIONS, TIME_PER_PICK_MIN, TIME_PER_PICK_STEP } from '@/constants/LeagueDefaults';
 import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
+import { isSlowClock } from '@/utils/draft/pickClock';
 import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/league/lottery';
 import { ms, s } from '@/utils/scale';
 
@@ -65,6 +67,7 @@ export function EditDraftSettingsModal({
   const [accelAfterRound, setAccelAfterRound] = useState(5);
   const [accelTime, setAccelTime] = useState(30);
   const [maxYears, setMaxYears] = useState(3);
+  const [rookiePickTime, setRookiePickTime] = useState(120);
   const [rookieRounds, setRookieRounds] = useState(2);
   const [rookieOrder, setRookieOrder] = useState('Reverse Record');
   const [lotteryDraws, setLotteryDraws] = useState(4);
@@ -87,6 +90,7 @@ export function EditDraftSettingsModal({
     setAccelAfterRound(draft?.accelerate_after_round ?? 5);
     setAccelTime(draft?.accelerated_time_limit ?? 30);
     setMaxYears(league.max_future_seasons ?? 3);
+    setRookiePickTime(league.rookie_pick_time_limit ?? 120);
     setRookieRounds(league.rookie_draft_rounds ?? 2);
     setRookieOrder(ORDER_DISPLAY[league.rookie_draft_order] ?? 'Reverse Record');
     setLotteryDraws(league.lottery_draws ?? 4);
@@ -115,6 +119,7 @@ export function EditDraftSettingsModal({
     };
     if (isDynasty) {
       leagueUpdate.max_future_seasons = maxYears;
+      leagueUpdate.rookie_pick_time_limit = rookiePickTime;
       leagueUpdate.rookie_draft_rounds = rookieRounds;
       leagueUpdate.rookie_draft_order = ORDER_TO_DB[rookieOrder] ?? 'reverse_record';
       leagueUpdate.lottery_draws = lotteryDraws;
@@ -129,7 +134,10 @@ export function EditDraftSettingsModal({
     // Acceleration persists only when enabled AND the threshold sits inside
     // the draft (otherwise it could never fire) — store NULL/NULL when off so
     // the edge clock helper falls straight through to the base time_limit.
-    const accelActive = accelEnabled && canAccelerate && accelAfterRound < totalRounds;
+    // Slow (async) drafts never accelerate; the controls are hidden but stale
+    // state from before the pace switch could still be enabled.
+    const accelActive =
+      accelEnabled && canAccelerate && accelAfterRound < totalRounds && !isSlowClock(timePick);
 
     const { error: draftErr } = await supabase
       .from('drafts')
@@ -141,10 +149,23 @@ export function EditDraftSettingsModal({
       })
       .eq('id', draft.id);
 
+    // Keep an already-created (but not started) rookie draft row in sync —
+    // create-rookie-draft snapshots the league's rookie clock at creation
+    // time, so a later settings change would otherwise be silently ignored.
+    const { error: rookieErr } = isDynasty
+      ? await supabase
+          .from('drafts')
+          .update({ time_limit: rookiePickTime })
+          .eq('league_id', leagueId)
+          .eq('type', 'rookie')
+          .in('status', ['unscheduled', 'pending'])
+      : { error: null };
+
     setSaving(false);
 
-    if (leagueErr || draftErr) {
-      Alert.alert('Error', (leagueErr ?? draftErr)!.message);
+    const err = leagueErr ?? draftErr ?? rookieErr;
+    if (err) {
+      Alert.alert('Error', err.message);
       return;
     }
 
@@ -205,18 +226,10 @@ export function EditDraftSettingsModal({
       </View>
 
       {/* Time Per Pick */}
-      <NumberStepper
-        label="Time Per Pick"
-        value={timePick}
-        onValueChange={setTimePick}
-        min={TIME_PER_PICK_MIN}
-        max={TIME_PER_PICK_MAX}
-        step={TIME_PER_PICK_STEP}
-        suffix="s"
-      />
+      <PickClockControl value={timePick} onValueChange={setTimePick} />
 
-      {/* Speed up later rounds */}
-      {canAccelerate && (
+      {/* Speed up later rounds — never offered for slow (async) drafts */}
+      {canAccelerate && !isSlowClock(timePick) && (
         <>
           <ToggleRow
             icon="flash-outline"
@@ -288,6 +301,14 @@ export function EditDraftSettingsModal({
             onValueChange={setRookieRounds}
             min={1}
             max={getMaxRookieDraftRounds(league?.sport ?? 'nba', teamCount)}
+          />
+
+          {/* Rookie Pick Clock — applied when the rookie draft is created;
+              also syncs an already-created draft that hasn't started. */}
+          <PickClockControl
+            label="Rookie Pick Clock"
+            value={rookiePickTime}
+            onValueChange={setRookiePickTime}
           />
 
           {/* Rookie Draft Order */}

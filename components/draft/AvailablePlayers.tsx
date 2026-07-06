@@ -19,6 +19,7 @@ import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { getPreviousSeason } from "@/constants/LeagueDefaults";
 import { queryKeys } from "@/constants/queryKeys";
+import { useSession } from "@/context/AuthProvider";
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColors } from "@/hooks/useColors";
 import { useDraftPlayer } from "@/hooks/useDraftPlayer";
@@ -26,6 +27,7 @@ import { useLeagueScoring } from "@/hooks/useLeagueScoring";
 import { useLeagueScoringType } from "@/hooks/useLeagueScoringType";
 import { TimeRange, usePlayerFilter } from "@/hooks/usePlayerFilter";
 import { usePlayerProjections } from "@/hooks/usePlayerProjections";
+import { useProspectBoard } from "@/hooks/useProspectBoard";
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
 import { preferProjection } from "@/utils/draft/draftRanking";
@@ -309,6 +311,37 @@ export function AvailablePlayers({
     isCategories,
   );
 
+  // Personal prospect big board ("My Board" in the Prospects hub) — powers the
+  // board sort for rookie drafts. prospect_boards.player_id IS players.id, the
+  // same id the pool rows carry, so the join is a Map lookup. The board is
+  // global (not league/sport-scoped); ranks for players outside this pool are
+  // simply never looked up.
+  const userId = useSession()?.user?.id;
+  const { data: boardRows } = useProspectBoard(userId, !!isRookieDraft);
+  const boardRankMap = useMemo(
+    () => new Map((boardRows ?? []).map((r) => [r.player_id, r.rank])),
+    [boardRows],
+  );
+  const hasBoardPlayers = useMemo(
+    () => !!isRookieDraft && (players ?? []).some((p) => boardRankMap.has(p.player_id)),
+    [isRookieDraft, players, boardRankMap],
+  );
+  // null = no explicit choice → defaults ON. Prospects have no pro stats, so
+  // every stat sort is degenerate for a rookie pool — the user's own ranking
+  // is the most useful default order when they've built one.
+  const [boardSortPref, setBoardSortPref] = useState<boolean | null>(null);
+  const boardSortActive = hasBoardPlayers && (boardSortPref ?? true);
+
+  const displayPlayers = useMemo(() => {
+    if (!boardSortActive) return filteredPlayers;
+    // Stable sort: board-ranked players first (by rank); everyone else keeps
+    // the active stat-sort order behind them. Search + filters still apply —
+    // this only reorders what the filter hook returned.
+    const rank = (p: PlayerSeasonStats) =>
+      boardRankMap.get(p.player_id) ?? Number.POSITIVE_INFINITY;
+    return [...filteredPlayers].sort((a, b) => rank(a) - rank(b));
+  }, [boardSortActive, filteredPlayers, boardRankMap]);
+
   const handleDraft = (player: PlayerSeasonStats) => {
     if (!isMyTurn || !currentPick) return;
     if (hasLimits) {
@@ -357,6 +390,10 @@ export function AvailablePlayers({
         : null;
       const limitBlocked = !!limitViolation;
       const draftDisabled = !isMyTurn || isDrafting || limitBlocked;
+      // The user's own prospect-board rank — shown on rookie-draft rows so
+      // "who's my next guy" is answerable at a glance even when board sort
+      // is toggled off or filters reorder the list.
+      const boardRank = isRookieDraft ? boardRankMap.get(item.player_id) : undefined;
 
       return (
         <TouchableOpacity
@@ -369,6 +406,10 @@ export function AvailablePlayers({
           activeOpacity={0.7}
           accessibilityRole="button"
           accessibilityLabel={
+            // The row is a single accessible node, so the visible #rank badge's
+            // own label is dropped — fold it in here or a VoiceOver user never
+            // hears their board rank.
+            (boardRank !== undefined ? `Board rank ${boardRank}, ` : "") +
             `${item.name}, ${formatPosition(item.position)}, ${item.pro_team}` +
             (isProjected ? ", projected" : "") +
             (isCategories
@@ -405,6 +446,14 @@ export function AvailablePlayers({
 
           <View style={styles.info}>
             <View style={styles.nameRow}>
+              {boardRank !== undefined && (
+                <ThemedText
+                  style={[styles.boardRank, { color: c.heritageGold }]}
+                  accessibilityLabel={`Ranked ${boardRank} on your prospect board`}
+                >
+                  #{boardRank}
+                </ThemedText>
+              )}
               <PlayerName
                 name={item.name}
                 type="defaultSemiBold"
@@ -524,7 +573,7 @@ export function AvailablePlayers({
         </TouchableOpacity>
       );
     },
-    [c, scoringWeights, isCategories, isMyTurn, isDrafting, addToQueue, queuedPlayerIds, sport, players, hasLimits, positionLimits, myRoster, projectedIds],
+    [c, scoringWeights, isCategories, isMyTurn, isDrafting, addToQueue, queuedPlayerIds, sport, players, hasLimits, positionLimits, myRoster, projectedIds, isRookieDraft, boardRankMap],
   );
 
   if (isLoading) {
@@ -543,6 +592,47 @@ export function AvailablePlayers({
         timeRange={timeRange}
         onTimeRangeChange={setTimeRange}
       />
+      {/* Rookie drafts: sort the pool by the user's prospect big board. Only
+          offered when the board intersects this pool; defaults ON. */}
+      {hasBoardPlayers && (
+        <View style={[styles.boardSortRow, { borderBottomColor: c.border }]}>
+          <TouchableOpacity
+            style={[
+              styles.boardChip,
+              {
+                borderColor: boardSortActive ? c.accent : c.border,
+                backgroundColor: boardSortActive ? c.accent : "transparent",
+              },
+            ]}
+            onPress={() => setBoardSortPref(!boardSortActive)}
+            // Chip is ~22pt tall; pad the touch target to the 44pt minimum.
+            hitSlop={{ top: s(11), bottom: s(11), left: s(4), right: s(4) }}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: boardSortActive }}
+            accessibilityLabel="Sort by my prospect board"
+          >
+            <Ionicons
+              name={boardSortActive ? "checkmark" : "list-outline"}
+              size={12}
+              color={boardSortActive ? c.statusText : c.secondaryText}
+            />
+            <ThemedText
+              type="varsitySmall"
+              style={[
+                styles.boardChipText,
+                { color: boardSortActive ? c.statusText : c.secondaryText },
+              ]}
+            >
+              My Board
+            </ThemedText>
+          </TouchableOpacity>
+          {boardSortActive && (
+            <ThemedText style={[styles.boardSortHint, { color: c.secondaryText }]}>
+              Sorted by your prospect rankings
+            </ThemedText>
+          )}
+        </View>
+      )}
       {/* Column-key header. FPTS leagues key the right-hand stat column (mirrors
           FreeAgentList); category rows render their 5-stat slash inline under
           each name, so their legend left-aligns over the name/stat column to
@@ -571,7 +661,7 @@ export function AvailablePlayers({
         </View>
       )}
       <FlatList<PlayerSeasonStats>
-        data={filteredPlayers}
+        data={displayPlayers}
         renderItem={renderPlayer}
         keyExtractor={(item) => item.player_id}
         contentContainerStyle={styles.listContent}
@@ -637,6 +727,36 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+  },
+  // "My Board" sort toggle — rookie drafts only.
+  boardSortRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: s(8),
+    paddingHorizontal: s(12),
+    paddingVertical: s(6),
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  boardChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: s(4),
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: s(10),
+    paddingVertical: s(4),
+  },
+  boardChipText: {
+    fontSize: ms(10),
+    letterSpacing: 1.0,
+  },
+  boardSortHint: {
+    fontSize: ms(11),
+    flexShrink: 1,
+  },
+  boardRank: {
+    fontSize: ms(12),
+    fontWeight: "800",
   },
   row: {
     flexDirection: "row",

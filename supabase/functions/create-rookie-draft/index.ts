@@ -36,11 +36,31 @@ Deno.serve(async (req) => {
 
     const { data: league, error: leagueErr } = await supabaseAdmin
       .from('leagues')
-      .select('created_by, name, season, teams, current_teams, rookie_draft_rounds, offseason_step')
+      .select('created_by, name, season, teams, current_teams, rookie_draft_rounds, rookie_pick_time_limit, offseason_step')
       .eq('id', league_id)
       .single();
     if (leagueErr || !league) throw new HttpError('League not found', 404);
     if (league.created_by !== user.id) throw new HttpError('Only the commissioner can create a rookie draft', 403);
+
+    // Gate: a rookie draft can't be created while any team still has an empty
+    // roster. Imported leagues may be created with "finish rosters later"
+    // placeholder teams (0 league_players); seeding a rookie draft on top of
+    // empty rosters produces a broken dynasty. Checked before applying the
+    // lottery staging below so a rejection commits nothing.
+    const { data: teamRosters, error: rosterErr } = await supabaseAdmin
+      .from('teams')
+      .select('name, league_players:league_players!league_players_team_id_fkey(count)')
+      .eq('league_id', league_id);
+    if (rosterErr) throw rosterErr;
+    const emptyTeams = ((teamRosters ?? []) as { name: string; league_players?: { count: number }[] }[])
+      .filter((t) => (t.league_players?.[0]?.count ?? 0) === 0)
+      .map((t) => t.name);
+    if (emptyTeams.length > 0) {
+      throw new HttpError(
+        `All team rosters must be imported before creating the rookie draft. Still missing: ${emptyTeams.join(', ')}`,
+        409,
+      );
+    }
 
     // Validate offseason state. `lottery_revealing` is accepted because the
     // lottery-room "Done" button now bundles the ceremony close + draft
@@ -127,6 +147,10 @@ Deno.serve(async (req) => {
     } else {
       const numTeams = league.current_teams ?? league.teams;
       const rounds = league.rookie_draft_rounds ?? 2;
+      // League setting (EditDraftSettingsModal "Rookie Pick Clock"); NULL for
+      // leagues created before the column existed → the old 120s default.
+      // Clamp to the DB range so a bad row can't break draft creation.
+      const timeLimit = Math.min(86400, Math.max(15, league.rookie_pick_time_limit ?? 120));
 
       const { data: draft, error: draftErr } = await supabaseAdmin
         .from('drafts')
@@ -137,7 +161,7 @@ Deno.serve(async (req) => {
           status: 'unscheduled',
           rounds,
           picks_per_round: numTeams,
-          time_limit: 120,
+          time_limit: timeLimit,
           draft_type: 'linear',
           current_pick_number: 1,
         })

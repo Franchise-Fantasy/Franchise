@@ -21,6 +21,13 @@ export interface TradablePickRow {
    *  via reverse-standings projection. Null when no standings data is available
    *  yet (e.g. brand-new league). */
   display_slot: number | null;
+  /** Protection already carried by the pick (set by an earlier trade). A pick
+   *  holds at most one protection — execute-trade rejects adding another. */
+  protection_threshold: number | null;
+  protection_owner_id: string | null;
+  protection_owner_name: string | null;
+  /** Active swap right on this pick's round the owning team is party to. */
+  swap_info: { isBeneficiary: boolean; partner_name: string } | null;
 }
 
 interface TradePickPickerBodyProps {
@@ -73,6 +80,10 @@ export function TradePickPickerBody({
     const isLocked = lockedPickIds?.has(item.id) ?? false;
     const isTraded = item.current_team_id !== item.original_team_id;
     const protection = pickProtections[item.id];
+    // Protection the pick ALREADY carries from an earlier trade. A pick holds
+    // at most one protection, so the shield toggle is hidden for these —
+    // execute-trade rejects a second protection server-side.
+    const existingProtection = item.protection_threshold;
     // Stepper auto-shows whenever a protection is engaged — no separate
     // "is the editor open" state. Tapping the shield toggles protection
     // on/off; the threshold is adjusted inline via the stepper.
@@ -83,7 +94,7 @@ export function TradePickPickerBody({
       <View>
         <TouchableOpacity
           accessibilityRole="button"
-          accessibilityLabel={`${formatPickLabel(item.season, item.round, item.display_slot)}${isLocked ? ', in active trade' : ''}${isTraded ? `, via ${item.original_team_name}` : ''}${protection != null ? `, Top-${protection} protected` : ''}`}
+          accessibilityLabel={`${formatPickLabel(item.season, item.round, item.display_slot)}${isLocked ? ', in active trade' : ''}${isTraded ? `, via ${item.original_team_name}` : ''}${existingProtection != null ? `, already Top-${existingProtection} protected${item.protection_owner_name ? ` for ${item.protection_owner_name}` : ''}` : ''}${item.swap_info ? `, in a pick swap with ${item.swap_info.partner_name}` : ''}${protection != null ? `, Top-${protection} protected` : ''}`}
           accessibilityState={{ selected: isSelected, disabled: isLocked }}
           disabled={isLocked}
           style={[
@@ -108,6 +119,12 @@ export function TradePickPickerBody({
               >
                 {formatPickLabel(item.season, item.round, item.display_slot)}
               </ThemedText>
+              {existingProtection != null && (
+                <Badge label={`Top ${existingProtection} protected`} variant="warning" size="small" />
+              )}
+              {item.swap_info != null && (
+                <Badge label="Swap" variant="turf" size="small" />
+              )}
               {protection != null && (
                 <Badge label={`Top ${protection}`} variant="gold" size="small" />
               )}
@@ -121,9 +138,27 @@ export function TradePickPickerBody({
                 via {item.original_team_name}
               </ThemedText>
             )}
+            {existingProtection != null && item.protection_owner_name && (
+              <ThemedText
+                type="varsitySmall"
+                style={[styles.via, { color: c.warning }]}
+                numberOfLines={1}
+              >
+                reverts to {item.protection_owner_name} if top {existingProtection}
+              </ThemedText>
+            )}
+            {item.swap_info != null && (
+              <ThemedText
+                type="varsitySmall"
+                style={[styles.via, { color: c.success }]}
+                numberOfLines={1}
+              >
+                {item.swap_info.isBeneficiary ? 'swaps up vs' : 'swap right held by'} {item.swap_info.partner_name}
+              </ThemedText>
+            )}
           </View>
           <View style={styles.rightActions}>
-            {pickConditionsEnabled && isSelected && (
+            {pickConditionsEnabled && isSelected && existingProtection == null && (
               <TouchableOpacity
                 accessibilityRole="button"
                 accessibilityLabel={protection != null ? 'Remove pick protection' : 'Add pick protection'}

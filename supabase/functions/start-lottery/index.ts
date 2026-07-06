@@ -6,6 +6,7 @@ import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { runLotteryDraw } from '../_shared/lottery.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { parseBody, z } from '../_shared/validate.ts';
+import { resolveSwap } from '../../../utils/league/pickSwapResolution.ts';
 
 const Body = z.object({
   league_id: z.string().uuid(),
@@ -216,37 +217,44 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 3. Swaps, evaluated against the post-protection ownership.
+    // 3. Swaps, evaluated against the post-protection ownership. Resolved
+    //    OLDEST-FIRST (created_at, id tiebreak): each swap fires exactly once
+    //    and later swaps see earlier swaps' results, so a chain of swap rights
+    //    (A vs B created before B vs C) cascades deterministically instead of
+    //    depending on Postgres storage order. Must match useDraftHub's ordering
+    //    so the draft-hub preview agrees with the committed lottery.
     const { data: unresolvedSwaps } = await supabaseAdmin
       .from('pick_swaps')
       .select('id, round, beneficiary_team_id, counterparty_team_id')
       .eq('league_id', league_id)
       .eq('season', season)
-      .eq('resolved', false);
+      .eq('resolved', false)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
 
     const swapWarnings: string[] = [];
     const swapsResolved: string[] = [];
+    // Lower slot = better pick; unassigned slots sort last. Shared resolveSwap
+    // applies best-pick-per-team semantics so a team holding two picks in the
+    // round puts up its best one, not an arbitrary one.
+    const slotOf = (p: WorkPick) => p.slot_number ?? 999;
     for (const swap of unresolvedSwaps ?? []) {
       const benefName = teamName(swap.beneficiary_team_id);
       const counterName = teamName(swap.counterparty_team_id);
-      const benefPick = work.find(p => p.round === swap.round && p.current_team_id === swap.beneficiary_team_id);
-      const counterPick = work.find(p => p.round === swap.round && p.current_team_id === swap.counterparty_team_id);
-      if (benefPick && counterPick) {
-        if ((counterPick.slot_number ?? 999) < (benefPick.slot_number ?? 999)) {
-          // Beneficiary takes the better (counterparty's) pick.
-          counterPick.current_team_id = swap.beneficiary_team_id;
-          benefPick.current_team_id = swap.counterparty_team_id;
-          resolutionEvents.push({ kind: 'swap_executed', round: swap.round, teamA: benefName, teamB: counterName });
-        } else {
-          // Beneficiary's own pick was already better/equal — no ownership
-          // change, but the swap still RESOLVED. Record it so the summary
-          // always shows what happened to every swap (was silently omitted).
-          resolutionEvents.push({ kind: 'swap_kept', round: swap.round, teamA: benefName, teamB: counterName });
-        }
+      const outcome = resolveSwap(work, swap, slotOf);
+      if (outcome.kind === 'executed') {
+        outcome.counterPick.current_team_id = swap.beneficiary_team_id;
+        outcome.benefPick.current_team_id = swap.counterparty_team_id;
+        resolutionEvents.push({ kind: 'swap_executed', round: swap.round, teamA: benefName, teamB: counterName });
+      } else if (outcome.kind === 'kept') {
+        // Beneficiary's own pick was already better/equal — no ownership
+        // change, but the swap still RESOLVED. Record it so the summary
+        // always shows what happened to every swap.
+        resolutionEvents.push({ kind: 'swap_kept', round: swap.round, teamA: benefName, teamB: counterName });
       } else {
-        const bothMissing = !benefPick && !counterPick;
-        const missing = bothMissing ? 'both teams' : !benefPick ? benefName : counterName;
-        const missingId = bothMissing ? null : !benefPick ? swap.beneficiary_team_id : swap.counterparty_team_id;
+        const bothMissing = !outcome.benefPresent && !outcome.counterPresent;
+        const missing = bothMissing ? 'both teams' : !outcome.benefPresent ? benefName : counterName;
+        const missingId = bothMissing ? null : !outcome.benefPresent ? swap.beneficiary_team_id : swap.counterparty_team_id;
         // Name the actual cause instead of assuming "protection triggered" (often
         // false). The dominant case is the team traded its own pick away — detect
         // it by their original-team pick now sitting with a different holder.

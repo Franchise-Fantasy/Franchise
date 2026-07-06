@@ -24,6 +24,15 @@ export function addDays(dateStr: string, n: number): string {
   return toDateStr(d);
 }
 
+/** Whole days from `fromStr` to `toStr` (both "YYYY-MM-DD"); positive when
+ *  `toStr` is later. Parses at local midnight so a DST shift in the span can't
+ *  skew the day count. */
+export function daysBetween(fromStr: string, toStr: string): number {
+  const from = parseLocalDate(fromStr);
+  const to = parseLocalDate(toStr);
+  return Math.round((to.getTime() - from.getTime()) / 86_400_000);
+}
+
 /**
  * Hook that returns today's date string and refreshes when the app
  * returns from background (handles midnight rollover while backgrounded).

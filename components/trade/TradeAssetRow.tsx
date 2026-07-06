@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 
@@ -78,7 +77,15 @@ export function TradeAssetRow({
   if (item.draft_pick_id || item.pick_season) {
     const label = formatPickLabel(item.pick_season!, item.pick_round!);
     const via = item.pick_original_team_name ? `via ${item.pick_original_team_name}` : null;
-    const protA11y = item.protection_threshold ? `, top ${item.protection_threshold} protected` : '';
+    // A pick already carrying a protection this trade isn't the source of —
+    // shown so the deciding manager sees the reversion right on the pick.
+    const carriesProtection =
+      item.protection_threshold == null && item.pick_protection_threshold != null;
+    const protA11y = item.protection_threshold
+      ? `, top ${item.protection_threshold} protected`
+      : carriesProtection
+        ? `, already top ${item.pick_protection_threshold} protected${item.pick_protection_owner_name ? ` for ${item.pick_protection_owner_name}` : ''}`
+        : '';
     return (
       <View
         style={styles.row}
@@ -97,15 +104,28 @@ export function TradeAssetRow({
                 size="small"
               />
             )}
+            {carriesProtection && (
+              <Badge
+                label={`Top ${item.pick_protection_threshold} protected`}
+                variant="warning"
+                size="small"
+              />
+            )}
             {isNew && <Badge label="New" variant="gold" size="small" />}
           </View>
-          {(via || fromTeamName) && (
+          {(via || fromTeamName || carriesProtection) && (
             <ThemedText
               type="varsitySmall"
               style={[styles.eyebrow, { color: c.gold }]}
               numberOfLines={1}
             >
-              {[fromTeamName ? `from ${fromTeamName}` : null, via]
+              {[
+                fromTeamName ? `from ${fromTeamName}` : null,
+                via,
+                carriesProtection && item.pick_protection_owner_name
+                  ? `reverts to ${item.pick_protection_owner_name}`
+                  : null,
+              ]
                 .filter(Boolean)
                 .join(' · ')}
             </ThemedText>

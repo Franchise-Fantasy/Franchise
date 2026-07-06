@@ -11,7 +11,20 @@ import { BrandButton } from '@/components/ui/BrandButton';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { PLAYER_LOCK_DISPLAY, PLAYER_LOCK_OPTIONS, PLAYER_LOCK_TO_DB, WAIVER_TYPE_OPTIONS } from '@/constants/LeagueDefaults';
+import {
+  FAAB_TIEBREAK_DISPLAY,
+  FAAB_TIEBREAK_OPTIONS,
+  FAAB_TIEBREAK_TO_DB,
+  FaabTiebreakOption,
+  PLAYER_LOCK_DISPLAY,
+  PLAYER_LOCK_OPTIONS,
+  PLAYER_LOCK_TO_DB,
+  WAIVER_PRIORITY_RESET_DISPLAY,
+  WAIVER_PRIORITY_RESET_OPTIONS,
+  WAIVER_PRIORITY_RESET_TO_DB,
+  WAIVER_TYPE_OPTIONS,
+  WaiverPriorityResetOption,
+} from '@/constants/LeagueDefaults';
 import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
 import { ms, s } from '@/utils/scale';
@@ -33,6 +46,8 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
   const [waiverType, setWaiverType] = useState('Standard');
   const [waiverPeriod, setWaiverPeriod] = useState(2);
   const [faabBudget, setFaabBudget] = useState(100);
+  const [faabTiebreak, setFaabTiebreak] = useState<FaabTiebreakOption>('Earliest Bid');
+  const [priorityReset, setPriorityReset] = useState<WaiverPriorityResetOption>('Reverse Standings');
   const [weeklyLimit, setWeeklyLimit] = useState(0);
   const [playerLock, setPlayerLock] = useState('Daily');
   const [saving, setSaving] = useState(false);
@@ -43,10 +58,17 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
       setWaiverType(WAIVER_DISPLAY[league.waiver_type] ?? 'Standard');
       setWaiverPeriod(league.waiver_period_days ?? 2);
       setFaabBudget(league.faab_budget ?? 100);
+      setFaabTiebreak(FAAB_TIEBREAK_DISPLAY[league.faab_tiebreak] ?? 'Earliest Bid');
+      setPriorityReset(WAIVER_PRIORITY_RESET_DISPLAY[league.waiver_priority_reset] ?? 'Reverse Standings');
       setWeeklyLimit(league.weekly_acquisition_limit ?? 0);
       setPlayerLock(PLAYER_LOCK_DISPLAY[league.player_lock_type] ?? 'Daily');
     }
   }, [visible, league]);
+
+  // Priority order only matters for Standard leagues, or FAAB leagues that break
+  // equal-bid ties by waiver priority (matches process-waivers / advance-season).
+  const priorityResetRelevant =
+    waiverType === 'Standard' || (waiverType === 'FAAB' && faabTiebreak === 'Waiver Priority');
 
   async function handleSave() {
     setSaving(true);
@@ -55,6 +77,8 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
       waiver_type: waiverDb,
       waiver_period_days: waiverDb === 'none' ? 0 : waiverPeriod,
       faab_budget: faabBudget,
+      faab_tiebreak: FAAB_TIEBREAK_TO_DB[faabTiebreak],
+      waiver_priority_reset: WAIVER_PRIORITY_RESET_TO_DB[priorityReset],
       weekly_acquisition_limit: weeklyLimit === 0 ? null : weeklyLimit,
       player_lock_type: PLAYER_LOCK_TO_DB[playerLock as keyof typeof PLAYER_LOCK_TO_DB] ?? 'daily',
     }).eq('id', leagueId);
@@ -130,6 +154,45 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
           step={10}
           suffix="$"
         />
+      )}
+
+      {/* FAAB Bid Tiebreaker (FAAB only) */}
+      {waiverType === 'FAAB' && (
+        <>
+          <View style={[styles.editRow, { borderBottomColor: c.border }]}>
+            <ThemedText style={styles.rowLabel}>Bid Tiebreaker</ThemedText>
+          </View>
+          <View style={{ paddingVertical: s(8) }}>
+            <SegmentedControl
+              options={FAAB_TIEBREAK_OPTIONS}
+              selectedIndex={Math.max(0, FAAB_TIEBREAK_OPTIONS.indexOf(faabTiebreak))}
+              onSelect={(i) => setFaabTiebreak(FAAB_TIEBREAK_OPTIONS[i])}
+            />
+          </View>
+        </>
+      )}
+
+      {/* Waiver Priority Reset (Standard, or FAAB w/ priority tiebreak) */}
+      {priorityResetRelevant && (
+        <>
+          <View style={[styles.editRow, { borderBottomColor: c.border }]}>
+            <ThemedText style={styles.rowLabel}>Priority Reset (New Season)</ThemedText>
+          </View>
+          <View style={{ paddingVertical: s(8) }}>
+            <SegmentedControl
+              options={WAIVER_PRIORITY_RESET_OPTIONS}
+              selectedIndex={Math.max(0, WAIVER_PRIORITY_RESET_OPTIONS.indexOf(priorityReset))}
+              onSelect={(i) => setPriorityReset(WAIVER_PRIORITY_RESET_OPTIONS[i])}
+            />
+          </View>
+          <ThemedText style={{ fontSize: ms(13), color: c.secondaryText, marginBottom: s(12) }}>
+            {priorityReset === 'Reverse Standings'
+              ? 'Each new season, the worst finisher gets first waiver priority.'
+              : priorityReset === 'Keep'
+                ? "Carry the previous season's ending waiver order into the new season."
+                : 'Shuffle waiver priority randomly at the start of each new season.'}
+          </ThemedText>
+        </>
       )}
 
       {/* Weekly Acquisition Limit */}

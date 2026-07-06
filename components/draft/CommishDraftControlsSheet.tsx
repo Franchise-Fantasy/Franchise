@@ -2,15 +2,17 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
 
+import { PickClockControl } from '@/components/draft/PickClockControl';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ToggleRow } from '@/components/ui/ToggleRow';
-import { TIME_PER_PICK_MAX, TIME_PER_PICK_MIN, TIME_PER_PICK_STEP } from '@/constants/LeagueDefaults';
+import { TIME_PER_PICK_MIN, TIME_PER_PICK_STEP } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
+import { isSlowClock } from '@/utils/draft/pickClock';
 import { ms, s } from '@/utils/scale';
 
 interface CommishDraftControlsSheetProps {
@@ -84,10 +86,12 @@ export function CommishDraftControlsSheet({
   }, [visible, timeLimit, accelerateAfterRound, acceleratedTimeLimit]);
 
   const accelEnabled = accelAfterRound != null;
+  const slowDraft = isSlowClock(pickTime);
   // Acceleration only persists when both halves are set AND the threshold sits
   // inside the draft — same rule create-league applies on insert. Faster clock
-  // can never exceed the base clock.
-  const effAccelAfter = accelEnabled && accelAfterRound! < rounds ? accelAfterRound! : null;
+  // can never exceed the base clock. Slow (async) drafts never accelerate.
+  const effAccelAfter =
+    accelEnabled && accelAfterRound! < rounds && !slowDraft ? accelAfterRound! : null;
   const effAccelTime = effAccelAfter != null ? Math.min(acceleratedTime, pickTime) : null;
 
   const changed =
@@ -167,17 +171,9 @@ export function CommishDraftControlsSheet({
         </View>
       )}
 
-      <NumberStepper
-        label="Time Per Pick"
-        value={pickTime}
-        onValueChange={setPickTime}
-        min={TIME_PER_PICK_MIN}
-        max={TIME_PER_PICK_MAX}
-        step={TIME_PER_PICK_STEP}
-        suffix="s"
-      />
+      <PickClockControl value={pickTime} onValueChange={setPickTime} />
 
-      {rounds > 1 && (
+      {rounds > 1 && !slowDraft && (
         <>
           <ToggleRow
             icon="flash-outline"

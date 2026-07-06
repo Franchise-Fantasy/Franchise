@@ -22,6 +22,17 @@ function nextSeason(current: string, sport: 'nba' | 'wnba'): string {
   return `${next}-${String(next + 1).slice(2)}`;
 }
 
+/** In-place-safe Fisher-Yates shuffle; returns a new array. Used to randomize
+ *  waiver priority order when a league's waiver_priority_reset is 'random'. */
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return corsResponse();
 
@@ -50,7 +61,7 @@ Deno.serve(async (req) => {
     // Fetch league config
     const { data: league, error: leagueErr } = await supabaseAdmin
       .from('leagues')
-      .select('created_by, name, sport, season, teams, playoff_teams, playoff_weeks, rookie_draft_order, rookie_draft_rounds, lottery_draws, lottery_odds, waiver_type, faab_budget, offseason_step, league_type, taxi_slots, taxi_max_experience')
+      .select('created_by, name, sport, season, teams, playoff_teams, playoff_weeks, rookie_draft_order, rookie_draft_rounds, lottery_draws, lottery_odds, waiver_type, faab_budget, waiver_priority_reset, offseason_step, league_type, taxi_slots, taxi_max_experience')
       .eq('id', league_id)
       .single();
     if (leagueErr || !league) throw new HttpError('League not found', 404);
@@ -116,6 +127,7 @@ Deno.serve(async (req) => {
     let championId: string | null = null;
     let runnerUpId: string | null = null;
     let thirdPlaceId: string | null = null;
+    let fourthPlaceId: string | null = null;
     let maxRound = 0;
 
     if (bracket && bracket.length > 0) {
@@ -149,10 +161,14 @@ Deno.serve(async (req) => {
         runnerUpId = finalSlot.team_a_id === championId ? finalSlot.team_b_id : finalSlot.team_a_id;
       }
 
-      // 3rd place winner
+      // 3rd place winner — and the loser of that game is 4th, not a generic
+      // "semifinalist" elimination.
       const thirdPlaceSlot = bracket.find(s => s.is_third_place && s.winner_id);
       if (thirdPlaceSlot) {
         thirdPlaceId = thirdPlaceSlot.winner_id;
+        fourthPlaceId = thirdPlaceSlot.team_a_id === thirdPlaceId
+          ? thirdPlaceSlot.team_b_id
+          : thirdPlaceSlot.team_a_id;
       }
     }
 
@@ -162,6 +178,7 @@ Deno.serve(async (req) => {
       if (t.id === championId) playoffResult = 'champion';
       else if (t.id === runnerUpId) playoffResult = 'runner_up';
       else if (t.id === thirdPlaceId) playoffResult = 'third_place';
+      else if (t.id === fourthPlaceId) playoffResult = 'fourth_place';
       else if (playoffTeamIds.has(t.id)) {
         const elimRound = eliminatedInRound.get(t.id);
         if (elimRound != null) playoffResult = `eliminated_round_${elimRound}`;
@@ -172,6 +189,7 @@ Deno.serve(async (req) => {
         team_id: t.id,
         league_id,
         season: currentSeason,
+        team_name: t.name,
         wins: t.wins,
         losses: t.losses,
         ties: t.ties,
@@ -231,14 +249,30 @@ Deno.serve(async (req) => {
       .delete()
       .eq('league_id', league_id);
 
-    // ── 10. Reset waiver priority by reverse final standings ──
-    for (let i = 0; i < allTeams.length; i++) {
-      const team = allTeams[allTeams.length - 1 - i];
-      await supabaseAdmin
-        .from('waiver_priority')
-        .update({ priority: i + 1, faab_remaining: league.faab_budget ?? 100 })
-        .eq('league_id', league_id)
-        .eq('team_id', team.id);
+    // ── 10. Refill FAAB budgets + reset waiver priority ──
+    // FAAB budget always refills to the league's configured budget for the new
+    // season, regardless of the priority-reset policy — the two are independent.
+    await supabaseAdmin
+      .from('waiver_priority')
+      .update({ faab_remaining: league.faab_budget ?? 100 })
+      .eq('league_id', league_id);
+
+    // Priority order re-seeds per the league's waiver_priority_reset setting.
+    // 'keep' leaves the end-of-season (rolling) order untouched; the other two
+    // overwrite it. allTeams is sorted best → worst (see the sort in step 1).
+    const resetMode = league.waiver_priority_reset ?? 'reverse_standings';
+    if (resetMode !== 'keep') {
+      const orderedTeams =
+        resetMode === 'random'
+          ? shuffle(allTeams.map(t => t.id))
+          : [...allTeams].reverse().map(t => t.id); // reverse_standings: worst finisher first
+      for (let i = 0; i < orderedTeams.length; i++) {
+        await supabaseAdmin
+          .from('waiver_priority')
+          .update({ priority: i + 1 })
+          .eq('league_id', league_id)
+          .eq('team_id', orderedTeams[i]);
+      }
     }
 
     // ── 11. Determine offseason step based on league type ──

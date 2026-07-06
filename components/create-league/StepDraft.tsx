@@ -1,6 +1,7 @@
 import { StyleSheet, View } from 'react-native';
 
 import { LotteryOddsEditor } from '@/components/create-league/LotteryOddsEditor';
+import { PickClockControl } from '@/components/draft/PickClockControl';
 import { FieldGroup } from '@/components/ui/FieldGroup';
 import { FormSection } from '@/components/ui/FormSection';
 import { NumberStepper } from '@/components/ui/NumberStepper';
@@ -14,11 +15,11 @@ import {
   INITIAL_DRAFT_ORDER_OPTIONS,
   LeagueWizardState,
   ROOKIE_DRAFT_ORDER_OPTIONS,
-  TIME_PER_PICK_MAX,
   TIME_PER_PICK_MIN,
   TIME_PER_PICK_STEP,
 } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { isSlowClock } from '@/utils/draft/pickClock';
 import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/league/lottery';
 import { ROSTER_SLOT } from '@/utils/roster/rosterSlotsShared';
 import { ms, s } from '@/utils/scale';
@@ -51,6 +52,9 @@ export function StepDraft({ state, onChange, hideStartupDraft }: StepDraftProps)
   );
   const accelEnabled = state.accelerateAfterRound != null;
   const acceleratedTime = state.acceleratedTimePerPick ?? 30;
+  // Slow (async) drafts don't accelerate — the whole point is a long,
+  // predictable clock. create-league also nulls the fields on insert.
+  const slowDraft = isSlowClock(state.timePerPick);
 
   return (
     <View style={styles.container}>
@@ -64,17 +68,12 @@ export function StepDraft({ state, onChange, hideStartupDraft }: StepDraftProps)
           />
         </FieldGroup>
 
-        <NumberStepper
-          label="Time Per Pick"
+        <PickClockControl
           value={state.timePerPick}
           onValueChange={(v) => onChange('timePerPick', v)}
-          min={TIME_PER_PICK_MIN}
-          max={TIME_PER_PICK_MAX}
-          step={TIME_PER_PICK_STEP}
-          suffix="s"
         />
 
-        {totalRounds > 1 && (
+        {totalRounds > 1 && !slowDraft && (
           <>
             <ToggleRow
               icon="flash-outline"

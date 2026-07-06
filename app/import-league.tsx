@@ -50,7 +50,9 @@ import {
   DEFAULT_ROSTER_SLOTS,
   DEFAULT_SCORING,
   type LeagueWizardState,
+  FAAB_TIEBREAK_TO_DB,
   SEEDING_TO_DB,
+  WAIVER_PRIORITY_RESET_TO_DB,
   type ScoringTypeOption,
 } from '@/constants/LeagueDefaults';
 import { useConfirm } from '@/context/ConfirmProvider';
@@ -65,7 +67,13 @@ import {
 } from '@/hooks/useImportSleeper';
 import { capture } from '@/lib/posthog';
 import { clampLotteryState, defaultPlayoffSetup, maxPlayoffWeeksForTeams } from '@/utils/league/lottery';
-import { applyCupWeekToggle, computeMaxWeeks, defaultSeasonStart } from '@/utils/league/seasonWeeks';
+import {
+  applyCupWeekToggle,
+  computeMaxWeeks,
+  defaultSeasonStart,
+  deriveTradeDeadlineDate,
+  deriveTradeDeadlineWeek,
+} from '@/utils/league/seasonWeeks';
 import { ms, s } from '@/utils/scale';
 import { mapSleeperPositions, mapSleeperScoring } from '@/utils/sleeperMapping';
 
@@ -247,6 +255,8 @@ function buildWizardState(data: SleeperPreviewResult): LeagueWizardState {
     waiverType: 'Standard',
     waiverPeriodDays: 2,
     faabBudget: 100,
+    waiverPriorityReset: 'Reverse Standings',
+    faabTiebreak: 'Earliest Bid',
     season: data.league.season ?? CURRENT_NBA_SEASON,
     seasonStartDate: null,
     regularSeasonWeeks: Math.max(1, maxWeeks - playoffDefaults.playoffWeeks),
@@ -308,6 +318,8 @@ const initialState: ImportState = {
     waiverType: 'Standard',
     waiverPeriodDays: 2,
     faabBudget: 100,
+    waiverPriorityReset: 'Reverse Standings',
+    faabTiebreak: 'Earliest Bid',
     season: getCurrentSeason('nba'),
     seasonStartDate: null,
     regularSeasonWeeks: Math.max(1, maxWeeks - 3),
@@ -376,8 +388,11 @@ function reducer(state: ImportState, action: Action): ImportState {
         return updateWizard(clampLotteryState({ ...next, playoffWeeks }));
       }
       // Cup double week consumes/frees one calendar week — re-fit week counts.
+      // applyCupWeekToggle clamps tradeDeadlineWeek; re-derive the date too so
+      // the persisted deadline moves with the shifted calendar.
       if (action.field === 'combineCupWeek') {
-        return updateWizard(applyCupWeekToggle(next, state.wizardState));
+        const toggled = applyCupWeekToggle(next, state.wizardState);
+        return updateWizard({ ...toggled, tradeDeadlineDate: deriveTradeDeadlineDate(toggled) });
       }
       if (action.field === 'seasonStartDate') {
         const start = action.value
@@ -389,7 +404,11 @@ function reducer(state: ImportState, action: Action): ImportState {
         const newMax = computeMaxWeeks(next.season, next.sport, start, next.combineCupWeek ?? false);
         const playoffWeeks = Math.min(next.playoffWeeks, Math.max(1, newMax - 1));
         const regularSeasonWeeks = Math.min(next.regularSeasonWeeks, Math.max(1, newMax - playoffWeeks));
-        return updateWizard(clampLotteryState({ ...next, regularSeasonWeeks, playoffWeeks }));
+        const tradeDeadlineWeek = next.tradeDeadlineWeek > 0
+          ? Math.min(next.tradeDeadlineWeek, regularSeasonWeeks)
+          : 0;
+        const merged = clampLotteryState({ ...next, regularSeasonWeeks, playoffWeeks, tradeDeadlineWeek });
+        return updateWizard({ ...merged, tradeDeadlineDate: deriveTradeDeadlineDate(merged) });
       }
       if (action.field === 'leagueType' && action.value !== 'Dynasty') {
         return {
@@ -422,7 +441,30 @@ function reducer(state: ImportState, action: Action): ImportState {
           Math.max(1, newMax - 1),
         );
         const regularSeasonWeeks = Math.min(next.regularSeasonWeeks, Math.max(1, newMax - playoffWeeks));
-        return updateWizard(clampLotteryState({ ...next, season: newSeason, seasonStartDate: null, regularSeasonWeeks, playoffWeeks }));
+        const tradeDeadlineWeek = next.tradeDeadlineWeek > 0
+          ? Math.min(next.tradeDeadlineWeek, regularSeasonWeeks)
+          : 0;
+        const merged = clampLotteryState({ ...next, season: newSeason, seasonStartDate: null, regularSeasonWeeks, playoffWeeks, tradeDeadlineWeek });
+        return updateWizard({ ...merged, tradeDeadlineDate: deriveTradeDeadlineDate(merged) });
+      }
+      // Trade deadline week is bounded by the (possibly shortened) regular
+      // season; re-derive the persisted date so it can't outlive it.
+      if (action.field === 'regularSeasonWeeks' && next.tradeDeadlineWeek > 0) {
+        const tradeDeadlineWeek = Math.min(next.tradeDeadlineWeek, next.regularSeasonWeeks);
+        return updateWizard({
+          ...next,
+          tradeDeadlineWeek,
+          tradeDeadlineDate: deriveTradeDeadlineDate({ ...next, tradeDeadlineWeek }),
+        });
+      }
+      // Deadline WEEK moved (or the on/off toggle set it to 0/a default) —
+      // re-derive the persisted date. Deadline DATE fine-tuned — snap the week
+      // stepper to the week containing it. The two controls stay in lockstep.
+      if (action.field === 'tradeDeadlineWeek') {
+        return updateWizard({ ...next, tradeDeadlineDate: deriveTradeDeadlineDate(next) });
+      }
+      if (action.field === 'tradeDeadlineDate') {
+        return updateWizard({ ...next, tradeDeadlineWeek: deriveTradeDeadlineWeek(next) });
       }
       return updateWizard(next);
     }
@@ -691,10 +733,12 @@ export default function ImportLeague() {
             : 'none',
         waiver_period_days: ws.waiverType === 'None' ? 0 : ws.waiverPeriodDays,
         faab_budget: ws.faabBudget,
+        waiver_priority_reset: WAIVER_PRIORITY_RESET_TO_DB[ws.waiverPriorityReset],
+        faab_tiebreak: FAAB_TIEBREAK_TO_DB[ws.faabTiebreak],
         playoff_seeding_format: (SEEDING_TO_DB[ws.playoffSeedingFormat] ?? SEEDING_TO_DB.Standard).format,
         reseed_each_round: (SEEDING_TO_DB[ws.playoffSeedingFormat] ?? SEEDING_TO_DB.Standard).reseed,
         buy_in_amount: ws.buyIn || null,
-        trade_deadline: null,
+        trade_deadline: ws.tradeDeadlineDate,
       },
     };
 

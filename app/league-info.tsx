@@ -23,6 +23,7 @@ import { EditTradeSettingsModal } from '@/components/commissioner/EditTradeSetti
 import { EditWaiverSettingsModal } from '@/components/commissioner/EditWaiverSettingsModal';
 import { ForceAddDropModal } from '@/components/commissioner/ForceAddDropModal';
 import { ForceRosterMoveModal } from '@/components/commissioner/ForceRosterMoveModal';
+import { ImportTeamRosterModal } from '@/components/commissioner/ImportTeamRosterModal';
 import { ManagePickConditionsModal } from '@/components/commissioner/ManagePickConditionsModal';
 import { PaymentLedgerModal } from '@/components/commissioner/PaymentLedgerModal';
 import { ReverseTradeModal } from '@/components/commissioner/ReverseTradeModal';
@@ -38,7 +39,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Section } from '@/components/ui/Section';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
-import { LEAGUE_TYPE_DISPLAY, PLAYER_LOCK_DISPLAY, seedingDisplay, SPORT_OPENING_MONTH, TIEBREAKER_DISPLAY, parseSeasonStartYear, startDateBelongsToSeason } from '@/constants/LeagueDefaults';
+import { FAAB_TIEBREAK_DISPLAY, LEAGUE_TYPE_DISPLAY, PLAYER_LOCK_DISPLAY, seedingDisplay, SPORT_OPENING_MONTH, TIEBREAKER_DISPLAY, WAIVER_PRIORITY_RESET_DISPLAY, parseSeasonStartYear, startDateBelongsToSeason } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { TIER_LABELS } from '@/constants/Subscriptions';
 import { useAppState } from '@/context/AppStateProvider';
@@ -56,6 +57,7 @@ import { usePlayoffBracket } from '@/hooks/usePlayoffBracket';
 import { useSubscription } from '@/hooks/useSubscription';
 import { supabase } from '@/lib/supabase';
 import { formatIsoDate } from '@/utils/dates';
+import { formatPickClock } from '@/utils/draft/pickClock';
 import { calcRounds } from '@/utils/league/playoff';
 import { ms, s } from '@/utils/scale';
 
@@ -165,6 +167,7 @@ export default function LeagueInfoScreen() {
   const [showDivisionsModal, setShowDivisionsModal] = useState(false);
   const [showTransferOwnership, setShowTransferOwnership] = useState(false);
   const [showLeagueUpgrade, setShowLeagueUpgrade] = useState(false);
+  const [importRosterTeam, setImportRosterTeam] = useState<{ id: string; name: string } | null>(null);
   const { leagueTier } = useSubscription();
 
   // Shared offseason/advance handlers — same hook the home hero uses.
@@ -570,12 +573,13 @@ export default function LeagueInfoScreen() {
         {/* ── Draft Settings ── */}
         <SectionCard title="Draft Settings" c={c} editable={sectionEditable('draft', lifecycle, isCommissioner)} onEdit={() => setShowDraftModal(true)}>
           <Row label="Type" value={draft ? DRAFT_TYPE_DISPLAY(draft.draft_type ?? 'snake') : '-'} c={c} />
-          <Row label="Time Per Pick" value={draft ? `${draft.time_limit ?? 90}s` : '-'} c={c} />
+          <Row label="Time Per Pick" value={draft ? formatPickClock(draft.time_limit ?? 90) : '-'} c={c} />
           <Row label="Status" value={draft?.status ? (draft.status.charAt(0).toUpperCase() + draft.status.slice(1).replace('_', ' ')) : '-'} c={c} />
           {(league.league_type ?? 'dynasty') === 'dynasty' && (
             <>
               <Row label="Future Draft Years" value={String(league.max_future_seasons ?? '-')} c={c} />
               <Row label="Rookie Draft Rounds" value={String(league.rookie_draft_rounds ?? '-')} c={c} />
+              <Row label="Rookie Pick Clock" value={formatPickClock(league.rookie_pick_time_limit ?? 120)} c={c} />
               <Row label="Rookie Draft Order" value={ORDER_DISPLAY[league.rookie_draft_order] ?? '-'} c={c} />
               {league.rookie_draft_order === 'lottery' && (
                 <Row label="Lottery Draws" value={String(league.lottery_draws ?? '-')} c={c} />
@@ -613,6 +617,13 @@ export default function LeagueInfoScreen() {
           )}
           {league.waiver_type === 'faab' && (
             <Row label="FAAB Budget" value={`$${league.faab_budget ?? 100}`} c={c} />
+          )}
+          {league.waiver_type === 'faab' && (
+            <Row label="Bid Tiebreaker" value={FAAB_TIEBREAK_DISPLAY[league.faab_tiebreak] ?? 'Earliest Bid'} c={c} />
+          )}
+          {(league.waiver_type === 'standard' ||
+            (league.waiver_type === 'faab' && league.faab_tiebreak === 'waiver_priority')) && (
+            <Row label="Priority Reset" value={WAIVER_PRIORITY_RESET_DISPLAY[league.waiver_priority_reset] ?? 'Reverse Standings'} c={c} />
           )}
           <Row label="Weekly Add Limit" value={league.weekly_acquisition_limit != null ? String(league.weekly_acquisition_limit) : 'Unlimited'} c={c} />
           <Row label="Player Lock" value={PLAYER_LOCK_DISPLAY[league.player_lock_type] ?? 'Daily'} c={c} last />
@@ -738,7 +749,21 @@ export default function LeagueInfoScreen() {
                     </View>
                   </TouchableOpacity>
                 </View>
-                {team.is_commissioner && <Badge label="Commish" variant="turf" />}
+                <View style={styles.memberRight}>
+                  {isCommissioner && (team.league_players?.[0]?.count ?? 0) === 0 && (
+                    <TouchableOpacity
+                      onPress={() => setImportRosterTeam({ id: team.id, name: team.name })}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Import roster for ${team.name}`}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      style={styles.importRosterBtn}
+                    >
+                      <Ionicons name="cloud-upload-outline" size={16} color={c.heritageGold} accessible={false} />
+                      <ThemedText style={[styles.importRosterText, { color: c.heritageGold }]}>Import Roster</ThemedText>
+                    </TouchableOpacity>
+                  )}
+                  {team.is_commissioner && <Badge label="Commish" variant="turf" />}
+                </View>
               </ListRow>
             );
           })}
@@ -934,6 +959,17 @@ export default function LeagueInfoScreen() {
             leagueId={leagueId}
             teams={(league?.league_teams ?? []).map((t: any) => ({ id: t.id, name: t.name }))}
             onClose={() => setShowPickConditions(false)}
+          />
+          <ImportTeamRosterModal
+            visible={!!importRosterTeam}
+            leagueId={leagueId}
+            teamId={importRosterTeam?.id ?? ''}
+            teamName={importRosterTeam?.name ?? ''}
+            onClose={() => setImportRosterTeam(null)}
+            onImported={() => {
+              queryClient.invalidateQueries({ queryKey: ['league'] });
+              setImportRosterTeam(null);
+            }}
           />
           <TransferOwnershipModal
             visible={showTransferOwnership}
@@ -1179,6 +1215,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+  },
+  memberRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(8),
+  },
+  importRosterBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(4),
+  },
+  importRosterText: {
+    fontSize: ms(12),
+    fontWeight: '600',
   },
   tricodeBadge: {
     flexDirection: 'row',

@@ -136,7 +136,7 @@ export function StepTrade({ state, onChange }: StepTradeProps) {
                 setting. Renamed from the old "Max Future Draft Years"
                 which didn't communicate what the field actually does. */}
             <NumberStepper
-              label="Future Rookie Picks"
+              label="Future Rookie Draft Years"
               value={state.maxDraftYears}
               onValueChange={(v) => onChange('maxDraftYears', v)}
               min={1}

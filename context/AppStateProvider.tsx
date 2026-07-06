@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAuthInitialized, useSession } from '@/context/AuthProvider';
 import { logger } from '@/utils/logger';
@@ -53,7 +53,13 @@ export const AppStateProvider = ({ children }: { children: React.ReactNode }) =>
     setState(prev => ({ ...prev, leagueId: id }));
   }, []);
 
+  // Bumped on every explicit league switch. The launch fetch below reads this
+  // to detect a notification/deep-link tap that switched the league mid-fetch,
+  // so it never clobbers the tap's target league back to the favorite.
+  const switchSeqRef = useRef(0);
+
   const switchLeague = useCallback((leagueId: string, teamId: string) => {
+    switchSeqRef.current += 1;
     setState(prev => ({ ...prev, leagueId, teamId, loading: false }));
   }, []);
 
@@ -71,9 +77,14 @@ export const AppStateProvider = ({ children }: { children: React.ReactNode }) =>
 
     let cancelled = false;
     const userId = session.user.id;
+    // Snapshot the switch counter: if it moves while we're fetching, a
+    // notification/deep-link tap has switched the league and owns the context.
+    const seqAtStart = switchSeqRef.current;
 
     const fetchTeam = async () => {
       try {
+        let resolved: { teamId: string | null; leagueId: string | null } | null = null;
+
         const { data: profile } = await supabase
           .from('profiles')
           .select('favorite_league_id')
@@ -89,29 +100,33 @@ export const AppStateProvider = ({ children }: { children: React.ReactNode }) =>
             .maybeSingle();
 
           if (cancelled) return;
-          if (favTeam) {
-            setState({ teamId: favTeam.id, leagueId: favTeam.league_id, loading: false, resolvedUserId: userId });
-            return;
-          }
+          if (favTeam) resolved = { teamId: favTeam.id, leagueId: favTeam.league_id };
         }
 
-        // `leagues!inner` drops teams whose league is archived (RLS hides the
-        // league row), so a member of a soft-deleted league doesn't resolve to a
-        // dead league on launch — they fall back to no-league like a new user.
-        const { data } = await supabase
-          .from('teams')
-          .select('id, league_id, leagues!teams_league_id_fkey!inner(id)')
-          .eq('user_id', userId)
-          .limit(1)
-          .maybeSingle();
+        if (!resolved) {
+          // `leagues!inner` drops teams whose league is archived (RLS hides the
+          // league row), so a member of a soft-deleted league doesn't resolve to a
+          // dead league on launch — they fall back to no-league like a new user.
+          const { data } = await supabase
+            .from('teams')
+            .select('id, league_id, leagues!teams_league_id_fkey!inner(id)')
+            .eq('user_id', userId)
+            .limit(1)
+            .maybeSingle();
 
-        if (cancelled) return;
-        setState({
-          teamId: data?.id ?? null,
-          leagueId: data?.league_id ?? null,
-          loading: false,
-          resolvedUserId: userId,
-        });
+          if (cancelled) return;
+          resolved = { teamId: data?.id ?? null, leagueId: data?.league_id ?? null };
+        }
+
+        // A notification tap switched the league while this fetch was in flight
+        // (cold-start launch races both). The tap owns the league context — just
+        // resolve loading; don't clobber its target back to the favorite league.
+        if (switchSeqRef.current !== seqAtStart) {
+          setState(s => ({ ...s, loading: false, resolvedUserId: userId }));
+          return;
+        }
+
+        setState({ ...resolved, loading: false, resolvedUserId: userId });
       } catch (err) {
         if (cancelled) return;
         logger.warn('AppStateProvider fetchTeam failed', err);

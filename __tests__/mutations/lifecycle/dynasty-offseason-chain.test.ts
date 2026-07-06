@@ -203,6 +203,40 @@ describe('Dynasty offseason chain', () => {
   );
 
   it(
+    'create-rookie-draft is blocked when a team still has an empty (never-imported) roster',
+    async () => {
+      // Imported leagues can be created with "finish rosters later" placeholder
+      // teams (0 league_players). The rookie draft must be gated until those
+      // rosters are imported, or it seeds a broken dynasty. Mirrors the client
+      // pre-check in useOffseasonActions.handleCreateRookieDraft.
+      const admin = adminClient();
+      const { leagueId, teams } = league;
+      const client = await signInAsBot(1);
+
+      await client.functions.invoke('advance-season', { body: { league_id: leagueId } });
+      await client.functions.invoke('start-lottery', { body: { league_id: leagueId } });
+
+      // Simulate a "finish rosters later" team — strip one team's roster.
+      const emptyTeam = teams.find((t) => t.botIndex === 4)!;
+      await admin.from('league_players').delete().eq('team_id', emptyTeam.id);
+
+      const result = await client.functions.invoke('create-rookie-draft', {
+        body: { league_id: leagueId },
+      });
+      await expectHttpError(result, { status: 409, messageMatch: emptyTeam.name });
+
+      // The gate runs before any draft is created — nothing was committed.
+      const { data: drafts } = await admin
+        .from('drafts')
+        .select('id')
+        .eq('league_id', leagueId)
+        .eq('type', 'rookie');
+      expect(drafts ?? []).toHaveLength(0);
+    },
+    TIMEOUT,
+  );
+
+  it(
     'start-lottery refuses to run outside the lottery_pending/scheduled states',
     async () => {
       const { leagueId } = league;

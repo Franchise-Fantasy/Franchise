@@ -126,6 +126,10 @@ function useTradeByTransaction(transactionId: string, leagueId: string) {
             ? (teamNames[dp.original_team_id] ?? null)
             : null,
           protection_threshold: item.protection_threshold,
+          // Historical view reflects what the trade did (protection_threshold),
+          // not the pick's live protection — leave the current-state fields null.
+          pick_protection_threshold: null,
+          pick_protection_owner_name: null,
           pick_swap_season: item.pick_swap_season,
           pick_swap_round: item.pick_swap_round,
         };

@@ -2,34 +2,16 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { notifyLeague, notifyTeams } from '../_shared/push.ts';
 import { effectiveTimeLimit } from '../_shared/draftClock.ts';
+import { scheduleAutodraft, schedulePickReminder } from '../_shared/qstash.ts';
 import { CORS_HEADERS } from '../_shared/cors.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { parseBody, z } from '../_shared/validate.ts';
+import { formatPickClock, isSlowClock } from '../../../utils/draft/pickClock.ts';
 
 const Body = z.object({
   draft_id: z.string().uuid(),
 });
-
-async function scheduleAutodraft(draft_id: string, pick_number: number, time_limit: number) {
-  const token = Deno.env.get('QSTASH_TOKEN')?.trim();
-  const autodraftUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/autodraft`;
-
-  const res = await fetch(`https://qstash-us-east-1.upstash.io/v2/publish/${autodraftUrl}`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      'Upstash-Delay': `${time_limit}s`,
-    },
-    body: JSON.stringify({ draft_id, pick_number }),
-  });
-
-  const responseText = await res.text();
-
-  if (!res.ok) throw new Error(`QStash error ${res.status}: ${responseText}`);
-  return responseText;
-}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -146,6 +128,8 @@ Deno.serve(async (req) => {
     }
 
     const qstashResult = await scheduleAutodraft(draft_id, draft.current_pick_number, firstLimit);
+    // Slow drafts: warn the first picker before their clock runs out.
+    await schedulePickReminder(draft_id, draft.current_pick_number, firstLimit);
 
     // Notify all league members that draft started
     try {
@@ -168,7 +152,9 @@ Deno.serve(async (req) => {
       if (firstPick) {
         await notifyTeams(supabaseAdmin, [firstPick.current_team_id], 'draft',
           `${ln} — Your turn to pick!`,
-          'You\'re on the clock. Make your first pick.',
+          isSlowClock(firstLimit)
+            ? `You're on the clock — you have ${formatPickClock(firstLimit)} to make your first pick.`
+            : 'You\'re on the clock. Make your first pick.',
           { screen: 'draft-room', draft_id }
         );
       }

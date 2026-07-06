@@ -48,4 +48,29 @@ describe('seasonAvgRowToFpts', () => {
     // DD has no avg column on historical rows → reconstructs to 0 total → contributes 0.
     expect(seasonAvgRowToFpts(row, weights)).toBe(20);
   });
+
+  it('scores DD/TD from windowed avg rates (round(rate × games))', () => {
+    // averageGames() emits avg_dd/avg_td as per-game rates — 0.5 DD over 10
+    // games = 5 double-doubles, 0.1 TD = 1 triple-double.
+    const row = { games_played: 10, avg_pts: 20, avg_dd: 0.5, avg_td: 0.1 };
+    const weights: ScoringWeight[] = [
+      { stat_name: 'PTS', point_value: 1 },
+      { stat_name: 'DD', point_value: 5 },
+      { stat_name: 'TD', point_value: 10 },
+    ];
+    // 20 + (5 DD × 5 + 1 TD × 10) / 10 games = 20 + (25 + 10) / 10 = 23.5
+    expect(seasonAvgRowToFpts(row, weights)).toBe(23.5);
+  });
+
+  it('prefers a persisted dd/td total over reconstructing from a rate', () => {
+    // A row carrying total_dd directly (season chips after the select fix) must
+    // use it verbatim, not the avg_dd rate.
+    const row = { games_played: 65, avg_pts: 0, total_dd: 55, total_td: 34 };
+    const weights: ScoringWeight[] = [
+      { stat_name: 'DD', point_value: 5 },
+      { stat_name: 'TD', point_value: 10 },
+    ];
+    // (55 × 5 + 34 × 10) / 65 = 615 / 65 = 9.4615… → rounded to 9.46
+    expect(seasonAvgRowToFpts(row, weights)).toBe(9.46);
+  });
 });

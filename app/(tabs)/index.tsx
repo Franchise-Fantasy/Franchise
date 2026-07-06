@@ -17,7 +17,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ManualDraftOrderModal } from '@/components/commissioner/ManualDraftOrderModal';
 import { AnalyticsPreviewCard } from '@/components/home/AnalyticsPreviewCard';
+import { ChampionCard } from '@/components/home/ChampionCard';
 import { DeclareKeepers } from '@/components/home/DeclareKeepers';
+import { HomeAnnouncementBanner } from '@/components/home/HomeAnnouncementBanner';
 import { HomeHero, type HomeHeroVariant, type PaymentBadge } from '@/components/home/HomeHero';
 import { LeagueSwitcher } from '@/components/home/LeagueSwitcher';
 import { OffseasonLotteryOrder } from '@/components/home/OffseasonLotteryOrder';
@@ -32,6 +34,7 @@ import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ThemedView } from '@/components/ui/ThemedView';
 import { Colors, Fonts } from '@/constants/Colors';
+import { type Sport } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
 import { useSession } from '@/context/AuthProvider';
@@ -46,6 +49,7 @@ import { usePlayoffBracket } from '@/hooks/usePlayoffBracket';
 import { markSplashReady } from '@/lib/splashReady';
 import { supabase } from '@/lib/supabase';
 import { formatDateTimeWithZone } from '@/utils/dates';
+import { computeOffseasonState } from '@/utils/league/offseasonState';
 import { calcRounds } from '@/utils/league/playoff';
 import { minSeasonStartForDraft } from '@/utils/league/seasonStart';
 import { logger } from '@/utils/logger';
@@ -58,68 +62,6 @@ type HomeDraft = {
   status: string | null;
   draft_date: string | null;
 };
-
-// Collapses the scattered offseason_step DB values into a simplified step
-// list for the hero's pip-stepper display.
-function computeOffseasonState(
-  leagueType: string,
-  rookieDraftOrder: string,
-  offseasonStep: string,
-): {
-  stepIndex: number;
-  stepCount: number;
-  stepLabel: string;
-  nextStepLabel: string | null;
-} {
-  type Step = { label: string; dbKeys: string[] };
-  const seasonOver: Step = {
-    label: 'Season Over',
-    dbKeys: ['season_complete'],
-  };
-  const lottery: Step = {
-    label: 'Draft Lottery',
-    dbKeys: ['lottery_pending', 'lottery_scheduled', 'lottery_revealing', 'lottery_complete'],
-  };
-  const keepers: Step = {
-    label: 'Declare Keepers',
-    dbKeys: ['keeper_pending', 'declare_keepers'],
-  };
-  const rookieDraft: Step = {
-    label: 'Rookie Draft',
-    dbKeys: ['rookie_draft_pending', 'rookie_draft_complete'],
-  };
-  const draft: Step = {
-    label: 'Draft',
-    dbKeys: ['ready_for_new_season', 'draft'],
-  };
-  const newSeason: Step = {
-    label: 'New Season',
-    dbKeys: ['new_season'],
-  };
-
-  let steps: Step[];
-  if (leagueType === 'redraft') {
-    steps = [seasonOver, draft, newSeason];
-  } else if (leagueType === 'keeper') {
-    steps = [seasonOver, keepers, draft, newSeason];
-  } else if (rookieDraftOrder === 'lottery') {
-    steps = [seasonOver, lottery, rookieDraft, newSeason];
-  } else {
-    steps = [seasonOver, rookieDraft, newSeason];
-  }
-
-  const activeIdx = Math.max(
-    0,
-    steps.findIndex((s) => s.dbKeys.includes(offseasonStep)),
-  );
-
-  return {
-    stepIndex: activeIdx,
-    stepCount: steps.length,
-    stepLabel: steps[activeIdx]?.label ?? steps[0].label,
-    nextStepLabel: steps[activeIdx + 1]?.label ?? null,
-  };
-}
 
 // Per-step hero action mapping. Returns null for non-commissioners or
 // steps that have no actionable commissioner move right now.
@@ -388,6 +330,23 @@ export default function HomeScreen() {
   const isImportedNotStarted =
     !!league?.imported_from && !league?.schedule_generated && !isOffseason;
 
+  // Imported leagues can be created with "finish rosters later" placeholder
+  // teams — those have zero league_players. Nudge the commissioner (only) to
+  // finish importing before the season/rookie draft proceeds. Gated on
+  // `imported_from` so a normal pre-draft league (all teams empty until the
+  // draft fills them) never trips this. The count is already on the cached
+  // league payload, so no extra query.
+  const rostersPending = useMemo(() => {
+    if (!isCommissioner || !league?.imported_from) return null;
+    const teams =
+      (league.league_teams as { league_players?: { count: number }[] }[] | null) ?? [];
+    const count = teams.filter(
+      (t) => (t.league_players?.[0]?.count ?? 0) === 0,
+    ).length;
+    if (count === 0) return null;
+    return { count, onPress: () => router.push('/league-info' as never) };
+  }, [isCommissioner, league, router]);
+
   // Claim progress for imported leagues in setup — powers the
   // invite_needed hero's "X/Y Claimed" eyebrow. Replaces the data
   // query that used to live in ImportedLeagueSection; we lifted it
@@ -428,14 +387,41 @@ export default function HomeScreen() {
       markSplashReady();
     }
   }, [isLoading, activeDraftLoading, bracketLoading]);
-  const playoffsComplete = useMemo(() => {
-    if (!bracket || bracket.length === 0) return false;
+  // The decided championship winner from the bracket's final round. We key
+  // off calcRounds (the true bracket depth) rather than the max round present
+  // so an intermediate round completing mid-playoffs can't read as "season
+  // complete", and we filter out bye + 3rd-place slots so we crown the actual
+  // title winner regardless of slot ordering (mirrors advance-season, which is
+  // what will later stamp leagues.champion_team_id).
+  const championId = useMemo(() => {
+    if (!bracket || bracket.length === 0) return null;
     const totalRounds = calcRounds(league?.playoff_teams ?? 8);
-    const finalSlot = bracket.find((s) => s.round === totalRounds);
-    return !!finalSlot?.winner_id;
+    const finalSlot = bracket.find(
+      (s) => s.round === totalRounds && !s.is_bye && !s.is_third_place,
+    );
+    return finalSlot?.winner_id ?? null;
   }, [bracket, league?.playoff_teams]);
+  const playoffsComplete = !!championId;
   const isSeasonComplete =
     !isOffseason && (playoffsComplete || !!league?.champion_team_id);
+
+  // Resolve the champion team's display fields once for both the hero eyebrow
+  // and the ChampionCard. Prefer the live bracket winner (available before
+  // advance-season runs); fall back to champion_team_id for the brief window
+  // where it's set but we're still painting season_complete.
+  const champion = useMemo(() => {
+    const id = championId ?? league?.champion_team_id ?? null;
+    if (!id) return null;
+    const teamsArr = (league?.league_teams ?? []) as {
+      id: string;
+      name: string;
+      tricode: string | null;
+      logo_key: string | null;
+    }[];
+    const team = teamsArr.find((t) => t.id === id);
+    if (!team) return null;
+    return { id, name: team.name, tricode: team.tricode, logoKey: team.logo_key };
+  }, [championId, league?.champion_team_id, league?.league_teams]);
 
   const heroVariant: HomeHeroVariant | null = useMemo(() => {
     if (!league) return null;
@@ -447,26 +433,9 @@ export default function HomeScreen() {
     if (activeDraftLoading || bracketLoading) return null;
 
     if (isSeasonComplete) {
-      // Champion lookup — prefer the bracket's final winner (set by
-      // finalize-week) since it's available before advance-season runs
-      // and records champion_team_id on the league.
-      let championName: string | null = null;
-      const teamsArr = (league.league_teams ?? []) as {
-        id: string;
-        name: string;
-        tricode: string | null;
-      }[];
-      let championId: string | null = null;
-      if (bracket && bracket.length > 0) {
-        const totalRounds = calcRounds(league.playoff_teams ?? 8);
-        const finalSlot = bracket.find((s) => s.round === totalRounds);
-        championId = finalSlot?.winner_id ?? null;
-      }
-      if (!championId && league.champion_team_id) championId = league.champion_team_id;
-      if (championId) {
-        const champ = teamsArr.find((t) => t.id === championId);
-        championName = champ?.tricode ?? champ?.name ?? null;
-      }
+      // Eyebrow shows the champion's tricode; the ChampionCard below the hero
+      // carries the full name + logo. Both read from the shared `champion`.
+      const championName = champion?.tricode ?? champion?.name ?? null;
 
       return {
         kind: 'season_complete',
@@ -622,7 +591,7 @@ export default function HomeScreen() {
     activeDraft,
     rookieDraft,
     seasonDraft,
-    bracket,
+    champion,
     offseasonActions,
     overageCount,
     myOverBy,
@@ -937,6 +906,14 @@ export default function HomeScreen() {
           </View>
         ) : league ? (
           <>
+            {/* CMS-driven marketing/announcement banner — below the header
+                tabs, above the team card. Themed per-sport, targeted, and
+                dismissible; renders nothing when no banner is live. */}
+            <HomeAnnouncementBanner
+              sport={league.sport as Sport}
+              leagueType={league.league_type}
+              scoringType={league.scoring_type}
+            />
             {heroVariant && (
               <HomeHero
                 variant={heroVariant}
@@ -948,6 +925,7 @@ export default function HomeScreen() {
                 onEnterDraft={onEnterDraft}
                 onSetDraftOrder={() => setShowOrderModal(true)}
                 onShareInvite={onShareInvite}
+                rostersPending={rostersPending}
               />
             )}
             {/* Manual draft order — commissioner-only modal. Rendered
@@ -994,6 +972,19 @@ export default function HomeScreen() {
                 />
               )}
             <QuickNav leagueType={league.league_type ?? 'dynasty'} />
+
+            {/* Season's over but the commissioner hasn't advanced yet —
+                crown the champion prominently above standings, since the
+                hero only carries a small tricode and the offseason UI (with
+                its own champion surfaces) hasn't taken over the body yet. */}
+            {isSeasonComplete && champion && (
+              <ChampionCard
+                teamName={champion.name}
+                logoKey={champion.logoKey}
+                tricode={champion.tricode}
+                season={league.season}
+              />
+            )}
 
             {isOffseason ? (
               <OffseasonLotteryOrder

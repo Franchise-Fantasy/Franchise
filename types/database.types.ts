@@ -1799,6 +1799,7 @@ export type Database = {
           division_count: number
           draft_pick_trading_enabled: boolean
           faab_budget: number
+          faab_tiebreak: string
           id: string
           imported_from: string | null
           initial_draft_order: string
@@ -1824,6 +1825,7 @@ export type Database = {
           reseed_each_round: boolean
           rookie_draft_order: string
           rookie_draft_rounds: number
+          rookie_pick_time_limit: number | null
           roster_size: number
           schedule_generated: boolean
           scoring_type: string
@@ -1841,6 +1843,7 @@ export type Database = {
           venmo_username: string | null
           waiver_day_of_week: number
           waiver_period_days: number
+          waiver_priority_reset: string
           waiver_type: string
           weekly_acquisition_limit: number | null
         }
@@ -1861,6 +1864,7 @@ export type Database = {
           division_count?: number
           draft_pick_trading_enabled?: boolean
           faab_budget?: number
+          faab_tiebreak?: string
           id?: string
           imported_from?: string | null
           initial_draft_order?: string
@@ -1886,6 +1890,7 @@ export type Database = {
           reseed_each_round?: boolean
           rookie_draft_order?: string
           rookie_draft_rounds?: number
+          rookie_pick_time_limit?: number | null
           roster_size: number
           schedule_generated?: boolean
           scoring_type?: string
@@ -1903,6 +1908,7 @@ export type Database = {
           venmo_username?: string | null
           waiver_day_of_week?: number
           waiver_period_days?: number
+          waiver_priority_reset?: string
           waiver_type?: string
           weekly_acquisition_limit?: number | null
         }
@@ -1923,6 +1929,7 @@ export type Database = {
           division_count?: number
           draft_pick_trading_enabled?: boolean
           faab_budget?: number
+          faab_tiebreak?: string
           id?: string
           imported_from?: string | null
           initial_draft_order?: string
@@ -1948,6 +1955,7 @@ export type Database = {
           reseed_each_round?: boolean
           rookie_draft_order?: string
           rookie_draft_rounds?: number
+          rookie_pick_time_limit?: number | null
           roster_size?: number
           schedule_generated?: boolean
           scoring_type?: string
@@ -1965,6 +1973,7 @@ export type Database = {
           venmo_username?: string | null
           waiver_day_of_week?: number
           waiver_period_days?: number
+          waiver_priority_reset?: string
           waiver_type?: string
           weekly_acquisition_limit?: number | null
         }
@@ -4013,8 +4022,10 @@ export type Database = {
           round: number
           season: string
           team_a_id: string | null
+          team_a_score: number | null
           team_a_seed: number | null
           team_b_id: string | null
+          team_b_score: number | null
           team_b_seed: number | null
           winner_id: string | null
         }
@@ -4029,8 +4040,10 @@ export type Database = {
           round: number
           season: string
           team_a_id?: string | null
+          team_a_score?: number | null
           team_a_seed?: number | null
           team_b_id?: string | null
+          team_b_score?: number | null
           team_b_seed?: number | null
           winner_id?: string | null
         }
@@ -4045,8 +4058,10 @@ export type Database = {
           round?: number
           season?: string
           team_a_id?: string | null
+          team_a_score?: number | null
           team_a_seed?: number | null
           team_b_id?: string | null
+          team_b_score?: number | null
           team_b_seed?: number | null
           winner_id?: string | null
         }
@@ -5177,6 +5192,7 @@ export type Database = {
       team_seasons: {
         Row: {
           created_at: string | null
+          division: number | null
           final_standing: number | null
           id: string
           league_id: string
@@ -5186,11 +5202,13 @@ export type Database = {
           points_for: number | null
           season: string
           team_id: string
+          team_name: string | null
           ties: number | null
           wins: number | null
         }
         Insert: {
           created_at?: string | null
+          division?: number | null
           final_standing?: number | null
           id?: string
           league_id: string
@@ -5200,11 +5218,13 @@ export type Database = {
           points_for?: number | null
           season: string
           team_id: string
+          team_name?: string | null
           ties?: number | null
           wins?: number | null
         }
         Update: {
           created_at?: string | null
+          division?: number | null
           final_standing?: number | null
           id?: string
           league_id?: string
@@ -5214,6 +5234,7 @@ export type Database = {
           points_for?: number | null
           season?: string
           team_id?: string
+          team_name?: string | null
           ties?: number | null
           wins?: number | null
         }

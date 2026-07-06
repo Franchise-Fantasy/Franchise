@@ -24,6 +24,7 @@ import { useColors } from "@/hooks/useColors";
 import { useDraftTimer } from "@/hooks/useDraftTimer";
 import { supabase, uniqueChannelTopic } from "@/lib/supabase";
 import { DraftState, Pick } from "@/types/draft";
+import { formatClockRemaining, formatPickClock } from "@/utils/draft/pickClock";
 import { ms, s } from "@/utils/scale";
 
 
@@ -168,10 +169,7 @@ export function DraftOrder({
         });
         queryClient.invalidateQueries({ queryKey: queryKeys.draftState(draftId) });
       } else {
-        const totalSeconds = Math.floor(remaining / 1000);
-        const mins = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
-        const secs = String(totalSeconds % 60).padStart(2, "0");
-        setTimeUntilDraft(`${mins}:${secs}`);
+        setTimeUntilDraft(formatClockRemaining(remaining));
       }
     };
 
@@ -330,7 +328,7 @@ export function DraftOrder({
             const prevClock = effectivePickClock(prev, prev.current_pick_number);
             const nextClock = effectivePickClock(next, next.current_pick_number);
             if (nextClock !== prevClock) {
-              showToast("info", `Commissioner set the pick clock to ${nextClock}s.`);
+              showToast("info", `Commissioner set the pick clock to ${formatPickClock(nextClock)}.`);
             }
           }
           queryClient.setQueryData(queryKeys.draftState(draftId), next);

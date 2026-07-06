@@ -5,9 +5,11 @@ import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
 import { checkPositionLimits } from '../_shared/positionLimits.ts';
 import { notifyTeams, notifyLeague } from '../_shared/push.ts';
 import { effectiveTimeLimit } from '../_shared/draftClock.ts';
+import { scheduleAutodraft, schedulePickReminder } from '../_shared/qstash.ts';
 import { parseBody, z } from '../_shared/validate.ts';
-import { isEligibleForSlot } from '../../../utils/roster/rosterSlotsShared.ts';
 import { effectiveDraftPts } from '../../../utils/draft/draftRanking.ts';
+import { formatPickClock, isSlowClock } from '../../../utils/draft/pickClock.ts';
+import { isEligibleForSlot } from '../../../utils/roster/rosterSlotsShared.ts';
 
 const Body = z.object({
   draft_id: z.string().uuid(),
@@ -58,20 +60,6 @@ function deferWork(promise: Promise<unknown>) {
   } else {
     promise.catch((err) => console.warn('Deferred autodraft work failed:', err));
   }
-}
-
-async function scheduleAutodraft(draft_id: string, pick_number: number, time_limit: number, autopick_triggered = false) {
-  const autodraftUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/autodraft`;
-  const res = await fetch(`https://qstash-us-east-1.upstash.io/v2/publish/${autodraftUrl}`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${Deno.env.get('QSTASH_TOKEN')?.trim()}`,
-      'Content-Type': 'application/json',
-      'Upstash-Delay': `${time_limit}s`,
-    },
-    body: JSON.stringify({ draft_id, pick_number, autopick_triggered }),
-  });
-  if (!res.ok) throw new Error(`QStash error: ${await res.text()}`);
 }
 
 Deno.serve(async (req) => {
@@ -146,7 +134,7 @@ Deno.serve(async (req) => {
       rosterConfigResult,
     ] = await Promise.all([
       supabaseAdmin.from('league_players').select('player_id').eq('league_id', draft.league_id),
-      supabaseAdmin.from('leagues').select('sport, position_limits').eq('id', draft.league_id).single(),
+      supabaseAdmin.from('leagues').select('sport, position_limits, archived_at').eq('id', draft.league_id).single(),
       supabaseAdmin
         .from('league_players')
         .select('position, roster_slot')
@@ -169,11 +157,23 @@ Deno.serve(async (req) => {
       supabaseAdmin.from('league_roster_config').select('position, slot_count').eq('league_id', draft.league_id),
     ]);
 
+    // League archived (soft-deleted) mid-draft — kill the self-perpetuating
+    // QStash chain: make NO pick, schedule NOTHING, send NO push. Slow drafts
+    // span days, so archive-mid-draft is realistic; without this the chain
+    // auto-picks a deleted league to completion (its UI is already gone). This
+    // is the same guard start-draft carries for the auto-start cron — a blind
+    // trigger must check archived_at itself.
+    if (leagueResult.data?.archived_at) {
+      return jsonResponse({ message: 'League is archived; draft halted' });
+    }
+
     // If this was triggered by the autopick toggle (not the normal draft clock),
     // re-check that the team still has autopick enabled — they may have toggled off.
     if (autopick_triggered && !teamStatusResult.data?.autopick_on) {
       // User turned off autopick before this fired — schedule normal clock instead
-      await scheduleAutodraft(draft_id, pick_number, effectiveTimeLimit(pick_number, draft));
+      const freshLimit = effectiveTimeLimit(pick_number, draft);
+      await scheduleAutodraft(draft_id, pick_number, freshLimit);
+      await schedulePickReminder(draft_id, pick_number, freshLimit);
       return jsonResponse({ message: 'Autopick cancelled, normal clock scheduled' });
     }
 
@@ -318,12 +318,24 @@ Deno.serve(async (req) => {
 
     const timestamp = new Date().toISOString();
 
-    const { error: updatePickError } = await supabaseAdmin
+    // Claim the pick ATOMICALLY: the `.is('player_id', null)` predicate makes
+    // Postgres row-lock and match only if the pick is still open, so two
+    // concurrent deliveries (a late QStash message racing the stalled-draft
+    // sweeper's republish, or an autopick racing a human) can't both write.
+    // The loser matches 0 rows and returns before the league_players insert /
+    // pick advance, so no double roster add. Guards the phase-1 read→write
+    // gap that had no protection before.
+    const { data: claimed, error: updatePickError } = await supabaseAdmin
       .from('draft_picks')
       .update({ player_id: topPlayer.player_id, selected_at: timestamp, auto_drafted: true })
       .eq('draft_id', draft_id)
-      .eq('pick_number', pick_number);
+      .eq('pick_number', pick_number)
+      .is('player_id', null)
+      .select('id');
     if (updatePickError) throw updatePickError;
+    if (!claimed || claimed.length === 0) {
+      return jsonResponse({ message: 'Pick already made' });
+    }
 
     const rosterSlot = findBestSlot(rosterConfigs, teamRoster, topPlayer.position);
 
@@ -415,6 +427,10 @@ Deno.serve(async (req) => {
           }
 
           await scheduleAutodraft(draft_id, nextPickNumber, delay, nextIsAutopick);
+          // Slow drafts: warn the next picker before their clock runs out.
+          if (!nextIsAutopick) {
+            await schedulePickReminder(draft_id, nextPickNumber, nextLimit);
+          }
         } catch (schedErr) {
           console.warn('Failed to schedule next autodraft (non-fatal):', schedErr);
         }
@@ -437,7 +453,9 @@ Deno.serve(async (req) => {
         if (!isDraftComplete && nextPickTeamId) {
           await notifyTeams(supabaseAdmin, [nextPickTeamId], 'draft',
             `${ln} — Your turn to pick!`,
-            'The draft clock is ticking. Make your pick.',
+            isSlowClock(nextLimit)
+              ? `You're on the clock — you have ${formatPickClock(nextLimit)} to pick.`
+              : 'The draft clock is ticking. Make your pick.',
             { screen: 'draft-room', draft_id }
           );
         } else if (isDraftComplete) {

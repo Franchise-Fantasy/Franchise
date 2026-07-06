@@ -4,7 +4,6 @@ import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { ScreenshotCapture } from '@/components/import/ScreenshotCapture';
 import { BrandButton } from '@/components/ui/BrandButton';
-import { FormSection } from '@/components/ui/FormSection';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { formatSeason, type Sport } from '@/constants/LeagueDefaults';
@@ -69,7 +68,11 @@ function summarizeScan(s: ScanSummary, pendingCount: number): { anyAdded: boolea
 /**
  * Scan traded future picks from a screenshot of a league's pick-tracker
  * spreadsheet. Best-effort OCR (Claude Vision) — matched picks merge into the
- * editable TradedPicksEditor below for review, so accuracy isn't critical.
+ * editable TradedPicksEditor list below for review, so accuracy isn't critical.
+ *
+ * Renders as a bordered sub-block, NOT its own FormSection — it's designed to
+ * be nested inside TradedPicksEditor's section (via its `children` slot) so
+ * the whole traded-picks flow sits under a single header.
  *
  * Picks whose teams don't auto-match aren't dropped: their team names surface in
  * a "Match Teams" step (like the player-import matcher), and each mapping
@@ -185,10 +188,10 @@ export function TradedPicksScanner({ teams, seasons, rounds, sport, defaultDraft
   const report = summary ? summarizeScan(summary, pending.length) : null;
 
   return (
-    <FormSection title="Scan Traded Picks">
+    <View style={[styles.card, { borderColor: c.border }]}>
       <ThemedText style={[styles.intro, { color: c.secondaryText }]}>
-        Have a spreadsheet of traded picks? Screenshot it and we'll read the picks in for you. It won't be
-        perfect — review and fix them in the list below.
+        Have a screenshot of your league's traded picks? We'll read them in for you — review and
+        fix anything in the list below.
       </ThemedText>
 
       <ScreenshotCapture
@@ -208,7 +211,6 @@ export function TradedPicksScanner({ teams, seasons, rounds, sport, defaultDraft
           onPress={handleScan}
           loading={extract.isPending}
           accessibilityLabel="Scan traded picks from the screenshots"
-          style={styles.scanBtn}
         />
       )}
 
@@ -255,7 +257,7 @@ export function TradedPicksScanner({ teams, seasons, rounds, sport, defaultDraft
           ))}
         </View>
       )}
-    </FormSection>
+    </View>
   );
 }
 
@@ -312,16 +314,19 @@ function TeamMatchRow({
 }
 
 const styles = StyleSheet.create({
+  // Bordered sub-block nested inside TradedPicksEditor's card; internal
+  // rhythm comes from the container gap, not per-child margin shims.
+  card: {
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: s(12),
+    gap: s(10),
+  },
   intro: {
     fontSize: ms(13),
     lineHeight: ms(18),
-    marginBottom: s(10),
-  },
-  scanBtn: {
-    marginTop: s(10),
   },
   summary: {
-    marginTop: s(8),
     gap: s(4),
   },
   summaryRow: {
@@ -340,15 +345,12 @@ const styles = StyleSheet.create({
     marginLeft: ms(22),
   },
   msg: {
-    flex: 1,
     fontSize: ms(13),
     lineHeight: ms(18),
-    marginTop: s(8),
   },
 
   // ─── Match Teams step ─────────────────────────────────────
   matchSection: {
-    marginTop: s(12),
     gap: s(8),
   },
   matchIntro: {

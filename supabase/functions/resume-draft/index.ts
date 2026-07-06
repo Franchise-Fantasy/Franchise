@@ -3,28 +3,13 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsResponse } from '../_shared/cors.ts';
 import { effectiveTimeLimit } from '../_shared/draftClock.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
+import { scheduleAutodraft, schedulePickReminder } from '../_shared/qstash.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { parseBody, z } from '../_shared/validate.ts';
 
 const Body = z.object({
   draft_id: z.string().uuid(),
 });
-
-// Re-arm the QStash clock for the current pick. Mirrors the scheduler in
-// autodraft / make-draft-pick (each draft fn keeps its own copy today).
-async function scheduleAutodraft(draft_id: string, pick_number: number, time_limit: number, autopick_triggered = false) {
-  const autodraftUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/autodraft`;
-  const res = await fetch(`https://qstash-us-east-1.upstash.io/v2/publish/${autodraftUrl}`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${Deno.env.get('QSTASH_TOKEN')?.trim()}`,
-      'Content-Type': 'application/json',
-      'Upstash-Delay': `${time_limit}s`,
-    },
-    body: JSON.stringify({ draft_id, pick_number, autopick_triggered }),
-  });
-  if (!res.ok) throw new Error(`QStash error: ${await res.text()}`);
-}
 
 // Commissioner resumes a paused draft: restore the snapshotted remaining clock,
 // flip back to in_progress, and publish a fresh autodraft timer. If the team on
@@ -116,6 +101,11 @@ Deno.serve(async (req) => {
     // the timer can't fire before the flip. If the flip itself then fails, the
     // armed timer harmlessly no-ops via the autodraft pause guard.)
     await scheduleAutodraft(draft_id, draft.current_pick_number, delay, autopickTriggered);
+    // Slow drafts: re-arm the reminder against the restored remaining clock
+    // (only fires when the remainder itself is still slow-scale).
+    if (!autopickTriggered) {
+      await schedulePickReminder(draft_id, draft.current_pick_number, remainingSeconds);
+    }
 
     const now = new Date().toISOString();
     // Atomic transition — only resume a draft that is still paused.

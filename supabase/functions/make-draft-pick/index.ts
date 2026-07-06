@@ -5,8 +5,10 @@ import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkPositionLimits } from '../_shared/positionLimits.ts';
 import { notifyTeams, notifyLeague } from '../_shared/push.ts';
 import { effectiveTimeLimit } from '../_shared/draftClock.ts';
+import { scheduleAutodraft, schedulePickReminder } from '../_shared/qstash.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { parseBody, z } from '../_shared/validate.ts';
+import { formatPickClock, isSlowClock } from '../../../utils/draft/pickClock.ts';
 import { isEligibleForSlot } from '../../../utils/roster/rosterSlotsShared.ts';
 
 const Body = z.object({
@@ -58,20 +60,6 @@ async function findBestSlot(
   }
 
   return 'BE';
-}
-
-async function scheduleAutodraft(draft_id: string, pick_number: number, time_limit: number, autopick_triggered = false) {
-  const autodraftUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/autodraft`;
-  const res = await fetch(`https://qstash-us-east-1.upstash.io/v2/publish/${autodraftUrl}`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${Deno.env.get('QSTASH_TOKEN')?.trim()}`,
-      'Content-Type': 'application/json',
-      'Upstash-Delay': `${time_limit}s`,
-    },
-    body: JSON.stringify({ draft_id, pick_number, autopick_triggered }),
-  });
-  if (!res.ok) throw new Error(`QStash error: ${await res.text()}`);
 }
 
 Deno.serve(async (req)=>{
@@ -160,11 +148,12 @@ Deno.serve(async (req)=>{
 
     const isDraftComplete = pickResult.is_complete;
     const nextPickNumber = pickResult.next_pick_number;
+    // Effective clock for the NEXT pick (honors round acceleration). Hoisted
+    // out of the scheduling block so the push copy below can reference it.
+    const nextLimit = effectiveTimeLimit(nextPickNumber, draft);
 
     if (!isDraftComplete) {
       try {
-        // Effective clock for the NEXT pick (honors round acceleration).
-        const nextLimit = effectiveTimeLimit(nextPickNumber, draft);
         // Check if the next team has autopick enabled — if so, fire immediately
         let delay = nextLimit;
         let nextIsAutopick = false;
@@ -190,6 +179,10 @@ Deno.serve(async (req)=>{
         }
 
         await scheduleAutodraft(draft_id, nextPickNumber, delay, nextIsAutopick);
+        // Slow drafts: warn the next picker before their clock runs out.
+        if (!nextIsAutopick) {
+          await schedulePickReminder(draft_id, nextPickNumber, nextLimit);
+        }
 
         // Snapshot the limit for the new current pick so a mid-draft time
         // change only affects future picks (on-the-clock pick keeps its clock).
@@ -218,7 +211,9 @@ Deno.serve(async (req)=>{
         if (nextPick) {
           await notifyTeams(supabaseAdmin, [nextPick.current_team_id], 'draft',
             isRookieDraft ? `${ln} — Rookie Draft: Your pick!` : `${ln} — Your turn to pick!`,
-            'The draft clock is ticking. Make your pick.',
+            isSlowClock(nextLimit)
+              ? `You're on the clock — you have ${formatPickClock(nextLimit)} to pick.`
+              : 'The draft clock is ticking. Make your pick.',
             { screen: 'draft-room', draft_id }
           );
         }

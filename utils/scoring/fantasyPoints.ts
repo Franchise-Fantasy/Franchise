@@ -82,15 +82,17 @@ export function calculateAvgFantasyPoints(
 // Rebuilds the `total_*` columns `calculateAvgFantasyPoints` reads from a row
 // that only carries per-game averages (total = avg × games_played), but only
 // for totals that are actually missing (`!= null` rows are left untouched).
-// Two callers with different row shapes rely on this:
-//   • usePrevSeasonFpts selects `*` — the DB persists totals for the
-//     triple-double-signal stats (pts/reb/ast/stl/blk/tov + dd/td), so those
-//     are skipped and only the shooting splits get reconstructed.
-//   • the analytics progression selects averages only — every counting-stat
-//     total is missing, so all of these get reconstructed.
-// dd/td have no avg column anywhere, so an averages-only row can't score them
-// (calculateAvgFantasyPoints treats the absent total as 0, not NaN).
-const AVG_TO_TOTAL_RECONSTRUCT: Array<[avgKey: string, totalKey: keyof PlayerSeasonStats]> = [
+// Three row shapes rely on this:
+//   • usePrevSeasonFpts / usePlayerHistoricalStats select the persisted dd/td
+//     TOTALS directly — those are present, so they're skipped and only the
+//     shooting splits get reconstructed.
+//   • windowed rows from averageGames() carry avg_dd/avg_td RATES (0–1 per
+//     game) but no totals — dd/td get reconstructed to counts like everything
+//     else (round(rate × games)), so the recent-window FPTS scores DD/TD too.
+//   • averages-only rows (e.g. the age-progression chart) that carry neither a
+//     total nor an avg for dd/td can't score them — the absent total stays 0
+//     (calculateAvgFantasyPoints treats absent as 0, not NaN).
+const AVG_TO_TOTAL_RECONSTRUCT: [avgKey: string, totalKey: keyof PlayerSeasonStats][] = [
   ['avg_pts', 'total_pts'],
   ['avg_reb', 'total_reb'],
   ['avg_ast', 'total_ast'],
@@ -104,6 +106,11 @@ const AVG_TO_TOTAL_RECONSTRUCT: Array<[avgKey: string, totalKey: keyof PlayerSea
   ['avg_ftm', 'total_ftm'],
   ['avg_fta', 'total_fta'],
   ['avg_pf', 'total_pf'],
+  // Windowed rows carry avg_dd/avg_td as per-game rates → round(rate × games)
+  // yields the DD/TD count. Historical/season rows carry total_dd/total_td
+  // directly (present → skipped here).
+  ['avg_dd', 'total_dd'],
+  ['avg_td', 'total_td'],
 ];
 
 function reconstructTotals(row: Record<string, unknown>): PlayerSeasonStats {
@@ -117,10 +124,12 @@ function reconstructTotals(row: Record<string, unknown>): PlayerSeasonStats {
   return out as unknown as PlayerSeasonStats;
 }
 
-// Turns a `player_historical_stats` row (per-game AVERAGES only — no totals,
-// no dd/td) into FPTS/G using the same totals-based formula as the rest of
-// the app. Shared by usePrevSeasonFpts (prev-season fallback weight) and the
-// analytics season-progression chart so the two never drift.
+// Turns a per-game-averages row into FPTS/G using the same totals-based formula
+// as the rest of the app. Reconstructs whatever totals are missing (see
+// AVG_TO_TOTAL_RECONSTRUCT) so a row carrying only avg_* columns — or one that
+// already persists dd/td totals — both score consistently. Shared by
+// usePrevSeasonFpts, usePlayerHistoricalStats (season chips), the recent-window
+// lenses, and the age-progression chart so they never drift.
 export function seasonAvgRowToFpts(
   row: Record<string, unknown>,
   scoringWeights: ScoringWeight[],

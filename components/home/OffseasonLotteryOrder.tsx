@@ -5,6 +5,7 @@ import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { PickConditionRow } from '@/components/draft-hub/PickConditionRow';
 import { TeamLogo } from '@/components/team/TeamLogo';
+import { IconSymbol } from '@/components/ui/IconSymbol';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors, cardShadow } from '@/constants/Colors';
@@ -90,33 +91,18 @@ export function OffseasonLotteryOrder({
   const { data, isLoading } = useQuery<OrderRow[]>({
     queryKey: queryKeys.offseasonLotteryOrder(leagueId, offseasonStep, season),
     queryFn: async () => {
-      const { data: allArchived } = await supabase
-        .from('team_seasons')
-        .select('team_id, wins, losses, points_for, final_standing, season, team:teams!team_seasons_team_id_fkey(id, name, tricode, logo_key)')
-        .eq('league_id', leagueId)
-        .order('season', { ascending: false });
-
-      if (!allArchived || allArchived.length === 0) return [];
-      const latestSeason = (allArchived[0] as any).season;
-      const rows = allArchived.filter((r: any) => r.season === latestSeason);
-
-      // Sort: worst record first (reverse standings)
-      rows.sort((a: any, b: any) => {
-        if (a.final_standing != null && b.final_standing != null) {
-          return b.final_standing - a.final_standing;
-        }
-        if (a.wins !== b.wins) return a.wins - b.wins;
-        return Number(a.points_for) - Number(b.points_for);
-      });
-
-      const totalTeams = rows.length;
-      const poolSize = isLotteryLeague ? calcLotteryPoolSize(totalTeams, playoffTeams) : 0;
-      const odds = lotteryOdds ?? (poolSize > 0 ? generateDefaultOdds(poolSize) : []);
-
-      // If lottery complete, use current draft_picks slot_number ordering for
-      // round 1. NOTE: do NOT filter on draft_id — once the commissioner clicks
-      // "Done" (create-rookie-draft) the picks get linked to the new draft, so
-      // an `.is('draft_id', null)` filter would return nothing and silently fall
+      // Post-lottery the rookie draft order is locked into draft_picks
+      // (slot_number). This query is self-contained — it joins team identity
+      // directly and never touches team_seasons — so it MUST run BEFORE the
+      // team_seasons fetch below. An imported league seeded straight to the
+      // rookie-draft point often has NO archived team_seasons (history import is
+      // optional / fuzzy-matched), and gating this behind that fetch made a
+      // league with a set order fall through to the "order available once the
+      // season ends" empty state.
+      //
+      // NOTE: do NOT filter on draft_id — once the commissioner clicks "Done"
+      // (create-rookie-draft) the picks get linked to the new draft, so an
+      // `.is('draft_id', null)` filter would return nothing and silently fall
       // through to the reverse-standings overlay, showing the WRONG (pre-lottery)
       // order. season + round + unused (player_id null) is enough to scope it.
       if (lotteryComplete) {
@@ -150,6 +136,32 @@ export function OffseasonLotteryOrder({
           });
         }
       }
+
+      // Pre-lottery (or lottery flagged complete but picks not yet ordered): the
+      // order is reverse-standings from the most recent archived season, with
+      // round-1 pick conveyance overlaid.
+      const { data: allArchived } = await supabase
+        .from('team_seasons')
+        .select('team_id, wins, losses, points_for, final_standing, season, team:teams!team_seasons_team_id_fkey(id, name, tricode, logo_key)')
+        .eq('league_id', leagueId)
+        .order('season', { ascending: false });
+
+      if (!allArchived || allArchived.length === 0) return [];
+      const latestSeason = (allArchived[0] as any).season;
+      const rows = allArchived.filter((r: any) => r.season === latestSeason);
+
+      // Sort: worst record first (reverse standings)
+      rows.sort((a: any, b: any) => {
+        if (a.final_standing != null && b.final_standing != null) {
+          return b.final_standing - a.final_standing;
+        }
+        if (a.wins !== b.wins) return a.wins - b.wins;
+        return Number(a.points_for) - Number(b.points_for);
+      });
+
+      const totalTeams = rows.length;
+      const poolSize = isLotteryLeague ? calcLotteryPoolSize(totalTeams, playoffTeams) : 0;
+      const odds = lotteryOdds ?? (poolSize > 0 ? generateDefaultOdds(poolSize) : []);
 
       // Overlay round-1 pick ownership so traded/protected/swapped picks show
       // their conveyance + condition, matching the draft hub (the standings
@@ -239,13 +251,37 @@ export function OffseasonLotteryOrder({
   const showRecord = !lotteryComplete;
   const showOdds = isLotteryLeague && !lotteryComplete;
 
+  // First team we can open a roster for — anchors the "Rosters" header pill.
+  // The team-roster page carries its own switcher, so landing on any team
+  // gives access to every roster in the league. During the offseason this is
+  // the only surface listing all teams (StandingsSection is swapped out), so
+  // without this the rosters are effectively unreachable.
+  const firstTeamId = data?.find((r) => r.teamId)?.teamId ?? null;
+
   return (
     <View style={styles.wrap}>
       <View style={styles.labelRow}>
-        <View style={[styles.labelRule, { backgroundColor: c.gold }]} />
-        <ThemedText type="sectionLabel" style={{ color: c.text }}>
-          {outerLabel}
-        </ThemedText>
+        <View style={styles.labelLeft}>
+          <View style={[styles.labelRule, { backgroundColor: c.gold }]} />
+          <ThemedText type="sectionLabel" style={{ color: c.text }}>
+            {outerLabel}
+          </ThemedText>
+        </View>
+        {firstTeamId && (
+          <TouchableOpacity
+            style={[styles.headerPill, { backgroundColor: c.cardAlt, borderColor: c.border }]}
+            onPress={() => router.push(`/team-roster/${firstTeamId}` as never)}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Browse team rosters"
+            hitSlop={8}
+          >
+            <IconSymbol name="person.3.fill" size={14} color={c.gold} />
+            <ThemedText type="varsitySmall" style={[styles.headerPillText, { color: c.text }]}>
+              Rosters
+            </ThemedText>
+          </TouchableOpacity>
+        )}
       </View>
 
       <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border, ...cardShadow }]}>
@@ -327,6 +363,7 @@ export function OffseasonLotteryOrder({
                     disabled={!row.teamId}
                     activeOpacity={0.6}
                     accessibilityRole={row.teamId ? 'button' : undefined}
+                    accessibilityHint={row.teamId ? 'View team roster' : undefined}
                     accessibilityLabel={
                       `${primaryName}, pick ${row.position}` +
                       (straightTraded
@@ -439,12 +476,31 @@ const styles = StyleSheet.create({
   labelRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: s(10),
+  },
+  labelLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: s(10),
   },
   labelRule: {
     height: 2,
     width: s(18),
+  },
+  // Mirrors StandingsSection's "See All" pill so the offseason card reads
+  // as an entry point into rosters, not a static odds table.
+  headerPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(5),
+    paddingHorizontal: s(10),
+    paddingVertical: s(5),
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  headerPillText: {
+    fontSize: ms(9.5),
   },
   card: {
     borderWidth: 1,

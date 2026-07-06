@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { Badge } from '@/components/ui/Badge';
@@ -62,8 +62,21 @@ export function WeekRail({
   const scrollRef = useRef<ScrollView>(null);
   const chipLayouts = useRef<Map<number, { x: number; w: number }>>(new Map());
   const railWidth = useRef(0);
+  // Guards the mount-time layout race: the centering effect fires before any
+  // chip has measured, so we retry from onLayout until the first center lands.
+  const didInitialCenter = useRef(false);
 
   const selectedWeek = weeks[selectedIndex] ?? null;
+
+  // Center a chip once both its layout and the rail width are known.
+  // Returns whether the scroll actually happened.
+  const centerChip = useCallback((index: number, animated: boolean): boolean => {
+    const layout = chipLayouts.current.get(index);
+    if (!layout || !railWidth.current) return false;
+    const target = layout.x - railWidth.current / 2 + layout.w / 2;
+    scrollRef.current?.scrollTo({ x: Math.max(0, target), animated });
+    return true;
+  }, []);
 
   // Compute per-playoff ordinals so chip labels read R1/R2/R3 instead of
   // raw week numbers — feels more like a real bracket round indicator.
@@ -79,13 +92,11 @@ export function WeekRail({
     return map;
   })();
 
-  // Auto-center the selected chip whenever the index changes.
+  // Auto-center the selected chip whenever the index changes. On mount the
+  // chips haven't measured yet, so this may no-op — onLayout retries below.
   useEffect(() => {
-    const layout = chipLayouts.current.get(selectedIndex);
-    if (!layout || !railWidth.current) return;
-    const target = layout.x - railWidth.current / 2 + layout.w / 2;
-    scrollRef.current?.scrollTo({ x: Math.max(0, target), animated: true });
-  }, [selectedIndex]);
+    centerChip(selectedIndex, true);
+  }, [selectedIndex, centerChip]);
 
   if (!selectedWeek) return null;
 
@@ -142,6 +153,9 @@ export function WeekRail({
         contentContainerStyle={styles.railContent}
         onLayout={(e) => {
           railWidth.current = e.nativeEvent.layout.width;
+          if (!didInitialCenter.current) {
+            didInitialCenter.current = centerChip(selectedIndex, false);
+          }
         }}
       >
         {weeks.map((w, i) => {
@@ -170,12 +184,15 @@ export function WeekRail({
               key={w.id}
               onPress={() => onSelect(i)}
               activeOpacity={0.7}
-              onLayout={(e) =>
+              onLayout={(e) => {
                 chipLayouts.current.set(i, {
                   x: e.nativeEvent.layout.x,
                   w: e.nativeEvent.layout.width,
-                })
-              }
+                });
+                if (!didInitialCenter.current && i === selectedIndex) {
+                  didInitialCenter.current = centerChip(selectedIndex, false);
+                }
+              }}
               accessibilityRole="button"
               accessibilityLabel={`${
                 w.is_playoff

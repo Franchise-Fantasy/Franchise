@@ -18,6 +18,7 @@ import { PollCard } from '@/components/cms/PollCard';
 import { RichTextRenderer } from '@/components/cms/RichTextRenderer';
 import { SpotlightCard } from '@/components/cms/SpotlightCard';
 import { TipCard } from '@/components/cms/TipCard';
+import { HomeAnnouncementCard } from '@/components/home/HomeAnnouncementCard';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ThemedText } from '@/components/ui/ThemedText';
@@ -59,6 +60,8 @@ export default function CmsTestScreen() {
         return <ArticleCard {...mapped.props} onPress={openDetail} />;
       case 'announcement':
         return <AnnouncementBanner {...mapped.props} onPress={openDetail} />;
+      case 'alertBanner':
+        return <HomeAnnouncementCard banner={mapped.props} onDismiss={() => {}} onCtaPress={() => {}} />;
       case 'playerSpotlight':
         return <SpotlightCard {...mapped.props} onPress={openDetail} />;
       case 'quickTip':

@@ -45,7 +45,9 @@ import {
   SCORING_TYPE_TO_DB,
   ScoringTypeOption,
   PLAYER_LOCK_TO_DB,
+  FAAB_TIEBREAK_TO_DB,
   SEEDING_TO_DB,
+  WAIVER_PRIORITY_RESET_TO_DB,
   SPORT_OPTIONS,
   SPORT_TO_DB,
   STEP_LABELS,
@@ -59,6 +61,7 @@ import { useColorScheme } from "@/hooks/useColorScheme";
 import { generateDraftPicks, generateFutureDraftPicks } from "@/lib/draft";
 import { capture } from "@/lib/posthog";
 import { supabase } from "@/lib/supabase";
+import { isSlowClock } from "@/utils/draft/pickClock";
 import { clampLotteryState, defaultPlayoffSetup, maxPlayoffWeeksForTeams } from "@/utils/league/lottery";
 import { sanitizeHandle } from "@/utils/league/paymentLinks";
 import { earliestSeasonStart } from "@/utils/league/seasonStart";
@@ -66,7 +69,8 @@ import {
   applyCupWeekToggle,
   computeMaxWeeks,
   defaultSeasonStart,
-  tradeDeadlineDateForWeek,
+  deriveTradeDeadlineDate,
+  deriveTradeDeadlineWeek,
 } from "@/utils/league/seasonWeeks";
 import { logger } from "@/utils/logger";
 import { containsBlockedContent } from "@/utils/moderation";
@@ -115,7 +119,7 @@ const initialState: LeagueWizardState = {
   accelerateAfterRound: null,
   acceleratedTimePerPick: 30,
   maxDraftYears: 3,
-  tradeVetoType: "Commissioner",
+  tradeVetoType: "League Vote",
   tradeReviewPeriodHours: 24,
   tradeVotesToVeto: defaultVotesToVeto(DEFAULT_TEAMS),
   rookieDraftRounds: 2,
@@ -125,6 +129,8 @@ const initialState: LeagueWizardState = {
   waiverType: "Standard",
   waiverPeriodDays: 2,
   faabBudget: 100,
+  waiverPriorityReset: "Reverse Standings",
+  faabTiebreak: "Earliest Bid",
   season: CURRENT_NBA_SEASON,
   seasonStartDate: null,
   regularSeasonWeeks: DEFAULT_REG_SEASON_WEEKS,
@@ -150,7 +156,7 @@ const initialState: LeagueWizardState = {
   taxiMaxExperience: 1,
   weeklyAcquisitionLimit: null,
   playerLockType: 'Daily',
-  autoRumorsEnabled: false,
+  autoRumorsEnabled: true,
   tiebreakerPrimary: 'Head-to-Head',
   divisionCount: 1,
   division1Name: 'Division 1',
@@ -162,27 +168,6 @@ const initialState: LeagueWizardState = {
 function ymdToDate(ymd: string): Date {
   const [y, m, d] = ymd.split('-').map(Number);
   return new Date(y, m - 1, d);
-}
-
-/**
- * Re-derive `tradeDeadlineDate` from `tradeDeadlineWeek` after any change
- * that shifts the calendar (season, start date, sport, week counts, Cup
- * toggle) — the week shortcut and the actual persisted date must move
- * together so a stale date never survives a structural edit.
- */
-function deriveTradeDeadlineDate(
-  s: Pick<LeagueWizardState, 'sport' | 'season' | 'seasonStartDate' | 'regularSeasonWeeks' | 'tradeDeadlineWeek' | 'combineCupWeek'>,
-): string | null {
-  if (s.tradeDeadlineWeek <= 0) return null;
-  const start = s.seasonStartDate ? ymdToDate(s.seasonStartDate) : defaultSeasonStart(s.sport, s.season);
-  return tradeDeadlineDateForWeek(
-    s.sport,
-    s.season,
-    start,
-    s.regularSeasonWeeks,
-    s.tradeDeadlineWeek,
-    s.combineCupWeek ?? false,
-  );
 }
 
 // The default start for a (sport, season): its hardcoded opening night when
@@ -296,6 +281,11 @@ function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
       // field to 0 or a default week).
       if (action.field === 'tradeDeadlineWeek') {
         return { ...next, tradeDeadlineDate: deriveTradeDeadlineDate(next) };
+      }
+      // The exact "Deadline Date" was fine-tuned — snap the week stepper to
+      // the week that contains it so the two controls never disagree.
+      if (action.field === 'tradeDeadlineDate') {
+        return { ...next, tradeDeadlineWeek: deriveTradeDeadlineWeek(next) };
       }
       // When switching away from dynasty, disable pick-related features and
       // clear any taxi slots — taxi is dynasty-only (you stash kept prospects).
@@ -660,6 +650,8 @@ export default function CreateLeague() {
             : 'none',
         waiver_period_days: state.waiverType === 'None' ? 0 : state.waiverPeriodDays,
         faab_budget: state.faabBudget,
+        waiver_priority_reset: WAIVER_PRIORITY_RESET_TO_DB[state.waiverPriorityReset],
+        faab_tiebreak: FAAB_TIEBREAK_TO_DB[state.faabTiebreak],
         playoff_seeding_format: (SEEDING_TO_DB[state.playoffSeedingFormat] ?? SEEDING_TO_DB.Standard).format,
         reseed_each_round: (SEEDING_TO_DB[state.playoffSeedingFormat] ?? SEEDING_TO_DB.Standard).reseed,
         scoring_type: SCORING_TYPE_TO_DB[state.scoringType] ?? 'points',
@@ -758,13 +750,19 @@ export default function CreateLeague() {
         picks_per_round: state.teams,
         time_limit: state.timePerPick,
         // Round acceleration only persists when both halves are set; the
-        // threshold must be inside the draft to ever fire.
+        // threshold must be inside the draft to ever fire. Slow (async)
+        // drafts never accelerate — the wizard hides those controls but the
+        // stale state could still be set from before the pace switch.
         accelerate_after_round:
-          state.accelerateAfterRound != null && state.accelerateAfterRound < rosterSize
+          state.accelerateAfterRound != null &&
+          state.accelerateAfterRound < rosterSize &&
+          !isSlowClock(state.timePerPick)
             ? state.accelerateAfterRound
             : null,
         accelerated_time_limit:
-          state.accelerateAfterRound != null && state.accelerateAfterRound < rosterSize
+          state.accelerateAfterRound != null &&
+          state.accelerateAfterRound < rosterSize &&
+          !isSlowClock(state.timePerPick)
             ? state.acceleratedTimePerPick ?? 30
             : null,
         draft_type: state.draftType.toLowerCase(),

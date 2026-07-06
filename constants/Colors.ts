@@ -72,6 +72,10 @@ export const Colors = {
     warningMuted: "rgba(181, 123, 48, 0.12)",
     gold: BRAND.vintageGold,
     goldMuted: "rgba(181, 123, 48, 0.18)",
+    // Announcement banner "feature" accent (the 4th banner type). NBA
+    // baseline = umber; WNBA overrides to a brighter orange via SPORT_THEMES.
+    bannerFeature: BRAND.umber,
+    bannerFeatureText: BRAND.ecru,
     // Heritage gold — softer olive, used where Vintage Gold reads too
     // loud. Prefer this over `gold` for subtle surfaces and thin UI
     // strokes (rings, hairlines) against warm backgrounds.
@@ -129,6 +133,8 @@ export const Colors = {
     warningMuted: "rgba(158, 138, 96, 0.20)",
     gold: BRAND.heritageGoldDark,
     goldMuted: "rgba(158, 138, 96, 0.25)",
+    bannerFeature: BRAND.umber,
+    bannerFeatureText: BRAND.ecru,
     heritageGold: BRAND.heritageGoldDark,
     heritageGoldMuted: "rgba(158, 138, 96, 0.20)",
     statusText: "#FFFFFF",
@@ -182,6 +188,7 @@ export const SPORT_THEMES: Record<string, AccentOverrides> = {
   // doesn't collide with `danger`, which is also merlot.
   wnba: {
     light: {
+      bannerFeature:    '#C15C2A', // brighter orange — WNBA's sampled 4th accent
       tabIconSelected:  BRAND.merlot,
       tint:             BRAND.merlot,
       activeBorder:     BRAND.merlot,
@@ -206,6 +213,7 @@ export const SPORT_THEMES: Record<string, AccentOverrides> = {
     // primary button fill stay merlot, where merlot has the surface area to
     // read.
     dark: {
+      bannerFeature:    '#C15C2A',
       activeCard:       'rgba(158, 138, 96, 0.20)',
       heroSurface:      BRAND.merlot,
       heroShadow: {

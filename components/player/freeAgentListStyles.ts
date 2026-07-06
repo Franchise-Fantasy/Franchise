@@ -50,7 +50,9 @@ export const freeAgentListStyles = StyleSheet.create({
     textAlign: "center",
   },
   listContent: {
-    paddingHorizontal: s(8),
+    // No horizontal padding here — the row's own paddingHorizontal carries the
+    // content inset so the zebra-stripe background bleeds to both screen edges
+    // (and aligns with the full-bleed colKey header above the list).
     paddingBottom: s(100),
   },
   // Extra bottom clearance so the floating compare bar (which sits above the
@@ -62,7 +64,8 @@ export const freeAgentListStyles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
-    // Match the row's effective horizontal padding (listContent s(8) + row s(12)).
+    // Match the row's horizontal padding so the stat-key legend lines up with
+    // the row content below it.
     paddingHorizontal: s(20),
     paddingTop: s(8),
     paddingBottom: s(6),
@@ -98,7 +101,9 @@ export const freeAgentListStyles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: s(6),
-    paddingHorizontal: s(12),
+    // s(20) = the old listContent s(8) + row s(12), so content stays put while
+    // the full-width row background provides edge-to-edge zebra striping.
+    paddingHorizontal: s(20),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   // The alt-row backgroundColor is applied inline in `FreeAgentRow` so it

@@ -7,7 +7,16 @@ import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ToggleRow } from '@/components/ui/ToggleRow';
 import { Colors } from '@/constants/Colors';
-import { LeagueWizardState, PLAYER_LOCK_OPTIONS, WAIVER_TYPE_OPTIONS, WaiverTypeOption } from '@/constants/LeagueDefaults';
+import {
+  FAAB_TIEBREAK_OPTIONS,
+  FaabTiebreakOption,
+  LeagueWizardState,
+  PLAYER_LOCK_OPTIONS,
+  WAIVER_PRIORITY_RESET_OPTIONS,
+  WAIVER_TYPE_OPTIONS,
+  WaiverPriorityResetOption,
+  WaiverTypeOption,
+} from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 
 interface StepWaiversProps {
@@ -28,10 +37,26 @@ const WAIVER_TYPE_DESCRIPTIONS: Record<WaiverTypeOption, string> = {
     'No waiver wire. Dropped players and free agents can be picked up instantly, first come first served.',
 };
 
+const FAAB_TIEBREAK_DESCRIPTIONS: Record<FaabTiebreakOption, string> = {
+  'Earliest Bid': 'When two teams bid the same amount, the bid placed first wins.',
+  'Waiver Priority': 'When two teams bid the same amount, the team with better waiver priority wins.',
+};
+
+const WAIVER_PRIORITY_RESET_DESCRIPTIONS: Record<WaiverPriorityResetOption, string> = {
+  'Reverse Standings': 'Each new season, waiver priority resets so the worst finisher picks first.',
+  'Keep': "Carry the previous season's ending waiver order into the new season.",
+  'Random': 'Shuffle waiver priority randomly at the start of each new season.',
+};
+
 export function StepWaivers({ state, onChange }: StepWaiversProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const weeklyLimitEnabled = state.weeklyAcquisitionLimit != null;
+  // Priority order only matters where the resolver reads it: Standard leagues,
+  // and FAAB leagues that break equal-bid ties by waiver priority.
+  const priorityResetRelevant =
+    state.waiverType === 'Standard' ||
+    (state.waiverType === 'FAAB' && state.faabTiebreak === 'Waiver Priority');
   return (
     <View style={styles.container}>
       <FormSection title="Waiver Wire">
@@ -50,7 +75,6 @@ export function StepWaivers({ state, onChange }: StepWaiversProps) {
             onValueChange={(v) => onChange('waiverPeriodDays', v)}
             min={1}
             max={5}
-            last
           />
         </AnimatedSection>
 
@@ -62,9 +86,31 @@ export function StepWaivers({ state, onChange }: StepWaiversProps) {
             min={10}
             max={1000}
             step={10}
-            last
             accessibilityLabel="FAAB budget in dollars"
           />
+        </AnimatedSection>
+
+        <AnimatedSection visible={state.waiverType === 'FAAB'}>
+          <FieldGroup label="Bid Tiebreaker" helperText={FAAB_TIEBREAK_DESCRIPTIONS[state.faabTiebreak]}>
+            <SegmentedControl
+              options={FAAB_TIEBREAK_OPTIONS}
+              selectedIndex={FAAB_TIEBREAK_OPTIONS.indexOf(state.faabTiebreak)}
+              onSelect={(i) => onChange('faabTiebreak', FAAB_TIEBREAK_OPTIONS[i])}
+            />
+          </FieldGroup>
+        </AnimatedSection>
+
+        <AnimatedSection visible={priorityResetRelevant}>
+          <FieldGroup
+            label="Priority Reset (New Season)"
+            helperText={WAIVER_PRIORITY_RESET_DESCRIPTIONS[state.waiverPriorityReset]}
+          >
+            <SegmentedControl
+              options={WAIVER_PRIORITY_RESET_OPTIONS}
+              selectedIndex={WAIVER_PRIORITY_RESET_OPTIONS.indexOf(state.waiverPriorityReset)}
+              onSelect={(i) => onChange('waiverPriorityReset', WAIVER_PRIORITY_RESET_OPTIONS[i])}
+            />
+          </FieldGroup>
         </AnimatedSection>
       </FormSection>
 

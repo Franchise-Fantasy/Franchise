@@ -12,12 +12,15 @@ export interface TeamSeasonRow {
   id: string;
   team_id: string;
   season: string;
+  /** The team's name that season (rebrands); null falls back to the live team.name. */
+  team_name: string | null;
   wins: number;
   losses: number;
   ties: number;
   points_for: number;
   points_against: number;
   final_standing: number;
+  division: number | null;
   playoff_result: string;
   team: { id: string; name: string; tricode: string | null; logo_key: string | null };
 }

@@ -114,6 +114,12 @@ type Props = {
   onSetDraftOrder?: () => void;
   // Invite callback
   onShareInvite?: () => void;
+  // Commissioner notice: an imported league still has teams whose rosters were
+  // never imported ("finish rosters later"). Renders a tappable warning chip
+  // under the variant content — variant-agnostic since pending rosters can
+  // linger through setup, the season, and the offseason. Tapping routes to
+  // League Info to finish the imports. `count` is how many teams are empty.
+  rostersPending?: { count: number; onPress: () => void } | null;
 };
 
 /**
@@ -130,6 +136,7 @@ export function HomeHero({
   onEnterDraft,
   onSetDraftOrder,
   onShareInvite,
+  rostersPending,
 }: Props) {
   const colors = useColors();
   const Wrapper = onPress ? TouchableOpacity : View;
@@ -174,6 +181,13 @@ export function HomeHero({
         <InviteNeeded variant={variant} onShareInvite={onShareInvite} />
       )}
       {variant.kind === 'offseason' && <Offseason variant={variant} />}
+
+      {rostersPending && (
+        <RostersPendingChip
+          count={rostersPending.count}
+          onPress={rostersPending.onPress}
+        />
+      )}
     </Wrapper>
   );
 }
@@ -651,6 +665,41 @@ function RosterOverageChip({ warning }: { warning: OverageWarning }) {
         <IconSymbol name="arrow.right" size={10} color={Brand.ecruMuted} />
       )}
     </Wrapper>
+  );
+}
+
+/**
+ * Commissioner-only notice for an imported league whose "finish rosters later"
+ * teams still have empty rosters. Shares the amber warning-chip treatment with
+ * RosterOverageChip, but always tappable — it routes to League Info where the
+ * per-team "Import Roster" buttons live.
+ */
+function RostersPendingChip({
+  count,
+  onPress,
+}: {
+  count: number;
+  onPress: () => void;
+}) {
+  const label = `${count} Roster${count === 1 ? '' : 's'} Not Imported`;
+  return (
+    <TouchableOpacity
+      style={styles.warningChip}
+      onPress={onPress}
+      activeOpacity={0.82}
+      accessibilityRole="button"
+      accessibilityLabel={`${label}. Tap to import the missing team rosters.`}
+    >
+      <IconSymbol
+        name="exclamationmark.triangle.fill"
+        size={12}
+        color={Brand.vintageGold}
+      />
+      <ThemedText type="varsitySmall" style={styles.warningChipText}>
+        {label}
+      </ThemedText>
+      <IconSymbol name="arrow.right" size={10} color={Brand.ecruMuted} />
+    </TouchableOpacity>
   );
 }
 

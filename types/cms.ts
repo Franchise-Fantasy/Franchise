@@ -109,11 +109,36 @@ export interface PollCardProps {
   onVote?: (index: number) => void;
 }
 
+/**
+ * Homepage announcement banner — the Contentful `alertBanner` content type.
+ * A themed, targeted, dismissible card shown at the top of the home feed.
+ * Distinct from the older `announcement` type above (severity/pinned list
+ * card used in cms-test) and the Supabase commissioner banner in
+ * components/banners/. See the media-team feature doc.
+ */
+export type AnnouncementType = 'info' | 'urgent' | 'promo' | 'feature';
+
+export interface HomeAnnouncement {
+  id: string; // Contentful entry sys.id — the per-device dismissal key
+  type: AnnouncementType;
+  headline: string;
+  subtext?: string;
+  ctaLabel?: string;
+  ctaLink?: string;
+  dismissible: boolean;
+  priority: number;
+  audience: string[]; // e.g. ['NBA', 'WNBA', 'ALL']
+  leagueFormat: string[]; // e.g. ['Dynasty', 'Redraft', 'CAT', 'ALL']
+  startDate: string; // ISO
+  endDate?: string; // ISO — optional; absent ⇒ no upper time bound
+}
+
 // ── Mapped entry wrapper (used by the dispatcher) ──────
 
 export type CmsMappedEntry =
   | { type: 'article'; props: ArticleCardProps }
   | { type: 'announcement'; props: AnnouncementBannerProps }
+  | { type: 'alertBanner'; props: HomeAnnouncement }
   | { type: 'playerSpotlight'; props: SpotlightCardProps }
   | { type: 'quickTip'; props: TipCardProps }
   | { type: 'poll'; props: PollCardProps }

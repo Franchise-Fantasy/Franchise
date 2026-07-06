@@ -14,6 +14,9 @@ export interface TradeItemSpec {
   playerId?: string;
   draftPickId?: string;
   protectionThreshold?: number;
+  /** Pick-swap item (no player/pick id): counterparty=fromTeamId, beneficiary=toTeamId. */
+  pickSwapSeason?: string;
+  pickSwapRound?: number;
 }
 
 /**
@@ -48,6 +51,8 @@ export async function createAcceptedTrade(opts: {
     player_id: i.playerId ?? null,
     draft_pick_id: i.draftPickId ?? null,
     protection_threshold: i.protectionThreshold ?? null,
+    pick_swap_season: i.pickSwapSeason ?? null,
+    pick_swap_round: i.pickSwapRound ?? null,
   }));
   const { error: itemsErr } = await admin.from('trade_proposal_items').insert(itemRows);
   if (itemsErr) throw new Error(`Create proposal items failed: ${itemsErr.message}`);

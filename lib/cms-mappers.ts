@@ -6,13 +6,17 @@
 
 import type {
   AnnouncementBannerProps,
+  AnnouncementType,
   ArticleCardProps,
   CmsMappedEntry,
+  HomeAnnouncement,
   PollCardProps,
   RichTextDocument,
   SpotlightCardProps,
   TipCardProps,
 } from '@/types/cms';
+
+const ANNOUNCEMENT_TYPES: AnnouncementType[] = ['info', 'urgent', 'promo', 'feature'];
 
 // ── Helpers ────────────────────────────────────
 
@@ -96,6 +100,38 @@ export function mapTip(fields: Record<string, any>): TipCardProps {
   };
 }
 
+/**
+ * Map a Contentful `alertBanner` entry → homepage announcement.
+ * Takes the FULL entry (not just fields) so the sys.id survives as the
+ * per-device dismissal key. `type` is normalised defensively because
+ * Contentful does not enforce an enum on that field — an unrecognised
+ * value falls back to `info`.
+ */
+export function mapAlertBanner(entry: any): HomeAnnouncement {
+  const f: Record<string, any> = entry?.fields ?? {};
+  const rawType = String(f.type ?? '').toLowerCase();
+  const type: AnnouncementType = (ANNOUNCEMENT_TYPES as string[]).includes(rawType)
+    ? (rawType as AnnouncementType)
+    : 'info';
+  const toStringArray = (v: any): string[] =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+
+  return {
+    id: entry?.sys?.id ?? '',
+    type,
+    headline: f.headline ?? '',
+    subtext: f.subtext || undefined,
+    ctaLabel: f.ctaLabel || undefined,
+    ctaLink: f.ctaLink || undefined,
+    dismissible: f.dismissible === true,
+    priority: typeof f.priority === 'number' ? f.priority : 0,
+    audience: toStringArray(f.audience),
+    leagueFormat: toStringArray(f.leagueFormat),
+    startDate: f.startDate ?? '',
+    endDate: f.endDate || undefined,
+  };
+}
+
 export function mapPoll(fields: Record<string, any>): PollCardProps {
   let options: string[] = [];
   if (Array.isArray(fields.options)) {
@@ -133,6 +169,8 @@ export function mapEntry(entry: any): CmsMappedEntry {
       return { type: 'article', props: mapArticle(fields) };
     case 'announcement':
       return { type: 'announcement', props: mapAnnouncement(fields) };
+    case 'alertBanner':
+      return { type: 'alertBanner', props: mapAlertBanner(entry) };
     case 'playerSpotlight':
       return { type: 'playerSpotlight', props: mapSpotlight(fields) };
     case 'quickTip':

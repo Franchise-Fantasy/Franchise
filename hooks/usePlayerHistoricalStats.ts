@@ -20,6 +20,12 @@ export interface HistoricalSeasonStats {
   avg_ftm: number;
   avg_fta: number;
   avg_pf: number;
+  // Season DD/TD counts — no avg_* column exists for these, so they must come
+  // through as totals for seasonAvgRowToFpts to include the DD/TD scoring bonus
+  // (otherwise the previous-season FPTS silently omits it — a big miss in
+  // leagues that score double/triple-doubles).
+  total_dd: number;
+  total_td: number;
   pro_team: string | null;
 }
 
@@ -30,7 +36,7 @@ export function usePlayerHistoricalStats(playerId: string | null) {
       const { data, error } = await supabase
         .from('player_historical_stats')
         .select(
-          'season, games_played, avg_pts, avg_reb, avg_ast, avg_stl, avg_blk, avg_tov, avg_min, avg_fgm, avg_fga, avg_3pm, avg_3pa, avg_ftm, avg_fta, avg_pf, pro_team',
+          'season, games_played, avg_pts, avg_reb, avg_ast, avg_stl, avg_blk, avg_tov, avg_min, avg_fgm, avg_fga, avg_3pm, avg_3pa, avg_ftm, avg_fta, avg_pf, total_dd, total_td, pro_team',
         )
         .eq('player_id', playerId!)
         .order('season', { ascending: false })

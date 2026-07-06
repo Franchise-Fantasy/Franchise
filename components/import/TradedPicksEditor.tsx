@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { BottomSheet } from '@/components/ui/BottomSheet';
@@ -27,6 +27,10 @@ interface Props {
   rounds: number;
   value: TradedPickDraft[];
   onChange: (next: TradedPickDraft[]) => void;
+  /** Optional extra block (e.g. the screenshot scanner) rendered between the
+   *  intro and the pick list, inside this section's card — keeps the whole
+   *  traded-picks flow under one header instead of dueling sections. */
+  children?: ReactNode;
 }
 
 /**
@@ -39,7 +43,7 @@ interface Props {
  * are pre-constrained to valid seasons/rounds/teams so invalid rows can't be
  * entered; duplicates of an existing (season, round, from) are blocked too.
  */
-export function TradedPicksEditor({ teams, seasons, rounds, value, onChange }: Props) {
+export function TradedPicksEditor({ teams, seasons, rounds, value, onChange, children }: Props) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
 
@@ -72,8 +76,11 @@ export function TradedPicksEditor({ teams, seasons, rounds, value, onChange }: P
   return (
     <FormSection title="Traded Draft Picks">
       <ThemedText style={[styles.intro, { color: c.secondaryText }]}>
-        Add any future picks that have changed hands so ownership imports correctly.
+        If any future picks have changed hands, add them here so the right team owns them after
+        the import.
       </ThemedText>
+
+      {children}
 
       {value.length === 0 ? (
         <ThemedText style={[styles.empty, { color: c.secondaryText }]}>
@@ -81,33 +88,50 @@ export function TradedPicksEditor({ teams, seasons, rounds, value, onChange }: P
         </ThemedText>
       ) : (
         <View style={[styles.list, { borderColor: c.border }]}>
-          {value.map((p, index) => (
-            <View
-              key={`${p.season}-${p.round}-${p.fromKey}`}
-              style={[
-                styles.row,
-                index < value.length - 1 && { borderBottomColor: c.border, borderBottomWidth: StyleSheet.hairlineWidth },
-              ]}
-            >
-              <View style={styles.rowText}>
-                <ThemedText style={[styles.rowTitle, { color: c.text }]} numberOfLines={1}>
-                  {draftYearLabel(p.season)} · R{p.round}
-                </ThemedText>
-                <ThemedText style={[styles.rowSub, { color: c.secondaryText }]} numberOfLines={1}>
-                  {nameByKey.get(p.fromKey) ?? p.fromKey} → {nameByKey.get(p.toKey) ?? p.toKey}
-                </ThemedText>
-              </View>
-              <TouchableOpacity
-                onPress={() => remove(index)}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                accessibilityRole="button"
-                accessibilityLabel={`Remove traded pick ${draftYearLabel(p.season)} round ${p.round}`}
-                style={styles.removeBtn}
+          {value.map((p, index) => {
+            const fromName = nameByKey.get(p.fromKey) ?? p.fromKey;
+            const toName = nameByKey.get(p.toKey) ?? p.toKey;
+            return (
+              <View
+                key={`${p.season}-${p.round}-${p.fromKey}`}
+                style={[
+                  styles.row,
+                  index < value.length - 1 && { borderBottomColor: c.border, borderBottomWidth: StyleSheet.hairlineWidth },
+                ]}
               >
-                <Ionicons name="close-circle" size={ms(20)} color={c.secondaryText} />
-              </TouchableOpacity>
-            </View>
-          ))}
+                <View style={styles.rowText}>
+                  <ThemedText style={[styles.rowTitle, { color: c.text }]} numberOfLines={1}>
+                    {draftYearLabel(p.season)} Draft · Round {p.round}
+                  </ThemedText>
+                  <View style={styles.ownerLine}>
+                    <ThemedText type="varsitySmall" style={[styles.ownerLabel, { color: c.secondaryText }]}>
+                      Original team
+                    </ThemedText>
+                    <ThemedText style={[styles.ownerName, { color: c.secondaryText }]} numberOfLines={1}>
+                      {fromName}
+                    </ThemedText>
+                  </View>
+                  <View style={styles.ownerLine}>
+                    <ThemedText type="varsitySmall" style={[styles.ownerLabel, { color: c.secondaryText }]}>
+                      Now owned by
+                    </ThemedText>
+                    <ThemedText style={[styles.ownerName, styles.ownerNameNow, { color: c.text }]} numberOfLines={1}>
+                      {toName}
+                    </ThemedText>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  onPress={() => remove(index)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${fromName}'s ${draftYearLabel(p.season)} round ${p.round} pick owned by ${toName}`}
+                  style={styles.removeBtn}
+                >
+                  <Ionicons name="close-circle" size={ms(20)} color={c.secondaryText} />
+                </TouchableOpacity>
+              </View>
+            );
+          })}
         </View>
       )}
 
@@ -119,7 +143,6 @@ export function TradedPicksEditor({ teams, seasons, rounds, value, onChange }: P
         icon="add"
         fullWidth
         accessibilityLabel="Add a traded draft pick"
-        style={styles.addBtn}
       />
 
       <BottomSheet
@@ -138,7 +161,7 @@ export function TradedPicksEditor({ teams, seasons, rounds, value, onChange }: P
           />
         }
       >
-        <FieldGroup label="Season">
+        <FieldGroup label="Draft Year">
           <PillRow
             options={seasons.map(season => ({ key: season, label: draftYearLabel(season) }))}
             selectedKey={draft.season}
@@ -156,17 +179,10 @@ export function TradedPicksEditor({ teams, seasons, rounds, value, onChange }: P
           />
         </FieldGroup>
 
-        <FieldGroup label="New Owner" helperText="Who owns it now?">
-          <TeamPicker
-            teams={teams}
-            selectedKey={draft.toKey}
-            disabledKey={draft.fromKey}
-            onSelect={toKey => setDraft(d => ({ ...d, toKey }))}
-            c={c}
-          />
-        </FieldGroup>
-
-        <FieldGroup label="Original Team" helperText="Whose pick is it originally?">
+        <FieldGroup
+          label="Original Team"
+          helperText="The team the pick belonged to before the trade — the name on the pick."
+        >
           <TeamPicker
             teams={teams}
             selectedKey={draft.fromKey}
@@ -176,10 +192,29 @@ export function TradedPicksEditor({ teams, seasons, rounds, value, onChange }: P
           />
         </FieldGroup>
 
-        {isCompleteTradedPick(draft) && isDuplicateTradedPick(value, draft) && (
-          <ThemedText style={[styles.dupWarn, { color: c.danger }]}>
-            That pick has already been added.
-          </ThemedText>
+        <FieldGroup
+          label="New Owner"
+          helperText="The team that has the pick now, and will make the selection."
+        >
+          <TeamPicker
+            teams={teams}
+            selectedKey={draft.toKey}
+            disabledKey={draft.fromKey}
+            onSelect={toKey => setDraft(d => ({ ...d, toKey }))}
+            c={c}
+          />
+        </FieldGroup>
+
+        {isCompleteTradedPick(draft) && (
+          isDuplicateTradedPick(value, draft) ? (
+            <ThemedText style={[styles.confirmLine, { color: c.danger }]}>
+              That pick has already been added.
+            </ThemedText>
+          ) : (
+            <ThemedText style={[styles.confirmLine, { color: c.secondaryText }]}>
+              {`${nameByKey.get(draft.toKey) ?? draft.toKey} will own ${nameByKey.get(draft.fromKey) ?? draft.fromKey}'s ${draftYearLabel(draft.season)} Round ${draft.round} pick.`}
+            </ThemedText>
+          )
         )}
       </BottomSheet>
     </FormSection>
@@ -272,32 +307,32 @@ function TeamPicker({
 }
 
 const styles = StyleSheet.create({
+  // Vertical rhythm between the section's blocks (intro, scan slot, list,
+  // add button) comes from FormSection's card gap — no margin shims here.
   intro: {
     fontSize: ms(13),
     lineHeight: ms(18),
-    marginBottom: s(10),
   },
   empty: {
     fontSize: ms(13),
     fontStyle: 'italic',
-    marginBottom: s(10),
   },
   list: {
     borderWidth: 1,
     borderRadius: 8,
     overflow: 'hidden',
-    marginBottom: s(10),
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: s(8),
+    paddingVertical: s(10),
     paddingHorizontal: s(12),
     gap: s(10),
   },
   rowText: {
     flex: 1,
     minWidth: 0,
+    gap: s(4),
   },
   rowTitle: {
     fontFamily: Fonts.mono,
@@ -305,15 +340,24 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.3,
   },
-  rowSub: {
+  ownerLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(8),
+  },
+  ownerLabel: {
+    fontSize: ms(9),
+    width: s(84),
+  },
+  ownerName: {
+    flex: 1,
     fontSize: ms(13),
-    marginTop: s(2),
+  },
+  ownerNameNow: {
+    fontWeight: '600',
   },
   removeBtn: {
     padding: s(2),
-  },
-  addBtn: {
-    marginTop: s(2),
   },
   pillRow: {
     flexDirection: 'row',
@@ -350,8 +394,9 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: ms(14),
   },
-  dupWarn: {
+  confirmLine: {
     fontSize: ms(13),
+    lineHeight: ms(18),
     marginTop: s(8),
   },
 });

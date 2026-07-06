@@ -55,7 +55,15 @@ export function useDraftHistory(leagueId: string | null) {
         isTraded: p.current_team_id !== p.original_team_id,
       }));
 
-      return { drafts: drafts as DraftSummary[], picks: mappedPicks };
+      // Only surface drafts that actually recorded picks. An imported dynasty
+      // league gets a synthetic `initial` draft row (status='complete') so the
+      // lifecycle knows the startup draft is done, but that draft happened
+      // before import and was never tracked pick-by-pick — showing it here
+      // would render a blank board. Real in-app drafts always write picks.
+      const draftsWithPicks = new Set(mappedPicks.map((p) => p.draft_id));
+      const trackedDrafts = (drafts as DraftSummary[]).filter((d) => draftsWithPicks.has(d.id));
+
+      return { drafts: trackedDrafts, picks: mappedPicks };
     },
     enabled: !!leagueId,
     staleTime: 1000 * 60 * 10,

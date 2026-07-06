@@ -42,7 +42,7 @@ export function useTeamTradablePicks(teamId: string | null, leagueId: string | n
       // Join drafts(type) to distinguish initial vs rookie draft picks
       const { data: picks, error: picksError } = await supabase
         .from('draft_picks')
-        .select('id, season, round, pick_number, slot_number, current_team_id, original_team_id, player_id, league_id, drafts(type)')
+        .select('id, season, round, pick_number, slot_number, current_team_id, original_team_id, player_id, league_id, protection_threshold, protection_owner_id, drafts(type)')
         .eq('current_team_id', teamId!)
         .eq('league_id', leagueId!)
         .is('player_id', null)
@@ -51,11 +51,26 @@ export function useTeamTradablePicks(teamId: string | null, leagueId: string | n
         .order('round', { ascending: true });
       if (picksError) throw picksError;
 
-      // Resolve original team names
-      const origIds = [...new Set((picks ?? []).map((p) => p.original_team_id).filter((id): id is string => id != null))];
+      // Fetch active (unresolved) swaps this team is party to, so the picker
+      // can flag a pick whose round already carries a swap right — a pick can
+      // hold a swap AND a protection at once, and the acquirer should see both.
+      const { data: swapRows } = await supabase
+        .from('pick_swaps')
+        .select('season, round, beneficiary_team_id, counterparty_team_id')
+        .eq('league_id', leagueId!)
+        .eq('resolved', false)
+        .or(`beneficiary_team_id.eq.${teamId},counterparty_team_id.eq.${teamId}`);
+
+      // Resolve original team + protection owner + swap partner names
+      const swapPartnerIds = (swapRows ?? []).map((sw) =>
+        sw.beneficiary_team_id === teamId ? sw.counterparty_team_id : sw.beneficiary_team_id);
+      const nameIds = [...new Set([
+        ...(picks ?? []).flatMap((p) => [p.original_team_id, p.protection_owner_id]),
+        ...swapPartnerIds,
+      ].filter((id): id is string => id != null))];
       let nameMap: Record<string, string> = {};
-      if (origIds.length > 0) {
-        const { data: teams } = await supabase.from('teams').select('id, name').in('id', origIds);
+      if (nameIds.length > 0) {
+        const { data: teams } = await supabase.from('teams').select('id, name').in('id', nameIds);
         if (teams) nameMap = Object.fromEntries(teams.map((t) => [t.id, t.name]));
       }
 
@@ -88,9 +103,23 @@ export function useTeamTradablePicks(teamId: string | null, leagueId: string | n
         } else if (hasStandings && reverseStandingIndex[origId] != null) {
           displaySlot = reverseStandingIndex[origId] + 1;
         }
+        // A swap right applies to whatever pick this team holds in that
+        // (season, round) — flag it so the picker shows the pick isn't a
+        // clean asset. First matching swap wins for the label.
+        const swap = (swapRows ?? []).find((sw) => sw.season === p.season && sw.round === p.round);
+        const swapInfo = swap
+          ? {
+              isBeneficiary: swap.beneficiary_team_id === teamId,
+              partner_name:
+                nameMap[swap.beneficiary_team_id === teamId ? swap.counterparty_team_id : swap.beneficiary_team_id]
+                ?? 'Unknown',
+            }
+          : null;
         return {
           ...p,
           original_team_name: nameMap[origId] ?? 'Unknown',
+          protection_owner_name: p.protection_owner_id ? nameMap[p.protection_owner_id] ?? null : null,
+          swap_info: swapInfo,
           display_slot: displaySlot,
         };
       });

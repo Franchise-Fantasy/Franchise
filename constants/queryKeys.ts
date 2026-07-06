@@ -346,6 +346,10 @@ export const queryKeys = {
   contentfulTypes: () => ["contentful", "types"] as const,
   contentfulEntries: (contentType: string) =>
     ["contentful", "entries", contentType] as const,
+  // Homepage announcement banners (Contentful `alertBanner`) — keyed by
+  // sport so NBA/WNBA homepages cache independently.
+  announcementBanners: (sport: string) =>
+    ["announcementBanners", sport] as const,
 
   // ── Prospects ───────────────────────────────────────────
   prospects: (draftYear: string) => ["prospects", draftYear] as const,

@@ -66,6 +66,7 @@ import {
   formatShortDate,
   useSportToday,
 } from "@/utils/dates";
+import { getOffseasonMilestone } from "@/utils/league/offseasonState";
 import {
   categoryResultsToLines,
   formatTopCategory,
@@ -317,6 +318,31 @@ export default function MatchupScreen() {
     !currentWeek && firstWeekStart && selectedDate < firstWeekStart
       ? formatShortDate(firstWeekStart)
       : undefined;
+
+  // Offseason milestone for the hero — tip-off countdown + phase ribbon. Built
+  // only when the schedule shows no week for the date AND the league is flagged
+  // offseason (advance-season set offseason_step); otherwise the hero keeps its
+  // in-season / upcoming body.
+  const heroOffseason = useMemo(() => {
+    if (currentWeek || seasonOpensLabel || !league?.offseason_step) return undefined;
+    return getOffseasonMilestone(
+      league.sport,
+      league.season,
+      league.league_type ?? "dynasty",
+      league.rookie_draft_order ?? "reverse_record",
+      league.offseason_step,
+      today,
+    );
+  }, [
+    currentWeek,
+    seasonOpensLabel,
+    league?.offseason_step,
+    league?.sport,
+    league?.season,
+    league?.league_type,
+    league?.rookie_draft_order,
+    today,
+  ]);
 
   // Fetch all matchups for the pill bar
   const { data: allMatchups } = useQuery({
@@ -1042,6 +1068,7 @@ export default function MatchupScreen() {
         dayLabel={formatDayLabel(selectedDate)}
         currentWeek={currentWeek}
         seasonOpensLabel={seasonOpensLabel}
+        offseason={heroOffseason}
         weekIsLive={weekIsLive}
         leftTeam={heroLeftTeam}
         rightTeam={heroRightTeam}

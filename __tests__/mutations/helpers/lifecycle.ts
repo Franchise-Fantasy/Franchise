@@ -273,10 +273,28 @@ export async function resetToSeasonComplete(
     await admin.from('league_transaction_items').delete().in('transaction_id', priorTxnIds);
     await admin.from('league_transactions').delete().in('id', priorTxnIds);
   }
+  // trade_proposal_items has a NO ACTION FK to draft_picks (draft_pick_id), so
+  // a lingering proposal that includes a pick silently blocks the draft_picks
+  // delete below — leaving the re-seeded picks to accumulate run over run.
+  // Clear this league's proposals (items first, then parents), same shape as
+  // the league_transactions cleanup above.
+  const { data: priorProposals } = await admin
+    .from('trade_proposals')
+    .select('id')
+    .eq('league_id', leagueId);
+  const priorProposalIds = (priorProposals ?? []).map((p) => p.id);
+  if (priorProposalIds.length > 0) {
+    await admin.from('trade_proposal_items').delete().in('proposal_id', priorProposalIds);
+    await admin.from('trade_proposals').delete().in('id', priorProposalIds);
+  }
   await admin.from('team_seasons').delete().eq('league_id', leagueId);
   await admin.from('lottery_results').delete().eq('league_id', leagueId);
   await admin.from('keeper_declarations').delete().eq('league_id', leagueId);
-  await admin.from('draft_picks').delete().eq('league_id', leagueId);
+  // Surface an FK block loudly instead of letting picks silently pile up — a
+  // future NO ACTION referrer would otherwise repeat the trade_proposal_items
+  // accumulation bug without any test noticing.
+  const { error: pickDelErr } = await admin.from('draft_picks').delete().eq('league_id', leagueId);
+  if (pickDelErr) throw new Error(`Lifecycle draft_picks cleanup failed: ${pickDelErr.message}`);
   await admin.from('drafts').delete().eq('league_id', leagueId);
 
   // 2. Reset team stats per LIFECYCLE_STANDINGS
@@ -376,24 +394,25 @@ export async function resetToSeasonComplete(
   });
 
   // 6. Dynasty leagues need `draft_picks` rows for the upcoming season to exist
-  //    BEFORE start-lottery runs (lottery updates slot_number/pick_number on
-  //    existing rows; it doesn't create them). In production these rows are
-  //    created at league creation or after the prior rookie draft. Seed them
-  //    here so the test mirrors that state. 4 teams × 2 rounds = 8 rows,
-  //    draft_id=null, each pick owned by its originating team.
+  //    BEFORE the offseason runs — start-lottery stages onto existing rows and
+  //    create-rookie-draft commits the slots; neither creates the rows. In
+  //    production these are created at league creation / after the prior rookie
+  //    draft. Seed them in their true PRE-LOTTERY state: slot_number and
+  //    pick_number NULL (the lottery / reverse-standings pass assigns them).
+  //    4 teams × 2 rounds = 8 rows, draft_id=null, each owned by its team.
   if (type === 'dynasty') {
     const nextSeason = '2027-28';
     const rows: any[] = [];
     for (let round = 1; round <= 2; round++) {
-      teams.forEach((team, slotIdx) => {
+      teams.forEach((team) => {
         rows.push({
           league_id: leagueId,
           season: nextSeason,
           round,
           original_team_id: team.id,
           current_team_id: team.id,
-          slot_number: slotIdx + 1,
-          pick_number: (round - 1) * teams.length + (slotIdx + 1),
+          slot_number: null,
+          pick_number: null,
         });
       });
     }

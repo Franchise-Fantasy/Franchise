@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsResponse } from '../_shared/cors.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
+import { scheduleAutodraft } from '../_shared/qstash.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { parseBody, z } from '../_shared/validate.ts';
 
@@ -70,17 +71,7 @@ Deno.serve(async (req) => {
     if (!team) throw new HttpError('Not your turn', 403);
 
     // Schedule immediate autopick via QStash
-    const autodraftUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/autodraft`;
-    const res = await fetch(`https://qstash-us-east-1.upstash.io/v2/publish/${autodraftUrl}`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${Deno.env.get('QSTASH_TOKEN')?.trim()}`,
-        'Content-Type': 'application/json',
-        'Upstash-Delay': '1s',
-      },
-      body: JSON.stringify({ draft_id, pick_number: draft.current_pick_number, autopick_triggered: true }),
-    });
-    if (!res.ok) throw new Error(`QStash error: ${await res.text()}`);
+    await scheduleAutodraft(draft_id, draft.current_pick_number, 1, true);
 
     return jsonResponse({ message: 'Autopick triggered' });
   } catch (error) {

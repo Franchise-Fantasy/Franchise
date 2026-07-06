@@ -11,6 +11,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { DraftHubPick, DraftHubLeagueSettings, DraftHubSwap, DraftHubTeam } from '@/hooks/useDraftHub';
 import { formatProtectionStory, formatSwapStory } from '@/types/trade';
 import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/league/lottery';
+import { resolveSwap } from '@/utils/league/pickSwapResolution';
 import { ms, s } from '@/utils/scale';
 
 interface SimulationEntry {
@@ -110,15 +111,17 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
     const standingOrder: Record<string, number> = {};
     reversedStandings.forEach((t, i) => { standingOrder[t.id] = i; });
     const result = seasonPicks.map((p) => ({ ...p }));
+    // Pre-lottery projection: a pick's round position is its originating team's
+    // reverse-standings index (lower = better). resolveSwap is the SAME decision
+    // logic start-lottery commits, so the preview and the drawn result agree.
+    const slotOf = (p: DraftHubPick) => standingOrder[p.original_team_id] ?? 999;
     for (const swap of seasonSwaps) {
-      const benefPick = result.find((p) => p.round === swap.round && p.current_team_id === swap.beneficiary_team_id);
-      const counterPick = result.find((p) => p.round === swap.round && p.current_team_id === swap.counterparty_team_id);
-      if (!benefPick || !counterPick) continue;
-      const benefPos = standingOrder[benefPick.original_team_id] ?? 999;
-      const counterPos = standingOrder[counterPick.original_team_id] ?? 999;
+      const outcome = resolveSwap(result, swap, slotOf);
+      if (outcome.kind === 'voided') continue;
+      const { benefPick, counterPick } = outcome;
       benefPick.wasSwapped = true;
       counterPick.wasSwapped = true;
-      if (counterPos < benefPos) {
+      if (outcome.kind === 'executed') {
         const tempId = benefPick.current_team_id;
         const tempName = benefPick.current_team_name;
         benefPick.current_team_id = counterPick.current_team_id;

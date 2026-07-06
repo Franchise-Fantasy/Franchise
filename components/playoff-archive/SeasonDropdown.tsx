@@ -25,6 +25,26 @@ function seasonLabel(season: number): string {
   return `${season - 1}–${endTwoDigit}`;
 }
 
+// A season with no champion recorded is a projection ("preview"), not a
+// completed season — e.g. the odds-seeded 2026-27 bracket. This gold pill
+// stands in for the champion line so users don't read it as real results.
+// Marked decorative; the parent row/header accessibilityLabel carries the
+// word "preview" so screen readers announce it once, not twice.
+function PreviewBadge() {
+  const c = useArchiveColors();
+  return (
+    <View
+      style={[styles.previewBadge, { borderColor: c.gold, backgroundColor: c.goldMuted }]}
+      accessible={false}
+      importantForAccessibility="no-hide-descendants"
+    >
+      <ThemedText type="varsitySmall" style={[styles.previewBadgeText, { color: c.gold }]}>
+        PREVIEW
+      </ThemedText>
+    </View>
+  );
+}
+
 const ROW_HEIGHT = s(56);
 
 // Header season pill with prev/next arrows. Tapping the label opens the
@@ -43,6 +63,10 @@ export function SeasonDropdown({ seasons, selected, onSelect, sport = 'nba' }: P
   );
 
   const label = selected != null ? seasonLabel(selected) : '—';
+  // Championless selected season → projection; show the PREVIEW pill in the
+  // header pill too. Today only the 2026-27 seed row qualifies.
+  const selectedRow = selectedIdx >= 0 ? seasons[selectedIdx] : null;
+  const isPreview = !!selectedRow && !selectedRow.champion_franchise_id;
 
   // seasons is ordered DESC (newest first), so "prev season" (older) is
   // selectedIdx + 1, "next season" (newer) is selectedIdx - 1. Disable each
@@ -88,7 +112,7 @@ export function SeasonDropdown({ seasons, selected, onSelect, sport = 'nba' }: P
           disabled={!hasMany}
           activeOpacity={0.7}
           accessibilityRole="button"
-          accessibilityLabel={`Season: ${label}${hasMany ? '. Tap to switch.' : ''}`}
+          accessibilityLabel={`Season: ${label}${isPreview ? ' preview' : ''}${hasMany ? '. Tap to switch.' : ''}`}
           accessibilityState={{ disabled: !hasMany }}
           hitSlop={8}
           style={styles.titleHit}
@@ -100,6 +124,7 @@ export function SeasonDropdown({ seasons, selected, onSelect, sport = 'nba' }: P
           >
             {label}
           </ThemedText>
+          {isPreview && <PreviewBadge />}
           {hasMany && (
             <Ionicons
               name="chevron-down"
@@ -243,6 +268,7 @@ function SeasonRow({
   onPress: () => void;
 }) {
   const c = useArchiveColors();
+  const isPreview = !row.champion_franchise_id;
   const championLine = row.champion_tricode
     ? `${row.champion_city ?? ''} ${row.champion_name ?? ''}`.trim() || row.champion_tricode
     : 'Champion: —';
@@ -253,7 +279,7 @@ function SeasonRow({
       activeOpacity={0.65}
       accessibilityRole="button"
       accessibilityState={{ selected: isSelected }}
-      accessibilityLabel={`Season ${seasonLabel(row.season)}, champion ${row.champion_tricode ?? 'unknown'}`}
+      accessibilityLabel={`Season ${seasonLabel(row.season)}, ${isPreview ? 'preview' : `champion ${row.champion_tricode ?? 'unknown'}`}`}
       style={[
         styles.row,
         { borderBottomColor: c.border, height: ROW_HEIGHT },
@@ -268,30 +294,36 @@ function SeasonRow({
       </ThemedText>
 
       <View style={styles.rowChampion}>
-        {row.champion_franchise_id && row.champion_tricode ? (
-          <ArchiveTeamLogo
-            franchiseId={row.champion_franchise_id}
-            tricode={row.champion_tricode}
-            primaryColor={row.champion_primary_color}
-            secondaryColor={row.champion_secondary_color}
-            logoKey={row.champion_logo_key}
-            size={s(22)}
-            sport={sport}
-            // Use the modern team logo for season-preview rows even when the
-            // champion's era branding differed (e.g. show Hurricanes logo for
-            // 1997 Whalers). The row text still carries the era-correct
-            // city/name (e.g. "Hartford Whalers"), so the user gets context
-            // without a tricode-on-color disc.
-            forceCurrentLogo
-          />
-        ) : null}
-        <ThemedText
-          type="varsitySmall"
-          style={[styles.rowChampionLabel, { color: c.secondaryText }]}
-          numberOfLines={1}
-        >
-          {championLine}
-        </ThemedText>
+        {isPreview ? (
+          <PreviewBadge />
+        ) : (
+          <>
+            {row.champion_franchise_id && row.champion_tricode ? (
+              <ArchiveTeamLogo
+                franchiseId={row.champion_franchise_id}
+                tricode={row.champion_tricode}
+                primaryColor={row.champion_primary_color}
+                secondaryColor={row.champion_secondary_color}
+                logoKey={row.champion_logo_key}
+                size={s(22)}
+                sport={sport}
+                // Use the modern team logo for season-preview rows even when the
+                // champion's era branding differed (e.g. show Hurricanes logo for
+                // 1997 Whalers). The row text still carries the era-correct
+                // city/name (e.g. "Hartford Whalers"), so the user gets context
+                // without a tricode-on-color disc.
+                forceCurrentLogo
+              />
+            ) : null}
+            <ThemedText
+              type="varsitySmall"
+              style={[styles.rowChampionLabel, { color: c.secondaryText }]}
+              numberOfLines={1}
+            >
+              {championLine}
+            </ThemedText>
+          </>
+        )}
       </View>
 
       {isSelected && (
@@ -339,6 +371,16 @@ const styles = StyleSheet.create({
   },
   dropIndicator: {
     marginTop: 1,
+  },
+  previewBadge: {
+    paddingHorizontal: s(6),
+    paddingVertical: s(2),
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  previewBadgeText: {
+    fontSize: ms(9),
+    letterSpacing: 1,
   },
   row: {
     flexDirection: 'row',

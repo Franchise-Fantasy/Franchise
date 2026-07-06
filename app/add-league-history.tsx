@@ -17,6 +17,8 @@ import { useToast } from '@/context/ToastProvider';
 import { useColors } from '@/hooks/useColors';
 import { useExtractHistory, type HistoryExtractionResult, type ImageData } from '@/hooks/useImportScreenshot';
 import { supabase } from '@/lib/supabase';
+import { assignHistoryDivisions } from '@/utils/league/historyDivisions';
+import { applyDefaultTeamMatches } from '@/utils/league/historyTeamMatch';
 import { logger } from '@/utils/logger';
 import { s } from '@/utils/scale';
 
@@ -92,12 +94,13 @@ export default function AddLeagueHistoryScreen() {
       if (!season?.images.length) return;
       try {
         const result = await extractHistory.mutateAsync({ images: season.images });
-        setExtracted(seasonIndex, result);
+        const reconciled = { ...result, teams: applyDefaultTeamMatches(result.teams, teamNames ?? []) };
+        setExtracted(seasonIndex, reconciled);
       } catch (err: any) {
         Alert.alert('Extraction failed', err.message ?? 'Could not read the standings.');
       }
     },
-    [seasons, extractHistory, setExtracted],
+    [seasons, extractHistory, setExtracted, teamNames],
   );
 
   const scrollToTop = useCallback(() => scrollRef.current?.scrollTo({ y: 0, animated: true }), []);
@@ -109,18 +112,25 @@ export default function AddLeagueHistoryScreen() {
     if (!leagueId || extractedSeasons.length === 0) return;
     setSubmitting(true);
     try {
-      const history = extractedSeasons.map((s) => ({
-        season: s.extracted!.season ?? 'unknown',
-        teams: s.extracted!.teams.map((t, i) => ({
-          team_name: t.team_name,
-          wins: t.wins ?? 0,
-          losses: t.losses ?? 0,
-          ties: t.ties ?? 0,
-          points_for: t.points_for ?? 0,
-          points_against: t.points_against ?? 0,
-          standing: t.standing ?? i + 1,
-        })),
-      }));
+      const history = extractedSeasons.map((s) => {
+        const divisions = assignHistoryDivisions(s.extracted!.teams);
+        return {
+          season: s.extracted!.season ?? 'unknown',
+          teams: s.extracted!.teams.map((t, i) => ({
+            team_name: t.team_name,
+            source_name: t.source_name ?? t.team_name,
+            wins: t.wins ?? 0,
+            losses: t.losses ?? 0,
+            ties: t.ties ?? 0,
+            points_for: t.points_for ?? 0,
+            points_against: t.points_against ?? 0,
+            standing: t.standing ?? i + 1,
+            division: divisions[i],
+            playoff_result: t.playoff_result ?? null,
+          })),
+          bracket: s.extracted!.bracket ?? null,
+        };
+      });
 
       const res = await supabase.functions.invoke('import-league-history', {
         body: { league_id: leagueId, history },

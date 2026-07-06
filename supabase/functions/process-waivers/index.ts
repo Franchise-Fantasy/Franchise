@@ -76,7 +76,7 @@ Deno.serve(async (req: Request) => {
       // not have its waivers processed. Filtered out → `if (!league) continue`
       // below clears the expired row to free agency without notifying.
       const { data: leaguesData } = await supabase
-        .from('leagues').select('id, name, waiver_type, waiver_period_days')
+        .from('leagues').select('id, name, waiver_type, waiver_period_days, faab_tiebreak')
         .in('id', leagueIds)
         .is('archived_at', null);
       const leagueMap = new Map((leaguesData ?? []).map(l => [l.id, l]));
@@ -90,21 +90,31 @@ Deno.serve(async (req: Request) => {
         }
         const isFaab = league.waiver_type === 'faab';
 
-        // FAAB resolves purely by bid: highest bid wins, and an exact tie goes
-        // to the earliest submitted bid (created_at) — no waiver priority.
-        // Standard leagues resolve by waiver priority, then submission order.
+        // FAAB resolves by highest bid. An exact bid tie breaks by the league's
+        // faab_tiebreak setting: 'waiver_priority' (better priority wins) or the
+        // default 'earliest_bid' (first submitted wins). Standard leagues resolve
+        // by waiver priority, then submission order.
+        const faabTieByPriority = isFaab && league.faab_tiebreak === 'waiver_priority';
         const baseQuery = supabase
           .from('waiver_claims')
           .select('id, league_id, team_id, player_id, status, bid_amount, priority, created_at, drop_player_id')
           .eq('league_id', waiver.league_id).eq('player_id', waiver.player_id)
           .eq('status', 'pending');
-        const orderedQuery = isFaab
-          ? baseQuery
-              .order('bid_amount', { ascending: false })
-              .order('created_at', { ascending: true })
-          : baseQuery
-              .order('priority', { ascending: true })
-              .order('created_at', { ascending: true });
+        let orderedQuery;
+        if (isFaab) {
+          orderedQuery = faabTieByPriority
+            ? baseQuery
+                .order('bid_amount', { ascending: false })
+                .order('priority', { ascending: true })
+                .order('created_at', { ascending: true })
+            : baseQuery
+                .order('bid_amount', { ascending: false })
+                .order('created_at', { ascending: true });
+        } else {
+          orderedQuery = baseQuery
+            .order('priority', { ascending: true })
+            .order('created_at', { ascending: true });
+        }
         const { data: claims } = await orderedQuery;
 
         // Pre-fetch player + team names for all claims in this batch

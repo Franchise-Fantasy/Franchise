@@ -272,6 +272,102 @@ describe('advance-season', () => {
     );
   });
 
+  describe('waiver priority reset', () => {
+    let league: LifecycleBootstrap;
+
+    beforeAll(async () => {
+      league = await bootstrapLifecycleLeague('dynasty');
+    }, TIMEOUT);
+
+    beforeEach(async () => {
+      await resetToSeasonComplete(league);
+      await clearRateLimits(league.commissionerUserId, ['advance-season']);
+    }, TIMEOUT);
+
+    // Seed waiver_priority in FORWARD standings order (bot1→1 … bot4→4) with
+    // depleted FAAB, so every reset mode is distinguishable from the seed, and
+    // set the league's faab_budget for the refill assertion.
+    async function seedPriority(faabBudget: number, mode: string) {
+      const admin = adminClient();
+      await admin.from('waiver_priority').delete().eq('league_id', league.leagueId);
+      await admin.from('waiver_priority').insert(
+        league.teams.map((t) => ({
+          league_id: league.leagueId,
+          team_id: t.id,
+          priority: t.botIndex, // bot1 first — the OPPOSITE of reverse-standings
+          faab_remaining: 1,
+        })),
+      );
+      await admin
+        .from('leagues')
+        .update({ faab_budget: faabBudget, waiver_priority_reset: mode })
+        .eq('id', league.leagueId);
+    }
+
+    async function priorityByBot() {
+      const admin = adminClient();
+      const { data } = await admin
+        .from('waiver_priority')
+        .select('team_id, priority, faab_remaining')
+        .eq('league_id', league.leagueId);
+      const teamToBot = new Map(league.teams.map((t) => [t.id, t.botIndex]));
+      return new Map((data ?? []).map((r) => [teamToBot.get(r.team_id)!, r]));
+    }
+
+    it(
+      'reverse_standings: worst finisher gets priority 1 and FAAB refills',
+      async () => {
+        await seedPriority(100, 'reverse_standings');
+
+        const { error } = await invokeAdvanceSeason(league.leagueId);
+        expect(error).toBeNull();
+
+        const byBot = await priorityByBot();
+        expect(byBot.get(4)?.priority).toBe(1); // worst finisher first
+        expect(byBot.get(3)?.priority).toBe(2);
+        expect(byBot.get(2)?.priority).toBe(3);
+        expect(byBot.get(1)?.priority).toBe(4); // champion last
+        for (const r of byBot.values()) expect(r.faab_remaining).toBe(100);
+      },
+      TIMEOUT,
+    );
+
+    it(
+      'keep: preserves the end-of-season order, still refills FAAB',
+      async () => {
+        await seedPriority(75, 'keep');
+
+        const { error } = await invokeAdvanceSeason(league.leagueId);
+        expect(error).toBeNull();
+
+        const byBot = await priorityByBot();
+        // Unchanged from the seed (bot1→1 … bot4→4).
+        expect(byBot.get(1)?.priority).toBe(1);
+        expect(byBot.get(2)?.priority).toBe(2);
+        expect(byBot.get(3)?.priority).toBe(3);
+        expect(byBot.get(4)?.priority).toBe(4);
+        for (const r of byBot.values()) expect(r.faab_remaining).toBe(75);
+      },
+      TIMEOUT,
+    );
+
+    it(
+      'random: assigns a valid 1..N permutation and refills FAAB',
+      async () => {
+        await seedPriority(50, 'random');
+
+        const { error } = await invokeAdvanceSeason(league.leagueId);
+        expect(error).toBeNull();
+
+        const byBot = await priorityByBot();
+        const priorities = [...byBot.values()].map((r) => r.priority).sort();
+        expect(priorities).toEqual([1, 2, 3, 4]);
+        for (const r of byBot.values()) expect(r.faab_remaining).toBe(50);
+      },
+      TIMEOUT,
+    );
+  });
+
   describe('regardless of type', () => {
     let league: LifecycleBootstrap;
 
