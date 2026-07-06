@@ -74,6 +74,7 @@ export function PlayerDetailHeader({
             externalIdNba={player.external_id_nba}
             sport={sport}
             style={styles.headshotImg}
+            res="full"
           />
         </View>
         <View style={styles.chipStack} pointerEvents="none">

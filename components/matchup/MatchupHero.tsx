@@ -458,20 +458,22 @@ export function MatchupHero({
         </TouchableOpacity>
 
         <View style={styles.eyebrowRight}>
-          <TouchableOpacity
-            onPress={() => setCompareMode(!isCompareMode)}
-            style={styles.todayIconChip}
-            hitSlop={TAP_SLOP}
-            accessibilityRole="button"
-            accessibilityLabel={isCompareMode ? "Exit compare mode" : "Compare players"}
-            accessibilityState={{ selected: isCompareMode }}
-          >
-            <Ionicons
-              name="git-compare"
-              size={ms(14)}
-              color={isCompareMode ? Brand.vintageGold : Brand.ecruMuted}
-            />
-          </TouchableOpacity>
+          {!offseason && (
+            <TouchableOpacity
+              onPress={() => setCompareMode(!isCompareMode)}
+              style={styles.todayIconChip}
+              hitSlop={TAP_SLOP}
+              accessibilityRole="button"
+              accessibilityLabel={isCompareMode ? "Exit compare mode" : "Compare players"}
+              accessibilityState={{ selected: isCompareMode }}
+            >
+              <Ionicons
+                name="git-compare"
+                size={ms(14)}
+                color={isCompareMode ? Brand.vintageGold : Brand.ecruMuted}
+              />
+            </TouchableOpacity>
+          )}
           {/* Return-to-today chip on the RIGHT when on a past date —
               chip is rendered at the inner edge (close to the centered
               date) and the spacer pushes the action chips to the far
@@ -1061,16 +1063,18 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.display,
     color: Brand.ecru,
     fontSize: ms(52),
-    lineHeight: ms(58),
+    // Line height == font size trims the slab face's empty descent slack so
+    // the sub-line sits right under the number instead of floating below it.
+    lineHeight: ms(52),
     letterSpacing: -0.5,
-    marginTop: s(2),
+    marginTop: s(1),
     fontVariant: ["tabular-nums"],
   },
   countSub: {
     color: Brand.ecruMuted,
     fontSize: ms(11),
     letterSpacing: 0.6,
-    marginTop: s(3),
+    marginTop: s(4),
   },
   ribbon: {
     marginTop: s(14),

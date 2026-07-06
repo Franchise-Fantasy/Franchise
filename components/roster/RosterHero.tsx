@@ -523,6 +523,35 @@ export function RosterHero({
               {teamName}
             </ThemedText>
           ) : null}
+          {offseasonSeal && (
+            <View
+              style={[
+                styles.seal,
+                styles.sealInline,
+                offseasonSeal.tone === "champ" && styles.sealChamp,
+                offseasonSeal.tone === "muted" && styles.sealMuted,
+              ]}
+            >
+              {offseasonSeal.tone === "champ" && (
+                <Ionicons
+                  name="trophy"
+                  size={ms(11)}
+                  color={Brand.ink}
+                  style={styles.sealIcon}
+                />
+              )}
+              <Text
+                style={[
+                  styles.sealText,
+                  offseasonSeal.tone === "champ" && styles.sealTextChamp,
+                  offseasonSeal.tone === "muted" && styles.sealTextMuted,
+                ]}
+                numberOfLines={1}
+              >
+                {offseasonSeal.label}
+              </Text>
+            </View>
+          )}
         </View>
 
         {isOffseason && lastSeason && (
@@ -604,37 +633,6 @@ export function RosterHero({
           </View>
         )}
       </View>
-
-      {/* ── Offseason finish seal ─ how last season ended ──────────────── */}
-      {offseasonSeal && (
-        <View style={styles.sealRow}>
-          <View
-            style={[
-              styles.seal,
-              offseasonSeal.tone === "champ" && styles.sealChamp,
-              offseasonSeal.tone === "muted" && styles.sealMuted,
-            ]}
-          >
-            {offseasonSeal.tone === "champ" && (
-              <Ionicons
-                name="trophy"
-                size={ms(11)}
-                color={Brand.ink}
-                style={styles.sealIcon}
-              />
-            )}
-            <Text
-              style={[
-                styles.sealText,
-                offseasonSeal.tone === "champ" && styles.sealTextChamp,
-                offseasonSeal.tone === "muted" && styles.sealTextMuted,
-              ]}
-            >
-              {offseasonSeal.label}
-            </Text>
-          </View>
-        </View>
-      )}
 
       {/* ── Lineup health bar ─ per-starter availability + status ────── */}
       {showLineupBar && (
@@ -976,6 +974,10 @@ const styles = StyleSheet.create({
   lastSeasonBlock: {
     alignItems: "flex-end",
     flexShrink: 0,
+    // Top-align the stat block with the tricode's cap line (matching its
+    // paddingTop) so it reads as a header annotation, not a centered float.
+    alignSelf: "flex-start",
+    marginTop: s(3),
   },
   lastSeasonCap: {
     color: Brand.vintageGold,
@@ -995,8 +997,8 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
     marginTop: s(1),
   },
-  sealRow: {
-    marginBottom: s(10),
+  sealInline: {
+    marginTop: s(9),
   },
   seal: {
     alignSelf: "flex-start",

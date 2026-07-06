@@ -5,7 +5,15 @@ import type { Sport } from '@/constants/LeagueDefaults';
 // Self-hosted assets in Supabase Storage. Public read, no token required.
 // Seeded once by `scripts/seed-pro-assets.mjs` and refreshed for new players
 // by the `sync-headshots` edge function.
-const STORAGE_BASE = 'https://iuqbossmnsezzgocpcbo.supabase.co/storage/v1/object/public';
+const STORAGE_BASE = 'https://iuqbossmnsezzgocpcbo.supabase.co/storage/v1';
+
+// Compact-surface render size. The vast majority of on-screen headshots are
+// ~48-54px list/row/cell/chip circles; serving them through Storage's on-the-fly
+// image-transform endpoint ships a ~168px thumbnail (~15KB) instead of the full
+// 260px master (~60KB) — a big bandwidth win on long free-agent/roster lists.
+// Keeps the master's 260:190 aspect ratio so the `cover` crop and the WNBA
+// headroom offset behave identically. Large hero portraits pass res='full'.
+const HEADSHOT_SM = { width: 168, height: 123 } as const;
 
 // Bundled fallback silhouette. Used as the `placeholder` prop on every player
 // Image so that (a) players without an `external_id_nba` and (b) players
@@ -27,16 +35,22 @@ export const WNBA_HEADSHOT_OFFSET: ImageStyle = {
  * `externalIdNba` is the column name; for WNBA players it stores the ESPN
  * athlete ID (used as the file key when seeding from ESPN's headshot CDN).
  *
- * The `size` parameter is preserved for API compatibility but ignored — we
- * store one resolution per headshot. expo-image scales as needed.
+ * `res` selects delivery size:
+ *  - 'sm' (default) — a transformed ~168px thumbnail via Storage's render
+ *    endpoint, right-sized for list rows / cells / chips / cards.
+ *  - 'full' — the untransformed master (object endpoint), for the player-detail
+ *    hero and other large single-player portraits.
  */
 export function getPlayerHeadshotUrl(
   externalIdNba: string | number | null | undefined,
   sport: Sport = 'nba',
-  _size: '260x190' | '1040x760' = '260x190',
+  res: 'sm' | 'full' = 'sm',
 ): string | null {
   if (!externalIdNba) return null;
-  return `${STORAGE_BASE}/player-headshots/${sport}/${externalIdNba}.png`;
+  const path = `player-headshots/${sport}/${externalIdNba}.png`;
+  if (res === 'full') return `${STORAGE_BASE}/object/public/${path}`;
+  const { width, height } = HEADSHOT_SM;
+  return `${STORAGE_BASE}/render/image/public/${path}?width=${width}&height=${height}&resize=cover&quality=80`;
 }
 
 /**
@@ -49,5 +63,5 @@ export function getTeamLogoUrl(
   sport: Sport = 'nba',
 ): string | null {
   if (!proTeam || proTeam === 'Active' || proTeam === 'Inactive') return null;
-  return `${STORAGE_BASE}/pro-team-logos/${sport}/${proTeam}.png`;
+  return `${STORAGE_BASE}/object/public/pro-team-logos/${sport}/${proTeam}.png`;
 }

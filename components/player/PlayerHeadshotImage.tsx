@@ -13,6 +13,9 @@ type Props = {
    *  centered figure isn't cropped by the circle. */
   contentFit?: ImageContentFit;
   accessible?: boolean;
+  /** Delivery size: 'sm' (default) serves a right-sized transform for list/row/
+   *  cell surfaces; 'full' serves the untransformed master for large heroes. */
+  res?: 'sm' | 'full';
 };
 
 // Single retry after a transient image-fetch failure. Mobile networks
@@ -35,8 +38,9 @@ export function PlayerHeadshotImage({
   style,
   contentFit = 'cover',
   accessible,
+  res = 'sm',
 }: Props) {
-  const url = getPlayerHeadshotUrl(externalIdNba, sport);
+  const url = getPlayerHeadshotUrl(externalIdNba, sport, res);
   const [failed, setFailed] = useState(false);
   const [retryNonce, setRetryNonce] = useState(0);
   const attemptsRef = useRef(0);
