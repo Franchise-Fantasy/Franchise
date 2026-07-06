@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ByTeamTab } from '@/components/draft-hub/ByTeamTab';
@@ -61,6 +61,10 @@ export default function DraftHub() {
         }
       />
 
+      {/* On web, hold the dense single-column tabs to a reading-width column so
+          they don't stretch across the full content area (which leaves big empty
+          gutters). No effect on native. */}
+      <View style={styles.body}>
       {/* Tabs */}
       <View style={styles.tabBar}>
         <SegmentedControl options={TABS} selectedIndex={tab} onSelect={setTab} />
@@ -97,12 +101,20 @@ export default function DraftHub() {
           pickConditionsEnabled={data.leagueSettings.pickConditionsEnabled}
         />
       )}
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  // Web-only reading column — keeps the single-column tabs from stretching to
+  // the full 960px content area. Tunable; native ignores it.
+  body: {
+    flex: 1,
+    width: '100%',
+    ...Platform.select({ web: { maxWidth: 680, alignSelf: 'center' } }),
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

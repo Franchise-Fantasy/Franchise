@@ -8,11 +8,15 @@ const TIMEOUT = 30_000;
 
 // Guards the per-position roster-limit enforcement added to
 // assert_can_add_free_agent + the position_limit_match_keys SQL helper
-// (migration 20260607000001). Two things matter:
+// (migration 20260607000001, primary-position-only behavior added in
+// 20260706000002). Three things matter:
 //   1. The SQL spectrum logic stays byte-for-byte equivalent to the TS
 //      getLimitMatchKeys (rosterSlotsShared.ts) — they are a hand-maintained
 //      paired pair, so this is the drift gate.
-//   2. The RPC blocks an add that would exceed a position cap, and allows it
+//   2. Only the PRIMARY (first-listed) position counts toward a limit — e.g.
+//      "PF-C" counts toward PF/F only, while "C-PF" counts toward C only.
+//      The reversed-order pairs below exist specifically to prove this.
+//   3. The RPC blocks an add that would exceed a position cap, and allows it
 //      when a queued drop of the same position offsets it.
 describe('position limits — SQL/TS parity + RPC enforcement', () => {
   const admin = adminClient();
@@ -22,6 +26,9 @@ describe('position limits — SQL/TS parity + RPC enforcement', () => {
       'PG', 'SG', 'SF', 'PF', 'C', 'G', 'F',
       'PG-SG', 'SG-SF', 'SF-PF', 'PF-C',
       'G-F', 'F-C', 'PG-SF', 'PG-C', 'G-C',
+      // Reversed-order pairs — primary position only, so these must differ
+      // from their non-reversed counterparts above.
+      'SG-PG', 'SF-SG', 'PF-SF', 'C-PF', 'F-G', 'C-F', 'SF-PG', 'C-PG', 'C-G',
     ];
 
     it.each(tokens)('matches for "%s"', async (token) => {

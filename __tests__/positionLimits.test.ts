@@ -61,6 +61,20 @@ describe('checkPositionLimits — single-player add', () => {
     const roster = [{ position: 'PG' }, { position: 'PG' }];
     expect(checkPositionLimits(limits, roster, 'C')).toBeNull();
   });
+
+  it('primary position only: a PF-C counts toward PF, not C', () => {
+    const limits = { C: 1 };
+    const roster = [{ position: 'PF-C', roster_slot: 'BE' }];
+    // PF-C's primary is PF, so it doesn't count toward the C cap.
+    expect(checkPositionLimits(limits, roster, 'PF-C')).toBeNull();
+  });
+
+  it('primary position only: a C-PF counts toward C', () => {
+    const limits = { C: 1 };
+    const roster = [{ position: 'C-PF', roster_slot: 'BE' }];
+    const violation = checkPositionLimits(limits, roster, 'C-PF');
+    expect(violation).toEqual({ position: 'C', current: 1, max: 1 });
+  });
 });
 
 describe('checkPositionLimitsForRoster — whole-roster check', () => {

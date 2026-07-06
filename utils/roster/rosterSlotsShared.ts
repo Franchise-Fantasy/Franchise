@@ -100,12 +100,21 @@ export function isEligibleForSlot(playerPosition: string, slotPosition: string):
   return playerPositions.some((pos) => eligible.includes(pos));
 }
 
-/** Returns every limit-key the player could match against — spectrum
- *  positions plus their bare-letter parents (G covers PG/SG; F covers
- *  SF/PF). Lets one check work for NBA limits (PG/SG/SF/PF/C) and WNBA
- *  limits (G/F/C) without sport branching. */
+/** Returns every limit-key the player counts toward for position-limit
+ *  purposes — based ONLY on their primary (first-listed) position, plus its
+ *  bare-letter parent (G covers PG/SG; F covers SF/PF) so one check works
+ *  for NBA limits (PG/SG/SF/PF/C) and WNBA limits (G/F/C) without sport
+ *  branching. Unlike slot eligibility (getEligiblePositions), a secondary
+ *  position (e.g. the "C" in "PF-C") does NOT count toward that position's
+ *  cap — the player is still eligible to START there, just not counted
+ *  against its roster limit. NBA position strings are entered with the
+ *  primary position first by convention. */
 export function getLimitMatchKeys(playerPosition: string): string[] {
-  const eligible = getEligiblePositions(playerPosition);
+  const [primaryToken] = playerPosition.split('-');
+  const range = POSITION_TOKEN_RANGES[primaryToken];
+  if (!range) return [];
+
+  const eligible = POSITION_SPECTRUM.slice(range[0], range[1] + 1);
   const keys = new Set<string>(eligible);
   if (eligible.includes('PG') || eligible.includes('SG')) keys.add('G');
   if (eligible.includes('SF') || eligible.includes('PF')) keys.add('F');

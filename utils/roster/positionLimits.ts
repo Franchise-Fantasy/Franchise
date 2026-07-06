@@ -1,6 +1,6 @@
-import { ROSTER_SLOT } from '@/utils/roster/rosterSlotsShared';
+import { ROSTER_SLOT, getLimitMatchKeys } from '@/utils/roster/rosterSlotsShared';
 
-import { getEligiblePositions , baseSlotName } from './rosterSlots';
+import { baseSlotName } from './rosterSlots';
 
 
 export type PositionLimits = Partial<Record<string, number | null>>;
@@ -17,18 +17,6 @@ function activeOnly(roster: RosterPlayer[]): RosterPlayer[] {
   return roster.filter(
     (p) => !p.roster_slot || !IR_TAXI_SLOTS.includes(baseSlotName(p.roster_slot)),
   );
-}
-
-/** Returns every limit-key the player could match against — spectrum
- *  positions plus their bare-letter parents (G covers PG/SG; F covers
- *  SF/PF). Lets one check work for NBA limits (PG/SG/SF/PF/C) and WNBA
- *  limits (G/F/C) without sport branching. */
-function getLimitMatchKeys(playerPosition: string): string[] {
-  const eligible = getEligiblePositions(playerPosition);
-  const keys = new Set<string>(eligible);
-  if (eligible.includes('PG') || eligible.includes('SG')) keys.add('G');
-  if (eligible.includes('SF') || eligible.includes('PF')) keys.add('F');
-  return Array.from(keys);
 }
 
 /** Count players per base position using spectrum eligibility. */

@@ -40,6 +40,7 @@ import { useAppState } from '@/context/AppStateProvider';
 import { useSession } from '@/context/AuthProvider';
 import { useActionPicker, useConfirm } from '@/context/ConfirmProvider';
 import { useTotalUnread } from '@/hooks/chat';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeague } from '@/hooks/useLeague';
 import { useOffseasonActions } from '@/hooks/useOffseasonActions';
@@ -135,6 +136,7 @@ export default function HomeScreen() {
   const isCommissioner = session?.user?.id === league?.created_by;
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const { isDesktop } = useBreakpoint();
   const queryClient = useQueryClient();
 
   const router = useRouter();
@@ -905,6 +907,92 @@ export default function HomeScreen() {
             <LogoSpinner />
           </View>
         ) : league ? (
+          isDesktop ? (
+            /* Desktop web dashboard: full-width hero on top, then a main
+               content column + right Explore rail. Uses the SAME cards and
+               props as the mobile stack directly below — keep the two in sync
+               when either changes (native renders the mobile branch). */
+            <>
+              <HomeAnnouncementBanner
+                sport={league.sport as Sport}
+                leagueType={league.league_type}
+                scoringType={league.scoring_type}
+              />
+              {heroVariant && (
+                <HomeHero
+                  variant={heroVariant}
+                  onPress={heroVariant.kind === 'offseason' ? undefined : onHeroPress}
+                  onPaymentPress={onPaymentPress}
+                  onSchedulePress={onSchedulePress}
+                  onEnterDraft={onEnterDraft}
+                  onSetDraftOrder={() => setShowOrderModal(true)}
+                  onShareInvite={onShareInvite}
+                  rostersPending={rostersPending}
+                />
+              )}
+              {activeDraft?.id && league?.id && isCommissioner && isManualOrder && (
+                <ManualDraftOrderModal
+                  visible={showOrderModal}
+                  onClose={() => {
+                    setShowOrderModal(false);
+                    queryClient.invalidateQueries({ queryKey: queryKeys.draftSlotsAssigned(activeDraft.id) });
+                  }}
+                  leagueId={league.id}
+                  draftId={activeDraft.id}
+                />
+              )}
+              <BusyOverlay
+                visible={offseasonActions.loading}
+                title={offseasonActions.loadingLabel ?? 'Working…'}
+              />
+              <View style={styles.dashRow}>
+                <View style={styles.dashMain}>
+                  <AnalyticsPreviewCard leagueId={league.id} scoringType={league.scoring_type} />
+                  {isSeasonComplete && champion && (
+                    <ChampionCard
+                      teamName={champion.name}
+                      logoKey={champion.logoKey}
+                      tricode={champion.tricode}
+                      season={league.season}
+                    />
+                  )}
+                  {isOffseason && leagueType === 'keeper' &&
+                    league.offseason_step === 'keeper_pending' && teamId && (
+                      <DeclareKeepers
+                        leagueId={league.id}
+                        teamId={teamId}
+                        season={league.season}
+                        keeperCount={league.keeper_count ?? 5}
+                        isCommissioner={isCommissioner}
+                      />
+                    )}
+                  {isOffseason ? (
+                    <OffseasonLotteryOrder
+                      leagueId={league.id}
+                      playoffTeams={league.playoff_teams ?? 0}
+                      lotteryOdds={(league.lottery_odds as number[] | null) ?? null}
+                      rookieDraftOrder={league.rookie_draft_order ?? 'reverse_record'}
+                      offseasonStep={league.offseason_step!}
+                      season={league.season}
+                    />
+                  ) : (
+                    <StandingsSection
+                      leagueId={league.id}
+                      playoffTeams={league.playoff_teams}
+                      scoringType={league.scoring_type}
+                      tiebreakerOrder={league.tiebreaker_order}
+                      divisionCount={league.division_count}
+                      division1Name={league.division_1_name}
+                      division2Name={league.division_2_name}
+                    />
+                  )}
+                </View>
+                <View style={styles.dashRail}>
+                  <QuickNav leagueType={league.league_type ?? 'dynasty'} />
+                </View>
+              </View>
+            </>
+          ) : (
           <>
             {/* CMS-driven marketing/announcement banner — below the header
                 tabs, above the team card. Themed per-sport, targeted, and
@@ -1007,6 +1095,7 @@ export default function HomeScreen() {
               />
             )}
           </>
+          )
         ) : isError ? (
           <ErrorState message="Failed to load league data" onRetry={() => refetch()} />
         ) : null}
@@ -1080,6 +1169,22 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  // Desktop web dashboard: main content column + capped right rail. Only used
+  // on the isDesktop branch; native never references these.
+  dashRow: {
+    flexDirection: 'row',
+    gap: 24,
+    alignItems: 'flex-start',
+  },
+  dashMain: {
+    flex: 1.7,
+    minWidth: 0,
+  },
+  dashRail: {
+    flex: 1,
+    minWidth: 0,
+    maxWidth: 320,
   },
   header: {
     flexDirection: 'row',
