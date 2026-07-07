@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsResponse } from '../_shared/cors.ts';
+import { requireUser } from '../_shared/auth.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { parseBody, z } from '../_shared/validate.ts';
@@ -25,15 +26,7 @@ Deno.serve(async (req) => {
     );
 
     // Verify JWT
-    const authHeader = req.headers.get('Authorization');
-    const token = authHeader?.startsWith('Bearer ') ? authHeader : `Bearer ${authHeader}`;
-    const userClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SB_PUBLISHABLE_KEY') ?? '',
-      { global: { headers: { Authorization: token ?? '' } } }
-    );
-    const { data: { user } } = await userClient.auth.getUser();
-    if (!user) throw new HttpError('Unauthorized', 401);
+    const user = await requireUser(req);
 
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'submit-survey');
     if (rateLimited) return rateLimited;

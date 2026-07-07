@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { requireUser } from '../_shared/auth.ts';
 import { HttpError, errorResponse, handleError, jsonResponse } from '../_shared/http.ts';
 import { buildBracketRows, ImportBracketSchema } from '../_shared/importBracket.ts';
 import {
@@ -1367,17 +1368,7 @@ Deno.serve(async (req) => {
     );
 
     // Verify caller JWT
-    const authHeader = req.headers.get('Authorization') ?? req.headers.get('authorization');
-    const token = authHeader?.startsWith('Bearer ') ? authHeader : `Bearer ${authHeader}`;
-    const userClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SB_PUBLISHABLE_KEY') ?? '',
-      { global: { headers: { Authorization: token ?? '' } } },
-    );
-    const { data: { user } } = await userClient.auth.getUser();
-    if (!user) {
-      return errorResponse('Unauthorized', 401);
-    }
+    const user = await requireUser(req);
     const userId = user.id;
 
     const rateLimited = await checkRateLimit(supabaseAdmin, userId, 'import-screenshot-league');

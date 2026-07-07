@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { notifyTeams } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
+import { requireUser } from '../_shared/auth.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { checkPositionLimitsForRoster } from '../_shared/positionLimits.ts';
@@ -80,15 +81,7 @@ Deno.serve(async (req) => {
 
     let user: { id: string } | null = null;
     if (!isServerCall) {
-      const token = authHeader?.startsWith('Bearer ') ? authHeader : `Bearer ${authHeader}`;
-      const userClient = createClient(
-        Deno.env.get('SUPABASE_URL') ?? '',
-        Deno.env.get('SB_PUBLISHABLE_KEY') ?? '',
-        { global: { headers: { Authorization: token ?? '' } } }
-      );
-      const { data } = await userClient.auth.getUser();
-      user = data?.user ?? null;
-      if (!user) throw new HttpError('Unauthorized', 401);
+      user = await requireUser(req);
 
       const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'execute-trade');
       if (rateLimited) return rateLimited;

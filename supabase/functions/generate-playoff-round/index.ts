@@ -1,7 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { notifyTeams } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
+import { requireUser } from '../_shared/auth.ts';
 import { errorResponse, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { parseBody, z } from '../_shared/validate.ts';
@@ -132,13 +133,7 @@ Deno.serve(async (req: Request) => {
 
     if (!isServiceRole) {
       if (!authHeader) return errorResponse('Missing authorization', 401);
-      const userClient = createClient(
-        Deno.env.get('SUPABASE_URL')!,
-        Deno.env.get('SB_PUBLISHABLE_KEY')!,
-        { global: { headers: { Authorization: authHeader.startsWith('Bearer ') ? authHeader : `Bearer ${authHeader}` } } }
-      );
-      const { data: { user } } = await userClient.auth.getUser();
-      if (!user) return errorResponse('Unauthorized', 401);
+      const user = await requireUser(req);
 
       const rateLimited = await checkRateLimit(supabase, user.id, 'generate-playoff-round');
       if (rateLimited) return rateLimited;

@@ -33,6 +33,9 @@ import { LeagueMetaChips } from '@/components/ui/LeagueMetaChips';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ThemedView } from '@/components/ui/ThemedView';
+import { WebActivityCard } from '@/components/web/home/WebActivityCard';
+import { WebMatchupCard } from '@/components/web/home/WebMatchupCard';
+import { WebStandingsCard } from '@/components/web/home/WebStandingsCard';
 import { Colors, Fonts } from '@/constants/Colors';
 import { type Sport } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
@@ -840,6 +843,9 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
+      {/* On desktop web the sidebar carries the league switcher + chat, so the
+          floating mobile header is hidden — the content starts at the top. */}
+      {!isDesktop && (
       <ThemedView style={[styles.header, { borderBottomColor: c.border }]}>
         <TouchableOpacity
           style={styles.leagueSwitcher}
@@ -890,6 +896,7 @@ export default function HomeScreen() {
           )}
         </TouchableOpacity>
       </ThemedView>
+      )}
 
       <ScrollView
         style={styles.content}
@@ -918,18 +925,6 @@ export default function HomeScreen() {
                 leagueType={league.league_type}
                 scoringType={league.scoring_type}
               />
-              {heroVariant && (
-                <HomeHero
-                  variant={heroVariant}
-                  onPress={heroVariant.kind === 'offseason' ? undefined : onHeroPress}
-                  onPaymentPress={onPaymentPress}
-                  onSchedulePress={onSchedulePress}
-                  onEnterDraft={onEnterDraft}
-                  onSetDraftOrder={() => setShowOrderModal(true)}
-                  onShareInvite={onShareInvite}
-                  rostersPending={rostersPending}
-                />
-              )}
               {activeDraft?.id && league?.id && isCommissioner && isManualOrder && (
                 <ManualDraftOrderModal
                   visible={showOrderModal}
@@ -945,27 +940,39 @@ export default function HomeScreen() {
                 visible={offseasonActions.loading}
                 title={offseasonActions.loadingLabel ?? 'Working…'}
               />
+              {/* Two-column masonry. Left column leads with the live matchup
+                  (regular season) or the contextual HomeHero (every other state),
+                  then standings. Right rail stacks analytics + the activity feed.
+                  Each column flows independently so neither leaves a mid-page gap.
+                  Nav lives in the sidebar now, so there's no Explore grid here. */}
               <View style={styles.dashRow}>
                 <View style={styles.dashMain}>
-                  <AnalyticsPreviewCard leagueId={league.id} scoringType={league.scoring_type} />
-                  {isSeasonComplete && champion && (
-                    <ChampionCard
-                      teamName={champion.name}
-                      logoKey={champion.logoKey}
-                      tricode={champion.tricode}
-                      season={league.season}
-                    />
+                  {heroVariant?.kind === 'team_identity' ? (
+                    <WebMatchupCard />
+                  ) : (
+                    <>
+                      {heroVariant && (
+                        <HomeHero
+                          variant={heroVariant}
+                          onPress={heroVariant.kind === 'offseason' ? undefined : onHeroPress}
+                          onPaymentPress={onPaymentPress}
+                          onSchedulePress={onSchedulePress}
+                          onEnterDraft={onEnterDraft}
+                          onSetDraftOrder={() => setShowOrderModal(true)}
+                          onShareInvite={onShareInvite}
+                          rostersPending={rostersPending}
+                        />
+                      )}
+                      {isSeasonComplete && champion && (
+                        <ChampionCard
+                          teamName={champion.name}
+                          logoKey={champion.logoKey}
+                          tricode={champion.tricode}
+                          season={league.season}
+                        />
+                      )}
+                    </>
                   )}
-                  {isOffseason && leagueType === 'keeper' &&
-                    league.offseason_step === 'keeper_pending' && teamId && (
-                      <DeclareKeepers
-                        leagueId={league.id}
-                        teamId={teamId}
-                        season={league.season}
-                        keeperCount={league.keeper_count ?? 5}
-                        isCommissioner={isCommissioner}
-                      />
-                    )}
                   {isOffseason ? (
                     <OffseasonLotteryOrder
                       leagueId={league.id}
@@ -976,19 +983,27 @@ export default function HomeScreen() {
                       season={league.season}
                     />
                   ) : (
-                    <StandingsSection
+                    <WebStandingsCard
                       leagueId={league.id}
                       playoffTeams={league.playoff_teams}
                       scoringType={league.scoring_type}
                       tiebreakerOrder={league.tiebreaker_order}
-                      divisionCount={league.division_count}
-                      division1Name={league.division_1_name}
-                      division2Name={league.division_2_name}
                     />
                   )}
                 </View>
                 <View style={styles.dashRail}>
-                  <QuickNav leagueType={league.league_type ?? 'dynasty'} />
+                  <AnalyticsPreviewCard leagueId={league.id} scoringType={league.scoring_type} />
+                  {isOffseason && leagueType === 'keeper' &&
+                    league.offseason_step === 'keeper_pending' && teamId && (
+                      <DeclareKeepers
+                        leagueId={league.id}
+                        teamId={teamId}
+                        season={league.season}
+                        keeperCount={league.keeper_count ?? 5}
+                        isCommissioner={isCommissioner}
+                      />
+                    )}
+                  <WebActivityCard />
                 </View>
               </View>
             </>
@@ -1170,21 +1185,21 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  // Desktop web dashboard: main content column + capped right rail. Only used
-  // on the isDesktop branch; native never references these.
+  // Desktop web dashboard: [wide main column | capped rail], each flowing
+  // independently. Only used on the isDesktop branch; native never references it.
   dashRow: {
     flexDirection: 'row',
     gap: 24,
     alignItems: 'flex-start',
   },
   dashMain: {
-    flex: 1.7,
+    flex: 1.4,
     minWidth: 0,
   },
   dashRail: {
     flex: 1,
     minWidth: 0,
-    maxWidth: 320,
+    maxWidth: 420,
   },
   header: {
     flexDirection: 'row',

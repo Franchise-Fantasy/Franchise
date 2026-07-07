@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { notifyLeague } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
+import { requireUser } from '../_shared/auth.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { runLotteryDraw } from '../_shared/lottery.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
@@ -39,15 +40,7 @@ Deno.serve(async (req) => {
       Deno.env.get('SB_SECRET_KEY') ?? ''
     );
 
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) throw new HttpError('Missing authorization header', 401);
-    const userClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SB_PUBLISHABLE_KEY') ?? '',
-      { global: { headers: { Authorization: authHeader } } }
-    );
-    const { data: { user } } = await userClient.auth.getUser();
-    if (!user) throw new HttpError('Unauthorized', 401);
+    const user = await requireUser(req);
 
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'start-lottery');
     if (rateLimited) return rateLimited;

@@ -109,41 +109,16 @@ export async function assignDraftSlots(draftId: string, teamIds: string[]) {
 }
 
 export async function checkAndAssignDraftSlots(leagueId: string) {
-  // Check the league's initial_draft_order setting
-  const { data: league } = await supabase
-    .from('leagues')
-    .select('initial_draft_order')
-    .eq('id', leagueId)
-    .single();
-
-  // If manual, skip auto-assignment — commissioner will set order later
-  if (league?.initial_draft_order === 'manual') return;
-
-  // Get the draft ID
-  const { data: draft } = await supabase
-    .from('drafts')
-    .select('id')
-    .eq('league_id', leagueId)
-    .eq('type', 'initial')
-    .single();
-
-  if (draft) {
-    // Get all teams in the league
-    const { data: teams } = await supabase
-      .from('teams')
-      .select('id')
-      .eq('league_id', leagueId);
-
-    if (teams) {
-      const teamIds = teams.map(team => team.id);
-
-      // Shuffle once and reuse for both draft and future picks
-      const shuffledTeams = [...teamIds].sort(() => Math.random() - 0.5);
-
-      await assignDraftSlots(draft.id, shuffledTeams);
-      await assignFutureSlots(leagueId, shuffledTeams);
-    }
-  }
+  // Slot assignment runs server-side (assign_initial_draft_slots) because it
+  // must write EVERY team's picks in one shot. The draft_picks UPDATE policy
+  // only lets a member touch their own (or unassigned) picks, so a client-side
+  // shuffle by the last joiner would be blocked from assigning other teams'
+  // picks. The RPC no-ops unless the league is full, the order isn't manual,
+  // and the draft hasn't started — matching the previous client behavior.
+  const { error } = await supabase.rpc('assign_initial_draft_slots', {
+    p_league_id: leagueId,
+  });
+  if (error) throw error;
 }
 
 /** Assign team ownership to future-season picks (picks with no draft_id). */

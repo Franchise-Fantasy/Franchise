@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 
 import { queryKeys } from '@/constants/queryKeys';
-import { supabase, uniqueChannelTopic } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
 
 interface UseWeekScoresOptions {
   leagueId: string | null;
@@ -81,26 +81,25 @@ export function useWeekScores({ leagueId, scheduleId, weekIsLive }: UseWeekScore
       return;
     }
 
+    // Deterministic broadcast topic — must match the week_scores_broadcast DB
+    // trigger's `scores:<schedule_id>` exactly (NOT uniqueChannelTopic, which is
+    // only for postgres_changes/presence).
     const channel = supabase
-      .channel(uniqueChannelTopic(`week-scores-${scheduleId}`))
+      .channel(`scores:${scheduleId}`)
       .on(
         'broadcast',
         { event: 'score_update' },
-        (payload) => {
-          // Broadcast delivers the full score map for this schedule in one message,
-          // avoiding per-row WAL overhead from postgres_changes.
-          const scores = payload.payload?.scores as Record<string, number> | undefined;
-          if (scores) {
-            queryClient.setQueryData(
-              queryKeys.weekScores(leagueId!, scheduleId!),
-              (old: Record<string, number> | undefined) => ({
-                ...old,
-                ...Object.fromEntries(
-                  Object.entries(scores).map(([k, v]) => [k, Number(v)]),
-                ),
-              }),
-            );
-          }
+        (message) => {
+          // The trigger sends one changed row per message: { schedule_id, team_id, score }.
+          const row = message.payload as { team_id?: string; score?: number } | undefined;
+          if (!row?.team_id) return;
+          queryClient.setQueryData(
+            queryKeys.weekScores(leagueId!, scheduleId!),
+            (old: Record<string, number> | undefined) => ({
+              ...old,
+              [row.team_id!]: Number(row.score),
+            }),
+          );
         },
       )
       .subscribe();

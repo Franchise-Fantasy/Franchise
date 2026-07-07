@@ -678,12 +678,6 @@ export function PlayerDetailModal({
       return;
     }
 
-    // IR lockout preflight - block before opening the drop picker or starting
-    // any other flow, so users aren't led into a modal they'll be rejected from.
-    if (!(await guardIllegalIR(leagueId, teamId))) return;
-    // Over-capacity lockout — same rationale: surface before the flow opens.
-    if (!(await guardOverCap(leagueId, teamId))) return;
-
     // If this player requires a waiver claim, delegate to the claim callback
     // or handle natively if no callback provided
     if (needsWaiverClaim) {
@@ -691,6 +685,12 @@ export function PlayerDetailModal({
         setShowDropPicker(true);
         return;
       }
+      // IR/over-cap lockout preflight - only reached once we know this isn't
+      // routing through the drop picker. (When it does, the picker's own drop
+      // handlers already guard + exempt the chosen drop target - guarding
+      // here first would block that resolution before the picker ever opens.)
+      if (!(await guardIllegalIR(leagueId, teamId))) return;
+      if (!(await guardOverCap(leagueId, teamId))) return;
       if (onClaimPlayer) {
         onClaimPlayer();
         return;
@@ -751,6 +751,17 @@ export function PlayerDetailModal({
         return;
       }
 
+      // IR/over-cap lockout preflight - only reached once we know this is a
+      // direct add with no drop picker involved.
+      if (!(await guardIllegalIR(leagueId, teamId))) {
+        setIsProcessing(false);
+        return;
+      }
+      if (!(await guardOverCap(leagueId, teamId))) {
+        setIsProcessing(false);
+        return;
+      }
+
       const { deferred } = await addFreeAgent({
         leagueId,
         teamId: teamId!,
@@ -790,10 +801,19 @@ export function PlayerDetailModal({
       return;
     }
 
-    // Exempt the player we're about to drop - if *that* player is the
-    // illegal-IR one, dropping them resolves the lockout. Any other
-    // illegal-IR players still block.
-    if (!(await guardIllegalIR(leagueId, teamId, [dropping.player_id]))) return;
+    // A pure drop always shrinks the roster, so it's allowed even while the
+    // team is IR-locked or over cap — dropping from anywhere is how you clear
+    // those states. Only the *add* half of an add-and-drop stays gated: the IR
+    // lock exists to discourage acquiring players while healthy guys sit on IR.
+    // Exempt the dropped player so dropping the illegal-IR player itself (as
+    // the add+drop's drop) still resolves the lock.
+    const isAddDrop = !!playerToDrop && !!player;
+    if (
+      isAddDrop &&
+      !(await guardIllegalIR(leagueId, teamId, [dropping.player_id]))
+    ) {
+      return;
+    }
 
     setIsProcessing(true);
     try {
@@ -1649,9 +1669,9 @@ export function PlayerDetailModal({
 
   const handleQueueDrop = async () => {
     if (!teamId || !player || !leagueId) return;
-    // Queueing a drop of the illegal-IR player itself is allowed - that's
-    // the move that resolves the lockout. Other illegal-IR players still block.
-    if (!(await guardIllegalIR(leagueId, teamId, [player.player_id]))) return;
+    // A queued drop is a pure drop (deferred to tomorrow because the player's
+    // game already started) — it only shrinks the roster, so it's always
+    // allowed, even while the team is IR-locked or over cap.
     setIsProcessing(true);
     try {
       const { data: existing } = await supabase
@@ -1764,6 +1784,15 @@ export function PlayerDetailModal({
   const handleSubmitWaiverClaimFromDropPicker = async (
     dropPlayerId?: string,
   ) => {
+    if (!teamId) return;
+    // Exempt the chosen drop target — if that player is the illegal-IR (or
+    // over-cap) one, this claim resolves the lockout for them once it
+    // processes. Any other illegal-IR/over-cap players still block. (The
+    // upfront guard was removed from handleAddPlayer so the drop picker can
+    // open while locked; the terminal handler re-checks with the exemption.)
+    const exempt = dropPlayerId ? [dropPlayerId] : [];
+    if (!(await guardIllegalIR(leagueId, teamId, exempt))) return;
+    if (!(await guardOverCap(leagueId, teamId, exempt))) return;
     setIsProcessing(true);
     try {
       await submitWaiverClaim(dropPlayerId);

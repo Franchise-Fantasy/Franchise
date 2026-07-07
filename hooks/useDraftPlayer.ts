@@ -5,7 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/constants/queryKeys';
 import { globalToastRef } from '@/context/ToastProvider';
 import { capture } from '@/lib/posthog';
-import { supabase } from '@/lib/supabase';
+import { DB_REGION_HEADERS, supabase } from '@/lib/supabase';
 import { Player } from '@/types/draft';
 
 // Define the Player type here as well, or in a shared types file
@@ -23,6 +23,7 @@ export const useDraftPlayer = (leagueId: string, draftId: string ) => {
           player_position: player.position,
           league_id: leagueId,
         },
+        headers: DB_REGION_HEADERS,
       });
 
       if (error) {

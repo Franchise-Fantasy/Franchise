@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo } from 'react';
 
 import { queryKeys } from '@/constants/queryKeys';
-import { supabase, uniqueChannelTopic } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
 
 export type TickerEventKind =
   | 'MADE_3PT'
@@ -39,12 +39,12 @@ const TICKER_CAP = 24;
  * Subscribes to live_scoring_events and exposes the most recent events for
  * a given roster of player_ids. Used by the matchup hero ticker.
  *
- * Pattern note: the realtime subscription is unfiltered (no `filter` clause)
- * because postgres_changes filters cap at ~100 chars and a roster of 20+
- * UUIDs blows past that. We accept all inserts on the channel and filter
- * client-side against the current playerIds set — the global event volume
- * is small (~5–15 rows per 30s polling cycle across all live games), so
- * the bandwidth cost is negligible.
+ * Pattern note: events arrive via a broadcast-from-DB trigger on the shared
+ * `live-events` topic (event `scoring_event`) — the old UNFILTERED
+ * postgres_changes WAL fanout was retired in the live_scoring_events_broadcast
+ * migration. Broadcast has no server-side filter, so roster filtering stays
+ * client-side against the current playerIds set; the global event volume is
+ * small (~5–15 rows per 30s cycle across all live games).
  */
 export function useMatchupTickerEvents(
   playerIds: string[],
@@ -88,16 +88,12 @@ export function useMatchupTickerEvents(
     if (!enabled || playerIds.length === 0) return;
 
     const channel = supabase
-      .channel(uniqueChannelTopic('matchup-ticker'))
+      .channel('live-events')
       .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'live_scoring_events',
-        },
-        (payload) => {
-          const row = payload.new as TickerEvent | undefined;
+        'broadcast',
+        { event: 'scoring_event' },
+        (message) => {
+          const row = message.payload as TickerEvent | undefined;
           if (!row || !playerIdSet.has(row.player_id)) return;
 
           queryClient.setQueryData<TickerEvent[]>(

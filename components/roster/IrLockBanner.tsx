@@ -45,15 +45,15 @@ export function IrLockBanner({ players }: IrLockBannerProps) {
       >
         <Ionicons name="warning" size={16} color={c.gold} />
         <ThemedText style={[styles.body, { color: c.text }]}>
-          Roster moves locked —{" "}
           <ThemedText
             type="defaultSemiBold"
             style={[styles.body, { color: c.gold }]}
           >
             {names}
           </ThemedText>{" "}
-          {isPlural ? "are" : "is"} on IR but no longer injured. Activate them
-          to unlock your roster.
+          {isPlural ? "are" : "is"} on IR but no longer injured. Adds and lineup
+          changes are locked until you activate or drop them — but you can still
+          drop any player from your roster.
         </ThemedText>
       </View>
     </View>

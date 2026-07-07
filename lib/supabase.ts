@@ -31,6 +31,13 @@ export const supabase = createClient<Database>(
   },
 );
 
+// Pin latency-sensitive, DB-heavy edge functions to the database region
+// (us-east-2) so their many sequential DB round-trips stay in-region. Pass as
+// `functions.invoke(name, { body, headers: DB_REGION_HEADERS })`. Tradeoff:
+// only worth it for multi-query functions — for light ones, routing to the
+// caller's nearest region can be faster.
+export const DB_REGION_HEADERS = { 'x-region': 'us-east-2' } as const;
+
 // Monotonic counter guarantees uniqueness even when Date.now() + Math.random()
 // somehow collide within the same tick.
 let channelCounter = 0;

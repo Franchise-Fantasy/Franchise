@@ -12,6 +12,11 @@ import { Sidebar } from "./Sidebar";
 // stretch. Content column width for the sidebar'd app screens.
 const NARROW_MAX = 480;
 const CONTENT_MAX = 960;
+// Dashboard-style screens that are built as a multi-column grid want more room
+// than the reading column — otherwise they leave big empty side gutters on a
+// wide monitor. Add a route here once its desktop layout fills the extra width.
+const WIDE_MAX = 1240;
+const WIDE_ROUTES = new Set(["/", "/standings"]);
 
 // Immersive routes take the whole viewport with no sidebar.
 const IMMERSIVE_PREFIXES = ["/draft-room", "/lottery-room"];
@@ -44,11 +49,13 @@ export function WebShell({ children }: { children: React.ReactNode }) {
     return <View style={styles.narrow}>{children}</View>;
   }
 
+  const contentMax = WIDE_ROUTES.has(pathname) ? WIDE_MAX : CONTENT_MAX;
+
   return (
     <View style={styles.row}>
       <Sidebar />
       <View style={[styles.contentCell, { backgroundColor: c.background }]}>
-        <View style={styles.contentInner}>{children}</View>
+        <View style={[styles.contentInner, { maxWidth: contentMax }]}>{children}</View>
       </View>
     </View>
   );
@@ -58,5 +65,5 @@ const styles = StyleSheet.create({
   narrow: { flex: 1, width: "100%", maxWidth: NARROW_MAX, alignSelf: "center" },
   row: { flex: 1, flexDirection: "row" },
   contentCell: { flex: 1 },
-  contentInner: { flex: 1, width: "100%", maxWidth: CONTENT_MAX, alignSelf: "center" },
+  contentInner: { flex: 1, width: "100%", alignSelf: "center" },
 });

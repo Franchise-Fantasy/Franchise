@@ -1063,9 +1063,10 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.display,
     color: Brand.ecru,
     fontSize: ms(52),
-    // Line height == font size trims the slab face's empty descent slack so
-    // the sub-line sits right under the number instead of floating below it.
-    lineHeight: ms(52),
+    // The slab face needs generous line height or its caps clip at the top;
+    // the empty descent slack that leaves below the number is reclaimed by the
+    // sub-line's negative margin rather than by squeezing this box.
+    lineHeight: ms(58),
     letterSpacing: -0.5,
     marginTop: s(1),
     fontVariant: ["tabular-nums"],
@@ -1074,7 +1075,7 @@ const styles = StyleSheet.create({
     color: Brand.ecruMuted,
     fontSize: ms(11),
     letterSpacing: 0.6,
-    marginTop: s(4),
+    marginTop: s(-12),
   },
   ribbon: {
     marginTop: s(14),

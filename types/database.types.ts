@@ -6086,6 +6086,10 @@ export type Database = {
         Args: { p_league_id: string; p_player_id?: string; p_team_id: string }
         Returns: undefined
       }
+      assign_initial_draft_slots: {
+        Args: { p_league_id: string }
+        Returns: undefined
+      }
       batch_update_matchup_scores: {
         Args: { p_updates: Json }
         Returns: undefined
@@ -6287,6 +6291,14 @@ export type Database = {
           trade_summary: Json
           type: string
         }[]
+      }
+      get_or_create_dm: {
+        Args: {
+          p_league_id: string
+          p_my_team_id: string
+          p_other_team_id: string
+        }
+        Returns: string
       }
       get_or_create_trade_conversation: {
         Args: {

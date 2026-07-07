@@ -689,10 +689,6 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
   // Instant add (free agent, no waivers)
   const handleAddPlayer = async (player: PlayerSeasonStats) => {
-    // IR lockout preflight — block before even opening the drop picker so
-    // users aren't led through a modal flow only to be rejected at the end.
-    if (!(await guardIllegalIR(leagueId, teamId))) return;
-    if (!(await guardOverCap(leagueId, teamId))) return;
     setAddingPlayerId(player.player_id);
     try {
       // Re-check roster limit and weekly acquisition limit before adding
@@ -711,6 +707,18 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         });
         setOpenAsDropPicker(true);
         setSelectedPlayer(player);
+        setAddingPlayerId(null);
+        return;
+      }
+
+      // IR/over-cap lockout preflight — only reached once we know this is a
+      // direct add with no drop picker involved. (The picker's own drop
+      // handlers already guard + exempt the chosen drop target.)
+      if (!(await guardIllegalIR(leagueId, teamId))) {
+        setAddingPlayerId(null);
+        return;
+      }
+      if (!(await guardOverCap(leagueId, teamId))) {
         setAddingPlayerId(null);
         return;
       }
@@ -916,8 +924,12 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       );
       return;
     }
-    if (!(await guardIllegalIR(leagueId, teamId))) return;
-    if (!(await guardOverCap(leagueId, teamId))) return;
+    // Exempt the chosen drop target — if *that* player is the illegal-IR (or
+    // over-cap) one, this claim resolves the lockout for them once it
+    // processes. Any other illegal-IR/over-cap players still block.
+    const exempt = dropPlayerId ? [dropPlayerId] : [];
+    if (!(await guardIllegalIR(leagueId, teamId, exempt))) return;
+    if (!(await guardOverCap(leagueId, teamId, exempt))) return;
     setAddingPlayerId(player.player_id);
     try {
       // Get current waiver priority
@@ -973,8 +985,10 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       );
       return;
     }
-    if (!(await guardIllegalIR(leagueId, teamId))) return;
-    if (!(await guardOverCap(leagueId, teamId))) return;
+    // Exempt the chosen drop target — see submitClaim for rationale.
+    const exempt = dropPlayerId ? [dropPlayerId] : [];
+    if (!(await guardIllegalIR(leagueId, teamId, exempt))) return;
+    if (!(await guardOverCap(leagueId, teamId, exempt))) return;
     setAddingPlayerId(player.player_id);
     try {
       const { data: wp } = await supabase
@@ -1104,11 +1118,13 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
   // Handle the add/claim button press
   const handleButtonPress = async (player: PlayerSeasonStats) => {
-    // IR lockout preflight — applies to every add/claim/drop-picker entry
-    // point so users aren't led into a modal flow while locked.
-    if (!(await guardIllegalIR(leagueId, teamId))) return;
-    if (!(await guardOverCap(leagueId, teamId))) return;
-
+    // No upfront IR/over-cap preflight here: when the roster is full we route
+    // into the drop picker below, and the user may pick the very illegal-IR
+    // (or over-cap) player as the drop target — which resolves the lockout.
+    // Guarding unconditionally here would block that resolution before the
+    // picker ever opens. Each terminal handler (handleAddPlayer, submitClaim,
+    // handleSubmitFaabBid) does its own guard, exempting the chosen drop
+    // target when one is known.
     const needsClaim = isOnWaivers(player.player_id, waiverType, waiverPlayerMap);
 
     if (!needsClaim) {

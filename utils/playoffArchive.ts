@@ -18,7 +18,7 @@ const STORAGE_BASE = `${SUPABASE_URL}/storage/v1/object/public/pro-team-logos`;
 // cache-control, so re-uploading to the same path won't refresh expo-image's
 // memory/disk cache (it keys by URL). Bump this whenever logo PNGs are
 // re-rendered so clients pick up the new bytes immediately.
-const LOGO_CACHE_VERSION = 2;
+const LOGO_CACHE_VERSION = 3;
 
 export type ArchiveSport = 'nba' | 'nhl' | 'nfl';
 

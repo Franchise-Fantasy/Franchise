@@ -75,27 +75,26 @@ export function usePlayoffBracket(season: string) {
       return;
     }
 
-    // Subscribe to broadcast for each active playoff schedule.
-    // The edge function broadcasts all scores per schedule_id after upsert.
+    // Subscribe to the deterministic broadcast topic for each active playoff
+    // schedule — must match the week_scores_broadcast DB trigger's
+    // `scores:<schedule_id>` exactly (NOT uniqueChannelTopic).
     const channels = scheduleIds.map((sid) =>
       supabase
-        .channel(uniqueChannelTopic(`playoff-scores-${sid}`))
+        .channel(`scores:${sid}`)
         .on(
           'broadcast',
           { event: 'score_update' },
-          (payload) => {
-            const scores = payload.payload?.scores as Record<string, number> | undefined;
-            if (scores) {
-              queryClient.setQueryData(
-                queryKeys.playoffLiveScores(leagueId!, Number(season), scheduleIds),
-                (old: Record<string, number> | undefined) => ({
-                  ...old,
-                  ...Object.fromEntries(
-                    Object.entries(scores).map(([k, v]) => [k, Number(v)]),
-                  ),
-                }),
-              );
-            }
+          (message) => {
+            // The trigger sends one changed row per message: { schedule_id, team_id, score }.
+            const row = message.payload as { team_id?: string; score?: number } | undefined;
+            if (!row?.team_id) return;
+            queryClient.setQueryData(
+              queryKeys.playoffLiveScores(leagueId!, Number(season), scheduleIds),
+              (old: Record<string, number> | undefined) => ({
+                ...old,
+                [row.team_id!]: Number(row.score),
+              }),
+            );
           },
         )
         .subscribe(),

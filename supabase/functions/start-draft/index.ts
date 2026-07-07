@@ -4,6 +4,7 @@ import { notifyLeague, notifyTeams } from '../_shared/push.ts';
 import { effectiveTimeLimit } from '../_shared/draftClock.ts';
 import { scheduleAutodraft, schedulePickReminder } from '../_shared/qstash.ts';
 import { CORS_HEADERS } from '../_shared/cors.ts';
+import { requireUser } from '../_shared/auth.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { parseBody, z } from '../_shared/validate.ts';
@@ -35,15 +36,7 @@ Deno.serve(async (req) => {
 
     let userId: string | null = null;
     if (!isCronCall) {
-      const token = authHeader.startsWith('Bearer ') ? authHeader : `Bearer ${authHeader}`;
-      const userClient = createClient(
-        Deno.env.get('SUPABASE_URL') ?? '',
-        Deno.env.get('SB_PUBLISHABLE_KEY') ?? '',
-        { global: { headers: { Authorization: token } } }
-      );
-
-      const { data: { user } } = await userClient.auth.getUser();
-      if (!user) throw new HttpError('Unauthorized', 401);
+      const user = await requireUser(req);
       userId = user.id;
 
       const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'start-draft');

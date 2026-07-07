@@ -8,7 +8,7 @@ import { usePostTradeUpdate } from '@/hooks/chat/useTradeChat';
 import { TradeProposalRow } from '@/hooks/useTrades';
 import { sendNotification } from '@/lib/notifications';
 import { capture } from '@/lib/posthog';
-import { supabase } from '@/lib/supabase';
+import { DB_REGION_HEADERS, supabase } from '@/lib/supabase';
 import { isOnline } from '@/utils/network';
 import { fetchActiveRosterCount } from '@/utils/roster/rosterCounts';
 
@@ -118,7 +118,7 @@ export function useTradeDetailActions({
 
       if (result.all_accepted && !result.needs_review && !result.already_finalized) {
         // All parties accepted, no veto review configured — fire execution now.
-        await supabase.functions.invoke('execute-trade', { body: { proposal_id: proposal.id } });
+        await supabase.functions.invoke('execute-trade', { body: { proposal_id: proposal.id }, headers: DB_REGION_HEADERS });
       } else if (result.all_accepted && result.needs_review) {
         sendNotification({
           league_id: leagueId,
@@ -252,7 +252,7 @@ export function useTradeDetailActions({
   const handleCommissionerApprove = async () => {
     setProcessing(true);
     try {
-      await supabase.functions.invoke('execute-trade', { body: { proposal_id: proposal.id } });
+      await supabase.functions.invoke('execute-trade', { body: { proposal_id: proposal.id }, headers: DB_REGION_HEADERS });
       invalidate();
       onClose();
     } catch (err: any) {
@@ -319,7 +319,7 @@ export function useTradeDetailActions({
 
       // Let the server determine if all drops are satisfied — it checks actual
       // roster counts, not just net gain, so it handles teams with spare room correctly.
-      await supabase.functions.invoke('execute-trade', { body: { proposal_id: proposal.id } });
+      await supabase.functions.invoke('execute-trade', { body: { proposal_id: proposal.id }, headers: DB_REGION_HEADERS });
 
       invalidate();
       onClose();

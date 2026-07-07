@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { HttpError, handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
+import { requireUser } from '../_shared/auth.ts';
+import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 Deno.serve(async (req) => {
@@ -20,15 +21,7 @@ Deno.serve(async (req) => {
     );
 
     // Verify the user's JWT
-    const authHeader = req.headers.get('Authorization');
-    const token = authHeader?.startsWith('Bearer ') ? authHeader : `Bearer ${authHeader}`;
-    const userClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SB_PUBLISHABLE_KEY') ?? '',
-      { global: { headers: { Authorization: token ?? '' } } }
-    );
-    const { data: { user } } = await userClient.auth.getUser();
-    if (!user) throw new HttpError('Unauthorized', 401);
+    const user = await requireUser(req);
 
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'delete-account');
     if (rateLimited) return rateLimited;

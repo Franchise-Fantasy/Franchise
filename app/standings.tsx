@@ -20,9 +20,11 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Section } from '@/components/ui/Section';
 import { StatTile } from '@/components/ui/StatTile';
 import { ThemedText } from '@/components/ui/ThemedText';
+import { WebStandingsScreen } from '@/components/web/standings/WebStandingsScreen';
 import { Brand, Fonts } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useColors } from '@/hooks/useColors';
 import { useLeague } from '@/hooks/useLeague';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
@@ -54,6 +56,7 @@ type InfoKey = 'luck' | 'allplay' | 'sos';
 export default function StandingsScreen() {
   const c = useColors();
   const router = useRouter();
+  const { isDesktop } = useBreakpoint();
   const { leagueId, teamId } = useAppState();
 
   const { data: league } = useLeague();
@@ -696,10 +699,32 @@ export default function StandingsScreen() {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: c.background }]} edges={['top']}>
-      <PageHeader title="Standings" />
+      {/* On desktop web the sidebar carries nav + the active page, so the mobile
+          back-button header is hidden. */}
+      {!isDesktop && <PageHeader title="Standings" />}
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         {isLoading ? (
           <View style={styles.loading}><LogoSpinner /></View>
+        ) : isDesktop ? (
+          <WebStandingsScreen
+            leagueId={leagueId!}
+            teamId={teamId}
+            playoffTeams={playoffTeams}
+            scoringType={scoringType}
+            tiebreakerOrder={league?.tiebreaker_order}
+            allStandings={allStandings}
+            allPlayRanked={allPlayRanked}
+            luckSorted={luckSorted}
+            sosSorted={sosSorted}
+            teamNameMap={teamNameMap}
+            myAllPlay={myAllPlay}
+            mySoS={mySoS}
+            leagueAvgSoS={leagueAvgSoS}
+            maxAbsLuck={maxAbsLuck}
+            hasFutureSoS={hasFutureSoS}
+            isCategories={isCategories}
+            onInfo={setInfoModal}
+          />
         ) : (
           <>
             {renderInsightsTiles()}

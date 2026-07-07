@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsResponse } from "../_shared/cors.ts";
+import { requireUser } from "../_shared/auth.ts";
 import { errorResponse, handleError, jsonResponse } from "../_shared/http.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { pushActivityUpdate } from "../_shared/apns.ts";
@@ -400,12 +401,9 @@ async function upsertScores(
 
   if (error) throw error;
 
-  // Broadcast scores so clients get instant updates without postgres_changes overhead
-  await supabase.channel(`scores:${scheduleId}`).send({
-    type: "broadcast",
-    event: "score_update",
-    payload: { schedule_id: scheduleId, scores },
-  });
+  // Live-score broadcast is handled by the `week_scores_broadcast` DB trigger
+  // (per-row `score_update` to `scores:<schedule_id>`), which also covers
+  // finalize-week's writes — no manual channel.send() needed here.
 }
 
 // ── Update live category wins on league_matchups ───────────────────────────
@@ -962,17 +960,7 @@ Deno.serve(async (req: Request) => {
 
     if (league_id && schedule_id) {
       // ── Client mode: verify auth + rate limit ──
-      const authHeader = req.headers.get('Authorization');
-      const token = authHeader?.startsWith('Bearer ') ? authHeader : `Bearer ${authHeader}`;
-      const userClient = createClient(
-        Deno.env.get('SUPABASE_URL')!,
-        Deno.env.get('SB_PUBLISHABLE_KEY')!,
-        { global: { headers: { Authorization: token ?? '' } } },
-      );
-      const { data: { user } } = await userClient.auth.getUser();
-      if (!user) {
-        return errorResponse('Unauthorized', 401);
-      }
+      const user = await requireUser(req);
 
       const rateLimited = await checkRateLimit(supabase, user.id, 'get-week-scores');
       if (rateLimited) return rateLimited;

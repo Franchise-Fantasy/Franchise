@@ -24,6 +24,7 @@ import { Colors, Fonts } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useConfirm } from '@/context/ConfirmProvider';
 import { useToast } from '@/context/ToastProvider';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useColors } from '@/hooks/useColors';
 import { useDraftQueue } from '@/hooks/useDraftQueue';
 import { useRosterChanges } from '@/hooks/useRosterChanges';
@@ -86,6 +87,7 @@ function ToggleTab({
 export default function DraftRoomScreen() {
   const confirm = useConfirm();
   const colors = useColors();
+  const { isDesktop } = useBreakpoint();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
   const { id: draftId } = useLocalSearchParams<{ id: string }>();
@@ -351,6 +353,71 @@ export default function DraftRoomScreen() {
     );
   }
 
+  // On desktop the right rail has no "Players" tab (players are always shown on
+  // the left), so fold the mobile default into Queue.
+  const rightMode: Exclude<ViewMode, 'players'> =
+    viewMode === 'players' ? 'queue' : viewMode;
+
+  // Trades panel — shared by the mobile "Trades" tab and the desktop right rail.
+  const tradesPanel = (
+    <View style={{ flex: 1 }}>
+      <View style={styles.proposeWrap}>
+        <BrandButton
+          label="Propose Trade"
+          icon="add"
+          onPress={() => setShowTradeModal(true)}
+          variant="primary"
+          fullWidth
+          accessibilityLabel="Propose a new trade"
+        />
+      </View>
+      <FlatList
+        data={(tradeProposals ?? []).filter((p) => ['pending', 'in_review'].includes(p.status))}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={{ paddingBottom: s(16) }}
+        ListEmptyComponent={
+          <ThemedText style={{ textAlign: 'center', marginTop: s(40), color: colors.secondaryText, fontSize: ms(14) }}>
+            No active trade proposals
+          </ThemedText>
+        }
+        renderItem={({ item }) => {
+          const needsResponse = item.teams.some(
+            (t) => t.team_id === teamData?.id && t.status === 'pending',
+          ) && item.proposed_by_team_id !== teamData?.id;
+          const teamNames = item.teams.map((t) => t.team_name).join(' ↔ ');
+          const pickCount = item.items.filter((i) => i.draft_pick_id).length;
+          const playerCount = item.items.filter((i) => i.player_id).length;
+          return (
+            <TouchableOpacity
+              style={[styles.tradeRow, { borderBottomColor: colors.border }]}
+              onPress={() => setSelectedProposal(item)}
+              accessibilityRole="button"
+              accessibilityLabel={`Trade between ${teamNames}${needsResponse ? ', needs your response' : ''}`}
+            >
+              <View style={{ flex: 1 }}>
+                <ThemedText type="defaultSemiBold" style={styles.tradeRowTitle} numberOfLines={1}>
+                  {teamNames}
+                </ThemedText>
+                <ThemedText style={[styles.tradeRowMeta, { color: colors.secondaryText }]}>
+                  <ThemedText style={[styles.tradeRowCount, { color: colors.secondaryText }]}>
+                    {pickCount}
+                  </ThemedText>
+                  {`  pick${pickCount === 1 ? '' : 's'}  ·  `}
+                  <ThemedText style={[styles.tradeRowCount, { color: colors.secondaryText }]}>
+                    {playerCount}
+                  </ThemedText>
+                  {`  player${playerCount === 1 ? '' : 's'}`}
+                </ThemedText>
+              </View>
+              {needsResponse && <Badge label="Respond" variant="merlot" size="small" />}
+              <Ionicons name="chevron-forward" size={16} color={colors.secondaryText} accessible={false} />
+            </TouchableOpacity>
+          );
+        }}
+      />
+    </View>
+  );
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header — title is absolutely centered (PageHeader rhythm) so the
@@ -434,6 +501,7 @@ export default function DraftRoomScreen() {
       </ThemedView>
 
       <View style={styles.content}>
+        <View style={[styles.contentCap, isDesktop && styles.contentCapDesktop]}>
         {/* Pick strip stays mounted even after the draft completes so the
             last pick is visible. The completion notice renders below the
             strip as a compact banner instead of replacing it. */}
@@ -488,6 +556,66 @@ export default function DraftRoomScreen() {
           </View>
         )}
 
+        {isDesktop ? (
+          /* Desktop live-draft layout: available players stay visible on the
+             left; Queue / My Team / Trades live in a right rail switch instead
+             of the mobile bottom tab bar. */
+          <View style={styles.deskBody}>
+            <View style={styles.deskLeft}>
+              <AvailablePlayers
+                draftId={draftId}
+                currentPick={currentPick}
+                teamId={teamData?.id || ''}
+                leagueId={draftData?.league_id || ''}
+                isRookieDraft={isRookieDraft}
+                addToQueue={addToQueue}
+                queuedPlayerIds={queuedPlayerIds}
+              />
+            </View>
+            <View style={[styles.deskRight, { borderLeftColor: colors.border, backgroundColor: colors.background }]}>
+              <View style={[styles.deskRightTabs, { borderBottomColor: colors.border }]}>
+                <ToggleTab
+                  label="Queue"
+                  active={rightMode === 'queue'}
+                  onPress={() => setViewMode('queue')}
+                  colors={colors}
+                />
+                <ToggleTab
+                  label="My Team"
+                  active={rightMode === 'roster'}
+                  onPress={() => setViewMode('roster')}
+                  colors={colors}
+                />
+                {showTradeButton && (
+                  <ToggleTab
+                    label={myPendingCount > 0 ? `Trades (${myPendingCount})` : 'Trades'}
+                    active={rightMode === 'trades'}
+                    onPress={() => setViewMode('trades')}
+                    colors={colors}
+                  />
+                )}
+              </View>
+              <View style={styles.deskRightBody}>
+                {rightMode === 'queue' ? (
+                  <DraftQueue
+                    draftId={draftId}
+                    leagueId={draftData?.league_id || ''}
+                    teamId={teamData?.id || ''}
+                    currentPick={currentPick}
+                  />
+                ) : rightMode === 'roster' ? (
+                  <TeamRoster
+                    teamId={teamData?.id || ''}
+                    leagueId={draftData?.league_id || ''}
+                  />
+                ) : (
+                  tradesPanel
+                )}
+              </View>
+            </View>
+          </View>
+        ) : (
+          <>
         {/* Main Content Area */}
         <View style={styles.mainContent}>
           {/* AvailablePlayers stays mounted across tab switches so its
@@ -516,62 +644,7 @@ export default function DraftRoomScreen() {
               currentPick={currentPick}
             />
           ) : viewMode === 'trades' ? (
-            <View style={{ flex: 1 }}>
-              <View style={styles.proposeWrap}>
-                <BrandButton
-                  label="Propose Trade"
-                  icon="add"
-                  onPress={() => setShowTradeModal(true)}
-                  variant="primary"
-                  fullWidth
-                  accessibilityLabel="Propose a new trade"
-                />
-              </View>
-              <FlatList
-                data={(tradeProposals ?? []).filter((p) => ['pending', 'in_review'].includes(p.status))}
-                keyExtractor={(item) => item.id}
-                contentContainerStyle={{ paddingBottom: s(16) }}
-                ListEmptyComponent={
-                  <ThemedText style={{ textAlign: 'center', marginTop: s(40), color: colors.secondaryText, fontSize: ms(14) }}>
-                    No active trade proposals
-                  </ThemedText>
-                }
-                renderItem={({ item }) => {
-                  const needsResponse = item.teams.some(
-                    (t) => t.team_id === teamData?.id && t.status === 'pending',
-                  ) && item.proposed_by_team_id !== teamData?.id;
-                  const teamNames = item.teams.map((t) => t.team_name).join(' ↔ ');
-                  const pickCount = item.items.filter((i) => i.draft_pick_id).length;
-                  const playerCount = item.items.filter((i) => i.player_id).length;
-                  return (
-                    <TouchableOpacity
-                      style={[styles.tradeRow, { borderBottomColor: colors.border }]}
-                      onPress={() => setSelectedProposal(item)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Trade between ${teamNames}${needsResponse ? ', needs your response' : ''}`}
-                    >
-                      <View style={{ flex: 1 }}>
-                        <ThemedText type="defaultSemiBold" style={styles.tradeRowTitle} numberOfLines={1}>
-                          {teamNames}
-                        </ThemedText>
-                        <ThemedText style={[styles.tradeRowMeta, { color: colors.secondaryText }]}>
-                          <ThemedText style={[styles.tradeRowCount, { color: colors.secondaryText }]}>
-                            {pickCount}
-                          </ThemedText>
-                          {`  pick${pickCount === 1 ? '' : 's'}  ·  `}
-                          <ThemedText style={[styles.tradeRowCount, { color: colors.secondaryText }]}>
-                            {playerCount}
-                          </ThemedText>
-                          {`  player${playerCount === 1 ? '' : 's'}`}
-                        </ThemedText>
-                      </View>
-                      {needsResponse && <Badge label="Respond" variant="merlot" size="small" />}
-                      <Ionicons name="chevron-forward" size={16} color={colors.secondaryText} accessible={false} />
-                    </TouchableOpacity>
-                  );
-                }}
-              />
-            </View>
+            tradesPanel
           ) : viewMode === 'roster' ? (
             <TeamRoster
               teamId={teamData?.id || ''}
@@ -610,6 +683,9 @@ export default function DraftRoomScreen() {
             onPress={() => setViewMode('roster')}
             colors={colors}
           />
+        </View>
+          </>
+        )}
         </View>
       </View>
 
@@ -761,6 +837,41 @@ const styles = StyleSheet.create({
     minWidth: s(28),
   },
   mainContent: {
+    flex: 1,
+  },
+  // Desktop live-draft layout: available players (left) + a fixed right rail
+  // for queue / my team / trades. Web-only branch; native never references it.
+  // Caps the whole live-draft content (pick strip + body) to a centered column
+  // so player rows read as a list instead of stretching edge-to-edge on a wide
+  // monitor. flex:1 always so native (no maxWidth) still fills height.
+  contentCap: {
+    flex: 1,
+  },
+  contentCapDesktop: {
+    width: '100%',
+    maxWidth: 1160,
+    alignSelf: 'center',
+  },
+  deskBody: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+  deskLeft: {
+    flex: 1,
+    minWidth: 0,
+  },
+  deskRight: {
+    width: 400,
+    borderLeftWidth: StyleSheet.hairlineWidth,
+  },
+  deskRightTabs: {
+    flexDirection: 'row',
+    paddingHorizontal: s(8),
+    paddingTop: s(6),
+    paddingBottom: s(2),
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  deskRightBody: {
     flex: 1,
   },
   tabPane: {
