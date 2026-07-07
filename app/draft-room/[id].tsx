@@ -426,7 +426,107 @@ export default function DraftRoomScreen() {
           avatars. AUTO sits on the left so the right cluster stays focused
           on communication chrome (chat + who's here) and the presence
           avatars aren't crowded by a wide neutral pill. */}
-      <ThemedView style={[styles.header, styles.headerClip, { borderBottomColor: colors.border }]}>
+      <ThemedView style={[styles.header, styles.headerClip, isDesktop && styles.deskHeader, { borderBottomColor: colors.border }]}>
+        {isDesktop ? (
+          <>
+            {/* Left: a labeled Exit button + the room title, left-aligned like a
+                desktop app bar (no absolutely-centered title). */}
+            <View style={styles.deskHeaderLeft}>
+              <TouchableOpacity
+                style={[styles.exitBtn, { borderColor: colors.border }]}
+                onPress={() => router.back()}
+                accessibilityRole="button"
+                accessibilityLabel="Exit draft room"
+              >
+                <IconSymbol name="chevron.backward" size={16} color={colors.icon} accessible={false} />
+                <ThemedText type="varsitySmall" style={[styles.exitLabel, { color: colors.text }]}>
+                  Exit
+                </ThemedText>
+              </TouchableOpacity>
+              <ThemedText
+                type="varsity"
+                style={[styles.deskTitle, { color: colors.text }]}
+                numberOfLines={1}
+                accessibilityRole="header"
+              >
+                {isDraftComplete
+                  ? (isRookieDraft ? 'Rookie Draft Complete' : 'Draft Complete')
+                  : (isRookieDraft ? 'Rookie Draft' : 'Draft Room')}
+              </ThemedText>
+            </View>
+            {/* Right: who's here (avatars + count) → autopick toggle → commish →
+                chat, in that priority order. */}
+            <View style={styles.deskHeaderRight}>
+              {!isDraftComplete && teamData && (
+                <TouchableOpacity
+                  style={styles.deskPresence}
+                  onPress={() => setShowPresenceList(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${presenceEntries.length} here. See who's in the room`}
+                >
+                  <PresenceAvatars
+                    onlineTeams={otherTeams}
+                    teamLogoMap={presenceLogoMap}
+                    myTeamId={teamData.id}
+                    myTeamName={teamData.name}
+                    myLogoKey={teamData.logo_key ?? null}
+                    myTricode={teamData.tricode ?? null}
+                    onPress={() => setShowPresenceList(true)}
+                  />
+                  <ThemedText type="varsitySmall" style={[styles.presenceCount, { color: colors.secondaryText }]}>
+                    {presenceEntries.length} here
+                  </ThemedText>
+                </TouchableOpacity>
+              )}
+              {!isDraftComplete && teamData && (
+                <TouchableOpacity
+                  onPress={handleAutopickToggle}
+                  accessibilityRole="button"
+                  accessibilityLabel={autopickOn ? 'Disable autopick' : 'Enable autopick'}
+                  accessibilityState={{ selected: autopickOn }}
+                  style={[
+                    styles.autopickToggle,
+                    {
+                      borderColor: autopickOn ? colors.gold : colors.border,
+                      backgroundColor: autopickOn ? colors.gold + '1A' : 'transparent',
+                    },
+                  ]}
+                >
+                  <View style={[styles.autopickDot, { backgroundColor: autopickOn ? colors.gold : colors.secondaryText }]} />
+                  <ThemedText
+                    type="varsitySmall"
+                    style={[styles.autopickLabel, { color: autopickOn ? colors.text : colors.secondaryText }]}
+                  >
+                    Autopick {autopickOn ? 'On' : 'Off'}
+                  </ThemedText>
+                </TouchableOpacity>
+              )}
+              {teamData?.isCommissioner && !isDraftComplete && (
+                <TouchableOpacity
+                  onPress={() => setShowCommishControls(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Commissioner controls"
+                  hitSlop={6}
+                  style={styles.chatIconButton}
+                >
+                  <Ionicons name="settings-outline" size={20} color={colors.icon} />
+                </TouchableOpacity>
+              )}
+              {teamData && (
+                <TouchableOpacity
+                  onPress={() => setShowChat(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open league chat"
+                  hitSlop={6}
+                  style={styles.chatIconButton}
+                >
+                  <Ionicons name="chatbubble-ellipses-outline" size={20} color={colors.icon} />
+                </TouchableOpacity>
+              )}
+            </View>
+          </>
+        ) : (
+          <>
         <View style={styles.headerLeft}>
           <TouchableOpacity
             style={styles.headerButton}
@@ -498,6 +598,8 @@ export default function DraftRoomScreen() {
             />
           )}
         </View>
+          </>
+        )}
       </ThemedView>
 
       <View style={styles.content}>
@@ -811,6 +913,66 @@ const styles = StyleSheet.create({
   },
   autoBadge: {
     marginLeft: s(2),
+  },
+  // ─── Desktop header (web-only) ───────────────────────────────
+  deskHeader: {
+    height: 60,
+    paddingHorizontal: 20,
+  },
+  deskHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  exitBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderRadius: 9,
+  },
+  exitLabel: {
+    fontSize: 12,
+    letterSpacing: 0.8,
+  },
+  deskTitle: {
+    fontFamily: Fonts.varsityBold,
+    fontSize: 15,
+    letterSpacing: 1.2,
+  },
+  deskHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  deskPresence: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  presenceCount: {
+    fontSize: 11,
+    letterSpacing: 0.5,
+  },
+  autopickToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderRadius: 9,
+  },
+  autopickDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  autopickLabel: {
+    fontSize: 12,
+    letterSpacing: 0.6,
   },
   content: {
     flex: 1,
