@@ -74,10 +74,15 @@ interface RosterHeroProps {
   /** Roster-management stats. Drives the offseason context strip and
    *  contributes a ROSTER fill chip during in-season too. */
   rosterStats?: {
+    /** Active-pool count only (excludes IR + taxi), matched against rosterSize. */
     rosterCount: number;
     rosterSize: number;
     irCount: number;
+    /** IR slot capacity — denominator for the IR fill chip. */
+    irSlotCount: number;
     taxiCount: number;
+    /** Taxi slot capacity — denominator for the taxi fill chip. */
+    taxiSlotCount: number;
     onBlockCount: number;
   };
   /** Last completed season's result — replaces the meaningless live 0-0
@@ -220,9 +225,10 @@ function buildInSeasonContext(
       urgent: !rosterFull,
     });
   }
-  if (rs?.irCount && rs.irCount > 0) items.push({ label: `${rs.irCount} IR` });
-  if (rs?.taxiCount && rs.taxiCount > 0)
-    items.push({ label: `${rs.taxiCount} TAXI` });
+  if (rs?.irSlotCount)
+    items.push({ label: `${rs.irCount}/${rs.irSlotCount} IR` });
+  if (rs?.taxiSlotCount)
+    items.push({ label: `${rs.taxiCount}/${rs.taxiSlotCount} TAXI` });
   return items;
 }
 
@@ -253,8 +259,10 @@ function buildOffseasonContext(
       : `${rs.rosterCount} ROSTER`,
     urgent: !rosterFull && rs.rosterSize > 0,
   });
-  if (rs.irCount > 0) items.push({ label: `${rs.irCount} IR` });
-  if (rs.taxiCount > 0) items.push({ label: `${rs.taxiCount} TAXI` });
+  if (rs.irSlotCount > 0)
+    items.push({ label: `${rs.irCount}/${rs.irSlotCount} IR` });
+  if (rs.taxiSlotCount > 0)
+    items.push({ label: `${rs.taxiCount}/${rs.taxiSlotCount} TAXI` });
   if (rs.onBlockCount > 0) items.push({ label: `${rs.onBlockCount} ON BLOCK` });
   if (items.length === 1) items.push({ label: "OFFSEASON" });
   return items;

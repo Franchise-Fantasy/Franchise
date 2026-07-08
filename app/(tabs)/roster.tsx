@@ -724,14 +724,24 @@ export default function RosterScreen() {
     const onBlockCount = rosterPlayers.filter(
       (p) => (p as { on_trade_block?: boolean }).on_trade_block,
     ).length;
+    // The ROSTER chip counts the ACTIVE pool only — roster_size is the active
+    // cap, and IR/taxi are separate pools with their own capacities. Counting
+    // them in the numerator made the chip overflow the cap (e.g. 27/22 with 2
+    // on IR); IR/taxi now get their own n/capacity chips instead.
+    const irSlotCount =
+      rosterConfig?.find((c) => c.position === "IR")?.slot_count ?? 0;
+    const taxiSlotCount =
+      rosterConfig?.find((c) => c.position === ROSTER_SLOT.TAXI)?.slot_count ?? 0;
     return {
-      rosterCount: rosterPlayers.length,
+      rosterCount: rosterPlayers.length - irActive - taxiActive,
       rosterSize: league?.roster_size ?? 0,
       irCount: irActive,
+      irSlotCount,
       taxiCount: taxiActive,
+      taxiSlotCount,
       onBlockCount,
     };
-  }, [rosterPlayers, league?.roster_size]);
+  }, [rosterPlayers, league?.roster_size, rosterConfig]);
 
   // ─── Slot picker helpers ──────────────────────────────────────────────────
 
