@@ -1780,11 +1780,12 @@ export function PlayerDetailModal({
   const canTransact =
     !!teamId && !hasActiveDraft && !isProcessing && !isOffseason;
   const canAdd = canTransact && !addsExhausted;
-  // Dropping only shrinks the roster, so it stays available even in the
-  // offseason — that's how a team trims an over-sized imported roster (or an
-  // illegal-IR/over-cap roster) back into compliance. Adds/activations remain
+  // Dropping and activating-from-IR reshape the team's OWN roster (no free-agent
+  // acquisition), so they stay available even in the offseason — that's how a
+  // team trims an over-sized imported roster back to the cap and legalizes
+  // healthy players stranded on IR. Adds/promotions/IR/taxi assignments remain
   // gated by canTransact; a live draft or an in-flight mutation still blocks.
-  const canDrop = !!teamId && !hasActiveDraft && !isProcessing;
+  const canManageRoster = !!teamId && !hasActiveDraft && !isProcessing;
 
   const handleSubmitWaiverClaimFromDropPicker = async (
     dropPlayerId?: string,
@@ -1939,7 +1940,7 @@ export function PlayerDetailModal({
             isTaxiSlot={isTaxiSlot}
             isProcessing={isProcessing}
             canTransact={canTransact}
-            canDrop={canDrop}
+            canManageRoster={canManageRoster}
             canAdd={canAdd}
             canDraft={!!canDraft}
             needsWaiverClaim={needsWaiverClaim}

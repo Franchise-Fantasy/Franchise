@@ -18,9 +18,10 @@ interface PlayerActionBarProps {
   // gating
   isProcessing: boolean;
   canTransact: boolean;
-  /** Drops stay allowed even when canTransact is false (e.g. offseason) —
-   *  dropping only shrinks the roster. */
-  canDrop: boolean;
+  /** Drop + activate-from-IR stay allowed even when canTransact is false (e.g.
+   *  offseason) — they only reshape the team's own roster, never acquire a
+   *  player, so a team can trim/legalize an over-sized roster any time. */
+  canManageRoster: boolean;
   canAdd: boolean;
   canDraft: boolean;
   needsWaiverClaim: boolean;
@@ -53,7 +54,7 @@ export function PlayerActionBar({
   isTaxiSlot,
   isProcessing,
   canTransact,
-  canDrop,
+  canManageRoster,
   canAdd,
   canDraft,
   needsWaiverClaim,
@@ -98,7 +99,7 @@ export function PlayerActionBar({
             fill={c.success}
             textColor={c.statusText}
             onPress={onActivateFromIR}
-            disabled={!canTransact || playerGameStarted}
+            disabled={!canManageRoster || playerGameStarted}
             loading={isProcessing}
             flex
             accessibilityLabel={`Activate ${playerName} from IR`}
@@ -121,7 +122,7 @@ export function PlayerActionBar({
           fill={c.danger}
           textColor={c.statusText}
           onPress={onDrop}
-          disabled={!canDrop}
+          disabled={!canManageRoster}
           loading={isProcessing && !isIR}
           flex
           accessibilityLabel={`Drop ${playerName}`}
