@@ -6,7 +6,7 @@ import { queryKeys } from '@/constants/queryKeys';
 import { globalToastRef } from '@/context/ToastProvider';
 import { capture } from '@/lib/posthog';
 import { DB_REGION_HEADERS, supabase } from '@/lib/supabase';
-import { Player } from '@/types/draft';
+import { Pick, Player } from '@/types/draft';
 
 // Define the Player type here as well, or in a shared types file
 
@@ -50,16 +50,51 @@ export const useDraftPlayer = (leagueId: string, draftId: string ) => {
     },
     onMutate: async (selectedPlayer: Player) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.availablePlayers(leagueId) });
+      await queryClient.cancelQueries({ queryKey: ['draftOrder', draftId] });
+
       const previousPlayers = queryClient.getQueryData<Player[]>(queryKeys.availablePlayers(leagueId));
+      // The draftOrder key carries a picks_per_round segment, so snapshot every
+      // matching cache entry for rollback rather than a single exact key.
+      const previousDraftOrder = queryClient.getQueriesData<Pick[]>({ queryKey: ['draftOrder', draftId] });
+
+      // Remove the drafted player from the available pool.
       queryClient.setQueryData(queryKeys.availablePlayers(leagueId), (old: any[]) =>
         old ? old.filter(p => (p.id ?? p.player_id) !== selectedPlayer.id) : []
       );
-      return { previousPlayers };
+
+      // Fill the on-the-clock pick card immediately so the player shows without
+      // waiting on the edge round-trip + refetch. The current pick is always the
+      // first unmade pick (the server only lets you fill your own current pick),
+      // so filling the first player_id-less row is safe. The gold flash + haptic
+      // fire off this null→player_id transition (see DraftOrder's picks watcher).
+      queryClient.setQueriesData<Pick[]>({ queryKey: ['draftOrder', draftId] }, (old) => {
+        if (!old) return old;
+        const idx = old.findIndex((p) => !p.player_id);
+        if (idx === -1) return old;
+        const next = old.slice();
+        next[idx] = {
+          ...next[idx],
+          player_id: selectedPlayer.id,
+          player: {
+            name: selectedPlayer.name,
+            position: selectedPlayer.position,
+            pro_team: selectedPlayer.pro_team,
+          },
+        };
+        return next;
+      });
+
+      return { previousPlayers, previousDraftOrder };
     },
     onError: (err, _player, context) => {
       if (context?.previousPlayers) {
         queryClient.setQueryData(queryKeys.availablePlayers(leagueId), context.previousPlayers);
       }
+      // Roll back the optimistic pick-card fill on failure (e.g. the player was
+      // just taken, or a position-limit rejection).
+      context?.previousDraftOrder?.forEach(([key, data]) => {
+        queryClient.setQueryData(key, data);
+      });
       globalToastRef.current?.('error', (err as Error).message || 'Failed to draft player');
     },
     onSettled: () => {

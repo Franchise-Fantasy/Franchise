@@ -1,0 +1,24 @@
+-- Grant the least-privilege projections engine role USAGE on the `extensions`
+-- schema.
+--
+-- Why a read-only 5-table role needs this: the fuzzy player-name search added a
+-- trigram expression index on public.players —
+--   CREATE INDEX players_norm_name_trgm
+--     ON public.players USING gin (normalize_player_name(name) gin_trgm_ops)
+-- normalize_player_name -> immutable_unaccent -> extensions.unaccent(
+--   'extensions.unaccent'::regdictionary, ...). The planner const-folds/inlines
+-- every index expression on a table when planning ANY query against it, so even
+-- `SELECT id, status FROM players` must resolve that regdictionary literal,
+-- which needs USAGE on schema `extensions`. projections_engine lacked it, so the
+-- daily game-by-game projection job hit `permission denied for schema
+-- extensions` in get_unavailable_players (franchise_db.py). EXECUTE on the
+-- functions themselves is already present via PUBLIC — only schema USAGE was
+-- missing (the error inlined both SQL functions and failed only at the
+-- dictionary lookup).
+--
+-- This is the same USAGE that Supabase grants anon/authenticated/service_role by
+-- default. It does not widen the role's DATA reach: it still SELECTs only its
+-- four read tables and writes only player_projections (see
+-- 20260603000001_projections_engine_role.sql).
+
+GRANT USAGE ON SCHEMA extensions TO projections_engine;

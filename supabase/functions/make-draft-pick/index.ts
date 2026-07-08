@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsResponse } from '../_shared/cors.ts';
 import { requireUser } from '../_shared/auth.ts';
+import { deferWork } from '../_shared/background.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkPositionLimits } from '../_shared/positionLimits.ts';
 import { notifyTeams, notifyLeague } from '../_shared/push.ts';
@@ -204,22 +205,22 @@ Deno.serve(async (req)=>{
           .single();
 
         if (nextPick) {
-          await notifyTeams(supabaseAdmin, [nextPick.current_team_id], 'draft',
+          deferWork(notifyTeams(supabaseAdmin, [nextPick.current_team_id], 'draft',
             isRookieDraft ? `${ln} — Rookie Draft: Your pick!` : `${ln} — Your turn to pick!`,
             isSlowClock(nextLimit)
               ? `You're on the clock — you have ${formatPickClock(nextLimit)} to pick.`
               : 'The draft clock is ticking. Make your pick.',
             { screen: 'draft-room', draft_id }
-          );
+          ), 'make-draft-pick next-team push');
         }
       } else {
-        await notifyLeague(supabaseAdmin, league_id, 'draft',
+        deferWork(notifyLeague(supabaseAdmin, league_id, 'draft',
           isRookieDraft ? `${ln} — Rookie Draft Complete!` : `${ln} — Draft Complete!`,
           isRookieDraft
             ? 'The rookie draft has finished. Check your new players.'
             : 'Your league\'s draft has finished. Check your roster.',
           { screen: 'roster' }
-        );
+        ), 'make-draft-pick complete push');
       }
     } catch (notifyErr) {
       console.warn('Push notification failed (non-fatal):', notifyErr);

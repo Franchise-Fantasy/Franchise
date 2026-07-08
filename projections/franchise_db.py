@@ -223,6 +223,41 @@ def get_unavailable_players(conn, sport: str) -> dict:
     return {str(r["id"]): "Out" for _, r in df.iterrows()}
 
 
+def get_absence_games_missed(conn, sport: str) -> dict:
+    """player_id (uuid str) -> number of team games already played since each
+    OUT/SUSP player last appeared. Feeds franchise_edge.absence_freshness_weight
+    so a long-absent teammate — whose lost minutes the active players' recent
+    baseline has already absorbed — isn't re-credited and double-count-inflates
+    every teammate's projection. A player with no game this season returns a large
+    count (→ zero weight). 'Team' is the live pro_team, matching load_player_meta
+    (absences are evaluated as of now). The 5-minute floor mirrors
+    franchise_edge.MIN_MINUTES / _recent_minutes so 'team games' and the recent
+    baseline count the same appearances."""
+    q = """
+        WITH outp AS (
+            SELECT id, pro_team FROM players
+            WHERE sport = %s AND status IN ('OUT', 'SUSP') AND pro_team IS NOT NULL
+        ),
+        last_app AS (
+            SELECT o.id, o.pro_team,
+                   (SELECT MAX(pg.game_date) FROM player_games pg
+                    WHERE pg.player_id = o.id AND pg.sport = %s AND pg.min >= 5) AS last_game
+            FROM outp o
+        )
+        SELECT la.id,
+               CASE WHEN la.last_game IS NULL THEN 999
+                    ELSE (SELECT COUNT(DISTINCT tg.game_date)
+                          FROM player_games tg
+                          JOIN players tp ON tp.id = tg.player_id
+                          WHERE tp.pro_team = la.pro_team AND tg.sport = %s
+                            AND tg.min >= 5 AND tg.game_date > la.last_game)
+               END AS games_missed
+        FROM last_app la
+    """
+    df = pd.read_sql(q, conn, params=(sport, sport, sport))
+    return {str(r["id"]): int(r["games_missed"]) for _, r in df.iterrows()}
+
+
 def load_player_meta(conn, sport: str):
     """(player_teams, player_names): uuid str -> pro_team, uuid str -> name.
     Used by the absence-boost redistribution. pro_team is the LIVE roster team —

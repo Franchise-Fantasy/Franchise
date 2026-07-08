@@ -99,6 +99,54 @@ def test_absence_multiple_out_stack():
     assert two > one
 
 
+# ── absence freshness fade (games_missed gating) ─────────────────────────────
+
+def test_freshness_weight_bounds():
+    assert fe.absence_freshness_weight(0) == 1.0                        # fresh scratch
+    assert fe.absence_freshness_weight(fe.ABSENCE_FADE_GAMES) == 0.0    # fully absorbed
+    assert fe.absence_freshness_weight(fe.ABSENCE_FADE_GAMES + 3) == 0.0  # clamped, not negative
+    assert fe.absence_freshness_weight(fe.ABSENCE_FADE_GAMES / 2) == pytest.approx(0.5)
+
+
+def test_absence_fade_zero_for_fully_absorbed_out_player():
+    # Absence spanning the whole window → weight 0 → no boost at all (its minutes
+    # are already in the active players' recent baseline).
+    dists = {"out": _dist(30.0, 20.0), "a": _dist(30.0, 15.0)}
+    teams = {"out": "X", "a": "X"}
+    boosts = fe.compute_absence_boosts({"out"}, dists, teams, {},
+                                       {"out": fe.ABSENCE_FADE_GAMES})
+    assert "a" not in boosts
+
+
+def test_absence_fade_partial_scales_extra_min():
+    # games_missed at half the window → the Out player's minutes credited at ~50%.
+    dists = {"out": _dist(10.0, 8.0), "a": _dist(30.0, 15.0), "b": _dist(30.0, 15.0)}
+    teams = {"out": "X", "a": "X", "b": "X"}
+    full = fe.compute_absence_boosts({"out"}, dists, teams, {})["a"]["extra_min"]
+    faded = fe.compute_absence_boosts({"out"}, dists, teams, {},
+                                      {"out": fe.ABSENCE_FADE_GAMES / 2})["a"]["extra_min"]
+    assert faded == pytest.approx(full * 0.5)
+
+
+def test_absence_fade_fresh_scratch_matches_full_weight():
+    # games_missed 0 (played the team's last game) → identical to the ungated boost.
+    dists = {"out": _dist(10.0, 8.0), "a": _dist(30.0, 15.0), "b": _dist(30.0, 15.0)}
+    teams = {"out": "X", "a": "X", "b": "X"}
+    full = fe.compute_absence_boosts({"out"}, dists, teams, {})["a"]["factor"]
+    fresh = fe.compute_absence_boosts({"out"}, dists, teams, {},
+                                      {"out": 0})["a"]["factor"]
+    assert fresh == pytest.approx(full)
+
+
+def test_absence_fade_missing_from_map_defaults_to_faded():
+    # An Out player absent from the games_missed map is treated as fully faded
+    # (defensive: unknown recency can only under-boost, never double-count).
+    dists = {"out": _dist(30.0, 20.0), "a": _dist(30.0, 15.0)}
+    teams = {"out": "X", "a": "X"}
+    boosts = fe.compute_absence_boosts({"out"}, dists, teams, {}, {})  # empty map
+    assert "a" not in boosts
+
+
 def test_apply_scales_stats_and_minutes():
     dists = {"a": _dist(30.0, 20.0)}
     fe.apply_absence_boosts(dists, {"a": {"factor": 1.2}})

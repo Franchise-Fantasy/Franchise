@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { Receiver } from 'https://esm.sh/@upstash/qstash';
+import { deferWork } from '../_shared/background.ts';
 import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
 import { checkPositionLimits } from '../_shared/positionLimits.ts';
 import { notifyTeams, notifyLeague } from '../_shared/push.ts';
@@ -48,19 +49,6 @@ function findBestSlot(
   return 'BE';
 }
 
-// Run non-critical post-pick work after the response. Falls back to await if
-// EdgeRuntime.waitUntil isn't available (e.g. supabase functions serve locally).
-function deferWork(promise: Promise<unknown>) {
-  // @ts-ignore - EdgeRuntime is a Supabase edge runtime global
-  const edgeRuntime: { waitUntil?: (p: Promise<unknown>) => void } | undefined =
-    // @ts-ignore
-    typeof EdgeRuntime !== 'undefined' ? EdgeRuntime : undefined;
-  if (edgeRuntime?.waitUntil) {
-    edgeRuntime.waitUntil(promise.catch((err) => console.warn('Deferred autodraft work failed:', err)));
-  } else {
-    promise.catch((err) => console.warn('Deferred autodraft work failed:', err));
-  }
-}
 
 Deno.serve(async (req) => {
   try {

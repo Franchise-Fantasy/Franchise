@@ -184,13 +184,38 @@ def get_player_distributions(conn, sport: str, season: int) -> dict:
 # ── Absence redistribution (port of dashboard.py.compute_absence_boosts) ─────
 INJ_ABSENCE_CAP = 1.40   # max 40% stat boost from teammate absences (verbatim)
 
+# Fade window (games). This is the ONE deliberate divergence from the source's
+# verbatim boost. The source assumed a health-agnostic base rate, but this port's
+# base is each player's RECENT minutes — which already reflect the current injury
+# environment. An Out teammate whose absence already spans the recent-minutes
+# window is therefore baked into the active players' recent minutes; re-crediting
+# those minutes double-counts and inflates every teammate's projection. So an Out
+# player's redistribution weight decays linearly from 1.0 (fresh scratch, played
+# the team's last game) to 0.0 once their absence spans this many team games.
+# Aligned with RECENT_GAMES_K so the boost only ever adds minutes the recent
+# baseline has NOT already absorbed.
+ABSENCE_FADE_GAMES = RECENT_GAMES_K   # 5
+
+
+def absence_freshness_weight(games_missed: float) -> float:
+    """Linear fade in [0, 1]: 1.0 for a fresh scratch (0 team games missed since
+    the player last appeared), decaying to 0.0 once the absence spans
+    ABSENCE_FADE_GAMES team games (by which point the recent-minutes baseline has
+    fully absorbed it). See ABSENCE_FADE_GAMES for the why."""
+    return max(0.0, 1.0 - games_missed / ABSENCE_FADE_GAMES)
+
 
 def compute_absence_boosts(out_ids, dists: dict, player_teams: dict,
-                           player_names: dict) -> dict:
+                           player_names: dict, games_missed: dict = None) -> dict:
     """Redistribute projected minutes from Out players to their active teammates,
     weighted by each teammate's current minute share, into a capped multiplicative
-    factor. Verbatim port of dashboard.py.compute_absence_boosts (the injuries arg
-    is adapted to a set of Out player_ids). Multiple Out teammates stack.
+    factor. Port of dashboard.py.compute_absence_boosts (the injuries arg is
+    adapted to a set of Out player_ids). Multiple Out teammates stack.
+
+    `games_missed` (player_id -> team games already missed) fades each Out
+    player's contribution via absence_freshness_weight so a long-standing absence
+    already reflected in teammates' recent minutes isn't double-counted. Pass None
+    (the pure unit tests do) for the source's full-weight behavior.
 
     Returns {player_id: {'extra_min', 'factor', 'factor_pct', 'caused_by'}}.
     """
@@ -215,6 +240,13 @@ def compute_absence_boosts(out_ids, dists: dict, player_teams: dict,
         out_min = d.get("_proj_min", 0.0)
         if out_min < 5.0:          # ignore bench players with negligible minutes
             continue
+        # Fade by recency so an already-absorbed absence isn't re-credited. Absent
+        # from the map → treated as fully faded (weight 0), a safe default that
+        # can only under-boost, never double-count.
+        if games_missed is not None:
+            out_min *= absence_freshness_weight(games_missed.get(pid, ABSENCE_FADE_GAMES))
+            if out_min <= 0.0:
+                continue
         tid = player_teams.get(pid)
         if not tid:
             continue

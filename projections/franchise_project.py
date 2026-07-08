@@ -61,8 +61,15 @@ def run_next_game(sport: str, season: int):
         # flow to their active teammates by minute share, scaling every stat
         # (capped +40%). Out players are still in `dists` (they have history) so
         # their minutes can be redistributed before we drop them from the write.
+        # Each Out player's contribution is faded by how many team games their
+        # absence already spans (games_missed): a long-standing absence is already
+        # reflected in teammates' recent minutes, so re-crediting it would
+        # double-count and inflate the whole board (see franchise_edge
+        # .absence_freshness_weight / ABSENCE_FADE_GAMES).
         player_teams, player_names = fdb.load_player_meta(conn, sport)
-        boosts = fedge.compute_absence_boosts(out_ids, dists, player_teams, player_names)
+        games_missed = fdb.get_absence_games_missed(conn, sport)
+        boosts = fedge.compute_absence_boosts(out_ids, dists, player_teams,
+                                              player_names, games_missed)
         fedge.apply_absence_boosts(dists, boosts)
 
         rows = []
