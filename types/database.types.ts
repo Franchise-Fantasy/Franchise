@@ -6426,6 +6426,7 @@ export type Database = {
         Args: { p_league_id: string; p_schedule_id: string }
         Returns: Json
       }
+      immutable_unaccent: { Args: { "": string }; Returns: string }
       increment_team_count: { Args: { league_id: string }; Returns: number }
       increment_team_stats: {
         Args: {
@@ -6509,6 +6510,7 @@ export type Database = {
         Args: { p_franchise_id: string; p_season: number }
         Returns: Json
       }
+      normalize_player_name: { Args: { p: string }; Returns: string }
       notify_membership_change: {
         Args: {
           p_event: string
@@ -6629,6 +6631,17 @@ export type Database = {
       remove_member: {
         Args: { p_league_id: string; p_team_id: string }
         Returns: Json
+      }
+      search_players_fuzzy: {
+        Args: { p_limit?: number; p_query: string; p_sport?: string }
+        Returns: {
+          id: string
+          name: string
+          position: string
+          pro_team: string
+          score: number
+          sport: string
+        }[]
       }
       set_autopick: {
         Args: { p_draft_id: string; p_enabled: boolean; p_team_id: string }

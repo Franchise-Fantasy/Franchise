@@ -254,11 +254,10 @@ function PlayerSearchInline({
       return;
     }
     setLoading(true);
-    const { data } = await supabase
-      .from('players')
-      .select('id, name, pro_team, position')
-      .ilike('name', `%${text}%`)
-      .limit(10);
+    const { data } = await supabase.rpc('search_players_fuzzy', {
+      p_query: text,
+      p_limit: 10,
+    });
     setResults(data ?? []);
     setLoading(false);
   }, []);
@@ -349,11 +348,10 @@ function UnmatchedRow({
       return;
     }
     setLoading(true);
-    const { data } = await supabase
-      .from('players')
-      .select('id, name, pro_team, position')
-      .ilike('name', `%${text}%`)
-      .limit(10);
+    const { data } = await supabase.rpc('search_players_fuzzy', {
+      p_query: text,
+      p_limit: 10,
+    });
     setResults(data ?? []);
     setHasSearched(true);
     setLoading(false);

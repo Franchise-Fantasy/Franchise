@@ -731,17 +731,16 @@ async function handleSearchOrCreatePlayer(
   const { name, position } = body;
   if (!name?.trim()) throw new HttpError('Player name is required');
 
-  const norm = normalizeName(name);
+  // Accent/typo-tolerant fuzzy match via the shared search_players_fuzzy RPC
+  // (unaccent + trigram) — a raw ILIKE couldn't match accented names like
+  // "Jokić" against a de-accented query.
+  const { data: hits } = await supabaseAdmin.rpc('search_players_fuzzy', {
+    p_query: name,
+    p_limit: 5,
+  });
 
-  // Broad search: try exact normalized match, then ilike
-  const { data: exactHits } = await supabaseAdmin
-    .from('players')
-    .select('id, name, pro_team, position')
-    .ilike('name', `%${norm.split(' ').join('%')}%`)
-    .limit(5);
-
-  if (exactHits?.length) {
-    return jsonResponse({ created: false, players: exactHits });
+  if (hits?.length) {
+    return jsonResponse({ created: false, players: hits });
   }
 
   // Not found — create a new player record

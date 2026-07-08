@@ -18,6 +18,9 @@ interface PlayerActionBarProps {
   // gating
   isProcessing: boolean;
   canTransact: boolean;
+  /** Drops stay allowed even when canTransact is false (e.g. offseason) —
+   *  dropping only shrinks the roster. */
+  canDrop: boolean;
   canAdd: boolean;
   canDraft: boolean;
   needsWaiverClaim: boolean;
@@ -50,6 +53,7 @@ export function PlayerActionBar({
   isTaxiSlot,
   isProcessing,
   canTransact,
+  canDrop,
   canAdd,
   canDraft,
   needsWaiverClaim,
@@ -117,7 +121,7 @@ export function PlayerActionBar({
           fill={c.danger}
           textColor={c.statusText}
           onPress={onDrop}
-          disabled={!canTransact}
+          disabled={!canDrop}
           loading={isProcessing && !isIR}
           flex
           accessibilityLabel={`Drop ${playerName}`}
