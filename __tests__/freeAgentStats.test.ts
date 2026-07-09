@@ -47,6 +47,31 @@ describe('buildAdjustedPlayers', () => {
     expect(result[0].games_played).toBe(70);
   });
 
+  it('lastSeason rebuilds EVERY box total from avg × games so FPTS matches the detail modal', () => {
+    // The season row carries stale shooting totals (here 999) that must NOT leak
+    // into the last-season FPTS. player_historical_stats persists only dd/td
+    // totals, so the box totals get reconstructed from avg × games.
+    const players = [makePlayer({ player_id: 'p1', total_fgm: 999, total_pf: 999 })];
+    const historical = [{
+      player_id: 'p1', games_played: 80,
+      avg_pts: 10, avg_reb: 5, avg_ast: 4, avg_stl: 1, avg_blk: 0.5, avg_tov: 2,
+      avg_fgm: 4, avg_fga: 9, avg_3pm: 1, avg_3pa: 3, avg_ftm: 2, avg_fta: 2.5, avg_pf: 3,
+      total_dd: 12, total_td: 1,
+    }];
+    const r = buildAdjustedPlayers(players, [], historical, 'lastSeason')![0];
+    expect(r.total_pts).toBe(800); // 10 × 80
+    expect(r.total_fgm).toBe(320); // 4 × 80 — was leaking the stale 999
+    expect(r.total_fga).toBe(720); // 9 × 80
+    expect(r.total_3pm).toBe(80); // 1 × 80
+    expect(r.total_3pa).toBe(240); // 3 × 80
+    expect(r.total_ftm).toBe(160); // 2 × 80
+    expect(r.total_fta).toBe(200); // 2.5 × 80
+    expect(r.total_pf).toBe(240); // 3 × 80 — was leaking the stale 999
+    // DD/TD come straight from the persisted historical totals (not reconstructed).
+    expect(r.total_dd).toBe(12);
+    expect(r.total_td).toBe(1);
+  });
+
   it('averages the games in the window and drops players with none', () => {
     const players = [makePlayer({ player_id: 'p1' }), makePlayer({ player_id: 'p2' })];
     // Newest-first, as the query returns them.

@@ -1714,7 +1714,17 @@ export default function RosterScreen() {
         : null;
     const prevContext =
       isPrevMode && forwardOk ? prevToContext(slot.player!.player_id) : null;
-    const contextAvg = projContext ?? prevContext ?? seasonAvg;
+    // Offseason / pre-tipoff the current season has no sample yet, so the
+    // Season & Lx windows would render a blank number (buildSeasonAverages
+    // returns null for 0-game players). Fall back to last season's average —
+    // the same source the auto-lineup optimizer uses — so the row still shows
+    // a value instead of vanishing. Proj/Prev already have their own source.
+    const seasonFallback =
+      seasonAvg ??
+      (forwardOk && !isProjMode && !isPrevMode
+        ? prevToContext(slot.player!.player_id)
+        : null);
+    const contextAvg = projContext ?? prevContext ?? seasonFallback;
     // In "Prev" mode the season is already shown once on the window picker
     // (prevLabel), so we don't repeat it per row — the value reads as a normal
     // FPTS/G average. PROJ still labels itself so projections aren't mistaken
@@ -2289,12 +2299,14 @@ export default function RosterScreen() {
         </View>
       </GestureDetector>
 
-      {/* First-visit hint for the non-obvious stat-window pills. */}
+      {/* First-visit hint for the non-obvious stat-window filter pill. Names the
+          actual control (the SEASON pill, top-right) and only fires when the
+          picker is actually on screen (more than one window available). */}
       <CoachMark
         id="roster-window"
-        text="Tap the stat pills (Proj · Prev · L5) to change what the numbers show."
+        text="Tap the SEASON pill at the top-right of your roster to switch each player's stat — recent games (L5/L10), projections, or last season."
         bottom={tabBarHeight + 16}
-        active={!isCompareMode}
+        active={!isCompareMode && availableWindows.length > 1}
       />
 
       {/* First-visit coach mark for changing lineup slots */}

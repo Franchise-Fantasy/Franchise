@@ -59,6 +59,9 @@ export function EditDraftSettingsModal({
   const queryClient = useQueryClient();
 
   const isDynasty = (league?.league_type ?? 'dynasty') === 'dynasty';
+  // Imported leagues skip the startup draft (rosters come from the import), so
+  // the startup-pick-trading setting is meaningless — hide it and don't persist it.
+  const isImported = !!league?.imported_from;
 
   const [draftType, setDraftType] = useState('Snake');
   const [initialOrder, setInitialOrder] = useState('Random');
@@ -124,7 +127,7 @@ export function EditDraftSettingsModal({
       leagueUpdate.rookie_draft_order = ORDER_TO_DB[rookieOrder] ?? 'reverse_record';
       leagueUpdate.lottery_draws = lotteryDraws;
       leagueUpdate.lottery_odds = lotteryOdds;
-      leagueUpdate.draft_pick_trading_enabled = draftPickTrading;
+      if (!isImported) leagueUpdate.draft_pick_trading_enabled = draftPickTrading;
     }
 
     const { error: leagueErr } = Object.keys(leagueUpdate).length > 0
@@ -360,19 +363,21 @@ export function EditDraftSettingsModal({
             </>
           )}
 
-          {/* Draft Pick Trading */}
-          <ToggleRow
-            icon="swap-horizontal-outline"
-            label="Initial Draft Pick Trading"
-            description={
-              draftPickTrading
-                ? 'Allow trading of startup draft picks before and during the draft. In-draft trades execute immediately on acceptance — no review period, no vetoes.'
-                : 'Allow trading of startup draft picks before and during the draft'
-            }
-            value={draftPickTrading}
-            onToggle={setDraftPickTrading}
-            c={c}
-          />
+          {/* Draft Pick Trading — hidden for imports (no startup draft). */}
+          {!isImported && (
+            <ToggleRow
+              icon="swap-horizontal-outline"
+              label="Initial Draft Pick Trading"
+              description={
+                draftPickTrading
+                  ? 'Allow trading of startup draft picks before and during the draft. In-draft trades execute immediately on acceptance — no review period, no vetoes.'
+                  : 'Allow trading of startup draft picks before and during the draft'
+              }
+              value={draftPickTrading}
+              onToggle={setDraftPickTrading}
+              c={c}
+            />
+          )}
         </>
       )}
     </BottomSheet>

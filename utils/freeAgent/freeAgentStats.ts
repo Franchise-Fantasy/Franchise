@@ -71,9 +71,19 @@ export function buildAdjustedPlayers(
       .filter((p) => histMap.has(p.player_id))
       .map((p) => {
         const h = histMap.get(p.player_id)!;
+        // FPTS (calculateAvgFantasyPoints) reads the total_* columns. But
+        // player_historical_stats persists only dd/td totals — not the box-score
+        // totals — and the spread `...p` carries the CURRENT-season matview
+        // totals (all zero in the offseason). So rebuild EVERY box total from
+        // avg × games, exactly the way the detail modal's seasonAvgRowToFpts
+        // does; otherwise the FA "Last Season" FPTS silently drops the
+        // FG/3P/FT/PF scoring terms and disagrees with the modal for the same
+        // player + season.
+        const gp = Number(h.games_played ?? 0);
+        const tot = (avg: number | null | undefined) => Math.round(Number(avg ?? 0) * gp);
         return {
           ...p,
-          games_played: h.games_played ?? 0,
+          games_played: gp,
           avg_pts: h.avg_pts ?? 0,
           avg_reb: h.avg_reb ?? 0,
           avg_ast: h.avg_ast ?? 0,
@@ -88,12 +98,19 @@ export function buildAdjustedPlayers(
           avg_fta: h.avg_fta ?? 0,
           avg_pf: h.avg_pf ?? 0,
           avg_min: h.avg_min ?? 0,
-          total_pts: h.total_pts ?? 0,
-          total_reb: h.total_reb ?? 0,
-          total_ast: h.total_ast ?? 0,
-          total_stl: h.total_stl ?? 0,
-          total_blk: h.total_blk ?? 0,
-          total_tov: h.total_tov ?? 0,
+          total_pts: tot(h.avg_pts),
+          total_reb: tot(h.avg_reb),
+          total_ast: tot(h.avg_ast),
+          total_stl: tot(h.avg_stl),
+          total_blk: tot(h.avg_blk),
+          total_tov: tot(h.avg_tov),
+          total_fgm: tot(h.avg_fgm),
+          total_fga: tot(h.avg_fga),
+          total_3pm: tot(h.avg_3pm),
+          total_3pa: tot(h.avg_3pa),
+          total_ftm: tot(h.avg_ftm),
+          total_fta: tot(h.avg_fta),
+          total_pf: tot(h.avg_pf),
           total_dd: h.total_dd ?? 0,
           total_td: h.total_td ?? 0,
         } as PlayerSeasonStats;

@@ -936,7 +936,9 @@ export default function MatchupScreen() {
         <ThemedText
           style={{ color: c.secondaryText, marginTop: 6, textAlign: "center" }}
         >
-          The schedule is generated automatically once the draft is complete.
+          {league?.imported_from
+            ? "The schedule generates automatically once every team has claimed its roster."
+            : "The schedule is generated automatically once the draft is complete."}
         </ThemedText>
       </ThemedView>
     );

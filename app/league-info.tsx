@@ -475,10 +475,10 @@ export default function LeagueInfoScreen() {
                 onPress={() => setShowForceMove(true)}
                 last={!((league?.league_type ?? 'dynasty') === 'dynasty' && league?.pick_conditions_enabled)}
               />
-              {(league?.league_type ?? 'dynasty') === 'dynasty' && league?.pick_conditions_enabled && (
+              {(league?.league_type ?? 'dynasty') === 'dynasty' && (
                 <CommAction
                   icon="shield-checkmark"
-                  label="Manage Pick Conditions"
+                  label="Manage Picks"
                   c={c}
                   onPress={() => setShowPickConditions(true)}
                   last
@@ -588,7 +588,10 @@ export default function LeagueInfoScreen() {
               {league.rookie_draft_order === 'lottery' && (
                 <Row label="Lottery Draws" value={String(league.lottery_draws ?? '-')} c={c} />
               )}
-              <Row label="Initial Draft, Pick Trading" value={league.draft_pick_trading_enabled ? 'Enabled' : 'Disabled'} c={c} />
+              {/* Imported leagues never have a startup draft, so pick trading can't apply. */}
+              {!league.imported_from && (
+                <Row label="Initial Draft, Pick Trading" value={league.draft_pick_trading_enabled ? 'Enabled' : 'Disabled'} c={c} />
+              )}
             </>
           )}
         </SectionCard>
@@ -962,6 +965,7 @@ export default function LeagueInfoScreen() {
             visible={showPickConditions}
             leagueId={leagueId}
             teams={(league?.league_teams ?? []).map((t: any) => ({ id: t.id, name: t.name }))}
+            pickConditionsEnabled={!!league?.pick_conditions_enabled}
             onClose={() => setShowPickConditions(false)}
           />
           <ImportTeamRosterModal

@@ -578,7 +578,16 @@ export default function TeamRosterScreen() {
         : null;
     const prevContext =
       isPrevMode && forwardOk ? prevToContext(slot.player!.player_id) : null;
-    const contextAvg = projContext ?? prevContext ?? seasonAvg;
+    // Offseason / pre-tipoff the current season has no sample yet, so the
+    // Season & Lx windows would render a blank number. Fall back to last
+    // season's average so the row still shows a value. Mirrors the user's
+    // roster page (app/(tabs)/roster.tsx).
+    const seasonFallback =
+      seasonAvg ??
+      (forwardOk && !isProjMode && !isPrevMode
+        ? prevToContext(slot.player!.player_id)
+        : null);
+    const contextAvg = projContext ?? prevContext ?? seasonFallback;
     // In "Prev" mode the season is already shown once on the window picker
     // (prevLabel), so we don't repeat it per row — the value reads as a normal
     // FPTS/G average. PROJ still labels itself so projections aren't mistaken

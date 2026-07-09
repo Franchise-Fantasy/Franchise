@@ -29,11 +29,20 @@ interface Props {
   leagueId: string;
   teams: { id: string; name: string }[];
   onClose: () => void;
+  /** Protection + swap options only apply when pick conditions are enabled;
+   *  "Fix a Pick" (reassign owner / correct round) is always available. */
+  pickConditionsEnabled?: boolean;
 }
 
-type Step = 'choose' | 'protection_pick' | 'protection_edit' | 'swap_edit';
+type Step =
+  | 'choose'
+  | 'protection_pick'
+  | 'protection_edit'
+  | 'swap_edit'
+  | 'reassign_pick'
+  | 'reassign_edit';
 
-export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }: Props) {
+export function ManagePickConditionsModal({ visible, leagueId, teams, onClose, pickConditionsEnabled = true }: Props) {
   const c = useColors();
   const confirm = useConfirm();
   const queryClient = useQueryClient();
@@ -50,6 +59,10 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
   const [swapBeneficiary, setSwapBeneficiary] = useState('');
   const [swapCounterparty, setSwapCounterparty] = useState('');
 
+  // Reassign / fix pick fields
+  const [reassignTeamId, setReassignTeamId] = useState('');
+  const [reassignRound, setReassignRound] = useState(1);
+
   function handleClose() {
     setStep('choose');
     setSelectedPick(null);
@@ -59,12 +72,15 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
     setSwapRound(1);
     setSwapBeneficiary('');
     setSwapCounterparty('');
+    setReassignTeamId('');
+    setReassignRound(1);
     onClose();
   }
 
   function goBack() {
     if (step === 'protection_edit') { setStep('protection_pick'); setSelectedPick(null); }
-    else if (step === 'protection_pick' || step === 'swap_edit') setStep('choose');
+    else if (step === 'reassign_edit') { setStep('reassign_pick'); setSelectedPick(null); }
+    else if (step === 'protection_pick' || step === 'swap_edit' || step === 'reassign_pick') setStep('choose');
   }
 
   const { data: leagueSettings } = useQuery({
@@ -116,7 +132,10 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
       if (error) throw error;
       return data ?? [];
     },
-    enabled: visible && step === 'protection_pick' && !!leagueId,
+    enabled:
+      visible &&
+      (step === 'protection_pick' || step === 'reassign_pick') &&
+      !!leagueId,
   });
 
   // Fetch existing swaps
@@ -180,6 +199,29 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
     }
   };
 
+  // Fix a pick the import (or a manual error) got wrong — reassign its owner
+  // and/or correct its round. Direct update, matching the trust model of the
+  // rest of this commissioner tool.
+  const handleReassignPick = async () => {
+    if (!selectedPick || !reassignTeamId) return;
+    setProcessing(true);
+    try {
+      const { error } = await supabase
+        .from('draft_picks')
+        .update({ current_team_id: reassignTeamId, round: reassignRound })
+        .eq('id', selectedPick.id);
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: ['commishAllPicks'] });
+      queryClient.invalidateQueries({ queryKey: ['draftHub'] });
+      Alert.alert('Success', 'Pick updated');
+      goBack();
+    } catch (err: any) {
+      Alert.alert('Error', err.message);
+    } finally {
+      setProcessing(false);
+    }
+  };
+
   const handleCreateSwap = async () => {
     if (!swapSeason || !swapBeneficiary || !swapCounterparty) {
       Alert.alert('Missing fields', 'Select season, beneficiary, and counterparty');
@@ -227,10 +269,12 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
 
   const title =
     step === 'choose'
-      ? 'Pick Conditions'
+      ? 'Manage Picks'
       : step === 'swap_edit'
         ? 'Manage Swaps'
-        : 'Manage Protection';
+        : step === 'reassign_pick' || step === 'reassign_edit'
+          ? 'Fix a Pick'
+          : 'Manage Protection';
 
   const headerAction = step !== 'choose' ? (
     <TouchableOpacity
@@ -250,11 +294,13 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
       title={title}
       headerAction={headerAction}
       height="92%"
-      scrollableBody={step === 'choose' || step === 'protection_edit' || step === 'swap_edit'}
+      scrollableBody={step === 'choose' || step === 'protection_edit' || step === 'swap_edit' || step === 'reassign_edit'}
     >
       {/* Step: Choose */}
       {step === 'choose' && (
         <View style={styles.chooseContainer}>
+          {pickConditionsEnabled && (
+            <>
           <TouchableOpacity
             accessibilityRole="button"
             accessibilityLabel="Manage Protection. Add or remove top-N protections on draft picks"
@@ -279,11 +325,25 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
               Create or delete pick swap agreements
             </ThemedText>
           </TouchableOpacity>
+            </>
+          )}
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Fix a Pick. Reassign a draft pick's owner or correct its round"
+            style={[styles.chooseBtn, { backgroundColor: c.card, borderColor: c.border }]}
+            onPress={() => setStep('reassign_pick')}
+          >
+            <Ionicons name="build-outline" size={24} color={c.accent} />
+            <ThemedText type="defaultSemiBold">Fix a Pick</ThemedText>
+            <ThemedText style={[styles.chooseDesc, { color: c.secondaryText }]}>
+              Reassign a pick's owner or correct its round (e.g. an import error)
+            </ThemedText>
+          </TouchableOpacity>
         </View>
       )}
 
-      {/* Step: Pick a pick for protection */}
-      {step === 'protection_pick' && (
+      {/* Step: Pick a pick (shared by the protection + reassign flows) */}
+      {(step === 'protection_pick' || step === 'reassign_pick') && (
         picksLoading ? (
           <View style={styles.loading}><LogoSpinner /></View>
         ) : (
@@ -301,9 +361,15 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
                   style={[styles.pickCell, { borderBottomColor: c.border }, index === (allPicks ?? []).length - 1 && { borderBottomWidth: 0 }]}
                   onPress={() => {
                     setSelectedPick(item);
-                    setProtThreshold(item.protection_threshold ?? 3);
-                    setProtOwnerId(item.protection_owner_id ?? item.current_team_id ?? '');
-                    setStep('protection_edit');
+                    if (step === 'reassign_pick') {
+                      setReassignTeamId(item.current_team_id ?? '');
+                      setReassignRound(item.round);
+                      setStep('reassign_edit');
+                    } else {
+                      setProtThreshold(item.protection_threshold ?? 3);
+                      setProtOwnerId(item.protection_owner_id ?? item.current_team_id ?? '');
+                      setStep('protection_edit');
+                    }
                   }}
                 >
                   <View style={styles.pickRow}>
@@ -406,6 +472,57 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose }:
               />
             )}
           </View>
+        </View>
+      )}
+
+      {/* Step: Reassign / fix a pick */}
+      {step === 'reassign_edit' && selectedPick && (
+        <View>
+          <ThemedText type="defaultSemiBold" style={{ marginBottom: 4 }}>
+            {formatPickLabel(selectedPick.season, selectedPick.round)}
+          </ThemedText>
+          <ThemedText style={[styles.pickSub, { color: c.secondaryText, marginBottom: 16 }]}>
+            Currently owned by {teamNameMap[selectedPick.current_team_id] ?? '?'} · via{' '}
+            {teamNameMap[selectedPick.original_team_id ?? ''] ?? '?'}
+          </ThemedText>
+
+          <NumberStepper
+            label="Round"
+            value={reassignRound}
+            onValueChange={setReassignRound}
+            min={1}
+            max={rookieDraftRounds}
+          />
+
+          <ThemedText style={[styles.pickSub, { marginTop: 16, marginBottom: 8 }]}>Owner</ThemedText>
+          {teams.map((t) => (
+            <TouchableOpacity
+              key={t.id}
+              accessibilityRole="button"
+              accessibilityLabel={t.name}
+              accessibilityState={{ selected: reassignTeamId === t.id }}
+              style={[
+                styles.teamOption,
+                { borderColor: c.border },
+                reassignTeamId === t.id && { backgroundColor: c.accent + '20', borderColor: c.accent },
+              ]}
+              onPress={() => setReassignTeamId(t.id)}
+            >
+              <ThemedText style={{ fontSize: ms(14) }}>{t.name}</ThemedText>
+              {reassignTeamId === t.id && <Ionicons name="checkmark" size={18} color={c.accent} />}
+            </TouchableOpacity>
+          ))}
+
+          <BrandButton
+            label="Save Pick"
+            variant="primary"
+            size="large"
+            onPress={handleReassignPick}
+            loading={processing}
+            fullWidth
+            style={{ marginTop: s(20) }}
+            accessibilityLabel="Save pick changes"
+          />
         </View>
       )}
 

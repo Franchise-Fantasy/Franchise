@@ -361,9 +361,14 @@ export function reducer(state: ScreenshotImportState, action: Action): Screensho
       return { ...state, settingsMode: action.mode };
 
     case 'APPLY_EXTRACTED_SCORING': {
+      // The screenshot is authoritative: a stat the OCR didn't read isn't scored
+      // by the source league, so it must be 0 — not left at the app's default.
+      // Otherwise the app silently injects its own house rules (e.g. the old
+      // PF -1) into an imported league. Stats present in the extraction take
+      // their read value. The user can still correct any OCR miss in StepScoring.
       const scoring = state.wizardState.scoring.map(s => {
         const val = action.scoring[s.stat_name];
-        return val !== undefined ? { ...s, point_value: val } : s;
+        return { ...s, point_value: val !== undefined ? val : 0 };
       });
       return { ...state, wizardState: { ...state.wizardState, scoring } };
     }

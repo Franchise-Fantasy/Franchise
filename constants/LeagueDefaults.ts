@@ -72,7 +72,11 @@ export const DEFAULT_SCORING: ScoringCategory[] = [
   { stat_name: 'FGA', label: 'Field Goals Attempted', point_value: -1 },
   { stat_name: 'FTM', label: 'Free Throws Made', point_value: 1 },
   { stat_name: 'FTA', label: 'Free Throws Attempted', point_value: -1 },
-  { stat_name: 'PF', label: 'Personal Fouls', point_value: -1 },
+  // Personal fouls default to 0 (unscored) — the near-universal norm on
+  // ESPN/Yahoo/Sleeper. A -1 default silently penalized fouls in leagues that
+  // never scored them, most visibly on screenshot imports where an unread PF
+  // stat kept this default. Leagues that DO penalize fouls set it in the editor.
+  { stat_name: 'PF', label: 'Personal Fouls', point_value: 0 },
   { stat_name: 'DD', label: 'Double Doubles', point_value: 0 },
   { stat_name: 'TD', label: 'Triple Doubles', point_value: 0 },
 ];
@@ -414,13 +418,15 @@ export const NBA_MERGE_WINDOWS: Record<string, MergeWindow[]> = {
     { start: '2026-02-09', end: '2026-02-22', label: 'All-Star Break', optional: false },
     { start: '2025-12-08', end: '2025-12-21', label: 'NBA Cup Knockouts', optional: true },
   ],
-  // 2026-27 estimates (All-Star weekend Feb 12-14, 2027; Cup knockouts
-  // mid-December 2026, mirroring the 2025-26 windows). Refine the exact
-  // Mon-Sun ranges in season_config once the NBA publishes the schedule —
-  // the table overrides these at runtime.
+  // 2026-27 (real dates): All-Star weekend Feb 19-21, 2027 → the two straddling
+  // half-weeks (Feb 15-21 + Feb 22-28) merge. NBA Cup knockouts run Dec 4-5 (QF),
+  // Dec 8-9 (SF), Dec 11 (Final); only the SF/Final stretch (Dec 8-11) is light,
+  // so the Cup week (Dec 7-13) merges BACKWARD into the quarterfinal week
+  // (Nov 30-Dec 6) — window starts Dec 4 so the whole knockout run lands in one
+  // matchup ending Sun Dec 13. Both window ends are Sundays to keep weeks aligned.
   '2026-27': [
-    { start: '2027-02-08', end: '2027-02-21', label: 'All-Star Break', optional: false },
-    { start: '2026-12-07', end: '2026-12-20', label: 'NBA Cup Knockouts', optional: true },
+    { start: '2027-02-15', end: '2027-02-28', label: 'All-Star Break', optional: false },
+    { start: '2026-12-04', end: '2026-12-13', label: 'NBA Cup Knockouts', optional: true },
   ],
 };
 
