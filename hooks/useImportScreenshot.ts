@@ -104,6 +104,8 @@ export interface ScreenshotImportResult {
   history_inserted?: number;
   /** Historical team names that matched no created team and were skipped. */
   history_unmatched?: string[];
+  /** Players listed on more than one team; kept on the first, skipped elsewhere. */
+  duplicate_players?: { player_id: string; name: string }[];
   /** DB error message if a history insert chunk failed outright (else null). */
   history_error?: string | null;
   message: string;

@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { notifyTeams } from '../_shared/push.ts';
 import { CORS_HEADERS } from '../_shared/cors.ts';
 import { requireUser } from '../_shared/auth.ts';
+import { deferWork } from '../_shared/background.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { parseBody, z } from '../_shared/validate.ts';
@@ -100,11 +101,11 @@ Deno.serve(async (req: Request) => {
 
       if (nextPick) {
         const ln = leagueInfo?.name ?? 'Your League';
-        await notifyTeams(supabase, [nextPick.picking_team_id], 'playoffs',
+        deferWork(notifyTeams(supabase, [nextPick.picking_team_id], 'playoffs',
           `${ln} — Your Turn to Pick`,
           `Seed #${nextPick.picking_seed}, choose your playoff opponent.`,
           { screen: 'playoff-bracket' }
-        );
+        ), 'submit-seed-pick next-picker push');
       }
     } catch (notifyErr) {
       console.warn('Push notification failed (non-fatal):', notifyErr);

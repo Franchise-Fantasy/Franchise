@@ -579,11 +579,11 @@ export default function TeamRosterScreen() {
     const prevContext =
       isPrevMode && forwardOk ? prevToContext(slot.player!.player_id) : null;
     const contextAvg = projContext ?? prevContext ?? seasonAvg;
-    const contextLabel = projContext
-      ? 'PROJ'
-      : prevContext
-        ? prevSeasonLabel
-        : 'FPTS/G';
+    // In "Prev" mode the season is already shown once on the window picker
+    // (prevLabel), so we don't repeat it per row — the value reads as a normal
+    // FPTS/G average. PROJ still labels itself so projections aren't mistaken
+    // for actuals.
+    const contextLabel = projContext ? 'PROJ' : 'FPTS/G';
     // Inline projection next to the upcoming game — only for players with a game.
     const upcomingProj =
       isPreGame && slot.player ? projFptsFor(slot.player.player_id) : null;

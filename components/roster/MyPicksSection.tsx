@@ -6,9 +6,10 @@ import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SectionEyebrow } from '@/components/roster/SectionEyebrow';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { cardShadow, Colors } from '@/constants/Colors';
-import { formatSeason, getCurrentSeason, parseSeasonStartYear } from '@/constants/LeagueDefaults';
+import { formatSeason } from '@/constants/LeagueDefaults';
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { useNextRookieDraftYear } from '@/hooks/useNextRookieDraftYear';
 import { useTeamTradablePicks } from '@/hooks/useTrades';
 import { formatPickLabel } from '@/types/trade';
 import { ms, s } from '@/utils/scale';
@@ -34,9 +35,12 @@ export function MyPicksSection({ teamId, leagueId, isDynasty }: MyPicksSectionPr
 
   const { data: picks } = useTeamTradablePicks(teamId, leagueId, true);
 
-  // The upcoming rookie draft season is the one immediately following the current season
-  const upcomingStartYear = parseSeasonStartYear(getCurrentSeason(sport)) + 1;
-  const upcomingSeason = formatSeason(upcomingStartYear, sport);
+  // Only the genuinely-upcoming rookie draft shows real slot numbers. Derive
+  // which class that is the same way the draft hub does — off THIS league's own
+  // season + offseason step (useNextRookieDraftYear), not the sport-wide
+  // season. Using the global season put the slot on the wrong year's pick once
+  // the sport season rolled over ahead of this league's own draft.
+  const upcomingSeason = formatSeason(useNextRookieDraftYear(sport), sport);
 
   if (!isDynasty) return null;
   if (!picks || picks.length === 0) return null;

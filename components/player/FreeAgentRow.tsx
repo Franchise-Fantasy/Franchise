@@ -3,6 +3,7 @@ import { TouchableOpacity, View } from 'react-native';
 
 import { PlayerName } from '@/components/player/PlayerName';
 import { PlayerPortrait } from '@/components/player/PlayerPortrait';
+import { rosterStyles } from '@/components/roster/rosterStyles';
 import { Badge } from '@/components/ui/Badge';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { type Sport } from '@/constants/LeagueDefaults';
@@ -102,16 +103,29 @@ export function FreeAgentRow({
       accessibilityLabel={a11yLabel}
       accessibilityState={compareMode ? { selected: !!compareSelected } : undefined}
     >
-      <PlayerPortrait
-        externalIdNba={player.external_id_nba}
-        proTeam={player.pro_team}
-        sport={sport}
-        size={s(54)}
-        imageHeight={s(48)}
-        teamLogoSize={s(10)}
-        teamTextFontSize={ms(8)}
-        containerStyle={styles.portraitWrap}
-      />
+      <View style={styles.compareBadgeWrap}>
+        <PlayerPortrait
+          externalIdNba={player.external_id_nba}
+          proTeam={player.pro_team}
+          sport={sport}
+          size={s(54)}
+          imageHeight={s(48)}
+          teamLogoSize={s(10)}
+          teamTextFontSize={ms(8)}
+          containerStyle={[styles.portraitWrap, { marginRight: 0 }]}
+        />
+        {compareMode && compareSelected && (
+          <View
+            style={[
+              rosterStyles.compareCheck,
+              { backgroundColor: c.gold, borderColor: c.background },
+            ]}
+            accessible={false}
+          >
+            <Ionicons name="checkmark" size={11} color={c.statusText} accessible={false} />
+          </View>
+        )}
+      </View>
 
       <View style={styles.info}>
         <View style={styles.nameRow}>
@@ -218,14 +232,9 @@ export function FreeAgentRow({
             </>
           )}
         </View>
-        {compareMode ? (
-          <Ionicons
-            name={compareSelected ? 'checkmark-circle' : 'ellipse-outline'}
-            size={ms(24)}
-            color={compareSelected ? c.gold : c.secondaryText}
-            accessible={false}
-          />
-        ) : !isRostered ? (
+        {/* Compare mode shows the gold check badge on the portrait (above),
+            matching roster/matchup — so no trailing selection toggle here. */}
+        {compareMode ? null : !isRostered ? (
           <TouchableOpacity
             style={[
               needsClaim

@@ -8,6 +8,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -39,6 +40,8 @@ export function TeamAssigner({ leagueId }: TeamAssignerProps) {
   const { showToast } = useToast();
   const [assigning, setAssigning] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState<ImportedTeam | null>(null);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [sendingInvite, setSendingInvite] = useState(false);
 
   // Fetch teams with user_id and sleeper_roster_id
   const { data, isLoading } = useQuery({
@@ -112,6 +115,51 @@ export function TeamAssigner({ leagueId }: TeamAssignerProps) {
     }
   };
 
+  const closeModal = () => {
+    setSelectedTeam(null);
+    setInviteEmail('');
+  };
+
+  // Invite the owner by email. Phase 1: if they already have an account they get
+  // a push that deep-links into the claim flow; if not, we tell the commissioner
+  // to share the invite code (emailed download invites are Phase 2).
+  const handleSendInvite = async () => {
+    const email = inviteEmail.trim();
+    if (!email || !selectedTeam) return;
+    setSendingInvite(true);
+    try {
+      const { data: result, error } = await supabase.functions.invoke('send-league-invite', {
+        body: { league_id: leagueId, team_id: selectedTeam.id, email },
+      });
+      if (error) {
+        // Surface the edge function's specific message (already claimed, already
+        // a member, etc.) rather than the generic non-2xx wrapper.
+        let msg = error.message ?? 'Something went wrong.';
+        try {
+          const body = await error.context?.json?.();
+          if (body?.error) msg = body.error;
+        } catch {
+          // fall through with the generic message
+        }
+        Alert.alert('Invite failed', msg);
+        return;
+      }
+      if (result?.status === 'no_account') {
+        Alert.alert(
+          'No account found',
+          `No Franchise account is registered to ${email}. Share your league invite code so they can sign up, then assign their team here. (Emailed invites are coming soon.)`,
+        );
+        return;
+      }
+      showToast('success', `Invite sent to ${email}`);
+      closeModal();
+    } catch (err: any) {
+      Alert.alert('Invite failed', err.message ?? 'Something went wrong.');
+    } finally {
+      setSendingInvite(false);
+    }
+  };
+
   return (
     <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border, borderLeftWidth: 3, borderLeftColor: c.link }]}>
       <ThemedText type="defaultSemiBold" style={styles.sectionTitle} accessibilityRole="header">
@@ -152,12 +200,12 @@ export function TeamAssigner({ leagueId }: TeamAssignerProps) {
         visible={selectedTeam !== null}
         transparent
         animationType="fade"
-        onRequestClose={() => setSelectedTeam(null)}
+        onRequestClose={closeModal}
       >
         <Pressable
           style={styles.backdrop}
-          onPress={() => setSelectedTeam(null)}
-          accessibilityLabel="Close member picker"
+          onPress={closeModal}
+          accessibilityLabel="Close assign team"
         >
           <Pressable
             style={[styles.modal, { backgroundColor: c.background, borderColor: c.border }]}
@@ -168,34 +216,74 @@ export function TeamAssigner({ leagueId }: TeamAssignerProps) {
               Assign "{selectedTeam?.name}" to:
             </ThemedText>
 
-            {availableMembers.length === 0 ? (
-              <ThemedText style={[styles.emptyText, { color: c.secondaryText }]}>
-                No unassigned members. Have more people join the league first.
-              </ThemedText>
-            ) : (
-              <ScrollView style={styles.memberList} bounces={false}>
-                {availableMembers.map((member, idx) => (
-                  <TouchableOpacity
-                    key={member.id}
-                    style={[styles.memberRow, { borderBottomColor: c.border }, idx === availableMembers.length - 1 && { borderBottomWidth: 0 }]}
-                    onPress={() => selectedTeam && handleAssign(selectedTeam, member)}
-                    disabled={assigning}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Assign to ${member.name}`}
-                  >
-                    <ThemedText style={styles.memberName}>{member.name}</ThemedText>
-                    {assigning ? (
-                      <LogoSpinner size={18} />
-                    ) : (
-                      <Ionicons name="arrow-forward-circle" size={22} color={c.accent} accessible={false} />
-                    )}
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
+            {/* Invite by email — reaches the owner directly (push if they have an
+                account, otherwise the commissioner shares the code). */}
+            <ThemedText style={[styles.inviteLabel, { color: c.secondaryText }]}>
+              INVITE BY EMAIL
+            </ThemedText>
+            <View style={styles.inviteRow}>
+              <TextInput
+                style={[styles.emailInput, { color: c.text, borderColor: c.border, backgroundColor: c.cardAlt }]}
+                value={inviteEmail}
+                onChangeText={setInviteEmail}
+                placeholder="name@email.com"
+                placeholderTextColor={c.secondaryText}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="email-address"
+                editable={!sendingInvite}
+                returnKeyType="send"
+                onSubmitEditing={handleSendInvite}
+                accessibilityLabel="Invitee email address"
+              />
+              <TouchableOpacity
+                style={[
+                  styles.sendBtn,
+                  { backgroundColor: c.accent },
+                  (!inviteEmail.trim() || sendingInvite) && { opacity: 0.5 },
+                ]}
+                onPress={handleSendInvite}
+                disabled={!inviteEmail.trim() || sendingInvite}
+                accessibilityRole="button"
+                accessibilityLabel={`Send invite to ${selectedTeam?.name}`}
+              >
+                {sendingInvite ? (
+                  <LogoSpinner size={16} />
+                ) : (
+                  <Text style={[styles.sendBtnText, { color: c.statusText }]}>Send</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {availableMembers.length > 0 && (
+              <>
+                <ThemedText style={[styles.orDivider, { color: c.secondaryText }]}>
+                  or pick a member who already joined
+                </ThemedText>
+                <ScrollView style={styles.memberList} bounces={false}>
+                  {availableMembers.map((member, idx) => (
+                    <TouchableOpacity
+                      key={member.id}
+                      style={[styles.memberRow, { borderBottomColor: c.border }, idx === availableMembers.length - 1 && { borderBottomWidth: 0 }]}
+                      onPress={() => selectedTeam && handleAssign(selectedTeam, member)}
+                      disabled={assigning}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Assign to ${member.name}`}
+                    >
+                      <ThemedText style={styles.memberName}>{member.name}</ThemedText>
+                      {assigning ? (
+                        <LogoSpinner size={18} />
+                      ) : (
+                        <Ionicons name="arrow-forward-circle" size={22} color={c.accent} accessible={false} />
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </>
             )}
 
             <TouchableOpacity
-              onPress={() => setSelectedTeam(null)}
+              onPress={closeModal}
               style={[styles.cancelBtn, { borderColor: c.border }]}
               accessibilityRole="button"
               accessibilityLabel="Cancel"
@@ -266,13 +354,46 @@ const styles = StyleSheet.create({
     fontSize: ms(17),
     marginBottom: s(16),
   },
-  emptyText: {
-    textAlign: 'center',
-    paddingVertical: s(20),
+  inviteLabel: {
+    fontSize: ms(11),
+    letterSpacing: 1,
+    fontWeight: '600',
+    marginBottom: s(8),
+  },
+  inviteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(8),
+  },
+  emailInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: s(12),
+    paddingVertical: s(10),
     fontSize: ms(14),
   },
+  sendBtn: {
+    paddingHorizontal: s(16),
+    paddingVertical: s(11),
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: s(60),
+  },
+  sendBtnText: {
+    fontSize: ms(14),
+    fontWeight: '600',
+  },
+  orDivider: {
+    fontSize: ms(12),
+    fontWeight: '600',
+    textAlign: 'center',
+    marginTop: s(18),
+    marginBottom: s(6),
+  },
   memberList: {
-    maxHeight: s(300),
+    maxHeight: s(220),
   },
   memberRow: {
     flexDirection: 'row',

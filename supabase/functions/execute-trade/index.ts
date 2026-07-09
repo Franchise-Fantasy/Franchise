@@ -3,6 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { notifyTeams } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
 import { requireUser } from '../_shared/auth.ts';
+import { deferWork } from '../_shared/background.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { checkPositionLimitsForRoster } from '../_shared/positionLimits.ts';
@@ -487,10 +488,12 @@ Deno.serve(async (req) => {
           .in('id', teamsNeedingDrops);
         const names = (teamNames ?? []).map((t) => t.name).join(', ');
 
-        await notifyTeams(supabaseAdmin, teamsNeedingDrops, 'trades',
-          'Roster Move Required',
-          'A trade is waiting on you to drop a player to make room.',
-          { screen: 'trades', proposal_id },
+        deferWork(
+          notifyTeams(supabaseAdmin, teamsNeedingDrops, 'trades',
+            'Roster Move Required',
+            'A trade is waiting on you to drop a player to make room.',
+            { screen: 'trades', proposal_id }),
+          'execute-trade pending-drops push',
         );
 
         return jsonResponse({ message: `Trade is pending roster drops from: ${names}. They must select a player to drop before the trade can complete.`, pending_drops: true });
@@ -940,27 +943,25 @@ Deno.serve(async (req) => {
       log.warn('Trade summary/chat post failed (non-fatal)', { error: String(summaryErr) });
     }
 
-    // Notify all teams involved in the trade with hype-tiered messaging
-    try {
-      const ln = league?.name ?? 'Your League';
-      const tierTitle = hypeTier === 'blockbuster'
-        ? `${ln} — BLOCKBUSTER TRADE`
-        : hypeTier === 'major'
-          ? `${ln} — MAJOR TRADE`
-          : `${ln} — Trade Completed`;
-      await notifyTeams(supabaseAdmin, allTeamIds, 'trades',
-        tierTitle,
-        notes,
-        { screen: 'trades', proposal_id }
-      );
-    } catch (notifyErr) {
-      log.warn('Push notification failed (non-fatal)', { error: String(notifyErr) });
-    }
+    // Notify all teams involved in the trade with hype-tiered messaging.
+    // Deferred so the "Trade completed!" response returns before the push
+    // fan-out round-trips (deferWork logs any failure, non-fatal).
+    const ln = league?.name ?? 'Your League';
+    const tierTitle = hypeTier === 'blockbuster'
+      ? `${ln} — BLOCKBUSTER TRADE`
+      : hypeTier === 'major'
+        ? `${ln} — MAJOR TRADE`
+        : `${ln} — Trade Completed`;
+    deferWork(
+      notifyTeams(supabaseAdmin, allTeamIds, 'trades', tierTitle, notes, { screen: 'trades', proposal_id }),
+      'execute-trade trade-completed push',
+    );
 
     // Targeted push to any team whose queued drop was unnecessary, so
     // the spared player isn't a surprise on their roster afterwards.
+    // Deferred as one background task off the response path.
     if (skippedDropsByTeam.size > 0) {
-      try {
+      deferWork((async () => {
         for (const [tid, pids] of skippedDropsByTeam) {
           const names = pids.map((pid) => playerNameMap[pid] ?? 'a player').join(', ');
           await notifyTeams(supabaseAdmin, [tid], 'trades',
@@ -969,9 +970,7 @@ Deno.serve(async (req) => {
             { screen: 'trades', proposal_id }
           );
         }
-      } catch (notifyErr) {
-        log.warn('Skipped-drop push failed (non-fatal)', { error: String(notifyErr) });
-      }
+      })(), 'execute-trade skipped-drop push');
     }
 
     return jsonResponse({ message: 'Trade completed!', transaction_id: txnId });

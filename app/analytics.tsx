@@ -6,6 +6,7 @@ import { AnalyticsEmptyState } from "@/components/analytics/AnalyticsEmptyState"
 import { CatAnalytics } from "@/components/analytics/CatAnalytics";
 import { PointsAgeAnalytics } from "@/components/analytics/PointsAgeAnalytics";
 import { PointsStrengthAnalytics } from "@/components/analytics/PointsStrengthAnalytics";
+import { CoachMark } from "@/components/ui/CoachMark";
 import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { type PositionCurve } from "@/constants/agingCurves";
@@ -127,7 +128,16 @@ export default function AnalyticsScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
       <PageHeader title="Roster Analytics" />
-      <View style={styles.content}>{body}</View>
+      <View style={styles.content}>
+        {body}
+        {/* First-visit hint for the scatter's tap + pinch/pan gestures. */}
+        <CoachMark
+          id="analytics-chart"
+          text="Tap a dot for player details. Pinch to zoom, drag to pan."
+          bottom={16}
+          active={isDynasty && !isCategories && !isLoading && players.length >= 3}
+        />
+      </View>
     </SafeAreaView>
   );
 }

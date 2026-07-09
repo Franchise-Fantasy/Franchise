@@ -23,6 +23,7 @@ import {
 export interface TeamStrengthProfile {
   teamId: string;
   avgFpts: number; // mean effectiveFantasyPoints across active roster players
+  totalFpts: number; // sum across active players — the team's total points/day
   playerCount: number;
 }
 
@@ -97,6 +98,10 @@ export function buildLeagueStrengthComparison(
     profiles.push({
       teamId,
       avgFpts: Math.round((totalFpts / teamPlayers.length) * 10) / 10,
+      // Sum kept alongside the average so the UI can offer a "total points/day"
+      // lens (raw daily output — rewards depth) next to the size-independent
+      // per-player average.
+      totalFpts: Math.round(totalFpts * 10) / 10,
       playerCount: teamPlayers.length,
     });
   }

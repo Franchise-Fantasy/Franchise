@@ -14,7 +14,6 @@ import {
 import { scaleLinear } from "d3-scale";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  GestureResponderEvent,
   LayoutChangeEvent,
   Platform,
   ScrollView,
@@ -23,6 +22,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   runOnJS,
   useAnimatedStyle,
@@ -318,12 +318,12 @@ export function PointsAgeAnalytics({
     setSelectedPlayer(null);
   }, [selectedCurve]);
 
-  // Handle dot taps via responder on an overlay View
-  const handleTap = useCallback(
-    (evt: GestureResponderEvent) => {
+  // Select the dot nearest a tap, in the chart's own (untransformed)
+  // coordinate space — the gesture handler maps the raw touch back out of the
+  // zoom/pan transform before calling this.
+  const selectAtPoint = useCallback(
+    (touchX: number, touchY: number) => {
       if (!xScale || !yScale || !filteredScatter.length) return;
-      const touchX = evt.nativeEvent.locationX;
-      const touchY = evt.nativeEvent.locationY;
 
       const adjX = touchX - PAD.left;
       const adjY = touchY - PAD.top;
@@ -351,6 +351,83 @@ export function PointsAgeAnalytics({
     },
     [xScale, yScale, filteredScatter, selectedPlayer],
   );
+
+  // ── Pinch-to-zoom + pan on the scatter ── lets a user pull apart clustered
+  // dots to tap the right player. The whole rendered chart (Canvas + label
+  // overlays) is transformed together as one layer; double-tap resets. The tap
+  // gesture inverts the same transform so hit-testing stays accurate when
+  // zoomed. Scale is clamped to 1–5× and pan can't push content off-screen.
+  const zoomScale = useSharedValue(1);
+  const savedZoom = useSharedValue(1);
+  const panX = useSharedValue(0);
+  const panY = useSharedValue(0);
+  const savedPanX = useSharedValue(0);
+  const savedPanY = useSharedValue(0);
+
+  const chartTransformStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: panX.value },
+      { translateY: panY.value },
+      { scale: zoomScale.value },
+    ],
+  }));
+
+  const chartGesture = useMemo(() => {
+    // RN scales a View around its center, so the inverse used by the tap below
+    // assumes a center origin too: cx/cy are the chart's midpoint.
+    const cx = canvasWidth / 2;
+    const cy = CHART_HEIGHT / 2;
+    const pinch = Gesture.Pinch()
+      .onUpdate((e) => {
+        zoomScale.value = Math.min(5, Math.max(1, savedZoom.value * e.scale));
+        const maxX = Math.max(0, (zoomScale.value - 1) * cx);
+        const maxY = Math.max(0, (zoomScale.value - 1) * cy);
+        panX.value = Math.min(maxX, Math.max(-maxX, panX.value));
+        panY.value = Math.min(maxY, Math.max(-maxY, panY.value));
+      })
+      .onEnd(() => {
+        savedZoom.value = zoomScale.value;
+        savedPanX.value = panX.value;
+        savedPanY.value = panY.value;
+      });
+    const pan = Gesture.Pan()
+      // Two-finger pan only, so a one-finger drag still scrolls the analytics
+      // list — panning happens together with the pinch that zoomed in.
+      .minPointers(2)
+      .averageTouches(true)
+      .onUpdate((e) => {
+        const maxX = Math.max(0, (zoomScale.value - 1) * cx);
+        const maxY = Math.max(0, (zoomScale.value - 1) * cy);
+        panX.value = Math.min(maxX, Math.max(-maxX, savedPanX.value + e.translationX));
+        panY.value = Math.min(maxY, Math.max(-maxY, savedPanY.value + e.translationY));
+      })
+      .onEnd(() => {
+        savedPanX.value = panX.value;
+        savedPanY.value = panY.value;
+      });
+    const doubleTap = Gesture.Tap()
+      .numberOfTaps(2)
+      .onEnd(() => {
+        zoomScale.value = withTiming(1);
+        panX.value = withTiming(0);
+        panY.value = withTiming(0);
+        savedZoom.value = 1;
+        savedPanX.value = 0;
+        savedPanY.value = 0;
+      });
+    const tap = Gesture.Tap()
+      .maxDuration(250)
+      .onEnd((e) => {
+        const s = zoomScale.value;
+        const contentX = (e.x - cx * (1 - s) - panX.value) / s;
+        const contentY = (e.y - cy * (1 - s) - panY.value) / s;
+        runOnJS(selectAtPoint)(contentX, contentY);
+      });
+    return Gesture.Simultaneous(
+      Gesture.Simultaneous(pinch, pan),
+      Gesture.Exclusive(doubleTap, tap),
+    );
+  }, [canvasWidth, selectAtPoint]);
 
   if (!profile || profile.totalWithAge < 3) {
     return (
@@ -524,15 +601,16 @@ export function PointsAgeAnalytics({
         </TouchableOpacity>
       </View>
 
-      {/* ── Chart ── */}
-      <View
-        style={styles.chartArea}
-        onLayout={onLayout}
-        accessibilityRole="image"
-        accessibilityLabel={`Age versus fantasy points scatterplot with ${filteredScatter.length} players, ${selectedCurve} aging curve`}
-      >
-        {canvasWidth > 0 && xScale && yScale ? (
-          <>
+      {/* ── Chart ── pinch to zoom, drag to pan, double-tap to reset. ── */}
+      <GestureDetector gesture={chartGesture}>
+        <View
+          style={styles.chartArea}
+          onLayout={onLayout}
+          accessibilityRole="image"
+          accessibilityLabel={`Age versus fantasy points scatterplot with ${filteredScatter.length} players, ${selectedCurve} aging curve. Pinch to zoom, drag to pan, double-tap to reset.`}
+        >
+          {canvasWidth > 0 && xScale && yScale ? (
+            <Animated.View style={[StyleSheet.absoluteFill, chartTransformStyle]}>
             {/* Skia Canvas — graphics only, no text */}
             <Canvas
               style={{ width: canvasWidth, height: CHART_HEIGHT }}
@@ -838,15 +916,10 @@ export function PointsAgeAnalytics({
               });
             })()}
 
-            {/* Touch overlay — captures taps on dots */}
-            <View
-              style={[StyleSheet.absoluteFill, { zIndex: 10 }]}
-              onStartShouldSetResponder={() => true}
-              onResponderRelease={handleTap}
-            />
-          </>
-        ) : null}
-      </View>
+            </Animated.View>
+          ) : null}
+        </View>
+      </GestureDetector>
 
       {/* ── Player Detail Card (always same size) — gold rule
           eyebrow + Alfa Slab name + Badge for bucket. ── */}
@@ -1106,8 +1179,14 @@ const styles = StyleSheet.create({
     letterSpacing: 1.0,
   },
 
-  // Chart — positioned relative so text overlays work
-  chartArea: { marginBottom: 0, position: "relative", height: CHART_HEIGHT },
+  // Chart — positioned relative so text overlays work; overflow hidden clips
+  // the zoomed/panned content to the chart bounds.
+  chartArea: {
+    marginBottom: 0,
+    position: "relative",
+    height: CHART_HEIGHT,
+    overflow: "hidden",
+  },
 
   // Absolutely positioned text labels over the Canvas
   axisLabel: {

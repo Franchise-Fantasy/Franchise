@@ -21,7 +21,7 @@ import { PlayerSeasonStats, ScoringWeight } from "@/types/player";
 import { ordinalSuffix } from "@/utils/formatting";
 import { fetchStandingsTeams } from "@/utils/league/standingsQueries";
 import { isActiveRosterSlot } from "@/utils/roster/rosterSlots";
-import { buildLeagueStrengthComparison } from "@/utils/roster/rosterStrength";
+import { buildLeagueStrengthComparison, type TeamStrengthProfile } from "@/utils/roster/rosterStrength";
 import { ms, s } from "@/utils/scale";
 import {
   ANALYTICS_MIN_CURRENT_SEASON_GAMES,
@@ -91,6 +91,9 @@ export function PointsStrengthAnalytics({
   const prevSeasonLabel = shortSeasonLabel(getPreviousSeason(sport));
   const [infoVisible, setInfoVisible] = useState(false);
   const [windowSel, setWindowSel] = useState<GameWindow>('season');
+  // Comparison lens: per-active-player average (size-independent quality) vs.
+  // total points/day (raw daily output — rewards a deeper active lineup).
+  const [metricSel, setMetricSel] = useState<'perPlayer' | 'total'>('perPlayer');
 
   // Fetch game logs for the WHOLE league (not just my roster) — the
   // comparison + scoring rows both need them when a Lx window is selected.
@@ -223,13 +226,27 @@ export function PointsStrengthAnalytics({
     return m;
   }, [players, weights, gameLogsByPlayer, trendWindow]);
 
-  const vsAvg = comparison ? comparison.myAvgFpts - comparison.leagueAvgFpts : 0;
+  // Re-derive rank / league-average / bar-scale for the selected lens. The
+  // builder ranks by per-player average; picking "total/day" re-sorts by each
+  // team's summed output instead. Non-null whenever `comparison` is.
+  const isTotal = metricSel === 'total';
+  const metricView = useMemo(() => {
+    if (!comparison) return null;
+    const valueOf = (p: TeamStrengthProfile) => (isTotal ? p.totalFpts : p.avgFpts);
+    const sorted = [...comparison.allProfiles].sort((a, b) => valueOf(b) - valueOf(a));
+    const leagueAvg =
+      Math.round((sorted.reduce((sum, p) => sum + valueOf(p), 0) / sorted.length) * 10) / 10;
+    const myProfile = sorted.find((p) => p.teamId === teamId) ?? sorted[0];
+    const myValue = valueOf(myProfile);
+    const myRank = sorted.findIndex((p) => p.teamId === teamId) + 1;
+    // Bar scale — the strongest roster fills the track; the league-average
+    // marker sits proportionally within it.
+    const maxValue = Math.max(...sorted.map(valueOf), leagueAvg, 1);
+    return { valueOf, sorted, leagueAvg, myValue, myRank, maxValue };
+  }, [comparison, isTotal, teamId]);
 
-  // Bar scale for the full-league leaderboard — the strongest roster fills the
-  // track; the league-average marker sits proportionally within it.
-  const maxAvgFpts = comparison
-    ? Math.max(...comparison.allProfiles.map((p) => p.avgFpts), comparison.leagueAvgFpts, 1)
-    : 1;
+  const vsAvg = metricView ? metricView.myValue - metricView.leagueAvg : 0;
+  const metricLabel = isTotal ? 'PTS/DAY VS AVG' : 'FPTS/G VS AVG';
 
   // Only surface the "IR/taxi excluded" caption when the league actually has
   // such players — redraft leagues without those slots shouldn't see it.
@@ -264,11 +281,26 @@ export function PointsStrengthAnalytics({
         </View>
       )}
 
+      {/* ── Comparison lens ── per-active-player quality vs. total daily output.
+          Drives the rank, vs-avg, and the full-league leaderboard below. */}
+      {comparison && (
+        <View
+          style={styles.windowRow}
+          accessibilityLabel={`Comparison metric: ${isTotal ? "total points per day" : "average per active player"}. Tap to change.`}
+        >
+          <SegmentedControl
+            options={["Per Player", "Total/Day"]}
+            selectedIndex={isTotal ? 1 : 0}
+            onSelect={(i) => setMetricSel(i === 1 ? "total" : "perPlayer")}
+          />
+        </View>
+      )}
+
       {/* ── Roster-strength overview ── secondary context that matches the
           home preview card (rank + vs-league FPTS/G), so tapping in confirms
           and expands what the preview teased. Not the focus — the trend board
           below is the actionable hero. */}
-      {comparison && (
+      {comparison && metricView && (
         <View
           style={[
             styles.strengthCard,
@@ -287,13 +319,13 @@ export function PointsStrengthAnalytics({
           <View style={styles.columnsRow}>
             <View
               style={styles.column}
-              accessibilityLabel={`Ranked ${comparison.myRank}${ordinalSuffix(comparison.myRank)} of ${comparison.totalTeams} teams by roster strength`}
+              accessibilityLabel={`Ranked ${metricView.myRank}${ordinalSuffix(metricView.myRank)} of ${comparison.totalTeams} teams by ${isTotal ? "total points per day" : "roster strength"}`}
             >
               <ThemedText type="varsitySmall" style={[styles.columnLabel, { color: c.secondaryText }]}>
                 LEAGUE RANK
               </ThemedText>
               <ThemedText type="display" style={[styles.columnBig, { color: c.text }]} numberOfLines={1}>
-                {`${comparison.myRank}${ordinalSuffix(comparison.myRank)}`}
+                {`${metricView.myRank}${ordinalSuffix(metricView.myRank)}`}
               </ThemedText>
               <ThemedText type="varsitySmall" style={[styles.columnSub, { color: c.secondaryText }]}>
                 {`OF ${comparison.totalTeams}`}
@@ -304,7 +336,7 @@ export function PointsStrengthAnalytics({
 
             <View
               style={styles.column}
-              accessibilityLabel={`${vsAvg >= 0 ? "plus" : "minus"} ${Math.abs(vsAvg).toFixed(1)} fantasy points per game versus the league average`}
+              accessibilityLabel={`${vsAvg >= 0 ? "plus" : "minus"} ${Math.abs(vsAvg).toFixed(1)} ${isTotal ? "total points per day" : "fantasy points per game"} versus the league average`}
             >
               <ThemedText type="varsitySmall" style={[styles.columnLabel, { color: c.secondaryText }]}>
                 VS LEAGUE
@@ -313,7 +345,7 @@ export function PointsStrengthAnalytics({
                 {`${vsAvg >= 0 ? "+" : ""}${vsAvg.toFixed(1)}`}
               </ThemedText>
               <ThemedText type="varsitySmall" style={[styles.columnSub, { color: c.secondaryText }]}>
-                FPTS/G VS AVG
+                {metricLabel}
               </ThemedText>
             </View>
           </View>
@@ -329,7 +361,7 @@ export function PointsStrengthAnalytics({
       {/* ── Full-league leaderboard ── gives the rank + vs-avg numbers above
           their context: where every team actually sits, with the league
           average marked so "above / below" is a glance, not a calculation. */}
-      {comparison && comparison.allProfiles.length > 1 && (
+      {comparison && metricView && comparison.allProfiles.length > 1 && (
         <View
           style={[styles.listCard, { backgroundColor: c.card, borderColor: c.border, ...cardShadow }]}
         >
@@ -343,22 +375,23 @@ export function PointsStrengthAnalytics({
             </ThemedText>
           </View>
           <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>
-            {`Avg FPTS/G per active player · tick marks league avg (${comparison.leagueAvgFpts.toFixed(1)})`}
+            {`${isTotal ? "Total FPTS/G per day (all active starters)" : "Avg FPTS/G per active player"} · tick marks league avg (${metricView.leagueAvg.toFixed(1)})`}
           </ThemedText>
-          {comparison.allProfiles.map((p, idx) => {
+          {metricView.sorted.map((p, idx) => {
             const team = teamById.get(p.teamId);
             const isMe = p.teamId === teamId;
             const rank = idx + 1;
             const name = team?.name ?? "—";
-            const fillPct = Math.min((p.avgFpts / maxAvgFpts) * 100, 100);
-            const avgPct = Math.min((comparison.leagueAvgFpts / maxAvgFpts) * 100, 100);
+            const value = metricView.valueOf(p);
+            const fillPct = Math.min((value / metricView.maxValue) * 100, 100);
+            const avgPct = Math.min((metricView.leagueAvg / metricView.maxValue) * 100, 100);
             return (
               <ListRow
                 key={p.teamId}
                 index={idx}
                 total={comparison.allProfiles.length}
                 isActive={isMe}
-                accessibilityLabel={`${rank}${ordinalSuffix(rank)}, ${name}${isMe ? " (your team)" : ""}, ${p.avgFpts.toFixed(1)} fantasy points per game per player`}
+                accessibilityLabel={`${rank}${ordinalSuffix(rank)}, ${name}${isMe ? " (your team)" : ""}, ${value.toFixed(1)} ${isTotal ? "total fantasy points per day" : "fantasy points per game per player"}`}
                 style={styles.lbRow}
               >
                 <ThemedText type="mono" style={[styles.lbRank, { color: c.secondaryText }]}>
@@ -389,7 +422,7 @@ export function PointsStrengthAnalytics({
                   <View style={[styles.lbAvgMarker, { left: `${avgPct}%`, borderColor: c.secondaryText }]} />
                 </View>
                 <ThemedText type="mono" style={[styles.lbValue, { color: c.text }]}>
-                  {p.avgFpts.toFixed(1)}
+                  {value.toFixed(1)}
                 </ThemedText>
               </ListRow>
             );

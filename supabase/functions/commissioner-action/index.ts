@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsResponse } from '../_shared/cors.ts';
 import { requireUser } from '../_shared/auth.ts';
+import { deferWork } from '../_shared/background.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { notifyTeams } from '../_shared/push.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
@@ -115,17 +116,16 @@ Deno.serve(async (req) => {
       .from('league_transaction_items').insert({ transaction_id: txn.id, player_id, team_from_id: txnItemFrom, team_to_id: txnItemTo });
     if (txnItemError) throw txnItemError;
 
-    // Notify the affected team
-    try {
-      const ln = league?.name ?? 'Your League';
-      await notifyTeams(supabaseAdmin, [team_id], 'commissioner',
+    // Notify the affected team. Deferred so the response returns before the
+    // push round-trips (deferWork logs any failure, non-fatal).
+    const ln = league?.name ?? 'Your League';
+    deferWork(
+      notifyTeams(supabaseAdmin, [team_id], 'commissioner',
         `${ln} — Commissioner Action`,
         notes,
-        { screen: 'roster' }
-      );
-    } catch (notifyErr) {
-      console.warn('Push notification failed (non-fatal):', notifyErr);
-    }
+        { screen: 'roster' }),
+      'commissioner-action team push',
+    );
 
     return jsonResponse({ message: notes });
   } catch (error) {

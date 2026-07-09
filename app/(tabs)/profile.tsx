@@ -24,7 +24,7 @@ import { ListRow } from '@/components/ui/ListRow';
 import { Section } from '@/components/ui/Section';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Brand, Fonts } from '@/constants/Colors';
-import { TIER_LABELS, type SubscriptionTier } from '@/constants/Subscriptions';
+import { PAYWALL_ENABLED, TIER_LABELS, type SubscriptionTier } from '@/constants/Subscriptions';
 import { useAppState } from '@/context/AppStateProvider';
 import { useSession } from '@/context/AuthProvider';
 import { useConfirm, useTextPrompt } from '@/context/ConfirmProvider';
@@ -456,6 +456,8 @@ export default function ProfileScreen() {
           })()}
 
         {/* ─── Subscription ────────────────────────────────────────────────── */}
+        {/* Hidden pre-launch — see PAYWALL_ENABLED. */}
+        {PAYWALL_ENABLED && (
         <Section title="Subscription">
           <ListRow index={0} total={leagueTier ? 3 : 2}>
             <View style={styles.rowContent}>
@@ -539,6 +541,7 @@ export default function ProfileScreen() {
             </View>
           </ListRow>
         </Section>
+        )}
 
         {/* ─── Notifications ───────────────────────────────────────────────── */}
         <Section title="Notifications">
@@ -957,10 +960,12 @@ export default function ProfileScreen() {
         />
       )}
 
-      <UpgradeModal
-        visible={showUpgradeModal}
-        onClose={() => setShowUpgradeModal(false)}
-      />
+      {PAYWALL_ENABLED && (
+        <UpgradeModal
+          visible={showUpgradeModal}
+          onClose={() => setShowUpgradeModal(false)}
+        />
+      )}
     </SafeAreaView>
   );
 }

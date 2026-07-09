@@ -542,7 +542,10 @@ function NotificationAndLinkHandler() {
       // same tick when AppState finishes loading. Released once we navigate.
       setPendingDeepLink(true);
 
-      if (data.league_id && session?.user) {
+      // A league-invite push targets a user who isn't a member yet, so the
+      // membership switch would (correctly) fail and bail — skip it for the
+      // claim flow, which handles a non-member landing on the league itself.
+      if (data.screen !== "claim-team" && data.league_id && session?.user) {
         const ok = await switchLeagueContext(
           data.league_id,
           session.user.id,
@@ -588,6 +591,14 @@ function NotificationAndLinkHandler() {
             router.navigate({
               pathname: "/(tabs)/matchup",
               params,
+            } as any);
+        } else if (screen === "claim-team" && data.league_id) {
+          // League invite: route the (not-yet-member) invitee into the claim
+          // flow to pick up the team the commissioner assigned them.
+          go = () =>
+            router.navigate({
+              pathname: "/claim-team",
+              params: { leagueId: data.league_id!, isCommissioner: "false" },
             } as any);
         } else if (NOTIF_ROUTES[screen]) {
           go = () => router.navigate(NOTIF_ROUTES[screen] as any);

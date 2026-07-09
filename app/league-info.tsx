@@ -41,7 +41,7 @@ import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { FAAB_TIEBREAK_DISPLAY, LEAGUE_TYPE_DISPLAY, PLAYER_LOCK_DISPLAY, seedingDisplay, SPORT_OPENING_MONTH, TIEBREAKER_DISPLAY, WAIVER_PRIORITY_RESET_DISPLAY, parseSeasonStartYear, startDateBelongsToSeason } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
-import { TIER_LABELS } from '@/constants/Subscriptions';
+import { PAYWALL_ENABLED, TIER_LABELS } from '@/constants/Subscriptions';
 import { useAppState } from '@/context/AppStateProvider';
 import { useSession } from '@/context/AuthProvider';
 import { useActionPicker, useConfirm, useTextPrompt } from '@/context/ConfirmProvider';
@@ -418,16 +418,20 @@ export default function LeagueInfoScreen() {
                 subLabel="Enter past standings (screenshot or manual)"
                 c={c}
                 onPress={() => router.push({ pathname: '/add-league-history', params: { leagueId: leagueId! } })}
+                last={!PAYWALL_ENABLED}
               />
-              <CommAction
-                icon="diamond"
-                label={leagueTier ? 'Manage League Plan' : 'Upgrade League'}
-                subLabel={leagueTier ? `Currently ${TIER_LABELS[leagueTier]}` : undefined}
-                accent
-                c={c}
-                onPress={() => setShowLeagueUpgrade(true)}
-                last
-              />
+              {/* Hidden pre-launch — see PAYWALL_ENABLED. */}
+              {PAYWALL_ENABLED && (
+                <CommAction
+                  icon="diamond"
+                  label={leagueTier ? 'Manage League Plan' : 'Upgrade League'}
+                  subLabel={leagueTier ? `Currently ${TIER_LABELS[leagueTier]}` : undefined}
+                  accent
+                  c={c}
+                  onPress={() => setShowLeagueUpgrade(true)}
+                  last
+                />
+              )}
 
               {/* Season */}
               {lifecycle === 'mid_season' && !league?.offseason_step && (
@@ -1014,11 +1018,13 @@ export default function LeagueInfoScreen() {
         />
       )}
 
-      <UpgradeModal
-        visible={showLeagueUpgrade}
-        onClose={() => setShowLeagueUpgrade(false)}
-        leagueMode
-      />
+      {PAYWALL_ENABLED && (
+        <UpgradeModal
+          visible={showLeagueUpgrade}
+          onClose={() => setShowLeagueUpgrade(false)}
+          leagueMode
+        />
+      )}
     </SafeAreaView>
   );
 }

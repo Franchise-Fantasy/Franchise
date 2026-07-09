@@ -3,6 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { notifyLeague } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
 import { requireUser } from '../_shared/auth.ts';
+import { deferWork } from '../_shared/background.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { parseBody, z } from '../_shared/validate.ts';
@@ -119,23 +120,23 @@ Deno.serve(async (req) => {
       .update({ message_id: msg.id })
       .eq('id', poll.id);
 
-    // 4. Send push notification (fire-and-forget)
-    try {
-      const ln = league?.name ?? 'Your League';
-      const preview = trimmedQuestion.length > 100
-        ? trimmedQuestion.slice(0, 100) + '...'
-        : trimmedQuestion;
-      await notifyLeague(
+    // 4. Notify the league. Deferred so the response returns before the
+    //    league-wide push fan-out round-trips (deferWork logs any failure).
+    const ln = league?.name ?? 'Your League';
+    const preview = trimmedQuestion.length > 100
+      ? trimmedQuestion.slice(0, 100) + '...'
+      : trimmedQuestion;
+    deferWork(
+      notifyLeague(
         supabaseAdmin,
         league_id,
         'commissioner',
         `${ln} — New Poll`,
         preview,
         { screen: `chat/${conversation_id}` }
-      );
-    } catch (notifyErr) {
-      console.warn('Push notification failed (non-fatal):', notifyErr);
-    }
+      ),
+      'create-poll new-poll push',
+    );
 
     return jsonResponse({ poll_id: poll.id, message_id: msg.id });
   } catch (error) {

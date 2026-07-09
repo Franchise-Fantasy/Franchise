@@ -49,6 +49,10 @@ const RATE_LIMITS: Record<string, RateLimitConfig> = {
   // Commissioner: moderate
   'mark-payment':             { maxRequests: 10, windowSeconds: 60 },
 
+  // League invites: tight — enough to invite a full league, but caps
+  // account-existence probing (each call reveals whether an email has an account).
+  'send-league-invite':       { maxRequests: 20, windowSeconds: 300 },
+
   // Media: moderate (AI moderation cost)
   'upload-team-logo':         { maxRequests: 5,  windowSeconds: 300 },
   'upload-chat-media':        { maxRequests: 10, windowSeconds: 60 },

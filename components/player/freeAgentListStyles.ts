@@ -114,6 +114,13 @@ export const freeAgentListStyles = StyleSheet.create({
     marginRight: s(10),
     alignItems: "center",
   },
+  // Wraps the portrait so the compare-selected gold check badge can overlay its
+  // top-right corner (same treatment as the roster/matchup rows). The portrait's
+  // own marginRight moves onto this wrapper (set inline) so the badge anchors to
+  // the portrait box rather than the trailing gap.
+  compareBadgeWrap: {
+    marginRight: s(10),
+  },
   // Skeleton placeholder reuses this circle; the real row's portrait chrome
   // now lives in the shared PlayerPortrait component.
   headshotCircle: {

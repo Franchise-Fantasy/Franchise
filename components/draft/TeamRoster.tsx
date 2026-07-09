@@ -49,10 +49,6 @@ interface SlotEntry {
   player: RosterPlayer | null;
 }
 
-// Order position slots read in left-to-right; the league config decides which
-// of these actually appear (NBA runs PG/SG/SF/PF/C ± G/F flex; WNBA runs G/F/C).
-const POSITION_SLOT_ORDER = ["PG", "SG", "G", "SF", "PF", "F", "C"];
-
 export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
   const c = useColors();
   const sport = useActiveLeagueSport(leagueId);
@@ -226,17 +222,14 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
   // player counts toward a G slot, an NBA "PG-SG" toward both PG and SG.
   const positionCounts: { label: string; filled: number }[] = [];
   if (rosterConfig && rosterPlayers) {
-    const usedPositions = new Set(
-      rosterConfig
-        .filter((cfg) => SLOT_ELIGIBLE_POSITIONS[cfg.position])
-        .map((cfg) => cfg.position),
-    );
-    for (const pos of POSITION_SLOT_ORDER) {
-      if (!usedPositions.has(pos)) continue;
+    // Follow the config's own (sport-correct) order from useLeagueRosterConfig
+    // so the count chips match the slot rows.
+    for (const cfg of rosterConfig) {
+      if (!SLOT_ELIGIBLE_POSITIONS[cfg.position]) continue;
       const filled = rosterPlayers.filter((p) =>
-        isEligibleForSlot(p.position, pos),
+        isEligibleForSlot(p.position, cfg.position),
       ).length;
-      positionCounts.push({ label: pos, filled });
+      positionCounts.push({ label: cfg.position, filled });
     }
   }
 

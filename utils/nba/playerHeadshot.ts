@@ -7,13 +7,13 @@ import type { Sport } from '@/constants/LeagueDefaults';
 // by the `sync-headshots` edge function.
 const STORAGE_BASE = 'https://iuqbossmnsezzgocpcbo.supabase.co/storage/v1';
 
-// Compact-surface render size. The vast majority of on-screen headshots are
-// ~48-54px list/row/cell/chip circles; serving them through Storage's on-the-fly
-// image-transform endpoint ships a ~168px thumbnail (~15KB) instead of the full
-// 260px master (~60KB) — a big bandwidth win on long free-agent/roster lists.
-// Keeps the master's 260:190 aspect ratio so the `cover` crop and the WNBA
-// headroom offset behave identically. Large hero portraits pass res='full'.
-const HEADSHOT_SM = { width: 168, height: 123 } as const;
+// We deliberately DON'T use Storage's on-the-fly `/render/image` transform
+// endpoint. The seed + `sync-headshots` pipeline already writes a right-sized
+// 256x192 compressed PNG (~55KB), so transforming down to ~168px only shaved
+// ~30KB off an already-small, on-device-cached image — while billing one
+// *origin image* per player against the Pro plan's 100/month image-transform
+// quota. Hundreds of players blew the quota in days. Serve the stored object
+// directly; bandwidth stays fine and transform usage drops to zero.
 
 // Bundled fallback silhouette. Used as the `placeholder` prop on every player
 // Image so that (a) players without an `external_id_nba` and (b) players
@@ -35,11 +35,10 @@ export const WNBA_HEADSHOT_OFFSET: ImageStyle = {
  * `externalIdNba` is the column name; for WNBA players it stores the ESPN
  * athlete ID (used as the file key when seeding from ESPN's headshot CDN).
  *
- * `res` selects delivery size:
- *  - 'sm' (default) — a transformed ~168px thumbnail via Storage's render
- *    endpoint, right-sized for list rows / cells / chips / cards.
- *  - 'full' — the untransformed master (object endpoint), for the player-detail
- *    hero and other large single-player portraits.
+ * `res` is retained for a future pre-generated small variant (`{id}_sm.png`
+ * written at seed time) that would restore the bandwidth win without any
+ * transform quota; today both tiers resolve to the same 256x192 stored object
+ * via the plain object endpoint, so no image-transform quota is consumed.
  */
 export function getPlayerHeadshotUrl(
   externalIdNba: string | number | null | undefined,
@@ -48,9 +47,7 @@ export function getPlayerHeadshotUrl(
 ): string | null {
   if (!externalIdNba) return null;
   const path = `player-headshots/${sport}/${externalIdNba}.png`;
-  if (res === 'full') return `${STORAGE_BASE}/object/public/${path}`;
-  const { width, height } = HEADSHOT_SM;
-  return `${STORAGE_BASE}/render/image/public/${path}?width=${width}&height=${height}&resize=cover&quality=80`;
+  return `${STORAGE_BASE}/object/public/${path}`;
 }
 
 /**

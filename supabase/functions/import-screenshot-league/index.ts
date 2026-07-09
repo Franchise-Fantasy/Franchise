@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { requireUser } from '../_shared/auth.ts';
+import { deferWork } from '../_shared/background.ts';
 import { HttpError, errorResponse, handleError, jsonResponse } from '../_shared/http.ts';
 import { buildBracketRows, ImportBracketSchema } from '../_shared/importBracket.ts';
 import {
@@ -757,8 +758,12 @@ async function handleSearchOrCreatePlayer(
 
   if (error) throw error;
 
-  // Refresh the materialized view so the new player appears in stats
-  await supabaseAdmin.rpc('refresh_player_season_stats').catch(() => {});
+  // Refresh the materialized view so the new player appears in stats. Deferred
+  // off the response path — it's a heavy full-matview rebuild and the client
+  // only needs the new player row (returned below), not the refreshed stats.
+  deferWork((async () => {
+    await supabaseAdmin.rpc('refresh_player_season_stats');
+  })(), 'import-screenshot new-player matview refresh');
 
   return jsonResponse({ created: true, players: [newPlayer] });
 }
@@ -1103,11 +1108,44 @@ async function handleExecute(
     return order.length === teamIds.length ? order : undefined;
   }
 
+  // A player can only be rostered on one team — league_players has
+  // UNIQUE(league_id, player_id) (uq_league_player). Screenshot OCR / fuzzy
+  // name-matching can land the same player on two teams (or map two different
+  // screenshot names onto one players.id), which previously threw a raw unique
+  // violation mid-insert and 500'd the whole import — leaving a half-created
+  // league behind. Dedupe on player_id (keep the first occurrence) and surface
+  // the skipped players so the commissioner can fix the roster instead.
+  const seenPlayerIds = new Set<string>();
+  const dedupedPlayerRows: any[] = [];
+  const droppedPlayerIds: string[] = [];
+  for (const row of leaguePlayerRows) {
+    if (seenPlayerIds.has(row.player_id)) {
+      droppedPlayerIds.push(row.player_id);
+      continue;
+    }
+    seenPlayerIds.add(row.player_id);
+    dedupedPlayerRows.push(row);
+  }
+
   // Insert roster players in chunks
-  for (let i = 0; i < leaguePlayerRows.length; i += 100) {
-    const chunk = leaguePlayerRows.slice(i, i + 100);
+  for (let i = 0; i < dedupedPlayerRows.length; i += 100) {
+    const chunk = dedupedPlayerRows.slice(i, i + 100);
     const { error } = await supabaseAdmin.from('league_players').insert(chunk);
     if (error) throw error;
+  }
+
+  // Resolve any skipped duplicates to names for the response (mirrors the
+  // history_unmatched reporting pattern).
+  let duplicatePlayers: { player_id: string; name: string }[] = [];
+  if (droppedPlayerIds.length > 0) {
+    const uniqueDropped = [...new Set(droppedPlayerIds)];
+    const { data: dupRows } = await supabaseAdmin
+      .from('players')
+      .select('id, name')
+      .in('id', uniqueDropped);
+    const nameById = new Map<string, string>((dupRows ?? []).map((p: any) => [p.id, p.name]));
+    duplicatePlayers = uniqueDropped.map((id) => ({ player_id: id, name: nameById.get(id) ?? 'Unknown' }));
+    log.warn('Import skipped duplicate players (already rostered on another team)', { duplicatePlayers });
   }
 
   // 5. Create draft (marked complete)
@@ -1285,12 +1323,16 @@ async function handleExecute(
   return jsonResponse({
     league_id: leagueId,
     teams_created: teams.length,
-    players_imported: leaguePlayerRows.length,
+    players_imported: dedupedPlayerRows.length,
+    duplicate_players: duplicatePlayers,
     history_provided: historyProvided,
     history_inserted: historyInserted,
     history_unmatched: Array.from(new Set(historyUnmatched)),
     history_error: historyError,
-    message: `Successfully imported "${league_name}" with ${teams.length} teams and ${leaguePlayerRows.length} players.`,
+    message: `Successfully imported "${league_name}" with ${teams.length} teams and ${dedupedPlayerRows.length} players.`
+      + (duplicatePlayers.length
+        ? ` Skipped ${duplicatePlayers.length} duplicate player${duplicatePlayers.length === 1 ? '' : 's'} already on another team: ${duplicatePlayers.map((p) => p.name).join(', ')}.`
+        : ''),
   });
 }
 

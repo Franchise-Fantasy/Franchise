@@ -676,10 +676,17 @@ export const PlayerCell = React.memo(function PlayerCell({
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
 export const pStyles = StyleSheet.create({
+  // Row floor sized for the tallest cell — a 3-line played player (name +
+  // game + stat line, ~71pt at base scale). A pre-game/DNP player is only 2
+  // lines and would otherwise floor shorter, so which rows are tall depends on
+  // who played — and that differs per matchup, which made rows jump when
+  // swiping between matchups. Flooring every row to the 3-line height keeps the
+  // layout identical across matchups. minHeight (not a fixed height) lets a row
+  // still grow rather than clip under large OS font sizes.
   slotRow: {
     flexDirection: "row",
     alignItems: "center",
-    minHeight: s(64),
+    minHeight: s(74),
     paddingVertical: s(8),
     paddingHorizontal: s(8),
     borderBottomWidth: StyleSheet.hairlineWidth,

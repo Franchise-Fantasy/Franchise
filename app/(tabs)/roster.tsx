@@ -64,6 +64,7 @@ import {
 } from "@/components/roster/SlotPickerModal";
 import { UpcomingGame } from "@/components/roster/UpcomingGame";
 import { useRosterShare } from "@/components/roster/useRosterShare";
+import { CoachMark } from "@/components/ui/CoachMark";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { InfoModal } from "@/components/ui/InfoModal";
 import { type ModalAction } from "@/components/ui/InlineAction";
@@ -1714,11 +1715,11 @@ export default function RosterScreen() {
     const prevContext =
       isPrevMode && forwardOk ? prevToContext(slot.player!.player_id) : null;
     const contextAvg = projContext ?? prevContext ?? seasonAvg;
-    const contextLabel = projContext
-      ? "PROJ"
-      : prevContext
-        ? prevSeasonLabel
-        : "FPTS/G";
+    // In "Prev" mode the season is already shown once on the window picker
+    // (prevLabel), so we don't repeat it per row — the value reads as a normal
+    // FPTS/G average. PROJ still labels itself so projections aren't mistaken
+    // for actuals.
+    const contextLabel = projContext ? "PROJ" : "FPTS/G";
     // Inline projection next to the upcoming game (right column) — independent
     // of the window picker, so it shows whenever a player actually has a game.
     const upcomingProj =
@@ -2094,10 +2095,13 @@ export default function RosterScreen() {
               accessibilityLabel={isCompareMode ? "Exit compare mode" : "Compare players"}
               accessibilityState={{ selected: isCompareMode }}
             >
+              {/* Sits on the fixed-dark hero, so use Brand colors (matching
+                  MatchupHero) — the theme-aware c.secondaryText renders near-
+                  black on the dark hero in light mode. */}
               <Ionicons
                 name="git-compare"
                 size={16}
-                color={isCompareMode ? Brand.vintageGold : c.secondaryText}
+                color={isCompareMode ? Brand.vintageGold : Brand.ecruMuted}
               />
             </TouchableOpacity>
             <TouchableOpacity
@@ -2284,6 +2288,14 @@ export default function RosterScreen() {
       <CompareBar />
         </View>
       </GestureDetector>
+
+      {/* First-visit hint for the non-obvious stat-window pills. */}
+      <CoachMark
+        id="roster-window"
+        text="Tap the stat pills (Proj · Prev · L5) to change what the numbers show."
+        bottom={tabBarHeight + 16}
+        active={!isCompareMode}
+      />
 
       {/* First-visit coach mark for changing lineup slots */}
       <InfoModal

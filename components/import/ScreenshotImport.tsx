@@ -512,23 +512,42 @@ export function ScreenshotImport() {
       const sentHistory = !!history?.length;
       const inserted = result.history_inserted ?? 0;
       const unmatched = result.history_unmatched ?? [];
-      if (sentHistory && inserted === 0) {
-        const names = unmatched.slice(0, 6).join(', ');
+      const duplicates = result.duplicate_players ?? [];
+
+      const finishHistoryAndClaim = () => {
+        if (sentHistory && inserted === 0) {
+          const names = unmatched.slice(0, 6).join(', ');
+          Alert.alert(
+            "League created — but past seasons weren't saved",
+            `None of the imported standings matched your team names${
+              names ? ` (unmatched: ${names}${unmatched.length > 6 ? '…' : ''})` : ''
+            }. Rename your teams to match the standings, then add history from League Info → "Add Season History."`,
+            [{ text: 'OK', onPress: goToClaim }],
+          );
+          return;
+        }
+        if (sentHistory && unmatched.length > 0) {
+          showToast('info', `Saved — but ${unmatched.length} team${unmatched.length === 1 ? '' : 's'} didn't match and were skipped.`);
+        } else if (duplicates.length === 0) {
+          showToast('success', result.message);
+        }
+        goToClaim();
+      };
+
+      // A player listed on two teams is kept on only one — name the skipped
+      // players so the commissioner can add them to the correct team's roster.
+      if (duplicates.length > 0) {
+        const names = duplicates.slice(0, 8).map((p) => p.name).join(', ');
         Alert.alert(
-          "League created — but past seasons weren't saved",
-          `None of the imported standings matched your team names${
-            names ? ` (unmatched: ${names}${unmatched.length > 6 ? '…' : ''})` : ''
-          }. Rename your teams to match the standings, then add history from League Info → "Add Season History."`,
-          [{ text: 'OK', onPress: goToClaim }],
+          'League created — duplicate players skipped',
+          `${duplicates.length} player${duplicates.length === 1 ? ' was' : 's were'} listed on more than one team and kept on only one: ${names}${
+            duplicates.length > 8 ? '…' : ''
+          }. Add ${duplicates.length === 1 ? 'it' : 'them'} to the correct team from that team's roster.`,
+          [{ text: 'OK', onPress: finishHistoryAndClaim }],
         );
         return;
       }
-      if (sentHistory && unmatched.length > 0) {
-        showToast('info', `Saved — but ${unmatched.length} team${unmatched.length === 1 ? '' : 's'} didn't match and were skipped.`);
-      } else {
-        showToast('success', result.message);
-      }
-      goToClaim();
+      finishHistoryAndClaim();
     } catch (err: any) {
       Alert.alert('Import failed', err.message ?? 'Unknown error');
     }

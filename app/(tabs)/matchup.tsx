@@ -38,6 +38,7 @@ import { WeekSummarySheet } from "@/components/matchup/WeekSummarySheet";
 import { CompareBar } from "@/components/player/CompareBar";
 import { FptsBreakdownModal } from "@/components/player/FptsBreakdownModal";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
+import { CoachMark } from "@/components/ui/CoachMark";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { InfoModal } from "@/components/ui/InfoModal";
 import { ThemedText } from "@/components/ui/ThemedText";
@@ -1249,6 +1250,15 @@ export default function MatchupScreen() {
       </ScrollView>
 
       <CompareBar />
+
+      {/* First-visit hint for the non-obvious matchup swipe — only when there
+          are other matchups to swipe to. */}
+      <CoachMark
+        id="matchup-swipe"
+        text="Swipe left or right on the scoreboard to see other matchups."
+        bottom={tabBarHeight + 16}
+        active={!!allMatchups && allMatchups.length > 1}
+      />
 
       <PlayerDetailModal
         player={selectedPlayer}

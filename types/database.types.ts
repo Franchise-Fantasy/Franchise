@@ -6615,6 +6615,7 @@ export type Database = {
         Args: { p_franchise_id: string; p_season: number }
         Returns: Json
       }
+      profile_id_for_email: { Args: { p_email: string }; Returns: string }
       prune_player_news: {
         Args: { p_keep?: number; p_window_hours?: number }
         Returns: number
