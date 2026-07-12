@@ -890,6 +890,9 @@ async function handleExecute(
   },
   supabaseAdmin: any,
   userId: string,
+  /** Set as soon as the league row exists, so the caller can archive it if a
+   *  later phase of the import fails. */
+  created: { leagueId?: string },
 ) {
   const {
     league_name,
@@ -999,6 +1002,7 @@ async function handleExecute(
 
   if (leagueError) throw leagueError;
   const leagueId = leagueData.id;
+  created.leagueId = leagueId;  // from here on, a failure archives the league
 
   // 2. Insert roster config
   const rosterConfigRows = roster_slots
@@ -1451,12 +1455,39 @@ Deno.serve(async (req) => {
       }
       case 'search_or_create_player':
         return await handleSearchOrCreatePlayer(body, supabaseAdmin);
-      case 'execute':
+      case 'execute': {
         // Cast: handler's history stats are typed non-nullable but Claude
         // Vision can legitimately omit them; the handler tolerates null and
         // coerces internally. Narrowing here keeps the schema honest about
         // what the wire can deliver.
-        return await handleExecute(body as Parameters<typeof handleExecute>[0], supabaseAdmin, userId);
+        //
+        // The import is many sequential write phases and can't be one
+        // transaction (the mapping is hundreds of lines of TS). So a failure
+        // part-way through is COMPENSATED: the half-built league is archived,
+        // hiding it from every client read (leagues_select RLS is
+        // `archived_at IS NULL`). Archive rather than DELETE — by then the
+        // league has teams/rosters/picks hanging off it, and a hard delete
+        // trips ~8 ON DELETE NO ACTION FKs.
+        const created: { leagueId?: string } = {};
+        try {
+          return await handleExecute(
+            body as Parameters<typeof handleExecute>[0],
+            supabaseAdmin,
+            userId,
+            created,
+          );
+        } catch (err) {
+          if (created.leagueId) {
+            const { error: archiveErr } = await supabaseAdmin.rpc('archive_league', {
+              p_league_id: created.leagueId,
+            });
+            if (archiveErr) {
+              console.error('Failed to archive the half-imported league:', archiveErr);
+            }
+          }
+          throw err;
+        }
+      }
       case 'import_team_roster':
         return await handleImportTeamRoster(body, supabaseAdmin, userId);
     }

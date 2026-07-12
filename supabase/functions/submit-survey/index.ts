@@ -150,34 +150,21 @@ Deno.serve(async (req) => {
       validatedAnswers.push({ question_id: q.id, value: val });
     }
 
-    // Insert response (UNIQUE constraint prevents double-submit)
-    const { data: response, error: respError } = await supabaseAdmin
-      .from('survey_responses')
-      .insert({
-        survey_id,
-        team_id: memberTeam.id,
-      })
-      .select('id')
-      .single();
+    // The response row and its answers commit together. As two writes, a failed
+    // answer insert left the response row committed — and the UNIQUE on
+    // (survey_id, team_id) then rejected every retry with "already submitted",
+    // locking the user out of a survey they'd stored with ZERO answers.
+    const { error: submitError } = await supabaseAdmin.rpc('submit_survey_response', {
+      p_survey_id: survey_id,
+      p_team_id: memberTeam.id,
+      p_answers: validatedAnswers,
+    });
 
-    if (respError) {
-      if (respError.code === '23505') {
+    if (submitError) {
+      if (submitError.code === '23505') {
         throw new HttpError('You have already submitted this survey.', 409);
       }
-      throw respError;
-    }
-
-    // Batch insert answers
-    if (validatedAnswers.length > 0) {
-      const answerRows = validatedAnswers.map((a) => ({
-        response_id: response.id,
-        question_id: a.question_id,
-        value: a.value,
-      }));
-      const { error: ansError } = await supabaseAdmin
-        .from('survey_answers')
-        .insert(answerRows);
-      if (ansError) throw ansError;
+      throw submitError;
     }
 
     return jsonResponse({ ok: true });

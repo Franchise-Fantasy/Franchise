@@ -156,9 +156,21 @@ $$;
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 3. assign_team_divisions — split a full league into two divisions.
 --
--- Was a per-team UPDATE in a loop: a failure half-way through left some teams in
--- division 1 and the rest with none. The client shuffles (Math.random can't run
--- in SQL); this applies the split.
+-- Was a per-team UPDATE in a loop, which had TWO problems. The obvious one: a
+-- failure half-way left some teams in division 1 and the rest with none.
+--
+-- The subtler one is that it never worked at all. It ran on the client as the
+-- last member joins, and the `teams_update_own` RLS policy is
+-- `user_id = auth.uid()` — so every UPDATE except the one for the joiner's OWN
+-- team matched zero rows and silently no-op'd (an UPDATE hitting no rows isn't
+-- an error, and the loop didn't check anyway). Divisions were only ever set for
+-- whoever happened to join last.
+--
+-- Running it as SECURITY DEFINER is what makes it actually work, which means
+-- this function now needs the authorization the RLS policy used to provide:
+--   * the caller must be IN the league, and
+--   * it is one-shot — once divisions exist, only the commissioner may redraw
+--     them, so a member can't reshuffle the league at will.
 CREATE OR REPLACE FUNCTION public.assign_team_divisions(
   p_league_id uuid,
   p_division_1_team_ids uuid[]
@@ -168,7 +180,28 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+DECLARE
+  v_is_commissioner boolean;
 BEGIN
+  IF auth.uid() IS NOT NULL THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM teams WHERE league_id = p_league_id AND user_id = auth.uid()
+    ) THEN
+      RAISE EXCEPTION 'not_authorized: you are not in this league' USING ERRCODE = '42501';
+    END IF;
+
+    SELECT EXISTS (
+      SELECT 1 FROM leagues WHERE id = p_league_id AND created_by = auth.uid()
+    ) INTO v_is_commissioner;
+
+    IF NOT v_is_commissioner AND EXISTS (
+      SELECT 1 FROM teams WHERE league_id = p_league_id AND division IS NOT NULL
+    ) THEN
+      RAISE EXCEPTION 'divisions_already_assigned: only the commissioner can redraw divisions'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
   UPDATE teams
      SET division = CASE WHEN id = ANY(p_division_1_team_ids) THEN 1 ELSE 2 END
    WHERE league_id = p_league_id;
@@ -179,10 +212,18 @@ $$;
 -- 4. assign_imported_team — hand an imported roster to the member who claimed it.
 --
 -- TeamAssigner.handleAssign ran four writes and checked the error on only the
--- FIRST. So in the common failure the member's user_id was already stamped on the
--- imported team while their placeholder team was never deleted — the member owns
--- TWO teams, and the league's seat count is wrong. Worse, the unchecked writes
--- failed silently: the UI said "assigned" either way.
+-- FIRST, so a failure in the rest passed silently and the UI reported success
+-- either way.
+--
+-- It also had the order backwards, and `idx_teams_user_id_league_id` — a partial
+-- unique index on (user_id, league_id) WHERE user_id IS NOT NULL — made that
+-- fatal: step 1 stamped the member's user_id onto the imported team while their
+-- placeholder team still carried it, which is two teams for one user in one
+-- league. The insert never got past step 1; assignment simply failed.
+--
+-- So the placeholder has to be retired BEFORE the imported team is claimed. That
+-- ordering is only safe inside a transaction — as separate writes it would leave
+-- the member with NO team at all if the claim then failed.
 CREATE OR REPLACE FUNCTION public.assign_imported_team(
   p_league_id uuid,
   p_imported_team_id uuid,
@@ -224,14 +265,26 @@ BEGIN
      WHERE league_id = p_league_id AND team_id = p_member_team_id;
   END IF;
 
-  -- Claim the imported team and retire the placeholder. The member joined
-  -- (current_teams++) and their empty team goes away, so the seat count is
-  -- already correct — don't touch it.
+  -- Hand over any draft picks the placeholder tentatively claimed on join (see
+  -- join_league_team's join-order slot claim). They'd otherwise block the delete
+  -- on draft_picks_current_team_id_fkey.
+  UPDATE draft_picks SET current_team_id = p_imported_team_id
+   WHERE league_id = p_league_id AND current_team_id = p_member_team_id;
+
+  UPDATE draft_picks SET original_team_id = p_imported_team_id
+   WHERE league_id = p_league_id AND original_team_id = p_member_team_id;
+
+  -- Retire the placeholder FIRST, then claim the imported team — the partial
+  -- unique index on (user_id, league_id) forbids the member holding both, even
+  -- for the instant between two statements.
+  --
+  -- The member joined (current_teams++) and their empty team goes away, so the
+  -- seat count nets out — don't touch it.
+  DELETE FROM teams WHERE id = p_member_team_id;
+
   UPDATE teams
      SET user_id = v_user_id, sleeper_roster_id = NULL
    WHERE id = p_imported_team_id;
-
-  DELETE FROM teams WHERE id = p_member_team_id;
 END;
 $$;
 

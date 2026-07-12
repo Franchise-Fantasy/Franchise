@@ -77,6 +77,11 @@ export function usePlayerFilter(
   resetKey?: string,
   /** Categories leagues have no fantasy points — default to PPG, hide FPTS sort */
   isCategories?: boolean,
+  /** League whose sport drives position chips / FPTS math. Pass it whenever the
+   *  browsed pool belongs to a specific league (the draft room browses a league
+   *  the user may not have "active" — the global active league's sport would be
+   *  wrong there). Omitted = global active league, correct for the roster tab. */
+  leagueId?: string,
 ) {
   // Categories leagues can't sort by FPTS (it doesn't exist), so they default
   // to PPG. Points leagues keep FPTS as the default.
@@ -116,8 +121,17 @@ export function usePlayerFilter(
   // on player_season_stats is only populated for NBA draft prospects, so we
   // match on draft_year instead — populated for both sports and sport-correct
   // (NBA "2025-26" → 2025, WNBA "2026" → 2026).
-  const sport = useActiveLeagueSport();
+  const sport = useActiveLeagueSport(leagueId);
   const rookieDraftYear = parseSeasonStartYear(getCurrentSeason(sport));
+
+  // NFL rows have no basketball sort columns (PPG/RPG/… are all null), so any
+  // persisted basketball sort would order the pool arbitrarily. FPTS is the
+  // only meaningful NFL sort — coerce, same pattern as the isCategories effect.
+  useEffect(() => {
+    if (sport === 'nfl') {
+      setSortBy(prev => (prev === 'FPTS' ? prev : 'FPTS'));
+    }
+  }, [sport]);
 
   const filteredPlayers = useMemo(() => {
     if (!players) return [];
@@ -229,6 +243,9 @@ export function usePlayerFilter(
     onInjuryFilterChange: setInjuryFilter,
     hasRosteredData: rosteredPlayerIds !== undefined,
     isCategories: !!isCategories,
+    // Threaded so PlayerFilterBar's chips resolve the SAME sport this hook
+    // filtered with, instead of re-deriving it from the global active league.
+    sport,
   };
 
   return { filteredPlayers, filterBarProps };

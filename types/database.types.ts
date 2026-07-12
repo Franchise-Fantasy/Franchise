@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       activity_tokens: {
@@ -6364,6 +6389,16 @@ export type Database = {
         }
         Returns: Json
       }
+      apply_lottery_results: {
+        Args: {
+          p_league_id: string
+          p_pick_assignments: Json
+          p_pick_resolution: Json
+          p_results: Json
+          p_season: string
+        }
+        Returns: undefined
+      }
       apply_roster_move: {
         Args: {
           p_deferred?: boolean
@@ -7100,6 +7135,10 @@ export type Database = {
         Returns: undefined
       }
       leave_league: { Args: { p_league_id: string }; Returns: Json }
+      moderate_messages_apply: {
+        Args: { p_checked_ids: string[]; p_flagged_ids: string[] }
+        Returns: undefined
+      }
       my_team_id: { Args: { p_league_id: string }; Returns: string }
       next_slate_rollover: { Args: { p_at?: string }; Returns: string }
       nfl_archive_awards: { Args: { p_season: number }; Returns: Json }
@@ -7335,6 +7374,10 @@ export type Database = {
         Returns: string
       }
       sport_slate_date: { Args: { p_at?: string }; Returns: string }
+      submit_survey_response: {
+        Args: { p_answers: Json; p_survey_id: string; p_team_id: string }
+        Returns: string
+      }
       test_get_cron_secret: { Args: never; Returns: string }
       toggle_trade_block_interest: {
         Args: { p_league_id: string; p_player_id: string; p_team_id: string }
@@ -7481,6 +7524,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {},
   },

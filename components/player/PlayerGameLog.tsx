@@ -41,6 +41,28 @@ const NFL_COL_TO_KEY: Record<string, string> = {
 };
 const nflColumns = Object.keys(NFL_COL_TO_KEY);
 
+// Display labels for the NFL column ids above. The header shows a grouped
+// two-row layout (PASSING / RUSHING / … spanning their columns), so the
+// per-column labels use the standard bare forms — YDS, TD, INT — instead of
+// invented prefixes like "PaYD". Ids without an entry display as themselves.
+const NFL_COL_LABEL: Record<string, string> = {
+  PaYD: 'YDS', PaTD: 'TD',
+  RuYD: 'YDS', RuTD: 'TD',
+  ReYD: 'YDS', ReTD: 'TD',
+  SCK: 'SACK', DINT: 'INT', DTD: 'TD',
+};
+
+// Group header spans, in nflColumns order (each span × the 38px stat cell).
+// FUM sits between receiving and kicking with no group of its own.
+const NFL_HEADER_GROUPS: { label: string; span: number }[] = [
+  { label: 'PASSING', span: 5 },
+  { label: 'RUSHING', span: 3 },
+  { label: 'RECEIVING', span: 4 },
+  { label: '', span: 1 },
+  { label: 'KICKING', span: 3 },
+  { label: 'D/ST', span: 5 },
+];
+
 function columnsFor(sport?: string | null): readonly string[] {
   return sport === 'nfl' ? nflColumns : statColumns;
 }
@@ -151,7 +173,7 @@ export function PlayerGameLogHeader({
       style={[styles.gameLogContainer, styles.stickyHeaderWrap, { backgroundColor, borderBottomColor: c.border }]}
       accessibilityLabel="Game log column headers"
     >
-      <View style={styles.pinnedLeft}>
+      <View style={[styles.pinnedLeft, styles.headerPinned]}>
         <View style={[styles.gameRow, styles.gameHeader, styles.stickyHeaderRow]}>
           <ThemedText style={[styles.gameCell, styles.gameCellDate, styles.gameHeaderText, { color: c.secondaryText }]}>
             DATE
@@ -168,19 +190,47 @@ export function PlayerGameLogHeader({
         showsHorizontalScrollIndicator={false}
         style={styles.scrollableStats}
       >
-        <View style={[styles.gameRow, styles.gameHeader, styles.stickyHeaderRow]}>
-          {cols.map((col) => (
-            <ThemedText
-              key={col}
-              style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}
-            >
-              {col}
-            </ThemedText>
-          ))}
-        </View>
+        {sport === 'nfl' ? (
+          // Two-row grouped header — the standard box-score presentation:
+          // PASSING / RUSHING / … span their columns so the per-column labels
+          // can stay the bare standard forms (YDS, TD, INT) without ambiguity.
+          <View>
+            <View style={[styles.gameRow, styles.stickyHeaderRow, styles.nflGroupRow]}>
+              {NFL_HEADER_GROUPS.map((group, i) => (
+                <ThemedText
+                  key={`${group.label}-${i}`}
+                  style={[styles.gameHeaderText, styles.nflGroupCell, { width: group.span * 38, color: c.secondaryText }]}
+                >
+                  {group.label}
+                </ThemedText>
+              ))}
+            </View>
+            <View style={[styles.gameRow, styles.gameHeader, styles.stickyHeaderRow, styles.nflColRow]}>
+              {cols.map((col) => (
+                <ThemedText
+                  key={col}
+                  style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}
+                >
+                  {NFL_COL_LABEL[col] ?? col}
+                </ThemedText>
+              ))}
+            </View>
+          </View>
+        ) : (
+          <View style={[styles.gameRow, styles.gameHeader, styles.stickyHeaderRow]}>
+            {cols.map((col) => (
+              <ThemedText
+                key={col}
+                style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}
+              >
+                {col}
+              </ThemedText>
+            ))}
+          </View>
+        )}
       </ScrollView>
       {scoringWeights && !isCategories && (
-        <View style={styles.pinnedRight}>
+        <View style={[styles.pinnedRight, styles.headerPinned]}>
           <View style={[styles.gameRow, styles.gameHeader, styles.stickyHeaderRow]}>
             <ThemedText style={[styles.gameCell, styles.gameCellFpts, styles.gameHeaderText, { color: c.accent }]}>
               FPTS
@@ -522,6 +572,24 @@ const styles = StyleSheet.create({
   gameHeaderText: {
     fontSize: ms(10),
     fontWeight: '600',
+  },
+  // NFL grouped header: compact group row above the column row, and the
+  // pinned DATE/OPP/FPTS labels bottom-align with the column row.
+  nflGroupRow: {
+    paddingTop: 6,
+    paddingBottom: 0,
+    borderBottomWidth: 0,
+  },
+  nflGroupCell: {
+    textAlign: 'center',
+    fontSize: ms(9),
+    letterSpacing: 0.8,
+  },
+  nflColRow: {
+    paddingTop: 2,
+  },
+  headerPinned: {
+    justifyContent: 'flex-end',
   },
   gameCell: {
     width: 38,

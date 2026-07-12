@@ -1,4 +1,5 @@
 import { RosterPlayer } from "@/components/roster/SlotPickerModal";
+import type { ProjectionRow } from "@/hooks/usePlayerProjections";
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats, type PlayerGameLog, type ScoringWeight } from "@/types/player";
 import { getSportToday } from "@/utils/leagueTime";
@@ -9,6 +10,7 @@ import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
 import {
   calculateAvgFantasyPoints,
   calculateGameFantasyPoints,
+  projAvgRowToFpts,
 } from "@/utils/scoring/fantasyPoints";
 import { NFL_GAME_COLUMNS, nflStatFields, nflStatLine } from "@/utils/scoring/nflStatLine";
 import { averageGames, lastNPlayedGames } from "@/utils/scoring/windowAverages";
@@ -128,6 +130,65 @@ export function buildSeasonAverages(
     if (value > 0) fpts = value.toFixed(1);
   }
   return { stats, fpts };
+}
+
+// ── Context-slot helpers shared by (tabs)/roster.tsx and team-roster/[id].tsx
+// (the read-only mirror) so the two pages can't drift. SeasonMetaLine renders
+// the result in the per-row context slot.
+
+/** A next-game projection shaped like a SeasonAverages (labeled PROJ by the
+ *  caller). Null when there's no usable projection — callers fall back to the
+ *  season average. */
+export function projectionToContext(
+  pr: ProjectionRow | undefined,
+  scoringWeights: ScoringWeight[] | undefined,
+  sport?: string | null,
+): SeasonAverages | null {
+  if (!pr || !scoringWeights) return null;
+  const fpts = projAvgRowToFpts(pr as unknown as Record<string, unknown>, scoringWeights, sport);
+  if (fpts <= 0) return null;
+  const stats = `${(pr.proj_pts ?? 0).toFixed(1)}P/${(pr.proj_reb ?? 0).toFixed(1)}R/${(pr.proj_ast ?? 0).toFixed(1)}A`;
+  return { stats, fpts: fpts.toFixed(1) };
+}
+
+/** Last season's fpts/G as a SeasonAverages for the "Prev" context mode
+ *  (`stats` stays empty — SeasonMetaLine only renders the fpts). Null when
+ *  the player has no prior-season row. */
+export function prevFptsToContext(fpts: number | undefined): SeasonAverages | null {
+  return fpts && fpts > 0 ? { stats: "", fpts: fpts.toFixed(1) } : null;
+}
+
+/** Pre-formatted next-game projected fpts ("18.3") for the inline readout
+ *  beside an upcoming game — null when there's no usable projection (no row,
+ *  0, categories, no weights). */
+export function formatProjFpts(
+  pr: ProjectionRow | undefined,
+  scoringWeights: ScoringWeight[] | undefined,
+  isCategories: boolean,
+  sport?: string | null,
+): string | null {
+  if (isCategories || !scoringWeights || !pr) return null;
+  const fpts = projAvgRowToFpts(pr as unknown as Record<string, unknown>, scoringWeights, sport);
+  return fpts > 0 ? fpts.toFixed(1) : null;
+}
+
+/** Per-player box-score rows for a specific past date — both sports' columns
+ *  in one literal select (the other sport's come back null and are skipped by
+ *  dayToStatRecord). */
+export async function fetchDayGameStats(
+  playerIds: string[],
+  date: string,
+): Promise<Map<string, DayGameStats>> {
+  const { data } = await supabase
+    .from("player_games")
+    .select(
+      'player_id, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double, pass_cmp, pass_att, pass_yd, pass_td, pass_int, rush_att, rush_yd, rush_td, rec, targets, rec_yd, rec_td, fum_lost, ret_td, fg_made, fg_att, xp_made, dst_sacks, dst_int, dst_fum_rec, dst_td, dst_pts_allowed, dst_pa_pts, matchup',
+    )
+    .in("player_id", playerIds)
+    .eq("game_date", date);
+  const map = new Map<string, DayGameStats>();
+  for (const row of data ?? []) map.set(row.player_id, row as DayGameStats);
+  return map;
 }
 
 export interface SlotStats {

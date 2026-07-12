@@ -8,7 +8,7 @@ import { notifyTeams, notifyLeague } from '../_shared/push.ts';
 import { effectiveTimeLimit } from '../_shared/draftClock.ts';
 import { scheduleAutodraft, schedulePickReminder } from '../_shared/qstash.ts';
 import { parseBody, z } from '../_shared/validate.ts';
-import { effectiveDraftPts } from '../../../utils/draft/draftRanking.ts';
+import { effectiveDraftPts, restrictToRosterNeeds } from '../../../utils/draft/draftRanking.ts';
 import { formatPickClock, isSlowClock } from '../../../utils/draft/pickClock.ts';
 import { isEligibleForSlot } from '../../../utils/roster/rosterSlotsShared.ts';
 import { getSportModule } from '../../../utils/sports/registry.ts';
@@ -222,9 +222,20 @@ Deno.serve(async (req) => {
       // once a player has enough games this season, else season projection,
       // else last-season production) — mirroring the human board in
       // components/draft/AvailablePlayers via the shared draftRanking helper.
+      // NFL leagues rank by league-weighted fantasy points — avg_pts is a
+      // basketball column (zero on every NFL row), so the NFL selects pull the
+      // registry's avg_*/total_* NFL columns instead and the value is computed
+      // against this league's scoring settings below. Basketball is untouched.
+      const isNflLeague = sport === 'nfl';
+      const nflStatToGame = getSportModule('nfl').statToGame;
+      const nflScoredCols = Object.values(nflStatToGame)
+        .filter((col) => col !== 'two_pt' && col !== 'dst_safety');
+      const candidateSelect = isNflLeague
+        ? `player_id, position, avg_pts, games_played, ${nflScoredCols.map((c) => `avg_${c}`).join(', ')}`
+        : 'player_id, position, avg_pts, games_played';
       let candidateQuery = supabaseAdmin
         .from('player_season_stats')
-        .select('player_id, position, avg_pts, games_played')
+        .select(candidateSelect)
         .eq('sport', sport)
         // NULLS LAST so statless rows never sort above real production.
         .order('avg_pts', { ascending: false, nullsFirst: false });
@@ -256,7 +267,10 @@ Deno.serve(async (req) => {
         ? String(prevStartYear)
         : `${prevStartYear}-${String((prevStartYear + 1) % 100).padStart(2, '0')}`;
 
-      const [candidatesRes, projRes, histRes] = await Promise.all([
+      const histSelect = isNflLeague
+        ? `player_id, games_played, ${nflScoredCols.map((c) => `total_${c}`).join(', ')}`
+        : 'player_id, avg_pts';
+      const [candidatesRes, projRes, histRes, weightsRes] = await Promise.all([
         candidateQuery,
         supabaseAdmin
           .from('current_player_projections')
@@ -266,29 +280,72 @@ Deno.serve(async (req) => {
           .eq('season', currentSeason),
         supabaseAdmin
           .from('player_historical_stats')
-          .select('player_id, avg_pts')
+          .select(histSelect)
           .eq('sport', sport)
           .eq('season', previousSeason),
+        isNflLeague
+          ? supabaseAdmin
+              .from('league_scoring_settings')
+              .select('stat_name, point_value, is_enabled')
+              .eq('league_id', draft.league_id)
+          : Promise.resolve({ data: null }),
       ]);
 
-      const { data: candidates, error: playerError } = candidatesRes;
-      if (playerError || !candidates || candidates.length === 0) {
+      // The per-sport select strings are dynamic, which defeats supabase-js's
+      // literal select parsing — pin the row shape explicitly (extra NFL
+      // avg_*/total_* columns ride along in the index signature).
+      type CandidateRow = {
+        player_id: string;
+        position: string;
+        avg_pts: number | null;
+        games_played: number | null;
+      } & Record<string, unknown>;
+      const candidates = (candidatesRes.data ?? []) as unknown as CandidateRow[];
+      if (candidatesRes.error || candidates.length === 0) {
         return jsonResponse({ message: 'No players available' });
       }
+
+      // League-weighted per-game fpts from an NFL row's avg_ or total_ columns
+      // (totals divided by games) — the same math the client board runs via
+      // calculateAvgFantasyPoints, so bot and humans rank the pool identically.
+      const nflWeights = (weightsRes.data ?? []).filter(
+        (w: { is_enabled: boolean | null }) => w.is_enabled !== false,
+      );
+      const nflFpts = (row: Record<string, unknown>, prefix: 'avg_' | 'total_'): number => {
+        let total = 0;
+        for (const w of nflWeights) {
+          const col = nflStatToGame[w.stat_name];
+          if (!col) continue;
+          const v = Number(row[`${prefix}${col}`]);
+          if (Number.isFinite(v)) total += v * w.point_value;
+        }
+        if (prefix === 'total_') {
+          const gp = Number(row.games_played) || 0;
+          return gp > 0 ? total / gp : 0;
+        }
+        return total;
+      };
 
       const projByPlayer = new Map<string, number>(
         (projRes.data ?? []).map((r: { player_id: string; proj_pts: number | null }) =>
           [String(r.player_id), Number(r.proj_pts) || 0]),
       );
+      const histRows = (histRes.data ?? []) as unknown as Array<Record<string, unknown>>;
       const histByPlayer = new Map<string, number>(
-        (histRes.data ?? []).map((r: { player_id: string; avg_pts: number | null }) =>
-          [String(r.player_id), Number(r.avg_pts) || 0]),
+        histRows.map((r) => [
+          String(r.player_id),
+          isNflLeague ? nflFpts(r, 'total_') : Number(r.avg_pts) || 0,
+        ]),
       );
 
-      const draftValue = (c: { player_id: string; avg_pts: number | null; games_played: number | null }) =>
+      const draftValue = (c: CandidateRow) =>
         effectiveDraftPts({
           gamesPlayed: c.games_played,
-          currentAvgPts: c.avg_pts,
+          currentAvgPts: isNflLeague
+            ? (c.games_played ?? 0) > 0
+              ? nflFpts(c, 'avg_')
+              : null
+            : c.avg_pts,
           seasonProjPts: projByPlayer.get(String(c.player_id)),
           lastSeasonAvgPts: histByPlayer.get(String(c.player_id)),
         });
@@ -296,8 +353,25 @@ Deno.serve(async (req) => {
       // Highest effective value first.
       const ranked = [...candidates].sort((a, b) => draftValue(b) - draftValue(a));
 
+      // NFL roster completion: every skill player outscores every K and D/ST,
+      // so a pure best-available bot would spend all its picks on QB/RB/WR/TE,
+      // leave the K and DST starter slots empty forever, and overflow the
+      // bench. Once remaining picks only cover the vacant starter slots,
+      // restrict to players who can still fill one. NFL-gated (and initial
+      // drafts only — rookie-draft teams have pre-existing rosters that break
+      // the picks-remaining math) so basketball behavior stays byte-identical.
+      const pool = isNflLeague && !isRookieDraft
+        ? restrictToRosterNeeds({
+            ranked,
+            configs: rosterConfigs,
+            roster: teamRoster,
+            remainingPicks: Math.max(0, (draft.rounds ?? 0) - teamRoster.length),
+            isEligibleForSlot,
+          })
+        : ranked;
+
       // Pick the best-ranked player that passes position limits.
-      for (const candidate of ranked) {
+      for (const candidate of pool) {
         if (useLimits) {
           const violation = checkPositionLimits(posLimits!, teamRoster, candidate.position);
           if (violation) continue;
@@ -306,7 +380,7 @@ Deno.serve(async (req) => {
         break;
       }
       // Fallback: if all candidates violate limits, draft the best anyway to prevent deadlock
-      if (!topPlayer) topPlayer = ranked[0];
+      if (!topPlayer) topPlayer = pool[0];
     }
 
     const rosterSlot = findBestSlot(rosterConfigs, teamRoster, topPlayer.position);

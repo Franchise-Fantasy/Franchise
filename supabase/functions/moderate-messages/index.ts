@@ -80,25 +80,16 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Mark all checked messages as moderated
-    const allIds = messages.map((m: any) => m.id);
-    await supabase
-      .from("chat_messages")
-      .update({ moderated_at: new Date().toISOString() })
-      .in("id", allIds);
-
-    // Delete flagged messages
-    if (flaggedIds.length > 0) {
-      await supabase
-        .from("chat_members")
-        .update({ last_read_message_id: null })
-        .in("last_read_message_id", flaggedIds);
-
-      await supabase
-        .from("chat_messages")
-        .delete()
-        .in("id", flaggedIds);
-    }
+    // Delete the flagged messages and stamp the batch as checked, in ONE
+    // transaction. The old order stamped `moderated_at` first and deleted
+    // second — so a crash in between left an abusive message marked moderated,
+    // which took it out of the next run's working set (`moderated_at IS NULL`)
+    // permanently. The message survived forever, having been "moderated".
+    const { error: applyError } = await supabase.rpc("moderate_messages_apply", {
+      p_checked_ids: messages.map((m: any) => m.id),
+      p_flagged_ids: flaggedIds,
+    });
+    if (applyError) throw applyError;
 
     return jsonResponse({ checked: messages.length, flagged });
   } catch (err) {

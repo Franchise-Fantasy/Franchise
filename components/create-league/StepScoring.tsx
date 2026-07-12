@@ -9,6 +9,7 @@ import { Brand, Fonts } from '@/constants/Colors';
 import { LeagueWizardState, SCORING_TYPE_OPTIONS, ScoringTypeOption } from '@/constants/LeagueDefaults';
 import { useColors } from '@/hooks/useColors';
 import { ms, s } from '@/utils/scale';
+import { DST_PA_TIERS } from '@/utils/scoring/nflStatLine';
 import { getSportModule } from '@/utils/sports/registry';
 
 interface StepScoringProps {
@@ -78,8 +79,8 @@ export function StepScoring({
           />
           <ThemedText style={[styles.description, { color: c.secondaryText }]}>
             {activePresetIdx === -1
-              ? 'Custom point values — pick a preset to reset the sheet.'
-              : 'Presets set the points-per-reception; every value below stays editable.'}
+              ? 'Custom point values — selecting a preset resets every value below to that preset.'
+              : 'Points per reception: Standard 0 · Half 0.5 · Full 1. Every value below stays editable.'}
           </ThemedText>
         </FormSection>
       )}
@@ -157,6 +158,16 @@ export function StepScoring({
               last={index === state.scoring.length - 1}
             />
           ))}
+
+          {state.sport === 'nfl' && (
+            <ThemedText style={[styles.description, { color: c.secondaryText }]}>
+              D/ST Points Allowed scores a tier result, not each point allowed:{' '}
+              {DST_PA_TIERS.map(
+                (t) => `${t.label} → ${t.pts > 0 ? '+' : ''}${t.pts}`,
+              ).join(' · ')}
+              . The DST_PA value above multiplies that tier result.
+            </ThemedText>
+          )}
 
           <View style={styles.resetWrap}>
             <BrandButton

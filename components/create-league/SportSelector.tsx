@@ -174,10 +174,15 @@ export function SportSelector({ selected, onSelect, ignoreCreationWindow = false
 const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
+    // Two tiles per row on phones; a third (admin NFL) wraps to its own
+    // full-width row instead of squeezing all three into thumb-width slivers.
+    flexWrap: 'wrap',
     gap: s(10),
   },
   tile: {
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: '45%',
     borderRadius: 10,
     paddingVertical: s(10),
     paddingHorizontal: s(12),

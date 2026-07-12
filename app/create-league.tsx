@@ -61,9 +61,10 @@ import { useConfirm } from "@/context/ConfirmProvider";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { SportThemeProvider } from "@/hooks/useColors";
 import { useColorScheme } from "@/hooks/useColorScheme";
-import { generateDraftPicks, generateFutureDraftPicks } from "@/lib/draft";
+import { buildDraftPicks, buildFutureDraftPicks } from "@/lib/draft";
 import { capture } from "@/lib/posthog";
 import { supabase } from "@/lib/supabase";
+import { Json } from "@/types/database.types";
 import { isSlowClock } from "@/utils/draft/pickClock";
 import { clampLotteryState, defaultPlayoffSetup, maxPlayoffWeeksForTeams } from "@/utils/league/lottery";
 import { sanitizeHandle } from "@/utils/league/paymentLinks";
@@ -722,28 +723,25 @@ export default function CreateLeague() {
       return;
     }
 
-    // 2. Insert roster config
+    // 2. Attach everything the league needs to FUNCTION — roster config, scoring
+    // settings, the initial draft, and its picks — in ONE transaction.
+    //
+    // These used to be four more sequential inserts, and the error handling for
+    // the middle ones was an alert saying "League created but failed to save
+    // roster config" followed by carrying on. A league with no roster config
+    // can't resolve a lineup slot; with no scoring settings nothing can be
+    // scored. The user landed in a league that looked real and silently wasn't.
+    //
+    // The leagues INSERT above stays here (its ~50 columns are fed by the
+    // wizard's enum maps, and rebuilding that column list in SQL would mean a
+    // new setting could silently stop being saved). If the setup fails, the bare
+    // league row is deleted — safe, since nothing points at it yet.
     const rosterRows = state.rosterSlots
       .filter((s) => s.count > 0)
-      .map((s) => ({
-        league_id: leagueData.id,
-        position: s.position,
-        slot_count: s.count,
-      }));
+      .map((s) => ({ position: s.position, slot_count: s.count }));
 
-    const { error: rosterError } = await supabase
-      .from("league_roster_config")
-      .insert(rosterRows);
-
-    if (rosterError) {
-      logger.error('League roster config insert failed', rosterError);
-      Alert.alert("League created but failed to save roster config.");
-    }
-
-    // 3. Insert scoring settings
     const scoringRows = state.scoringType === 'Points'
       ? state.scoring.map((s) => ({
-          league_id: leagueData.id,
           stat_name: s.stat_name,
           point_value: s.point_value,
           is_enabled: true,
@@ -752,94 +750,63 @@ export default function CreateLeague() {
       : state.categories
           .filter((c) => c.is_enabled)
           .map((c) => ({
-            league_id: leagueData.id,
             stat_name: c.stat_name,
             point_value: 0,
             is_enabled: true,
             inverse: c.inverse,
           }));
 
-    const { error: scoringError } = await supabase
-      .from("league_scoring_settings")
-      .insert(scoringRows);
+    // Round acceleration only persists when both halves are set and the
+    // threshold falls inside the draft. Slow (async) drafts never accelerate —
+    // the wizard hides those controls, but stale state from before a pace switch
+    // could still be set.
+    const accelerates =
+      state.accelerateAfterRound != null &&
+      state.accelerateAfterRound < rosterSize &&
+      !isSlowClock(state.timePerPick);
 
-    if (scoringError) {
-      logger.error('League scoring settings insert failed', scoringError);
-      Alert.alert("League created but failed to save scoring settings.");
-    }
+    const draftType = state.draftType.toLowerCase() as 'snake' | 'linear';
 
-    // 4. Create the initial draft
-    const { data: draftData, error: draftError } = await supabase
-      .from("drafts")
-      .insert({
-        league_id: leagueData.id,
+    const { data: draftId, error: setupError } = await supabase.rpc('setup_league', {
+      p_league_id: leagueData.id,
+      p_roster_config: rosterRows as unknown as Json,
+      p_scoring: scoringRows as unknown as Json,
+      p_draft: {
         season: state.season,
-        type: "initial",
-        status: "unscheduled",
         rounds: rosterSize,
         picks_per_round: state.teams,
         time_limit: state.timePerPick,
-        // Round acceleration only persists when both halves are set; the
-        // threshold must be inside the draft to ever fire. Slow (async)
-        // drafts never accelerate — the wizard hides those controls but the
-        // stale state could still be set from before the pace switch.
-        accelerate_after_round:
-          state.accelerateAfterRound != null &&
-          state.accelerateAfterRound < rosterSize &&
-          !isSlowClock(state.timePerPick)
-            ? state.accelerateAfterRound
-            : null,
-        accelerated_time_limit:
-          state.accelerateAfterRound != null &&
-          state.accelerateAfterRound < rosterSize &&
-          !isSlowClock(state.timePerPick)
-            ? state.acceleratedTimePerPick ?? 30
-            : null,
-        draft_type: state.draftType.toLowerCase(),
-      })
-      .select()
-      .single();
-
-    if (draftError) {
-      logger.error('Initial draft insert failed', draftError);
-      Alert.alert("League created but failed to create draft.");
-      setLoading(false);
-      return;
-    }
-
-    // 5. Generate draft picks (+ future tradeable picks for dynasty only)
-    const pickPromises: Promise<any>[] = [
-      generateDraftPicks(
-        draftData.id,
+        accelerate_after_round: accelerates ? state.accelerateAfterRound : null,
+        accelerated_time_limit: accelerates ? (state.acceleratedTimePerPick ?? 30) : null,
+        draft_type: draftType,
+      } as unknown as Json,
+      p_initial_picks: buildDraftPicks(
         state.teams,
         rosterSize,
         state.season,
-        leagueData.id,
-        state.draftType.toLowerCase() as "snake" | "linear",
-      ),
-    ];
-    if (isDynasty) {
-      pickPromises.push(
-        generateFutureDraftPicks(
-          leagueData.id,
-          state.teams,
-          state.rookieDraftRounds,
-          state.season,
-          state.maxDraftYears,
-          state.sport,
-        ),
-      );
-    }
-    // allSettled so one generator failing doesn't cancel the others — we still want
-    // the partial league to exist so the user can navigate in and recover.
-    Promise.allSettled(pickPromises).then((results) => {
-      const failed = results.filter((r) => r.status === 'rejected');
-      if (failed.length > 0) {
-        logger.error('Error generating draft picks', undefined, {
-          reasons: failed.map((f) => String((f as PromiseRejectedResult).reason)),
-        });
-      }
+        draftType,
+      ) as unknown as Json,
+      ...(isDynasty
+        ? {
+            p_future_picks: buildFutureDraftPicks(
+              state.teams,
+              state.rookieDraftRounds,
+              state.season,
+              state.maxDraftYears,
+              state.sport,
+            ) as unknown as Json,
+          }
+        : {}),
     });
+
+    if (setupError) {
+      logger.error('League setup failed — rolling back the league row', setupError);
+      await supabase.from('leagues').delete().eq('id', leagueData.id);
+      Alert.alert('Failed to create league.');
+      setLoading(false);
+      return;
+    }
+    void draftId;
 
     AsyncStorage.removeItem(WIZARD_STORAGE_KEY).catch((e) =>
       logger.warn('Clear create-league wizard storage failed', e),

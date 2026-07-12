@@ -118,12 +118,6 @@ Deno.serve(async (req) => {
 
     const finalOrder = runLotteryDraw(lotteryPool, league.lottery_odds, league.lottery_draws ?? 4);
 
-    // Store results
-    const { error: resultErr } = await supabaseAdmin
-      .from('lottery_results')
-      .upsert({ league_id, season, results: finalOrder }, { onConflict: 'league_id,season' });
-    if (resultErr) throw resultErr;
-
     // Build full draft order: lottery teams first, then playoff teams in
     // worst-record-first order (worst playoff team gets the next pick after
     // the lottery; best record picks last). `orderedTeams` is already sorted
@@ -276,11 +270,26 @@ Deno.serve(async (req) => {
       swaps_resolved: swapsResolved,
     };
 
-    await supabaseAdmin
-      .from('lottery_results')
-      .update({ pick_resolution: resolutionEvents, pick_assignments: pickAssignments })
-      .eq('league_id', league_id)
-      .eq('season', season);
+    // Persist the draw AND close the re-entry gate in one transaction.
+    //
+    // The gate (`offseason_step`) used to flip in a separate write at the very
+    // end, long after the RNG had run — so a failure in between let a retry
+    // re-run runLotteryDraw() and produce a DIFFERENT winner, overwriting the
+    // first result. A lottery is a one-shot ceremony; a retry must be a no-op,
+    // not a re-roll. The second caller now finds the gate closed and gets a 409.
+    const { error: applyErr } = await supabaseAdmin.rpc('apply_lottery_results', {
+      p_league_id: league_id,
+      p_season: season,
+      p_results: finalOrder,
+      p_pick_resolution: resolutionEvents,
+      p_pick_assignments: pickAssignments,
+    });
+    if (applyErr) {
+      if (applyErr.code === '23505') {
+        throw new HttpError('The lottery has already been run for this league.', 409);
+      }
+      throw applyErr;
+    }
 
     // Notify commissioner if any swaps were voided. Deep-links to the lottery
     // room where the full resolution summary is shown post-reveal.
@@ -297,18 +306,12 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Update league state. `lottery_revealing` is the intermediate step where
-    // the RNG has run and results are persisted, but the ceremony hasn't been
-    // marked done yet. The home hero shows a "Watch the Reveal" CTA visible to
-    // everyone in this state. Lottery-room's `handleDone` advances to
-    // `lottery_complete` once the commissioner closes the ceremony.
-    await supabaseAdmin
-      .from('leagues')
-      .update({
-        lottery_status: 'complete',
-        offseason_step: 'lottery_revealing',
-      })
-      .eq('id', league_id);
+    // League state (`lottery_status` / `offseason_step`) was advanced by
+    // apply_lottery_results above, together with the results themselves.
+    // `lottery_revealing` is the intermediate step: the RNG has run and results
+    // are persisted, but the ceremony hasn't been watched. The home hero shows a
+    // "Watch the Reveal" CTA to everyone in this state; lottery-room's
+    // `handleDone` advances to `lottery_complete` when the commissioner closes it.
 
     return jsonResponse({
       message: swapWarnings.length > 0

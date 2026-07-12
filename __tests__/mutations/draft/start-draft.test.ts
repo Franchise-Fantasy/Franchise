@@ -39,9 +39,14 @@ describe('start-draft (state guards)', () => {
     draftDate?: Date;
   }): Promise<string> {
     const admin = adminClient();
+    // uq_draft_per_league_season_type allows only one draft per
+    // (league, season, type), and the bootstrap league already has an initial
+    // draft (which can't simply be deleted — its picks FK to it). Upsert on that
+    // key instead: what each test actually needs is a draft in a known STATE,
+    // not a brand-new row.
     const { data: draft, error } = await admin
       .from('drafts')
-      .insert({
+      .upsert({
         league_id: league.leagueId,
         season: '2026-27',
         type: 'initial',
@@ -52,7 +57,7 @@ describe('start-draft (state guards)', () => {
         picks_per_round: 5,
         time_limit: 60,
         draft_date: (opts.draftDate ?? new Date()).toISOString(),
-      })
+      }, { onConflict: 'league_id,season,type' })
       .select('id')
       .single();
     if (error || !draft) throw new Error(`Create draft failed: ${error?.message}`);

@@ -39,7 +39,11 @@ import {
   buildSeasonAverages,
   computeSlotStats,
   dayToStatRecord,
+  fetchDayGameStats,
   fetchTeamRosterForDate,
+  formatProjFpts,
+  prevFptsToContext,
+  projectionToContext,
   type DayGameStats,
   type SeasonAverages,
   type SlotStats,
@@ -439,19 +443,8 @@ export default function RosterScreen() {
   // For past dates: fetch that day's actual game stats
   const { data: dayGameStats } = useQuery<Map<string, DayGameStats>>({
     queryKey: queryKeys.dayGameStats(teamId!, selectedDate),
-    queryFn: async () => {
-      const playerIds = rosterPlayers!.map((p) => p.player_id);
-      const { data } = await supabase
-        .from("player_games")
-        .select(
-          'player_id, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double, pass_cmp, pass_att, pass_yd, pass_td, pass_int, rush_att, rush_yd, rush_td, rec, targets, rec_yd, rec_td, fum_lost, ret_td, fg_made, fg_att, xp_made, dst_sacks, dst_int, dst_fum_rec, dst_td, dst_pts_allowed, dst_pa_pts, matchup',
-        )
-        .in("player_id", playerIds)
-        .eq("game_date", selectedDate);
-      const map = new Map<string, DayGameStats>();
-      for (const row of data ?? []) map.set(row.player_id, row as DayGameStats);
-      return map;
-    },
+    queryFn: () =>
+      fetchDayGameStats(rosterPlayers!.map((p) => p.player_id), selectedDate),
     enabled: isPastDate && !!rosterPlayers && rosterPlayers.length > 0,
     staleTime: 1000 * 60 * 60,
   });
@@ -1220,7 +1213,7 @@ export default function RosterScreen() {
           if (!h.player_id) continue;
           const row = h as unknown as PlayerSeasonStats;
           prevSeasonStatsMap.set(h.player_id, row);
-          const fpts = calculateAvgFantasyPoints(row, scoringWeights);
+          const fpts = calculateAvgFantasyPoints(row, scoringWeights, sport);
           if (fpts > 0) prevSeasonFptsMap.set(h.player_id, fpts);
         }
       }
@@ -1245,7 +1238,7 @@ export default function RosterScreen() {
           );
         for (const pr of projRows ?? []) {
           if (!pr.player_id) continue;
-          const fpts = projAvgRowToFpts(pr as Record<string, unknown>, scoringWeights);
+          const fpts = projAvgRowToFpts(pr as Record<string, unknown>, scoringWeights, sport);
           if (fpts > 0) projFptsMap.set(pr.player_id, fpts);
         }
       }
@@ -1274,7 +1267,7 @@ export default function RosterScreen() {
       // path falls back to its season/prev-season value so nobody zeroes out.
       const windowedFptsFor = (p: RosterPlayer): number | null =>
         winSize != null
-          ? windowFantasyPoints(rosterLogsByPlayer?.get(p.player_id), scoringWeights, winSize)
+          ? windowFantasyPoints(rosterLogsByPlayer?.get(p.player_id), scoringWeights, winSize, sport)
           : null;
 
       // For CAT leagues, rank players by composite z-score over the league's
@@ -1310,7 +1303,7 @@ export default function RosterScreen() {
           (p) => {
             const hasMeaningfulSample =
               (p.games_played ?? 0) >= MIN_CURRENT_SEASON_GAMES;
-            const currentFpts = calculateAvgFantasyPoints(p, scoringWeights);
+            const currentFpts = calculateAvgFantasyPoints(p, scoringWeights, sport);
             const projFpts = projFptsMap.get(p.player_id) ?? 0;
             const fallbackFpts = prevSeasonFptsMap.get(p.player_id) ?? 0;
             // "Proj" view: rank directly by the next-game projection (the same
@@ -1319,7 +1312,7 @@ export default function RosterScreen() {
             const projRow = nextGameProjections?.get(p.player_id);
             const projRankFpts =
               projRow && scoringWeights
-                ? projAvgRowToFpts(projRow as Record<string, unknown>, scoringWeights)
+                ? projAvgRowToFpts(projRow as Record<string, unknown>, scoringWeights, sport)
                 : 0;
             // Points-league ranking: windowed form when a window is active
             // (and the log has games), else current season once it's a
@@ -1425,35 +1418,15 @@ export default function RosterScreen() {
       sport,
     });
 
-  // Pre-formatted next-game projected fpts for a player, e.g. "18.3" — or null
-  // when there's no usable projection (no row, 0, categories, no weights).
-  // Drives both the inline next-to-game readout and the "Proj" context mode.
-  const projFptsFor = (playerId: string): string | null => {
-    if (isCategories || !scoringWeights || !nextGameProjections) return null;
-    const pr = nextGameProjections.get(playerId);
-    if (!pr) return null;
-    const fpts = projAvgRowToFpts(pr as Record<string, unknown>, scoringWeights);
-    return fpts > 0 ? fpts.toFixed(1) : null;
-  };
-
-  // A next-game projection shaped like a SeasonAverages so SeasonMetaLine can
-  // render it in the context slot (labeled PROJ) when the window picker is on
-  // "Proj". Null when there's no usable projection — caller falls back to avg.
-  const projToContext = (pr: ProjectionRow | undefined): SeasonAverages | null => {
-    if (!pr || !scoringWeights) return null;
-    const fpts = projAvgRowToFpts(pr as Record<string, unknown>, scoringWeights);
-    if (fpts <= 0) return null;
-    const stats = `${(pr.proj_pts ?? 0).toFixed(1)}P/${(pr.proj_reb ?? 0).toFixed(1)}R/${(pr.proj_ast ?? 0).toFixed(1)}A`;
-    return { stats, fpts: fpts.toFixed(1) };
-  };
-
-  // Last season's fpts/G as a SeasonAverages for the "Prev" context mode (the
-  // fpts is all the prev-season hook carries; `stats` stays empty and is never
-  // shown since SeasonMetaLine renders the fpts). Null when no prior-season row.
-  const prevToContext = (playerId: string): SeasonAverages | null => {
-    const fpts = prevSeasonFpts?.get(playerId);
-    return fpts && fpts > 0 ? { stats: "", fpts: fpts.toFixed(1) } : null;
-  };
+  // Context-slot helpers — shared with team-roster/[id].tsx via rosterData
+  // (projectionToContext / prevFptsToContext / formatProjFpts) so the two
+  // pages can't drift.
+  const projFptsFor = (playerId: string): string | null =>
+    formatProjFpts(nextGameProjections?.get(playerId), scoringWeights, isCategories, sport);
+  const projToContext = (pr: ProjectionRow | undefined): SeasonAverages | null =>
+    projectionToContext(pr, scoringWeights, sport);
+  const prevToContext = (playerId: string): SeasonAverages | null =>
+    prevFptsToContext(prevSeasonFpts?.get(playerId));
 
   // ─── Render ───────────────────────────────────────────────────────────────
 

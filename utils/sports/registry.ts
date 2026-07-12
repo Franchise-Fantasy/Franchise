@@ -236,7 +236,10 @@ function nflScoring(recPts: number): ScoringCategory[] {
     { stat_name: 'DST_INT', label: 'Interceptions (D/ST)', point_value: 2 },
     { stat_name: 'DST_FUM_REC', label: 'Fumble Recoveries (D/ST)', point_value: 2 },
     { stat_name: 'DST_TD', label: 'D/ST Touchdowns', point_value: 6 },
-    { stat_name: 'DST_PA', label: 'Points Allowed (D/ST, tiered)', point_value: 1 },
+    // The stat is the TIER RESULT (dst_pa_pts: shutout +10 … 35+ allowed −4,
+    // see DST_PA_TIERS in utils/scoring/nflStatLine.ts), so the weight is a
+    // ×1 scale factor — NOT points-per-point-allowed, and not negative.
+    { stat_name: 'DST_PA', label: 'Points Allowed Tier (D/ST)', point_value: 1 },
   ];
 }
 

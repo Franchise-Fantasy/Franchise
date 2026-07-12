@@ -32,6 +32,32 @@ export const NFL_GAME_COLUMNS = [
   'dst_sacks', 'dst_int', 'dst_fum_rec', 'dst_td', 'dst_pts_allowed', 'dst_pa_pts',
 ] as const;
 
+/**
+ * D/ST points-allowed scoring tiers — the classic fantasy bracket. The tier
+ * RESULT is what gets scored (written to `dst_pa_pts` at ingest by
+ * poll-live-stats via _shared/nflStats.ts); the league's DST_PA point_value
+ * is a scale factor on it, which is why the weight itself is +1 and not
+ * negative. Single source for the ingest calc AND the wizard's explainer
+ * copy — keep label/pts/max together so the two can't drift.
+ */
+export const DST_PA_TIERS: { label: string; max: number; pts: number }[] = [
+  { label: '0', max: 0, pts: 10 },
+  { label: '1–6', max: 6, pts: 7 },
+  { label: '7–13', max: 13, pts: 4 },
+  { label: '14–20', max: 20, pts: 1 },
+  { label: '21–27', max: 27, pts: 0 },
+  { label: '28–34', max: 34, pts: -1 },
+  { label: '35+', max: Infinity, pts: -4 },
+];
+
+/** Tier points for a D/ST's points allowed (see {@link DST_PA_TIERS}). */
+export function dstPointsAllowedPts(pointsAllowed: number): number {
+  for (const tier of DST_PA_TIERS) {
+    if (pointsAllowed <= tier.max) return tier.pts;
+  }
+  return DST_PA_TIERS[DST_PA_TIERS.length - 1].pts;
+}
+
 function num(row: StatRow, key: string): number {
   const v = row[key];
   return typeof v === 'number' && Number.isFinite(v) ? v : 0;
@@ -72,6 +98,21 @@ export function nflStatFields(row: StatRow): Array<[string, string]> {
     return [['rush_yd', 'Y'], ['rush_td', 'TD'], third];
   }
   return [['rec', 'REC'], ['rec_yd', 'Y'], ['rec_td', 'TD']];
+}
+
+/**
+ * Adapt a season-average row (`avg_<col>` keys — player_season_stats rows or
+ * merged historical rows) to the game-column shape {@link nflStatFields}
+ * expects. Values stay per-game averages; null/absent columns are dropped so
+ * the position-shape detection (which keys the row carries) still works.
+ */
+export function nflAvgRowToGameShape(row: StatRow): StatRow {
+  const out: StatRow = {};
+  for (const col of NFL_GAME_COLUMNS) {
+    const v = row[`avg_${col}`];
+    if (v != null) out[col] = Number(v);
+  }
+  return out;
 }
 
 /** "18/27 245Y 2TD"-style single-string line (tickers, Live Activities). */

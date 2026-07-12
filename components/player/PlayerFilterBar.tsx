@@ -22,6 +22,7 @@ import { getPositionFilters, InjuryFilter, SortKey, TimeRange } from '@/hooks/us
 import { toDateStr } from '@/utils/dates';
 import { getSportToday } from '@/utils/leagueTime';
 import { ms, s } from '@/utils/scale';
+import { getSportModule } from '@/utils/sports/registry';
 
 const SORT_OPTIONS: SortKey[] = ['FPTS', 'PPG', 'RPG', 'APG', 'SPG', 'BPG', 'MPG', 'FG%', 'FT%', 'TO'];
 const INJURY_OPTIONS: { key: InjuryFilter; label: string; icon: string }[] = [
@@ -31,11 +32,11 @@ const INJURY_OPTIONS: { key: InjuryFilter; label: string; icon: string }[] = [
 ];
 
 // Short label for the prior season — sport-aware. NBA: "'24-'25" (two-year
-// span); WNBA: "'25" (single year).
+// span); WNBA/NFL: "'25" (single year, per the registry's seasonFormat).
 function lastSeasonLabel(sport: Sport): string {
   const startYear = parseSeasonStartYear(getCurrentSeason(sport));
   const prevStart = String(startYear - 1).slice(-2);
-  if (sport === 'wnba') return `'${prevStart}`;
+  if (getSportModule(sport).seasonFormat === 'single-year') return `'${prevStart}`;
   const prevEnd = String(startYear).slice(-2);
   return `'${prevStart}-'${prevEnd}`;
 }
@@ -132,6 +133,10 @@ interface PlayerFilterBarProps {
   onInjuryFilterChange?: (filter: InjuryFilter) => void;
   /** Categories leagues have no fantasy points — hides the FPTS sort option */
   isCategories?: boolean;
+  /** Sport driving the position chips / sort options / time ranges. Threaded
+   *  from usePlayerFilter's filterBarProps so the bar agrees with the hook;
+   *  falls back to the global active league's sport when absent. */
+  sport?: Sport;
   /** Compare-mode toggle — when provided, renders a compare button in the search row. */
   compareMode?: boolean;
   onToggleCompareMode?: () => void;
@@ -209,19 +214,34 @@ export function PlayerFilterBar({
   injuryFilter,
   onInjuryFilterChange,
   isCategories,
+  sport: sportProp,
   compareMode,
   onToggleCompareMode,
 }: PlayerFilterBarProps) {
   const c = useColors();
   const scheme = useColorScheme() ?? 'light';
-  const sport = useActiveLeagueSport();
+  const activeSport = useActiveLeagueSport();
+  const sport = sportProp ?? activeSport;
   // Categories leagues have no fantasy points — drop FPTS from the sort chips.
-  const sortOptions = isCategories ? SORT_OPTIONS.filter(o => o !== 'FPTS') : SORT_OPTIONS;
+  // NFL is the inverse: FPTS is the ONLY meaningful sort (the others read
+  // basketball columns), and usePlayerFilter pins it, so the row hides below.
+  const sortOptions =
+    sport === 'nfl'
+      ? (['FPTS'] as SortKey[])
+      : isCategories
+        ? SORT_OPTIONS.filter(o => o !== 'FPTS')
+        : SORT_OPTIONS;
+  // L5/L10/L15 aggregate basketball game-log columns — meaningless for NFL
+  // (and weekly games make short windows redundant with Season anyway).
   const TIME_RANGE_OPTIONS: { key: TimeRange; label: string }[] = [
     { key: 'season', label: 'Season' },
-    { key: 'L5', label: 'L5' },
-    { key: 'L10', label: 'L10' },
-    { key: 'L15', label: 'L15' },
+    ...(sport === 'nfl'
+      ? []
+      : ([
+          { key: 'L5', label: 'L5' },
+          { key: 'L10', label: 'L10' },
+          { key: 'L15', label: 'L15' },
+        ] as { key: TimeRange; label: string }[])),
     { key: 'lastSeason', label: lastSeasonLabel(sport) },
   ];
   const [modalVisible, setModalVisible] = useState(false);
@@ -668,7 +688,8 @@ export function PlayerFilterBar({
                 </View>
               )}
 
-              {/* Sort section */}
+              {/* Sort section — hidden when only one sort is meaningful (NFL). */}
+              {sortOptions.length > 1 && (
               <View style={styles.section}>
                 <ChipScrollRow label="Sort By" goldColor={c.gold} chevronColor={c.secondaryText}>
                   {sortOptions.map(opt => {
@@ -700,6 +721,7 @@ export function PlayerFilterBar({
                   })}
                 </ChipScrollRow>
               </View>
+              )}
             </ScrollView>
 
             {/* Done button */}

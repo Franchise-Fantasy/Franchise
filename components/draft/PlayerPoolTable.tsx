@@ -30,10 +30,14 @@ import { getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
  * can't draft off-turn anyway.
  */
 
-type StatCol = "MPG" | "PTS" | "REB" | "AST" | "STL" | "BLK" | "FG%" | "FT%" | "TO" | "FPTS";
+type StatCol =
+  | "MPG" | "PTS" | "REB" | "AST" | "STL" | "BLK" | "FG%" | "FT%" | "TO" | "FPTS"
+  | "GP" | "PASS YDS" | "RUSH YDS" | "REC YDS";
 
-// Column header → the sort key the filter hook understands.
-const SORT_FOR: Record<StatCol, SortKey> = {
+// Column header → the sort key the filter hook understands. NFL stat columns
+// have no sort key (usePlayerFilter pins NFL to FPTS) — they render as plain,
+// non-clickable headers.
+const SORT_FOR: Partial<Record<StatCol, SortKey>> = {
   MPG: "MPG",
   PTS: "PPG",
   REB: "RPG",
@@ -48,12 +52,29 @@ const SORT_FOR: Record<StatCol, SortKey> = {
 
 const POINTS_COLS: StatCol[] = ["MPG", "PTS", "REB", "AST", "FPTS"];
 const CATEGORY_COLS: StatCol[] = ["PTS", "REB", "AST", "STL", "BLK", "FG%", "FT%", "TO"];
+// Per-game passing/rushing/receiving yards cover every NFL skill position;
+// K/DST rows show dashes there and rank on FPTS like everyone else. GP is the
+// sample behind the averages (last season's, pre-season).
+const NFL_POINTS_COLS: StatCol[] = ["GP", "PASS YDS", "RUSH YDS", "REC YDS", "FPTS"];
+
+// NFL column → the avg_* season column behind it. Those columns aren't on the
+// PlayerSeasonStats type (they ride along from the matview / historical
+// merge), so they're read loosely.
+const NFL_COL_KEY: Partial<Record<StatCol, string>> = {
+  "PASS YDS": "avg_pass_yd",
+  "RUSH YDS": "avg_rush_yd",
+  "REC YDS": "avg_rec_yd",
+};
 
 const NUM_COL_WIDTH = 52;
 const FPTS_COL_WIDTH = 62;
+// Two-word NFL yardage headers need the extra room at 10px + 1.2 tracking.
+const NFL_YDS_COL_WIDTH = 74;
 
 function colWidth(col: StatCol): number {
-  return col === "FPTS" ? FPTS_COL_WIDTH : NUM_COL_WIDTH;
+  if (col === "FPTS") return FPTS_COL_WIDTH;
+  if (NFL_COL_KEY[col]) return NFL_YDS_COL_WIDTH;
+  return NUM_COL_WIDTH;
 }
 
 const fixed1 = (v: number | null | undefined) => (v ?? 0).toFixed(1);
@@ -64,7 +85,14 @@ function pct(makes: number | null | undefined, attempts: number | null | undefin
 }
 
 function statValue(p: PlayerSeasonStats, col: StatCol, fpts: number | undefined): string {
+  const nflKey = NFL_COL_KEY[col];
+  if (nflKey) {
+    const v = (p as unknown as Record<string, unknown>)[nflKey];
+    return v == null ? "—" : fixed1(Number(v));
+  }
   switch (col) {
+    case "GP":
+      return String(p.games_played ?? 0);
     case "MPG":
       return fixed1(p.avg_min);
     case "PTS":
@@ -85,6 +113,10 @@ function statValue(p: PlayerSeasonStats, col: StatCol, fpts: number | undefined)
       return fixed1(p.avg_tov);
     case "FPTS":
       return fpts !== undefined ? fpts.toFixed(1) : "—";
+    default:
+      // PaYD/RuYD/ReYD are handled by the NFL_COL_KEY branch above; TS just
+      // can't see that the Partial covers them.
+      return "—";
   }
 }
 
@@ -127,7 +159,7 @@ export function PlayerPoolTable({
   onSelectPlayer,
 }: PlayerPoolTableProps) {
   const c = useColors();
-  const cols = isCategories ? CATEGORY_COLS : POINTS_COLS;
+  const cols = sport === "nfl" ? NFL_POINTS_COLS : isCategories ? CATEGORY_COLS : POINTS_COLS;
 
   const renderRow = useCallback(
     ({ item, index }: { item: PlayerSeasonStats; index: number }) => {
@@ -315,11 +347,26 @@ export function PlayerPoolTable({
           Team
         </ThemedText>
         {cols.map((col) => {
-          const active = sortBy === SORT_FOR[col];
+          const sortKey = SORT_FOR[col];
+          if (!sortKey) {
+            // No sort behind this column (NFL stat columns — the pool is
+            // pinned to FPTS order): plain label, not a dead button.
+            return (
+              <View key={col} style={[styles.headStat, { width: colWidth(col) }]}>
+                <ThemedText
+                  type="varsitySmall"
+                  style={[styles.headText, styles.headStatText, { color: c.secondaryText }]}
+                >
+                  {col}
+                </ThemedText>
+              </View>
+            );
+          }
+          const active = sortBy === sortKey;
           return (
             <Pressable
               key={col}
-              onPress={() => onSortChange(SORT_FOR[col])}
+              onPress={() => onSortChange(sortKey)}
               accessibilityRole="button"
               accessibilityLabel={`Sort by ${col}${active ? ", currently sorted" : ""}`}
               accessibilityState={{ selected: active }}

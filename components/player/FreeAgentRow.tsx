@@ -13,6 +13,7 @@ import { type PlayerSeasonStats } from '@/types/player';
 import { formatPosition } from '@/utils/formatting';
 import { getInjuryBadge } from '@/utils/nba/injuryBadge';
 import { ms, s } from '@/utils/scale';
+import { nflAvgRowToGameShape, nflStatFields } from '@/utils/scoring/nflStatLine';
 
 import { freeAgentListStyles as styles } from './freeAgentListStyles';
 
@@ -75,6 +76,22 @@ export function FreeAgentRow({
   const scheme = useColorScheme() ?? 'light';
 
   const injury = getInjuryBadge(player.status);
+
+  // NFL rows swap the basketball pts/reb/ast slash for a position-shaped
+  // per-game line ("245.1Y 1.9TD") from the row's avg_* NFL columns — the same
+  // treatment as the draft board's mobile row. "—" when the row has no NFL
+  // stats at all (e.g. an unblended rookie pre-season).
+  let nflLine: string | null = null;
+  if (sport === 'nfl') {
+    const shape = nflAvgRowToGameShape(player as unknown as Record<string, unknown>);
+    nflLine =
+      Object.keys(shape).length > 0
+        ? nflStatFields(shape)
+            .slice(0, 2)
+            .map(([key, suffix]) => `${(Number(shape[key]) || 0).toFixed(1)}${suffix}`)
+            .join(' ')
+        : '—';
+  }
 
   const a11yLabel =
     `${player.name}, ${formatPosition(player.position)}, ${player.pro_team}` +
@@ -219,7 +236,8 @@ export function FreeAgentRow({
                 type="mono"
                 style={[styles.statLine, { color: c.secondaryText }]}
               >
-                {player.avg_pts.toFixed(1)}/{player.avg_reb.toFixed(1)}/{player.avg_ast.toFixed(1)}
+                {nflLine ??
+                  `${player.avg_pts.toFixed(1)}/${player.avg_reb.toFixed(1)}/${player.avg_ast.toFixed(1)}`}
               </ThemedText>
               {fpts !== undefined && (
                 <ThemedText

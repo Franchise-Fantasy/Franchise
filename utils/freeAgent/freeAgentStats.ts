@@ -1,7 +1,9 @@
 import type { TimeRange } from "@/hooks/usePlayerFilter";
 import type { PlayerGameLog, PlayerSeasonStats } from "@/types/player";
+import { preferProjection } from "@/utils/draft/draftRanking";
 import { gameWindowSize, type GameWindow } from "@/utils/scoring/fantasyPoints";
 import { dedupeGameLogsByDate } from "@/utils/scoring/gameLogDedup";
+import { NFL_GAME_COLUMNS } from "@/utils/scoring/nflStatLine";
 import { lastNPlayedGames } from "@/utils/scoring/windowAverages";
 
 // Pure stat transforms for the free-agent list. Extracted from FreeAgentList so
@@ -52,11 +54,54 @@ export function deriveMinutesUpPlayerIds(
  * a player's "L10" reads identically across the app regardless of how many
  * games their team happened to play in the calendar window.
  */
+/**
+ * Merge an NFL player_historical_stats row onto a current matview row:
+ * identity stays current, stat columns become last season's. NFL historical
+ * rows persist total_* directly (unlike basketball's avg-only rows), and the
+ * per-game averages fall out as total / games_played — the same math
+ * calculateAvgFantasyPoints and the display readers use.
+ */
+export function mergeNflHistoricalRow(
+  p: PlayerSeasonStats,
+  h: Record<string, unknown>,
+): PlayerSeasonStats {
+  const gp = Number(h.games_played ?? 0);
+  const out: Record<string, unknown> = { ...p, games_played: gp };
+  for (const col of NFL_GAME_COLUMNS) {
+    const total = Number(h[`total_${col}`] ?? 0);
+    out[`total_${col}`] = total;
+    out[`avg_${col}`] = gp > 0 ? Math.round((total / gp) * 10) / 10 : 0;
+  }
+  return out as unknown as PlayerSeasonStats;
+}
+
+/**
+ * Default "season" view for an NFL pool: NFL has no projections engine, so a
+ * thin-sample player's row (fewer than the draft games threshold) blends in
+ * last season's production instead — the same proj→lastSeason chain the
+ * autodraft bot walks in effectiveDraftPts, so bot, draft board, and FA list
+ * all rank the pool identically. Players past the threshold keep their real
+ * current-season line; players with no historical row keep theirs unchanged.
+ */
+export function blendNflSeasonView(
+  players: PlayerSeasonStats[] | undefined,
+  historicalStats: any[] | undefined | null,
+): PlayerSeasonStats[] | undefined {
+  if (!players || !historicalStats) return players;
+  const histMap = new Map(historicalStats.map((h: any) => [h.player_id, h]));
+  return players.map((p) => {
+    if (!preferProjection(p.games_played)) return p;
+    const h = histMap.get(p.player_id);
+    return h ? mergeNflHistoricalRow(p, h) : p;
+  });
+}
+
 export function buildAdjustedPlayers(
   allPlayers: PlayerSeasonStats[] | undefined,
   recentGameLogs: any[] | undefined,
   historicalStats: any[] | undefined | null,
   timeRange: TimeRange,
+  sport?: string | null,
 ): PlayerSeasonStats[] | undefined {
   if (!allPlayers) return undefined;
   if (timeRange === "season") return allPlayers;
@@ -67,6 +112,11 @@ export function buildAdjustedPlayers(
   if (timeRange === "lastSeason") {
     if (!historicalStats) return allPlayers;
     const histMap = new Map(historicalStats.map((h: any) => [h.player_id, h]));
+    if (sport === "nfl") {
+      return allPlayers
+        .filter((p) => histMap.has(p.player_id))
+        .map((p) => mergeNflHistoricalRow(p, histMap.get(p.player_id)!));
+    }
     return allPlayers
       .filter((p) => histMap.has(p.player_id))
       .map((p) => {

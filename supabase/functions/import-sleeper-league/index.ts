@@ -93,7 +93,33 @@ Deno.serve(async (req) => {
     if (body.action === 'preview') {
       return await handlePreview(body, supabaseAdmin);
     }
-    return await handleExecute(body as any, supabaseAdmin, user.id);
+
+    // An import is ~10 sequential write phases (league → roster config →
+    // scoring → teams → rosters → draft → picks → waivers → history). It can't
+    // be one transaction — the Sleeper mapping is hundreds of lines of TS and
+    // moving it into SQL would just trade this bug for a drift bug — so instead
+    // a failure part-way through is COMPENSATED: the half-built league is
+    // archived, which hides it from every client read (the leagues_select RLS
+    // policy is `archived_at IS NULL`). The user gets a clean error and no
+    // broken league sitting in their list.
+    //
+    // Archive rather than DELETE: by this point the league already has teams,
+    // rosters, picks and waivers hanging off it, and a hard delete trips ~8
+    // ON DELETE NO ACTION FKs. Soft-delete is the project-wide policy.
+    const created: { leagueId?: string } = {};
+    try {
+      return await handleExecute(body as any, supabaseAdmin, user.id, created);
+    } catch (err) {
+      if (created.leagueId) {
+        const { error: archiveErr } = await supabaseAdmin.rpc('archive_league', {
+          p_league_id: created.leagueId,
+        });
+        if (archiveErr) {
+          console.error('Failed to archive the half-imported league:', archiveErr);
+        }
+      }
+      throw err;
+    }
   } catch (error) {
     return handleError(error, 'import-sleeper-league');
   }
@@ -389,7 +415,10 @@ async function handleExecute(
     roster_positions: string[];
   },
   supabaseAdmin: any,
-  userId: string
+  userId: string,
+  /** Set as soon as the league row exists, so the caller can archive it if a
+   *  later phase of the import fails. */
+  created: { leagueId?: string }
 ) {
   const {
     sleeper_league_id,
@@ -501,6 +530,7 @@ async function handleExecute(
 
   if (leagueError) throw leagueError;
   const leagueId = leagueData.id;
+  created.leagueId = leagueId;  // from here on, a failure archives the league
 
   // 2. Insert roster config
   const rosterConfigRows = roster_slots

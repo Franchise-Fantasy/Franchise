@@ -86,11 +86,15 @@ function rowsFrom(r: AvgRow): [[string, string], [string, string]][] {
 // directly; historical rows only persist total_<col>, so fall back to
 // total / games_played there.
 function nflAvg(row: Record<string, unknown>, col: string): string {
-  const avg = Number(row[`avg_${col}`]);
-  if (Number.isFinite(avg)) return avg.toFixed(1);
-  const total = Number(row[`total_${col}`]);
+  // Explicit null checks: Number(null) is 0, which would render a statless
+  // pre-season row as a wall of "0.0" instead of the honest "—".
+  const avgRaw = row[`avg_${col}`];
+  const avg = Number(avgRaw);
+  if (avgRaw != null && Number.isFinite(avg)) return avg.toFixed(1);
+  const totalRaw = row[`total_${col}`];
+  const total = Number(totalRaw);
   const gp = Number(row.games_played);
-  if (Number.isFinite(total) && gp > 0) return (total / gp).toFixed(1);
+  if (totalRaw != null && Number.isFinite(total) && gp > 0) return (total / gp).toFixed(1);
   return "—";
 }
 
@@ -103,9 +107,9 @@ function nflRowsFrom(
   const v = (col: string) => nflAvg(row, col);
   if (position === "QB") {
     return [
-      [["PaYD", v("pass_yd")], ["PaTD", v("pass_td")]],
+      [["PASS YDS", v("pass_yd")], ["PASS TD", v("pass_td")]],
       [["INT", v("pass_int")], ["FUM", v("fum_lost")]],
-      [["RuYD", v("rush_yd")], ["RuTD", v("rush_td")]],
+      [["RUSH YDS", v("rush_yd")], ["RUSH TD", v("rush_td")]],
     ];
   }
   if (position === "K") {
@@ -116,16 +120,16 @@ function nflRowsFrom(
   }
   if (position === "DST") {
     return [
-      [["SCK", v("dst_sacks")], ["INT", v("dst_int")]],
-      [["FR", v("dst_fum_rec")], ["TD", v("dst_td")]],
-      [["PA", v("dst_pts_allowed")], ["PA PTS", v("dst_pa_pts")]],
+      [["SACK", v("dst_sacks")], ["INT", v("dst_int")]],
+      [["FUM REC", v("dst_fum_rec")], ["TD", v("dst_td")]],
+      [["PTS ALLOW", v("dst_pts_allowed")], ["PA PTS", v("dst_pa_pts")]],
     ];
   }
   // RB / WR / TE (and anything else): rushing + receiving.
   return [
-    [["RuYD", v("rush_yd")], ["RuTD", v("rush_td")]],
+    [["RUSH YDS", v("rush_yd")], ["RUSH TD", v("rush_td")]],
     [["REC", v("rec")], ["TGT", v("targets")]],
-    [["ReYD", v("rec_yd")], ["ReTD", v("rec_td")]],
+    [["REC YDS", v("rec_yd")], ["REC TD", v("rec_td")]],
     [["FUM", v("fum_lost")], ["RET TD", v("ret_td")]],
   ];
 }

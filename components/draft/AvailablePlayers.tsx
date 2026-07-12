@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -34,12 +34,13 @@ import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
 import { preferProjection } from "@/utils/draft/draftRanking";
 import { formatPosition } from "@/utils/formatting";
-import { buildAdjustedPlayers } from "@/utils/freeAgent/freeAgentStats";
+import { blendNflSeasonView, buildAdjustedPlayers } from "@/utils/freeAgent/freeAgentStats";
 import { getInjuryBadge } from "@/utils/nba/injuryBadge";
 import { getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
 import { checkPositionLimits, type PositionLimits } from "@/utils/roster/positionLimits";
 import { ms, s } from "@/utils/scale";
 import { calculateAvgFantasyPoints } from "@/utils/scoring/fantasyPoints";
+import { nflAvgRowToGameShape, nflStatFields } from "@/utils/scoring/nflStatLine";
 
 // Coalesces a possibly-null average to a 1-decimal string. A player with no
 // games this season has NULL stat columns, and the category slash line calls
@@ -121,6 +122,15 @@ export function AvailablePlayers({
 
   const [timeRange, setTimeRange] = useState<TimeRange>("season");
 
+  // L5/L10/L15 aggregate basketball game-log columns, so PlayerFilterBar hides
+  // those chips for NFL — but the state itself persists across league/sport
+  // switches, so a stale Lx from a basketball session must be coerced back.
+  useEffect(() => {
+    if (sport === "nfl" && timeRange !== "season" && timeRange !== "lastSeason") {
+      setTimeRange("season");
+    }
+  }, [sport, timeRange]);
+
   // Default draft board view: a player's current-season averages are a tiny
   // (or empty, pre-tipoff) sample early on, so the "season" view shows their
   // season PROJECTION until they've played enough games
@@ -132,7 +142,9 @@ export function AvailablePlayers({
   const { data: seasonProjections } = usePlayerProjections(
     sport,
     "season",
-    !!leagueId && !isRookieDraft,
+    // NFL has no projections engine — skip the query instead of fetching an
+    // empty map (the NFL season-view blend below uses last season instead).
+    !!leagueId && !isRookieDraft && sport !== "nfl",
   );
 
   const { data: players, isLoading } = useQuery<PlayerSeasonStats[]>({
@@ -229,7 +241,9 @@ export function AvailablePlayers({
       if (error) throw error;
       return data;
     },
-    enabled: !!leagueId && timeRange === "lastSeason",
+    // NFL keeps this warm year-round: with no NFL projections, last season IS
+    // the default pre-season draft ranking (see the season-view blend below).
+    enabled: !!leagueId && (timeRange === "lastSeason" || sport === "nfl"),
     staleTime: 1000 * 60 * 30,
   });
 
@@ -244,6 +258,12 @@ export function AvailablePlayers({
     // projected value — mirrors the lastSeason blend below. Players without a
     // projection, or past the threshold, keep their real current line.
     if (timeRange === "season") {
+      // NFL v1 has no projections, so the thin-sample fallback is last
+      // season's production — the same proj→lastSeason chain the autodraft
+      // bot walks in effectiveDraftPts, so bot and board stay in agreement.
+      if (sport === "nfl") {
+        return blendNflSeasonView(players, historicalStats) ?? players;
+      }
       if (!seasonProjections || seasonProjections.size === 0) return players;
       const num = (v: unknown) => Number(v) || 0;
       return players.map((p) => {
@@ -282,8 +302,8 @@ export function AvailablePlayers({
     // lastSeason + L5/L10/L15 reuse the free-agent browser's aggregation so the
     // draft board and the wire read identical windows. The "season" view is
     // handled above — it layers the draft-only projection blend on top.
-    return buildAdjustedPlayers(players, recentGameLogs, historicalStats, timeRange);
-  }, [players, recentGameLogs, historicalStats, seasonProjections, timeRange]);
+    return buildAdjustedPlayers(players, recentGameLogs, historicalStats, timeRange, sport);
+  }, [players, recentGameLogs, historicalStats, seasonProjections, timeRange, sport]);
 
   // Players whose row is showing a season projection (vs real stats) in the
   // default view — drives the "PROJ" tag. Mirrors the blend condition above.
@@ -312,6 +332,10 @@ export function AvailablePlayers({
     undefined,
     undefined,
     isCategories,
+    // The draft's league, NOT the global active league — a user can draft in a
+    // league (sport) they don't have active, and the position chips / FPTS
+    // math must follow the drafted league's sport.
+    leagueId,
   );
 
   // Personal prospect big board ("My Board" in the Prospects hub) — powers the
@@ -409,11 +433,21 @@ export function AvailablePlayers({
       // Before a season starts every average is NULL, and interpolating those
       // straight into the slash line rendered a bare "//". Show an em dash for
       // "no games yet" instead of three empty slots.
-      const hasBoxScore =
-        item.avg_pts != null || item.avg_reb != null || item.avg_ast != null;
-      const boxSlash = hasBoxScore
-        ? `${fixed1(item.avg_pts)}/${fixed1(item.avg_reb)}/${fixed1(item.avg_ast)}`
-        : "—";
+      // NFL rows swap the basketball triple for a position-shaped per-game
+      // line ("245.1Y 1.9TD") built from the row's avg_* NFL columns — two
+      // fields, so the line fits the same column the basketball slash uses.
+      let boxSlash = "—";
+      if (sport === "nfl") {
+        const shape = nflAvgRowToGameShape(item as unknown as Record<string, unknown>);
+        if (Object.keys(shape).length > 0) {
+          boxSlash = nflStatFields(shape)
+            .slice(0, 2)
+            .map(([key, suffix]) => `${fixed1(Number(shape[key]) || 0)}${suffix}`)
+            .join(" ");
+        }
+      } else if (item.avg_pts != null || item.avg_reb != null || item.avg_ast != null) {
+        boxSlash = `${fixed1(item.avg_pts)}/${fixed1(item.avg_reb)}/${fixed1(item.avg_ast)}`;
+      }
       const fgPct =
         (item.avg_fga ?? 0) > 0
           ? (((item.avg_fgm ?? 0) / (item.avg_fga as number)) * 100).toFixed(1)
@@ -705,7 +739,9 @@ export function AvailablePlayers({
             PTS / REB / AST / STL / BLK
           </ThemedText>
         </View>
-      ) : (
+      ) : sport === "nfl" ? null : (
+        // NFL rows carry their units inline ("245.1Y 1.9TD") and the stat mix
+        // varies by position, so a fixed column legend would be wrong — skip it.
         <View style={[styles.colKey, { borderBottomColor: c.border }]}>
           <View style={[styles.colKeyStats, styles.statsPoints]}>
             <ThemedText

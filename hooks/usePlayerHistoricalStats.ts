@@ -27,17 +27,24 @@ export interface HistoricalSeasonStats {
   total_dd: number;
   total_td: number;
   pro_team: string | null;
+  // NFL seasons persist only total_<col> columns (no avg_*) — the display
+  // readers (SeasonAverages nflAvg, seasonAvgRowToFpts) divide by
+  // games_played. Read via this index; the explicit fields above stay typed.
+  [column: string]: unknown;
 }
 
 export function usePlayerHistoricalStats(playerId: string | null) {
   return useQuery<HistoricalSeasonStats[]>({
     queryKey: queryKeys.playerHistoricalStats(playerId!),
     queryFn: async () => {
+      // select('*'), not a column list: this once listed only the basketball
+      // columns, which silently stripped every NFL total_* column and blanked
+      // the whole previous-seasons view for NFL players. It's ≤25 rows for a
+      // single player, so the wide select costs nothing and can't drift when
+      // sparse per-sport columns are added.
       const { data, error } = await supabase
         .from('player_historical_stats')
-        .select(
-          'season, games_played, avg_pts, avg_reb, avg_ast, avg_stl, avg_blk, avg_tov, avg_min, avg_fgm, avg_fga, avg_3pm, avg_3pa, avg_ftm, avg_fta, avg_pf, total_dd, total_td, pro_team',
-        )
+        .select('*')
         .eq('player_id', playerId!)
         .order('season', { ascending: false })
         .limit(25);

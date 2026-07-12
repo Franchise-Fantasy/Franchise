@@ -23,6 +23,9 @@ import { PlayerName } from '@/components/player/PlayerName';
 import { AnimatedFpts } from '@/components/roster/AnimatedFpts';
 import {
   buildSeasonAverages,
+  formatProjFpts,
+  prevFptsToContext,
+  projectionToContext,
   type SeasonAverages,
 } from '@/components/roster/rosterData';
 import {
@@ -84,7 +87,6 @@ import {
   calculateGameFantasyPoints,
   formatScore,
   gameWindowSize,
-  projAvgRowToFpts,
 } from '@/utils/scoring/fantasyPoints';
 import { nflStatLine } from '@/utils/scoring/nflStatLine';
 
@@ -529,32 +531,14 @@ export default function TeamRosterScreen() {
       }, 0)
     : null;
 
-  // Pre-formatted next-game projected fpts for a player, e.g. "18.3" — or null
-  // when there's no usable projection. Drives the inline next-to-game readout.
-  const projFptsFor = (playerId: string): string | null => {
-    if (isCategories || !scoringWeights || !nextGameProjections) return null;
-    const pr = nextGameProjections.get(playerId);
-    if (!pr) return null;
-    const fpts = projAvgRowToFpts(pr as Record<string, unknown>, scoringWeights);
-    return fpts > 0 ? fpts.toFixed(1) : null;
-  };
-
-  // A next-game projection shaped like a SeasonAverages so SeasonMetaLine can
-  // render it (labeled PROJ) when the window picker is on "Proj".
-  const projToContext = (pr: ProjectionRow | undefined): SeasonAverages | null => {
-    if (!pr || !scoringWeights) return null;
-    const fpts = projAvgRowToFpts(pr as Record<string, unknown>, scoringWeights);
-    if (fpts <= 0) return null;
-    const stats = `${(pr.proj_pts ?? 0).toFixed(1)}P/${(pr.proj_reb ?? 0).toFixed(1)}R/${(pr.proj_ast ?? 0).toFixed(1)}A`;
-    return { stats, fpts: fpts.toFixed(1) };
-  };
-
-  // Last season's fpts/G for the "Prev" context mode (`stats` stays empty — only
-  // the fpts is shown). Null when no prior row.
-  const prevToContext = (playerId: string): SeasonAverages | null => {
-    const fpts = prevSeasonFpts?.get(playerId);
-    return fpts && fpts > 0 ? { stats: '', fpts: fpts.toFixed(1) } : null;
-  };
+  // Context-slot helpers — shared with (tabs)/roster.tsx via rosterData so
+  // the mirror can't drift.
+  const projFptsFor = (playerId: string): string | null =>
+    formatProjFpts(nextGameProjections?.get(playerId), scoringWeights, isCategories, sport);
+  const projToContext = (pr: ProjectionRow | undefined): SeasonAverages | null =>
+    projectionToContext(pr, scoringWeights, sport);
+  const prevToContext = (playerId: string): SeasonAverages | null =>
+    prevFptsToContext(prevSeasonFpts?.get(playerId));
 
   const renderSlotRow = (slot: SlotEntry, idx: number, list: SlotEntry[]) => {
     const { fpts, statLine, isLive, matchup, gameTimeUtc } = resolveSlotStats(slot.player);

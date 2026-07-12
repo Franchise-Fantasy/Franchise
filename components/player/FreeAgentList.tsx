@@ -46,6 +46,7 @@ import { useWatchlist } from "@/hooks/useWatchlist";
 import { supabase, uniqueChannelTopic } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
 import {
+  blendNflSeasonView,
   buildAdjustedPlayers,
   deriveMinutesUpPlayerIds,
 } from "@/utils/freeAgent/freeAgentStats";
@@ -69,8 +70,12 @@ import { freeAgentListStyles as styles } from "./freeAgentListStyles";
 
 // Constrained starter positions the roster-needs strip will chip. UTIL/BE/IR
 // are intentionally absent: UTIL has no eligibility constraint (anyone fits),
-// and bench/IR aren't starters.
-const KNOWN_CHIP_POSITIONS = new Set(['PG', 'SG', 'SF', 'PF', 'C', 'G', 'F']);
+// and bench/IR aren't starters. NFL FLEX/SFLX are likewise absent — they're
+// multi-position seats, so the single-position chips carry the signal.
+const KNOWN_CHIP_POSITIONS = new Set([
+  'PG', 'SG', 'SF', 'PF', 'C', 'G', 'F',
+  'QB', 'RB', 'WR', 'TE', 'K', 'DST',
+]);
 
 interface FreeAgentListProps {
   leagueId: string;
@@ -611,8 +616,10 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     staleTime: 1000 * 60 * 15,
   });
 
-  // Last-season averages for the `lastSeason` time-range pill — only
-  // fetched when that pill is active.
+  // Last-season averages for the `lastSeason` time-range pill. NFL keeps this
+  // warm in the default season view too: with no NFL projections, last season
+  // IS the thin-sample stat line + FPTS (see the blend below) — without it
+  // every pre-season NFL row reads 0.0.
   const previousSeason = getPreviousSeason(sport);
   const { data: historicalStats } = useQuery({
     queryKey: [...queryKeys.freeAgentHistoricalStats(leagueId), sport, previousSeason],
@@ -625,7 +632,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       if (error) throw error;
       return data;
     },
-    enabled: !!leagueId && timeRange === "lastSeason",
+    enabled: !!leagueId && (timeRange === "lastSeason" || sport === "nfl"),
     staleTime: 1000 * 60 * 30,
   });
 
@@ -636,10 +643,16 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   );
 
   // Build time-range-adjusted player stats when a non-season range is selected
-  const adjustedPlayers = useMemo(
-    () => buildAdjustedPlayers(allPlayers, recentGameLogs, historicalStats, timeRange),
-    [allPlayers, recentGameLogs, historicalStats, timeRange],
-  );
+  const adjustedPlayers = useMemo(() => {
+    const adjusted = buildAdjustedPlayers(allPlayers, recentGameLogs, historicalStats, timeRange, sport);
+    // NFL default season view: blend last season onto thin-sample rows so the
+    // list isn't 0.0 FPTS across the board pre-season — mirrors the draft
+    // board and the autodraft bot's ranking chain.
+    if (sport === "nfl" && timeRange === "season") {
+      return blendNflSeasonView(adjusted, historicalStats);
+    }
+    return adjusted;
+  }, [allPlayers, recentGameLogs, historicalStats, timeRange, sport]);
 
   const { filteredPlayers, filterBarProps } = usePlayerFilter(
     adjustedPlayers,
@@ -1304,9 +1317,13 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         />
       )}
 
-      <View style={[styles.colKey, { borderBottomColor: c.border }]}>
-        <FreeAgentColumnKey isCategories={isCategories} />
-      </View>
+      {/* NFL rows carry their units inline ("245.1Y 1.9TD") and the stat mix
+          varies by position, so the fixed basketball legend would be wrong. */}
+      {sport !== "nfl" && (
+        <View style={[styles.colKey, { borderBottomColor: c.border }]}>
+          <FreeAgentColumnKey isCategories={isCategories} />
+        </View>
+      )}
 
       <FlatList<PlayerSeasonStats>
         data={filteredPlayers}

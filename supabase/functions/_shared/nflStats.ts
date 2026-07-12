@@ -16,17 +16,11 @@
  *     columns exist for a future upgrade and stay null.
  */
 
-/** league defaults tier table: 0→10, 1-6→7, 7-13→4, 14-20→1, 21-27→0,
- *  28-34→-1, 35+→-4 (matches the DST_PA preset in utils/sports/registry.ts). */
-export function dstPointsAllowedPts(pointsAllowed: number): number {
-  if (pointsAllowed <= 0) return 10;
-  if (pointsAllowed <= 6) return 7;
-  if (pointsAllowed <= 13) return 4;
-  if (pointsAllowed <= 20) return 1;
-  if (pointsAllowed <= 27) return 0;
-  if (pointsAllowed <= 34) return -1;
-  return -4;
-}
+// Tier table lives in the zero-dep shared module so the client wizard's
+// explainer copy and this ingest calc can never drift (DST_PA_TIERS there).
+import { dstPointsAllowedPts } from '../../../utils/scoring/nflStatLine.ts';
+
+export { dstPointsAllowedPts };
 
 const toInt = (v: unknown): number | null =>
   typeof v === "number" && Number.isFinite(v) ? Math.round(v) : null;
